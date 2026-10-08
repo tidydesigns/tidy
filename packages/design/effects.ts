@@ -45,6 +45,7 @@ export function effectCss(style: Style) {
 }
 
 function cssColor(value: string, currentColor: string): string | undefined {
+  if (value.length > 128) return;
   if (value === "currentcolor") return currentColor;
   const named: Record<string, string> = {
     transparent: "#00000000",
@@ -72,22 +73,49 @@ function cssColor(value: string, currentColor: string): string | undefined {
       .padStart(2, "0");
   return `#${[1, 3, 5].map((index) => byte(Number(match[index]) * (match[index + 1] ? 2.55 : 1))).join("")}${match[7] ? byte(Number(match[7]) * (match[8] ? 2.55 : 255)) : ""}`;
 }
+
+/** Split only outside a color function; reject incomplete or nested functions. */
+function shadowParts(source: string, separator: "," | " "): string[] | undefined {
+  const parts: string[] = [];
+  let start = 0;
+  let inFunction = false;
+  for (let index = 0; index < source.length; index++) {
+    const character = source[index];
+    if (character === "(") {
+      if (inFunction) return;
+      inFunction = true;
+    } else if (character === ")") {
+      if (!inFunction) return;
+      inFunction = false;
+    } else if (!inFunction && (separator === "," ? character === "," : /\s/.test(character!))) {
+      const part = source.slice(start, index).trim();
+      if (part) parts.push(part);
+      else if (separator === ",") return;
+      start = index + 1;
+      if (parts.length > 20) return;
+    }
+  }
+  if (inFunction) return;
+  const last = source.slice(start).trim();
+  if (last) parts.push(last);
+  else if (separator === ",") return;
+  return parts.length && parts.length <= 20 ? parts : undefined;
+}
 /** Parse computed CSS shadows without dropping a shadow that cannot be represented. */
 export function parseCssShadows(
   source: string | undefined,
   prefix = "imported",
   currentColor = "#000000",
 ): Shadow[] | undefined {
+  // Computed CSS may exceed the stored legacy field's 160-character limit.
+  if (source && source.length > 4096) return;
   if (!source || source.trim() === "none") return [];
-  const parts = source.match(/(?:[^,(]|\([^)]*\))+/g);
+  const parts = shadowParts(source, ",");
   if (!parts || parts.length > 20) return;
   const shadows: Shadow[] = [];
   for (const [index, part] of parts.entries()) {
-    const tokens: string[] =
-      part
-        .trim()
-        .toLowerCase()
-        .match(/(?:[^\s(]|\([^)]*\))+/g) ?? [];
+    const tokens = shadowParts(part.toLowerCase(), " ");
+    if (!tokens) return;
     const inset = tokens.includes("inset");
     if (tokens.filter((token) => token === "inset").length > 1) return;
     const numbers: number[] = [];

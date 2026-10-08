@@ -7,11 +7,23 @@ export async function localAcceptanceProxy(base, target) {
   for (const url of [origin, upstream])
     if (url.protocol !== "http:" || !["localhost", "127.0.0.1"].includes(url.hostname))
       throw new Error("Acceptance proxy requires two localhost HTTP origins.");
+  // Incoming paths must never determine the transport's authority.
+  const upstreamOptions = {
+    protocol: upstream.protocol,
+    hostname: upstream.hostname,
+    port: upstream.port,
+  };
+  const validPath = (value) =>
+    typeof value === "string" &&
+    value.startsWith("/") &&
+    !value.startsWith("//") &&
+    !value.includes("\\") &&
+    !/[\u0000-\u0020\u007f]/.test(value);
   let next;
   const gates = new Set();
   const sockets = new Set();
   const server = createServer(async (incoming, outgoing) => {
-    if (!incoming.url?.startsWith("/") || incoming.url.startsWith("//")) {
+    if (!validPath(incoming.url)) {
       outgoing.writeHead(400).end();
       return;
     }
@@ -25,8 +37,9 @@ export async function localAcceptanceProxy(base, target) {
     const headers = { ...incoming.headers, host: upstream.host, "x-forwarded-host": upstream.host };
     if (headers.origin === origin.origin) headers.origin = upstream.origin;
     const proxy = httpRequest(
-      new URL(incoming.url, upstream),
       {
+        ...upstreamOptions,
+        path: incoming.url,
         method: incoming.method,
         headers,
       },
@@ -49,11 +62,13 @@ export async function localAcceptanceProxy(base, target) {
   });
   // Turbopack needs its development socket before it can finish loading chunks.
   server.on("upgrade", (incoming, socket, head) => {
-    if (!incoming.url?.startsWith("/") || incoming.url.startsWith("//")) {
+    if (!validPath(incoming.url)) {
       socket.destroy();
       return;
     }
-    const proxy = httpRequest(new URL(incoming.url, upstream), {
+    const proxy = httpRequest({
+      ...upstreamOptions,
+      path: incoming.url,
       headers: { ...incoming.headers, host: upstream.host, origin: upstream.origin },
     });
     proxy.on("upgrade", (response, backend, backendHead) => {
@@ -75,7 +90,9 @@ export async function localAcceptanceProxy(base, target) {
     server.once("error", reject);
     server.listen(Number(origin.port), origin.hostname, resolve);
   });
+  origin.port = String(server.address().port);
   return {
+    url: origin.origin,
     holdNext(path, stage = "response") {
       if (next) throw new Error("An acceptance gate is already armed.");
       let arrive, release;

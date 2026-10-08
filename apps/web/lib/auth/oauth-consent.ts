@@ -26,12 +26,14 @@ type Approval = {
 };
 
 function queryHash(query: string) {
+  // Canonical request fingerprint, authenticated by the consent proof's HMAC.
   if (Buffer.byteLength(query) > 16_384) throw invalidOAuthGrant();
   const params = new URLSearchParams(query);
   params.sort();
   return createHash("sha256").update(params.toString()).digest("base64url");
 }
 function signature(payload: string, secret: string) {
+  // HMAC authenticates this short-lived proof; this is not password storage.
   return createHmac("sha256", secret).update(`tidy-consent:${payload}`).digest();
 }
 async function liveSession(userId: string, sessionId: string) {
