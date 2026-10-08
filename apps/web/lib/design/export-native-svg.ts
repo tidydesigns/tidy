@@ -27,6 +27,8 @@ function roundedPath(node: DesignNode, width: number, height: number) {
   );
 }
 function svgSource(source: string) {
+  // The caller supplies renderer-generated vector markup from validated nodes.
+  // This detached XML document is serialized for export, never mounted as HTML.
   if (!source.startsWith("data:image/svg+xml")) return null;
   const comma = source.indexOf(","),
     header = source.slice(0, comma),

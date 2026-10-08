@@ -1,7 +1,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, rmSync, symlinkSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  existsSync,
+  rmSync,
+  symlinkSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { exportSource } from "./export-source.mjs";
@@ -29,10 +37,7 @@ test("export copies the reviewed commit without history, local secrets or uncomm
     writeFileSync(path.join(repository, ".env.local"), "SECRET=must-stay-private");
     writeFileSync(path.join(repository, "README.md"), "unreviewed modification");
     const output = exportSource(repository, path.join(temporary, "public"));
-    assert.equal(
-      execFileSync("cat", [path.join(output, "README.md")], { encoding: "utf8" }),
-      "reviewed source",
-    );
+    assert.equal(readFileSync(path.join(output, "README.md"), "utf8"), "reviewed source");
     assert.equal(existsSync(path.join(output, ".git")), false);
     assert.equal(existsSync(path.join(output, ".env.local")), false);
     assert.throws(() => exportSource(repository, output), /must not exist/);

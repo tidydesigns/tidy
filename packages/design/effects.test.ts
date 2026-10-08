@@ -93,6 +93,29 @@ test("CSS shadows parse inset, spread, transparent colors and multiple functions
     expect(parseCssShadows(invalid)).toBeUndefined();
   expect(shadowCss({ shadow: source })).toBe(source);
 });
+test("shadow parsing rejects malformed grouping and empty shadows without salvaging fragments", () => {
+  for (const source of [
+    "(0 0 red",
+    "0 0 red)",
+    "0 0 rgb((1),2,3)",
+    ",0 0 red",
+    "0 0 red,",
+    "0 0 red,,0 0 blue",
+    "(".repeat(20_000) + "0 0 red",
+  ]) {
+    expect(parseCssShadows(source)).toBeUndefined();
+    expect(shadowStyle({ shadow: source }, []).shadow).toBe(source);
+  }
+});
+test("computed shadows support the full stack while bounding parser and color input", () => {
+  const shadow = "rgb(10, 20, 30) 1px 2px 3px";
+  expect(parseCssShadows(Array(20).fill(shadow).join(", "))).toHaveLength(20);
+  expect(parseCssShadows(Array(21).fill(shadow).join(", "))).toBeUndefined();
+  expect(parseCssShadows("0 0 red".padEnd(4096))).toHaveLength(1);
+  expect(parseCssShadows("0 0 red".padEnd(4097))).toBeUndefined();
+  expect(parseCssShadows(`0 0 rgb(1,2,${" ".repeat(128)}3)`)).toBeUndefined();
+  expect(parseCssShadows("0\t0\nrgba(100% 0% 0% / 25%)")![0]!.color).toBe("#ff000040");
+});
 test("editing promotes imported shadows and retains unsupported raw CSS and colliding identities", () => {
   const style = {
     shadow: "0 3px 6px black",

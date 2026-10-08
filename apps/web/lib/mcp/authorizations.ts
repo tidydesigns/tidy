@@ -8,6 +8,7 @@ import type { PoolClient } from "pg";
 import type { McpGrant } from "./grant-context";
 
 function versionId(userId: string, clientId: string) {
+  // Stable account/client lookup key; the digest contains no password material.
   return `mcp-grant:${createHash("sha256")
     .update(JSON.stringify([userId, clientId]))
     .digest("hex")}`;

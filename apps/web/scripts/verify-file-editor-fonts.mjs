@@ -93,7 +93,7 @@ try {
     svg = await readFile(path, "utf8");
   assert.ok(svg.includes("@font-face"));
   assert.ok(svg.includes("data:font/") || svg.includes("data:application/"));
-  assert.ok(!svg.includes("https://fonts.gstatic.com"));
+  assert.doesNotMatch(svg, /https:\/\/fonts\.gstatic\.com/);
   assert.equal(
     await page.evaluate(
       (svg) =>

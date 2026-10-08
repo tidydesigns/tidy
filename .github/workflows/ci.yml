@@ -28,6 +28,7 @@ jobs:
       - run: bun typecheck
       - run: bun lint
       - run: bun test
+      - run: node --test apps/web/scripts/fixtures/test-local-acceptance-proxy.mjs
       - run: bun run test:release
       - run: bun run test:auth-worker
       - run: bun run test:request-worker
