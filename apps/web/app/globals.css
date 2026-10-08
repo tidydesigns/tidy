@@ -1,0 +1,62 @@
+@import "tailwindcss";
+
+@theme {
+  /* Tidy: 16 / Account — Flush left, light and dark neutral variants. */
+  --color-ink: light-dark(#424242, #d0d0d0);
+  --color-secondary-ink: light-dark(#646464, #b7b7b7);
+  --color-muted-ink: light-dark(#6e6e6e, #b7b7b7);
+  --color-accent-ink: light-dark(#595959, #b7b7b7);
+  --color-panel: light-dark(#fafafa, #202020);
+  --color-border: light-dark(#dedede, #3a3a3a);
+  --color-accent: light-dark(#595959, #cccccc);
+  --color-subtle-fill: light-dark(#e9e9e9, #333333);
+  --color-hover-surface: light-dark(#f0f0f0, #2b2b2b);
+  --color-pressed-surface: light-dark(#e5e5e5, #343434);
+  --color-surface: light-dark(#ffffff, #262626);
+  --color-canvas: light-dark(#f3f3f3, #262626);
+  --color-document-paper: #ffffff;
+  --color-handle: #ffffff;
+  --color-overlay: #000000;
+  --color-on-accent: light-dark(#ffffff, #202020);
+  --color-strong-action: light-dark(#424242, #343434);
+  --color-strong-action-hover: light-dark(#595959, #444444);
+  --color-on-strong-action: #ffffff;
+  --color-danger: light-dark(#b91c1c, #ff8d85);
+  --color-danger-fill: light-dark(#b91c1c, #b83e39);
+  --color-danger-fill-hover: light-dark(#991b1b, #a63330);
+  --color-on-danger: #ffffff;
+  --color-component-accent: light-dark(#8b5cf6, #b6a1ff);
+}
+
+@theme inline {
+  /* Keep existing controls on the same neutral theme during token migration. */
+  --color-primary-black: var(--color-ink);
+  --color-primary-white: var(--color-panel);
+  --color-primary-grey: var(--color-border);
+  --color-primary-orange: var(--color-accent);
+  --color-on-brand: var(--color-on-accent);
+  --font-sans: var(--font-instrument-sans);
+  --font-serif: var(--font-instrument-serif);
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* Native popovers anchor to their invoker and handle outside clicks and Escape. */
+.org-switcher-popover {
+  margin: 0;
+  inset: auto;
+  overflow: visible;
+  position-area: top span-right;
+  position-try-fallbacks: bottom span-right;
+  margin-bottom: 0.5rem;
+}

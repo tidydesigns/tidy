@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bellarun-realtime-local",
+  "main": "workers/realtime-dev.ts",
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": { "BETTER_AUTH_URL": "http://localhost:3000" },
+  "durable_objects": { "bindings": [{ "name": "FILE_ROOMS", "class_name": "FileRoom" }] },
+  "migrations": [{ "tag": "file-rooms-v1", "new_sqlite_classes": ["FileRoom"] }],
+}

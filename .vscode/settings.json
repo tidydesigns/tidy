@@ -1,0 +1,8 @@
+{
+  "oxc.enable.oxlint": false,
+  "[javascript][javascriptreact][typescript][typescriptreact][json][jsonc][css][scss][html][markdown][yaml][toml]": {
+    "editor.defaultFormatter": "oxc.oxc-vscode",
+    "editor.formatOnSave": true,
+    "editor.formatOnSaveMode": "file"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "tidy",
+  "version": "0.1.0",
+  "description": "Create, preview, and refine editable designs in your Tidy workspace.",
+  "author": { "name": "Tidy", "url": "https://tidydesign.co" },
+  "homepage": "https://tidydesign.co",
+  "keywords": ["design", "ui", "components", "collaboration"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Tidy",
+        "shortDescription": "Create and refine editable designs",
+        "longDescription": "Turn a brief into an editable Tidy design, preview frames in the conversation, and refine the same file with your team. Connect your existing Tidy account to access its organizations and files.",
+        "developerName": "Tidy",
+        "category": "Productivity",
+        "capabilities": [
+          "Create editable designs",
+          "Preview design files",
+          "Edit design layers",
+          "Export React components"
+        ],
+        "websiteURL": "https://tidydesign.co",
+        "defaultPrompt": [
+          "Create an onboarding screen in Tidy.",
+          "Show my Tidy design and help refine its layout.",
+          "Create a button component with primary and secondary variants in Tidy."
+        ],
+        "brandColor": "#CF6846",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      }
+    }
+  }
+}

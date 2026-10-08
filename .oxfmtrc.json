@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "printWidth": 100,
+  "tabWidth": 2,
+  "useTabs": false,
+  "semi": true,
+  "singleQuote": false,
+  "trailingComma": "all",
+  "endOfLine": "lf",
+  "sortImports": false,
+  "sortTailwindcss": false,
+  "sortPackageJson": false,
+  "ignorePatterns": ["**/*.generated.*", "**/next-env.d.ts", "apps/web/cloudflare-env.d.ts"]
+}

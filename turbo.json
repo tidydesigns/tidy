@@ -1,0 +1,57 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "globalDependencies": ["LICENSE", "licenses/bundled/**", "scripts/bundle-licenses.ts"],
+  "globalPassThroughEnv": ["NODE_OPTIONS"],
+  "globalEnv": [
+    "DATABASE_URL",
+    "BETTER_AUTH_URL",
+    "BETTER_AUTH_SECRET",
+    "VAULT_ENCRYPTION_KEY",
+    "BELLA_EXTENSION_IDS",
+    "WXT_BELLA_URL",
+    "GITHUB_*",
+    "LINEAR_*",
+    "BELLA_REALTIME_URL"
+  ],
+  "tasks": {
+    "build": {
+      "env": ["POSTHOG_TRACING_ENABLED"],
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", ".output/**", "out/**"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^test"]
+    },
+    "@bella/web#typecheck": {
+      "dependsOn": ["^typecheck", "@tidy/gpt-plugin#build"],
+      "outputs": [".next/types/**", "next-env.d.ts"]
+    },
+    "@bella/extension#typecheck": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [".wxt/**"]
+    },
+    "@tidy/gpt-plugin#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@bella/web#test": {
+      "dependsOn": ["^test", "@tidy/gpt-plugin#build"]
+    },
+    "@bella/web#dev": {
+      "dependsOn": ["@tidy/gpt-plugin#build"],
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "paper": { "source": "LICENSE.txt", "notice": "Paper.js.txt" },
+  "react": { "source": "LICENSE", "notice": "React.txt" },
+  "react-dom": { "source": "LICENSE", "notice": "React.txt" },
+  "scheduler": { "source": "LICENSE", "notice": "React.txt" },
+  "zod": { "source": "LICENSE", "notice": "Zod.txt" }
+}

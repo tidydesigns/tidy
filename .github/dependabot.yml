@@ -1,0 +1,15 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      next:
+        patterns: [next, eslint-config-next]
+      better-auth:
+        patterns: [better-auth, "@better-auth/*"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,39 @@
+{
+  "name": "@tidy/gpt-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./widget": {
+      "types": "./dist/widget.d.ts",
+      "default": "./dist/widget.js"
+    },
+    "./contract": "./src/contract.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "dev": "bun scripts/dev.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "bun test",
+    "zip": "bun scripts/package.ts",
+    "test:browser": "bun scripts/check-browser.ts"
+  },
+  "dependencies": {
+    "@bella/design": "workspace:*",
+    "@tidy/design-renderer": "workspace:*",
+    "@tidy/ui": "workspace:*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^5",
+    "eslint": "^9",
+    "typescript-eslint": "^8.0.0",
+    "playwright": "1.62.1"
+  }
+}

@@ -1,0 +1,4 @@
+// Public manifest key keeps the unpacked extension ID stable. No private key is retained.
+export const EXTENSION_KEY =
+  "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA1RO07yGrwRNkD3Jc0Aj4NUN06Q47lcK4oe1rGVrlQyWkKQ7a3/Vy6cbj3a+4s8GULPwQyJzoOuolVYLjNDXgk0TjX4Y0w4948mGHDlZ0blVTNdMR/hoOct1iMgXPLK5UwjsAWX0jzRIl6ACtibtyQUrcFft7I4lenQ8AQ4wNt2gB5V+MuVoYEqp+JtuUN9pWEzypuZ6gjyzNBluknF9v6By+uclkDfkHJ9tN7f9d+uBCmpZ0JZJdCsuycg0MKrDPSdIWHZrJKFMbHWTwvCS/3ynm+9hRlEMttPeF3Y39kIr8rYidMkZtyl8L/wS/nRIHSJYYaJ/YMjlAI30nfXeKLwIDAQAB";
+export const DEVELOPMENT_EXTENSION_ID = "aoeikcmfjcbhgaiimjbpoppcnocnnjde";

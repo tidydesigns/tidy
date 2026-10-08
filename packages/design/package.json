@@ -1,0 +1,36 @@
+{
+  "name": "@bella/design",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./token-schema": "./token-schema.ts",
+    "./design-tokens": "./design-tokens.ts",
+    "./document": "./document.ts",
+    "./native-shapes": "./native-shapes.ts",
+    "./rich-text": "./rich-text.ts",
+    "./vector-geometry": "./vector-geometry.ts",
+    "./vector-boolean": "./vector-boolean.ts",
+    "./vector-relationships": "./vector-relationships.ts",
+    "./prototype": "./prototype.ts",
+    "./responsive-layout": "./responsive-layout.ts",
+    "./effects": "./effects.ts",
+    "./component-variants": "./component-variants.ts",
+    "./web-capture": "./web-capture.ts",
+    "./extension": "./extension.ts",
+    "./browser-capture": "./browser-capture.ts",
+    "./capture-effects": "./capture-effects.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "paper": "0.12.18",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "@types/node": "^20"
+  }
+}

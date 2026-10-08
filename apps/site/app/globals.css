@@ -1,0 +1,183 @@
+:root {
+  --background: #f2f2f0;
+  --text: #1e1e1e;
+  --orange: #ff5d00;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  padding: 28px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.tidy-logo {
+  display: inline-block;
+  color: #424242;
+  font-family: var(--font-instrument-serif), serif;
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+}
+
+.github-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 20px;
+  text-decoration: none;
+  text-underline-offset: 4px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .github-link:hover {
+    background: #f0f0f0;
+    text-decoration: underline;
+  }
+}
+
+.github-link:active {
+  background: #e5e5e5;
+}
+
+.github-link:focus-visible {
+  outline: 2px solid #595959;
+  outline-offset: -2px;
+}
+
+.content {
+  width: min(100%, 900px);
+  margin-top: clamp(100px, 18svh, 220px);
+}
+
+h1,
+p {
+  margin: 0;
+  font-size: clamp(20px, 2.15vw, 29px);
+  line-height: 1.24;
+  letter-spacing: -0.035em;
+}
+
+h1 {
+  font-weight: 700;
+}
+
+p {
+  margin-top: 26px;
+  font-weight: 400;
+}
+
+.login-link {
+  display: inline-block;
+  margin-top: 78px;
+  padding-bottom: 6px;
+  border-bottom: 4px solid var(--orange);
+  color: var(--text);
+  font-size: clamp(21px, 2.2vw, 29px);
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.2;
+  text-decoration: none;
+}
+
+.login-link:hover {
+  color: var(--orange);
+}
+
+.login-link:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 6px;
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: auto;
+  padding-top: 48px;
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
+@media (max-width: 680px) {
+  .page {
+    padding: 22px;
+  }
+
+  .content {
+    margin-top: clamp(62px, 11svh, 110px);
+  }
+
+  h1,
+  p {
+    font-size: 18px;
+    line-height: 1.3;
+    letter-spacing: -0.025em;
+  }
+
+  p {
+    margin-top: 20px;
+  }
+
+  .login-link {
+    margin-top: 48px;
+    font-size: 20px;
+  }
+
+  .footer {
+    padding-top: 36px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 360px), (max-height: 650px) {
+  .content {
+    margin-top: 48px;
+  }
+
+  h1,
+  p {
+    font-size: 16px;
+    line-height: 1.25;
+  }
+
+  p {
+    margin-top: 16px;
+  }
+
+  .login-link {
+    margin-top: 32px;
+    font-size: 18px;
+  }
+}

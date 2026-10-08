@@ -1,0 +1,73 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "tidy-app",
+  "main": "worker.ts",
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA",
+  },
+  "compatibility_date": "2026-09-26",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "vars": {
+    "BETTER_AUTH_URL": "http://localhost:3000",
+  },
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS",
+  },
+  "r2_buckets": [
+    {
+      "binding": "FEEDBACK_IMAGES",
+      "bucket_name": "tidy-feedback-example",
+    },
+    {
+      "binding": "DESIGN_OBJECTS",
+      "bucket_name": "tidy-design-example",
+    },
+  ],
+  "images": {
+    "binding": "IMAGES",
+  },
+  "hyperdrive": [],
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "tidy-app",
+    },
+  ],
+  "previews": {},
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true,
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+    },
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FILE_ROOMS",
+        "class_name": "FileRoom",
+      },
+      {
+        "name": "AUTH_GUARD",
+        "class_name": "AuthGuard",
+      },
+    ],
+  },
+  "migrations": [
+    {
+      "tag": "file-rooms-v1",
+      "new_sqlite_classes": ["FileRoom"],
+    },
+    {
+      "tag": "auth-guard-v1",
+      "new_sqlite_classes": ["AuthGuard"],
+    },
+  ],
+}

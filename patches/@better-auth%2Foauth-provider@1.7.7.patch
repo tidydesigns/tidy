@@ -1,0 +1,30 @@
+diff --git a/dist/introspect-CNR06Oy3.mjs b/dist/introspect-CNR06Oy3.mjs
+index e633e0e33a23a0c41537d099585ddb4138a6b5fa..a8c820c009945e8fedd3622f6a5c9ff432fb6bed 100644
+--- a/dist/introspect-CNR06Oy3.mjs
++++ b/dist/introspect-CNR06Oy3.mjs
+@@ -6,7 +6,7 @@ import { APIError as APIError$1 } from "better-call";
+ import { logger } from "@better-auth/core/env";
+ import * as z from "zod";
+ import { createDpopReplayStore, enforceDpopBinding, generateCodeChallenge, getConfirmationJkt, getDpopJktFromPayload, getJwks, isDpopBindingError, isDpopProofError, parseAccessTokenAuthorization, stripAccessTokenAuthorizationScheme, verifyDpopProof } from "better-auth/oauth2";
+-import { SignJWT, base64url, createLocalJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
++import { SignJWT, base64url, createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify } from "jose";
+ import { resolveSigningKey, signJWT, toExpJWT } from "better-auth/plugins";
+ import { SafeUrlSchema } from "@better-auth/core/utils/redirect-uri";
+ //#region src/authentication-context.ts
+@@ -2246,7 +2246,7 @@ async function validateJwtAccessToken(ctx, opts, token, clientId) {
+ 				return (await jwtPlugin?.endpoints.getJwks(ctx))?.response;
+ 			},
+ 			jwksCacheKey: jwtPlugin
+-		})), { issuer: expectedIssuer })).payload;
++		})), { issuer: expectedIssuer, algorithms: JWS_ALGORITHMS })).payload;
+ 	} catch (error) {
+ 		if (error instanceof Error) {
+ 			if (error.name === "TypeError" || error.name === "JWSInvalid") throw new APIError$1("BAD_REQUEST", {
+@@ -2255,6 +2255,7 @@ async function validateJwtAccessToken(ctx, opts, token, clientId) {
+ 			});
+ 			else if (error.name === "JWTExpired") return { active: false };
+ 			else if (error.name === "JWTInvalid") return { active: false };
++			else if (error instanceof errors.JWSSignatureVerificationFailed || error instanceof errors.JWTClaimValidationFailed || error instanceof errors.JOSEAlgNotAllowed || error instanceof errors.JWKSNoMatchingKey) return { active: false };
+ 			throw error;
+ 		}
+ 		throw new Error(error);

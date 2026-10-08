@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Tidy plugin development</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 32px;
+        background: #f4f4f0;
+        font: 14px system-ui;
+        color: #282a28;
+      }
+      main {
+        max-width: 760px;
+        margin: auto;
+      }
+      iframe {
+        width: 100%;
+        min-height: 400px;
+        border: 1px solid #dedfd9;
+        border-radius: 12px;
+        background: white;
+      }
+      button {
+        padding: 8px 12px;
+        border: 1px solid #dedfd9;
+        border-radius: 6px;
+        background: white;
+        cursor: pointer;
+      }
+      nav {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 16px;
+      }
+      p {
+        color: #62655f;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <nav>
+        <button id="edit">Simulate model edit</button><button id="theme">Toggle theme</button>
+      </nav>
+      <iframe id="widget" title="Tidy design preview" src="/widget"></iframe>
+      <p id="status" role="status">Connecting preview…</p>
+    </main>
+    <script type="module">
+      const fixture = await (await fetch("/fixture")).json();
+      const iframe = document.getElementById("widget"),
+        status = document.getElementById("status");
+      let dark = false;
+      const send = (message) =>
+        iframe.contentWindow.postMessage({ jsonrpc: "2.0", ...message }, location.origin);
+      const result = () => ({
+        structuredContent: {
+          fileId: fixture.fileId,
+          name: fixture.name,
+          url: fixture.url,
+          revision: fixture.revision,
+          roots: fixture.roots,
+          selectedRootId: fixture.selectedRootId,
+        },
+        _meta: { tidyPreview: fixture },
+      });
+      window.addEventListener("message", (event) => {
+        if (
+          event.source !== iframe.contentWindow ||
+          event.origin !== location.origin ||
+          event.data?.jsonrpc !== "2.0"
+        )
+          return;
+        const { id, method, params } = event.data;
+        if (method === "ui/initialize")
+          send({
+            id,
+            result: {
+              protocolVersion: "2026-01-26",
+              hostInfo: { name: "tidy-local-host", version: "0.1.0" },
+              hostCapabilities: { serverTools: {}, openLinks: {}, updateModelContext: {} },
+              hostContext: { theme: "light", locale: "en" },
+            },
+          });
+        else if (method === "ui/notifications/initialized") {
+          send({ method: "ui/notifications/tool-result", params: result() });
+          status.textContent = "Connected to the local development host.";
+        } else if (method === "tools/call") {
+          send({ id, result: result() });
+          status.textContent = `Read revision ${fixture.revision}.`;
+        } else if (method === "ui/update-model-context") {
+          status.textContent = params.content[0].text;
+          send({ id, result: {} });
+        } else if (method === "ui/open-link") {
+          status.textContent = `Open ${params.url}`;
+          send({ id, result: {} });
+        } else if (method === "ui/notifications/size-changed")
+          iframe.style.height = `${Math.min(850, Math.max(350, params.height))}px`;
+      });
+      document.getElementById("edit").onclick = () => {
+        fixture.revision++;
+        fixture.document.nodes.find((n) => n.id === "title").text =
+          `A new idea, revision ${fixture.revision}`;
+        send({ method: "ui/notifications/tool-result", params: result() });
+      };
+      document.getElementById("theme").onclick = () => {
+        dark = !dark;
+        send({
+          method: "ui/notifications/host-context-changed",
+          params: { theme: dark ? "dark" : "light" },
+        });
+      };
+    </script>
+  </body>
+</html>

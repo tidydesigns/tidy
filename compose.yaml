@@ -1,0 +1,23 @@
+name: bellarun
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: bellarun_dev
+      POSTGRES_USER: bellarun
+      POSTGRES_PASSWORD: bellarun_local
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/migrations:ro
+      - ./apps/web/scripts/init-local-postgres.sh:/docker-entrypoint-initdb.d/001-schema.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bellarun -d bellarun_dev"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+volumes:
+  postgres_data:

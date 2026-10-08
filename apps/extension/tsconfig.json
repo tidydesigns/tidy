@@ -1,0 +1,5 @@
+{
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx", "strict": true },
+  "exclude": ["node_modules", ".output", "**/*.test.ts"]
+}

@@ -1,0 +1,14 @@
+diff --git a/dist/paper-core.js b/dist/paper-core.js
+index 772342785b3576e65afefbde59fbb1dec22acbe2..c896afe246e0f4171b49781cd55d10ae6d6d34ab 100644
+--- a/dist/paper-core.js
++++ b/dist/paper-core.js
+@@ -32,7 +32,8 @@
+ 
+ var paper = function(self, undefined) {
+ 
+-self = self || require('./node/self.js');
++// Geometry-only headless fallback also works in browser bundles during SSR.
++self = self || { navigator: { userAgent: 'Tidy headless geometry' } };
+ var window = self.window,
+ 	document = self.document;
+ 

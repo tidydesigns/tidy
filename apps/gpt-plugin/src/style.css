@@ -1,0 +1,180 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  --surface: #fff;
+  --ink: #282a28;
+  --muted: #62655f;
+  --line: #dedfd9;
+  --canvas: #f4f4f0;
+}
+:root[data-theme="dark"] {
+  --surface: #242622;
+  --ink: #f2f2eb;
+  --muted: #b5b7ae;
+  --line: #494c43;
+  --canvas: #1c1e19;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --surface: #242622;
+    --ink: #f2f2eb;
+    --muted: #b5b7ae;
+    --line: #494c43;
+    --canvas: #1c1e19;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--surface);
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.file-name {
+  flex: 1;
+  min-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+.action {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.action:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.action:focus-visible,
+.toolbar button:focus-visible {
+  outline: 2px solid #cf6846;
+  outline-offset: 2px;
+}
+.action:active {
+  transform: scale(0.97);
+}
+.canvas {
+  min-height: 240px;
+  max-height: 640px;
+  overflow: auto;
+  padding: 24px;
+  background: var(--canvas);
+}
+.scaled {
+  margin: 0 auto;
+}
+.design {
+  transform-origin: top left;
+  color: #282a28;
+}
+.design a {
+  pointer-events: none;
+}
+.message {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.message[role="alert"] {
+  color: #b24e30;
+}
+/* The shared SelectMenu keeps its keyboard and focus behavior in every host. */
+.toolbar .relative {
+  position: relative;
+  min-width: 100px;
+  max-width: 220px;
+}
+.toolbar [aria-haspopup="menu"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 9px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.toolbar [role="menu"] {
+  position: absolute;
+  z-index: 10;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  max-width: min(320px, calc(100vw - 32px));
+  max-height: 240px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 4px;
+  background: var(--surface);
+  box-shadow: 0 8px 24px #0002;
+}
+.toolbar [role="menuitemradio"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.toolbar [role="menuitemradio"][aria-checked="true"],
+.toolbar [role="menuitemradio"]:focus-visible {
+  background: var(--canvas);
+}
+.toolbar .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (hover: hover) and (pointer: fine) {
+  .action:hover,
+  .toolbar [role="menuitemradio"]:hover {
+    background: var(--canvas);
+  }
+}
+@media (max-width: 440px) {
+  .toolbar {
+    gap: 6px;
+    padding: 10px;
+  }
+  .file-name {
+    flex-basis: 100%;
+  }
+  .canvas {
+    padding: 24px;
+  }
+}
