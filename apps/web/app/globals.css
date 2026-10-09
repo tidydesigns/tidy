@@ -51,6 +51,58 @@
   color-scheme: dark;
 }
 
+.editor-panel {
+  --editor-panel-duration: 220ms;
+  --editor-panel-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  position: relative;
+  z-index: 10;
+  flex-shrink: 0;
+  width: var(--editor-panel-width);
+  overflow: clip;
+  transition:
+    width var(--editor-panel-duration) var(--editor-panel-ease),
+    visibility 0s;
+}
+
+.editor-panel > aside {
+  transform: translateX(0);
+  transition: transform var(--editor-panel-duration) var(--editor-panel-ease);
+}
+
+.editor-panel[data-open="false"] {
+  --editor-panel-duration: 180ms;
+  width: 0;
+  visibility: hidden;
+  transition-delay: 0s, var(--editor-panel-duration);
+}
+
+.editor-panel[data-open="false"] > aside {
+  transform: translateX(-100%);
+}
+
+.editor-panel[data-side="right"][data-open="false"] > aside {
+  transform: translateX(100%);
+}
+
+@starting-style {
+  .editor-panel[data-open="true"][data-animate-enter="true"] {
+    width: 0;
+  }
+  .editor-panel[data-open="true"][data-animate-enter="true"] > aside {
+    transform: translateX(-100%);
+  }
+  .editor-panel[data-side="right"][data-open="true"][data-animate-enter="true"] > aside {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .editor-panel,
+  .editor-panel > aside {
+    transition: none;
+  }
+}
+
 /* Native popovers anchor to their invoker and handle outside clicks and Escape. */
 .org-switcher-popover {
   margin: 0;

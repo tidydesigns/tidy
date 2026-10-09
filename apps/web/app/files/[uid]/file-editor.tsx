@@ -42,6 +42,7 @@ import { Icon } from "@/components/ui/icon";
 import { ComponentLibraryPanel } from "./component-library-panel";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { PanelToggle } from "./panel-toggle";
+import { EditorPanel } from "./editor-panel";
 import { CanvasViewMenu, type CanvasPreferences } from "./canvas-view-menu";
 import { EditorHeader, type EditorUser } from "./editor-header";
 import dynamic from "next/dynamic";
@@ -788,18 +789,7 @@ export function FileEditor({
   function togglePanels() {
     editingRef.current = false;
     setInspectorDismissed(true);
-    const oldViewport = viewport.current;
-    const centerX = oldViewport ? (oldViewport.clientWidth / 2 - view.x) / view.zoom : 0;
-    const centerY = oldViewport ? (oldViewport.clientHeight / 2 - view.y) / view.zoom : 0;
     setPanelsOpen((open) => !open);
-    window.requestAnimationFrame(() => {
-      if (viewport.current)
-        setView((current) => ({
-          ...current,
-          x: viewport.current!.clientWidth / 2 - centerX * current.zoom,
-          y: viewport.current!.clientHeight / 2 - centerY * current.zoom,
-        }));
-    });
   }
 
   function selectNode(id: string, additive = false) {
@@ -1554,6 +1544,25 @@ export function FileEditor({
     observer.observe(canvas);
     return () => observer.disconnect();
   }, [initialDocument, currentPageId, viewportReady]);
+
+  useLayoutEffect(() => {
+    const canvas = viewport.current;
+    if (!canvas || !viewportReady) return;
+    let width = canvas.clientWidth;
+    let height = canvas.clientHeight;
+    const observer = new ResizeObserver(() => {
+      const nextWidth = canvas.clientWidth;
+      const nextHeight = canvas.clientHeight;
+      const dx = (nextWidth - width) / 2;
+      const dy = (nextHeight - height) / 2;
+      width = nextWidth;
+      height = nextHeight;
+      // Preserve the current canvas centre throughout panel motion, including reversals.
+      if (dx || dy) setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
+    });
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [viewportReady]);
 
   useEffect(() => {
     const canvas = viewport.current;
@@ -3336,8 +3345,8 @@ export function FileEditor({
           event.currentTarget.value = "";
         }}
       />
-      {panelsOpen && !prototypeMode && (
-        <aside className="z-10 flex w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white">
+      <EditorPanel open={panelsOpen && !prototypeMode} width={256}>
+        <aside className="z-10 flex h-full w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white">
           <div className="flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
             <Link
               href={backHref}
@@ -3545,7 +3554,7 @@ export function FileEditor({
               />
             )}
           </div>
-          {!preview && !local && (
+          {panelsOpen && !preview && !local && (
             <div className="shrink-0 border-t border-primary-grey/70 p-3">
               <SendFeedback
                 showShortcut
@@ -3554,12 +3563,12 @@ export function FileEditor({
             </div>
           )}
         </aside>
-      )}
-      {panelsOpen && !prototypeMode && (
-        <aside className="z-10 w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
+      </EditorPanel>
+      <EditorPanel open={panelsOpen && !prototypeMode} width={53}>
+        <aside className="z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
           {toolRail}
         </aside>
-      )}
+      </EditorPanel>
       <div
         ref={attachViewport}
         tabIndex={0}
@@ -4203,7 +4212,7 @@ export function FileEditor({
           )}
         </div>
       </div>
-      {inspectorOpen && (
+      <EditorPanel open={inspectorOpen} width={296} side="right">
         <aside
           ref={inspectorRef}
           onFocusCapture={(event) => {
@@ -4227,7 +4236,7 @@ export function FileEditor({
             }, 0);
           }}
           aria-label="Inspector"
-          className="z-10 flex w-[296px] shrink-0 flex-col border-l border-primary-grey/70 bg-primary-white text-primary-black"
+          className="z-10 flex h-full w-[296px] shrink-0 flex-col border-l border-primary-grey/70 bg-primary-white text-primary-black"
         >
           {editorHeader && (
             <div className="shrink-0 border-b border-primary-grey/70">{editorHeader}</div>
@@ -4277,7 +4286,7 @@ export function FileEditor({
             )}
           </div>
         </aside>
-      )}
+      </EditorPanel>
       {!preview && !local && (!panelsOpen || prototypeMode) && (
         <SendFeedback
           compact
