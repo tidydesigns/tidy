@@ -215,7 +215,6 @@ export function FileVersionControl({
       setPending(false);
     }
   }
-  if (!list) return null;
   const roots =
     preview?.content.nodes.filter((node) => node.parentId === null && node.visible) ?? [];
   return (
@@ -226,8 +225,11 @@ export function FileVersionControl({
         className={button}
         onClick={() => {
           interactions.current++;
+          setError("");
           setOpen(true);
-          void load().catch(() => {});
+          void load().catch((cause) =>
+            setError(cause instanceof Error ? cause.message : "Could not read file history."),
+          );
         }}
       >
         History
@@ -272,7 +274,12 @@ export function FileVersionControl({
               </button>
             </div>
           )}
-          {!!list.versions.length && (
+          {!list && !error && (
+            <p role="status" className="text-xs text-secondary-ink">
+              Loading history…
+            </p>
+          )}
+          {!!list?.versions.length && (
             <SelectMenu
               label="Version"
               value={versionId}
@@ -288,7 +295,7 @@ export function FileVersionControl({
               }))}
             />
           )}
-          {list.nextCursor && (
+          {list?.nextCursor && (
             <button
               type="button"
               className={button}
