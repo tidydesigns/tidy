@@ -46,6 +46,7 @@ export function FillInspector({
   tokens,
   onPatch: applyPatch,
   onUpload,
+  onEditImage,
   editingGradientId,
   onGradientEdit,
   viewport,
@@ -59,6 +60,7 @@ export function FillInspector({
   editingGradientId?: string;
   onGradientEdit?: (id: string | null) => void;
   onPatch: (changes: Patch) => void;
+  onEditImage?: (paintId: string) => void;
   onUpload?: (index: number, file: File) => Promise<void>;
   viewport?: RefObject<HTMLDivElement | null>;
 }) {
@@ -240,6 +242,8 @@ export function FillInspector({
               aria-pressed={index === i}
               onClick={() => {
                 setActive(i);
+                if (current.type === "image" && current.assetId && selected.length === 1)
+                  onEditImage?.(current.id);
                 if (editingGradientId && editingGradientId !== current.id) onGradientEdit?.(null);
               }}
               className="h-7 w-7 shrink-0 rounded border border-primary-grey/70"
@@ -584,40 +588,46 @@ export function FillInspector({
             )}
           {type === "image" && (
             <>
-              {!cropped && (
-                <>
-                  <Choice
-                    label="Fill image fit"
-                    value={read((paint) => (paint.type === "image" ? paint.fit : "cover"))}
-                    choices={[
-                      ["cover", "Fill"],
-                      ["contain", "Fit"],
-                      ["fill", "Stretch"],
-                    ]}
-                    onChange={(fit) =>
-                      update((paint) =>
-                        paint.type === "image"
-                          ? { ...paint, fit: fit as "cover" | "contain" | "fill" }
-                          : paint,
-                      )
-                    }
-                  />
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(["positionX", "positionY"] as const).map((key) => (
-                      <div key={key}>
-                        {number(
-                          `Fill image ${key === "positionX" ? "X" : "Y"} %`,
-                          (paint) => (paint.type === "image" ? paint[key] : 50),
-                          (paint, value) =>
-                            paint.type === "image" ? { ...paint, [key]: value } : paint,
-                          0,
-                          100,
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
+              {!cropped &&
+                !(
+                  onEditImage &&
+                  selected.length === 1 &&
+                  paint.type === "image" &&
+                  paint.assetId
+                ) && (
+                  <>
+                    <Choice
+                      label="Fill image fit"
+                      value={read((paint) => (paint.type === "image" ? paint.fit : "cover"))}
+                      choices={[
+                        ["cover", "Fill"],
+                        ["contain", "Fit"],
+                        ["fill", "Stretch"],
+                      ]}
+                      onChange={(fit) =>
+                        update((paint) =>
+                          paint.type === "image"
+                            ? { ...paint, fit: fit as "cover" | "contain" | "fill" }
+                            : paint,
+                        )
+                      }
+                    />
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {(["positionX", "positionY"] as const).map((key) => (
+                        <div key={key}>
+                          {number(
+                            `Fill image ${key === "positionX" ? "X" : "Y"} %`,
+                            (paint) => (paint.type === "image" ? paint[key] : 50),
+                            (paint, value) =>
+                              paint.type === "image" ? { ...paint, [key]: value } : paint,
+                            0,
+                            100,
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
               {lists.every(
                 (paints) => paints[index]?.type === "image" && Boolean(paints[index].assetId),
               ) &&

@@ -15,6 +15,7 @@
     "./prototype": "./prototype.ts",
     "./responsive-layout": "./responsive-layout.ts",
     "./effects": "./effects.ts",
+    "./image-adjustments": "./image-adjustments.ts",
     "./component-variants": "./component-variants.ts",
     "./web-capture": "./web-capture.ts",
     "./extension": "./extension.ts",

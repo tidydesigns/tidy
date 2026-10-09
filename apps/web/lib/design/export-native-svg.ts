@@ -1,3 +1,4 @@
+import { hasImageAdjustments, imageAdjustmentFilter } from "@bella/design/image-adjustments";
 import type { DesignNode } from "./document";
 import { nodePaints } from "./paints";
 import { cornerPath, paintDefinition, strokeSvg, strokeOutsets } from "./strokes";
@@ -45,7 +46,10 @@ function namespace(svg: Element, prefix: string) {
     for (const attribute of [...element.attributes]) {
       if (attribute.name === "id") element.setAttribute("id", prefix + attribute.value);
       else {
-        let value = attribute.value.replace(/url\(#([^)]*)\)/g, (_m, id) => `url(#${prefix}${id})`);
+        let value = attribute.value.replace(
+          /url\(["']?#([^"')]+)["']?\)/g,
+          (_m, id) => `url(#${prefix}${id})`,
+        );
         if (attribute.localName === "href")
           value = value.replace(/^#(.+)$/, (_m, id) => `#${prefix}${id}`);
         element.setAttribute(attribute.name, value);
@@ -105,7 +109,9 @@ function imageSvg(
     h = (fit === "fill" ? height : naturalHeight * factor) * scale;
   const x = ((width - w) * (node.style.objectPositionX ?? 50)) / 100,
     y = ((height - h) * (node.style.objectPositionY ?? 50)) / 100;
-  return `<image href="${xml(image.src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"/>`;
+  const filterId = `${prefix}image-adjustments`;
+  const adjusted = hasImageAdjustments(node.style.imageAdjustments);
+  return `${adjusted ? `<defs>${imageAdjustmentFilter(filterId, node.style.imageAdjustments)}</defs>` : ""}<image ${adjusted ? `filter="url(#${filterId})" ` : ""}href="${xml(image.src)}" x="${x}" y="${y}" width="${w}" height="${h}" preserveAspectRatio="none"/>`;
 }
 function filterSvg(node: DesignNode, id: string) {
   const effects = nodeEffects(node.style).filter((e) => e.visible);
@@ -267,6 +273,7 @@ export function nativeSvg(
                 ...node.style,
                 objectFit: paint.fit,
                 imageCrop: paint.crop,
+                imageAdjustments: paint.adjustments,
                 objectScale: undefined,
                 objectPositionX: paint.positionX,
                 objectPositionY: paint.positionY,

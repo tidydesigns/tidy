@@ -1,3 +1,4 @@
+import { buildImageEditorDocument, imageEditorAssetId } from "@/lib/design/examples/image-editor";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { EDITOR_TOOLBAR_COOKIE, editorToolbarPlacement } from "@/lib/editor-preferences";
@@ -22,25 +23,27 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
   return (
     <FileEditor
       fileId={typeof query.file === "string" ? query.file.slice(0, 120) : "preview"}
-      fileName="Login · import preview"
+      fileName={query.images === "1" ? "Coastal study" : "Login · import preview"}
       organizationName="Local preview"
       backHref="/login"
       initialDocument={{
         revision: 1,
         content:
-          query.exports === "1"
-            ? buildExportDocument()
-            : query.libraries === "1"
-              ? buildComponentLibraryDocument()
-              : query.composites === "1"
-                ? buildVectorCompositeDocument()
-                : query.vector === "1"
-                  ? buildVectorEditingDocument()
-                  : query.components === "1"
-                    ? buildComponentsDocument()
-                    : query.tokens === "1"
-                      ? buildTokenDocument()
-                      : buildLoginDocument(cropTest ? cropTestAssetId : undefined),
+          query.images === "1"
+            ? buildImageEditorDocument()
+            : query.exports === "1"
+              ? buildExportDocument()
+              : query.libraries === "1"
+                ? buildComponentLibraryDocument()
+                : query.composites === "1"
+                  ? buildVectorCompositeDocument()
+                  : query.vector === "1"
+                    ? buildVectorEditingDocument()
+                    : query.components === "1"
+                      ? buildComponentsDocument()
+                      : query.tokens === "1"
+                        ? buildTokenDocument()
+                        : buildLoginDocument(cropTest ? cropTestAssetId : undefined),
       }}
       canEdit={query.viewer !== "1"}
       preview={query.edit !== "1"}
@@ -50,11 +53,13 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
         (await cookies()).get(EDITOR_TOOLBAR_COOKIE)?.value,
       )}
       previewAssetUrls={
-        query.exports === "1"
-          ? { [exportImageId]: "/crop-test.svg", [exportMaskImageId]: "/export-mask-test.svg" }
-          : cropTest
-            ? { [cropTestAssetId]: "/crop-test.svg" }
-            : undefined
+        query.images === "1"
+          ? { [imageEditorAssetId]: "/image-editor-test.svg" }
+          : query.exports === "1"
+            ? { [exportImageId]: "/crop-test.svg", [exportMaskImageId]: "/export-mask-test.svg" }
+            : cropTest
+              ? { [cropTestAssetId]: "/crop-test.svg" }
+              : undefined
       }
     />
   );

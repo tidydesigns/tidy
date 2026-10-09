@@ -94,6 +94,7 @@ function MeasuredFills({
                     objectPositionX: paint.positionX,
                     objectPositionY: paint.positionY,
                     imageCrop: paint.crop,
+                    imageAdjustments: paint.adjustments,
                   },
                 }}
                 src={assetUrl(paint.assetId)}
