@@ -23,3 +23,27 @@ export function selectedElements(
     return element ? [element] : [];
   });
 }
+
+/** Read only selected elements, once each, and allocate no intermediate rectangle arrays. */
+export function selectionContainsPoint(
+  canvas: HTMLElement | null,
+  ids: string[],
+  x: number,
+  y: number,
+): boolean {
+  const elements = canvasElements(canvas);
+  let left = Infinity,
+    top = Infinity,
+    right = -Infinity,
+    bottom = -Infinity;
+  for (const id of ids) {
+    const element = elements.get(id);
+    if (!element) continue;
+    const rect = element.getBoundingClientRect();
+    left = Math.min(left, rect.left);
+    top = Math.min(top, rect.top);
+    right = Math.max(right, rect.right);
+    bottom = Math.max(bottom, rect.bottom);
+  }
+  return x >= left && x <= right && y >= top && y <= bottom;
+}
