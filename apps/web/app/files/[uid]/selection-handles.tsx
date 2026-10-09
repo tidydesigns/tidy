@@ -1,5 +1,8 @@
 "use client";
 
+import { CornerRadiusHandles } from "./corner-radius-handles";
+import { supportsCornerRadius } from "@/lib/design/corner-radius";
+
 import { canvasElements } from "./canvas-elements";
 import { useEditorEvent } from "./use-editor-event";
 
@@ -81,6 +84,7 @@ export function SelectionHandles({
 }) {
   const [bounds, setBounds] = useState<Bounds | null>(null);
   const gesture = useRef<Gesture | null>(null);
+  const radiusGesture = useRef(false);
   const previewFrame = useFrameEvent(onPreview);
   const measureBounds = useEditorEvent(() => {
     const canvas = viewport.current;
@@ -111,7 +115,7 @@ export function SelectionHandles({
     });
   });
   useLayoutEffect(() => {
-    measureBounds();
+    if (!radiusGesture.current) measureBounds();
   }, [node, parent, viewport, view, measureBounds]);
   useLayoutEffect(() => {
     const canvas = viewport.current;
@@ -253,6 +257,26 @@ export function SelectionHandles({
       className="pointer-events-none absolute z-20"
       style={{ left: bounds.x, top: bounds.y }}
     >
+      {!crop && supportsCornerRadius(node) && (
+        <CornerRadiusHandles
+          node={node}
+          bounds={bounds}
+          snap={snap}
+          onBegin={() => {
+            radiusGesture.current = true;
+            onBegin();
+          }}
+          onPreview={onPreview}
+          onCommit={(changes) => {
+            radiusGesture.current = false;
+            onCommit(changes);
+          }}
+          onCancel={() => {
+            radiusGesture.current = false;
+            onCancel();
+          }}
+        />
+      )}
       <output
         data-selection-measurement
         aria-label="Selection size"

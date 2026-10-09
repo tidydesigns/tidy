@@ -128,7 +128,7 @@ export function cornerPath(
   }
   return `${path}Z`;
 }
-function baseCorners(style: Style, size: Size): Corners {
+export function baseCorners(style: Style, size: Size): Corners {
   const radius = style.radius ?? 0;
   return normalizeCorners(
     [
