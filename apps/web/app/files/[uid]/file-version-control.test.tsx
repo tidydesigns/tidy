@@ -3,7 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { FileVersionControl } from "./file-version-control";
 
-test("history has a stable header control before its asynchronous list arrives", () => {
+test("file actions remain available before the asynchronous history list arrives", () => {
   const markup = renderToStaticMarkup(
     <FileVersionControl
       fileId="fixture"
@@ -13,6 +13,7 @@ test("history has a stable header control before its asynchronous list arrives",
       onRestore={async () => {}}
     />,
   );
-  expect(markup).toMatch(/<button[^>]*aria-label="Version history"/);
-  expect(markup).toContain("History</button>");
+  const trigger = markup.match(/<button[^>]*aria-label="File actions"[^>]*>/)?.[0];
+  expect(trigger).toContain('aria-haspopup="menu"');
+  expect(trigger).not.toContain("disabled");
 });

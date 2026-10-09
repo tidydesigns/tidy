@@ -1351,20 +1351,7 @@ export function FileEditor({
       setBusy(busyRef.current);
     }
   }
-  const fileHeading = (
-    <div className="flex min-w-0 items-center gap-2">
-      <div className="min-w-0 flex-1">{fileNameEditor}</div>
-      {!local && !preview && (
-        <FileVersionControl
-          fileId={fileId}
-          revision={snapshot.revision}
-          canEdit={!readOnly && !prototypeMode}
-          disabled={busy || uploading || Boolean(editingTextId)}
-          onRestore={restoreFileVersion}
-        />
-      )}
-    </div>
-  );
+  const fileHeading = fileNameEditor;
 
   async function travelHistory(direction: "undo" | "redo") {
     if (readOnly) return;
@@ -1629,6 +1616,8 @@ export function FileEditor({
       });
     }
     function onWheel(event: WheelEvent) {
+      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+        return;
       event.preventDefault();
       if (gestureActive) return;
       if (!event.ctrlKey) {
@@ -1646,11 +1635,15 @@ export function FileEditor({
       );
     }
     function onGestureStart(event: Event) {
+      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+        return;
       event.preventDefault();
       gestureActive = true;
       lastGestureScale = 1;
     }
     function onGestureChange(event: Event) {
+      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+        return;
       event.preventDefault();
       const gesture = event as Event & { scale?: number; clientX?: number; clientY?: number };
       const scale = gesture.scale ?? 1;
@@ -3617,7 +3610,7 @@ export function FileEditor({
             )}
           </div>
           {panelsOpen && !preview && !local && (
-            <div className="shrink-0 border-t border-primary-grey/70 p-3">
+            <div className="shrink-0 border-t border-primary-grey/70 p-3 pl-16">
               <SendFeedback
                 showShortcut
                 className="flex min-h-9 w-full items-center gap-3 rounded-lg px-2 text-sm text-secondary-ink hover:bg-primary-grey/20 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
@@ -4359,6 +4352,20 @@ export function FileEditor({
           </div>
         </aside>
       </EditorPanel>
+      {!preview && !local && (
+        <div
+          data-canvas-control
+          className={`absolute z-30 ${panelsOpen && !prototypeMode ? "bottom-3 left-3" : "bottom-5 left-[72px]"}`}
+        >
+          <FileVersionControl
+            fileId={fileId}
+            revision={snapshot.revision}
+            canEdit={!readOnly && !prototypeMode}
+            disabled={busy || uploading || Boolean(editingTextId)}
+            onRestore={restoreFileVersion}
+          />
+        </div>
+      )}
       {!preview && !local && (!panelsOpen || prototypeMode) && (
         <SendFeedback
           compact

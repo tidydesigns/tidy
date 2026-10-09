@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { FileVersion, VersionPreview } from "@/lib/design/file-versions";
 import type { DesignDocument } from "@/lib/design/document";
 import { Dialog } from "@/components/ui/dialog";
+import { Icon } from "@/components/ui/icon";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { TextField } from "@/components/ui/text-field";
 import { DesignSnapshot } from "@/components/github/design-snapshot";
@@ -219,11 +220,15 @@ export function FileVersionControl({
     preview?.content.nodes.filter((node) => node.parentId === null && node.visible) ?? [];
   return (
     <>
-      <button
-        type="button"
-        aria-label="Version history"
-        className={button}
-        onClick={() => {
+      <SelectMenu
+        actionMenu
+        label="File actions"
+        value=""
+        placement="top"
+        options={[{ value: "history", label: "Version history" }]}
+        triggerContent={<Icon name="more" size={18} />}
+        triggerClassName="flex size-10 items-center justify-center rounded-lg border border-primary-grey/70 bg-primary-white text-secondary-ink shadow-sm hover:bg-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.97]"
+        onChange={() => {
           interactions.current++;
           setError("");
           setOpen(true);
@@ -231,9 +236,7 @@ export function FileVersionControl({
             setError(cause instanceof Error ? cause.message : "Could not read file history."),
           );
         }}
-      >
-        History
-      </button>
+      />
       <Dialog
         ref={dialog}
         size="wide"
@@ -244,7 +247,7 @@ export function FileVersionControl({
           setOpen(false);
           requests.current++;
         }}
-        className="max-w-3xl"
+        className="max-w-3xl overscroll-contain touch-auto"
       >
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
@@ -329,7 +332,7 @@ export function FileVersionControl({
                 />
               )}
               <div
-                className="max-h-[50dvh] overflow-auto"
+                className="max-h-[50dvh] overflow-auto overscroll-contain"
                 aria-label="Version preview"
                 onErrorCapture={() => setImageFailed(true)}
               >
