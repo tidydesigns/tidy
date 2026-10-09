@@ -9,7 +9,7 @@ const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
 });
 const instrumentSerif = localFont({
-  src: "./fonts/InstrumentSerif-Regular.ttf",
+  src: "./fonts/InstrumentSerif-Regular.woff2",
   variable: "--font-instrument-serif",
   weight: "400",
   display: "swap",
