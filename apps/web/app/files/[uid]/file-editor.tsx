@@ -1,4 +1,11 @@
 "use client";
+import { ImageEditor } from "./image-editor";
+import {
+  imageEditNode,
+  imageEditChanges,
+  type ImageEditTarget,
+  type ImageEdit,
+} from "@/lib/design/image-edit-target";
 import {
   buildNativeShape,
   isShapeKind,
@@ -414,6 +421,7 @@ export function FileEditor({
   } | null>(null);
   const [vectorMode, setVectorMode] = useState<string | null>(null);
   const vectorGesture = useRef<{ nodeId: string; path: string } | null>(null);
+  const [imageTarget, setImageTarget] = useState<ImageEditTarget | null>(null);
   const [cropId, setCropId] = useState<string | null>(null);
   const cropDrag = useRef<{
     id: string;
@@ -618,6 +626,29 @@ export function FileEditor({
   );
   useDocumentFonts(renderedNodes, visibleRootIds);
   const selected = nodesById.get(selection ?? "") ?? null;
+  const editedImage =
+    imageTarget &&
+    selected &&
+    selectedIds.length === 1 &&
+    !readOnly &&
+    !isLayerLocked(nodes, selected.id) &&
+    !prototypeMode
+      ? imageEditNode(selected, imageTarget)
+      : undefined;
+  if (imageTarget && !editedImage) setImageTarget(null);
+  function openImageEditor(paintId?: string) {
+    if (!selected || readOnly) return;
+    setImageTarget({ nodeId: selected.id, paintId });
+  }
+  function editImage(edit: ImageEdit) {
+    if (!imageTarget) return;
+    void changeDocument((content) => ({
+      ...content,
+      nodes: changedLayers(content, [imageTarget.nodeId], (node) =>
+        imageEditChanges(node, imageTarget, edit),
+      ),
+    }));
+  }
   const multiScaleIds = useMemo(
     () =>
       selectedIds.length > 1 &&
@@ -2687,6 +2718,13 @@ export function FileEditor({
         beginVectorEditing(node);
         return;
       }
+      if (node.assetId && !node.vectorPath) {
+        event.preventDefault();
+        event.stopPropagation();
+        selectNode(node.id);
+        setImageTarget({ nodeId: node.id });
+        return;
+      }
       if (node.type !== "text") return;
       event.stopPropagation();
       selectNode(node.id);
@@ -3647,6 +3685,22 @@ export function FileEditor({
         onContextMenu={(event) => {
           if (viewPreferences.rightClickPan) event.preventDefault();
         }}
+        onDoubleClick={(event) => {
+          // Drag pointer capture retargets clicks to the viewport; recover the image under it.
+          if (
+            event.target !== event.currentTarget ||
+            tool !== "select" ||
+            spaceHeld ||
+            prototypeMode
+          )
+            return;
+          const id = document
+            .elementFromPoint(event.clientX, event.clientY)
+            ?.closest("[data-node-id]")
+            ?.getAttribute("data-node-id");
+          const node = id ? nodesById.get(id) : undefined;
+          if (node?.assetId) artworkDoubleClick(node, event);
+        }}
         onPointerDownCapture={beginSelectedLayersDrag}
         onLostPointerCapture={(event) => {
           if (drag.current?.pointerId === event.pointerId) artworkCancel();
@@ -4277,6 +4331,32 @@ export function FileEditor({
           )}
         </div>
       </div>
+      {editedImage && imageTarget && (
+        <ImageEditor
+          key={`${imageTarget.nodeId}:${imageTarget.paintId ?? "source"}:${editedImage.assetId}`}
+          node={editedImage}
+          source={previewAssetUrls?.[editedImage.assetId!] ?? `/api/assets/${editedImage.assetId}`}
+          right={inspectorOpen ? 312 : 16}
+          onEdit={editImage}
+          onClose={() => setImageTarget(null)}
+          onCrop={!imageTarget.paintId ? toggleCrop : undefined}
+          getImage={() => {
+            const element = canvasElements(viewport.current).get(imageTarget.nodeId);
+            const root = imageTarget.paintId
+              ? Array.from(element?.querySelectorAll<HTMLElement>("[data-fill-id]") ?? []).find(
+                  (fill) => fill.dataset.fillId === imageTarget.paintId,
+                )
+              : element;
+            return (
+              root?.querySelector(
+                imageTarget.paintId
+                  ? "[data-adjustable-image]"
+                  : ":scope > [data-adjustable-image]",
+              ) ?? null
+            );
+          }}
+        />
+      )}
       <EditorPanel open={inspectorOpen} width={296} side="right">
         <aside
           ref={inspectorRef}
@@ -4334,6 +4414,7 @@ export function FileEditor({
                 editingGradientId={editingGradient ? gradientMode?.paintId : undefined}
                 onGradientEdit={panelGradient}
                 onUploadFill={panelUpload}
+                onEditImage={openImageEditor}
                 onReplaceImage={panelReplace}
                 onCropImage={panelCrop}
                 cropping={cropping}

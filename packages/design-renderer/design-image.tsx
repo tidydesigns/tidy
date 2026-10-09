@@ -1,4 +1,5 @@
 "use client";
+import { hasImageAdjustments, imageAdjustmentFilter } from "@bella/design/image-adjustments";
 import type { DesignNode } from "@bella/design/document";
 import { imageStyle } from "./node-style";
 import { vectorImageStyle, vectorSvg } from "./vector-path";
@@ -71,20 +72,45 @@ export function DesignImage({
         style={vectorImageStyle(node)}
       />
     );
+  const filterId = `image-${id.replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const filter = hasImageAdjustments(node.style.imageAdjustments) ? `url(#${filterId})` : undefined;
+  const definitions = (
+    <svg
+      aria-hidden="true"
+      data-image-filter
+      style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}
+    >
+      {filter && (
+        <defs
+          dangerouslySetInnerHTML={{
+            __html: imageAdjustmentFilter(filterId, node.style.imageAdjustments),
+          }}
+        />
+      )}
+    </svg>
+  );
+  const attributes = {
+    "data-adjustable-image": filterId,
+    "data-image-adjustments": JSON.stringify(node.style.imageAdjustments ?? {}),
+  };
   if (!crop)
     return (
-      <img
-        src={failed ? fallback : (resolved ?? emptyImage)}
-        data-original-src={src}
-        data-image-loading={(!failed && resolved === undefined) || undefined}
-        data-image-failed={failed || undefined}
-        onError={() => setDecodeError(resolved)}
-        alt={failed ? `${node.name || "Image"} unavailable` : node.name}
-        width={node.box.width}
-        height={node.box.height}
-        draggable={false}
-        style={imageStyle(node)}
-      />
+      <>
+        {filter && definitions}
+        <img
+          src={failed ? fallback : (resolved ?? emptyImage)}
+          data-original-src={src}
+          data-image-loading={(!failed && resolved === undefined) || undefined}
+          data-image-failed={failed || undefined}
+          onError={() => setDecodeError(resolved)}
+          alt={failed ? `${node.name || "Image"} unavailable` : node.name}
+          width={node.box.width}
+          height={node.box.height}
+          draggable={false}
+          {...attributes}
+          style={{ ...imageStyle(node), filter }}
+        />
+      </>
     );
   const x = crop.x * crop.sourceWidth,
     y = crop.y * crop.sourceHeight,
@@ -96,6 +122,7 @@ export function DesignImage({
       aria-label={failed ? `${node.name || "Image"} unavailable` : node.name}
       data-image-failed={failed || undefined}
       data-image-crop
+      {...attributes}
       viewBox={`${x} ${y} ${width} ${height}`}
       preserveAspectRatio={
         node.style.objectFit === "contain"
@@ -106,6 +133,13 @@ export function DesignImage({
       }
       style={{ display: "block", width: "100%", height: "100%", overflow: "hidden" }}
     >
+      {filter && (
+        <defs
+          dangerouslySetInnerHTML={{
+            __html: imageAdjustmentFilter(filterId, node.style.imageAdjustments),
+          }}
+        />
+      )}
       <defs>
         <clipPath id={id}>
           <rect x={x} y={y} width={width} height={height} />
@@ -128,6 +162,8 @@ export function DesignImage({
         width={crop.sourceWidth}
         height={crop.sourceHeight}
         clipPath={`url(#${id})`}
+        style={{ filter }}
+        data-adjustment-pixels
       />
     </svg>
   );
