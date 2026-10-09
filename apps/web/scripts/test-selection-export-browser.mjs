@@ -9,7 +9,7 @@ import { PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib"
 const base = process.env.EXPORT_TEST_BASE_URL ?? "http://localhost:3038";
 if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
   throw new Error("Export browser checks require localhost.");
-const font = await readFile(new URL("../app/fonts/InstrumentSerif-Regular.ttf", import.meta.url)),
+const font = await readFile(new URL("../app/fonts/InstrumentSerif-Regular.woff2", import.meta.url)),
   crop = await readFile(new URL("../public/crop-test.svg", import.meta.url));
 const browser = await chromium.launch({ headless: true }),
   page = await browser.newPage({ viewport: { width: 1600, height: 1100 } }),
@@ -20,13 +20,13 @@ let failImage = false,
 await page.route("https://fonts.googleapis.com/**", (route) =>
   route.fulfill({
     contentType: "text/css",
-    body: '@font-face{font-family:"Roboto";font-weight:400;font-style:normal;src:url(https://fonts.gstatic.com/tidy/export.ttf) format("truetype");}',
+    body: '@font-face{font-family:"Roboto";font-weight:400;font-style:normal;src:url(https://fonts.gstatic.com/tidy/export.woff2) format("woff2");}',
   }),
 );
 await page.route("https://fonts.gstatic.com/**", (route) =>
   route.fulfill({
     status: failFont ? 503 : 200,
-    contentType: "font/ttf",
+    contentType: "font/woff2",
     body: failFont ? Buffer.from("Unavailable") : font,
   }),
 );
