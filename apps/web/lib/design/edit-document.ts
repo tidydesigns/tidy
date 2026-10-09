@@ -49,6 +49,15 @@ export function selectionRoots(nodes: DesignNode[], ids: string[]): DesignNode[]
     });
 }
 
+/** The same movable roots drive gesture setup, previews and canonical moves. */
+export function movableSelectionRoots(nodes: DesignNode[], ids: string[]): DesignNode[] {
+  const byId = nodeIndex(nodes);
+  return selectionRoots(nodes, ids).filter((node) => {
+    const parent = byId.get(node.parentId ?? "");
+    return !parent || parent.layout === "absolute" || node.positionMode === "absolute";
+  });
+}
+
 /** Prepare nodes for a transaction. Callers must validate the document before publishing it. */
 export function changedLayers(
   document: DesignDocument,
@@ -104,10 +113,7 @@ export function movedLayers(
   renderedParents?: ReadonlyMap<string, { width: number; height: number }>,
 ): DesignNode[] {
   const byId = nodeIndex(document.nodes);
-  const roots = selectionRoots(document.nodes, ids).filter((node) => {
-    const parent = byId.get(node.parentId ?? "");
-    return !parent || parent.layout === "absolute" || node.positionMode === "absolute";
-  });
+  const roots = movableSelectionRoots(document.nodes, ids);
   const changes = (node: DesignNode): DesignNodeChanges => {
     const ancestors: DesignNode[] = [];
     let parent = byId.get(node.parentId ?? "");

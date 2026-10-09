@@ -100,6 +100,7 @@ import {
 import {
   changedLayers,
   movedLayers,
+  movableSelectionRoots,
   duplicateLayers,
   editLayers,
   isLayerLocked,
@@ -125,7 +126,13 @@ import { useFrameEvent } from "./use-frame-event";
 import { useEditorPerformance } from "./use-editor-performance";
 import { useVisibleArtboards } from "./use-visible-artboards";
 import { CanvasArtwork } from "./canvas-artwork";
-import { attachCanvasElements, canvasElements, selectedElements } from "./canvas-elements";
+import {
+  attachCanvasElements,
+  canvasElements,
+  selectedElements,
+  selectionContainsPoint,
+} from "./canvas-elements";
+import { selectionDragTarget } from "@/lib/design/selection-drag-target";
 import { LayerTree } from "./layer-tree";
 import { SendFeedback } from "@/components/workspace/send-feedback";
 import { FontRecovery } from "./font-recovery";
@@ -456,6 +463,7 @@ export function FileEditor({
   const [assetError, setAssetError] = useState("");
   const replaceImageInput = useRef<HTMLInputElement>(null);
   const drag = useRef<{
+    pointerId: number;
     id: string;
     x: number;
     y: number;
@@ -1717,8 +1725,9 @@ export function FileEditor({
     }
   }
 
-  function snappingGeometry(ids: string[]) {
-    const roots = new Set(selectionRoots(nodes, ids).map((node) => node.id));
+  function snappingGeometry(rootIds: string[]) {
+    // Drag setup already resolved movable roots; avoid scanning the document again.
+    const roots = new Set(rootIds);
     const descendants = new Set(roots);
     for (const node of nodes) {
       let parent = node.parentId;
@@ -2685,6 +2694,56 @@ export function FileEditor({
       setEditingTextId(node.id);
     },
   );
+  function beginLayerDrag(event: PointerEvent<HTMLDivElement>, ids: string[], id: string) {
+    if (drag.current || readOnly) return;
+    // Eligibility belongs to the selected roots, not the child under the cursor.
+    const movable = movableSelectionRoots(nodes, ids);
+    if (!movable.length) return;
+    event.preventDefault();
+    viewport.current?.focus({ preventScroll: true });
+    const movingIds = movable.map((node) => node.id);
+    drag.current = {
+      pointerId: event.pointerId,
+      id: movingIds.includes(id) ? id : movingIds[0],
+      x: event.clientX,
+      y: event.clientY,
+      ids: movingIds,
+      before: room.getSnapshot(),
+      ...snappingGeometry(movingIds),
+    };
+    // The viewport stays mounted even when artwork is culled or updated mid-drag.
+    viewport.current?.setPointerCapture(event.pointerId);
+  }
+
+  function beginSelectedLayersDrag(event: PointerEvent<HTMLDivElement>) {
+    if (
+      event.button !== 0 ||
+      event.shiftKey ||
+      selectedIds.length < 2 ||
+      tool !== "select" ||
+      spaceHeld ||
+      readOnly ||
+      prototypeMode ||
+      cropping ||
+      vectorMode ||
+      editingTextId ||
+      editingGradient ||
+      (event.target as Element).closest("button, a, input, textarea, select, [data-canvas-control]")
+    )
+      return;
+    const hitId =
+      (event.target as Element).closest("[data-node-id]")?.getAttribute("data-node-id") ?? null;
+    const target = selectionDragTarget(nodesById, selectedIds, hitId);
+    if (!target) return;
+    if (
+      target.kind === "gap" &&
+      !selectionContainsPoint(viewport.current, selectedIds, event.clientX, event.clientY)
+    )
+      return;
+    event.stopPropagation();
+    beginLayerDrag(event, selectedIds, target.kind === "layer" ? target.id : selectedIds[0]);
+  }
+
   const artworkPointerDown = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
       if (event.button === 2 && viewPreferences.rightClickPan) {
@@ -2699,7 +2758,8 @@ export function FileEditor({
         !spaceHeld &&
         node.parentId &&
         nodes.find((item) => item.id === node.parentId)?.type === "container" &&
-        !selectedIds.includes(node.parentId)
+        !selectedIds.includes(node.parentId) &&
+        !selectedIds.includes(node.id)
       )
         return;
       event.stopPropagation();
@@ -2732,17 +2792,7 @@ export function FileEditor({
       const ids = selectedIds.includes(node.id) ? selectedIds : [node.id];
       if (!selectedIds.includes(node.id)) selectNode(node.id);
       if (readOnly) return;
-      const parent = nodesById.get(node.parentId ?? "");
-      if (parent && parent.layout !== "absolute" && node.positionMode !== "absolute") return;
-      drag.current = {
-        id: node.id,
-        x: event.clientX,
-        y: event.clientY,
-        ids,
-        before: room.getSnapshot(),
-        ...snappingGeometry(ids),
-      };
-      event.currentTarget.setPointerCapture(event.pointerId);
+      beginLayerDrag(event, ids, node.id);
     },
   );
   const artworkMoveFrame = useFrameEvent(
@@ -2761,32 +2811,34 @@ export function FileEditor({
         return;
       }
       const start = drag.current;
-      if (start?.id !== node.id) return;
+      if (start?.id !== node.id || start.pointerId !== event.pointerId) return;
       const { x, y, guides, spacing } = dragDelta(event, start);
       setSnapGuides(guides);
       setSpacingCues(spacing);
       const latest = room.getSnapshot();
-      setSnapshot({
-        ...latest,
-        content: previewMoveLayers(latest.content, start.ids, x, y, start.parents),
-      });
+      const content = previewMoveLayers(latest.content, start.ids, x, y, start.parents);
+      setSnapshot({ ...latest, content });
       room.publishPresence({
         action: "move",
         preview: {
           nodeId: node.id,
-          box: snapshotRef.current.content.nodes.find((item) => item.id === node.id)!.box,
+          box: content.nodes.find((item) => item.id === node.id)!.box,
         },
       });
     },
   );
   const artworkPointerMove = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
-      if (drag.current?.id === node.id || cropDrag.current?.id === node.id)
+      if (
+        (drag.current?.id === node.id && drag.current.pointerId === event.pointerId) ||
+        cropDrag.current?.id === node.id
+      )
         artworkMoveFrame.schedule(node, event);
     },
   );
   const artworkPointerUp = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
+      if (drag.current && drag.current.pointerId !== event.pointerId) return;
       artworkMoveFrame.cancel();
       const cropStart = cropDrag.current;
       if (cropStart?.id === node.id) {
@@ -2797,9 +2849,10 @@ export function FileEditor({
         return;
       }
       const start = drag.current;
-      if (start?.id !== node.id) return;
+      if (start?.id !== node.id || start.pointerId !== event.pointerId) return;
       drag.current = null;
-      event.currentTarget.releasePointerCapture(event.pointerId);
+      if (viewport.current?.hasPointerCapture(event.pointerId))
+        viewport.current.releasePointerCapture(event.pointerId);
       const { x, y } = dragDelta(event, start);
       setSnapGuides([]);
       setSpacingCues([]);
@@ -2823,6 +2876,8 @@ export function FileEditor({
     drag.current = null;
     setSnapGuides([]);
     setSpacingCues([]);
+    room.restore();
+    room.publishPresence({ preview: null, action: "select" }, true);
     setSnapshot(room.getSnapshot());
   });
   const artworkTextDraft = useEditorEvent((node: DesignNode, value: TextContent) => {
@@ -3592,6 +3647,10 @@ export function FileEditor({
         onContextMenu={(event) => {
           if (viewPreferences.rightClickPan) event.preventDefault();
         }}
+        onPointerDownCapture={beginSelectedLayersDrag}
+        onLostPointerCapture={(event) => {
+          if (drag.current?.pointerId === event.pointerId) artworkCancel();
+        }}
         onPointerDown={(event) => {
           if (
             (event.target as Element).closest(
@@ -3602,10 +3661,16 @@ export function FileEditor({
           beginCanvasGesture(event);
         }}
         onPointerMove={(event) => {
+          const moving = drag.current && nodesById.get(drag.current.id);
+          if (moving) artworkPointerMove(moving, event);
           if (pan.current || drawingRef.current || marqueeRef.current)
             canvasMoveFrame.schedule(event);
         }}
-        onPointerUp={(event) => void finishCanvasGesture(event)}
+        onPointerUp={(event) => {
+          const moving = drag.current && nodesById.get(drag.current.id);
+          if (moving) artworkPointerUp(moving, event);
+          else void finishCanvasGesture(event);
+        }}
         onPointerCancel={() => {
           canvasMoveFrame.cancel();
           cropDrag.current = null;
