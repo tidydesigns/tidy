@@ -61,6 +61,7 @@ export function placeAssets(
     },
     style: asset.vector?.style ?? { objectFit: "contain" },
     assetId: asset.id,
+    aspectRatioLocked: true,
     visible: true,
     locked: false,
     layout: "absolute",

@@ -1,4 +1,5 @@
 "use client";
+import { proportionalImageSize } from "@/lib/design/image-sizing";
 import { nativeShapePath } from "@bella/design/native-shapes";
 import { InstanceControls } from "./instance-controls";
 import { HandoffInspector } from "./handoff-inspector";
@@ -68,10 +69,10 @@ export const SelectionInspector = memo(function SelectionInspector({
   editingGradientId,
   onGradientEdit,
   onCropImage,
+  onFitImageBounds,
   onEditVector,
   editingVector = false,
   cropping = false,
-  onClose,
   onGoToMaster,
   onAlign,
   onDistribute,
@@ -98,11 +99,11 @@ export const SelectionInspector = memo(function SelectionInspector({
   onReplaceImage: () => void;
   onUploadFill?: (index: number, file: File) => Promise<void>;
   onCropImage?: () => void;
+  onFitImageBounds?: () => void;
   cropping?: boolean;
   onEditVector?: () => void;
   editingVector?: boolean;
   onPrototype: () => void;
-  onClose?: () => void;
   onGoToMaster?: (id: string) => void;
   onAlign: (
     axis: "left" | "center-x" | "right" | "top" | "center-y" | "bottom",
@@ -323,16 +324,6 @@ export const SelectionInspector = memo(function SelectionInspector({
             />
           )}
         </div>
-        {onClose && (
-          <button
-            type="button"
-            aria-label="Close inspector"
-            onClick={onClose}
-            className={buttonClass}
-          >
-            ×
-          </button>
-        )}
       </div>
     </>
   );
@@ -583,20 +574,12 @@ export const SelectionInspector = memo(function SelectionInspector({
                 axis === "width" ? "Width" : "Height",
                 (item) => item.box[axis],
                 (value) => (item) => {
-                  const other = axis === "width" ? "height" : "width";
+                  const locked = item.aspectRatioLocked && !cropping;
                   return {
-                    box: {
-                      [axis]: value,
-                      ...(item.aspectRatioLocked && value
-                        ? {
-                            [other]: Math.max(
-                              1,
-                              Math.min(5000, (item.box[other] * value) / item.box[axis]),
-                            ),
-                          }
-                        : {}),
-                    },
-                    [axis === "width" ? "widthMode" : "heightMode"]: "fixed",
+                    box: locked ? proportionalImageSize(item.box, axis, value!) : { [axis]: value },
+                    ...(locked
+                      ? { widthMode: "fixed", heightMode: "fixed" }
+                      : { [axis === "width" ? "widthMode" : "heightMode"]: "fixed" }),
                   };
                 },
                 1,
@@ -1384,6 +1367,15 @@ export const SelectionInspector = memo(function SelectionInspector({
                 {styleNumber("Image scale", "objectScale", 1, 1, 10)}
               </>
             )}
+            {!multi &&
+              !cropping &&
+              onFitImageBounds &&
+              (node.style.objectFit ?? "contain") === "contain" &&
+              (node.style.imageCrop || (node.style.objectScale ?? 1) === 1) && (
+                <button type="button" onClick={onFitImageBounds} className={buttonClass}>
+                  Fit bounds to image
+                </button>
+              )}
             {!multi && onCropImage && (
               <button
                 type="button"

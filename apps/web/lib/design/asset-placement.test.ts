@@ -42,6 +42,8 @@ test("intrinsic placement keeps aspect ratio, batches one undo and preserves int
     ],
     ["first", "second"],
   );
+  expect(after.nodes[2].aspectRatioLocked).toBe(true);
+  expect(after.nodes[3].aspectRatioLocked).toBe(true);
   expect(after.nodes[1].name).toBe("Later edit");
   expect(after.nodes[2].box).toEqual({ x: 20, y: 40, width: 96, height: 64 });
   expect(after.nodes[3].box).toEqual({ x: 44, y: 64, width: 300, height: 180 });
