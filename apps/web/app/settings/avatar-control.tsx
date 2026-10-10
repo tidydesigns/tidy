@@ -116,14 +116,10 @@ export function AvatarControl({
         )}
         <div>
           <p className="text-sm font-medium">{label}</p>
-          {pending ? (
+          {pending && (
             <p role="status" className="mt-1 text-xs text-secondary-ink">
               Updating…
             </p>
-          ) : (
-            editable && (
-              <p className="mt-1 text-xs text-secondary-ink">PNG, JPEG or WebP · Up to 5 MB</p>
-            )
           )}
         </div>
         {editable && (

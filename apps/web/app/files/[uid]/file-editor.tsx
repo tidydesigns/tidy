@@ -43,6 +43,13 @@ import { flushSync } from "react-dom";
 import { Icon } from "@/components/ui/icon";
 import { ComponentLibraryPanel } from "./component-library-panel";
 import { SelectMenu } from "@/components/ui/select-menu";
+import { useEditorToolbarPlacement } from "@/components/ui/editor-toolbar-preference";
+import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
+import {
+  canvasToolsClass,
+  minimisedFileBarClass,
+  minimisedToolbarClass,
+} from "@/components/files/editor-chrome-styles";
 import { PanelToggle } from "./panel-toggle";
 import { EditorChrome, EditorPanel } from "./editor-panel";
 import { CanvasViewMenu, type CanvasPreferences } from "./canvas-view-menu";
@@ -136,7 +143,6 @@ import {
 } from "./canvas-elements";
 import { selectionDragTarget } from "@/lib/design/selection-drag-target";
 import { LayerTree } from "./layer-tree";
-import { SendFeedback } from "@/components/workspace/send-feedback";
 import { FontRecovery } from "./font-recovery";
 import { ImportNotes } from "./import-notes";
 import { setImportNoteStatus } from "@/lib/design/import-notes";
@@ -244,7 +250,7 @@ function CanvasToolButton({
       <span
         id={tipId}
         role="tooltip"
-        className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg bg-strong-action px-2 py-1 text-xs text-on-strong-action opacity-0 shadow-sm transition-opacity duration-150 delay-300 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:delay-0"
+        className="pointer-events-none absolute left-[calc(100%+0.75rem)] top-1/2 z-30 -translate-y-1/2 whitespace-nowrap rounded-lg bg-strong-action px-2 py-1 text-xs text-on-strong-action opacity-0 shadow-sm transition-opacity duration-150 delay-300 group-hover:opacity-100 group-focus-visible:opacity-100 group-focus-visible:delay-0 group-data-[orientation=horizontal]/toolbar:bottom-[calc(100%+0.75rem)] group-data-[orientation=horizontal]/toolbar:left-1/2 group-data-[orientation=horizontal]/toolbar:top-auto group-data-[orientation=horizontal]/toolbar:-translate-x-1/2 group-data-[orientation=horizontal]/toolbar:translate-y-0"
       >
         {hint}
       </span>
@@ -288,6 +294,7 @@ export function FileEditor({
   canEdit = true,
   local = false,
   initialPanelsOpen = false,
+  initialToolbarPlacement = "left",
   user,
   githubReviews,
   viewerId,
@@ -304,6 +311,7 @@ export function FileEditor({
   archived?: boolean;
   canEdit?: boolean;
   initialPanelsOpen?: boolean;
+  initialToolbarPlacement?: EditorToolbarPlacement;
   user?: EditorUser;
   local?: boolean;
   githubReviews?:
@@ -315,6 +323,7 @@ export function FileEditor({
 }) {
   // Archived snapshots use the static viewer: no live room, comments or writes.
   const preview = previewMode || archived;
+  const toolbarPlacement = useEditorToolbarPlacement(initialToolbarPlacement);
   const [agents, setAgents] = useState<ThreadsWorkspaceProps | undefined>(() =>
     initialAgents && !("then" in initialAgents) ? initialAgents : undefined,
   );
@@ -642,6 +651,7 @@ export function FileEditor({
     selected !== null &&
     inspectorSelection.length > 0 &&
     (panelsOpen || !inspectorDismissed);
+  const prototypeInspectorOpen = interactionMode && selectedIds.length === 1;
   const cropping = Boolean(
     cropId &&
     selected?.id === cropId &&
@@ -2899,8 +2909,14 @@ export function FileEditor({
       room.publishPresence({ action: isShapeKind(tool) ? "rectangle" : tool, preview: null }, true);
   });
 
-  const toolRail = (
-    <div role="toolbar" aria-label="Canvas tools" className="flex flex-col items-center gap-1">
+  const toolRail = (horizontal = false) => (
+    <div
+      role="toolbar"
+      aria-label="Canvas tools"
+      aria-orientation={horizontal ? "horizontal" : "vertical"}
+      data-orientation={horizontal ? "horizontal" : "vertical"}
+      className={canvasToolsClass(horizontal)}
+    >
       <CanvasToolButton
         label="Select tool"
         hint="Select · V"
@@ -2967,6 +2983,7 @@ export function FileEditor({
       {!readOnly && (
         <SelectMenu
           label="Shape tool"
+          placement={horizontal ? "top" : "bottom"}
           value={isShapeKind(tool) ? tool : ""}
           options={shapeKinds.map((kind) => ({
             value: kind,
@@ -3432,16 +3449,6 @@ export function FileEditor({
               <Icon name="back" size={18} />
             </Link>
             <div className="min-w-0 flex-1">{fileHeading}</div>
-            {!!artboards.length && (
-              <button
-                type="button"
-                aria-pressed={interactionMode}
-                className="rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs hover:bg-primary-grey/20"
-                onClick={() => setInteractionMode((value) => !value)}
-              >
-                Prototype
-              </button>
-            )}
             <PanelToggle expanded onClick={togglePanels} />
           </div>
           <div
@@ -3629,19 +3636,11 @@ export function FileEditor({
               />
             )}
           </div>
-          {panelsOpen && !preview && !local && (
-            <div className="shrink-0 border-t border-primary-grey/70 p-3 pl-16">
-              <SendFeedback
-                showShortcut
-                className="flex min-h-9 w-full items-center gap-3 rounded-lg px-2 text-sm text-secondary-ink hover:bg-primary-grey/20 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
-              />
-            </div>
-          )}
         </aside>
       </EditorPanel>
       <EditorPanel open={panelsOpen && !prototypeMode} width={53}>
         <aside className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
-          {toolRail}
+          {toolRail()}
         </aside>
       </EditorPanel>
       <div
@@ -4244,10 +4243,7 @@ export function FileEditor({
             />
           )}
           <EditorChrome visible={!panelsOpen || prototypeMode}>
-            <div
-              data-canvas-control
-              className="fixed left-3 top-6 z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 items-center gap-2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
-            >
+            <div data-canvas-control className={minimisedFileBarClass}>
               <Link
                 href={backHref}
                 prefetch={true}
@@ -4258,25 +4254,12 @@ export function FileEditor({
               </Link>
               <span className="h-6 w-px shrink-0 bg-primary-grey/65" />
               <div className="min-w-0 max-w-44 px-2 text-sm">{fileHeading}</div>
-              {!!artboards.length && !prototypeMode && (
-                <button
-                  type="button"
-                  aria-pressed={interactionMode}
-                  className="rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs hover:bg-primary-grey/20"
-                  onClick={() => setInteractionMode((value) => !value)}
-                >
-                  Prototype
-                </button>
-              )}
               {!prototypeMode && <PanelToggle expanded={false} onClick={togglePanels} />}
             </div>
           </EditorChrome>
           <EditorChrome visible={!panelsOpen && !prototypeMode}>
-            <div
-              data-canvas-control
-              className="fixed left-3 top-1/2 z-20 -translate-y-1/2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
-            >
-              {toolRail}
+            <div data-canvas-control className={minimisedToolbarClass(toolbarPlacement)}>
+              {toolRail(toolbarPlacement === "bottom")}
             </div>
           </EditorChrome>
           {prototypeMode && (
@@ -4336,8 +4319,33 @@ export function FileEditor({
           {editorHeader && (
             <div className="shrink-0 border-b border-primary-grey/70">{editorHeader}</div>
           )}
+          {selected && (
+            <div
+              role="group"
+              aria-label="Selection controls"
+              className="flex shrink-0 gap-1 border-b border-primary-grey/60 px-3 py-2"
+            >
+              <button
+                type="button"
+                aria-pressed={!prototypeInspectorOpen}
+                onClick={() => setInteractionMode(false)}
+                className={`rounded-md px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange ${!prototypeInspectorOpen ? "bg-primary-grey/25 text-primary-black" : "text-secondary-ink"}`}
+              >
+                {readOnly ? "Inspect" : "Design"}
+              </button>
+              <button
+                type="button"
+                aria-pressed={prototypeInspectorOpen}
+                disabled={selectedIds.length !== 1}
+                onClick={() => setInteractionMode(true)}
+                className={`rounded-md px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-40 ${prototypeInspectorOpen ? "bg-primary-grey/25 text-primary-black" : "text-secondary-ink"}`}
+              >
+                Prototype
+              </button>
+            </div>
+          )}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {selected && interactionMode && selectedIds.length === 1 && (
+            {selected && prototypeInspectorOpen && (
               <PrototypeInspector
                 key={selected.id}
                 node={selected}
@@ -4347,7 +4355,7 @@ export function FileEditor({
                 onPreview={panelPrototype}
               />
             )}
-            {selected && !interactionMode && (
+            {selected && !prototypeInspectorOpen && (
               <SelectionInspector
                 key={[...selectedIds].sort().join(":")}
                 selected={inspectorSelection}
@@ -4385,7 +4393,7 @@ export function FileEditor({
       {!preview && !local && (
         <div
           data-canvas-control
-          className={`absolute z-30 ${panelsOpen && !prototypeMode ? "bottom-3 left-3" : "bottom-5 left-[72px]"}`}
+          className={`absolute z-30 ${panelsOpen && !prototypeMode ? "bottom-3 left-3" : "bottom-5 left-4"}`}
         >
           <FileVersionControl
             fileId={fileId}
@@ -4395,12 +4403,6 @@ export function FileEditor({
             onRestore={restoreFileVersion}
           />
         </div>
-      )}
-      {!preview && !local && (!panelsOpen || prototypeMode) && (
-        <SendFeedback
-          compact
-          className="absolute bottom-5 left-5 z-30 flex size-10 items-center justify-center rounded-lg border border-primary-grey/70 bg-primary-white text-secondary-ink shadow-sm hover:bg-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.97]"
-        />
       )}
       {agents && threadsOpen && (
         <aside

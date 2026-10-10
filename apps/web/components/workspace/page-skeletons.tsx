@@ -6,9 +6,10 @@ import { Icon } from "@/components/ui/icon";
 import { workspaceDestinations } from "./workspace-nav-data";
 import { workspaceNavClass } from "./workspace-nav-style";
 import { TidyLogo } from "@/components/ui/tidy-logo";
-import { EditorSkeleton } from "@/components/files/editor-skeleton";
+import { EditorSkeleton, type EditorSkeletonPreferences } from "@/components/files/editor-skeleton";
 import { ConnectorIcon } from "@/components/connectors/connector-icon";
 import { connectorProviders } from "@/lib/connectors/catalog";
+import { settingsTabs, settingsLabels, settingsTab } from "@/lib/settings-navigation";
 import { PageLoading } from "@/components/ui/page-loading";
 import {
   filesPage,
@@ -17,6 +18,7 @@ import {
   filesHeader,
   filesGrid,
   settingsTabList,
+  settingsTabButton,
   settingsPanel,
   threadsPage,
   workspaceFrame,
@@ -206,11 +208,11 @@ function SettingsPanelSkeleton({
     return (
       <div className="max-w-xl space-y-10">
         <div className="space-y-6">
+          <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
           <div className="flex items-center gap-4">
             <Block className="size-16 shrink-0 rounded-full" />
             <div>
               <p className="text-sm font-medium">Profile picture</p>
-              <p className="mt-1 text-xs text-secondary-ink">PNG, JPEG or WebP · Up to 5 MB</p>
             </div>
           </div>
           <FieldSkeleton />
@@ -221,22 +223,6 @@ function SettingsPanelSkeleton({
             </p>
           )}
         </div>
-        <div className="border-t border-primary-grey pt-6">
-          <h2 className="mb-4 text-lg font-semibold">Appearance</h2>
-          <div className="space-y-6">
-            <div className="text-sm font-medium">
-              <span>Theme</span>
-              <Block className="mt-2 h-10 w-full max-w-xs" />
-            </div>
-            <div className="text-sm font-medium">
-              <span>Editor panels</span>
-              <Block className="mt-2 h-10 w-full max-w-xs" />
-              <p className="mt-2 text-xs font-normal text-secondary-ink">
-                Applies to files opened in this browser.
-              </p>
-            </div>
-          </div>
-        </div>
         <div className="space-y-5 border-t border-primary-grey pt-6">
           <h2 className="text-lg font-semibold">Password</h2>
           <FieldSkeleton />
@@ -244,6 +230,29 @@ function SettingsPanelSkeleton({
           <FieldSkeleton />
           <Block className="h-12 w-40" />
         </div>
+      </div>
+    );
+  if (tab === "preferences")
+    return (
+      <div className="max-w-xl space-y-8">
+        <section className="space-y-5">
+          <h2 className="text-xl font-semibold tracking-tight">Appearance</h2>
+          <div className="text-sm font-medium">
+            <span>Theme</span>
+            <Block className="mt-2 h-10 w-full max-w-xs" />
+          </div>
+        </section>
+        <section className="space-y-5 border-t border-primary-grey pt-8">
+          <h2 className="text-xl font-semibold tracking-tight">File editor</h2>
+          <div className="text-sm font-medium">
+            <span>Editor panels</span>
+            <Block className="mt-2 h-10 w-full max-w-xs" />
+          </div>
+          <div className="text-sm font-medium">
+            <span>Minimised toolbar</span>
+            <Block className="mt-2 h-10 w-full max-w-xs" />
+          </div>
+        </section>
       </div>
     );
   if (tab === "billing")
@@ -299,7 +308,7 @@ function SettingsPanelSkeleton({
 
 export function SettingsSkeleton(options: SkeletonOptions = {}) {
   return (
-    <Suspense fallback={<SettingsLayoutSkeleton tab="members" {...options} />}>
+    <Suspense fallback={<SettingsLayoutSkeleton tab="profile" {...options} />}>
       <SettingsQuerySkeleton {...options} />
     </Suspense>
   );
@@ -307,12 +316,7 @@ export function SettingsSkeleton(options: SkeletonOptions = {}) {
 
 function SettingsQuerySkeleton(options: SkeletonOptions) {
   const requested = useSearchParams().get("tab");
-  return (
-    <SettingsLayoutSkeleton
-      tab={requested === "github" ? "connectors" : (requested ?? "members")}
-      {...options}
-    />
-  );
+  return <SettingsLayoutSkeleton tab={settingsTab(requested) ?? "profile"} {...options} />;
 }
 
 function SettingsLayoutSkeleton({
@@ -322,21 +326,14 @@ function SettingsLayoutSkeleton({
 }: { tab: string } & SkeletonOptions) {
   return (
     <Surface name="settings" className={settingsPage}>
-      <Block className="h-9 w-80 max-w-full sm:h-10" />
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Settings</h1>
       <div className={settingsTabList}>
-        {[
-          "Members",
-          "Profile",
-          "Settings",
-          "Connectors",
-          "Billing",
-          ...(showThreads ? ["Agents"] : []),
-        ].map((label) => (
+        {settingsTabs(true, showThreads).map((item) => (
           <span
-            key={label}
-            className={`text-sm ${label.toLowerCase() === tab ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink"}`}
+            key={item}
+            className={`${settingsTabButton} ${item === tab ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink"}`}
           >
-            {label}
+            {settingsLabels[item]}
           </span>
         ))}
       </div>
@@ -468,9 +465,9 @@ export function WorkspaceSkeleton({ showThreads = true, emailConfigured }: Skele
   );
 }
 
-export function RouteSkeleton(options: SkeletonOptions) {
+export function RouteSkeleton(options: SkeletonOptions & EditorSkeletonPreferences) {
   const path = usePathname();
-  if (path?.startsWith("/files/")) return <EditorSkeleton />;
+  if (path?.startsWith("/files/")) return <EditorSkeleton {...options} />;
   if (["/files", "/settings", "/mcp", "/threads", "/vault"].includes(path))
     return <WorkspaceSkeleton {...options} />;
   return (

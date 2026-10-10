@@ -1,9 +1,14 @@
 import { cookies } from "next/headers";
-import { EDITOR_PANELS_COOKIE } from "@/lib/editor-preferences";
+import {
+  EDITOR_PANELS_COOKIE,
+  EDITOR_TOOLBAR_COOKIE,
+  editorToolbarPlacement,
+} from "@/lib/editor-preferences";
 import { getWorkspace } from "@/lib/workspace/server";
 import { authEmailConfigured } from "@/lib/auth-email";
 import { listWorkspaceMembers, listPendingInvitations } from "@/lib/organizations/queries";
 import { listAccountSessions } from "@/lib/account/sessions";
+import { settingsTab } from "@/lib/settings-navigation";
 import { SettingsTabs, type Tab } from "@/app/settings/settings-tabs";
 import { connectionStatus } from "@/lib/github/connections";
 import { billingStatus } from "@/lib/billing/server";
@@ -13,11 +18,9 @@ import { agentsEnabled } from "@/lib/agents/config";
 import { agentsSchemaReady } from "@/lib/agents/store";
 import { connectionStatus as agentConnectionStatus } from "@/lib/agents/connections";
 
-const tabs = ["members", "profile", "settings", "connectors", "billing", "agents"] as const;
-
 export default async function SettingsPage({ searchParams }: PageProps<"/settings">) {
   const params = await searchParams;
-  const requestedTab = params.tab === "github" ? "connectors" : params.tab;
+  const requestedTab = settingsTab(params.tab);
 
   const { session, organization, role, canInvite } = await getWorkspace(
     typeof params.connectorOrganization === "string" ? params.connectorOrganization : undefined,
@@ -50,13 +53,13 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     agentStatus(),
   ]);
   const initialTab: Tab =
-    typeof requestedTab === "string" &&
-    tabs.includes(requestedTab as Tab) &&
+    requestedTab &&
     (requestedTab !== "billing" || billing.proLimits) &&
     (requestedTab !== "agents" || agents)
       ? (requestedTab as Tab)
-      : "members";
+      : "profile";
   const callbackStatus = (await searchParams).github;
+  const cookieStore = await cookies();
   return (
     <SettingsTabs
       key={organization.id}
@@ -65,7 +68,10 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       emailConfigured={authEmailConfigured()}
       verificationError={typeof (await searchParams).error === "string"}
       initialTab={initialTab}
-      initialEditorPanelsOpen={(await cookies()).get(EDITOR_PANELS_COOKIE)?.value === "open"}
+      initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
+      initialEditorToolbarPlacement={editorToolbarPlacement(
+        cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
+      )}
       organization={{ id: organization.id, name: organization.name, logo: organization.logo }}
       user={{
         id: session.user.id,

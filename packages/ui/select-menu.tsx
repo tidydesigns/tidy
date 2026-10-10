@@ -10,7 +10,12 @@ import {
   type ReactNode,
 } from "react";
 
-export type SelectMenuOption = { value: string; label: string; disabled?: boolean };
+export type SelectMenuOption = {
+  value: string;
+  label: string;
+  icon?: ReactNode;
+  disabled?: boolean;
+};
 
 export function SelectMenu({
   value,
@@ -206,7 +211,10 @@ export function SelectMenu({
               }}
               className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-none disabled:opacity-50 ${value === option.value ? "bg-primary-grey/20" : ""}`}
             >
-              <span className="min-w-0 truncate">{option.label}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                {option.icon}
+                <span className="truncate">{option.label}</span>
+              </span>
               <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
                 {!actionMenu && value === option.value ? "✓" : ""}
               </span>

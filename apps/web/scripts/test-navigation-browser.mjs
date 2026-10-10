@@ -405,9 +405,9 @@ try {
   await page.getByRole("heading", { name: "Files", exact: true }).waitFor();
   await persistentSidebar();
   await navigate("Settings", "/settings");
-  await page.getByRole("heading", { name: "First workspace settings" }).waitFor();
+  await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("tab", { name: "Profile", exact: true }).click();
-  await page.waitForURL(`${base}/settings?tab=profile`);
+  await page.waitForURL(`${base}/settings`);
   const tabRequests = [];
   const recordTabRequest = (request) => {
     if (new URL(request.url()).searchParams.has("_rsc")) tabRequests.push(request.url());
@@ -434,7 +434,7 @@ try {
     "Retained password draft",
   );
   await page.getByRole("tab", { name: "Profile", exact: true }).press("ArrowRight");
-  await page.getByRole("heading", { name: "Organization", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "File editor", exact: true }).waitFor();
   console.log(
     "PASS: instant Settings tabs preserve draft input and keyboard navigation without RSC requests.",
   );
@@ -466,11 +466,7 @@ try {
       },
     );
     for (const [label, path, ready] of [
-      [
-        "Settings",
-        "/settings",
-        page.getByRole("heading", { name: "First workspace settings", exact: true }),
-      ],
+      ["Settings", "/settings", page.getByRole("heading", { name: "Settings", exact: true })],
       ["MCP", "/mcp", page.getByRole("heading", { name: "MCP", exact: true })],
       ["Threads", "/threads", page.getByRole("link", { name: "Connect Codex to start a thread" })],
       [
@@ -517,6 +513,8 @@ try {
     ["/files?view=archive", "files", "designFolder"],
     ["/settings", "settings", "invitation"],
     ["/settings?tab=profile", "settings", "invitation"],
+    ["/settings?tab=preferences", "settings", "invitation"],
+    ["/settings?tab=organization", "settings", "invitation"],
     ["/settings?tab=settings", "settings", "invitation"],
     ["/settings?tab=connectors", "settings", "invitation"],
     ["/settings?tab=agents", "settings", "invitation"],
@@ -796,7 +794,7 @@ try {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("link", { name: "Settings", exact: true })
     .click();
-  await page.getByRole("heading", { name: "First workspace settings" }).waitFor();
+  await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
   await page.getByRole("button", { name: "Switch organization, First workspace" }).click();
   await page.getByRole("button", { name: "Organization: First workspace", exact: true }).click();
   await page.getByRole("menuitemradio", { name: "Second workspace", exact: true }).click();
@@ -811,8 +809,13 @@ try {
     .getByRole("navigation", { name: "Workspace" })
     .getByRole("link", { name: "Settings", exact: true })
     .click();
-  await page.getByRole("heading", { name: "Second workspace settings" }).waitFor();
+  await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
   await sameDocument();
+  await page.getByRole("tab", { name: "Organization", exact: true }).click();
+  assert.equal(
+    await page.getByLabel("Organization name", { exact: true }).inputValue(),
+    "Second workspace",
+  );
   console.log("PASS: organization switching invalidates cached page and sidebar data.");
   await page.getByRole("button", { name: "Switch organization, Second workspace" }).click();
   await page.getByRole("button", { name: "Sign out", exact: true }).click();
