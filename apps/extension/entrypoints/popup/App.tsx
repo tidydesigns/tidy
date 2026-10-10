@@ -184,14 +184,14 @@ export function App() {
                   disabled={busy || !organizationId}
                   onClick={() => void copy("element")}
                 >
-                  Select element
+                  Select elements
                 </Button>
               </div>
             </>
           )}
           {activeJob?.state === "selecting" && (
             <div className="status">
-              <p role="status">Select an element on the page.</p>
+              <p role="status">Select elements on the page, then choose Copy elements.</p>
               <Button
                 className="secondary"
                 onClick={() =>

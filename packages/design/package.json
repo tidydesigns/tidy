@@ -20,7 +20,8 @@
     "./web-capture": "./web-capture.ts",
     "./extension": "./extension.ts",
     "./browser-capture": "./browser-capture.ts",
-    "./capture-effects": "./capture-effects.ts"
+    "./capture-effects": "./capture-effects.ts",
+    "./capture-source": "./capture-source.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

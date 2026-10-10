@@ -23,6 +23,7 @@ mock.module("wxt/browser", () => ({
         removeListener: (listener: Listener) => listeners.delete(listener),
       },
     },
+    storage: { onChanged: { addListener: () => {}, removeListener: () => {} } },
   },
 }));
 const { default: contentScript } = await import("../entrypoints/capture.content");
@@ -42,6 +43,7 @@ beforeEach(() => {
     "document",
     "location",
     "Element",
+    "ShadowRoot",
     "Node",
     "DOMRect",
     "Image",
@@ -63,7 +65,9 @@ beforeEach(() => {
     configurable: true,
   });
 });
-afterEach(() => {
+afterEach(async () => {
+  // Let React finish scheduled picker cleanup before restoring the DOM globals.
+  await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [name, descriptor] of originals) {
     if (descriptor) Object.defineProperty(globalThis, name, descriptor);
     else Reflect.deleteProperty(globalThis, name);
@@ -190,6 +194,9 @@ describe("rendered webpage capture", () => {
       new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
     );
     expect(navigated).toBe(false);
+    expect(sent).not.toHaveBeenCalled();
+    expect(win.document.querySelector("[data-bella-picker]")).not.toBeNull();
+    win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", cancelable: true }));
     expect(sent).toHaveBeenCalledWith({ type: "bella:picked" });
     expect(win.document.querySelector("[data-bella-picker]")).toBeNull();
     for (const callback of invalidated) callback();

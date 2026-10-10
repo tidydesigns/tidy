@@ -186,7 +186,8 @@ export default defineBackground(() => {
       if (message.mode === "element") {
         await setJob(job);
         try {
-          await browser.tabs.sendMessage(tab.id, { type: "bella:pick" });
+          const { theme } = await browser.storage.local.get("theme");
+          await browser.tabs.sendMessage(tab.id, { type: "bella:pick", theme });
         } catch (error) {
           await browser.storage.session.remove("job");
           throw error;
