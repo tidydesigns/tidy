@@ -2933,6 +2933,34 @@ integration(
   },
 );
 
+integration("document events disable JIT locally without changing the caller setting", async () => {
+  await admin.query("begin");
+  try {
+    await admin.query(`set local jit=on;
+      create function pg_temp.check_event_jit() returns trigger language plpgsql as $$
+      begin
+        if current_setting('jit') <> 'off' then
+          raise exception 'Document event enabled JIT';
+        end if;
+        return new;
+      end;
+      $$;
+      create trigger fixture_check_event_jit before insert or update on "designRealtimeProperty"
+      for each row execute function pg_temp.check_event_jit();`);
+    await admin.query(`update "designDocument" set "content"=jsonb_set("content",'{jitFixture}','true')
+      where "fileId"='file-a'`);
+    expect((await admin.query("select current_setting('jit') as jit")).rows[0].jit).toBe("on");
+    expect(
+      (
+        await admin.query(`select "path" from "designRealtimeProperty"
+        where "fileId"='file-a' and "collection"='document' and "path"=array['jitFixture']`)
+      ).rows,
+    ).toEqual([{ path: ["jitFixture"] }]);
+  } finally {
+    await admin.query("rollback");
+  }
+});
+
 integration("concurrent MCP batches at one revision commit exactly once", async () => {
   const { buildDrawnNode } = await import("../design/document");
   await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [

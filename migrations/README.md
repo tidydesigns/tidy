@@ -41,6 +41,8 @@ credentials out of app bindings and native agent environments. Run
 `20261010-document-event-performance.sql` replaces the collaboration event
 function after `20260928-file-multiplayer.sql`. It retains the same event and
 property-path semantics, skips unchanged recursive branches, and writes changed
-paths in one statement. Fresh local databases apply it automatically; existing
+paths in one statement. JIT is disabled only within this short-lived trigger to
+avoid recursive-plan compilation overhead on LLVM-enabled PostgreSQL; the caller's
+setting is restored on return. Fresh local databases apply it automatically; existing
 local databases must apply it before measuring phase-three database improvements.
 Production application still requires an explicitly approved target and operation.

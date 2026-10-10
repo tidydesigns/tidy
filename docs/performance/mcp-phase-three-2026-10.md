@@ -58,6 +58,23 @@ The experiment sequence was measured separately:
 
 Intermediate runs are experiments, not combined estimates. [Profile baseline](mcp-phase-three-2026-10/baseline.json), [first trigger](mcp-phase-three-2026-10/trigger.json), [batch experiment](mcp-phase-three-2026-10/batch.json), [set-based trigger](mcp-phase-three-2026-10/setbased.json). Query profiling records SQL templates, counts and elapsed time without bound parameters. Timing includes client-side result decoding; it is not isolated database CPU.
 
+### Linux JIT follow-up
+
+PR validation exposed five first-write/setup timeouts on Linux, despite passing local macOS checks. Homebrew PostgreSQL was built without LLVM; the disposable Docker PostgreSQL 17.11 Debian arm64 server reports JIT available. An `auto_explain` nested plan showed that the recursive event query's estimate crosses the default JIT threshold even for one changed node (estimated cost about 156,108, versus a 100,000 threshold). The observed one-node plan spent 6.4 ms compiling on a repeated write.
+
+The trigger now declares `SET jit=off` on the function itself. This avoids compilation inside document-event processing and restores the caller's setting afterward; no server-wide configuration changes are required. A regression test installs a temporary property-event trigger that rejects writes if JIT is enabled, performs a real document update with the session setting on, verifies the emitted path, and checks that the session remains on after the update. Existing exact conflict-path, transaction and revision tests remain in place.
+
+A separate minimal SQL probe on the disposable Linux server, five warmups and 30 measured updates per case:
+
+| Updated nodes | JIT-default median → function-scoped JIT-off median | p95 before → after |
+| ------------- | --------------------------------------------------: | -----------------: |
+| 1             |                                    7.337 → 0.145 ms |   7.726 → 0.216 ms |
+| 1,500         |                                  24.829 → 16.390 ms | 26.652 → 17.411 ms |
+
+[Raw SQL samples](mcp-phase-three-2026-10/jit-linux.json). These timings include the SQL update and event trigger in a minimal fixture, not the complete MCP API, production schema, or model/network time. They compare the same bulk event SQL with and without its scoped JIT setting; they must not be compounded with the earlier HTTP gains. The full version/history suite also passed against a disposable Linux database with the complete schema (six tests). The initial Linux probe used a 30-second diagnostic test timeout; CI keeps its original five-second limits. This fix does not explain or remove the separate read/rename saturation caveat, whose calls do not invoke this trigger.
+
+PostgreSQL documents both the [cost-based JIT decision and short-query overhead](https://www.postgresql.org/docs/17/jit-decision.html) and [function-scoped configuration restoration](https://www.postgresql.org/docs/17/sql-createfunction.html). Historical HTTP measurements above predate this follow-up and were taken on PostgreSQL without LLVM. GitHub CI is the separate cross-platform validation of the final PR.
+
 ### Two fewer database round trips per edit
 
 A materialized authorization/file-lock query gates the document read/lock in one statement, retaining the existing file-before-document order and role/verified-user checks. The document update and file timestamp update share a data-modifying CTE. A single MCP edit therefore issues **23 instead of 25 SQL statements**; a batch plus verification issues **42 instead of 44**. It still takes two MCP calls, as in phase two.

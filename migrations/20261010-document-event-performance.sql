@@ -3,7 +3,9 @@
 -- Apply after 20260928-file-multiplayer.sql. No production application is implicit.
 begin;
 
-create or replace function bella_document_event() returns trigger language plpgsql as $$
+-- Recursive JSON estimates can cross the JIT threshold even for tiny writes.
+-- Compile-free execution is scoped to this trigger; callers retain their setting.
+create or replace function bella_document_event() returns trigger language plpgsql set jit=off as $$
 declare prior jsonb; event_sequence bigint;
 begin
   if TG_OP = 'INSERT' then prior := '{}'::jsonb; else prior := old."content"; end if;
