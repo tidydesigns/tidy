@@ -16,7 +16,7 @@ export default defineConfig({
       throw new Error("WXT_BELLA_URL must be an HTTPS origin or http://localhost:<port>.");
     }
     return {
-      name: "Tidy: Import websites as designs",
+      name: "Tidy: Website to Design",
       description: "Import webpages and selected elements into your Tidy design files.",
       key: EXTENSION_KEY,
       permissions: ["activeTab", "scripting", "storage"],
