@@ -15,9 +15,43 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: POST });
   const originalQuery = Client.prototype.query;
   let queries = 0;
+  const profileQueries = process.env.MCP_BENCHMARK_PROFILE === "1";
+  let queryProfile = new Map();
   const queryDelayMs = Number(process.env.MCP_BENCHMARK_QUERY_DELAY_MS ?? 0);
   Client.prototype.query = function (...args) {
     if (this !== admin) queries++;
+    const sql = typeof args[0] === "string" ? args[0] : args[0]?.text;
+    const started = performance.now();
+    const record = () => {
+      if (!profileQueries || this === admin) return;
+      // Fixture queries only, without bound parameters or document contents.
+      const key = String(sql)
+        .replace(/tidy_scope_\d+/g, "tidy_scope_N")
+        .replace(/\s+/g, " ")
+        .trim();
+      const row = queryProfile.get(key) ?? { sql: key, count: 0, elapsedMs: 0 };
+      row.count++;
+      row.elapsedMs += performance.now() - started;
+      queryProfile.set(key, row);
+    };
+    if (profileQueries && this !== admin) {
+      const callback = args.at(-1);
+      if (typeof callback === "function") {
+        args[args.length - 1] = (...result) => {
+          record();
+          if (queryDelayMs > 0) setTimeout(() => callback(...result), queryDelayMs);
+          else callback(...result);
+        };
+        return originalQuery.apply(this, args);
+      }
+      return originalQuery
+        .apply(this, args)
+        .finally(record)
+        .then(async (result) => {
+          if (queryDelayMs > 0) await Bun.sleep(queryDelayMs);
+          return result;
+        });
+    }
     if (this !== admin && queryDelayMs > 0) {
       const callback = args.at(-1);
       if (typeof callback === "function") {
@@ -81,6 +115,7 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
   async function measure(name, work, concurrency = 1) {
     for (let i = 0; i < 5; i++) await work();
     queries = 0;
+    queryProfile = new Map();
     const latency = [];
     let bytes = 0;
     const cpu = process.cpuUsage();
@@ -109,6 +144,17 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
       sqlPerRequest: round(queries / samples),
       bytesPerResponse: Math.round(bytes / samples),
       processCpuMsPerRequest: round((used.user + used.system) / 1000 / samples),
+      ...(profileQueries
+        ? {
+            queryProfile: [...queryProfile.values()]
+              .map((query) => ({
+                sql: query.sql,
+                countPerRequest: query.count / samples,
+                elapsedMsPerRequest: round(query.elapsedMs / samples),
+              }))
+              .sort((a, b) => b.elapsedMsPerRequest - a.elapsedMsPerRequest),
+          }
+        : {}),
     };
     results.push(row);
     console.info("MCP_BENCHMARK", JSON.stringify(row));
@@ -248,52 +294,56 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
         // User outcome: update 20 layers and read back all resulting values. Both
         // implementations return the same final content; the batch commits once.
         const batched = process.env.MCP_BENCHMARK_BATCH === "1";
-        await measure("edit 20 layers and verify / 5000 nodes", async () => {
-          const edits = Array.from({ length: 20 }, (_, i) => ({
-            node_id: `node-${2500 + i}`,
-            changes: { name: `Variation ${revision}-${i}` },
-          }));
-          let bytes = 0;
-          if (batched) {
-            const response = await call("tools/call", {
-              name: "patch_document",
-              arguments: {
-                file_id: "file-a",
-                expected_revision: revision,
-                ...edits[0],
-                additional_edits: edits.slice(1),
-                include_document: false,
-              },
-            });
-            revision = response.result.structuredContent.revision;
-            bytes += response.bytes;
-          } else
-            for (const edit of edits) {
+        const batchSizes = (process.env.MCP_BENCHMARK_BATCH_SIZES ?? "20").split(",").map(Number);
+        if (batchSizes.some((size) => !Number.isInteger(size) || size < 1 || size > 250))
+          throw new Error("Invalid benchmark batch size");
+        for (const batchSize of batchSizes)
+          await measure(`edit ${batchSize} layers and verify / 5000 nodes`, async () => {
+            const edits = Array.from({ length: batchSize }, (_, i) => ({
+              node_id: `node-${2500 + i}`,
+              changes: { name: `Variation ${revision}-${i}` },
+            }));
+            let bytes = 0;
+            if (batched) {
               const response = await call("tools/call", {
                 name: "patch_document",
                 arguments: {
                   file_id: "file-a",
                   expected_revision: revision,
-                  ...edit,
+                  ...edits[0],
+                  additional_edits: edits.slice(1),
                   include_document: false,
                 },
               });
               revision = response.result.structuredContent.revision;
               bytes += response.bytes;
-            }
-          const read = await call("tools/call", {
-            name: "get_document",
-            arguments: { file_id: "file-a", offset: 2500, limit: 20 },
-          });
-          if (
-            read.result.structuredContent.revision !== revision ||
-            read.result.structuredContent.nodes.some(
-              (node, i) => node.name !== edits[i].changes.name,
+            } else
+              for (const edit of edits) {
+                const response = await call("tools/call", {
+                  name: "patch_document",
+                  arguments: {
+                    file_id: "file-a",
+                    expected_revision: revision,
+                    ...edit,
+                    include_document: false,
+                  },
+                });
+                revision = response.result.structuredContent.revision;
+                bytes += response.bytes;
+              }
+            const read = await call("tools/call", {
+              name: "get_document",
+              arguments: { file_id: "file-a", offset: 2500, limit: batchSize },
+            });
+            if (
+              read.result.structuredContent.revision !== revision ||
+              read.result.structuredContent.nodes.some(
+                (node, i) => node.name !== edits[i].changes.name,
+              )
             )
-          )
-            throw new Error("Workflow lost a layer edit");
-          return { bytes: bytes + read.bytes };
-        });
+              throw new Error("Workflow lost a layer edit");
+            return { bytes: bytes + read.bytes };
+          });
         const master = designNodeSchema.parse({
           id: "master",
           name: "Button",

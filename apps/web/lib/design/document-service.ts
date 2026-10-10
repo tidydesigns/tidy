@@ -24,7 +24,7 @@ import {
 import { mergeImport } from "@/lib/design/merge-import";
 import { duplicateNodeTree } from "@/lib/design/duplicate-node";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
-import { changedLayers } from "@/lib/design/edit-document";
+import { changedLayerBatch } from "@/lib/design/edit-document";
 import { trackDocumentChanges } from "@/lib/design/edit-document";
 import { removeComponentReferences } from "./component-variants";
 import { layoutReport } from "./layout-diagnostics";
@@ -820,19 +820,20 @@ async function patchNodes(
   const client = await db.connect();
   try {
     await client.query("begin");
-    const access = await client.query(
-      `select f."id", f."organizationId" from "designFile" f
+    // Retain the existing file/authority-before-document lock order, with one
+    // round trip. The materialized access row gates the document lock/read.
+    const result = await client.query<{
+      revision: number;
+      content: DesignDocument;
+      organizationId: string;
+    }>(
+      `with access as materialized (
+      select f."id", f."organizationId" from "designFile" f
       join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${EDIT_ROLES_SQL}
       join "user" u on u."id"=m."userId" and u."emailVerified"=true
-      where f."id" = $1 and f."archivedAt" is null for update of f for share of m,u`,
-      [fileId, userId],
-    );
-    if (!access.rowCount) throw new PublicActionError("Document not found or access denied.");
-    const result = await client.query<{ revision: number; content: DesignDocument }>(
-      `select d."revision", d."content" from "designDocument" d
-      join "designFile" f on f."id" = d."fileId" join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${EDIT_ROLES_SQL}
-      join "user" u on u."id"=m."userId" and u."emailVerified"=true
-      where d."fileId" = $1 and f."archivedAt" is null for update of d for share of m,u`,
+      where f."id" = $1 and f."archivedAt" is null for update of f for share of m,u
+      ) select d."revision", d."content", access."organizationId" from access
+      join "designDocument" d on d."fileId"=access."id" for update of d`,
       [fileId, userId],
     );
     const current = result.rows[0];
@@ -842,9 +843,7 @@ async function patchNodes(
     const existing = new Set(current.content.nodes.map((node) => node.id));
     if (requireTargets && edits.some((edit) => !existing.has(edit.nodeId)))
       throw new PublicActionError("Layer not found. Refresh before editing.");
-    let nodes = current.content.nodes;
-    for (const { nodeId, changes } of edits)
-      nodes = changedLayers({ ...current.content, nodes }, [nodeId], changes);
+    const nodes = changedLayerBatch(current.content, edits);
     const document = trackDocumentChanges(current.content, {
       ...current.content,
       nodes,
@@ -852,13 +851,15 @@ async function patchNodes(
         ...new Set([...current.content.editedNodeIds, ...edits.map((edit) => edit.nodeId)]),
       ],
     });
-    await verifyAssets(client, access.rows[0].organizationId, document);
+    await verifyAssets(client, current.organizationId, document);
     const revision = current.revision + 1;
     await client.query(
-      `update "designDocument" set "revision" = $2, "content" = $3::jsonb, "updatedAt" = now() where "fileId" = $1`,
+      `with saved as (
+        update "designDocument" set "revision" = $2, "content" = $3::jsonb, "updatedAt" = now()
+        where "fileId" = $1 returning "fileId"
+      ) update "designFile" set "updatedAt" = now() where "id" in (select "fileId" from saved)`,
       [fileId, revision, JSON.stringify(document)],
     );
-    await client.query(`update "designFile" set "updatedAt" = now() where "id" = $1`, [fileId]);
     await client.query("commit");
     await publishFileChanges(fileId);
     const byId = new Map(document.nodes.map((node) => [node.id, node]));

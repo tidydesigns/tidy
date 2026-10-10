@@ -1,0 +1,1066 @@
+{
+  "at": "2026-10-10T21:02:28.303Z",
+  "runtime": "Bun 1.3.14",
+  "platform": "darwin arm64",
+  "cpu": "Apple M5",
+  "queryDelayMs": 0,
+  "results": [
+    {
+      "name": "tools/list legacy",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.12,
+      "p95Ms": 5.02,
+      "requestsPerSecond": 303.3,
+      "sqlPerRequest": 1,
+      "bytesPerResponse": 267881,
+      "processCpuMsPerRequest": 4.09,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.41
+        }
+      ]
+    },
+    {
+      "name": "tools/list modern",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 2.24,
+      "p95Ms": 3.81,
+      "requestsPerSecond": 396.66,
+      "sqlPerRequest": 1,
+      "bytesPerResponse": 268008,
+      "processCpuMsPerRequest": 2.93,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.28
+        }
+      ]
+    },
+    {
+      "name": "get_document small",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.09,
+      "p95Ms": 5.39,
+      "requestsPerSecond": 282.91,
+      "sqlPerRequest": 19,
+      "bytesPerResponse": 549,
+      "processCpuMsPerRequest": 2.94,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.38
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.37
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.24
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.21
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.19
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.15
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.08
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "get_document concurrent",
+      "samples": 30,
+      "concurrency": 5,
+      "p50Ms": 7.97,
+      "p95Ms": 16.23,
+      "requestsPerSecond": 467.63,
+      "sqlPerRequest": 19,
+      "bytesPerResponse": 549,
+      "processCpuMsPerRequest": 2.39,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 2
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 1.66
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.89
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.5
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.37
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.28
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.26
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.24
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.22
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.15
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "rename_file",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.29,
+      "p95Ms": 5.11,
+      "requestsPerSecond": 277.8,
+      "sqlPerRequest": 24,
+      "bytesPerResponse": 213,
+      "processCpuMsPerRequest": 3,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.39
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.35
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.22
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.22
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.15
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.14
+        },
+        {
+          "sql": "select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select p.\"organizationId\" from \"designFile\" p join \"member\" m on m.\"organizationId\"=p.\"organizationId\" and m.\"userId\"=$2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where p.\"id\"=$1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "update \"designFile\" set \"name\"=$2,\"updatedAt\"=now() where \"id\"=$1 and \"organizationId\"=$3 and \"archivedAt\" is null returning \"id\"",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.09
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.05
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.05
+        },
+        {
+          "sql": "release savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.04
+        }
+      ]
+    },
+    {
+      "name": "linear read 100ms provider concurrent",
+      "samples": 30,
+      "concurrency": 5,
+      "p50Ms": 117.76,
+      "p95Ms": 120.92,
+      "requestsPerSecond": 41.59,
+      "sqlPerRequest": 21,
+      "bytesPerResponse": 271,
+      "processCpuMsPerRequest": 6.61,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 3.66
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 3.34
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 3,
+          "elapsedMsPerRequest": 2.24
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 1.09
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 3,
+          "elapsedMsPerRequest": 0.72
+        },
+        {
+          "sql": "select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.64
+        },
+        {
+          "sql": "select 1 from \"connectorConnection\" c join \"connectorAccount\" a on a.\"id\"=c.\"accountId\" join \"member\" m on m.\"organizationId\"=c.\"organizationId\" and m.\"userId\"=a.\"userId\" join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where c.\"id\"=$1 and c.\"organizationId\"=$2 and a.\"userId\"=$3 and a.\"id\"=$4 and a.\"provider\"='linear' and a.\"state\"='connected' and a.\"externalWorkspaceId\"=$5 and a.\"externalUserId\"=$6 and encode(sha256(convert_to(a.\"credentials\"::text,'UTF8')),'hex')=$7 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner')",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.51
+        },
+        {
+          "sql": "select a.\"id\",a.\"externalWorkspaceId\",a.\"externalUserId\",a.\"credentials\",a.\"expiresAt\",a.\"state\",encode(sha256(convert_to(a.\"credentials\"::text,'UTF8')),'hex') as \"credentialVersion\" from \"connectorAccount\" a join \"connectorConnection\" c on c.\"accountId\"=a.\"id\" join \"user\" u on u.\"id\"=a.\"userId\" and u.\"emailVerified\"=true where c.\"id\"=$1 and c.\"organizationId\"=$2 and a.\"userId\"=$3 and a.\"provider\"='linear'",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.39
+        },
+        {
+          "sql": "select 1 from \"connectorConnection\" c join \"connectorAccount\" a on a.\"id\"=c.\"accountId\" join \"member\" m on m.\"organizationId\"=c.\"organizationId\" and m.\"userId\"=a.\"userId\" join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where c.\"id\"=$1 and c.\"organizationId\"=$2 and a.\"userId\"=$3 and a.\"id\"=$4 and a.\"provider\"='linear' and a.\"state\"='connected' and a.\"externalWorkspaceId\"=$5 and a.\"externalUserId\"=$6 and encode(sha256(convert_to(a.\"credentials\"::text,'UTF8')),'hex')=$7 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of c,a,m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.39
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.33
+        },
+        {
+          "sql": "select m.\"role\" from \"member\" m join \"user\" u on u.\"id\" = m.\"userId\" and u.\"emailVerified\" = true where m.\"userId\" = $1 and m.\"organizationId\" = $2",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.23
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.21
+        },
+        {
+          "sql": "select to_regclass('public.\"connectorAccount\"') is not null and to_regclass('public.\"connectorConnection\"') is not null and to_regclass('public.\"connectorOAuthState\"') is not null and to_regclass('public.\"connectorOperation\"') is not null and to_regclass('public.\"connectorWebhookDelivery\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        }
+      ]
+    },
+    {
+      "name": "get_document 5000 nodes",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 17.16,
+      "p95Ms": 19.99,
+      "requestsPerSecond": 57.17,
+      "sqlPerRequest": 19,
+      "bytesPerResponse": 1962807,
+      "processCpuMsPerRequest": 15.74,
+      "queryProfile": [
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 4.87
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.67
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.53
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.31
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.28
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.26
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.23
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.14
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.08
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "get_document page 50/5000",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.5,
+      "p95Ms": 5.36,
+      "requestsPerSecond": 269.84,
+      "sqlPerRequest": 19,
+      "bytesPerResponse": 20173,
+      "processCpuMsPerRequest": 2.41,
+      "queryProfile": [
+        {
+          "sql": "select d.\"revision\", d.\"content\" - 'nodes' as metadata, jsonb_array_length(d.\"content\"->'nodes') as \"totalNodes\", jsonb_path_query_array(d.\"content\", '$.nodes[$start to $end]', jsonb_build_object('start',$3::bigint,'end',$4::bigint)) as nodes from \"designDocument\" d join \"designFile\" f on f.\"id\"=d.\"fileId\" join \"member\" m on m.\"organizationId\"=f.\"organizationId\" and m.\"userId\"=$2 join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\"=$1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.55
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.42
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.39
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.26
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.18
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "patch_document 5000 nodes",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 51.26,
+      "p95Ms": 65.59,
+      "requestsPerSecond": 18.75,
+      "sqlPerRequest": 25,
+      "bytesPerResponse": 1963212,
+      "processCpuMsPerRequest": 42.32,
+      "queryProfile": [
+        {
+          "sql": "update \"designDocument\" set \"revision\" = $2, \"content\" = $3::jsonb, \"updatedAt\" = now() where \"fileId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 17.16
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and f.\"archivedAt\" is null for update of d for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 4.8
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.74
+        },
+        {
+          "sql": "update \"designFile\" set \"updatedAt\" = now() where \"id\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.66
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.49
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.41
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.28
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "select f.\"id\", f.\"organizationId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where f.\"id\" = $1 and f.\"archivedAt\" is null for update of f for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.13
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.09
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.09
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "release savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        },
+        {
+          "sql": "savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.05
+        }
+      ]
+    },
+    {
+      "name": "patch_document compact 5000 nodes",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 42.76,
+      "p95Ms": 45.69,
+      "requestsPerSecond": 23.18,
+      "sqlPerRequest": 25,
+      "bytesPerResponse": 555,
+      "processCpuMsPerRequest": 29.55,
+      "queryProfile": [
+        {
+          "sql": "update \"designDocument\" set \"revision\" = $2, \"content\" = $3::jsonb, \"updatedAt\" = now() where \"fileId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 15.96
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and f.\"archivedAt\" is null for update of d for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 4.71
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.6
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.57
+        },
+        {
+          "sql": "update \"designFile\" set \"updatedAt\" = now() where \"id\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.55
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.51
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.43
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.36
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.15
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.13
+        },
+        {
+          "sql": "select f.\"id\", f.\"organizationId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where f.\"id\" = $1 and f.\"archivedAt\" is null for update of f for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.13
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        },
+        {
+          "sql": "release savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "import guidance",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.17,
+      "p95Ms": 4.42,
+      "requestsPerSecond": 294.73,
+      "sqlPerRequest": 15,
+      "bytesPerResponse": 171617,
+      "processCpuMsPerRequest": 2.53,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.42
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.37
+        },
+        {
+          "sql": "select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "select m.\"organizationId\" from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"userId\"=$1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') order by (m.\"role\"='owner') desc,m.\"createdAt\",m.\"organizationId\" limit 1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.16
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "design guidance",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 3.01,
+      "p95Ms": 4.18,
+      "requestsPerSecond": 311.57,
+      "sqlPerRequest": 15,
+      "bytesPerResponse": 158963,
+      "processCpuMsPerRequest": 2.4,
+      "queryProfile": [
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.37
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.35
+        },
+        {
+          "sql": "select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.26
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.23
+        },
+        {
+          "sql": "select m.\"organizationId\" from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"userId\"=$1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') order by (m.\"role\"='owner') desc,m.\"createdAt\",m.\"organizationId\" limit 1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.17
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.11
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "edit 20 layers and verify / 5000 nodes",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 50.08,
+      "p95Ms": 60.99,
+      "requestsPerSecond": 19.47,
+      "sqlPerRequest": 44,
+      "bytesPerResponse": 17693,
+      "processCpuMsPerRequest": 34.08,
+      "queryProfile": [
+        {
+          "sql": "update \"designDocument\" set \"revision\" = $2, \"content\" = $3::jsonb, \"updatedAt\" = now() where \"fileId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 17.23
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and f.\"archivedAt\" is null for update of d for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 4.98
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 1.31
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 1.05
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 0.62
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 0.59
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.58
+        },
+        {
+          "sql": "update \"designFile\" set \"updatedAt\" = now() where \"id\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.55
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" - 'nodes' as metadata, jsonb_array_length(d.\"content\"->'nodes') as \"totalNodes\", jsonb_path_query_array(d.\"content\", '$.nodes[$start to $end]', jsonb_build_object('start',$3::bigint,'end',$4::bigint)) as nodes from \"designDocument\" d join \"designFile\" f on f.\"id\"=d.\"fileId\" join \"member\" m on m.\"organizationId\"=f.\"organizationId\" and m.\"userId\"=$2 join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\"=$1 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.49
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 0.29
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.26
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 4,
+          "elapsedMsPerRequest": 0.24
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.23
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 3,
+          "elapsedMsPerRequest": 0.2
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.16
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.14
+        },
+        {
+          "sql": "select f.\"id\", f.\"organizationId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where f.\"id\" = $1 and f.\"archivedAt\" is null for update of f for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.14
+        },
+        {
+          "sql": "release savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    },
+    {
+      "name": "edit master / 1500 linked nodes",
+      "samples": 30,
+      "concurrency": 1,
+      "p50Ms": 62.61,
+      "p95Ms": 68.96,
+      "requestsPerSecond": 15.61,
+      "sqlPerRequest": 25,
+      "bytesPerResponse": 619,
+      "processCpuMsPerRequest": 29.78,
+      "queryProfile": [
+        {
+          "sql": "update \"designDocument\" set \"revision\" = $2, \"content\" = $3::jsonb, \"updatedAt\" = now() where \"fileId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 41.33
+        },
+        {
+          "sql": "select d.\"revision\", d.\"content\" from \"designDocument\" d join \"designFile\" f on f.\"id\" = d.\"fileId\" join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where d.\"fileId\" = $1 and f.\"archivedAt\" is null for update of d for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 2.02
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.55
+        },
+        {
+          "sql": "commit",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.52
+        },
+        {
+          "sql": "with grant_user as materialized ( select 1 from \"user\" where \"id\"=$1 and \"emailVerified\"=true for share ), grant_client as materialized ( select 1 from \"oauthClient\" where \"clientId\"=$2 and \"disabled\" is not true and (\"scopes\" is null or \"scopes\" ?& $4::text[]) and exists(select 1 from grant_user) for share ), grant_resource as materialized ( select 1 from \"oauthResource\" where \"identifier\"=$3 and \"disabled\" is not true and (\"allowedScopes\" is null or \"allowedScopes\" ?& $4::text[]) and exists(select 1 from grant_client) for share ), grant_link as materialized ( select 1 from \"oauthClientResource\" where \"clientId\"=$2 and \"resourceId\"=$3 and exists(select 1 from grant_resource) for share ), grant_session as materialized ( select \"expiresAt\" from \"session\" where \"id\"=$5 and \"userId\"=$1 and \"expiresAt\">clock_timestamp() and exists(select 1 from grant_link) for share ), grant_consent as materialized ( select 1 from \"oauthConsent\" where \"userId\"=$1 and \"clientId\"=$2 and \"resources\" @> jsonb_build_array($3::text) and \"scopes\" ?& $4::text[] and exists(select 1 from grant_session) for share ) select (select \"expiresAt\" from grant_session)>clock_timestamp() as live from grant_consent where coalesce((select \"value\" from \"verification\" where \"id\"=$6),'0')=$7",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.41
+        },
+        {
+          "sql": "update \"designFile\" set \"updatedAt\" = now() where \"id\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.37
+        },
+        {
+          "sql": "with authority as materialized (select 1 from \"member\" m join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where m.\"organizationId\"=$1 and m.\"userId\"=$2 and m.\"role\" in ('viewer', 'editor', 'member', 'admin', 'owner') for share of m,u) select \"id\" from \"designFile\" where \"id\"=$3 and \"organizationId\"=$1 and (select count(*) from authority)=1 for share",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.29
+        },
+        {
+          "sql": "select f.\"id\" as \"fileId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 where f.\"id\" = $1 and f.\"archivedAt\" is null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.16
+        },
+        {
+          "sql": "select f.\"id\", f.\"organizationId\" from \"designFile\" f join \"member\" m on m.\"organizationId\" = f.\"organizationId\" and m.\"userId\" = $2 and m.\"role\" in ('editor', 'member', 'admin', 'owner') join \"user\" u on u.\"id\"=m.\"userId\" and u.\"emailVerified\"=true where f.\"id\" = $1 and f.\"archivedAt\" is null for update of f for share of m,u",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.14
+        },
+        {
+          "sql": "select pg_advisory_xact_lock(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.13
+        },
+        {
+          "sql": "begin",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select pg_advisory_xact_lock_shared(hashtextextended($1,0))",
+          "countPerRequest": 2,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select \"consumeOrganizationMcpCall\"($1,$2)",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.12
+        },
+        {
+          "sql": "select coalesce(nullif(\"name\", ''), 'Coding agent') as \"name\" from \"oauthClient\" where \"clientId\" = $1",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.1
+        },
+        {
+          "sql": "select \"organizationId\" from \"designFile\" where \"id\"=$1 and $2::text is not null",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.09
+        },
+        {
+          "sql": "select to_regclass('\"designDocument\"') is not null and to_regclass('\"designAsset\"') is not null and to_regclass('\"designImport\"') is not null as ready",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.08
+        },
+        {
+          "sql": "release savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.07
+        },
+        {
+          "sql": "savepoint tidy_scope_N",
+          "countPerRequest": 1,
+          "elapsedMsPerRequest": 0.06
+        }
+      ]
+    }
+  ]
+}

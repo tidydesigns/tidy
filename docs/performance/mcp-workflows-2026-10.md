@@ -1,5 +1,7 @@
 # MCP workflow performance: second pass
 
+The [third pass](mcp-phase-three-2026-10.md) measures further gains from shared batch indexes and database collaboration-event processing against this revision.
+
 This pass compares against `f69ff1b`, the already optimized implementation from the [first report](mcp-2026-10.md). It measures time to finish a design change, checks component correctness, and exercises browser capture → authenticated MCP → editable design → rendered preview locally. Measurements were taken on October 10, 2026, on the same Apple M5 / Bun 1.3.14 / PostgreSQL 17.11 environment.
 
 ## User outcomes

@@ -2814,6 +2814,166 @@ for (const failure of [
     expect(saved).toEqual({ revision: 1, content: document });
   });
 
+integration(
+  "bulk collaboration events match the original diff paths and preserve event sequencing",
+  async () => {
+    const { readFile } = await import("node:fs/promises");
+    const original = await readFile(
+      new URL("../../../../migrations/20260928-file-multiplayer.sql", import.meta.url),
+      "utf8",
+    );
+    const definition = original
+      .match(/create or replace function bella_changed_paths[\s\S]*?\$\$;/)[0]
+      .replaceAll("bella_changed_paths", "pg_temp.original_changed_paths");
+    await admin.query("begin");
+    try {
+      await admin.query(definition);
+      const node = { id: "a", style: { fill: "#112233", border: { width: 1 } }, values: [1, 2] };
+      const cases = [
+        [
+          { nodes: [], pages: [] },
+          { nodes: [node], pages: [{ id: "p", name: "First" }] },
+        ],
+        [
+          { nodes: [node], pages: [] },
+          { nodes: [], pages: [] },
+        ],
+        [node, { ...node, style: { fill: "#334455", border: { width: 2 } }, values: [2, 1] }],
+        [node, { ...node, style: null, values: [] }],
+        [
+          { ...node, style: {} },
+          { ...node, style: { fill: null } },
+        ],
+        [
+          { ...node, style: { fill: null } },
+          { ...node, style: {} },
+        ],
+        [node, { ...node, style: { "a.b": { 'quoted"key': false } } }],
+      ].map(([before, after]) =>
+        before.id
+          ? [
+              { nodes: [before], pages: [{ id: "p", name: "Before" }], metadata: { nested: [1] } },
+              {
+                nodes: [after],
+                pages: [{ id: "p", name: "After" }],
+                metadata: { nested: null },
+                commentPages: ["ignored"],
+              },
+            ]
+          : [before, after],
+      );
+      cases.push([cases[0][1], cases[0][1]]); // No-op updates still emit a durable event.
+      cases.push([
+        { nodes: Array.from({ length: 1500 }, (_, i) => ({ ...node, id: String(i) })), pages: [] },
+        {
+          nodes: Array.from({ length: 1500 }, (_, i) => ({
+            ...node,
+            id: String(i),
+            style: { ...node.style, fill: "#abcdef" },
+          })),
+          pages: [],
+        },
+      ]);
+      for (const [before, after] of cases) {
+        await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+          before,
+        ]);
+        const previous = (
+          await admin.query(
+            'select "sequence" from "designRealtimeState" where "fileId"=\'file-a\'',
+          )
+        ).rows[0].sequence;
+        const expected = (
+          await admin.query(
+            `
+        select collection.name as collection, changed.id as "entityId", paths.path
+        from unnest(array['nodes','pages']) collection(name)
+        cross join lateral (
+          select coalesce(b.value->>'id',a.value->>'id') as id, b.value as before_value,a.value as after_value
+          from jsonb_array_elements($1::jsonb->collection.name) b
+          full join jsonb_array_elements($2::jsonb->collection.name) a on b.value->>'id'=a.value->>'id'
+        ) changed
+        cross join lateral pg_temp.original_changed_paths(changed.before_value,changed.after_value) paths(path)
+        union all select 'document','',paths.path from pg_temp.original_changed_paths(
+          $1::jsonb-'nodes'-'pages'-'commentPages', $2::jsonb-'nodes'-'pages'-'commentPages') paths(path)
+        order by collection,"entityId",path`,
+            [before, after],
+          )
+        ).rows;
+        await admin.query(
+          'update "designDocument" set "content"=$1,"revision"="revision"+1 where "fileId"=\'file-a\'',
+          [after],
+        );
+        const sequence = (
+          await admin.query(
+            'select "sequence" from "designRealtimeState" where "fileId"=\'file-a\'',
+          )
+        ).rows[0].sequence;
+        expect(BigInt(sequence)).toBe(BigInt(previous) + 1n);
+        const actual = (
+          await admin.query(
+            `select "collection","entityId","path" from "designRealtimeProperty"
+        where "fileId"='file-a' and "sequence"=$1 order by "collection","entityId","path"`,
+            [sequence],
+          )
+        ).rows;
+        expect(actual).toEqual(expected);
+        expect(
+          (
+            await admin.query(
+              'select "kind" from "designRealtimeEvent" where "fileId"=\'file-a\' and "sequence"=$1',
+              [sequence],
+            )
+          ).rows,
+        ).toEqual([{ kind: "document" }]);
+      }
+    } finally {
+      await admin.query("rollback");
+    }
+  },
+);
+
+integration("concurrent MCP batches at one revision commit exactly once", async () => {
+  const { buildDrawnNode } = await import("../design/document");
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    {
+      ...blankDesignDocument(),
+      nodes: [
+        buildDrawnNode("a", "container", null, { x: 0, y: 0, width: 100, height: 40 }),
+        buildDrawnNode("b", "container", null, { x: 0, y: 50, width: 100, height: 40 }),
+      ],
+    },
+  ]);
+  const results = await Promise.all(
+    ["First", "Second"].map(
+      async (name) =>
+        (
+          await responseMessage(
+            await requestBatch("tools/call", {
+              name: "patch_document",
+              arguments: {
+                file_id: "file-a",
+                expected_revision: 1,
+                edits: [
+                  { node_id: "a", changes: { name } },
+                  { node_id: "b", changes: { name } },
+                ],
+              },
+            }),
+          )
+        ).result,
+    ),
+  );
+  expect(results.filter((result) => result.isError)).toHaveLength(1);
+  const saved = (
+    await admin.query('select "revision","content" from "designDocument" where "fileId"=\'file-a\'')
+  ).rows[0];
+  expect(saved.revision).toBe(2);
+  expect(saved.content.nodes[0].name).toBe(saved.content.nodes[1].name);
+  expect(["First", "Second"]).toContain(saved.content.nodes[0].name);
+  expect(await calls()).toBe(2);
+});
+
 integration("MCP July 2026 dispatch validates and publishes an ordered batch", async () => {
   const { buildDrawnNode } = await import("../design/document");
   const document = {

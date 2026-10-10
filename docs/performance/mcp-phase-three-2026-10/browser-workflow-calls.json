@@ -1,0 +1,121 @@
+[
+  {
+    "name": "get_import_guidance",
+    "elapsedMs": 59.11,
+    "status": 200,
+    "bytes": 171617,
+    "isError": false
+  },
+  {
+    "name": "get_browser_capture_script",
+    "elapsedMs": 6.62,
+    "status": 200,
+    "bytes": 61816,
+    "isError": false
+  },
+  {
+    "name": "import_web_capture",
+    "elapsedMs": 40.82,
+    "status": 200,
+    "bytes": 771,
+    "isError": false
+  },
+  {
+    "name": "get_document",
+    "elapsedMs": 4.97,
+    "status": 200,
+    "bytes": 14309,
+    "isError": false
+  },
+  {
+    "name": "patch_document",
+    "elapsedMs": 10.43,
+    "status": 200,
+    "bytes": 12993,
+    "isError": false
+  },
+  {
+    "name": "export_visual_preview",
+    "elapsedMs": 14.31,
+    "status": 200,
+    "bytes": 855988,
+    "isError": false
+  },
+  {
+    "name": "get_design_guidance",
+    "elapsedMs": 7.71,
+    "status": 200,
+    "bytes": 158963,
+    "isError": false
+  },
+  {
+    "name": "compose_component",
+    "elapsedMs": 9.37,
+    "status": 200,
+    "bytes": 3453,
+    "isError": false
+  },
+  {
+    "name": "instantiate_component",
+    "elapsedMs": 5.7,
+    "status": 200,
+    "bytes": 5941,
+    "isError": false
+  },
+  {
+    "name": "instantiate_component",
+    "elapsedMs": 7.51,
+    "status": 200,
+    "bytes": 8329,
+    "isError": false
+  },
+  {
+    "name": "create_import",
+    "elapsedMs": 5.29,
+    "status": 200,
+    "bytes": 421,
+    "isError": false
+  },
+  {
+    "name": "put_import_chunk",
+    "elapsedMs": 5.31,
+    "status": 200,
+    "bytes": 563,
+    "isError": false
+  },
+  {
+    "name": "validate_import",
+    "elapsedMs": 6.89,
+    "status": 200,
+    "bytes": 363,
+    "isError": false
+  },
+  {
+    "name": "commit_import",
+    "elapsedMs": 8.11,
+    "status": 200,
+    "bytes": 805,
+    "isError": false
+  },
+  {
+    "name": "patch_document",
+    "elapsedMs": 6.46,
+    "status": 200,
+    "bytes": 5455,
+    "isError": false
+  },
+  {
+    "name": "get_document",
+    "elapsedMs": 5.31,
+    "status": 200,
+    "bytes": 9119,
+    "isError": false
+  },
+  {
+    "name": "export_visual_preview",
+    "elapsedMs": 8.4,
+    "status": 200,
+    "bytes": 542447,
+    "isError": false
+  }
+]

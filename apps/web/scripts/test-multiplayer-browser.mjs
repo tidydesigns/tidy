@@ -76,6 +76,12 @@ try {
       "utf8",
     ),
   );
+  await client.query(
+    await readFile(
+      new URL("../../../migrations/20261010-document-event-performance.sql", import.meta.url),
+      "utf8",
+    ),
+  );
   for (const [i, user] of [
     { name: "Echo", email: "owner@example.com" },
     { name: "Drift", email: "outsider@example.com" },

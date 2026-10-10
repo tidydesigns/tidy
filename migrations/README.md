@@ -35,3 +35,12 @@ rows. Recheck the manifest when adding tables or sequences. Runtime needs explic
 grants for new objects, including the file-history sequence. Keep migration
 credentials out of app bindings and native agent environments. Run
 `bun run test:runtime:db` for the disposable restricted-login suite.
+
+## Collaboration event performance
+
+`20261010-document-event-performance.sql` replaces the collaboration event
+function after `20260928-file-multiplayer.sql`. It retains the same event and
+property-path semantics, skips unchanged recursive branches, and writes changed
+paths in one statement. Fresh local databases apply it automatically; existing
+local databases must apply it before measuring phase-three database improvements.
+Production application still requires an explicitly approved target and operation.

@@ -37,6 +37,7 @@ try {
     "20261007-github-oauth-state-indexes.sql",
     "20261005-agent-threads.sql",
     "20261007-file-version-history.sql",
+    "20261010-document-event-performance.sql",
   ])
     await client.query(
       await readFile(new URL(`../../../migrations/${name}`, import.meta.url), "utf8"),
