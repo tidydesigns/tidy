@@ -69,4 +69,19 @@ describe("extension HTTP boundary", () => {
       ),
     ).toEqual({ test: true });
   });
+  test("shares the app theme with the extension and ignores invalid cookie values", () => {
+    for (const [cookie, expected] of [
+      ["tidy-theme=dark", "dark"],
+      ["other=value; tidy-theme=light", "light"],
+      ["tidy-theme=system", "system"],
+      ["tidy-theme=invalid", "system"],
+      ["", "system"],
+    ]) {
+      const headers = extensionHeaders(
+        new Request("http://localhost:3000/api/extension/account", { headers: { origin, cookie } }),
+      );
+      expect(headers.get("X-Tidy-Theme")).toBe(expected);
+      expect(headers.get("Access-Control-Expose-Headers")).toBe("X-Tidy-Theme");
+    }
+  });
 });

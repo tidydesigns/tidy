@@ -33,6 +33,9 @@ export default defineBackground(() => {
       headers: { "X-Tidy-Extension": "1", ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
+    const theme = response.headers.get("X-Tidy-Theme");
+    if (theme === "light" || theme === "dark" || theme === "system")
+      await browser.storage.local.set({ theme }).catch(() => undefined);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "Tidy is unavailable. Try again.");
     return data as T;

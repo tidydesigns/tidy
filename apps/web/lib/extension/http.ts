@@ -1,5 +1,6 @@
 import { DEVELOPMENT_EXTENSION_ID } from "@bella/design/extension";
 import { MAX_CAPTURE_BYTES } from "@bella/design/web-capture";
+import { themeFromCookies } from "@/lib/theme";
 
 export function extensionOrigin(request: Request) {
   const ids = (process.env.BELLA_EXTENSION_IDS ?? DEVELOPMENT_EXTENSION_ID)
@@ -12,12 +13,14 @@ export function extensionOrigin(request: Request) {
 
 export function extensionHeaders(request: Request) {
   const headers = new Headers({ "Cache-Control": "private, no-store", Vary: "Origin" });
+  headers.set("X-Tidy-Theme", themeFromCookies(request.headers.get("cookie")));
   const origin = extensionOrigin(request);
   if (origin) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Credentials", "true");
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     headers.set("Access-Control-Allow-Headers", "Content-Type, X-Tidy-Extension");
+    headers.set("Access-Control-Expose-Headers", "X-Tidy-Theme");
   }
   return headers;
 }

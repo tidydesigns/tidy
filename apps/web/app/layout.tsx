@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
-import { THEME_STORAGE_KEY } from "@/lib/theme";
+import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 
 const instrumentSans = Instrument_Sans({
@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <script
           dangerouslySetInnerHTML={{
-            __html: `try{var theme=localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});if(theme==="light"||theme==="dark")document.documentElement.dataset.theme=theme}catch{}`,
+            __html: themeInitScript,
           }}
         />
       </head>
