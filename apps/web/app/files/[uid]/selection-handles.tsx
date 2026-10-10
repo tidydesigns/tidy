@@ -189,7 +189,7 @@ export function SelectionHandles({
       flipX: start.node.style.flipX,
       flipY: start.node.style.flipY,
       centered: event.altKey,
-      aspect: event.shiftKey || start.node.aspectRatioLocked,
+      aspect: event.shiftKey || (!crop && start.node.aspectRatioLocked),
       snap,
     };
     const resized = resizeBox(
@@ -320,7 +320,7 @@ export function SelectionHandles({
                   y: event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0,
                 },
                 {
-                  aspect: node.aspectRatioLocked,
+                  aspect: !crop && node.aspectRatioLocked,
                   centered: event.altKey,
                   rotation: node.style.rotation,
                   flipX: node.style.flipX,

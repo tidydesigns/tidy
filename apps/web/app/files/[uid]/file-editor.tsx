@@ -8,6 +8,7 @@ import {
 import { DesignImage } from "@/components/design/design-image";
 import type { TextContent } from "@bella/design/rich-text";
 import { AssetBrowser, type BrowserAsset } from "./asset-browser";
+import { fitImageBounds } from "@/lib/design/image-sizing";
 import { imageViewport } from "@/lib/design/image-viewport";
 import {
   placeAssets,
@@ -3317,6 +3318,26 @@ export function FileEditor({
       })),
   );
   const panelPatch = useEditorEvent(patchSelection);
+  const panelFitImageBounds = useEditorEvent(() => {
+    if (!selected || readOnly || isLayerLocked(nodes, selected.id)) return;
+    const element = canvasElements(viewport.current).get(selected.id);
+    const size = loadedImageSize(element?.querySelector("img"));
+    const crop = selected.style.imageCrop;
+    if (!crop && !size) {
+      setError("Wait for the image to load before fitting its bounds.");
+      return;
+    }
+    patchSelection((item) => ({
+      box: fitImageBounds(
+        item,
+        crop?.sourceWidth ?? size!.width,
+        crop?.sourceHeight ?? size!.height,
+      ),
+      widthMode: "fixed",
+      heightMode: "fixed",
+      aspectRatioLocked: true,
+    }));
+  });
   const panelGoToMaster = useEditorEvent((id: string) => {
     const content = room.getSnapshot().content;
     const master = content.nodes.find((node) => node.id === id);
@@ -4345,6 +4366,7 @@ export function FileEditor({
                 onUploadFill={panelUpload}
                 onReplaceImage={panelReplace}
                 onCropImage={panelCrop}
+                onFitImageBounds={panelFitImageBounds}
                 cropping={cropping}
                 editingVector={vectorMode === selected.id}
                 onEditVector={() =>

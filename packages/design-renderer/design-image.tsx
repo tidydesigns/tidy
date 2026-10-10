@@ -2,31 +2,10 @@
 import type { DesignNode } from "@bella/design/document";
 import { imageStyle } from "./node-style";
 import { vectorImageStyle, vectorSvg } from "./vector-path";
-import { useId, useCallback, useSyncExternalStore, useState } from "react";
+import { useId, useState } from "react";
 import { displayImageUrl, isManagedImage } from "./image-display";
 import { useImageMimeType } from "./image-context";
-import { subscribeImage, type ImageLoad } from "./image-loading";
-const loading: ImageLoad = { status: "loading" };
-function useLoadedImage(source: string) {
-  const [store] = useState(() => ({ source: "", state: loading }));
-  const subscribe = useCallback(
-    (notify: () => void) => {
-      store.source = source;
-      store.state = loading;
-      if (!isManagedImage(source)) return () => {};
-      return subscribeImage(source, (state) => {
-        store.state = state;
-        notify();
-      });
-    },
-    [source, store],
-  );
-  const snapshot = useCallback(
-    () => (store.source === source ? store.state : loading),
-    [source, store],
-  );
-  return useSyncExternalStore(subscribe, snapshot, () => loading);
-}
+import { useLoadedImage } from "./use-loaded-image";
 const emptyImage = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E";
 const fallback =
   "data:image/svg+xml," +
@@ -53,7 +32,7 @@ export function DesignImage({
     (node.box.width * 6) / (crop?.width ?? 1),
     mimeType ?? metadata,
   );
-  const load = useLoadedImage(node.vectorPath ? "" : display);
+  const load = useLoadedImage(node.vectorPath ? "" : display, src);
   const [decodeError, setDecodeError] = useState<string>();
   const resolved = isManagedImage(display)
     ? load.status === "ready"
