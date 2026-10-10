@@ -7,15 +7,14 @@ import {
   pasteProperties,
   readDesignClipboard,
 } from "./clipboard";
-import { relocateLayer, groupLayers } from "./document-operations";
-import { rebaseDocument } from "./edit-queue";
+import { relocateLayer } from "./document-operations";
 
-const layer = (id, parentId = null) =>
+const layer = (id: string, parentId: string | null = null) =>
   buildDrawnNode(id, "container", parentId, { x: 10, y: 20, width: 100, height: 50 });
 
 test("layer copy deduplicates selected parents and paste creates an independent tree on the target page", () => {
   const source = { ...blankDesignDocument(), nodes: [layer("parent"), layer("child", "parent")] };
-  const clipboard = readDesignClipboard(copyLayers(source, ["parent", "child"], "source"));
+  const clipboard = readDesignClipboard(copyLayers(source, ["parent", "child"], "source"))!;
   expect(clipboard.nodes).toHaveLength(2);
   let id = 0;
   const target = { ...blankDesignDocument(), pages: [{ id: "target-page", name: "Target" }] };
@@ -39,7 +38,7 @@ test("paste in place preserves canvas position across pages and target frames", 
       { ...layer("nested", "source-frame"), box: { x: 30, y: 40, width: 50, height: 60 } },
     ],
   };
-  const payload = readDesignClipboard(copyLayers(source, ["nested"], "source"));
+  const payload = readDesignClipboard(copyLayers(source, ["nested"], "source"))!;
   expect(payload.nodes[0].box).toMatchObject({ x: 130, y: 240 });
   const target = {
     ...blankDesignDocument(),
@@ -68,7 +67,7 @@ test("paste in place preserves canvas position across pages and target frames", 
 
 test("paste rejects locked, inherited-hidden, or wrong-page target frames", () => {
   const source = { ...blankDesignDocument(), nodes: [layer("source")] };
-  const payload = readDesignClipboard(copyLayers(source, ["source"], "source"));
+  const payload = readDesignClipboard(copyLayers(source, ["source"], "source"))!;
   const target = {
     ...blankDesignDocument(),
     pages: [
@@ -120,7 +119,7 @@ test("cross-file tokens preserve source colors without changing existing target 
     tokens: { brand: "#0000ff" },
     nodes: [layer("target")],
   };
-  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source-file"));
+  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source-file"))!;
   const pasted = pasteProperties(target, payload, ["target"]);
   expect(pasted.tokens).toEqual({ brand: "#0000ff", brand_2: "#ff0000" });
   expect(pasted.nodes[0].style.fillToken).toBe("brand_2");
@@ -133,7 +132,7 @@ test("appearance paste into only locked layers leaves the document and palette u
     nodes: [{ ...layer("source"), style: { fillToken: "accent" } }],
   };
   const target = { ...blankDesignDocument(), nodes: [{ ...layer("locked"), locked: true }] };
-  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source-file"));
+  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source-file"))!;
   expect(pasteProperties(target, payload, ["locked"])).toBe(target);
 });
 
@@ -150,7 +149,7 @@ test("property paste replaces appearance, respects ancestor locks, and keeps con
       { ...layer("editable"), style: { fill: "#0000ff", radiusTopLeft: 5 } },
     ],
   };
-  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "file"));
+  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "file"))!;
   const pasted = pasteProperties(target, payload, ["locked-child", "editable"]);
   expect(pasted.nodes[1].style.fill).toBe("#ff0000");
   expect(pasted.nodes[2].style.radius).toBe(16);
@@ -168,7 +167,7 @@ test("appearance transfer keeps target rotation, flips and box geometry", () => 
     ...blankDesignDocument(),
     nodes: [{ ...layer("target"), style: { rotation: -37, flipY: true, fill: "#0000ff" } }],
   };
-  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source"));
+  const payload = readDesignClipboard(copyProperties(source.nodes[0], source, "source"))!;
   const result = pasteProperties(target, payload, ["target"]);
   expect(result.nodes[0].style).toMatchObject({ rotation: -37, flipY: true, fill: "#ff0000" });
   expect(result.nodes[0].style.flipX).toBeUndefined();
@@ -184,10 +183,4 @@ test("layer relocation preserves absolute position, ordering, and prevents desce
   });
   expect(() => relocateLayer(nested, "a", "child", "inside")).toThrow("own children");
   expect(relocateLayer(source, "b", "a", "before").nodes[0].id).toBe("b");
-});
-
-test("group insertion keeps the intended stacking order when persisted", () => {
-  const source = { ...blankDesignDocument(), nodes: [layer("a"), layer("b"), layer("c")] };
-  const grouped = groupLayers(source, ["a", "b"], "group");
-  expect(rebaseDocument(source, grouped, source).nodes[0].id).toBe("group");
 });

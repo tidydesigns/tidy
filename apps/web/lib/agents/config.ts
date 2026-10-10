@@ -4,12 +4,6 @@ import { AgentError } from "./protocol";
 export function agentsEnabled() {
   return process.env.TIDY_AGENTS_ENABLED === "true";
 }
-export function agentEncryptionKey() {
-  const raw = process.env.AGENT_ENCRYPTION_KEY;
-  if (!raw || !/^[A-Za-z0-9+/]{43}=$/.test(raw))
-    throw new AgentError("not_configured", "ChatGPT connections are not configured.", 503);
-  return Buffer.from(raw, "base64");
-}
 export function agentModel() {
   const model = process.env.AGENT_MODEL;
   if (!model || model.length > 120)

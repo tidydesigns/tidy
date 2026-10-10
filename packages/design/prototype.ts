@@ -144,13 +144,6 @@ export function playInteraction(
       return { ...session, variants: { ...session.variants, [action.target]: action.variant } };
   }
 }
-export function prototypeInteraction(
-  node: DesignNode,
-  type: "click" | "hover" | "key",
-  key?: string,
-): PrototypeInteraction | undefined {
-  return prototypeInteractions(node, type, key)[0];
-}
 export function prototypeInteractions(
   node: DesignNode,
   type: "click" | "hover" | "key",

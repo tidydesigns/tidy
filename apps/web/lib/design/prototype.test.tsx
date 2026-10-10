@@ -5,7 +5,6 @@ import {
   playInteraction,
   startPrototype,
   prototypeFrameNodes,
-  prototypeInteraction,
   prototypeInteractions,
   type PrototypeInteraction,
 } from "@bella/design/prototype";
@@ -117,12 +116,12 @@ test("legacy links and authored keys resolve only their intended trigger", () =>
     interactions: [interaction({ type: "back" }, { type: "key", key: "Enter" })],
     linkTo: "second",
   };
-  expect(prototypeInteraction(node, "click")?.action).toEqual({
+  expect(prototypeInteractions(node, "click")[0]?.action).toEqual({
     type: "navigate",
     target: "second",
   });
-  expect(prototypeInteraction(node, "key", "Enter")?.action.type).toBe("back");
-  expect(prototypeInteraction(node, "key", "Escape")).toBeUndefined();
+  expect(prototypeInteractions(node, "key", "Enter")[0]?.action.type).toBe("back");
+  expect(prototypeInteractions(node, "key", "Escape")).toEqual([]);
 });
 test("copy/duplicate remap internal interaction targets; cross-file copy drops inaccessible destinations", () => {
   const document = fixture();

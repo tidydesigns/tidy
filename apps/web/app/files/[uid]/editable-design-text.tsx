@@ -6,10 +6,6 @@ import { renderFontFamily } from "@/lib/design/fonts/family";
 import { readEditableRichText, richTextElements, sanitizeRichPaste } from "./rich-text-dom";
 import { registerRichTextSelection, applyTextCommand } from "./rich-text-selection";
 
-export function readEditableText(root: Node): string {
-  return readEditableRichText(root).text;
-}
-
 /** Native selection/typing/undo stay in the browser; commit the complete editing session once. */
 export function EditableDesignText({
   node,

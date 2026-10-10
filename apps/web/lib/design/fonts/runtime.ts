@@ -69,26 +69,6 @@ function localWeight(style: string) {
                   ? 700
                   : 400;
 }
-export function sfntStyle(buffer: ArrayBuffer, fallbackWeight: number, fallbackItalic: boolean) {
-  const view = new DataView(buffer);
-  if (view.byteLength < 12 || view.getUint32(0) === 0x74746366)
-    return { weight: fallbackWeight, italic: fallbackItalic };
-  for (let i = 0; i < view.getUint16(4); i++) {
-    const table = 12 + i * 16;
-    if (table + 16 > view.byteLength) break;
-    if (view.getUint32(table) !== 0x4f532f32) continue;
-    const offset = view.getUint32(table + 8),
-      length = view.getUint32(table + 12);
-    if (offset + length > view.byteLength || length < 64) break;
-    const weight = view.getUint16(offset + 4);
-    return {
-      weight: weight >= 1 && weight <= 1000 ? weight : fallbackWeight,
-      italic: Boolean(view.getUint16(offset + 62) & 1),
-    };
-  }
-  return { weight: fallbackWeight, italic: fallbackItalic };
-}
-
 class FontRegistry {
   private listeners = new Set<() => void>();
   private version = 0;

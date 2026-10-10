@@ -7,7 +7,6 @@ import {
   googleFontUrl,
   renderFontFamily,
 } from "./catalog";
-import { sfntStyle } from "./runtime";
 import { fontCssForText } from "./export-css";
 import { buildDrawnNode, parseDesignDocument, blankDesignDocument } from "../document";
 test("the bundled catalog includes the complete web library and valid variable/static styles", () => {
@@ -16,11 +15,11 @@ test("the bundled catalog includes the complete web library and valid variable/s
     expect(font.styles.length).toBeGreaterThan(0);
     expect(font.styles.every((style) => style.weight >= 1 && style.weight <= 1000)).toBe(true);
   }
-  expect(webFontByName.get("instrument sans").weightRange).toEqual([400, 700]);
-  expect(googleFontUrl(webFontByName.get("instrument sans"))).toContain(
+  expect(webFontByName.get("instrument sans")!.weightRange).toEqual([400, 700]);
+  expect(googleFontUrl(webFontByName.get("instrument sans")!)).toContain(
     "0%2C400..700%3B1%2C400..700",
   );
-  expect(googleFontUrl(webFontByName.get("alatsi"))).toContain("0%2C400");
+  expect(googleFontUrl(webFontByName.get("alatsi")!)).toContain("0%2C400");
 });
 test("font family lists preserve quoted commas and resolve the existing Instrument Sans alias", () => {
   expect(fontFamilies('"Family, With Comma", Arial, sans-serif')).toEqual([
@@ -40,33 +39,21 @@ test("font family lists preserve quoted commas and resolve the existing Instrume
   expect(renderFontFamily('"Family, With Comma", serif')).toBe('"Family, With Comma", serif');
 });
 test("changing families preserves italic when available and chooses the closest actual weight", () => {
-  expect(closestFontStyle(webFontByName.get("abeezee"), 700, true)).toMatchObject({
+  expect(closestFontStyle(webFontByName.get("abeezee")!, 700, true)).toMatchObject({
     weight: 400,
     italic: true,
   });
-  expect(closestFontStyle(webFontByName.get("alatsi"), 600, true)).toMatchObject({
+  expect(closestFontStyle(webFontByName.get("alatsi")!, 600, true)).toMatchObject({
     weight: 400,
     italic: false,
   });
-  expect(closestFontStyle(webFontByName.get("instrument sans"), 550, false)).toMatchObject({
+  expect(closestFontStyle(webFontByName.get("instrument sans")!, 550, false)).toMatchObject({
     weight: 550,
     italic: false,
   });
 });
-test("local font style metadata comes from OS/2 rather than the display name", () => {
-  const buffer = new ArrayBuffer(100),
-    view = new DataView(buffer);
-  view.setUint16(4, 1);
-  view.setUint32(12, 0x4f532f32);
-  view.setUint32(20, 28);
-  view.setUint32(24, 64);
-  view.setUint16(32, 550);
-  view.setUint16(90, 1);
-  expect(sfntStyle(buffer, 400, false)).toEqual({ weight: 550, italic: true });
-  expect(sfntStyle(new ArrayBuffer(3), 700, true)).toEqual({ weight: 700, italic: true });
-});
 test("export embeds only the used weight/style and script subset", () => {
-  const face = (weight, style, range, url) =>
+  const face = (weight: string, style: string, range: string, url: string) =>
     `@font-face {font-family:'Example';font-weight:${weight};font-style:${style};unicode-range:${range};src:url(${url});}`;
   const latin = face("100 900", "normal", "U+0000-00FF", "latin.woff2"),
     cyrillic = face("100 900", "normal", "U+0400-04FF", "cyrillic.woff2"),

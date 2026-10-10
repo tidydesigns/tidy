@@ -5,6 +5,7 @@ import { useEditorEvent } from "./use-editor-event";
 import { useFrameEvent } from "./use-frame-event";
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
 import type { DesignNode } from "@/lib/design/document";
+import { canvasTransform } from "@/lib/design/canvas-geometry";
 import {
   clamp,
   radialGradientAxes,
@@ -88,15 +89,7 @@ export function GradientHandles({
     const rect = element.getBoundingClientRect(),
       canvasRect = canvas.getBoundingClientRect(),
       style = getComputedStyle(element);
-    let matrix = new DOMMatrix();
-    for (
-      let current: HTMLElement | null = element;
-      current && current !== canvas;
-      current = current.parentElement
-    ) {
-      const transform = getComputedStyle(current).transform;
-      if (transform !== "none") matrix = new DOMMatrix(transform).multiply(matrix);
-    }
+    const matrix = canvasTransform(element, canvas);
     const width = parseFloat(style.width),
       height = parseFloat(style.height);
     const left = parseFloat(style.borderLeftWidth),

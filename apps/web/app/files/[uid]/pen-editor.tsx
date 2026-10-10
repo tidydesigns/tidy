@@ -9,7 +9,7 @@ import {
   type VectorPoint,
 } from "@bella/design/vector-geometry";
 import { canvasElements } from "./canvas-elements";
-import { elementPlane } from "./vector-editor";
+import { elementPlane } from "@/lib/design/canvas-geometry";
 import { useEditorEvent } from "./use-editor-event";
 
 export function PenEditor({
