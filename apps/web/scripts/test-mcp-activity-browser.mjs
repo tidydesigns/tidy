@@ -41,8 +41,8 @@ try {
   const userId = (await client.query('select "id" from "user" where "email"=$1', [email])).rows[0]
     .id;
   await client.query(
-    `insert into "organization" ("id","name","slug","createdAt") values ($1,'Activity test',$1,now())`,
-    [organization],
+    `insert into "organization" ("id","name","slug","createdAt","createdByUserId") values ($1,'Activity test',$1,now(),$2)`,
+    [organization, userId],
   );
   await client.query(
     `insert into "member" ("id","organizationId","userId","role","createdAt") values ($1,$2,$3,'owner',now())`,
@@ -102,6 +102,11 @@ try {
     `insert into "oauthConsent" ("id","clientId","userId","resources","scopes","createdAt","updatedAt") values ($1,$1,$2,$3::jsonb,'["mcp:read","mcp:write"]',now(),now())`,
     [clientId, userId, JSON.stringify([`${base}/api/mcp`])],
   );
+  const session = await (await context.request.get(`${base}/api/auth/get-session`)).json();
+  await client.query(
+    `insert into "oauthClientResource" ("id","clientId","resourceId") values ($1,$1,$2)`,
+    [clientId, `${base}/api/mcp`],
+  );
   const token = JSON.parse(
     execFileSync(
       "bun",
@@ -109,7 +114,7 @@ try {
         "--conditions",
         "react-server",
         "-e",
-        `const {auth}=await import('./lib/auth');const ctx=await auth.$context;const signed=await auth.api.signJWT({body:{payload:{sub:${JSON.stringify(userId)},client_id:${JSON.stringify(clientId)},scope:'mcp:read mcp:write',aud:${JSON.stringify(`${base}/api/mcp`)},iss:ctx.baseURL,bella_grant_version:'0',exp:Math.floor(Date.now()/1000)+600}}});console.log(JSON.stringify(signed));process.exit(0);`,
+        `const {mock}=await import('bun:test');mock.module('server-only',()=>({}));const {auth}=await import('./lib/auth');const ctx=await auth.$context;const signed=await auth.api.signJWT({body:{payload:{sub:${JSON.stringify(userId)},sid:${JSON.stringify(session.session.id)},client_id:${JSON.stringify(clientId)},scope:'mcp:read mcp:write',aud:${JSON.stringify(`${base}/api/mcp`)},iss:ctx.baseURL,bella_grant_version:'0',exp:Math.floor(Date.now()/1000)+600}}});console.log(JSON.stringify(signed));process.exit(0);`,
       ],
       {
         cwd: new URL("../", import.meta.url),
@@ -214,7 +219,7 @@ try {
     changes: { text: "Edited by agent" },
   }));
   await page.locator('[data-agent-activity="editing"]').waitFor();
-  await page.locator('[data-agent-target="frame"]').waitFor();
+  await page.locator('[data-agent-target="heading"]').waitFor();
   assert.ok(
     !(
       await call("export_component", {
@@ -225,26 +230,28 @@ try {
     ).isError,
   );
   await page.locator('[data-agent-activity="editing"]').waitFor();
+  assert.equal(
+    await page.locator("[data-agent-actor]").count(),
+    1,
+    "Concurrent calls share a teammate identity",
+  );
   await page.locator('[data-agent-activity="editing"] summary').click();
-  await page.getByText("heading", { exact: true }).last().waitFor();
+  await page
+    .locator("[data-agent-activity-details]")
+    .getByText("Local coding agent · heading", { exact: true })
+    .waitFor();
   assert.equal(changes, initialChanges, "Activity must not fetch document changes");
   const during = await page.evaluate(() => ({ ...window.activityProfile }));
   for (const name of ["CanvasArtwork", "LayerTree", "SelectionInspector"])
     assert.equal(during[name], before[name], `${name} must not render for activity`);
   assert.ok(during.AgentActivityOverlay > before.AgentActivityOverlay);
-  const outline = await page.locator('[data-agent-target="frame"]').boundingBox(),
-    frame = await page.locator('[data-node-id="frame"]').boundingBox();
+  const outline = await page.locator('[data-agent-target="heading"]').boundingBox(),
+    frame = await page.locator('[data-node-id="heading"]').boundingBox();
   assert.ok(Math.abs(outline.x - frame.x) < 2 && Math.abs(outline.width - frame.width) < 2);
-  const dot = page.locator('[data-agent-activity="editing"] summary span').first();
-  assert.notEqual(
-    await dot.evaluate((element) => getComputedStyle(element, "::after").animationName),
-    "none",
-  );
+  const dot = page.locator('[data-agent-activity="editing"] [data-agent-spark] i').first();
+  assert.notEqual(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
   await page.emulateMedia({ reducedMotion: "reduce" });
-  assert.equal(
-    await dot.evaluate((element) => getComputedStyle(element, "::after").animationName),
-    "none",
-  );
+  assert.equal(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await mkdir(".artifacts/mcp-activity", { recursive: true });
   await page.screenshot({ path: ".artifacts/mcp-activity/editing.png" });

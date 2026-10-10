@@ -1,45 +1,326 @@
-.marker summary {
-  list-style: none;
+.overlay {
+  --agent-ease: cubic-bezier(0.23, 1, 0.32, 1);
 }
-.marker summary::-webkit-details-marker {
-  display: none;
+.teammate {
+  --agent-color: light-dark(#3977ed, #8bb5ff);
+  --agent-soft: light-dark(#edf3ff, #283850);
+  color: var(--agent-color);
+  opacity: 1;
+  transition: opacity 220ms var(--agent-ease);
+  @starting-style {
+    opacity: 0;
+  }
 }
-.dot {
-  position: relative;
-  width: 6px;
-  height: 6px;
-  flex-shrink: 0;
-  border-radius: 50%;
-  background: var(--color-primary-orange);
+.teammate[data-tone="violet"] {
+  --agent-color: light-dark(#7a60d6, #bda5ff);
+  --agent-soft: light-dark(#f3efff, #382e4f);
 }
-.dot::after {
-  content: "";
+.teammate[data-tone="teal"] {
+  --agent-color: light-dark(#24877f, #7dccbe);
+  --agent-soft: light-dark(#eaf7f3, #243e3a);
+}
+.teammate[data-phase="failed"],
+.teammate[data-phase="unavailable"] {
+  --agent-color: light-dark(#a66b20, #e0b479);
+  --agent-soft: light-dark(#faf3e9, #40372b);
+}
+.teammate[data-retiring="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.frame,
+.focus {
   position: absolute;
-  inset: -3px;
-  border: 1px solid var(--color-primary-orange);
-  border-radius: 50%;
+  border: 1px solid currentColor;
+  pointer-events: none;
+  transition: opacity 220ms var(--agent-ease);
+}
+.frame {
+  opacity: 0.2;
+}
+.focus {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--agent-color) 3%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--agent-color) 5%, transparent);
+  opacity: 0.8;
+}
+.teammate[data-terminal="true"] .focus {
+  opacity: 0.35;
+  background: transparent;
+}
+.teammate[data-terminal="true"] .frame {
   opacity: 0;
 }
-.marker[data-working="true"] .dot::after {
-  animation: breathe 1.6s ease-in-out infinite;
+.corners {
+  position: absolute;
+  inset: -1px;
+  opacity: 0.8;
 }
-.overlay[data-hidden="true"] .dot::after {
-  animation-play-state: paused;
+.corners i {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border: 2px solid currentColor;
+}
+.corners i:nth-child(1) {
+  top: 0;
+  left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  border-top-left-radius: 2px;
+}
+.corners i:nth-child(2) {
+  top: 0;
+  right: 0;
+  border-left: 0;
+  border-bottom: 0;
+  border-top-right-radius: 2px;
+}
+.corners i:nth-child(3) {
+  bottom: 0;
+  right: 0;
+  border-left: 0;
+  border-top: 0;
+  border-bottom-right-radius: 2px;
+}
+.corners i:nth-child(4) {
+  bottom: 0;
+  left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-bottom-left-radius: 2px;
+}
+.position {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+.marker {
+  position: relative;
+  pointer-events: auto;
+}
+.identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  padding: 7px 10px 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--agent-color) 22%, var(--color-surface));
+  border-radius: 14px;
+  background: var(--color-surface);
+  box-shadow:
+    0 2px 3px #00000004,
+    0 5px 18px #00000009;
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    transform 160ms var(--agent-ease),
+    box-shadow 160ms ease;
+}
+.identity::-webkit-details-marker {
+  display: none;
+}
+.identity:focus-visible {
+  outline: 2px solid var(--agent-color);
+  outline-offset: 3px;
+}
+.identity:active {
+  transform: scale(0.98);
+}
+.caption {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 16px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.status {
+  color: var(--color-secondary-ink);
+  font-size: 10px;
+  line-height: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: arrive 180ms var(--agent-ease);
+}
+.separator {
+  margin: 0 4px;
+  opacity: 0.65;
+}
+.count {
+  color: var(--agent-color);
+  font-size: 10px;
+}
+.chevron {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition:
+    opacity 140ms ease,
+    transform 180ms var(--agent-ease);
+}
+.marker[open] .chevron {
+  opacity: 0.8;
+  transform: rotate(90deg);
+}
+.identity:focus-visible .chevron {
+  opacity: 0.8;
+}
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: var(--agent-soft);
+}
+.spark {
+  position: relative;
+  width: 20px;
+  height: 20px;
+  transform: rotate(-12deg);
+}
+.spark i {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 3px;
+  background: currentColor;
+  opacity: 0.55;
+}
+.spark i:nth-child(1) {
+  top: 1px;
+  left: 1px;
+  --delay: 0ms;
+}
+.spark i:nth-child(2) {
+  top: 1px;
+  right: 1px;
+  --delay: 160ms;
+}
+.spark i:nth-child(3) {
+  bottom: 1px;
+  right: 1px;
+  --delay: 320ms;
+}
+.spark i:nth-child(4) {
+  bottom: 1px;
+  left: 1px;
+  --delay: 480ms;
+}
+.teammate[data-working="true"] .spark i {
+  animation: compose 1800ms cubic-bezier(0.65, 0, 0.35, 1) var(--delay) infinite;
+}
+.teammate[data-working="true"] .corners {
+  animation: breathe 2200ms cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+.result {
+  width: 22px;
+  height: 22px;
+  animation: arrive 180ms var(--agent-ease);
+}
+.cursor {
+  position: absolute;
+  width: 24px;
+  height: 28px;
+  left: -12px;
+  bottom: -20px;
+  filter: drop-shadow(0 1px 2px #00000020);
+}
+.details {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  width: 288px;
+  max-width: min(288px, calc(100vw - 32px));
+  max-height: 240px;
+  overflow: auto;
+  color: var(--color-ink);
+}
+.details > div {
+  margin-top: 0;
+  width: 100%;
+}
+.details[data-above="true"] {
+  top: auto;
+  bottom: calc(100% + 8px);
+}
+.marker[open] {
+  z-index: 2;
+}
+.overlay[data-hidden="true"] * {
+  animation-play-state: paused !important;
+}
+@media (hover: hover) and (pointer: fine) {
+  .identity:hover {
+    box-shadow:
+      0 2px 3px #00000004,
+      0 5px 20px #00000010;
+  }
+  .identity:hover .chevron {
+    opacity: 0.8;
+  }
+}
+@keyframes compose {
+  0%,
+  65%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.86);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 @keyframes breathe {
   0%,
   100% {
-    opacity: 0.15;
-    transform: scale(0.85);
+    opacity: 0.4;
   }
   50% {
-    opacity: 0.65;
-    transform: scale(1.25);
+    opacity: 1;
+  }
+}
+@keyframes arrive {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .marker[data-working="true"] .dot::after {
-    animation: none;
-    opacity: 0.4;
+  .overlay *,
+  .overlay *::before,
+  .overlay *::after {
+    animation: none !important;
+    transition: none !important;
   }
+}
+
+.nameText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teammate[data-retiring="true"] .marker {
+  pointer-events: none;
 }
