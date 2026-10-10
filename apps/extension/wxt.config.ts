@@ -6,11 +6,13 @@ import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";
 
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
-  vite: () => ({
+  vite: ({ command }) => ({
     plugins: [
       {
         name: "tidy-bundled-licenses",
         async generateBundle(_options, bundle) {
+          // Live-reload tooling is injected only during development, outside release bundles.
+          if (command === "serve") return;
           const inputs = new Set<string>();
           for (const output of Object.values(bundle)) {
             if (output.type !== "chunk") continue;
