@@ -130,8 +130,11 @@ export async function importWebCapture(
     await observe?.("validating");
     await services.validateImport(userId, staging.importId);
     await observe?.("publishing");
+    const committed = await services.commitImport(userId, staging.importId, "duplicate");
     return {
-      ...(await services.commitImport(userId, staging.importId, "duplicate")),
+      ...committed,
+      // The popup describes this copy; earlier imports retain their notes in the file.
+      warnings: document.warnings,
       sourceProject: details.sourceProject,
       sourceRoute: details.sourceRoute,
     };

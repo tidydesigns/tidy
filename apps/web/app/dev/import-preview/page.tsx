@@ -49,6 +49,7 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
       preview={query.edit !== "1"}
       local={query.edit === "1" && query.realtime !== "1"}
       initialPanelsOpen={query.compact !== "1"}
+      initialFocusNodeId={typeof query.node === "string" ? query.node : undefined}
       initialToolbarPlacement={editorToolbarPlacement(
         (await cookies()).get(EDITOR_TOOLBAR_COOKIE)?.value,
       )}

@@ -75,6 +75,7 @@ export type ImportResult = {
   fileId: string;
   url: string;
   revision: number;
+  nodeIds?: string[];
   warnings?: { message: string }[];
 };
 

@@ -80,11 +80,13 @@ export default defineBackground(() => {
         fileId: job.destination.fileId,
         capture,
       });
+      const importedUrl = new URL(`/files/${result.fileId}`, BELLA_URL);
+      if (result.nodeIds?.[0]) importedUrl.searchParams.set("node", result.nodeIds[0]);
       await setJob({
         state: "done",
         tabId: job.tabId,
         userId: job.userId,
-        url: `${BELLA_URL}/files/${result.fileId}`,
+        url: importedUrl.href,
         warnings: result.warnings ?? capture.document.warnings,
       });
     } catch (error) {
