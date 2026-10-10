@@ -9,8 +9,14 @@ try {
   await page.goto(
     `${process.env.EDITOR_TEST_URL || "http://127.0.0.1:3107"}/dev/import-preview?edit=1`,
   );
-  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
   const heading = page.locator('[data-node-id="desktop-heading"]');
+  // Nested text must enter editing even when drag capture sends both clicks to the canvas.
+  await heading.dblclick();
+  const initialEditor = heading.getByRole("textbox", { name: "Edit Welcome heading" });
+  await initialEditor.waitFor();
+  await initialEditor.press("Escape");
+  assert.equal(await heading.getAttribute("data-selected"), "true");
+  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
   const field = (name) => page.getByRole("spinbutton", { name, exact: true });
   const set = async (name, value) => {
     await field(name).fill(String(value));

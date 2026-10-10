@@ -3351,7 +3351,6 @@ export function FileEditor({
   const panelReplace = useEditorEvent(() => replaceImageInput.current?.click());
   const panelCrop = useEditorEvent(toggleCrop);
   const panelPrototype = useEditorEvent(togglePrototype);
-  const panelClose = useEditorEvent(() => setInspectorDismissed(true));
   const panelAlign = useEditorEvent(
     (axis: Parameters<typeof alignLayers>[2], keyObjectId?: string) =>
       void changeDocument((content) => alignLayers(content, selectedIds, axis, keyObjectId)),
@@ -3635,6 +3634,16 @@ export function FileEditor({
           }
         }}
         onDrop={dropImages}
+        onDoubleClick={(event) => {
+          if (event.target !== event.currentTarget) return;
+          // Drag capture retargets clicks to the viewport; resolve the artwork under the pointer.
+          const hit = document.elementFromPoint(event.clientX, event.clientY);
+          if (!hit || !event.currentTarget.contains(hit) || hit.closest("[data-canvas-control]"))
+            return;
+          const id = hit.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
+          const node = id ? nodesById.get(id) : undefined;
+          if (node) artworkDoubleClick(node, event);
+        }}
         onPointerMoveCapture={(event) => {
           if (
             preview ||
@@ -4342,7 +4351,6 @@ export function FileEditor({
                   vectorMode === selected.id ? setVectorMode(null) : beginVectorEditing(selected)
                 }
                 onPrototype={panelPrototype}
-                onClose={!panelsOpen ? panelClose : undefined}
                 onAlign={panelAlign}
                 onDistribute={panelDistribute}
                 onGroup={panelGroup}
