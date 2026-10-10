@@ -140,6 +140,14 @@ export default defineBackground(() => {
           return true;
         }
         await runImport(job, "element");
+        // Capture must finish before opening the popup, which obscures the source page.
+        try {
+          const tab = await browser.tabs.get(job.tabId);
+          const [active] = await browser.tabs.query({ active: true, windowId: tab.windowId });
+          if (active?.id === job.tabId) await browser.action.openPopup({ windowId: tab.windowId });
+        } catch {
+          // Older browsers or an unfocused window may refuse. The result remains in the popup.
+        }
         return true;
       }
       if (message.type !== "bella:start" || !["page", "element"].includes(message.mode)) return;

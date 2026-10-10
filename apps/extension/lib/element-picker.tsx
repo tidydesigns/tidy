@@ -175,7 +175,7 @@ export function startElementPicker({
     if (inToolbar(event)) return;
     suppress(event);
     // Return keyboard control to selection after interacting with the toolbar.
-    if (shadow.activeElement instanceof HTMLElement) shadow.activeElement.blur();
+    (shadow.activeElement as HTMLElement | null)?.blur?.();
     if (!target?.isConnected) return;
     notice = "";
     const prior = selected.find((element) => contains(element, target!));
