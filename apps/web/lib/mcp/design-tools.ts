@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import { mcpToolPolicy } from "@/lib/mcp/tool-policy";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
@@ -126,7 +127,7 @@ export function registerDesignTools(server: McpServer, userId: string, backend =
       ...mcpToolPolicy("compose_component"),
       description:
         "Build an editable component or artboard from a nested UI tree. Requires explicit container layouts; content can hug without coordinates. Returns validated nodes to stage with put_import_chunk. Does not write to a file. Read get_design_guidance first.",
-      inputSchema: z.object({ tree: componentTreeSchema }),
+      inputSchema: mcpSchema("compose_component", () => z.object({ tree: componentTreeSchema })),
       annotations: { ...mcpToolPolicy("compose_component").annotations, readOnlyHint: true },
     },
     async ({ tree }) => {
@@ -144,15 +145,17 @@ export function registerDesignTools(server: McpServer, userId: string, backend =
       ...mcpToolPolicy("instantiate_component"),
       description:
         "Create a reusable instance from a component master in a supplied document. Select a named variant from one shared master. Preserves layout and source links; apply explicit root/child overrides when needed. Returns the updated document without publishing.",
-      inputSchema: z.object({
-        document: designDocumentSchema,
-        component_id: z.string().min(1),
-        instance_id: z.string().min(1).max(80),
-        parent_id: z.string().min(1).nullable().optional(),
-        variant: variantNameSchema.optional(),
-        changes: designNodeChangesSchema.optional(),
-        child_overrides: z.record(z.string(), designNodeChangesSchema).optional(),
-      }),
+      inputSchema: mcpSchema("instantiate_component", () =>
+        z.object({
+          document: designDocumentSchema,
+          component_id: z.string().min(1),
+          instance_id: z.string().min(1).max(80),
+          parent_id: z.string().min(1).nullable().optional(),
+          variant: variantNameSchema.optional(),
+          changes: designNodeChangesSchema.optional(),
+          child_overrides: z.record(z.string(), designNodeChangesSchema).optional(),
+        }),
+      ),
       annotations: { ...mcpToolPolicy("instantiate_component").annotations, readOnlyHint: true },
     },
     async ({
@@ -220,7 +223,9 @@ export function registerDesignTools(server: McpServer, userId: string, backend =
       ...mcpToolPolicy("validate_document"),
       description:
         "Check a supplied UI document before publishing or exporting. Finds invalid hierarchy, absolute control content, missing alignment or accessible names, fill/hug cycles and provable flex overflow. Does not measure fonts or verify visual fidelity.",
-      inputSchema: z.object({ document: designDocumentSchema }),
+      inputSchema: mcpSchema("validate_document", () =>
+        z.object({ document: designDocumentSchema }),
+      ),
       annotations: { ...mcpToolPolicy("validate_document").annotations, readOnlyHint: true },
     },
     async ({ document }) => {
@@ -238,11 +243,13 @@ export function registerDesignTools(server: McpServer, userId: string, backend =
       ...mcpToolPolicy("export_component"),
       description:
         "Export a saved component/artboard as portable React TypeScript, a standalone runtime and authorized asset bytes. Named variants export as ONE component with a typed variant prop, including when exporting an instance. Refuses errors in any variant. Native root props and onAction wire behavior. Does not modify a codebase.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        node_id: z.string().min(1),
-        component_name: z.string().regex(/^[A-Z][a-zA-Z0-9]*$/),
-      }),
+      inputSchema: mcpSchema("export_component", () =>
+        z.object({
+          file_id: z.string().min(1),
+          node_id: z.string().min(1),
+          component_name: z.string().regex(/^[A-Z][a-zA-Z0-9]*$/),
+        }),
+      ),
       annotations: { ...mcpToolPolicy("export_component").annotations, readOnlyHint: true },
     },
     async ({ file_id, node_id, component_name }) => {

@@ -8,6 +8,7 @@ import { PublicActionError } from "@/lib/security/public-error";
 import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 import { planLimitMessage } from "@/lib/billing/plans";
 import { record } from "./activity-summary";
+import { traceOperation } from "@/lib/trace-context";
 
 class McpUsageAccessError extends PublicActionError {}
 
@@ -44,7 +45,9 @@ export async function consumeMcpCall(userId: string, input: Record<string, unkno
   try {
     await client.query("begin");
     // Same quota-before-authority order as product writes. Discovery retains no locks.
-    await client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [organizationId]);
+    await traceOperation("mcp.workspace_lock", () =>
+      client.query("select pg_advisory_xact_lock(hashtextextended($1,0))", [organizationId]),
+    );
     const grant = currentMcpGrant();
     if (grant) await requireMcpGrant(client, grant, userId);
     await retainMcpTargets(client, userId, organizationId, input);
@@ -115,11 +118,21 @@ export async function retainMcpTargets(
     );
   const { explicit, selectors, parent } = mcpTargets(input);
   if (explicit !== undefined && explicit !== organizationId) throw denied();
-  const authority = await client.query(
-    `select 1 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
-       where m."organizationId"=$1 and m."userId"=$2 and m."role" in ${VIEW_ROLES_SQL} for share of m,u`,
-    [organizationId, userId],
-  );
+  const authoritySql = `select 1 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
+       where m."organizationId"=$1 and m."userId"=$2 and m."role" in ${VIEW_ROLES_SQL} for share of m,u`;
+  // The common file path can retain membership then parent in one round trip.
+  // MATERIALIZED keeps the lock order identical to the multi-target path.
+  if (selectors.length === 1 && selectors[0].kind === "file") {
+    const target = await client.query(
+      `with authority as materialized (${authoritySql})
+       select "id" from "designFile" where "id"=$3 and "organizationId"=$1
+       and (select count(*) from authority)=1 for share`,
+      [organizationId, userId, selectors[0].id],
+    );
+    if (target.rowCount !== 1) throw denied();
+    return;
+  }
+  const authority = await client.query(authoritySql, [organizationId, userId]);
   if (authority.rows.length !== 1) throw denied();
   // Every supplied selector must still belong to this workspace at reservation.
   for (const { kind, id } of selectors) {
@@ -161,6 +174,7 @@ type Execute = (
   organizationId: string | void,
   input: Record<string, unknown>,
   work: () => Promise<unknown>,
+  operation?: { kind: "tool" | "resource"; name: string },
 ) => Promise<unknown>;
 export function meterMcpServer(
   server: McpServer,
@@ -178,12 +192,15 @@ export function meterMcpServer(
       const input = record(args[0]);
       let organizationId: string | void;
       try {
-        organizationId = await consume(userId, input);
+        organizationId = await traceOperation("mcp.admission", () => consume(userId, input));
       } catch (error) {
         return { content: [{ type: "text", text: usageErrorMessage(error) }], isError: true };
       }
       try {
-        return await execute(organizationId, input, () => callback(...args));
+        return await execute(organizationId, input, () => callback(...args), {
+          kind: "tool",
+          name,
+        });
       } catch (error) {
         if (!(error instanceof PublicActionError)) throw error;
         return { content: [{ type: "text", text: error.message }], isError: true };
@@ -203,11 +220,11 @@ export function meterMcpServer(
       const input = record(args[1]);
       let organizationId: string | void;
       try {
-        organizationId = await consume(userId, input);
+        organizationId = await traceOperation("mcp.admission", () => consume(userId, input));
       } catch (error) {
         throw new Error(usageErrorMessage(error));
       }
-      return execute(organizationId, input, () => callback(...args));
+      return execute(organizationId, input, () => callback(...args), { kind: "resource", name });
     })) as McpServer["registerResource"];
   return server;
 }

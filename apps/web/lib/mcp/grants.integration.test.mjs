@@ -16,6 +16,8 @@ const { withMcpGrantOperation } = await import("./grant-operation");
 const { consumeMcpCall, meterMcpServer } = await import("./usage");
 const { runWithRequestSignal } = await import("../request-lifecycle");
 const { blankDesignDocument } = await import("../design/document");
+const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
+const { linearReadFixture } = await import("./linear-read-fixture.mjs");
 const { renameDesignFileForUser } = await import("../design/service");
 const { withoutDatabaseScope, inDatabaseScope, scopedDatabaseClient } =
   await import("../database-scope");
@@ -30,7 +32,13 @@ const enabled = Boolean(
   ) &&
   new URL(testUrl).port === new URL(setupUrl).port,
 );
-const integration = enabled ? test : test.skip;
+const integration = enabled && process.env.MCP_BENCHMARK !== "1" ? test : test.skip;
+if (enabled && process.env.MCP_BENCHMARK === "1") {
+  test("MCP local HTTP performance benchmark", async () => {
+    const { benchmarkMcp } = await import("./performance-benchmark.mjs");
+    await benchmarkMcp({ POST, auth, admin, grant, fetch: originalFetch });
+  }, 180_000);
+}
 const resource = "http://localhost:3000/api/mcp",
   originalFetch = globalThis.fetch;
 let admin;
@@ -1853,6 +1861,247 @@ afterAll(async () => {
   }
 });
 
+integration("MCP slow provider reads release workspace gates and pool connections", async () => {
+  const held = pause();
+  const fixture = await linearReadFixture(admin, held.hook);
+  const slow = request("tools/call", fixture.params, { scope: fixture.scope });
+  try {
+    await held.entered;
+    expect(
+      Number(
+        (
+          await admin.query(
+            "select count(*) from pg_stat_activity where usename='tidy_runtime_fixture' and state='idle in transaction'",
+          )
+        ).rows[0].count,
+      ),
+    ).toBe(0);
+    // This write must complete while the provider remains paused.
+    const write = await request("tools/call", {
+      name: "rename_file",
+      arguments: { file_id: "file-a", name: "Concurrent" },
+    });
+    expect((await responseMessage(write)).result.isError).not.toBe(true);
+    expect(await fileName()).toBe("Concurrent");
+    held.release();
+    expect((await responseMessage(await slow)).result.isError).not.toBe(true);
+    expect(await calls()).toBe(2);
+  } finally {
+    held.release();
+    await slow.catch(() => {});
+    fixture.restore();
+  }
+});
+
+for (const revoke of ["consent", "membership", "expiry", "parent", "credential"])
+  integration(`MCP provider read refuses publication after ${revoke} changes`, async () => {
+    const held = pause();
+    const fixture = await linearReadFixture(admin, held.hook);
+    const slow = request("tools/call", fixture.params, { scope: fixture.scope });
+    try {
+      await held.entered;
+      if (revoke === "consent") await revokeMcpAuthorization("alice", "client-a");
+      if (revoke === "membership")
+        await admin.query('delete from "member" where "id"=\'member-a\'');
+      if (revoke === "expiry")
+        await admin.query(
+          'update "session" set "expiresAt"=clock_timestamp() where "id"=\'session-a\'',
+        );
+      if (revoke === "parent")
+        await admin.query('update "connectorConnection" set "organizationId"=\'org-b\'');
+      if (revoke === "credential")
+        await admin.query(
+          'update "connectorAccount" set "state"=\'reconnect\', "credentials"=null',
+        );
+      held.release();
+      const result = (await responseMessage(await slow)).result;
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+      expect(await calls()).toBe(1);
+    } finally {
+      held.release();
+      await slow.catch(() => {});
+      fixture.restore();
+    }
+  });
+
+integration(
+  "MCP document pages preserve ordering, metadata, empty bounds and tenant access",
+  async () => {
+    const { designNodeSchema } = await import("../design/document");
+    const document = blankDesignDocument();
+    document.nodes = Array.from({ length: 12 }, (_, i) =>
+      designNodeSchema.parse({
+        id: `node-${i}`,
+        name: `Layer ${i}`,
+        type: "container",
+        parentId: null,
+        box: { x: i, y: 0, width: 10, height: 10 },
+      }),
+    );
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const page = await getDocumentPage("alice", "file-a", 4, 3);
+    expect(page.nodes).toEqual(document.nodes.slice(4, 7));
+    expect(page).toMatchObject({
+      revision: 1,
+      offset: 4,
+      totalNodes: 12,
+      nextOffset: 7,
+      schemaVersion: document.schemaVersion,
+    });
+    expect((await getDocumentPage("alice", "file-a", 11, 3)).nextOffset).toBeNull();
+    expect((await getDocumentPage("alice", "file-a", 100, 3)).nodes).toEqual([]);
+    expect(await getDocumentPage("bob", "file-a", 0, 3)).toBeNull();
+    await expect(getDocumentPage("alice", "file-a", -1, 3)).rejects.toThrow();
+    await expect(getDocumentPage("alice", "file-a", 0, 251)).rejects.toThrow();
+    // Removing redundant validation must still reject invalid graphs atomically.
+    await expect(
+      patchDocumentNode("alice", "file-a", 1, "node-0", { parentId: "missing" }),
+    ).rejects.toThrow();
+    expect((await getDocumentPage("alice", "file-a", 0, 3)).revision).toBe(1);
+  },
+);
+
+integration(
+  "MCP modern discovery is cacheable and body/header disagreement cannot dispatch",
+  async () => {
+    const { token } = await auth.api.signJWT({
+      body: { payload: grant({ scope: "mcp:read" }).claims },
+    });
+    const modern = (method, params = {}, headers = {}) =>
+      POST(
+        new Request(resource, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": method,
+            ...headers,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method,
+            params: {
+              ...params,
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": { name: "fixture", version: "1" },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
+            },
+          }),
+        }),
+      );
+    const list = await responseMessage(await modern("tools/list"));
+    expect(list.result.ttlMs).toBe(300_000);
+    expect(list.result.cacheScope).toBe("private");
+    expect(list.result.tools.some((tool) => tool.name === "get_document")).toBe(true);
+    expect((await modern("server/discover")).status).toBe(200);
+    const mismatch = await modern(
+      "tools/call",
+      { name: "get_document", arguments: { file_id: "file-a" } },
+      { "Mcp-Name": "rename_file" },
+    );
+    expect(mismatch.status).toBe(400);
+    expect(await calls()).toBe(0);
+    expect(await fileName()).toBe("Original");
+    const read = await responseMessage(
+      await modern(
+        "tools/call",
+        { name: "get_document", arguments: { file_id: "file-a" } },
+        { "Mcp-Name": "get_document" },
+      ),
+    );
+    expect(read.result.isError).not.toBe(true);
+    expect(read.result.structuredContent.document.revision).toBe(1);
+    const { buttonExample } = await import("./design-tools");
+    const composed = await responseMessage(
+      await modern(
+        "tools/call",
+        { name: "compose_component", arguments: { tree: buttonExample } },
+        { "Mcp-Name": "compose_component" },
+      ),
+    );
+    expect(composed.result.isError).not.toBe(true);
+    expect(composed.result.structuredContent.document.nodes.length).toBeGreaterThan(1);
+  },
+);
+
+integration(
+  "MCP retained grant recheck detects authority changed by the composed transaction",
+  async () => {
+    await expect(
+      withMcpGrantOperation(grant(), "alice", "org-a", { file_id: "file-a" }, async () => {
+        await renameDesignFileForUser("alice", "file-a", "Forbidden");
+        await db.query('update "user" set "emailVerified"=false where "id"=\'alice\'');
+        return { content: [] };
+      }),
+    ).rejects.toThrow();
+    expect(await fileName()).toBe("Original");
+    expect(
+      (await admin.query('select "emailVerified" from "user" where "id"=\'alice\'')).rows[0]
+        .emailVerified,
+    ).toBe(true);
+    expect(await hasMcpAuthorization(grant({ bella_grant_version: 0 }).claims, resource)).toBe(
+      false,
+    );
+  },
+);
+
+integration("MCP compact edits preserve revision checks and default full responses", async () => {
+  const { designNodeSchema } = await import("../design/document");
+  const document = blankDesignDocument();
+  document.nodes = [
+    designNodeSchema.parse({
+      id: "node",
+      name: "Before",
+      type: "container",
+      parentId: null,
+      box: { x: 0, y: 0, width: 10, height: 10 },
+    }),
+  ];
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    document,
+  ]);
+  const params = {
+    file_id: "file-a",
+    expected_revision: 1,
+    node_id: "node",
+    changes: { name: "After" },
+  };
+  const compact = (
+    await responseMessage(
+      await request("tools/call", {
+        name: "patch_document",
+        arguments: { ...params, include_document: false },
+      }),
+    )
+  ).result;
+  expect(compact.structuredContent).toMatchObject({ revision: 2, node: { name: "After" } });
+  expect(compact.structuredContent.document).toBeUndefined();
+  const stale = (
+    await responseMessage(
+      await request("tools/call", { name: "patch_document", arguments: params }),
+    )
+  ).result;
+  expect(stale.isError).toBe(true);
+  const full = (
+    await responseMessage(
+      await request("tools/call", {
+        name: "patch_document",
+        arguments: { ...params, expected_revision: 2 },
+      }),
+    )
+  ).result;
+  expect(full.structuredContent.document.nodes).toHaveLength(1);
+  expect(full.structuredContent.revision).toBe(3);
+});
+
 integration(
   "MCP actual signed HTTP dispatch reads and writes only the verified grant's tenant",
   async () => {
@@ -1946,28 +2195,25 @@ integration(
   },
 );
 
-integration("MCP read-only request rechecks consent after bounded body parsing", async () => {
-  let controller;
-  const stream = new ReadableStream({
-    start(value) {
-      controller = value;
+integration("MCP read-only request checks current consent after bounded body parsing", async () => {
+  let controller, reading;
+  const ready = new Promise((resolve) => {
+    reading = resolve;
+  });
+  const stream = new ReadableStream(
+    {
+      start(value) {
+        controller = value;
+      },
+      pull() {
+        reading();
+      },
     },
-  });
-  const query = db.query.bind(db),
-    seen = pause();
-  const spy = mock(async (...args) => {
-    const result = await query(...args);
-    if (String(args[0]).includes('from "verification"') && String(args[1]).includes("mcp-grant:")) {
-      seen.release();
-      await seen.hook();
-    }
-    return result;
-  });
-  db.query = spy;
+    { highWaterMark: 0 },
+  );
   const response = request("tools/call", {}, {}, stream);
   try {
-    await seen.entered;
-    db.query = query;
+    await ready;
     await revokeMcpAuthorization("alice", "client-a");
     controller.enqueue(
       new TextEncoder().encode(
@@ -1983,8 +2229,6 @@ integration("MCP read-only request rechecks consent after bounded body parsing",
     expect((await response).status).toBe(401);
     expect(await calls()).toBe(0);
   } finally {
-    db.query = query;
-    seen.release();
     await response.catch(() => {});
   }
 });

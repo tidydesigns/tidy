@@ -818,14 +818,11 @@ export async function patchDocumentNode(
     if (current.revision !== expectedRevision)
       throw new PublicActionError("Document changed. Refresh before editing.");
     const nodes = changedLayers(current.content, [nodeId], changes);
-    const document = trackDocumentChanges(
-      current.content,
-      parseDesignDocument({
-        ...current.content,
-        nodes,
-        editedNodeIds: [...new Set([...current.content.editedNodeIds, nodeId])],
-      }),
-    );
+    const document = trackDocumentChanges(current.content, {
+      ...current.content,
+      nodes,
+      editedNodeIds: [...new Set([...current.content.editedNodeIds, nodeId])],
+    });
     await verifyAssets(client, access.rows[0].organizationId, document);
     const revision = current.revision + 1;
     await client.query(
@@ -1132,6 +1129,58 @@ async function withAssetMimeTypes<T extends { content: DesignDocument } | null>(
 }
 export async function getDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readDocument(userId, fileId));
+}
+
+/** Project the requested page in Postgres: large documents must not cross the
+ * database connection or be decoded/scanned in JS merely to return 50 nodes. */
+export async function getDocumentPage(
+  userId: string,
+  fileId: string,
+  offset: number,
+  limit: number,
+) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 250
+  )
+    throw new PublicActionError("Invalid document page.");
+  if (!(await documentSchemaReady())) return null;
+  const { rows } = await db.query<{
+    revision: number;
+    metadata: Omit<DesignDocument, "nodes">;
+    nodes: DesignNode[];
+    totalNodes: number;
+  }>(
+    `select d."revision", d."content" - 'nodes' as metadata,
+      jsonb_array_length(d."content"->'nodes') as "totalNodes",
+      jsonb_path_query_array(d."content", '$.nodes[$start to $end]',
+        jsonb_build_object('start',$3::bigint,'end',$4::bigint)) as nodes
+     from "designDocument" d join "designFile" f on f."id"=d."fileId"
+     join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     where d."fileId"=$1 and m."role" in ${VIEW_ROLES_SQL} and f."archivedAt" is null`,
+    [fileId, userId, offset, Math.min(Number.MAX_SAFE_INTEGER, offset + limit - 1)],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { metadata } = row;
+  return {
+    revision: row.revision,
+    schemaVersion: metadata.schemaVersion,
+    source: metadata.source,
+    tokens: metadata.tokens ?? {},
+    designTokens: metadata.designTokens ?? {},
+    warnings: metadata.warnings,
+    editedNodeIds: metadata.editedNodeIds,
+    deletedSourceKeys: metadata.deletedSourceKeys ?? [],
+    nodes: row.nodes,
+    offset,
+    totalNodes: row.totalNodes,
+    nextOffset: offset + limit < row.totalNodes ? offset + limit : null,
+  };
 }
 export async function getArchivedEditorDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readArchivedEditorDocument(userId, fileId));

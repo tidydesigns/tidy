@@ -1,5 +1,55 @@
 import { expect, test } from "bun:test";
 import { normalizedRoute, observeRequest } from "./request-observability";
+import { startOperation, traceStorage } from "./trace-context";
+
+test("MCP SSE traces finish with the tool result, preserve chunks, and omit private content", async () => {
+  const { spyOn } = await import("bun:test");
+  const records: string[] = [];
+  const info = spyOn(console, "info").mockImplementation((value) => records.push(String(value)));
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let operation!: ReturnType<typeof startOperation>;
+  let trace!: NonNullable<ReturnType<typeof traceStorage.getStore>>["trace"];
+  try {
+    const response = await observeRequest(
+      new Request("https://example.test/api/mcp", { method: "POST" }),
+      async () => {
+        trace = traceStorage.getStore()!.trace;
+        operation = startOperation("mcp.execution");
+        return new Response(
+          new ReadableStream<Uint8Array>({
+            start(value) {
+              controller = value;
+            },
+          }),
+          {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache, no-transform",
+            },
+          },
+        );
+      },
+    );
+    expect(trace.closed).toBe(false);
+    expect(trace.active.has(operation)).toBe(true);
+    const chunk = new TextEncoder().encode('data: {"private":"document content"}\n\n');
+    controller.enqueue(chunk);
+    const reader = response.body!.getReader();
+    expect((await reader.read()).value).toEqual(chunk);
+    operation.end();
+    controller.close();
+    expect((await reader.read()).done).toBe(true);
+    expect(trace.closed).toBe(true);
+    expect(response.headers.get("Cache-Control")).toBe("no-cache, no-transform");
+    expect(JSON.parse(records.at(-1)!)).toMatchObject({
+      event: "response_body_completed",
+      bytes: chunk.length,
+    });
+    expect(records.join("\n")).not.toContain("document content");
+  } finally {
+    info.mockRestore();
+  }
+});
 
 test("request diagnostics exclude credentials and identifiers", () => {
   expect(normalizedRoute("https://example.test/api/files/private-file/live?ticket=secret")).toBe(

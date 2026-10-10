@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { revalidatePath } from "next/cache";
 import * as z from "zod";
@@ -24,7 +25,9 @@ export function registerFolderTools(server: McpServer, userId: string) {
     {
       description:
         "List folders and their IDs in a Tidy organization you belong to. Folders are flat; files expose folderId through list_files.",
-      inputSchema: z.object({ organization_id: z.string().min(1) }),
+      inputSchema: mcpSchema("list_folders", () =>
+        z.object({ organization_id: z.string().min(1) }),
+      ),
       annotations: { readOnlyHint: true },
     },
     async ({ organization_id }) => {
@@ -41,10 +44,12 @@ export function registerFolderTools(server: McpServer, userId: string) {
     {
       description:
         "Create a named folder in a Tidy organization. Requires an Editor, Admin or Owner role.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        name: z.string().min(1).max(120),
-      }),
+      inputSchema: mcpSchema("create_folder", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          name: z.string().min(1).max(120),
+        }),
+      ),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ organization_id, name }) => {
@@ -62,7 +67,9 @@ export function registerFolderTools(server: McpServer, userId: string) {
     "rename_folder",
     {
       description: "Rename an existing Tidy folder. Requires edit access to its organization.",
-      inputSchema: z.object({ folder_id: z.string().min(1), name: z.string().min(1).max(120) }),
+      inputSchema: mcpSchema("rename_folder", () =>
+        z.object({ folder_id: z.string().min(1), name: z.string().min(1).max(120) }),
+      ),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ folder_id, name }) => {
@@ -81,7 +88,7 @@ export function registerFolderTools(server: McpServer, userId: string) {
     {
       description:
         "Delete a Tidy folder and move all its files to the organization root. Files and their archive status are preserved. Requires edit access.",
-      inputSchema: z.object({ folder_id: z.string().min(1) }),
+      inputSchema: mcpSchema("delete_folder", () => z.object({ folder_id: z.string().min(1) })),
       annotations: { readOnlyHint: false, destructiveHint: true },
     },
     async ({ folder_id }) => {
@@ -100,10 +107,12 @@ export function registerFolderTools(server: McpServer, userId: string) {
     {
       description:
         "Move a Tidy file into a folder in the same organization, or to the organization root with folder_id: null. Use after commit_import to organize a new imported file. Requires edit access.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        folder_id: z.string().min(1).nullable(),
-      }),
+      inputSchema: mcpSchema("move_file", () =>
+        z.object({
+          file_id: z.string().min(1),
+          folder_id: z.string().min(1).nullable(),
+        }),
+      ),
       annotations: { readOnlyHint: false, destructiveHint: false },
     },
     async ({ file_id, folder_id }) => {

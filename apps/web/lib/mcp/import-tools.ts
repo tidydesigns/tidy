@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import { mcpToolPolicy } from "@/lib/mcp/tool-policy";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
@@ -107,11 +108,13 @@ export function registerImportTools(
       ...mcpToolPolicy("import_web_capture"),
       description:
         "Import an already captured rendered page from get_browser_capture_script or the extension (editable nodes and raster assets). Does not browse a URL or accept HTML. Appends a new copy on EVERY call; do not blindly retry after a timeout—check list_files/get_document first. For retry-safe publishing use the staged import tools. Read get_import_guidance first.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        file_id: z.uuid().optional(),
-        capture: webCaptureSchema,
-      }),
+      inputSchema: mcpSchema("import_web_capture", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          file_id: z.uuid().optional(),
+          capture: webCaptureSchema,
+        }),
+      ),
       annotations: {
         ...mcpToolPolicy("import_web_capture").annotations,
         readOnlyHint: false,

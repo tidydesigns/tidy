@@ -1,6 +1,7 @@
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createResourceServerChallenge } from "@better-auth/oauth-provider";
 import { APIError } from "better-auth/api";
+import { createInsufficientScopeError } from "better-auth/oauth2";
 import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { auth } from "@/lib/auth";
 import { hasMcpAuthorization } from "@/lib/mcp/authorizations";
@@ -8,9 +9,11 @@ import { readMcpRequest } from "@/lib/mcp/scopes";
 import { instrumentMcpServer, McpActivity } from "@/lib/mcp/activity";
 import { registerTidyTools } from "@/lib/mcp/registry";
 import { meterMcpServer } from "@/lib/mcp/usage";
-import { withMcpGrantContext, type McpGrant } from "@/lib/mcp/grant-context";
+import { currentMcpGrant, withMcpGrantContext, type McpGrant } from "@/lib/mcp/grant-context";
 import { withMcpGrantOperation } from "@/lib/mcp/grant-operation";
+import { isMcpReadOperation } from "@/lib/mcp/execution-policy";
 import { runWithRequestSignal } from "@/lib/request-lifecycle";
+import { traceOperation } from "@/lib/trace-context";
 
 export const runtime = "nodejs";
 const resource = new URL(
@@ -21,16 +24,43 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
   const activity = new McpActivity({ userId, clientId });
   return registerTidyTools(
     meterMcpServer(
-      instrumentMcpServer(new McpServer({ name: "Tidy canvas", version: "0.1.0" }), activity),
+      instrumentMcpServer(
+        new McpServer(
+          { name: "Tidy canvas", version: "0.1.0" },
+          {
+            cacheHints: {
+              "tools/list": { ttlMs: 300_000, cacheScope: "private" },
+              "resources/list": { ttlMs: 300_000, cacheScope: "private" },
+              "resources/templates/list": { ttlMs: 300_000, cacheScope: "private" },
+            },
+          },
+        ),
+        activity,
+      ),
       userId,
       undefined,
-      (organizationId, input, work) =>
-        withMcpGrantOperation(grant, userId, organizationId, input, work),
+      (organizationId, input, work, operation) =>
+        withMcpGrantOperation(
+          grant,
+          userId,
+          organizationId,
+          input,
+          work,
+          isMcpReadOperation(operation),
+        ),
     ),
     userId,
     activity,
   );
 }
+
+// The handler is shared; the SDK still constructs a fresh server and transport
+// for each request. Actor closures and grants never survive their request.
+const mcpHandler = createMcpHandler(() => {
+  const grant = currentMcpGrant();
+  if (!grant) throw new Error("Missing authenticated MCP context.");
+  return buildServer(grant.claims.sub as string, grant.claims.client_id as string, grant);
+});
 
 async function grantFailure(
   claims: Record<string, unknown>,
@@ -61,14 +91,12 @@ async function grantFailure(
   );
 }
 
-export const POST = requireMcpAuth(
+const authenticatedPost = requireMcpAuth(
   auth,
   async (request, claims) => {
-    const denied = await grantFailure(claims);
-    if (denied) return denied;
     let parsed: Awaited<ReturnType<typeof readMcpRequest>>;
     try {
-      parsed = await readMcpRequest(request);
+      parsed = await traceOperation("mcp.request_body", () => readMcpRequest(request));
     } catch {
       return Response.json(
         {
@@ -82,27 +110,25 @@ export const POST = requireMcpAuth(
         { status: 400 },
       );
     }
-    const dispatch = async (bounded: Request) => {
-      const denied = await grantFailure(claims, parsed.scopes);
-      if (denied) return denied;
-      const grant = { claims, resource, scopes: parsed.scopes };
-      return runWithRequestSignal(request.signal, () =>
-        withMcpGrantContext(grant, () =>
-          createMcpHandler(() =>
-            buildServer(claims.sub as string, claims.client_id as string, grant),
-          ).fetch(bounded),
-        ),
-      );
-    };
-    // Connector and design permissions are separate. Verify every additional
-    // scope and its persisted consent before dispatch, including connector reads.
-    return parsed.scopes.length > 1
-      ? requireMcpAuth(auth, dispatch, {
-          resource,
-          requiredScopes: parsed.scopes,
-          challengeScopes: parsed.scopes,
-        })(parsed.request)
-      : dispatch(parsed.request);
+    // Signature, audience, expiry and DPoP are verified once by the outer
+    // middleware. Re-verifying the same DPoP proof would also look like replay.
+    const tokenScopes = new Set(typeof claims.scope === "string" ? claims.scope.split(" ") : []);
+    if (parsed.scopes.some((scope) => !tokenScopes.has(scope)))
+      throw createInsufficientScopeError(parsed.scopes);
+    const denied = await traceOperation("mcp.authorization", () =>
+      grantFailure(claims, parsed.scopes),
+    );
+    if (denied) return denied;
+    const grant = { claims, resource, scopes: parsed.scopes };
+    return withMcpGrantContext(grant, () =>
+      mcpHandler.fetch(parsed.request, { parsedBody: parsed.parsedBody }),
+    );
   },
   { resource, requiredScopes: ["mcp:read"], challengeScopes: ["mcp:read"] },
 );
+
+export function POST(request: Request) {
+  return runWithRequestSignal(request.signal, () =>
+    traceOperation("mcp.request", () => authenticatedPost(request)),
+  );
+}
