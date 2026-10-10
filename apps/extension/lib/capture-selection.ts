@@ -45,7 +45,7 @@ export async function captureSelection(
   if (elements.some((element) => !element.isConnected))
     throw new Error("A selected element disappeared during capture. Select it again.");
   if (elements.length > 1)
-    result!.title = `${elements.length} elements · ${document.title || "Website capture"}`.slice(
+    result!.title = `${elements.length} elements: ${document.title || "Website capture"}`.slice(
       0,
       120,
     );

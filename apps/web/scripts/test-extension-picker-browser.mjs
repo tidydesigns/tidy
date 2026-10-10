@@ -110,12 +110,15 @@ try {
         hint: shadow.querySelector(".hint").textContent,
       };
     });
-  const confirm = async () => {
-    const box = await page.evaluate(() =>
-      globalThis.__pickerShadow.querySelector("button").getBoundingClientRect().toJSON(),
+  const clickPicker = async (selector) => {
+    const box = await page.evaluate(
+      (selector) =>
+        globalThis.__pickerShadow.querySelector(selector).getBoundingClientRect().toJSON(),
+      selector,
     );
     await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
   };
+  const confirm = () => clickPicker("button");
   await message({ type: "bella:pick", theme: "dark" });
   assert.equal(
     (await state()).color,
@@ -123,6 +126,18 @@ try {
     "App dark theme overrides a light source page and system",
   );
   assert.equal((await state()).disabled, true);
+  assert.equal((await state()).hint, "Click elements to select them");
+  assert.equal(
+    await page.evaluate(() => globalThis.__pickerShadow.querySelector("details").open),
+    false,
+  );
+  await clickPicker("summary");
+  assert.equal(
+    await page.evaluate(() => globalThis.__pickerShadow.querySelector("details").open),
+    true,
+  );
+  await page.screenshot({ path: path.join(output, "shortcuts.png") });
+  await clickPicker("summary");
   await page.evaluate(() => globalThis.__pickerTheme("light"));
   assert.equal((await state()).color, "rgb(250, 250, 250)");
   await page.evaluate(() => globalThis.__pickerTheme("system"));
@@ -179,7 +194,7 @@ try {
   assert.ok(reply.data.document.nodes.some((node) => node.text === "Editable second description"));
   assert.ok(reply.data.document.nodes.some((node) => node.text === "Second card"));
   assert.ok(
-    !reply.data.document.nodes.some((node) => node.text?.includes("Click to select")),
+    !reply.data.document.nodes.some((node) => node.text?.includes("Click elements to select")),
     "Picker UI is excluded",
   );
   const capturePath = path.join(output, "capture.json");

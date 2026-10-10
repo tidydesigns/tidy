@@ -34,14 +34,21 @@ export function startElementPicker({
     *{box-sizing:border-box}
     .outline{position:fixed;pointer-events:none;border:1px solid var(--ink);background:light-dark(#4242420a,#d0d0d00a)}
     .selected{border:2px solid var(--ink);background:light-dark(#42424214,#d0d0d014)}
-    .toolbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:16px;width:max-content;max-width:calc(100vw - 32px);padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);box-shadow:0 2px 12px #0002;pointer-events:auto;font:15px/1.4 "Tidy Instrument Sans",system-ui,sans-serif}
-    .hint{color:var(--muted);font-size:13px}
+    .toolbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 32px);padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);box-shadow:0 2px 12px #0002;pointer-events:auto;font:15px/1.4 "Tidy Instrument Sans",system-ui,sans-serif}
+    .selection-row{display:flex;align-items:center;gap:24px}
+    .hint{color:var(--muted);font-size:14px}
+    .shortcuts{margin-top:8px;color:var(--muted);font-size:12px}
+    summary{width:max-content;cursor:pointer}
+    summary:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:2px}
+    .shortcut-list{display:grid;grid-template-columns:1fr auto;gap:8px 24px;margin:12px 0 0;padding-top:12px;border-top:1px solid var(--border);font-size:13px}
+    .shortcut-list dt,.shortcut-list dd{margin:0}
+    kbd{display:inline-block;min-width:28px;padding:1px 6px;border:1px solid var(--border);border-radius:4px;color:var(--ink);font:inherit;text-align:center}
     button{flex-shrink:0;min-height:36px;border:1px solid var(--action);border-radius:6px;padding:8px 12px;background:var(--action);color:#fff;font:inherit;font-weight:500;cursor:pointer}
     button:disabled{opacity:.5;cursor:default}
     button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
     button:active:enabled{background:light-dark(#595959,#444444)}
     @media(hover:hover) and (pointer:fine){button:hover:enabled{background:light-dark(#595959,#444444)}}
-    @media(max-width:620px){.toolbar{flex-wrap:wrap;gap:8px}.hint{flex-basis:100%}}
+    @media(max-width:440px){.selection-row{flex-wrap:wrap;gap:12px}.hint{flex-basis:100%}}
   `;
   const outline = document.createElement("div");
   outline.className = "outline";
@@ -112,20 +119,43 @@ export function startElementPicker({
     flushSync(() =>
       root.render(
         <div className="toolbar">
-          <span className="hint" role="status">
-            {notice || "Click to select · ↑ parent · ↓ child · Esc cancel"}
-          </span>
-          <Button
-            disabled={!selected.length}
-            onClick={confirm}
-            title="Copy selected elements · Enter"
-          >
-            {selected.length > 1
-              ? `Copy ${selected.length} elements`
-              : selected.length
-                ? "Copy element"
-                : "Copy elements"}
-          </Button>
+          <div className="selection-row">
+            <span className="hint" role="status">
+              {notice || "Click elements to select them"}
+            </span>
+            <Button
+              disabled={!selected.length}
+              onClick={confirm}
+              title="Copy selected elements (Enter)"
+            >
+              {selected.length > 1
+                ? `Copy ${selected.length} elements`
+                : selected.length
+                  ? "Copy element"
+                  : "Copy elements"}
+            </Button>
+          </div>
+          <details className="shortcuts">
+            <summary>Keyboard shortcuts</summary>
+            <dl className="shortcut-list">
+              <dt>Select parent</dt>
+              <dd>
+                <kbd>↑</kbd>
+              </dd>
+              <dt>Select child</dt>
+              <dd>
+                <kbd>↓</kbd>
+              </dd>
+              <dt>Copy selection</dt>
+              <dd>
+                <kbd>Enter</kbd>
+              </dd>
+              <dt>Cancel</dt>
+              <dd>
+                <kbd>Esc</kbd>
+              </dd>
+            </dl>
+          </details>
         </div>,
       ),
     );
@@ -144,6 +174,8 @@ export function startElementPicker({
   const click = (event: MouseEvent) => {
     if (inToolbar(event)) return;
     suppress(event);
+    // Return keyboard control to selection after interacting with the toolbar.
+    if (shadow.activeElement instanceof HTMLElement) shadow.activeElement.blur();
     if (!target?.isConnected) return;
     notice = "";
     const prior = selected.find((element) => contains(element, target!));

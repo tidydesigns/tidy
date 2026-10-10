@@ -33,6 +33,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 - Check for existing custom UI components and reuse them instead of native controls, including `SelectMenu` for dropdowns.
 - Build minimal interfaces for designers: use purposeful labels and functional controls; omit redundant headings and UI fluff.
+- Do not join UI labels, instructions, metadata, or keyboard hints with dot or bullet separators (such as `·` or `•`). Use clear sentences, spacing, or separate rows instead.
 - Show panels only when they contain actionable content; collapse empty panels instead of reserving space for instructional messages.
 - Use progressive disclosure for secondary lists and imported details: collapse them by default and bound expanded content so primary work areas such as layers and tokens remain usable at smaller viewport heights.
 - Give each action or destination one UI home; do not duplicate it across menus, panels, or buttons.
