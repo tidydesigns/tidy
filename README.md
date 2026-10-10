@@ -1,6 +1,6 @@
 # Tidy
 
-[![Codex refines a landing page with live teammate cursors in Tidy’s canvas](docs/demo/codex-canvas-teammate.gif)](docs/demo/codex-canvas-teammate.mp4)
+[![Codex in Ghostty edits a landing page alongside Tidy’s live teammate cursor](docs/demo/codex-canvas-teammate.gif)](docs/demo/codex-canvas-teammate.mp4)
 
 Tidy is a product canvas for designers, engineers and agents. It includes an
 editable design workspace, collaboration, a webpage-capture extension and an MCP
