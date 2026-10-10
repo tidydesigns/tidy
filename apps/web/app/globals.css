@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@source "../../../packages/ui";
 
 @theme {
   /* Tidy: 16 / Account — Flush left, light and dark neutral variants. */

@@ -278,7 +278,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               rows={5}
               maxLength={2000}
               required
-              placeholder="Tell us what’s on your mind…"
+              placeholder="Tell us what’s on your mind. Paste a screenshot to help us see what you mean."
               className="w-full resize-y rounded-lg border border-primary-grey bg-transparent px-3 py-2 text-sm outline-none placeholder:text-secondary-ink focus-visible:border-primary-black focus-visible:ring-2 focus-visible:ring-primary-orange"
             />
           </div>
@@ -302,10 +302,6 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             >
               Attach images
             </button>
-            <p className="text-xs text-secondary-ink">
-              Paste screenshots into the textbox, or attach up to 3 images. PNG, JPEG or WebP, 5 MB
-              each.
-            </p>
             {images.length > 0 && (
               <ul className="flex flex-wrap gap-3" aria-label="Attached images">
                 {images.map((image) => (

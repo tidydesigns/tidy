@@ -9,8 +9,10 @@ export const mcpPage = "w-full max-w-3xl";
 export const filesHeader = "flex flex-wrap items-center justify-between gap-6";
 export const filesGrid = "grid gap-5 pt-9 sm:grid-cols-2 xl:grid-cols-3";
 export const settingsTabList = "mt-9 flex flex-wrap gap-x-7 gap-y-3";
+export const settingsTabButton =
+  "text-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-black";
 export const settingsPanel =
-  "mt-14 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-black sm:mt-16";
+  "mt-14 min-w-0 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-black sm:mt-16";
 export const threadsPage = "flex min-h-0 flex-col h-[min(760px,calc(100dvh-8rem))]";
 export const memberList = "mt-8 space-y-3";
 export const memberRow =

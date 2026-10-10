@@ -1,7 +1,11 @@
 import { FeedbackProvider } from "@/components/workspace/send-feedback";
 import { can } from "@/lib/organizations/roles";
 import { cookies, headers } from "next/headers";
-import { EDITOR_PANELS_COOKIE } from "@/lib/editor-preferences";
+import {
+  EDITOR_PANELS_COOKIE,
+  EDITOR_TOOLBAR_COOKIE,
+  editorToolbarPlacement,
+} from "@/lib/editor-preferences";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { getDesignFile } from "@/lib/design/service";
@@ -79,6 +83,9 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
         }
         initialDocument={document}
         initialPanelsOpen={initialPanelsOpen}
+        initialToolbarPlacement={editorToolbarPlacement(
+          cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
+        )}
         agents={agentsPromise}
         user={{ name: session.user.name, image: session.user.image }}
         githubReviews={githubReviews}
