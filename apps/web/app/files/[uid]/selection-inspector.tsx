@@ -73,7 +73,6 @@ export const SelectionInspector = memo(function SelectionInspector({
   onEditVector,
   editingVector = false,
   cropping = false,
-  onClose,
   onGoToMaster,
   onAlign,
   onDistribute,
@@ -105,7 +104,6 @@ export const SelectionInspector = memo(function SelectionInspector({
   onEditVector?: () => void;
   editingVector?: boolean;
   onPrototype: () => void;
-  onClose?: () => void;
   onGoToMaster?: (id: string) => void;
   onAlign: (
     axis: "left" | "center-x" | "right" | "top" | "center-y" | "bottom",
@@ -326,16 +324,6 @@ export const SelectionInspector = memo(function SelectionInspector({
             />
           )}
         </div>
-        {onClose && (
-          <button
-            type="button"
-            aria-label="Close inspector"
-            onClick={onClose}
-            className={buttonClass}
-          >
-            ×
-          </button>
-        )}
       </div>
     </>
   );

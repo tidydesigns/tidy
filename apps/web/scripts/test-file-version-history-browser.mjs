@@ -65,7 +65,8 @@ const patch = async (changes, context = contexts[1]) => {
   assert.equal(response.status(), 200, await response.text());
 };
 const open = async (page) => {
-  await page.getByRole("button", { name: "Version history", exact: true }).click();
+  await page.getByRole("button", { name: "File actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Version history", exact: true }).click();
   await page.getByRole("dialog", { name: "Version history", exact: true }).waitFor();
 };
 const close = (page) => page.getByRole("button", { name: "Close history", exact: true }).click();
@@ -221,6 +222,24 @@ try {
   await a.locator('[data-node-id="text"]').filter({ hasText: "Original document" }).waitFor();
   await open(a);
   await checkpoint(a, "Initial design");
+  const canvas = a.getByLabel("Design canvas", { exact: true });
+  const artwork = canvas.locator('div[style*="transform: translate("]').first();
+  const transform = await artwork.evaluate((element) => element.style.transform);
+  const versionPreview = a.getByLabel("Version preview", { exact: true });
+  await versionPreview.hover();
+  await a.mouse.wheel(120, 240);
+  await a.keyboard.down("Control");
+  await a.mouse.wheel(0, -120);
+  await a.keyboard.up("Control");
+  await a.waitForTimeout(100);
+  assert.equal(await artwork.evaluate((element) => element.style.transform), transform);
+  await a.setViewportSize({ width: 1000, height: 600 });
+  const historyDialog = a.getByRole("dialog", { name: "Version history", exact: true });
+  await historyDialog.getByText("Version history", { exact: true }).hover();
+  await a.mouse.wheel(0, 600);
+  await a.waitForTimeout(100);
+  assert.ok(await historyDialog.evaluate((element) => element.scrollTop > 0));
+  await a.setViewportSize({ width: 1500, height: 1050 });
   const initial = (await history()).versions.find((version) => version.name === "Initial design");
   assert.ok(initial);
   await close(a);
