@@ -4,6 +4,9 @@ import type { ExtensionAccount } from "@bella/design/web-capture";
 import type { Destination, ImportJob, Reply } from "../../lib/messages";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";
+import { Avatar } from "@tidy/ui/avatar";
+import { TidyLogo } from "@tidy/ui/tidy-logo";
+import { BELLA_URL } from "../../lib/config";
 import { applyTheme } from "../../lib/theme";
 
 async function send<T>(message: object): Promise<T> {
@@ -92,8 +95,21 @@ export function App() {
   return (
     <main>
       <header>
-        <span className="brand-name">Tidy</span>
-        {account && <small>{account.user.name}</small>}
+        <TidyLogo className="brand-name" />
+        {account && (
+          <span
+            className="profile"
+            role="img"
+            aria-label={account.user.name}
+            title={account.user.name}
+          >
+            <Avatar
+              image={account.user.image ? new URL(account.user.image, BELLA_URL).href : null}
+              name={account.user.name}
+              className="profile-avatar"
+            />
+          </span>
+        )}
       </header>
       {loading ? (
         <p role="status">Connecting to Tidy…</p>

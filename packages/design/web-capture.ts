@@ -68,7 +68,7 @@ export const webImportSchema = z
   .strict();
 
 export type ExtensionAccount = {
-  user: { id: string; name: string };
+  user: { id: string; name: string; image?: string | null };
   organizations: { id: string; name: string; files: { id: string; name: string }[] }[];
 };
 export type ImportResult = {

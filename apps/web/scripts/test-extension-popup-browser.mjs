@@ -17,6 +17,8 @@ execFileSync(
     "apps/extension/entrypoints/popup/main.tsx",
     "--target=browser",
     "--external=wxt/browser",
+    "--external=/fonts/*",
+    '--define=import.meta.env.WXT_BELLA_URL="http://localhost:3000"',
     `--outdir=${output}`,
   ],
   { cwd: repo, stdio: "pipe" },
@@ -52,7 +54,11 @@ try {
       const listeners = new Set();
       const stored = { theme };
       const account = {
-        user: { id: "fixture-user", name: "Alex Designer" },
+        user: {
+          id: "fixture-user",
+          name: "Alex Designer",
+          image: "/api/avatars/user/fixture-user?v=fixture",
+        },
         organizations: [
           {
             id: "fixture-org",
@@ -62,7 +68,7 @@ try {
         ],
       };
       globalThis.__popupBrowser = {
-        runtime: { sendMessage: async () => ({ data: account }) },
+        runtime: { sendMessage: async () => ({ data: structuredClone(account) }) },
         storage: {
           local: { get: async () => stored, set: async (value) => Object.assign(stored, value) },
           session: {
@@ -87,9 +93,25 @@ try {
         stored.theme = theme;
         for (const listener of listeners) listener({ theme: { newValue: theme } }, "local");
       };
+      globalThis.__changePopupAvatar = (image) => {
+        account.user.image = image;
+        window.dispatchEvent(new Event("focus"));
+      };
     }, response.headers()["x-tidy-theme"]);
-    await popup.route("https://popup.test/**", (route) => {
+    await popup.route("http://localhost:3000/api/avatars/**", (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#809b8a"/><circle cx="32" cy="24" r="12" fill="#f1d6bd"/><path d="M9 64a23 23 0 0 1 46 0" fill="#35495a"/></svg>',
+      }),
+    );
+    await popup.route("https://popup.test/**", async (route) => {
       const pathname = new URL(route.request().url()).pathname;
+      if (pathname.startsWith("/fonts/")) {
+        return route.fulfill({
+          contentType: pathname.endsWith(".woff2") ? "font/woff2" : "font/ttf",
+          body: await readFile(path.join(repo, "apps/extension/public", pathname)),
+        });
+      }
       return route.fulfill(
         pathname === "/popup.js"
           ? { contentType: "text/javascript", body: js }
@@ -103,7 +125,37 @@ try {
     });
     await popup.goto("https://popup.test/");
     await popup.getByRole("button", { name: "Copy page", exact: true }).waitFor();
-    assert.equal(await popup.locator("header img").count(), 0, "Popup has no logo tile");
+    await popup.evaluate(() => document.fonts.ready);
+    assert.equal(
+      await popup.locator("header img").count(),
+      1,
+      "Header only contains the user avatar",
+    );
+    assert.equal(await popup.locator("header").innerText(), "Tidy");
+    const avatar = popup.getByRole("img", { name: "Alex Designer" });
+    assert.equal(
+      await avatar.locator("img").getAttribute("src"),
+      "http://localhost:3000/api/avatars/user/fixture-user?v=fixture",
+      "Private avatars resolve against the app origin",
+    );
+    assert.equal(await avatar.locator("img").evaluate((img) => img.naturalWidth), 64);
+    assert.equal(await avatar.evaluate((el) => el.getBoundingClientRect().width), 32);
+    assert.equal(
+      await popup.locator(".brand-name").evaluate((el) => getComputedStyle(el).fontFamily),
+      '"Instrument Serif", Georgia, serif',
+    );
+    assert.equal(
+      await popup.getByRole("button", { name: "Copy page", exact: true }).evaluate((el) => {
+        const style = getComputedStyle(el);
+        return `${style.fontFamily}|${style.fontSize}`;
+      }),
+      '"Instrument Sans", sans-serif|15px',
+    );
+    assert.equal(
+      await popup.evaluate(() => document.fonts.check('15px "Instrument Sans"')),
+      true,
+      "Bundled Instrument Sans loads",
+    );
     const expectedBackground = preference === "dark" ? "rgb(32, 32, 32)" : "rgb(250, 250, 250)";
     assert.equal(
       await popup.evaluate(() => getComputedStyle(document.documentElement).backgroundColor),
@@ -123,6 +175,16 @@ try {
     );
     await popup.locator("summary").click();
     await popup.screenshot({ path: path.join(output, `${preference}.png`), fullPage: true });
+    await popup.evaluate(() => globalThis.__changePopupAvatar(null));
+    await avatar.getByText("A", { exact: true }).waitFor();
+    await popup.route("http://localhost:3000/broken-avatar", (route) => route.abort());
+    await popup.evaluate(() => globalThis.__changePopupAvatar("/broken-avatar"));
+    await avatar.getByText("A", { exact: true }).waitFor();
+    assert.equal(
+      await avatar.locator("img").count(),
+      0,
+      "Failed images fall back to the user's initial",
+    );
     await popup.evaluate(() => globalThis.__changePopupTheme("dark"));
     assert.equal(await popup.evaluate(() => document.documentElement.dataset.theme), "dark");
     await popup.evaluate(() => globalThis.__changePopupTheme("system"));
@@ -135,7 +197,7 @@ try {
     await context.close();
   }
   console.log(
-    `App theme, popup themes, shared dropdown and bounded notes passed. Screenshots: ${output}`,
+    `App theme, popup themes, wordmark, avatars, fonts, dropdown and bounded notes passed. Screenshots: ${output}`,
   );
 } finally {
   await browser.close();
