@@ -35,13 +35,35 @@ export function cssColor(value: string, preserveTransparent = false): string | u
   return `#${channels.map((part) => part.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function captureStyle(css: CSSStyleDeclaration, text = false): DesignNode["style"] {
+export function captureStyle(
+  css: CSSStyleDeclaration,
+  text = false,
+  bounds?: Pick<DOMRect, "width" | "height">,
+): DesignNode["style"] {
   const px = (value: string) => Number.parseFloat(value) || 0;
+  const radius = (value = "0") => {
+    const limit = bounds ? Math.min(bounds.width, bounds.height) / 2 : 5000;
+    return clamp(
+      value.includes("%") && bounds
+        ? (px(value) / 100) * Math.min(bounds.width, bounds.height)
+        : px(value),
+      0,
+      limit,
+    );
+  };
   const style: DesignNode["style"] = {
     opacity: clamp(Number.parseFloat(css.opacity) || (css.opacity === "0" ? 0 : 1), 0, 1),
-    radius: clamp(px(css.borderTopLeftRadius), 0, 500),
+    radius: radius(css.borderTopLeftRadius),
+    radiusTopLeft: radius(css.borderTopLeftRadius),
+    radiusTopRight: radius(css.borderTopRightRadius),
+    radiusBottomRight: radius(css.borderBottomRightRadius),
+    radiusBottomLeft: radius(css.borderBottomLeftRadius),
     borderColor: cssColor(css.borderTopColor),
     borderWidth: clamp(px(css.borderTopWidth), 0, 40),
+    borderTopWidth: clamp(px(css.borderTopWidth), 0, 40),
+    borderRightWidth: clamp(px(css.borderRightWidth), 0, 40),
+    borderBottomWidth: clamp(px(css.borderBottomWidth), 0, 40),
+    borderLeftWidth: clamp(px(css.borderLeftWidth), 0, 40),
     overflow: css.overflow === "hidden" || css.overflow === "clip" ? "hidden" : "visible",
     fill: cssColor(css.backgroundColor),
   };
@@ -55,9 +77,17 @@ export function captureStyle(css: CSSStyleDeclaration, text = false): DesignNode
     Object.assign(style, {
       fill: undefined,
       borderWidth: 0,
+      borderTopWidth: 0,
+      borderRightWidth: 0,
+      borderBottomWidth: 0,
+      borderLeftWidth: 0,
       shadow: undefined,
       shadows: undefined,
       radius: 0,
+      radiusTopLeft: 0,
+      radiusTopRight: 0,
+      radiusBottomRight: 0,
+      radiusBottomLeft: 0,
       color: cssColor(css.color) ?? "#000000",
       fontSize: size,
       fontFamily: css.fontFamily.slice(0, 100),
@@ -66,6 +96,7 @@ export function captureStyle(css: CSSStyleDeclaration, text = false): DesignNode
       letterSpacing: clamp(px(css.letterSpacing), -100, 100),
       fontStyle: css.fontStyle === "italic" ? "italic" : "normal",
       textAlign: ["left", "center", "right"].includes(css.textAlign) ? css.textAlign : "left",
+      textWrap: "nowrap",
       textDecoration: css.textDecorationLine.includes("underline")
         ? "underline"
         : css.textDecorationLine.includes("line-through")
@@ -136,10 +167,35 @@ export async function captureElement(
   if ((fullPage ? document.documentElement.scrollHeight : rect.height) > 100000)
     warn("Content below 100,000 px was omitted.");
   const frames: DesignNode[] = [];
-  const background: string =
-    cssColor(getComputedStyle(root).backgroundColor) ??
-    cssColor(getComputedStyle(document.documentElement).backgroundColor) ??
-    "#ffffff";
+  // A selected transparent subtree still sits on its ancestors' painted canvas.
+  let background = "#ffffff";
+  const ancestors: Element[] = [];
+  // The root's own fill is imported below; compositing it here too would double
+  // the opacity of a translucent root.
+  for (
+    let ancestor: Element | null = root.parentElement;
+    ancestor;
+    ancestor = ancestor.parentElement
+  )
+    ancestors.push(ancestor);
+  for (const ancestor of ancestors.reverse()) {
+    const color = cssColor(getComputedStyle(ancestor).backgroundColor);
+    if (!color) continue;
+    if (color.length === 7) background = color;
+    else {
+      const alpha = parseInt(color.slice(7), 16) / 255;
+      background = `#${[1, 3, 5]
+        .map((offset) =>
+          Math.round(
+            parseInt(color.slice(offset, offset + 2), 16) * alpha +
+              parseInt(background.slice(offset, offset + 2), 16) * (1 - alpha),
+          )
+            .toString(16)
+            .padStart(2, "0"),
+        )
+        .join("")}`;
+    }
+  }
   for (let y = 0; y < height; y += 5000) {
     const frame: DesignNode = {
       id: crypto.randomUUID(),
@@ -155,10 +211,16 @@ export async function captureElement(
     frames.push(frame);
   }
   result.document.nodes.push(...frames);
+  type CaptureParent = {
+    bounds: Map<number, DOMRect>;
+    nodes: Map<number, DesignNode>;
+  };
   const add = (
     node: Omit<DesignNode, "id" | "parentId" | "visible" | "locked" | "layout">,
     bounds: DOMRect,
+    parent?: CaptureParent,
   ) => {
+    const added = new Map<number, DesignNode>();
     const x = bounds.left - originX,
       y = bounds.top - originY;
     if (
@@ -169,7 +231,7 @@ export async function captureElement(
       y >= height ||
       y + bounds.height <= 0
     )
-      return;
+      return added;
     for (
       let index = Math.max(0, Math.floor(y / 5000));
       index < frames.length && index * 5000 < y + bounds.height;
@@ -179,23 +241,58 @@ export async function captureElement(
         warn(
           "The capture reached Tidy's 5,000-layer limit. Select a smaller portion for the remaining content.",
         );
-        return;
+        return added;
       }
-      result.document.nodes.push({
+      const parentNode = parent?.nodes.get(index);
+      const parentBounds = parent?.bounds.get(index);
+      if (parent && !parentNode) continue;
+      // A clipping group can span multiple artboards. Give each copy the
+      // corresponding slice, rather than clamping its original full height.
+      const splitGroup = node.type === "container" && bounds.height > 5000;
+      const top = splitGroup ? Math.max(bounds.top, originY + index * 5000) : bounds.top;
+      const bottom = splitGroup
+        ? Math.min(bounds.bottom, originY + index * 5000 + frames[index]!.box.height)
+        : bounds.bottom;
+      const style = { ...node.style };
+      if (top > bounds.top)
+        Object.assign(style, { radiusTopLeft: 0, radiusTopRight: 0, borderTopWidth: 0 });
+      if (bottom < bounds.bottom)
+        Object.assign(style, { radiusBottomLeft: 0, radiusBottomRight: 0, borderBottomWidth: 0 });
+      const addedNode: DesignNode = {
         ...node,
+        style,
         id: crypto.randomUUID(),
-        parentId: frames[index]!.id,
+        parentId: parentNode?.id ?? frames[index]!.id,
         box: {
-          x: clamp(x, -100000, 100000),
-          y: clamp(y - index * 5000, -100000, 100000),
+          x: clamp(
+            parentBounds
+              ? bounds.left -
+                  parentBounds.left -
+                  (parentNode!.style.borderLeftWidth ?? parentNode!.style.borderWidth ?? 0)
+              : x,
+            -100000,
+            100000,
+          ),
+          y: clamp(
+            parentBounds
+              ? top -
+                  parentBounds.top -
+                  (parentNode!.style.borderTopWidth ?? parentNode!.style.borderWidth ?? 0)
+              : top - originY - index * 5000,
+            -100000,
+            100000,
+          ),
           width: clamp(bounds.width, 1, 5000),
-          height: clamp(bounds.height, 1, 5000),
+          height: clamp(bottom - top, 1, 5000),
         },
         visible: true,
         locked: false,
         layout: "absolute",
-      });
+      };
+      result.document.nodes.push(addedNode);
+      added.set(index, addedNode);
     }
+    return added;
   };
   const startViewport = currentViewport();
   let viewport: HTMLImageElement | undefined;
@@ -252,7 +349,13 @@ export async function captureElement(
     }
     return true;
   };
-  const addRaster = (tiles: RasterTile[], bounds: DOMRect, name: string, overlay = false) => {
+  const addRaster = (
+    tiles: RasterTile[],
+    bounds: DOMRect,
+    name: string,
+    overlay = false,
+    parent?: CaptureParent,
+  ) => {
     const bytes = tiles.reduce((sum, tile) => sum + tile.base64.length, 0);
     if (
       assetBytes + bytes > MAX_ASSET_BASE64_BYTES ||
@@ -277,12 +380,17 @@ export async function captureElement(
             box: { x: 0, y: 0, width: 1, height: 1 },
           },
           bounds,
+          parent,
         );
         return;
       }
       // A single group keeps the tiled visual movable as one object in Tidy.
       const start = result.document.nodes.length;
-      add({ type: "container", name, style: {}, box: { x: 0, y: 0, width: 1, height: 1 } }, bounds);
+      add(
+        { type: "container", name, style: {}, box: { x: 0, y: 0, width: 1, height: 1 } },
+        bounds,
+        parent,
+      );
       for (const group of result.document.nodes.slice(start))
         tiles.forEach((tile, index) => {
           result.document.nodes.push({
@@ -307,7 +415,7 @@ export async function captureElement(
     if (overlay) rasterLayers.push(render);
     else render();
   };
-  const rasterize = async (element: Element, reason: string) => {
+  const rasterize = async (element: Element, reason: string, parent?: CaptureParent) => {
     const label = (
       element.id ||
       element.getAttribute("aria-label") ||
@@ -333,7 +441,7 @@ export async function captureElement(
     ) {
       try {
         const tiles = await rasterTiles(await rasterizeElement(element, original));
-        addRaster(tiles, original, `${label} · ${reason}`.slice(0, 120));
+        addRaster(tiles, original, `${label} · ${reason}`.slice(0, 120), false, parent);
         warn(
           `${label}: ${reason} preserved as an isolated image with transparent edges; descendants are not separately editable.`,
         );
@@ -372,7 +480,7 @@ export async function captureElement(
     try {
       const tiles = await rasterTiles(canvas.toDataURL("image/png").split(",")[1]!);
       // Pixels already include effects and overlaps. Paint opaque crops last.
-      addRaster(tiles, bounds, `${label} · ${reason}`.slice(0, 120), true);
+      addRaster(tiles, bounds, `${label} · ${reason}`.slice(0, 120), true, parent);
     } catch {
       warn(
         `${label}: ${reason} exceeded the raster asset limit; effects are approximated. Capture a smaller region.`,
@@ -393,6 +501,7 @@ export async function captureElement(
     bounds: DOMRect,
     css: CSSStyleDeclaration,
     backgroundUrl?: string,
+    parent?: CaptureParent,
   ) => {
     if (result.assets.length >= 100) {
       warn("Only the first 100 images were imported.");
@@ -409,51 +518,57 @@ export async function captureElement(
     if (!context) return;
     let base64: string | undefined;
     let fromScreenshot = false;
+    let isolated = false;
     try {
-      let source: CanvasImageSource;
-      if (element instanceof HTMLCanvasElement && !backgroundUrl) source = element;
-      else {
-        const url =
-          backgroundUrl ??
-          (element instanceof HTMLImageElement ? element.currentSrc || element.src : undefined);
-        if (!url || !/^(https?:|data:image\/|blob:)/i.test(url))
-          throw new Error("Unrenderable image");
-        const image = new Image();
-        image.crossOrigin = "anonymous";
-        image.src = url;
-        await Promise.race([
-          image.decode(),
-          new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error("Image timed out")), 3000),
-          ),
-        ]);
-        source = image;
+      if (element.tagName.toLowerCase() === "svg" && !backgroundUrl) {
+        base64 = await rasterizeElement(element, bounds);
+        isolated = true;
+      } else {
+        let source: CanvasImageSource;
+        if (element instanceof HTMLCanvasElement && !backgroundUrl) source = element;
+        else {
+          const url =
+            backgroundUrl ??
+            (element instanceof HTMLImageElement ? element.currentSrc || element.src : undefined);
+          if (!url || !/^(https?:|data:image\/|blob:)/i.test(url))
+            throw new Error("Unrenderable image");
+          const image = new Image();
+          image.crossOrigin = "anonymous";
+          image.src = url;
+          await Promise.race([
+            image.decode(),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error("Image timed out")), 3000),
+            ),
+          ]);
+          source = image;
+        }
+        const sourceWidth =
+          source instanceof HTMLImageElement
+            ? source.naturalWidth
+            : (source as HTMLCanvasElement).width;
+        const sourceHeight =
+          source instanceof HTMLImageElement
+            ? source.naturalHeight
+            : (source as HTMLCanvasElement).height;
+        const fit = backgroundUrl ? css.backgroundSize : css.objectFit;
+        if (["cover", "contain"].includes(fit) && sourceWidth && sourceHeight) {
+          const ratio =
+            fit === "cover"
+              ? Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight)
+              : Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
+          const drawWidth = sourceWidth * ratio,
+            drawHeight = sourceHeight * ratio;
+          context.drawImage(
+            source,
+            (canvas.width - drawWidth) / 2,
+            (canvas.height - drawHeight) / 2,
+            drawWidth,
+            drawHeight,
+          );
+        } else context.drawImage(source, 0, 0, canvas.width, canvas.height);
+        base64 = canvas.toDataURL("image/png").split(",")[1];
       }
-      const sourceWidth =
-        source instanceof HTMLImageElement
-          ? source.naturalWidth
-          : (source as HTMLCanvasElement).width;
-      const sourceHeight =
-        source instanceof HTMLImageElement
-          ? source.naturalHeight
-          : (source as HTMLCanvasElement).height;
-      const fit = backgroundUrl ? css.backgroundSize : css.objectFit;
-      if (["cover", "contain"].includes(fit) && sourceWidth && sourceHeight) {
-        const ratio =
-          fit === "cover"
-            ? Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight)
-            : Math.min(canvas.width / sourceWidth, canvas.height / sourceHeight);
-        const drawWidth = sourceWidth * ratio,
-          drawHeight = sourceHeight * ratio;
-        context.drawImage(
-          source,
-          (canvas.width - drawWidth) / 2,
-          (canvas.height - drawHeight) / 2,
-          drawWidth,
-          drawHeight,
-        );
-      } else context.drawImage(source, 0, 0, canvas.width, canvas.height);
-      base64 = canvas.toDataURL("image/png").split(",")[1];
     } catch {
       // The browser screenshot can preserve tainted images, SVG, canvas and video in view.
       if (
@@ -506,17 +621,35 @@ export async function captureElement(
           (backgroundUrl && "Background image") ||
           element.tagName.toLowerCase()
         ).slice(0, 120),
-        style: fromScreenshot
-          ? { objectFit: "fill" }
-          : { ...captureStyle(css), fill: undefined, objectFit: "fill" },
+        style:
+          fromScreenshot || isolated
+            ? { objectFit: "fill" }
+            : {
+                ...captureStyle(css, false, bounds),
+                fill: undefined,
+                objectFit: "fill",
+                ...(backgroundUrl && parent
+                  ? {
+                      opacity: 1,
+                      borderWidth: 0,
+                      borderTopWidth: 0,
+                      borderRightWidth: 0,
+                      borderBottomWidth: 0,
+                      borderLeftWidth: 0,
+                      shadow: undefined,
+                      shadows: undefined,
+                    }
+                  : {}),
+              },
         assetId: id,
         box: { x: 0, y: 0, width: 1, height: 1 },
       },
       bounds,
+      parent,
     );
   };
   let visited = 0;
-  const visit = async (element: Element, depth: number) => {
+  const visit = async (element: Element, depth: number, parent?: CaptureParent) => {
     if (++visited > 15000 || depth > 80 || result.document.nodes.length >= 5000) {
       warn("Some content exceeded the capture complexity limit. Select a smaller portion.");
       return;
@@ -535,8 +668,8 @@ export async function captureElement(
       if (pseudoCss.content && !["none", "normal"].includes(pseudoCss.content))
         effect ??= rasterEffect(pseudoCss);
     }
-    if (effect && (await rasterize(element, effect))) return;
-    const style = captureStyle(css);
+    if (effect && (await rasterize(element, effect, parent))) return;
+    const style = captureStyle(css, false, bounds);
     const paints = captureGradientStack(
       css,
       {
@@ -580,8 +713,25 @@ export async function captureElement(
         css.backgroundColor !== "transparent")
     )
       warn("Some advanced CSS colors were approximated.");
-    if (style.paints || style.fill || style.borderWidth || style.shadow)
-      add(
+    const replaced = ["IMG", "SVG", "CANVAS", "VIDEO"].includes(element.tagName.toUpperCase());
+    const clips = [css.overflow, css.overflowX, css.overflowY].some((value) =>
+      ["hidden", "clip", "scroll", "auto"].includes(value),
+    );
+    let contentParent = parent;
+    if (
+      !replaced &&
+      (style.paints ||
+        style.fill ||
+        style.borderWidth ||
+        style.borderRightWidth ||
+        style.borderBottomWidth ||
+        style.borderLeftWidth ||
+        style.shadow ||
+        style.shadows ||
+        clips ||
+        style.opacity! < 1)
+    ) {
+      const nodes = add(
         {
           type: "container",
           name: (element.id || element.tagName.toLowerCase()).slice(0, 120),
@@ -589,21 +739,36 @@ export async function captureElement(
           box: { x: 0, y: 0, width: 1, height: 1 },
         },
         bounds,
+        parent,
       );
-    if (css.transform && css.transform !== "none")
-      warn("CSS transforms were approximated using rendered bounds.");
-    if ((css.filter && css.filter !== "none") || (css.clipPath && css.clipPath !== "none"))
-      warn("Some CSS filters or clipping effects were approximated.");
+      if (clips || style.opacity! < 1) {
+        for (const node of nodes.values()) node.style.overflow = clips ? "hidden" : "visible";
+        contentParent = {
+          bounds: new Map(
+            [...nodes].map(([index, node]) => [
+              index,
+              new DOMRect(
+                bounds.left,
+                bounds.height > 5000 ? Math.max(bounds.top, originY + index * 5000) : bounds.top,
+                bounds.width,
+                node.box.height,
+              ),
+            ]),
+          ),
+          nodes,
+        };
+      }
+    }
     if (["IFRAME", "OBJECT", "EMBED"].includes(element.tagName)) {
       warn("Embedded frames were omitted. Open the embedded page in its own tab to import it.");
       return;
     }
     const background = css.backgroundImage?.match(/^url\(["']?(.*?)["']?\)$/)?.[1];
-    if (background) await asset(element, bounds, css, background);
+    if (background) await asset(element, bounds, css, background, contentParent);
     else if (!paints && css.backgroundImage && css.backgroundImage !== "none")
       warn("Unsupported CSS gradients or background positioning were approximated.");
-    if (["IMG", "SVG", "CANVAS", "VIDEO"].includes(element.tagName.toUpperCase())) {
-      await asset(element, bounds, css);
+    if (replaced) {
+      await asset(element, bounds, css, undefined, parent);
       return;
     }
     // Form values can contain secrets. Capture the control's appearance, never its value.
@@ -618,31 +783,76 @@ export async function captureElement(
     const children = [...element.childNodes].sort((a, b) => stackingLevel(a) - stackingLevel(b));
     for (const child of children) {
       if (child instanceof Element) {
-        await visit(child, depth + 1);
+        await visit(child, depth + 1, contentParent);
         continue;
       }
       if (child.nodeType !== Node.TEXT_NODE || !child.textContent?.trim()) continue;
       const range = document.createRange();
-      range.selectNodeContents(child);
-      const textBounds = range.getBoundingClientRect();
-      let text = child.textContent;
-      if (!css.whiteSpace.startsWith("pre")) text = text.replace(/\s+/g, " ").trim();
-      if (css.textTransform === "uppercase") text = text.toUpperCase();
-      else if (css.textTransform === "lowercase") text = text.toLowerCase();
-      add(
-        {
-          type: "text",
-          name: text.slice(0, 120),
-          text: text.slice(0, 10000),
-          style: captureStyle(css, true),
-          box: { x: 0, y: 0, width: 1, height: 1 },
-        },
-        textBounds,
-      );
-      if (text.length > 10000) warn("A text layer exceeded 10,000 characters and was shortened.");
+      const source = child.textContent.slice(0, 10000);
+      let start = 0;
+      while (start < source.length) {
+        // Keep the browser's line breaks rather than reflowing tight glyph boxes
+        // using the destination font's metrics. Binary search bounds the work.
+        let end = source.length;
+        range.setStart(child, start);
+        range.setEnd(child, end);
+        const rects = [...range.getClientRects()];
+        if (rects.length > 1 && rects.some((rect) => Math.abs(rect.top - rects[0]!.top) > 1)) {
+          let low = start + 1,
+            high = end;
+          while (low < high) {
+            const mid = Math.ceil((low + high) / 2);
+            range.setEnd(child, mid);
+            const measured = [...range.getClientRects()];
+            if (measured.every((rect) => Math.abs(rect.top - rects[0]!.top) <= 1)) low = mid;
+            else high = mid - 1;
+          }
+          end = low;
+        }
+        let visibleStart = start,
+          visibleEnd = end;
+        if (!css.whiteSpace.startsWith("pre")) {
+          while (visibleStart < visibleEnd && /\s/.test(source[visibleStart]!)) visibleStart++;
+          while (visibleEnd > visibleStart && /\s/.test(source[visibleEnd - 1]!)) visibleEnd--;
+        }
+        start = end;
+        if (visibleStart === visibleEnd) continue;
+        range.setStart(child, visibleStart);
+        range.setEnd(child, visibleEnd);
+        const textBounds = range.getBoundingClientRect();
+        let text = source.slice(visibleStart, visibleEnd);
+        if (!css.whiteSpace.startsWith("pre")) text = text.replace(/\s+/g, " ");
+        if (css.textTransform === "uppercase") text = text.toUpperCase();
+        else if (css.textTransform === "lowercase") text = text.toLowerCase();
+        const textStyle = captureStyle(css, true);
+        const lineHeight = textStyle.fontSize! * textStyle.lineHeight!;
+        const lineBounds = new DOMRect(
+          textBounds.left,
+          textBounds.top - (lineHeight - textBounds.height) / 2,
+          textBounds.width,
+          lineHeight,
+        );
+        add(
+          {
+            type: "text",
+            name: text.slice(0, 120),
+            text: text.slice(0, 10000),
+            style: {
+              ...textStyle,
+              opacity: contentParent !== parent ? 1 : textStyle.opacity,
+              textAlign: "left",
+            },
+            box: { x: 0, y: 0, width: 1, height: 1 },
+          },
+          lineBounds,
+          contentParent,
+        );
+      }
+      if (child.textContent.length > 10000)
+        warn("A text layer exceeded 10,000 characters and was shortened.");
     }
     if (element.shadowRoot) {
-      for (const child of element.shadowRoot.children) await visit(child, depth + 1);
+      for (const child of element.shadowRoot.children) await visit(child, depth + 1, contentParent);
       warn("Open shadow DOM was imported; closed shadow roots cannot be inspected.");
     }
     for (const pseudo of ["::before", "::after"]) {

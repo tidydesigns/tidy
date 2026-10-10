@@ -78,7 +78,7 @@ function bounds(element: Element, x: number, y: number, width: number, height: n
 describe("rendered webpage capture", () => {
   test("converts an element into editable layers with local positions and excludes form values", async () => {
     win.document.body.innerHTML =
-      '<section id="card" style="background:rgb(255,255,255)"><h1 style="font-size:24px;color:rgb(20,20,20)">Hello Bella</h1><input value="private-password"><script>secret</script></section>';
+      '<section id="card" style="background:rgb(255,255,255)"><h1 style="font-size:24px;line-height:24px;color:rgb(20,20,20)">Hello Bella</h1><input value="private-password"><script>secret</script></section>';
     const root = win.document.querySelector("section")!;
     bounds(root as unknown as Element, 100, 100, 400, 300);
     bounds(win.document.querySelector("h1")! as unknown as Element, 120, 140, 150, 24);
@@ -88,9 +88,38 @@ describe("rendered webpage capture", () => {
     expect(text.text).toBe("Hello Bella");
     expect(text.box).toEqual({ x: 20, y: 40, width: 150, height: 24 });
     expect(text.style.fontSize).toBe(24);
+    expect(text.style.textWrap).toBe("nowrap");
     expect(capture.url).toBe("https://example.com/page");
     expect(JSON.stringify(capture)).not.toContain("private-password");
     expect(parsed.warnings.some((warning) => warning.message.includes("Form values"))).toBe(true);
+  });
+  test("uses the selected region's ancestor background, including translucent layers", async () => {
+    win.document.body.style.background = "#000000";
+    win.document.body.innerHTML =
+      '<div style="background:rgba(255,255,255,0.5)"><section></section></div>';
+    const root = win.document.querySelector("section")!;
+    bounds(root as unknown as Element, 100, 100, 400, 300);
+    const capture = await captureElement(root as unknown as Element, "element");
+    expect(capture.document.nodes[0].style.fill).toBe("#808080");
+    root.parentElement!.style.background = "transparent";
+    expect(
+      (await captureElement(root as unknown as Element, "element")).document.nodes[0].style.fill,
+    ).toBe("#000000");
+  });
+  test("keeps descendants inside rounded clipping parents with relative positions and one opacity", async () => {
+    win.document.body.innerHTML =
+      '<section><div id="avatar" style="overflow:hidden;border-radius:50%;border:4px solid black;opacity:0.5"><span style="font-size:20px;line-height:24px">Clipped</span></div></section>';
+    const root = win.document.querySelector("section")!;
+    bounds(root as unknown as Element, 100, 100, 400, 300);
+    bounds(win.document.querySelector("#avatar")! as unknown as Element, 110, 120, 100, 100);
+    const capture = await captureElement(root as unknown as Element, "element");
+    const parsed = parseDesignDocument(capture.document);
+    const clip = parsed.nodes.find((node) => node.name === "avatar")!;
+    const text = parsed.nodes.find((node) => node.type === "text")!;
+    expect(clip.style).toMatchObject({ radius: 50, overflow: "hidden", opacity: 0.5 });
+    expect(text.parentId).toBe(clip.id);
+    expect(text.box).toEqual({ x: 6, y: 16, width: 150, height: 24 });
+    expect(text.style.opacity).toBe(1);
   });
   test("imports gradient stacks as editable fills in paint order and warns on unsupported forms", async () => {
     win.document.body.innerHTML =
@@ -123,6 +152,24 @@ describe("rendered webpage capture", () => {
     );
     expect(frames.map((node) => node.box.height)).toEqual([5000, 5000, 2000]);
     expect(frames[1].box.x).toBe(1120);
+  });
+  test("keeps clipped descendants visible after a long page is split into artboards", async () => {
+    Object.defineProperty(win.document.documentElement, "scrollHeight", { value: 12000 });
+    win.document.body.style.cssText = "overflow:hidden;background:rgb(0,0,0)";
+    win.document.body.innerHTML = '<div id="below-fold" style="background:rgb(255,0,0)"></div>';
+    bounds(win.document.body as unknown as Element, 0, 0, 1000, 12000);
+    bounds(win.document.querySelector("div")! as unknown as Element, 20, 5100, 100, 100);
+    const parsed = parseDesignDocument(
+      (await captureElement(win.document.body as unknown as Element, "page")).document,
+    );
+    const frames = parsed.nodes.filter((node) => node.type === "artboard");
+    const group = parsed.nodes.find(
+      (node) => node.name === "body" && node.parentId === frames[1].id,
+    )!;
+    const child = parsed.nodes.find((node) => node.name === "below-fold")!;
+    expect(group.box).toEqual({ x: 0, y: 0, width: 1000, height: 5000 });
+    expect(child.parentId).toBe(group.id);
+    expect(child.box).toEqual({ x: 20, y: 100, width: 100, height: 100 });
   });
   test("preserves color alpha and omits fully transparent fills", () => {
     expect(cssColor("rgba(10, 20, 30, 0.5)")).toBe("#0a141e80");

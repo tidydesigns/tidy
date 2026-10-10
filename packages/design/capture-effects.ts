@@ -12,6 +12,25 @@ export function rasterEffect(css: CSSStyleDeclaration): string | undefined {
     css.transformStyle === "preserve-3d"
   )
     return "3D perspective";
+  if (active(css.filter)) return "CSS filter";
+  if (active(css.clipPath)) return "CSS clip path";
+  // Translation is already represented exactly by getBoundingClientRect.
+  // Rotation, skew and scaling also affect descendants and typography.
+  if (active(css.transform)) {
+    const matrix = css.transform
+      .match(/^matrix\(([^)]+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number);
+    if (
+      !matrix ||
+      matrix.length !== 6 ||
+      matrix[0] !== 1 ||
+      matrix[1] !== 0 ||
+      matrix[2] !== 0 ||
+      matrix[3] !== 1
+    )
+      return "CSS transform";
+  }
   return undefined;
 }
 
