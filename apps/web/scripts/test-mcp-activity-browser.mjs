@@ -114,11 +114,35 @@ try {
         "--conditions",
         "react-server",
         "-e",
-        `const {mock}=await import('bun:test');mock.module('server-only',()=>({}));const {auth}=await import('./lib/auth');const ctx=await auth.$context;const signed=await auth.api.signJWT({body:{payload:{sub:${JSON.stringify(userId)},sid:${JSON.stringify(session.session.id)},client_id:${JSON.stringify(clientId)},scope:'mcp:read mcp:write',aud:${JSON.stringify(`${base}/api/mcp`)},iss:ctx.baseURL,bella_grant_version:'0',exp:Math.floor(Date.now()/1000)+600}}});console.log(JSON.stringify(signed));process.exit(0);`,
+        `const { mock } = await import('bun:test');
+        const { readFileSync } = await import('node:fs');
+        mock.module('server-only', () => ({}));
+        const claims = JSON.parse(readFileSync(0, 'utf8'));
+        const { auth } = await import('./lib/auth');
+        const ctx = await auth.$context;
+        const signed = await auth.api.signJWT({ body: { payload: {
+          sub: claims.userId,
+          sid: claims.sessionId,
+          client_id: claims.clientId,
+          scope: 'mcp:read mcp:write',
+          aud: claims.audience,
+          iss: ctx.baseURL,
+          bella_grant_version: '0',
+          exp: Math.floor(Date.now() / 1000) + 600,
+        } } });
+        console.log(JSON.stringify(signed));
+        process.exit(0);`,
       ],
       {
         cwd: new URL("../", import.meta.url),
         env: { ...process.env, DATABASE_URL: connectionString, BETTER_AUTH_URL: base },
+        // Keep runtime values out of executable source, including test fixture values.
+        input: JSON.stringify({
+          userId,
+          sessionId: session.session.id,
+          clientId,
+          audience: `${base}/api/mcp`,
+        }),
         encoding: "utf8",
       },
     ),
