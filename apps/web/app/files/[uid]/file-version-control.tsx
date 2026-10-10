@@ -10,6 +10,7 @@ import { DesignSnapshot } from "@/components/github/design-snapshot";
 import { documentFontReferences } from "@/lib/design/fonts/recovery";
 import { useFontRegistry } from "@/lib/design/fonts/use-document-fonts";
 import { mapConcurrent } from "@/lib/map-concurrent";
+import { openFeedback } from "@/lib/feedback/commands";
 const button =
   "rounded-md border border-primary-grey/70 px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 disabled:opacity-40";
 type List = { versions: FileVersion[]; nextCursor: string | null };
@@ -225,10 +226,17 @@ export function FileVersionControl({
         label="File actions"
         value=""
         placement="top"
-        options={[{ value: "history", label: "Version history" }]}
+        options={[
+          { value: "history", label: "Version history", icon: <Icon name="history" size={18} /> },
+          { value: "feedback", label: "Send feedback", icon: <Icon name="feedback" size={18} /> },
+        ]}
         triggerContent={<Icon name="more" size={18} />}
         triggerClassName="flex size-10 items-center justify-center rounded-lg border border-primary-grey/70 bg-primary-white text-secondary-ink shadow-sm hover:bg-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.97]"
-        onChange={() => {
+        onChange={(action) => {
+          if (action === "feedback") {
+            openFeedback();
+            return;
+          }
           interactions.current++;
           setError("");
           setOpen(true);

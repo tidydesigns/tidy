@@ -1,4 +1,5 @@
 "use client";
+import { memo } from "react";
 
 import type { DesignDocument } from "@/lib/design/document";
 import {
@@ -8,7 +9,7 @@ import {
   type ImportNoteStatus,
 } from "@/lib/design/import-notes";
 
-export function ImportNotes({
+export const ImportNotes = memo(function ImportNotes({
   document,
   readOnly,
   onStatus,
@@ -100,4 +101,4 @@ export function ImportNotes({
       </div>
     </details>
   );
-}
+});

@@ -1,4 +1,6 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
+import { EDITOR_TOOLBAR_COOKIE, editorToolbarPlacement } from "@/lib/editor-preferences";
 import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { buildComponentsDocument } from "@/lib/design/examples/components";
 import { buildVectorEditingDocument } from "@/lib/design/examples/vector-editing";
@@ -44,6 +46,9 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
       preview={query.edit !== "1"}
       local={query.edit === "1" && query.realtime !== "1"}
       initialPanelsOpen={query.compact !== "1"}
+      initialToolbarPlacement={editorToolbarPlacement(
+        (await cookies()).get(EDITOR_TOOLBAR_COOKIE)?.value,
+      )}
       previewAssetUrls={
         query.exports === "1"
           ? { [exportImageId]: "/crop-test.svg", [exportMaskImageId]: "/export-mask-test.svg" }

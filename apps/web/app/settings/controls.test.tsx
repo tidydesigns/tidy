@@ -9,6 +9,7 @@ mock.module("server-only", () => ({}));
 const { MemberControls } = await import("./member-controls");
 const { OrganizationMembership } = await import("./organization-membership");
 const { SettingsTabs } = await import("./settings-tabs");
+const { PreferenceControls } = await import("./preference-controls");
 const { BillingSettings } = await import("./billing-settings");
 const { UpgradeDialog } = await import("@/components/workspace/upgrade-dialog");
 const members: Member[] = [
@@ -161,18 +162,31 @@ test("profile renders editable identity, password and other session controls wit
   expect(html).toContain('value="owner@example.test"');
   expect(html).toContain("Verify your email");
   expect(html).toContain("Change password");
-  expect(html).toContain("Appearance");
-  expect(html).toContain('aria-haspopup="menu"');
-  expect(html).toContain('aria-expanded="false"');
-  expect(html).toContain("System");
-  expect(html).toContain("Editor panels");
-  expect(html).toContain("Closed by default");
-  expect(html).toContain("Applies to files opened in this browser.");
+  expect(html).toContain('id="settings-tab-preferences"');
+  expect(html).toContain('id="settings-tab-organization"');
+  expect(html).not.toContain('id="settings-tab-settings"');
+  expect(html).not.toContain("Editor panels");
+  expect(html).not.toContain("Minimised toolbar");
   expect(html).toContain("This session");
   expect(html).toContain("End session");
   expect(html).not.toContain('id="settings-tab-billing"');
   expect(html).not.toContain("Get Pro");
   expect(html).not.toContain("token");
+});
+
+test("preferences keep appearance and editor controls outside profile and respect saved choices", () => {
+  const html = renderToStaticMarkup(
+    <PreferenceControls initialEditorPanelsOpen initialEditorToolbarPlacement="bottom" />,
+  );
+  expect(html).toContain("Appearance");
+  expect(html).toContain("File editor");
+  expect(html).toContain("Theme");
+  expect(html).toContain('aria-haspopup="menu"');
+  expect(html).toContain("Editor panels");
+  expect(html).toContain("Open by default");
+  expect(html).toContain("Minimised toolbar");
+  expect(html).toContain("Bottom (horizontal)");
+  expect(html).not.toContain("Change password");
 });
 
 test("the upgrade dialog offers checkout only to owners; billing settings manage existing plans", () => {

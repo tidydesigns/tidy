@@ -14,6 +14,7 @@ const sources = {
   select: "/icons/iconoir/cursor-pointer.svg",
   comment: "/icons/iconoir/comment.svg",
   feedback: "/icons/iconoir/megaphone.svg",
+  history: "/icons/iconoir/clock-rotate-right.svg",
   more: "/icons/iconoir/more-horiz.svg",
   zoomIn: "/icons/iconoir/zoom-in.svg",
   zoomOut: "/icons/iconoir/zoom-out.svg",

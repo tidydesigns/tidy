@@ -21,8 +21,12 @@ function subscribe(listener: () => void) {
   return () => window.removeEventListener(changeEvent, listener);
 }
 
+export function useEditorPanelsOpen(initialOpen = false) {
+  return useSyncExternalStore(subscribe, currentPreference, () => initialOpen);
+}
+
 export function EditorPanelPreferenceControl({ initialOpen = false }: { initialOpen?: boolean }) {
-  const open = useSyncExternalStore(subscribe, currentPreference, () => initialOpen);
+  const open = useEditorPanelsOpen(initialOpen);
   const labelId = useId();
 
   return (
@@ -40,9 +44,6 @@ export function EditorPanelPreferenceControl({ initialOpen = false }: { initialO
         }}
         className="mt-2 w-full max-w-xs"
       />
-      <p className="mt-2 text-xs font-normal text-secondary-ink">
-        Applies to files opened in this browser.
-      </p>
     </div>
   );
 }

@@ -8,8 +8,6 @@ import { ImmediateField } from "@/components/ui/immediate-field";
 import { TextField } from "@/components/ui/text-field";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
-import { ThemePreferenceControl } from "@/components/ui/theme-preference";
-import { EditorPanelPreferenceControl } from "@/components/ui/editor-panel-preference";
 import { AvatarControl } from "./avatar-control";
 import { revokeAccountSession } from "./actions";
 
@@ -36,14 +34,12 @@ export function ProfileControls({
   currentSessionId,
   emailConfigured,
   verificationError,
-  initialEditorPanelsOpen,
 }: {
   user: User;
   sessions: AccountSession[];
   currentSessionId: string;
   emailConfigured: boolean;
   verificationError: boolean;
-  initialEditorPanelsOpen?: boolean;
   onSessionsChange: Dispatch<SetStateAction<AccountSession[]>>;
   onNameChange: (name: string) => void;
 }) {
@@ -111,6 +107,7 @@ export function ProfileControls({
         </p>
       )}
       <div className="space-y-6">
+        <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
         <AvatarControl
           kind="user"
           id={user.id}
@@ -184,13 +181,6 @@ export function ProfileControls({
             {emailError}
           </p>
         )}
-      </div>
-      <div className="border-t border-primary-grey pt-6">
-        <h2 className="mb-4 text-lg font-semibold">Appearance</h2>
-        <div className="space-y-6">
-          <ThemePreferenceControl />
-          <EditorPanelPreferenceControl initialOpen={initialEditorPanelsOpen} />
-        </div>
       </div>
       <form onSubmit={changePassword} className="space-y-5 border-t border-primary-grey pt-6">
         <h2 className="text-lg font-semibold">Password</h2>

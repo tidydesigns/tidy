@@ -79,13 +79,13 @@ test("invites default to viewer and show legacy invitations as editor", () => {
       initialInvites={[{ id: "invite", email: "reviewer@example.com", role: "member" }]}
     />,
   );
-  expect(markup).toContain("Viewer — can view and comment");
-  expect(markup).toContain("Editor — can edit designs");
+  expect(markup).toContain("Viewer: can view and comment");
+  expect(markup).toContain("Editor: can edit designs");
   expect(markup).toContain("every file in this workspace");
   expect(markup).not.toContain("Continue on my own");
 });
 
-test("feedback appears once in the editor footer or as a compact button", () => {
+test("editor uses one file actions menu instead of separate feedback controls", () => {
   for (const initialPanelsOpen of [true, false]) {
     const markup = renderToStaticMarkup(
       <FileEditor
@@ -97,14 +97,12 @@ test("feedback appears once in the editor footer or as a compact button", () => 
         initialDocument={{ revision: 1, content: blankDesignDocument() }}
       />,
     );
-    expect(markup.match(/aria-label="Send feedback"/g)).toHaveLength(1);
-    expect(markup).toContain('aria-keyshortcuts="Shift+F"');
+    expect(markup.match(/aria-label="File actions"/g)).toHaveLength(1);
+    expect(markup).not.toContain('aria-label="Send feedback"');
     if (initialPanelsOpen) {
-      expect(markup).toContain("⇧F");
       expect(markup).toContain('aria-label="Add page"');
       expect(markup).toContain('aria-label="Minimize editor panels"');
     } else {
-      expect(markup).not.toContain("⇧F");
       expect(markup).toContain('aria-label="Expand editor panels"');
     }
   }

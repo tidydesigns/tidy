@@ -8,6 +8,13 @@ import { DeleteOrganization } from "./delete-organization";
 import { AvatarControl } from "./avatar-control";
 import { OrganizationName } from "./organization-name";
 import { ProfileControls, type AccountSession } from "./profile-controls";
+import { PreferenceControls } from "./preference-controls";
+import {
+  settingsTabs,
+  settingsLabels,
+  settingsTab,
+  type SettingsTab,
+} from "@/lib/settings-navigation";
 import { MemberControls } from "./member-controls";
 import { OrganizationMembership } from "./organization-membership";
 import { useOrganizationNames } from "@/components/workspace/organization-names";
@@ -16,21 +23,20 @@ import type { ConnectorStatus } from "@/lib/connectors/catalog";
 import type { ConnectionStatus } from "@/lib/github/connections";
 import type { BillingStatus } from "@/lib/billing/server";
 import { BillingSettings } from "./billing-settings";
+import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
 
 import { AgentConnectionSettings } from "@/components/agents/connection-settings";
 import type { ConnectionStatus as AgentConnection } from "@/lib/agents/protocol";
 
-import { settingsPage, settingsTabList, settingsPanel } from "@/components/workspace/page-layout";
+import {
+  settingsPage,
+  settingsTabList,
+  settingsTabButton,
+  settingsPanel,
+} from "@/components/workspace/page-layout";
 
-export type Tab = "members" | "profile" | "settings" | "connectors" | "billing" | "agents";
+export type Tab = SettingsTab;
 export type Member = { id: string; userId: string; name: string; email: string; role: string };
-
-const tabs: Tab[] = ["members", "profile", "settings", "connectors", "billing"];
-const tabsWithoutBilling: Tab[] = ["members", "profile", "settings", "connectors"];
-
-function label(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
 
 function SettingsPanel({
   item,
@@ -76,6 +82,7 @@ export function SettingsTabs({
   emailConfigured,
   verificationError,
   initialEditorPanelsOpen,
+  initialEditorToolbarPlacement,
 }: {
   invitations?: Invite[];
   sessions: AccountSession[];
@@ -83,6 +90,7 @@ export function SettingsTabs({
   emailConfigured: boolean;
   verificationError: boolean;
   initialEditorPanelsOpen?: boolean;
+  initialEditorToolbarPlacement?: EditorToolbarPlacement;
   initialTab: Tab;
   organization: { id: string; name: string; logo?: string | null };
   user: { image?: string | null; id: string; name: string; email: string; emailVerified: boolean };
@@ -102,10 +110,7 @@ export function SettingsTabs({
   const [currentRole, setRole] = useState(role);
   const [currentSessions, setSessions] = useState(sessions);
   const visibleTabs = useMemo(
-    () => [
-      ...(billing.proLimits ? tabs : tabsWithoutBilling),
-      ...(agents ? ["agents" as const] : []),
-    ],
+    () => settingsTabs(Boolean(billing.proLimits), Boolean(agents)),
     [billing.proLimits, agents],
   );
   const { names } = useOrganizationNames();
@@ -114,14 +119,15 @@ export function SettingsTabs({
     name: names[organization.id] ?? organization.name,
   };
 
-  const requested = searchParams.get("tab") === "github" ? "connectors" : searchParams.get("tab");
+  const requested = settingsTab(searchParams.get("tab"));
   const tab =
-    visibleTabs.find((item) => item === requested) ?? (requested ? initialTab : "members");
+    visibleTabs.find((item) => item === requested) ??
+    (visibleTabs.includes(initialTab) && searchParams.has("tab") ? initialTab : "profile");
 
   function selectTab(next: Tab) {
     if (next === tab) return;
     const params = new URLSearchParams(searchParams.toString());
-    if (next === "members") params.delete("tab");
+    if (next === "profile") params.delete("tab");
     else params.set("tab", next);
     const query = params.toString();
     window.history.pushState(null, "", query ? `/settings?${query}` : "/settings");
@@ -147,10 +153,13 @@ export function SettingsTabs({
 
   return (
     <main className={settingsPage} data-page-content="settings">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-        {currentOrganization.name} settings
-      </h1>
-      <div role="tablist" aria-label="Settings" className={settingsTabList}>
+      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Settings</h1>
+      <div
+        role="tablist"
+        aria-label="Settings sections"
+        aria-orientation="horizontal"
+        className={settingsTabList}
+      >
         {visibleTabs.map((item) => (
           <button
             key={item}
@@ -162,14 +171,13 @@ export function SettingsTabs({
             tabIndex={tab === item ? 0 : -1}
             onClick={() => selectTab(item)}
             onKeyDown={(event) => onTabKeyDown(event, item)}
-            className={`cursor-pointer text-sm focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary-black ${tab === item ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink hover:text-primary-black"}`}
+            className={`${settingsTabButton} cursor-pointer ${tab === item ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink hover:text-primary-black"}`}
           >
-            {label(item)}
+            {settingsLabels[item]}
           </button>
         ))}
       </div>
-
-      <>
+      <div className="min-w-0">
         {agents && (
           <SettingsPanel item="agents" selected={tab}>
             <AgentConnectionSettings initial={agents} />
@@ -236,11 +244,17 @@ export function SettingsTabs({
             currentSessionId={currentSessionId}
             emailConfigured={emailConfigured}
             verificationError={verificationError}
-            initialEditorPanelsOpen={initialEditorPanelsOpen}
           />
         </SettingsPanel>
 
-        <SettingsPanel item="settings" selected={tab}>
+        <SettingsPanel item="preferences" selected={tab}>
+          <PreferenceControls
+            initialEditorPanelsOpen={initialEditorPanelsOpen}
+            initialEditorToolbarPlacement={initialEditorToolbarPlacement}
+          />
+        </SettingsPanel>
+
+        <SettingsPanel item="organization" selected={tab}>
           <section aria-labelledby="organization-heading" className="max-w-xl">
             <h2 id="organization-heading" className="text-xl font-semibold tracking-tight">
               Organization
@@ -291,7 +305,7 @@ export function SettingsTabs({
             )}
           </section>
         </SettingsPanel>
-      </>
+      </div>
     </main>
   );
 }
