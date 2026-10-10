@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { placePresence, type PresenceBox } from "./agent-presence-layout";
+import {
+  layoutPresences,
+  placePresence,
+  presenceDetailsLayout,
+  type PresenceBox,
+} from "./agent-presence-layout";
 
 test("three teammates at the same target have separate, bounded identities", () => {
   const viewport = { width: 1000, height: 700 };
@@ -38,4 +43,35 @@ test("an overcrowded viewport falls back to the edge group", () => {
       { left: 0, top: 0, width: 200, height: 160 },
     ]),
   ).toBeUndefined();
+});
+
+test("details remain usable at the top of a short canvas", () => {
+  const details = presenceDetailsLayout(20, 24, { width: 400, height: 200 });
+  expect(details.above).toBe(false);
+  expect(details.maxHeight).toBe(132);
+});
+
+test("details use the space above near the bottom, and stay inside narrow canvases", () => {
+  const details = presenceDetailsLayout(96, 160, { width: 180, height: 200 });
+  expect(details.above).toBe(true);
+  expect(details.maxHeight).toBe(140);
+  expect(details.width).toBe(156);
+  expect(96 + details.left).toBe(12);
+});
+
+test("a layer cursor cannot cover the unplaced teammate at the canvas margin", () => {
+  const targets = [
+    { key: "editing", width: 72, focus: { left: 0, top: 58, width: 92, height: 40 } },
+    { key: "preparing", width: 72 },
+  ];
+  const { placements, margin } = layoutPresences(targets, { width: 800, height: 600 }, true);
+  const cursor = placements.get("editing")!;
+  expect(cursor).toBeDefined();
+  expect(margin).toBeDefined();
+  expect(
+    cursor.left >= margin!.left + margin!.width || cursor.top >= margin!.top + margin!.height,
+  ).toBe(true);
+  const alone = layoutPresences(targets.slice(0, 1), { width: 800, height: 600 }, true);
+  expect(alone.margin).toBeUndefined();
+  expect(alone.placements.get("editing")?.left).toBe(20);
 });

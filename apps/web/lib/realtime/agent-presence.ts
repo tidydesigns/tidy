@@ -28,7 +28,7 @@ export function agentPresences(activities: AgentActivity[], now: number) {
       ? activity.phase === "reading"
         ? 2
         : 4
-      : activity.phase === "staged"
+      : ["staged", "failed", "unavailable"].includes(activity.phase)
         ? 3
         : 1;
   const actors = new Map<string, AgentActivity>();

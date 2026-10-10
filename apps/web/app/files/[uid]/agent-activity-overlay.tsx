@@ -19,7 +19,7 @@ import {
   type AgentActivityStore,
 } from "@/lib/realtime/agent-activity";
 import { agentPresences, presenceColor, presenceDeadline } from "@/lib/realtime/agent-presence";
-import { placePresence, type PresenceBox } from "./agent-presence-layout";
+import { layoutPresences, presenceDetailsLayout } from "./agent-presence-layout";
 import { canvasElements } from "./canvas-elements";
 import styles from "./agent-activity-overlay.module.css";
 
@@ -411,20 +411,20 @@ function VisibleAgentPresence({
     window.document.addEventListener("pointerdown", dismiss, true);
     return () => window.document.removeEventListener("pointerdown", dismiss, true);
   }, []);
-  const placements = new Map<string, PresenceBox>();
-  const anchored = regions.filter((region) => {
-    const measured = geometry.get(region.key);
-    if (!measured?.focus || placements.size >= 3) return false;
-    const box = placePresence(
-      measured.focus,
-      measured,
-      [...placements.values()],
-      identityWidth(region.activity),
-    );
-    if (!box) return false;
-    placements.set(region.key, box);
-    return true;
-  });
+  const canvasSize = geometry.values().next().value ?? {
+    width: viewport.current?.clientWidth ?? 320,
+    height: viewport.current?.clientHeight ?? 500,
+  };
+  const { placements, margin } = layoutPresences(
+    regions.map((region) => ({
+      key: region.key,
+      width: identityWidth(region.activity),
+      focus: geometry.get(region.key)?.focus,
+    })),
+    canvasSize,
+    panelsOpen,
+  );
+  const anchored = regions.filter((region) => placements.has(region.key));
   const fallback = regions.filter((region) => !anchored.includes(region));
   const shown = [...anchored, ...fallback.slice(0, 1)];
   return (
@@ -448,12 +448,9 @@ function VisibleAgentPresence({
           ),
         );
         const placement = placements.get(region.key);
-        const x =
-          placement?.left ?? Math.max(12, Math.min(panelsOpen ? 20 : 72, width - badgeWidth - 12));
-        // Unplaced work uses the same teammate cursor in the canvas margin,
-        // never a second status banner at the bottom of the editor.
-        const y = placement?.top ?? Math.max(12, Math.min(panelsOpen ? 24 : 80, height - 48));
-        const detailsWidth = Math.max(0, Math.min(288, width - 24));
+        const x = placement?.left ?? margin!.left;
+        const y = placement?.top ?? margin!.top;
+        const { above, ...detailsStyle } = presenceDetailsLayout(x, y, { width, height });
         const retiring = presenceDeadline(region.activity) - clock <= 180;
         const terminal = activityTerminal(region.activity);
         const target = region.node?.name ?? region.root?.name;
@@ -518,15 +515,7 @@ function VisibleAgentPresence({
                     <span className={styles.count}>+{fallback.length - 1}</span>
                   )}
                 </summary>
-                <div
-                  className={styles.details}
-                  data-above={y > height - 280}
-                  style={{
-                    width: detailsWidth,
-                    left: Math.min(0, width - x - detailsWidth - 12),
-                    maxHeight: Math.min(240, y > height - 280 ? y - 20 : height - y - 44),
-                  }}
-                >
+                <div className={styles.details} data-above={above} style={detailsStyle}>
                   {(unanchored ? fallback : [region]).map((item) => (
                     <ActivityDetails
                       key={item.key}

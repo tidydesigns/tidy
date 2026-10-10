@@ -46,3 +46,16 @@ test("clients stay distinct and native thread agents retain their own UI", () =>
   const native = activity({ threadId: crypto.randomUUID(), agentId: crypto.randomUUID() });
   expect(agentPresences([first, second, native], now)).toEqual([first, second]);
 });
+
+test("a recent failure is visible over waiting work, until the agent resumes or it expires", () => {
+  const staged = activity({ importId: crypto.randomUUID(), phase: "staged" });
+  const failed = activity({ phase: "failed", updatedAt: now + 1 });
+  expect(agentPresences([staged, failed], now + 1)).toEqual([failed]);
+  const unavailable = activity({ phase: "unavailable", updatedAt: now + 2 });
+  expect(agentPresences([staged, unavailable], now + 2)).toEqual([unavailable]);
+  const resumed = activity({ phase: "staged", updatedAt: now + 3 });
+  expect(agentPresences([staged, failed, resumed], now + 3)).toEqual([resumed]);
+  expect(agentPresences([staged, failed], now + 6001)).toEqual([staged]);
+  const editing = activity({ updatedAt: now + 2 });
+  expect(agentPresences([staged, failed, editing], now + 2)).toEqual([editing]);
+});
