@@ -62,6 +62,7 @@ export function validateResponsiveLayout(node: DesignNode) {
 
 /** Root artboard width controls all descendant rules, regardless of nesting. */
 export function containingFrameWidth(node: DesignNode, nodes: readonly DesignNode[]) {
+  if (!node.parentId) return node.box.width;
   let current = node;
   const byId = new Map(nodes.map((item) => [item.id, item]));
   const visited = new Set<string>();

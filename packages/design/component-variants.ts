@@ -19,6 +19,8 @@ function findFamily(byId: ReadonlyMap<string, DesignNode>, node: DesignNode) {
   return undefined;
 }
 export function componentFamily(nodes: readonly DesignNode[], node: DesignNode) {
+  if (node.variants) return { master: node, variants: node.variants };
+  if (!node.componentSourceId) return undefined;
   return findFamily(new Map(nodes.map((item) => [item.id, item])), node);
 }
 function familySource(

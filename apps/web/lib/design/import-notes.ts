@@ -12,6 +12,7 @@ export function importNoteKey(note: ImportNote) {
 }
 
 export function importNotes(document: DesignDocument): ImportNote[] {
+  if (!document.warnings.length) return [];
   const notes = new Map<string, ImportNote>();
   const sourceKey = document.source
     ? `${document.source.project}:${document.source.route}`

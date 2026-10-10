@@ -145,7 +145,7 @@ import { selectionDragTarget } from "@/lib/design/selection-drag-target";
 import { LayerTree } from "./layer-tree";
 import { FontRecovery } from "./font-recovery";
 import { ImportNotes } from "./import-notes";
-import { setImportNoteStatus } from "@/lib/design/import-notes";
+import { setImportNoteStatus, type ImportNoteStatus } from "@/lib/design/import-notes";
 import { VectorEditor } from "./vector-editor";
 import { PenEditor } from "./pen-editor";
 import {
@@ -2139,6 +2139,9 @@ export function FileEditor({
       }
       if (!selection) return;
       if (!command && event.key === "Enter") {
+        // Focused controls own Enter; canvas drill-in must not swallow their
+        // native keyboard activation when a layer is already selected.
+        if (event.target instanceof Element && event.target.closest("button, a[href]")) return;
         event.preventDefault();
         if (selected?.type === "text") {
           setEditingTextId(selection);
@@ -3376,6 +3379,17 @@ export function FileEditor({
     (transform: (content: DesignDocument) => DesignDocument, nextSelection?: string) =>
       void changeDocument(transform, nextSelection),
   );
+  const panelNoteStatus = useEditorEvent(
+    (key: string, status: ImportNoteStatus) =>
+      void changeDocument((content) => setImportNoteStatus(content, key, status)),
+  );
+  const panelNoteSelect = useEditorEvent((id: string) => {
+    const node = snapshot.content.nodes.find((node) => node.id === id);
+    if (node) {
+      switchPage(nodePageId(node));
+      selectNode(id);
+    }
+  });
   const panelExport = useEditorEvent((request: ExportRequest) => void exportSelection(request));
   const panelGradient = useEditorEvent((paintId: string | null) => {
     gradientGesture.current = null;
@@ -3388,6 +3402,11 @@ export function FileEditor({
   const panelUpload = useEditorEvent(uploadFillImage);
   const panelReplace = useEditorEvent(() => replaceImageInput.current?.click());
   const panelCrop = useEditorEvent(toggleCrop);
+  const panelVector = useEditorEvent(() => {
+    if (!selected) return;
+    if (vectorMode === selected.id) setVectorMode(null);
+    else beginVectorEditing(selected);
+  });
   const panelPrototype = useEditorEvent(togglePrototype);
   const panelAlign = useEditorEvent(
     (axis: Parameters<typeof alignLayers>[2], keyObjectId?: string) =>
@@ -3607,25 +3626,12 @@ export function FileEditor({
               loading={assetLoading}
               error={assetError}
             />
-            {!readOnly && (
-              <FontRecovery
-                document={snapshot.content}
-                onDocument={(update) => void changeDocument(update)}
-              />
-            )}
+            {!readOnly && <FontRecovery document={snapshot.content} onDocument={panelDocument} />}
             <ImportNotes
               document={snapshot.content}
               readOnly={readOnly}
-              onStatus={(key, status) =>
-                void changeDocument((content) => setImportNoteStatus(content, key, status))
-              }
-              onSelect={(id) => {
-                const node = snapshot.content.nodes.find((node) => node.id === id);
-                if (node) {
-                  switchPage(nodePageId(node));
-                  selectNode(id);
-                }
-              }}
+              onStatus={panelNoteStatus}
+              onSelect={panelNoteSelect}
             />
             {!readOnly && (
               <ComponentLibraryPanel
@@ -4355,7 +4361,7 @@ export function FileEditor({
                 onPreview={panelPrototype}
               />
             )}
-            {selected && !prototypeInspectorOpen && (
+            {selected && !prototypeInspectorOpen && inspectorSelection.length > 0 && (
               <SelectionInspector
                 key={[...selectedIds].sort().join(":")}
                 selected={inspectorSelection}
@@ -4377,9 +4383,7 @@ export function FileEditor({
                 onFitImageBounds={panelFitImageBounds}
                 cropping={cropping}
                 editingVector={vectorMode === selected.id}
-                onEditVector={() =>
-                  vectorMode === selected.id ? setVectorMode(null) : beginVectorEditing(selected)
-                }
+                onEditVector={panelVector}
                 onPrototype={panelPrototype}
                 onAlign={panelAlign}
                 onDistribute={panelDistribute}
