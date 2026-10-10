@@ -85,6 +85,8 @@ The unchanged operations remain broadly similar; small measured increases are sh
 
 ## Validation and browser workflow
 
+The [longer tail-latency audit](mcp-tail-audit-2026-10.md) adds 18 comparisons and 148,773 successful calls. Below-saturation results show no consistent slowdown; saturated tail non-regression remains unproven. The results below are the original short probes.
+
 Two short sustained-load comparisons used closed-loop workers, 80% small reads / 20% rename writes, five seconds at each concurrency, with the second comparison run in reverse revision order. Phase three completed **22,438 calls with zero rejected/error responses** across the two runs. This workload does not exercise the optimized batch/component edit paths. It does not show a general throughput improvement:
 
 | Concurrency | First run RPS before → after | Reverse-order repeat RPS before → after | Repeat p95 before → after |
