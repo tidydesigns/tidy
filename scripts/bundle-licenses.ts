@@ -2,8 +2,15 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import reviewed from "../licenses/bundled/manifest.json";
 
+// This module is shared by Bun build scripts and WXT's Node-based configuration.
+type BundleMetadata = {
+  metafile?: {
+    outputs: Record<string, { inputs: Record<string, { bytesInOutput: number }> }>;
+  };
+};
+
 /** Notices travel with the code, including standalone HTML and code handoffs. */
-export async function bundleLicenseBanner(build: Pick<Bun.BuildOutput, "metafile">) {
+export async function bundleLicenseBanner(build: BundleMetadata) {
   if (!build.metafile) throw new Error("Bundle licence generation requires build metadata.");
   const inputs = new Set<string>();
   for (const output of Object.values(build.metafile.outputs)) {
