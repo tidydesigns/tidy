@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#d2dbd5"/><stop offset="1" stop-color="#f6dfb8"/></linearGradient><linearGradient id="sea" x2="0" y2="1"><stop stop-color="#799999"/><stop offset="1" stop-color="#b6c9b6"/></linearGradient><linearGradient id="land" x2="1" y2="1"><stop stop-color="#677864"/><stop offset="1" stop-color="#263e3b"/></linearGradient></defs>
+<path fill="url(#sky)" d="M0 0h1200v800H0z"/><circle cx="854" cy="222" r="69" fill="#fff1cb"/>
+<path fill="#9ba998" d="M0 420 160 333 267 376 443 237 636 394 789 343 950 419 1200 334v466H0z"/>
+<path fill="url(#sea)" d="M0 439h1200v361H0z"/>
+<path fill="#e9e1c3" opacity=".6" d="m703 502 311-2-215 5zm-97 42 459-3-330 7zm-16 51 453-4-303 8z"/>
+<path fill="#8b9770" d="M0 463q154-13 299 85t351 44q61 9 42 38L325 800H0z"/>
+<path fill="url(#land)" d="M0 517q129-25 312 85t291 54L320 800H0z"/>
+<path fill="#d6ceaa" d="M0 674q116-73 266-18t171 74l-18 9q-70-57-177-55T0 715z"/>
+</svg>

@@ -52,6 +52,18 @@ const responsiveBreakpoint = z
 const gradientPoint = z
   .object({ x: number.min(-5000).max(5001), y: number.min(-5000).max(5001) })
   .strict();
+const imageAdjustmentAmount = z.number().finite().min(-1).max(1).optional();
+export const imageAdjustmentsSchema = z
+  .object({
+    exposure: imageAdjustmentAmount,
+    contrast: imageAdjustmentAmount,
+    saturation: imageAdjustmentAmount,
+    temperature: imageAdjustmentAmount,
+    tint: imageAdjustmentAmount,
+    highlights: imageAdjustmentAmount,
+    shadows: imageAdjustmentAmount,
+  })
+  .strict();
 const imageCrop = z
   .object({
     x: number.min(0).max(1),
@@ -129,6 +141,7 @@ export const designPaintSchema = z.discriminatedUnion("type", [
       positionX: number.min(0).max(100).default(50),
       positionY: number.min(0).max(100).default(50),
       crop: imageCrop.optional(),
+      adjustments: imageAdjustmentsSchema.optional(),
     })
     .strict(),
 ]);
@@ -244,6 +257,7 @@ const style = z
     objectPositionY: number.min(0).max(100).optional(),
     objectScale: number.min(1).max(10).optional(),
     imageCrop: imageCrop.optional(),
+    imageAdjustments: imageAdjustmentsSchema.optional(),
     textCase: z.enum(["none", "uppercase", "lowercase", "capitalize"]).optional(),
     textWrap: z.enum(["wrap", "nowrap"]).optional(),
     maxLines: z.number().int().min(1).max(100).optional(),

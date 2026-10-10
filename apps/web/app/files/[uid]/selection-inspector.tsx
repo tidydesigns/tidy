@@ -64,6 +64,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   exportPending = false,
   exportWarnings = [],
   onReplaceImage,
+  onEditImage,
   onUploadFill,
   editingGradientId,
   onGradientEdit,
@@ -96,6 +97,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   exportPending?: boolean;
   exportWarnings?: string[];
   onReplaceImage: () => void;
+  onEditImage?: (paintId?: string) => void;
   onUploadFill?: (index: number, file: File) => Promise<void>;
   onCropImage?: () => void;
   cropping?: boolean;
@@ -1363,28 +1365,37 @@ export const SelectionInspector = memo(function SelectionInspector({
         )}
         {image && (
           <Section title="Image">
-            <Choice
-              label="Image fit"
-              value={common((item) => item.style.objectFit ?? "contain")}
-              choices={[
-                ["contain", "Fit"],
-                ["cover", "Fill"],
-                ["fill", "Stretch"],
-              ]}
-              onChange={(value) =>
-                onPatch({ style: { objectFit: value as DesignNode["style"]["objectFit"] } })
-              }
-            />
-            {!node.style.imageCrop && (
+            {!multi && onEditImage && (
+              <button type="button" className={buttonClass} onClick={() => onEditImage()}>
+                Edit image
+              </button>
+            )}
+            {(multi || !onEditImage) && (
               <>
-                <div className="grid grid-cols-2 gap-1.5">
-                  {styleNumber("Image X %", "objectPositionX", 50, 0, 100)}
-                  {styleNumber("Image Y %", "objectPositionY", 50, 0, 100)}
-                </div>
-                {styleNumber("Image scale", "objectScale", 1, 1, 10)}
+                <Choice
+                  label="Image fit"
+                  value={common((item) => item.style.objectFit ?? "contain")}
+                  choices={[
+                    ["contain", "Fit"],
+                    ["cover", "Fill"],
+                    ["fill", "Stretch"],
+                  ]}
+                  onChange={(value) =>
+                    onPatch({ style: { objectFit: value as DesignNode["style"]["objectFit"] } })
+                  }
+                />
+                {!node.style.imageCrop && (
+                  <>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {styleNumber("Image X %", "objectPositionX", 50, 0, 100)}
+                      {styleNumber("Image Y %", "objectPositionY", 50, 0, 100)}
+                    </div>
+                    {styleNumber("Image scale", "objectScale", 1, 1, 10)}
+                  </>
+                )}
               </>
             )}
-            {!multi && onCropImage && (
+            {!multi && onCropImage && (cropping || !onEditImage) && (
               <button
                 type="button"
                 aria-pressed={cropping}
@@ -1445,6 +1456,7 @@ export const SelectionInspector = memo(function SelectionInspector({
           tokens={tokens}
           onPatch={onPatch}
           onUpload={hasVector ? undefined : onUploadFill}
+          onEditImage={onEditImage}
           editingGradientId={editingGradientId}
           onGradientEdit={hasVector ? undefined : onGradientEdit}
           viewport={viewport}
