@@ -17,7 +17,7 @@ export function extensionHeaders(request: Request) {
     headers.set("Access-Control-Allow-Origin", origin);
     headers.set("Access-Control-Allow-Credentials", "true");
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-    headers.set("Access-Control-Allow-Headers", "Content-Type, X-Bella-Extension");
+    headers.set("Access-Control-Allow-Headers", "Content-Type, X-Tidy-Extension");
   }
   return headers;
 }
@@ -25,7 +25,7 @@ export function extensionHeaders(request: Request) {
 export function extensionRequestAllowed(request: Request) {
   // GETs from an extension can omit Origin; mutation requests must provide it.
   return (
-    request.headers.get("x-bella-extension") === "1" &&
+    request.headers.get("x-tidy-extension") === "1" &&
     ((request.method === "GET" && !request.headers.get("origin")) ||
       Boolean(extensionOrigin(request)))
   );

@@ -17,7 +17,7 @@ const origin = `chrome-extension://${DEVELOPMENT_EXTENSION_ID}`;
 const request = (from: string, header = "1") =>
   new Request("https://app.tidydesign.co/api/extension/import", {
     method: "POST",
-    headers: { origin: from, "x-bella-extension": header },
+    headers: { origin: from, "x-tidy-extension": header },
   });
 
 describe("extension HTTP boundary", () => {
@@ -31,7 +31,7 @@ describe("extension HTTP boundary", () => {
       extensionRequestAllowed(
         new Request("https://app.tidydesign.co/api/extension/import", {
           method: "POST",
-          headers: { "x-bella-extension": "1" },
+          headers: { "x-tidy-extension": "1" },
         }),
       ),
     ).toBe(false);
@@ -42,6 +42,9 @@ describe("extension HTTP boundary", () => {
     expect(extensionHeaders(request(origin)).has("Access-Control-Allow-Origin")).toBe(false);
     const trusted = "chrome-extension://bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     expect(extensionHeaders(request(trusted)).get("Access-Control-Allow-Origin")).toBe(trusted);
+    expect(extensionPreflight(request(trusted)).headers.get("Access-Control-Allow-Headers")).toBe(
+      "Content-Type, X-Tidy-Extension",
+    );
   });
   test("enforces streaming size limits even with no content length", async () => {
     const body = new ReadableStream({
