@@ -3,6 +3,7 @@ export type ImportJob = {
   state: "selecting" | "importing" | "done" | "error";
   userId: string;
   tabId: number;
+  documentId?: string;
   destination?: Destination;
   url?: string;
   error?: string;

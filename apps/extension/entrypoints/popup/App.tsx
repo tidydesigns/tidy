@@ -1,7 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { browser } from "wxt/browser";
 import type { ExtensionAccount } from "@bella/design/web-capture";
 import type { Destination, ImportJob, Reply } from "../../lib/messages";
+import { SelectMenu } from "@tidy/ui/select-menu";
+import { Button } from "@tidy/ui/button";
+import { Avatar } from "@tidy/ui/avatar";
+import { TidyLogo } from "@tidy/ui/tidy-logo";
+import { BELLA_URL } from "../../lib/config";
+import { applyTheme } from "../../lib/theme";
 
 async function send<T>(message: object): Promise<T> {
   const reply = (await browser.runtime.sendMessage(message)) as Reply<T>;
@@ -10,6 +16,8 @@ async function send<T>(message: object): Promise<T> {
 }
 
 export function App() {
+  const workspaceLabel = useId();
+  const fileLabel = useId();
   const [account, setAccount] = useState<ExtensionAccount>();
   const [organizationId, setOrganizationId] = useState("");
   const [fileId, setFileId] = useState("");
@@ -55,6 +63,7 @@ export function App() {
       if (live) setJob(value.job as ImportJob | undefined);
     });
     const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+      if (area === "local" && changes.theme) applyTheme(changes.theme.newValue);
       if (area === "session" && changes.job) setJob(changes.job.newValue as ImportJob | undefined);
     };
     browser.storage.onChanged.addListener(changed);
@@ -86,16 +95,29 @@ export function App() {
   return (
     <main>
       <header>
-        <img src="/icon/48.png" alt="" width="24" height="24" />
-        <span className="brand-name">Tidy</span>
-        {account && <small>{account.user.name}</small>}
+        <TidyLogo className="brand-name" />
+        {account && (
+          <span
+            className="profile"
+            role="img"
+            aria-label={account.user.name}
+            title={account.user.name}
+          >
+            <Avatar
+              image={account.user.image ? new URL(account.user.image, BELLA_URL).href : null}
+              name={account.user.name}
+              className="profile-avatar"
+            />
+          </span>
+        )}
       </header>
       {loading ? (
         <p role="status">Connecting to Tidy…</p>
       ) : !account ? (
         <>
           <p role="alert">{error}</p>
-          <button
+          <Button
+            className="primary"
             onClick={() =>
               void send({ type: "bella:login" })
                 .then(() => window.close())
@@ -103,7 +125,7 @@ export function App() {
             }
           >
             Sign in to Tidy
-          </button>
+          </Button>
         </>
       ) : (
         <>
@@ -112,64 +134,72 @@ export function App() {
           ) : (
             <>
               {account.organizations.length > 1 && (
-                <label>
-                  Workspace
-                  <select
+                <div className="field">
+                  <span id={workspaceLabel}>Workspace</span>
+                  <SelectMenu
+                    label="Workspace"
+                    labelledBy={workspaceLabel}
+                    className="select-menu"
+                    triggerClassName="select-trigger"
                     value={organizationId}
                     disabled={busy}
-                    onChange={(event) => {
-                      setOrganizationId(event.target.value);
+                    onChange={(value) => {
+                      setOrganizationId(value);
                       setFileId("");
                     }}
-                  >
-                    {account.organizations.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                    options={account.organizations.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                    }))}
+                  />
+                </div>
               )}
-              <label>
-                Design file
-                <select
+              <div className="field">
+                <span id={fileLabel}>Design file</span>
+                <SelectMenu
+                  label="Design file"
+                  labelledBy={fileLabel}
+                  className="select-menu"
+                  triggerClassName="select-trigger"
                   value={fileId}
                   disabled={busy}
-                  onChange={(event) => setFileId(event.target.value)}
-                >
-                  <option value="">New design file</option>
-                  {organization?.files.map((file) => (
-                    <option key={file.id} value={file.id}>
-                      {file.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                  onChange={setFileId}
+                  options={[
+                    { value: "", label: "New design file" },
+                    ...(organization?.files.map((file) => ({ value: file.id, label: file.name })) ??
+                      []),
+                  ]}
+                />
+              </div>
               <div className="actions">
-                <button disabled={busy || !organizationId} onClick={() => void copy("page")}>
+                <Button
+                  className="primary"
+                  disabled={busy || !organizationId}
+                  onClick={() => void copy("page")}
+                >
                   Copy page
-                </button>
-                <button
+                </Button>
+                <Button
                   className="secondary"
                   disabled={busy || !organizationId}
                   onClick={() => void copy("element")}
                 >
-                  Select element
-                </button>
+                  Select elements
+                </Button>
               </div>
             </>
           )}
           {activeJob?.state === "selecting" && (
             <div className="status">
-              <p role="status">Select an element on the page.</p>
-              <button
+              <p role="status">Select elements on the page, then choose Copy elements.</p>
+              <Button
                 className="secondary"
                 onClick={() =>
                   void send({ type: "bella:cancel" }).catch((error) => setError(error.message))
                 }
               >
                 Cancel selection
-              </button>
+              </Button>
             </div>
           )}
           {(starting || activeJob?.state === "importing") && (

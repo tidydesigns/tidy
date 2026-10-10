@@ -1,5 +1,15 @@
 {
   "paper": { "source": "LICENSE.txt", "notice": "Paper.js.txt" },
+  "@wxt-dev/browser": {
+    "notice": "WXT.txt",
+    "versions": ["0.3.0"],
+    "upstream": "https://github.com/wxt-dev/wxt/blob/main/LICENSE"
+  },
+  "wxt": {
+    "notice": "WXT.txt",
+    "versions": ["0.21.4"],
+    "upstream": "https://github.com/wxt-dev/wxt/blob/main/LICENSE"
+  },
   "react": { "source": "LICENSE", "notice": "React.txt" },
   "react-dom": { "source": "LICENSE", "notice": "React.txt" },
   "scheduler": { "source": "LICENSE", "notice": "React.txt" },

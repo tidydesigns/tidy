@@ -1,7 +1,12 @@
 "use client";
 
 import { useId, useSyncExternalStore } from "react";
-import { isThemePreference, THEME_STORAGE_KEY, type ThemePreference } from "@/lib/theme";
+import {
+  isThemePreference,
+  THEME_STORAGE_KEY,
+  themeCookie,
+  type ThemePreference,
+} from "@/lib/theme";
 import { SelectMenu } from "./select-menu";
 
 const changeEvent = "tidy-theme-change";
@@ -39,6 +44,11 @@ function subscribe(listener: () => void) {
 function applyTheme(theme: ThemePreference) {
   if (theme === "system") delete document.documentElement.dataset.theme;
   else document.documentElement.dataset.theme = theme;
+  try {
+    document.cookie = themeCookie(theme, window.location.protocol === "https:");
+  } catch {
+    // The app preference still works when cookies are unavailable.
+  }
 }
 
 function selectTheme(theme: ThemePreference) {
