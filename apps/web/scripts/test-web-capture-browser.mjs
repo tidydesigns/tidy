@@ -27,6 +27,7 @@ execFileSync(
 const browser = await chromium.launch({ headless: true });
 const live = process.argv.includes("--shale");
 const profile = process.argv.includes("--profile");
+const artifacts = process.argv.includes("--artifacts");
 const selector = profile ? "#profile" : undefined;
 const width = live ? 1440 : 1000,
   height = live ? 1000 : 800;
@@ -36,7 +37,32 @@ try {
     deviceScaleFactor: process.argv.includes("--retina") ? 2 : 1,
   });
   if (live) await page.goto("https://shales.dev/", { waitUntil: "networkidle" });
-  else if (profile) {
+  else if (artifacts) {
+    await page.route("https://capture.test/", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<style>
+        *{box-sizing:border-box}body{margin:0;background:#212327;color:#ddd;font:20px/28px Arial}
+        main{position:relative;width:1000px;height:800px}
+        #public{position:absolute;left:30px;top:30px;width:500px;height:130px;perspective:1000px;background:#212327}
+        repo-header{display:block;width:450px;height:60px;background:#292d33;padding:15px}
+        button{position:absolute;left:750px;top:30px;width:160px;height:48px;border:1px solid transparent;border-radius:24px;background:#30333d;color:#ddd;font:20px Arial}
+        #form{position:absolute;left:30px;top:220px;width:400px;height:150px;perspective:1000px;background:#212327}
+        input,[contenteditable]{position:absolute;left:20px;width:240px;height:40px;border:0;color:white;font:20px Arial}
+        input{top:20px;background:transparent}[contenteditable]{top:80px;background:rgba(255,255,255,.2)}
+        #closed{position:absolute;left:30px;top:430px;width:400px;height:120px;perspective:1000px;background:#212327}
+        private-editor{display:block;width:300px;height:60px;background:#292d33}
+      </style><main><section id="public"><repo-header>Public repository owner</repo-header><p>Public repository details</p></section>
+      <button id="upgrade">Upgrade</button><section id="form"><input value="private input token"><div contenteditable="true">private draft token</div></section>
+      <section id="closed"><private-editor></private-editor><span>Public account details</span></section></main>`,
+      }),
+    );
+    await page.goto("https://capture.test/");
+    await page.evaluate(() => {
+      document.querySelector("private-editor").attachShadow({ mode: "closed" }).innerHTML =
+        '<input value="closed private token" style="color:red">';
+    });
+  } else if (profile) {
     const avatar = `<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="#63a69f"/><circle cx="100" cy="70" r="40" fill="#efbb92"/><path d="M20 200v-50a80 65 0 01160 0v50" fill="#383f51"/></svg>`;
     const icon =
       '<svg viewBox="0 0 24 24" width="24" height="24" style="color:#479cf0"><path fill="currentColor" d="M12 0l3 4 5-1-1 5 5 4-5 3 1 5-5-1-3 5-3-5-5 1 1-5-5-3 5-4-1-5 5 1z"/></svg>';
@@ -117,7 +143,43 @@ try {
     ],
     { cwd: repo, stdio: "pipe" },
   );
-  if (profile) {
+  if (artifacts) {
+    const upgrade = capture.document.nodes.find((node) => node.name === "upgrade");
+    assert.equal(upgrade.style.borderColor, "#00000000", "Transparent borders stay invisible");
+    assert.equal(upgrade.style.borderWidth, 1, "Invisible borders retain their layout width");
+    for (const text of [
+      "Public repository owner",
+      "Public repository details",
+      "Public account details",
+    ])
+      assert.ok(
+        capture.document.nodes.some((node) => node.type === "text" && node.text === text),
+        `${text} stays editable`,
+      );
+    assert.ok(!JSON.stringify(capture).includes("private input token"));
+    assert.ok(!JSON.stringify(capture).includes("private draft token"));
+    assert.ok(!JSON.stringify(capture).includes("closed private token"));
+    assert.equal(
+      capture.assets.length,
+      1,
+      "Only the inspectable form group uses screenshot pixels",
+    );
+    const { data, info } = await sharp(Buffer.from(capture.assets[0].base64, "base64"))
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    for (const [y, color] of [
+      [40, [33, 35, 39, 255]],
+      [100, [77, 79, 82, 255]],
+    ]) {
+      const offset = (y * info.width + 40) * 4;
+      assert.deepEqual(
+        [...data.subarray(offset, offset + 4)],
+        color,
+        "Private controls use opaque CSS backgrounds instead of white bars",
+      );
+    }
+  } else if (profile) {
     assert.equal(
       capture.document.nodes[0].style.fill,
       "#000000",
@@ -243,31 +305,36 @@ try {
       sharp(bytes).resize(width, height).removeAlpha().raw().toBuffer(),
     ),
   );
-  const regions = profile
+  const regions = artifacts
     ? [
-        { name: "profile background and avatar", x: 0, y: 0, width: 250, height: 170 },
-        { name: "profile button", x: 750, y: 20, width: 250, height: 80 },
-        { name: "profile text and SVG", x: 20, y: 175, width: 930, height: 320 },
-        { name: "multiline editable text", x: 20, y: 500, width: 380, height: 160 },
-        { name: "filter and clip path", x: 490, y: 510, width: 100, height: 100 },
-        { name: "rotated shape", x: 620, y: 490, width: 160, height: 150 },
+        { name: "public custom-element content", x: 20, y: 20, width: 520, height: 150 },
+        { name: "transparent upgrade button border", x: 740, y: 20, width: 180, height: 70 },
       ]
-    : live
+    : profile
       ? [
-          { name: "header logo icon", x: 130, y: 30, width: 28, height: 30 },
-          { name: "GitHub header icon", x: 1207, y: 40, width: 20, height: 20 },
-          { name: "GitHub CTA icon", x: 562, y: 308, width: 22, height: 22 },
-          { name: "left forest", x: 0, y: 300, width: 250, height: 650 },
-          { name: "right forest", x: 1210, y: 300, width: 230, height: 650 },
-          // Compare the physical laptop, excluding its intentionally redacted controls.
-          { name: "laptop top and sides", x: 340, y: 375, width: 790, height: 275 },
-          { name: "laptop base", x: 275, y: 837, width: 918, height: 65 },
+          { name: "profile background and avatar", x: 0, y: 0, width: 250, height: 170 },
+          { name: "profile button", x: 750, y: 20, width: 250, height: 80 },
+          { name: "profile text and SVG", x: 20, y: 175, width: 930, height: 320 },
+          { name: "multiline editable text", x: 20, y: 500, width: 380, height: 160 },
+          { name: "filter and clip path", x: 490, y: 510, width: 100, height: 100 },
+          { name: "rotated shape", x: 620, y: 490, width: 160, height: 150 },
         ]
-      : [
-          { name: "left forest", x: 0, y: 150, width: 290, height: 550 },
-          { name: "right forest", x: 710, y: 150, width: 290, height: 550 },
-          { name: "laptop", x: 290, y: 230, width: 420, height: 320 },
-        ];
+      : live
+        ? [
+            { name: "header logo icon", x: 130, y: 30, width: 28, height: 30 },
+            { name: "GitHub header icon", x: 1207, y: 40, width: 20, height: 20 },
+            { name: "GitHub CTA icon", x: 562, y: 308, width: 22, height: 22 },
+            { name: "left forest", x: 0, y: 300, width: 250, height: 650 },
+            { name: "right forest", x: 1210, y: 300, width: 230, height: 650 },
+            // Compare the physical laptop, excluding its intentionally redacted controls.
+            { name: "laptop top and sides", x: 340, y: 375, width: 790, height: 275 },
+            { name: "laptop base", x: 275, y: 837, width: 918, height: 65 },
+          ]
+        : [
+            { name: "left forest", x: 0, y: 150, width: 290, height: 550 },
+            { name: "right forest", x: 710, y: 150, width: 290, height: 550 },
+            { name: "laptop", x: 290, y: 230, width: 420, height: 320 },
+          ];
   for (const region of regions) {
     let total = 0;
     for (let y = region.y; y < region.y + region.height; y++)

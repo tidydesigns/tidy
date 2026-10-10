@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import sharp from "sharp";
 
 const repo = fileURLToPath(new URL("../../../", import.meta.url));
 const output = await mkdtemp(path.join(tmpdir(), "tidy-picker-regression-"));
@@ -247,17 +246,10 @@ try {
   assert.ok(!JSON.stringify(privacyReply.data).includes("private draft token"));
   assert.equal(
     privacyReply.data.assets.length,
-    1,
-    JSON.stringify(privacyReply.data.document.warnings),
+    0,
+    "Screenshot groups containing uninspectable components must use DOM layers instead",
   );
-  const privateImage = await sharp(Buffer.from(privacyReply.data.assets[0].base64, "base64"))
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-  for (const y of [40, 120]) {
-    const offset = (y * privateImage.info.width + 40) * 4;
-    assert.deepEqual([...privateImage.data.subarray(offset, offset + 4)], [255, 255, 255, 255]);
-  }
+  assert.ok(privacyReply.data.document.nodes.some((node) => node.text === "Public copy"));
   const staleViewport = await message({ type: "bella:prepare-capture" });
   await page.evaluate(() => (document.querySelector("[contenteditable]").style.left = "50px"));
   const staleReply = await message({

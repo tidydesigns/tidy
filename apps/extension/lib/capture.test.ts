@@ -204,6 +204,19 @@ describe("rendered webpage capture", () => {
     expect(cssColor("rgba(0, 0, 0, 0)")).toBeUndefined();
     expect(cssColor("rgb(255 100 0 / 50%)")).toBe("#ff640080");
   });
+  test("retains invisible borders without adding a black outline or changing geometry", async () => {
+    win.document.body.innerHTML =
+      '<button id="upgrade" style="background:#30333d;border:1px solid transparent;border-radius:24px">Upgrade</button>';
+    const root = win.document.querySelector("button")!;
+    bounds(root as unknown as Element, 100, 100, 160, 48);
+    const capture = await captureElement(root as unknown as Element, "element");
+    const button = parseDesignDocument(capture.document).nodes.find(
+      (node) => node.name === "upgrade" && node.type === "container",
+    )!;
+    expect(button.style.borderColor).toBe("#00000000");
+    expect(button.style.borderWidth).toBe(1);
+    expect(button.box).toEqual({ x: 0, y: 0, width: 160, height: 48 });
+  });
   test("element selection prevents website navigation and cleans up immediately", () => {
     win.document.body.innerHTML = '<a href="/other">Link</a>';
     const invalidated: (() => void)[] = [];
@@ -311,9 +324,29 @@ describe("effect screenshot fallbacks", () => {
       "element",
       "data:image/png;base64,aGVsbG8=",
     );
-    expect(fillRect).toHaveBeenCalledTimes(2);
+    expect(new Set(fillRect.mock.calls.map((args) => JSON.stringify(args))).size).toBe(2);
     expect(capture.document.warnings.some((item) => item.message.includes("redacted"))).toBe(true);
     expect(JSON.stringify(capture)).not.toContain("secret");
+  });
+  test("keeps public light-DOM content instead of blanking custom elements in screenshot overlays", async () => {
+    const { drawImage } = screenshotCanvas();
+    win.document.body.innerHTML =
+      '<section style="perspective:800px"><repo-header><span>Public repository</span></repo-header><private-editor></private-editor></section>';
+    const root = win.document.querySelector("section")!;
+    bounds(root as unknown as Element, 0, 0, 500, 200);
+    bounds(win.document.querySelector("repo-header")! as unknown as Element, 0, 0, 300, 50);
+    const privateHost = win.document.querySelector("private-editor")!;
+    bounds(privateHost as unknown as Element, 0, 80, 300, 50);
+    privateHost.attachShadow({ mode: "closed" }).innerHTML = '<input value="private shadow token">';
+    const capture = await captureElement(
+      root as unknown as Element,
+      "element",
+      "data:image/png;base64,aGVsbG8=",
+    );
+    expect(capture.assets).toHaveLength(0);
+    expect(drawImage).not.toHaveBeenCalled();
+    expect(capture.document.nodes.some((node) => node.text === "Public repository")).toBe(true);
+    expect(JSON.stringify(capture)).not.toContain("private shadow token");
   });
   test("warns when a perspective scene is clipped by the viewport", async () => {
     screenshotCanvas();

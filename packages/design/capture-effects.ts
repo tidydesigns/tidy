@@ -144,8 +144,8 @@ export function effectBounds(element: Element): DOMRect {
 
 // Crops can include controls outside the captured subtree. Redact those too,
 // including open shadow roots, rather than importing pixels of private values.
-export function protectedBounds(): DOMRect[] {
-  const bounds: DOMRect[] = [];
+export function protectedBounds(): { bounds: DOMRect; backgrounds?: string[] }[] {
+  const bounds: ReturnType<typeof protectedBounds> = [];
   let visited = 0;
   const deadline = performance.now() + 25;
   const pending: Element[] = [document.documentElement];
@@ -153,13 +153,27 @@ export function protectedBounds(): DOMRect[] {
     if (++visited > 15000 || performance.now() > deadline)
       throw new Error("Page too complex for safe screenshot fallbacks.");
     const element = pending.pop()!;
+    const css = getComputedStyle(element);
+    if (css.display === "none" || css.opacity === "0") continue;
+    const uninspectable = element.tagName.includes("-") && !element.shadowRoot;
     if (
       isProtectedElement(element) ||
       // A closed shadow tree cannot be inspected for private controls.
-      (element.tagName.includes("-") && !element.shadowRoot)
+      uninspectable
     ) {
       const box = element.getBoundingClientRect();
-      if (box.width && box.height) bounds.push(box);
+      if (box.width && box.height) {
+        let backgrounds: string[] | undefined;
+        if (!uninspectable) {
+          backgrounds = [];
+          for (let current: Element | null = element; current;) {
+            backgrounds.unshift(getComputedStyle(current).backgroundColor);
+            const root = current.getRootNode();
+            current = current.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+          }
+        }
+        bounds.push({ bounds: box, backgrounds });
+      }
       continue;
     }
     for (const child of element.children) pending.push(child);

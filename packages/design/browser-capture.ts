@@ -60,7 +60,7 @@ export function captureStyle(
     radiusTopRight: radius(css.borderTopRightRadius),
     radiusBottomRight: radius(css.borderBottomRightRadius),
     radiusBottomLeft: radius(css.borderBottomLeftRadius),
-    borderColor: cssColor(css.borderTopColor),
+    borderColor: cssColor(css.borderTopColor, true),
     borderWidth: clamp(px(css.borderTopWidth), 0, 40),
     borderTopWidth: clamp(px(css.borderTopWidth), 0, 40),
     borderRightWidth: clamp(px(css.borderRightWidth), 0, 40),
@@ -318,7 +318,7 @@ export async function captureElement(
   };
   const startViewport = currentViewport();
   let viewport: HTMLImageElement | undefined;
-  let privateRegions: DOMRect[] = [];
+  let privateRegions: ReturnType<typeof protectedBounds> = [];
   if (
     screenshot &&
     options?.screenshotValid?.() !== false &&
@@ -348,6 +348,19 @@ export async function captureElement(
       return false;
     const context = canvas.getContext("2d");
     if (!context) return false;
+    const overlaps = privateRegions.flatMap((region) => {
+      const overlap = intersectBounds(bounds, region.bounds);
+      return overlap ? [{ ...region, overlap }] : [];
+    });
+    // A custom element may have a closed shadow root. Blanking its whole box
+    // would also erase public light-DOM content (e.g. GitHub's navigation).
+    // Keep the inspectable DOM layers instead of overlaying a destructive crop.
+    if (overlaps.some((region) => !region.backgrounds)) {
+      warn(
+        "Some screenshot effects overlapped uninspectable components; public DOM layers were retained with approximated effects.",
+      );
+      return false;
+    }
     const ratioX = viewport.naturalWidth / startViewport.width,
       ratioY = viewport.naturalHeight / startViewport.height;
     context.drawImage(
@@ -361,19 +374,20 @@ export async function captureElement(
       canvas.width,
       canvas.height,
     );
-    for (const region of privateRegions) {
-      const overlap = intersectBounds(bounds, region);
-      if (!overlap) continue;
-      // Overwrite with opaque pixels, never alpha-clear (which could reveal a lower crop).
-      context.fillStyle = "#ffffff";
+    for (const { overlap, backgrounds } of overlaps) {
       const sx = canvas.width / bounds.width,
         sy = canvas.height / bounds.height;
-      context.fillRect(
-        Math.floor((overlap.left - bounds.left) * sx),
-        Math.floor((overlap.top - bounds.top) * sy),
-        Math.ceil(overlap.width * sx) + 1,
-        Math.ceil(overlap.height * sy) + 1,
-      );
+      // Start opaque so no private pixels survive translucent backgrounds.
+      // Rebuild only CSS background colors, never sample the control's pixels.
+      for (const color of ["#ffffff", ...backgrounds!]) {
+        context.fillStyle = color;
+        context.fillRect(
+          Math.floor((overlap.left - bounds.left) * sx),
+          Math.floor((overlap.top - bounds.top) * sy),
+          Math.ceil(overlap.width * sx) + 1,
+          Math.ceil(overlap.height * sy) + 1,
+        );
+      }
       warn(
         "Form controls, editable content and embedded frames were redacted from screenshot fallbacks.",
       );
