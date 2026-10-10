@@ -24,6 +24,7 @@ export default defineBackground(() => {
       });
   });
   let starting = false;
+  let finishingSelection = false;
   const api = async <T>(path: string, body?: unknown): Promise<T> => {
     const response = await fetch(`${BELLA_URL}/api/extension/${path}`, {
       method: body ? "POST" : "GET",
@@ -32,18 +33,31 @@ export default defineBackground(() => {
       cache: "no-store",
       headers: { "X-Tidy-Extension": "1", ...(body ? { "Content-Type": "application/json" } : {}) },
       body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(body ? 25000 : 10000),
     });
     const theme = response.headers.get("X-Tidy-Theme");
     if (theme === "light" || theme === "dark" || theme === "system")
       await browser.storage.local.set({ theme }).catch(() => undefined);
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error ?? "Tidy is unavailable. Try again.");
+    const data = await response.json().catch(() => {
+      throw new Error("Tidy is unavailable. Try again.");
+    });
+    if (!response.ok)
+      throw new Error(
+        data && typeof data.error === "string" ? data.error : "Tidy is unavailable. Try again.",
+      );
     return data as T;
   };
-  const getCapture = async (tabId: number, mode: "page" | "element") => {
-    const prepared = (await browser.tabs.sendMessage(tabId, {
-      type: "bella:prepare-capture",
-    })) as Reply<CaptureViewport>;
+  const getCapture = async (job: ImportJob, mode: "page" | "element") => {
+    const tabId = job.tabId;
+    if (!job.documentId) throw new Error("Reopen the extension and start a new capture.");
+    const target = { documentId: job.documentId, frameId: 0 };
+    const prepared = (await browser.tabs.sendMessage(
+      tabId,
+      {
+        type: "bella:prepare-capture",
+      },
+      target,
+    )) as Reply<CaptureViewport>;
     if ("error" in prepared) throw new Error(prepared.error);
     let screenshot: string | undefined;
     const tab = await browser.tabs.get(tabId);
@@ -58,12 +72,16 @@ export default defineBackground(() => {
     }
     const stillActive = (await browser.tabs.query({ active: true, windowId: tab.windowId }))[0];
     if (stillActive?.id !== tabId) screenshot = undefined;
-    const reply = (await browser.tabs.sendMessage(tabId, {
-      type: "bella:capture",
-      mode,
-      screenshot,
-      screenshotViewport: prepared.data,
-    })) as Reply<WebCapture>;
+    const reply = (await browser.tabs.sendMessage(
+      tabId,
+      {
+        type: "bella:capture",
+        mode,
+        screenshot,
+        screenshotViewport: prepared.data,
+      },
+      target,
+    )) as Reply<WebCapture>;
     if ("error" in reply) throw new Error(reply.error);
     return webCaptureSchema.parse(reply.data);
   };
@@ -73,7 +91,7 @@ export default defineBackground(() => {
       const account = await api<ExtensionAccount>("account");
       if (account.user.id !== job.userId || !job.destination)
         throw new Error("Your Tidy account changed. Choose the destination again.");
-      const capture = await getCapture(job.tabId, mode);
+      const capture = await getCapture(job, mode);
       const result = await api<ImportResult>("import", {
         userId: job.userId,
         organizationId: job.destination.organizationId,
@@ -94,7 +112,12 @@ export default defineBackground(() => {
         state: "error",
         tabId: job.tabId,
         userId: job.userId,
-        error: error instanceof Error ? error.message : "Could not import webpage.",
+        error:
+          error instanceof Error && error.name === "TimeoutError"
+            ? "The import timed out. Check the destination file before trying again."
+            : error instanceof Error
+              ? error.message
+              : "Could not import webpage.",
       });
     }
   };
@@ -132,21 +155,29 @@ export default defineBackground(() => {
           !job ||
           job.state !== "selecting" ||
           sender.tab?.id !== job.tabId ||
-          sender.frameId !== 0
+          sender.frameId !== 0 ||
+          sender.documentId !== job.documentId
         )
           return;
         if (message.type === "bella:cancelled") {
           await browser.storage.session.remove("job");
           return true;
         }
-        await runImport(job, "element");
-        // Capture must finish before opening the popup, which obscures the source page.
+        if (finishingSelection) return;
+        finishingSelection = true;
         try {
-          const tab = await browser.tabs.get(job.tabId);
-          const [active] = await browser.tabs.query({ active: true, windowId: tab.windowId });
-          if (active?.id === job.tabId) await browser.action.openPopup({ windowId: tab.windowId });
-        } catch {
-          // Older browsers or an unfocused window may refuse. The result remains in the popup.
+          await runImport(job, "element");
+          // Capture must finish before opening the popup, which obscures the source page.
+          try {
+            const tab = await browser.tabs.get(job.tabId);
+            const [active] = await browser.tabs.query({ active: true, windowId: tab.windowId });
+            if (active?.id === job.tabId)
+              await browser.action.openPopup({ windowId: tab.windowId });
+          } catch {
+            // Older browsers or an unfocused window may refuse. The result remains in the popup.
+          }
+        } finally {
+          finishingSelection = false;
         }
         return true;
       }
@@ -177,17 +208,21 @@ export default defineBackground(() => {
           "Open a website to copy. Chrome's internal pages and Web Store cannot be captured.",
         );
       }
+      let documentId: string | undefined;
       try {
-        await browser.scripting.executeScript({
+        const [injection] = await browser.scripting.executeScript({
           target: { tabId: tab.id },
           files: ["/content-scripts/capture.js"],
         });
+        documentId = injection?.documentId;
+        if (!documentId) throw new Error("Could not identify the source document.");
       } catch {
         throw new Error("Chrome does not allow capture on this page.");
       }
       const job: ImportJob = {
         state: message.mode === "element" ? "selecting" : "importing",
         tabId: tab.id,
+        documentId,
         userId: account.user.id,
         destination,
       };
@@ -195,7 +230,11 @@ export default defineBackground(() => {
         await setJob(job);
         try {
           const { theme } = await browser.storage.local.get("theme");
-          await browser.tabs.sendMessage(tab.id, { type: "bella:pick", theme });
+          await browser.tabs.sendMessage(
+            tab.id,
+            { type: "bella:pick", theme },
+            { documentId, frameId: 0 },
+          );
         } catch (error) {
           await browser.storage.session.remove("job");
           throw error;

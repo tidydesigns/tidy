@@ -42,10 +42,12 @@ bun dev:realtime
 
 Open `http://localhost:3000`. `bun dev:site` starts the optional landing page on
 port 3001. `bun dev:extension` starts the WXT extension; its default server is
-localhost. To load it in your own Chrome profile, run `bun run build:extension`,
+localhost. To load it in your own Chrome profile, run `bun run --cwd apps/extension build --mode development`,
 enable Developer mode at `chrome://extensions`, and load unpacked
-`apps/extension/.output/chrome-mv3`. Set `WXT_BELLA_URL` to your own HTTPS app
-origin when building for distribution.
+`apps/extension/.output/chrome-mv3-dev`. Production builds require an explicit
+HTTPS `WXT_BELLA_URL` for your app. Run `WXT_BELLA_URL=https://YOUR-APP-DOMAIN bun run zip:extension`
+for distribution. Configure the web app's runtime `BELLA_EXTENSION_IDS` with the Store-assigned
+extension ID; production mutation requests fail closed when this allowlist is missing.
 
 Stop the local database with `docker compose down`; adding `-v` removes its data.
 Local Node development bypasses Worker-specific shared attempt limits. See

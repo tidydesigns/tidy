@@ -1,10 +1,10 @@
-import { ZodError } from "zod";
 import { auth } from "@/lib/auth";
 import {
   extensionHeaders,
   extensionPreflight,
   extensionRequestAllowed,
   readCaptureBody,
+  extensionError,
 } from "@/lib/extension/http";
 import { importWebCapture } from "@/lib/extension/import";
 
@@ -23,19 +23,7 @@ export async function POST(request: Request) {
       headers,
     });
   } catch (error) {
-    const message =
-      error instanceof ZodError
-        ? "Capture is invalid or exceeds Tidy's design limits."
-        : error instanceof Error
-          ? error.message
-          : "Could not import webpage.";
-    const status = message.includes("access denied")
-      ? 403
-      : message.includes("16 MB")
-        ? 413
-        : message.includes("changed during import")
-          ? 409
-          : 400;
+    const { message, status } = extensionError(error);
     return Response.json({ error: message }, { status, headers });
   }
 }

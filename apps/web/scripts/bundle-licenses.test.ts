@@ -5,7 +5,13 @@ import { resolve } from "node:path";
 import { bundleLicenseBanner } from "../../../scripts/bundle-licenses";
 
 async function fixture(
-  packages: { name: string; license: string; unused?: boolean }[],
+  packages: {
+    name: string;
+    license: string;
+    unused?: boolean;
+    version?: string;
+    declaredLicense?: string;
+  }[],
   check: (build: Bun.BuildOutput) => Promise<void>,
 ) {
   const directory = await mkdtemp(resolve(tmpdir(), "tidy-bundle-notices-"));
@@ -16,7 +22,13 @@ async function fixture(
       await mkdir(root, { recursive: true });
       await writeFile(
         resolve(root, "package.json"),
-        JSON.stringify({ name: pkg.name, version: "1.0.0", main: "index.js", sideEffects: false }),
+        JSON.stringify({
+          name: pkg.name,
+          version: pkg.version ?? "1.0.0",
+          license: pkg.declaredLicense,
+          main: "index.js",
+          sideEffects: false,
+        }),
       );
       await writeFile(resolve(root, "LICENSE"), pkg.license);
       await writeFile(resolve(root, "LICENSE.txt"), pkg.license);
@@ -79,4 +91,23 @@ test("notices include full text once per shared licence and omit code removed fr
 
 test("missing bundle metadata cannot silently omit required notices", async () => {
   await expect(bundleLicenseBanner({})).rejects.toThrow("requires build metadata");
+});
+
+test("packages without npm licence files require reviewed versions and matching metadata", async () => {
+  for (const pkg of [
+    { version: "0.4.0", declaredLicense: "MIT" },
+    { version: "0.3.0", declaredLicense: "Changed" },
+  ]) {
+    await fixture([{ name: "@wxt-dev/browser", license: "", ...pkg }], async (build) => {
+      await expect(bundleLicenseBanner(build)).rejects.toThrow("Review upstream licence notice");
+    });
+  }
+  await fixture(
+    [{ name: "@wxt-dev/browser", license: "", version: "0.3.0", declaredLicense: "MIT" }],
+    async (build) => {
+      const banner = await bundleLicenseBanner(build);
+      expect(banner).toContain("@wxt-dev/browser@0.3.0");
+      expect(banner).toContain("Copyright (c) 2023 Aaron");
+    },
+  );
 });

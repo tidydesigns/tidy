@@ -1,8 +1,20 @@
+import { decodeCaptureImage, isProtectedElement } from "./capture-effects";
+
 // Render an isolated, inert clone in SVG foreignObject. The browser applies the
 // original masks, with transparent pixels around the group. 3D scenes need
 // a real browser screenshot; foreignObject does not preserve their compositing.
 // Nothing is inserted into or restyled on the live page.
 export async function rasterizeElement(element: Element, bounds: DOMRect): Promise<string> {
+  const deadline = performance.now() + 3000;
+  const signal = AbortSignal.timeout(3000);
+  let resourceBytes = 0;
+  let markupBytes = 0;
+  let lastYield = performance.now();
+  const checkBudget = (bytes = 0) => {
+    markupBytes += bytes;
+    if (performance.now() > deadline || markupBytes > 12_000_000)
+      throw new Error("Visual group exceeds the rendering budget.");
+  };
   const rootCss = getComputedStyle(element);
   // Perspective/3D on a parent must be captured with that parent, not a child.
   if (
@@ -13,7 +25,10 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     throw new Error("Capture the perspective parent.");
   const resources = new Map<string, Promise<string>>();
   const embed = (url: string): Promise<string> => {
-    if (url.startsWith("data:")) return Promise.resolve(url);
+    if (url.startsWith("data:")) {
+      if (url.length > 6_700_000) return Promise.reject(new Error("Visual resource too large."));
+      return Promise.resolve(url);
+    }
     const absolute = new URL(url, document.baseURI).href;
     if (!/^(https?:|blob:)/.test(absolute))
       return Promise.reject(new Error("Unsupported resource."));
@@ -21,10 +36,33 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       resources.set(
         absolute,
         (async () => {
-          const response = await fetch(absolute, { signal: AbortSignal.timeout(3000) });
+          checkBudget();
+          const response = await fetch(absolute, { signal });
           if (!response.ok) throw new Error("Could not read a visual resource.");
-          const blob = await response.blob();
-          if (blob.size > 5_000_000) throw new Error("Visual resource too large.");
+          if (Number(response.headers.get("content-length")) + resourceBytes > 5_000_000) {
+            await response.body?.cancel();
+            throw new Error("Visual resources too large.");
+          }
+          const reader = response.body?.getReader();
+          if (!reader) throw new Error("Visual resource body missing.");
+          const chunks: Uint8Array<ArrayBuffer>[] = [];
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              resourceBytes += value.byteLength;
+              if (resourceBytes > 5_000_000) {
+                await reader.cancel();
+                throw new Error("Visual resources too large.");
+              }
+              chunks.push(new Uint8Array(value));
+            }
+          } finally {
+            reader.releaseLock();
+          }
+          const blob = new Blob(chunks, {
+            type: response.headers.get("content-type") ?? "application/octet-stream",
+          });
           return await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(String(reader.result));
@@ -45,7 +83,14 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
   };
   let count = 0;
   const clone = async (source: Element): Promise<Element | undefined> => {
+    checkBudget();
+    if (performance.now() - lastYield > 8) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      lastYield = performance.now();
+    }
     if (++count > 2000) throw new Error("Visual group too complex.");
+    if (isProtectedElement(source))
+      throw new Error("Protected content needs a redacted screenshot.");
     if (["SCRIPT", "STYLE", "LINK", "NOSCRIPT", "TEMPLATE"].includes(source.tagName.toUpperCase()))
       return undefined;
     if (
@@ -75,14 +120,17 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       )
         target.removeAttribute(attribute.name);
     }
-    for (const name of css)
+    for (const name of css) {
+      checkBudget();
       target.style.setProperty(name, await inlineUrls(css.getPropertyValue(name)), "important");
+    }
     target.style.setProperty("animation", "none", "important");
     target.style.setProperty("transition", "none", "important");
     // Freeze computed transforms, rather than advancing the animation in the clone.
     if (source instanceof HTMLImageElement)
       target.setAttribute("src", await embed(source.currentSrc || source.src));
     if (source.tagName.toLowerCase() === "use") throw new Error("SVG symbols need a screenshot.");
+    checkBudget(new XMLSerializer().serializeToString(target).length);
     // Generated visuals need their CSS too. Materialize pseudo-elements without
     // changing the source document or relying on its stylesheets.
     const pseudo = async (selector: string) => {
@@ -93,6 +141,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
         span.style.setProperty(name, await inlineUrls(style.getPropertyValue(name)), "important");
       if (style.content === '""' || style.content === "''") span.textContent = "";
       else throw new Error("Unsupported generated content.");
+      checkBudget(new XMLSerializer().serializeToString(span).length);
       target.append(span);
     };
     await pseudo("::before");
@@ -160,7 +209,7 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}" viewBox="0 0 ${bounds.width} ${bounds.height}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
   const image = new Image();
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-  await image.decode();
+  await decodeCaptureImage(image, deadline - performance.now());
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Canvas unavailable.");
   context.drawImage(image, 0, 0, canvas.width, canvas.height);

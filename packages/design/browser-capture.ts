@@ -9,8 +9,10 @@ import { rasterTiles, type RasterTile } from "./raster-tiles";
 import { rasterizeElement } from "./rasterize-element";
 import {
   currentViewport,
+  decodeCaptureImage,
   effectBounds,
   intersectBounds,
+  isProtectedElement,
   protectedBounds,
   rasterEffect,
   sameViewport,
@@ -112,7 +114,13 @@ export async function captureElement(
   mode: WebCapture["mode"],
   screenshot?: string,
   screenshotViewport?: CaptureViewport,
+  options?: { screenshotValid?: () => boolean; deadline?: number },
 ): Promise<WebCapture> {
+  if (isProtectedElement(root))
+    throw new Error(
+      "Editable fields and embedded frames cannot be imported. Select the surrounding content.",
+    );
+  const deadline = Math.min(options?.deadline ?? Infinity, performance.now() + 20000);
   const rect = root.getBoundingClientRect();
   const fullPage = mode === "page";
   const originX = fullPage ? -window.scrollX : rect.left;
@@ -149,7 +157,7 @@ export async function captureElement(
         ? document.title
         : root.getAttribute("aria-label") ||
           root.id ||
-          `${root.tagName.toLowerCase()} · ${document.title}`
+          `${root.tagName.toLowerCase()}: ${document.title}`
       )
         .trim()
         .slice(0, 120) || "Website capture",
@@ -211,7 +219,7 @@ export async function captureElement(
       id: crypto.randomUUID(),
       parentId: null,
       type: "artboard",
-      name: `${result.title}${height > 5000 ? ` · ${frames.length + 1}` : ""}`.slice(0, 120),
+      name: `${result.title}${height > 5000 ? ` (${frames.length + 1})` : ""}`.slice(0, 120),
       box: { x: frames.length * (width + 120), y: 0, width, height: Math.min(5000, height - y) },
       style: { fill: background, overflow: "hidden" },
       visible: true,
@@ -307,11 +315,15 @@ export async function captureElement(
   const startViewport = currentViewport();
   let viewport: HTMLImageElement | undefined;
   let privateRegions: DOMRect[] = [];
-  if (screenshot && (!screenshotViewport || sameViewport(screenshotViewport, startViewport))) {
+  if (
+    screenshot &&
+    options?.screenshotValid?.() !== false &&
+    (!screenshotViewport || sameViewport(screenshotViewport, startViewport))
+  ) {
     viewport = new Image();
     viewport.src = screenshot;
     try {
-      await viewport.decode();
+      await decodeCaptureImage(viewport);
       privateRegions = protectedBounds();
     } catch {
       viewport = undefined;
@@ -324,7 +336,12 @@ export async function captureElement(
   let assetBytes = 0;
   const rasterLayers: (() => void)[] = [];
   const cropScreenshot = (canvas: HTMLCanvasElement, bounds: DOMRect) => {
-    if (!viewport || !sameViewport(startViewport, currentViewport())) return false;
+    if (
+      !viewport ||
+      options?.screenshotValid?.() === false ||
+      !sameViewport(startViewport, currentViewport())
+    )
+      return false;
     const context = canvas.getContext("2d");
     if (!context) return false;
     const ratioX = viewport.naturalWidth / startViewport.width,
@@ -432,7 +449,13 @@ export async function captureElement(
       element.getAttribute("class") ||
       element.tagName.toLowerCase()
     ).slice(0, 100);
-    const visual = effectBounds(element);
+    let visual: DOMRect;
+    try {
+      visual = effectBounds(element);
+    } catch {
+      warn(`${label}: visual group exceeded the capture complexity limit.`);
+      return false;
+    }
     const pixelRatio = 1; // Whole CSS pixels avoid Chromium snapping fractional replaced-image bounds.
     // Render directly on the source pixel grid; otherwise a fractional element
     // width gets scaled into a rounded PNG and then scaled a second time in Tidy.
@@ -451,7 +474,7 @@ export async function captureElement(
     ) {
       try {
         const tiles = await rasterTiles(await rasterizeElement(element, original));
-        addRaster(tiles, original, `${label} · ${reason}`.slice(0, 120), false, parent);
+        addRaster(tiles, original, `${label}: ${reason}`.slice(0, 120), false, parent);
         warn(
           `${label}: ${reason} preserved as an isolated image with transparent edges; descendants are not separately editable.`,
         );
@@ -490,7 +513,7 @@ export async function captureElement(
     try {
       const tiles = await rasterTiles(canvas.toDataURL("image/png").split(",")[1]!);
       // Pixels already include effects and overlaps. Paint opaque crops last.
-      addRaster(tiles, bounds, `${label} · ${reason}`.slice(0, 120), true, parent);
+      addRaster(tiles, bounds, `${label}: ${reason}`.slice(0, 120), true, parent);
     } catch {
       warn(
         `${label}: ${reason} exceeded the raster asset limit; effects are approximated. Capture a smaller region.`,
@@ -545,12 +568,7 @@ export async function captureElement(
           const image = new Image();
           image.crossOrigin = "anonymous";
           image.src = url;
-          await Promise.race([
-            image.decode(),
-            new Promise<never>((_, reject) =>
-              setTimeout(() => reject(new Error("Image timed out")), 3000),
-            ),
-          ]);
+          await decodeCaptureImage(image, Math.min(3000, deadline - performance.now()));
           source = image;
         }
         const sourceWidth =
@@ -659,16 +677,27 @@ export async function captureElement(
     );
   };
   let visited = 0;
+  let lastYield = performance.now();
   const visit = async (element: Element, depth: number, parent?: CaptureParent) => {
+    if (performance.now() > deadline)
+      throw new Error("This capture took too long. Select a smaller portion of the page.");
     if (++visited > 15000 || depth > 80 || result.document.nodes.length >= 5000) {
       warn("Some content exceeded the capture complexity limit. Select a smaller portion.");
       return;
+    }
+    if (performance.now() - lastYield > 8) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      lastYield = performance.now();
     }
     if (
       element.hasAttribute("data-bella-picker") ||
       ["SCRIPT", "STYLE", "NOSCRIPT", "TEMPLATE", "HEAD"].includes(element.tagName)
     )
       return;
+    if (isProtectedElement(element)) {
+      warn("Form values and editable content were excluded from the capture.");
+      return;
+    }
     const css = getComputedStyle(element),
       bounds = element.getBoundingClientRect();
     if (css.display === "none" || css.visibility === "hidden" || css.opacity === "0") return;
@@ -784,17 +813,25 @@ export async function captureElement(
       await asset(element, bounds, css, undefined, parent);
       return;
     }
-    // Form values can contain secrets. Capture the control's appearance, never its value.
-    if (["INPUT", "TEXTAREA", "SELECT"].includes(element.tagName)) {
-      warn("Form values were excluded from the capture.");
-      return;
-    }
     // Positioned content with explicit z-index must retain its paint order:
     // otherwise a later decorative forest can cover the hero's editable CTA.
-    const stackingLevel = (node: ChildNode) =>
-      node instanceof Element ? Number.parseInt(getComputedStyle(node).zIndex) || 0 : 0;
-    const children = [...element.childNodes].sort((a, b) => stackingLevel(a) - stackingLevel(b));
-    for (const child of children) {
+    const children: { node: ChildNode; level: number }[] = [];
+    const childLimit = Math.max(0, 15000 - visited);
+    if (element.childNodes.length > childLimit)
+      warn("Some content exceeded the capture complexity limit. Select a smaller portion.");
+    for (let index = 0; index < Math.min(element.childNodes.length, childLimit); index++) {
+      const node = element.childNodes[index]!;
+      children.push({
+        node,
+        level: node instanceof Element ? Number.parseInt(getComputedStyle(node).zIndex) || 0 : 0,
+      });
+    }
+    children.sort((a, b) => a.level - b.level);
+    for (const { node: child } of children) {
+      if (visited >= 15000 || result.document.nodes.length >= 5000) {
+        warn("Some content exceeded the capture complexity limit. Select a smaller portion.");
+        break;
+      }
       if (child instanceof Element) {
         await visit(child, depth + 1, contentParent);
         continue;
@@ -804,6 +841,16 @@ export async function captureElement(
       const source = child.textContent.slice(0, 10000);
       let start = 0;
       while (start < source.length) {
+        if (performance.now() > deadline)
+          throw new Error("This capture took too long. Select a smaller portion of the page.");
+        if (result.document.nodes.length >= 5000) {
+          warn("Some content exceeded the capture complexity limit. Select a smaller portion.");
+          break;
+        }
+        if (performance.now() - lastYield > 8) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          lastYield = performance.now();
+        }
         // Keep the browser's line breaks rather than reflowing tight glyph boxes
         // using the destination font's metrics. Binary search bounds the work.
         let end = source.length;

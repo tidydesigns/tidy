@@ -7,6 +7,7 @@ export async function captureSelection(
   elements: Element[],
   screenshot?: string,
   viewport?: CaptureViewport,
+  screenshotValid?: () => boolean,
 ): Promise<WebCapture> {
   if (!elements.length || elements.some((element) => !element.isConnected))
     throw new Error("A selected element disappeared. Select it again.");
@@ -15,8 +16,12 @@ export async function captureSelection(
     y = 0,
     rowHeight = 0;
   const warnings = new Set<string>();
+  const deadline = performance.now() + 20000;
   for (const element of elements) {
-    const capture = await captureElement(element, "element", screenshot, viewport);
+    const capture = await captureElement(element, "element", screenshot, viewport, {
+      screenshotValid,
+      deadline,
+    });
     for (const node of capture.document.nodes) {
       if (node.parentId !== null) continue;
       if (x && x + node.box.width > 10000) {

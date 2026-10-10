@@ -110,6 +110,30 @@ describe("rendered webpage capture", () => {
       (await captureElement(root as unknown as Element, "element")).document.nodes[0].style.fill,
     ).toBe("#000000");
   });
+  test("excludes editable text even when selection starts inside an editor or shadow root", async () => {
+    win.document.body.innerHTML =
+      '<section><div contenteditable="plaintext-only"><span id="draft">private draft token</span></div><p>Public copy</p></section>';
+    const root = win.document.querySelector("section")!;
+    bounds(root as unknown as Element, 100, 100, 400, 300);
+    const capture = await captureElement(root as unknown as Element, "element");
+    expect(JSON.stringify(capture)).not.toContain("private draft token");
+    expect(capture.document.nodes.some((node) => node.text === "Public copy")).toBe(true);
+    const draft = win.document.querySelector("#draft")!;
+    bounds(draft as unknown as Element, 100, 100, 300, 30);
+    await expect(captureElement(draft as unknown as Element, "element")).rejects.toThrow(
+      "Editable fields",
+    );
+    const host = win.document.createElement("div");
+    host.setAttribute("contenteditable", "true");
+    win.document.body.append(host);
+    const shadow = host.attachShadow({ mode: "open" });
+    shadow.innerHTML = "<span>shadow private draft</span>";
+    const nested = shadow.querySelector("span")!;
+    bounds(nested as unknown as Element, 100, 100, 300, 30);
+    await expect(captureElement(nested as unknown as Element, "element")).rejects.toThrow(
+      "Editable fields",
+    );
+  });
   test("keeps descendants inside rounded clipping parents with relative positions and one opacity", async () => {
     win.document.body.innerHTML =
       '<section><div id="avatar" style="overflow:hidden;border-radius:50%;border:4px solid black;opacity:0.5"><span style="font-size:20px;line-height:24px">Clipped</span></div></section>';

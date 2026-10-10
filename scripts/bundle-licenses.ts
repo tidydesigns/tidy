@@ -5,28 +5,43 @@ import reviewed from "../licenses/bundled/manifest.json";
 /** Notices travel with the code, including standalone HTML and code handoffs. */
 export async function bundleLicenseBanner(build: Pick<Bun.BuildOutput, "metafile">) {
   if (!build.metafile) throw new Error("Bundle licence generation requires build metadata.");
-  const packages = new Map<string, string>();
+  const inputs = new Set<string>();
   for (const output of Object.values(build.metafile.outputs)) {
-    for (const [input, contribution] of Object.entries(output.inputs)) {
-      if (contribution.bytesInOutput === 0) continue;
-      const root = resolve(input)
-        .replaceAll("\\", "/")
-        .match(/^(.*\/node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1];
-      if (!root) continue;
-      const { name, version } = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-      const id = `${name}@${version}`;
-      if (packages.has(id)) continue;
-      if (!Object.hasOwn(reviewed, name))
-        throw new Error(`Add reviewed licence notices for bundled dependency ${id}.`);
-      const entry = reviewed[name as keyof typeof reviewed];
+    for (const [input, contribution] of Object.entries(output.inputs))
+      if (contribution.bytesInOutput > 0) inputs.add(input);
+  }
+  return bundleLicenseBannerForInputs(inputs);
+}
+
+export async function bundleLicenseBannerForInputs(inputs: Iterable<string>) {
+  const packages = new Map<string, string>();
+  for (const input of inputs) {
+    const root = resolve(input)
+      .replaceAll("\\", "/")
+      .match(/^(.*\/node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1];
+    if (!root) continue;
+    const { name, version, license } = JSON.parse(
+      await readFile(resolve(root, "package.json"), "utf8"),
+    );
+    const id = `${name}@${version}`;
+    if (packages.has(id)) continue;
+    if (!Object.hasOwn(reviewed, name))
+      throw new Error(`Add reviewed licence notices for bundled dependency ${id}.`);
+    const entry: { source?: string; notice: string; versions?: string[] } =
+      reviewed[name as keyof typeof reviewed];
+    const notice = (
+      await readFile(new URL(`../licenses/bundled/${entry.notice}`, import.meta.url), "utf8")
+    ).trim();
+    if (entry.source) {
       const upstream = (await readFile(resolve(root, entry.source), "utf8")).trim();
-      const notice = (
-        await readFile(new URL(`../licenses/bundled/${entry.notice}`, import.meta.url), "utf8")
-      ).trim();
       if (upstream !== notice)
         throw new Error(`Bundled licence for ${id} changed; review and update ${entry.notice}.`);
-      packages.set(id, notice);
+    } else if (!entry.versions?.includes(version) || license !== "MIT") {
+      // These packages omit their licence file from npm. Review the upstream
+      // notice again for every new version rather than silently accepting it.
+      throw new Error(`Review upstream licence notice for bundled dependency ${id}.`);
     }
+    packages.set(id, notice);
   }
   if (!packages.size) return "";
   const groups = new Map<string, string[]>();

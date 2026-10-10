@@ -6,12 +6,18 @@ import {
   extensionPreflight,
   extensionRequestAllowed,
   readCaptureBody,
+  extensionError,
+  CaptureBodyError,
 } from "./http";
+import { PublicActionError } from "@/lib/security/public-error";
 
 const oldIds = process.env.BELLA_EXTENSION_IDS;
+const oldMode = process.env.NODE_ENV;
 afterEach(() => {
   if (oldIds === undefined) delete process.env.BELLA_EXTENSION_IDS;
   else process.env.BELLA_EXTENSION_IDS = oldIds;
+  if (oldMode === undefined) Reflect.deleteProperty(process.env, "NODE_ENV");
+  else Object.assign(process.env, { NODE_ENV: oldMode });
 });
 const origin = `chrome-extension://${DEVELOPMENT_EXTENSION_ID}`;
 const request = (from: string, header = "1") =>
@@ -21,6 +27,34 @@ const request = (from: string, header = "1") =>
   });
 
 describe("extension HTTP boundary", () => {
+  test("production writes require an explicit extension allowlist", () => {
+    Object.assign(process.env, { NODE_ENV: "production" });
+    delete process.env.BELLA_EXTENSION_IDS;
+    expect(extensionRequestAllowed(request(origin))).toBe(false);
+    process.env.BELLA_EXTENSION_IDS = DEVELOPMENT_EXTENSION_ID;
+    expect(extensionRequestAllowed(request(origin))).toBe(true);
+  });
+  test("unexpected server errors never expose infrastructure details", () => {
+    expect(
+      extensionError(new Error("postgres://operator:private-password@internal-db/customer")),
+    ).toEqual({ message: "Could not import webpage. Try again later.", status: 500 });
+    expect(extensionError(new PublicActionError("File not found or access denied."))).toEqual({
+      message: "File not found or access denied.",
+      status: 403,
+    });
+    expect(extensionError(new CaptureBodyError("Capture exceeds 16 MB.", 413)).status).toBe(413);
+  });
+  test("malformed JSON returns a deliberate input error", async () => {
+    await expect(
+      readCaptureBody(
+        new Request("https://example.com", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: "{",
+        }),
+      ),
+    ).rejects.toThrow("valid JSON");
+  });
   test("requires an exact configured extension origin and request header for writes", () => {
     delete process.env.BELLA_EXTENSION_IDS;
     expect(extensionRequestAllowed(request(origin))).toBe(true);
