@@ -953,7 +953,12 @@ export function FileEditor({
       setError(cause instanceof Error ? cause.message : "Could not change layers.");
       return;
     }
-    if (!patch.length) return;
+    if (!patch.length) {
+      // A gesture can finish unchanged before its final preview frame runs.
+      room.restore();
+      room.clearPreview(completingPreview);
+      return;
+    }
     pendingCountRef.current++;
     busyRef.current = true;
     setBusy(true);

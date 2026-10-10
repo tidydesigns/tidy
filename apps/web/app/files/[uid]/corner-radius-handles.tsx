@@ -47,6 +47,7 @@ export function CornerRadiusHandles({
   const gesture = useRef<Gesture | null>(null);
   const [active, setActive] = useState<RadiusCorner | null>(null);
   const [hover, setHover] = useState<RadiusCorner | null>(null);
+  const [pointerFocus, setPointerFocus] = useState<RadiusCorner | null>(null);
   const preview = useFrameEvent(onPreview);
   const cancel = useEditorEvent(() => {
     preview.cancel();
@@ -103,15 +104,24 @@ export function CornerRadiusHandles({
             aria-label={`Adjust ${node.name} ${corner.label} radius`}
             aria-describedby={`radius-help-${node.id}${shown === i ? ` radius-value-${node.id}` : ""}`}
             className="pointer-events-auto absolute flex size-6 -translate-x-1/2 -translate-y-1/2 touch-none items-center justify-center rounded-full opacity-0 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-primary-orange group-hover/radius:opacity-100 group-focus-within/radius:opacity-100 group-data-[dragging]/radius:opacity-100"
-            style={{ left, top, cursor: active === i ? "grabbing" : "grab" }}
+            style={{
+              left,
+              top,
+              cursor: active === i ? "grabbing" : "grab",
+              outlineStyle: pointerFocus === i ? "none" : undefined,
+            }}
             onPointerEnter={() => setHover(i)}
             onPointerLeave={() => setHover(null)}
             onFocus={() => setHover(i)}
-            onBlur={() => setHover(null)}
+            onBlur={() => {
+              setHover(null);
+              setPointerFocus((current) => (current === i ? null : current));
+            }}
             onPointerDown={(event) => {
               if (event.button !== 0 || gesture.current) return;
               event.preventDefault();
               event.stopPropagation();
+              setPointerFocus(i);
               event.currentTarget.focus({ preventScroll: true });
               gesture.current = {
                 pointerId: event.pointerId,
@@ -156,6 +166,11 @@ export function CornerRadiusHandles({
               if (gesture.current?.pointerId === event.pointerId) cancel();
             }}
             onKeyDown={(event) => {
+              setPointerFocus(null);
+              if (event.key === "Tab") {
+                event.stopPropagation();
+                return;
+              }
               if (event.key === "Escape") {
                 event.preventDefault();
                 event.stopPropagation();
