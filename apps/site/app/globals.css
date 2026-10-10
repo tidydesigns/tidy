@@ -42,8 +42,16 @@ body {
   font-weight: 400;
   line-height: 0.98;
   letter-spacing: -0.02em;
+  text-decoration: none;
 }
 
+.header-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-link,
 .github-link {
   display: inline-flex;
   align-items: center;
@@ -61,19 +69,28 @@ body {
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .header-link:hover,
   .github-link:hover {
     background: #f0f0f0;
     text-decoration: underline;
   }
 }
 
+.header-link:active,
 .github-link:active {
   background: #e5e5e5;
 }
 
+.tidy-logo:focus-visible,
+.header-link:focus-visible,
 .github-link:focus-visible {
   outline: 2px solid #595959;
   outline-offset: -2px;
+}
+
+.header-link[aria-current="page"] {
+  text-decoration: underline;
+  text-decoration-color: var(--orange);
 }
 
 .content {
@@ -130,6 +147,116 @@ p {
   letter-spacing: -0.02em;
 }
 
+.changelog-content {
+  width: min(100%, 900px);
+  margin: clamp(64px, 12svh, 120px) auto 48px;
+}
+
+.changelog-intro {
+  margin-bottom: 48px;
+}
+
+.changelog-intro h1 {
+  font-size: clamp(32px, 4vw, 44px);
+}
+
+.changelog-intro p {
+  margin-top: 12px;
+  color: #595959;
+  font-size: 18px;
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+}
+
+.changelog-entry {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr);
+  gap: 32px;
+  padding: 32px 0;
+  border-top: 1px solid #d8d8d5;
+}
+
+.changelog-entry h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+}
+
+.changelog-changes {
+  display: grid;
+  gap: 28px;
+}
+
+.change-group h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: -0.02em;
+}
+
+.change-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  list-style-type: disc;
+}
+
+.change-list li::marker {
+  color: #777772;
+  font-size: 12px;
+}
+
+.change-details summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -4px -8px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 16px;
+  line-height: 1.5;
+  letter-spacing: -0.015em;
+  list-style: none;
+  cursor: pointer;
+}
+
+.change-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.change-details summary svg {
+  flex-shrink: 0;
+  align-self: center;
+  color: #777772;
+}
+
+.change-details[open] summary svg {
+  transform: rotate(90deg);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .change-details summary:hover {
+    background: #eaeae7;
+  }
+}
+
+.change-details summary:focus-visible {
+  outline: 2px solid #595959;
+  outline-offset: 2px;
+}
+
+.change-details p {
+  margin: 8px 32px 12px 0;
+  color: #595959;
+  font-size: 15px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+}
+
 @media (max-width: 680px) {
   .page {
     padding: 22px;
@@ -158,6 +285,26 @@ p {
   .footer {
     padding-top: 36px;
     font-size: 13px;
+  }
+
+  .header-nav {
+    gap: 0;
+  }
+
+  .header-link,
+  .github-link {
+    padding: 0 8px;
+    font-size: 14px;
+  }
+
+  .changelog-content {
+    margin-top: 64px;
+  }
+
+  .changelog-entry {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 24px;
+    padding: 28px 0;
   }
 }
 

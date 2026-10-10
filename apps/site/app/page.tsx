@@ -1,24 +1,15 @@
+import { SiteFooter } from "../components/site-footer";
+import { SiteHeader } from "../components/site-header";
+
 const loginUrl = new URL("/login", process.env.NEXT_PUBLIC_APP_URL ?? "https://app.tidydesign.co")
   .href;
-const githubUrl = process.env.NEXT_PUBLIC_REPOSITORY_URL;
-const siteHost = new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://tidydesign.co").host;
 
 export default function HomePage() {
   return (
-    <main className="page">
-      <header className="header">
-        <span className="tidy-logo">Tidy</span>
-        {githubUrl && (
-          <a className="github-link" href={githubUrl}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.543 0-.267-.01-.974-.015-1.912-3.13.68-3.79-1.508-3.79-1.508-.512-1.3-1.25-1.646-1.25-1.646-1.023-.699.077-.685.077-.685 1.13.08 1.725 1.16 1.725 1.16 1.006 1.724 2.64 1.226 3.283.937.103-.728.394-1.226.716-1.508-2.498-.284-5.124-1.25-5.124-5.563 0-1.228.439-2.232 1.16-3.019-.117-.284-.503-1.429.11-2.979 0 0 .945-.302 3.094 1.153a10.79 10.79 0 0 1 5.634 0c2.15-1.455 3.093-1.153 3.093-1.153.614 1.55.228 2.695.112 2.979.722.787 1.158 1.791 1.158 3.019 0 4.324-2.63 5.276-5.136 5.554.404.35.766 1.042.766 2.1 0 1.516-.014 2.738-.014 3.11 0 .302.203.653.774.542A11.25 11.25 0 0 0 12 .75Z" />
-            </svg>
-            GitHub
-          </a>
-        )}
-      </header>
+    <div className="page">
+      <SiteHeader />
 
-      <div className="content">
+      <main className="content">
         <h1>Tidy is a product canvas for designers, engineers, and agents.</h1>
         <p>
           It brings design and engineering into one workspace. People work directly on interfaces,
@@ -28,12 +19,9 @@ export default function HomePage() {
         <a className="login-link" href={loginUrl}>
           Log in to Tidy
         </a>
-      </div>
+      </main>
 
-      <footer className="footer">
-        <span>© 2026 Tidy</span>
-        <span>{siteHost}</span>
-      </footer>
-    </main>
+      <SiteFooter />
+    </div>
   );
 }
