@@ -178,7 +178,17 @@ export async function captureElement(
     ancestor = ancestor.parentElement
   )
     ancestors.push(ancestor);
-  for (const ancestor of ancestors.reverse()) {
+  ancestors.reverse();
+  const htmlCss = getComputedStyle(document.documentElement);
+  // With an unpainted HTML root, browsers propagate the body's background to
+  // the document canvas, beyond a 100vh body or fixed/sticky sidebar bounds.
+  const bodyCanvasBackground =
+    fullPage &&
+    root === document.body &&
+    !cssColor(htmlCss.backgroundColor) &&
+    htmlCss.backgroundImage === "none";
+  if (bodyCanvasBackground) ancestors.push(root);
+  for (const ancestor of ancestors) {
     const color = cssColor(getComputedStyle(ancestor).backgroundColor);
     if (!color) continue;
     if (color.length === 7) background = color;
@@ -670,6 +680,9 @@ export async function captureElement(
     }
     if (effect && (await rasterize(element, effect, parent))) return;
     const style = captureStyle(css, false, bounds);
+    // The propagated color is already on every artboard. Painting it again at
+    // body bounds would double the opacity of translucent canvas backgrounds.
+    if (element === root && bodyCanvasBackground) style.fill = undefined;
     const paints = captureGradientStack(
       css,
       {
