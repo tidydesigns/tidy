@@ -12,6 +12,25 @@ export function rasterEffect(css: CSSStyleDeclaration): string | undefined {
     css.transformStyle === "preserve-3d"
   )
     return "3D perspective";
+  if (active(css.filter)) return "CSS filter";
+  if (active(css.clipPath)) return "CSS clip path";
+  // Translation is already represented exactly by getBoundingClientRect.
+  // Rotation, skew and scaling also affect descendants and typography.
+  if (active(css.transform)) {
+    const matrix = css.transform
+      .match(/^matrix\(([^)]+)\)$/)?.[1]
+      ?.split(",")
+      .map(Number);
+    if (
+      !matrix ||
+      matrix.length !== 6 ||
+      matrix[0] !== 1 ||
+      matrix[1] !== 0 ||
+      matrix[2] !== 0 ||
+      matrix[3] !== 1
+    )
+      return "CSS transform";
+  }
   return undefined;
 }
 
@@ -31,6 +50,23 @@ export function sameViewport(a: CaptureViewport, b: CaptureViewport) {
   );
 }
 
+export async function decodeCaptureImage(image: HTMLImageElement, timeoutMs = 3000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      image.decode(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Image timed out.")), Math.max(1, timeoutMs));
+      }),
+    ]);
+  } catch (error) {
+    image.removeAttribute("src");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function intersectBounds(a: DOMRect, b: DOMRect): DOMRect | undefined {
   const left = Math.max(a.left, b.left),
     top = Math.max(a.top, b.top);
@@ -41,6 +77,27 @@ export function intersectBounds(a: DOMRect, b: DOMRect): DOMRect | undefined {
     : undefined;
 }
 
+// Selection can start inside an editor, including inside an open shadow root.
+export function isProtectedElement(element: Element): boolean {
+  let editingDisabled = false;
+  for (let current: Element | null = element; current;) {
+    if (
+      ["INPUT", "TEXTAREA", "SELECT", "IFRAME", "OBJECT", "EMBED"].includes(
+        current.tagName.toUpperCase(),
+      )
+    )
+      return true;
+    const editable = current.getAttribute("contenteditable")?.toLowerCase();
+    if (!editingDisabled) {
+      if (editable === "false") editingDisabled = true;
+      else if (editable === "" || editable === "true" || editable === "plaintext-only") return true;
+    }
+    const root = current.getRootNode();
+    current = current.parentElement ?? (root instanceof ShadowRoot ? root.host : null);
+  }
+  return !editingDisabled && document.designMode?.toLowerCase() === "on";
+}
+
 // Include overflow descendants: a perspective wrapper can have no height, and the
 // laptop's base/shadow may extend beyond the screen's transformed border box.
 export function effectBounds(element: Element): DOMRect {
@@ -48,9 +105,15 @@ export function effectBounds(element: Element): DOMRect {
     top = Infinity,
     right = -Infinity,
     bottom = -Infinity;
-  const visit = (node: Element) => {
+  const pending = [element];
+  const deadline = performance.now() + 25;
+  let visited = 0;
+  while (pending.length) {
+    if (++visited > 15000 || performance.now() > deadline)
+      throw new Error("Visual group too complex.");
+    const node = pending.pop()!;
     const css = getComputedStyle(node);
-    if (css.display === "none" || css.visibility === "hidden") return;
+    if (css.display === "none" || css.visibility === "hidden") continue;
     const box = node.getBoundingClientRect();
     if (box.width && box.height) {
       // Computed shadows serialize colors as rgb(...); remove them before reading lengths.
@@ -71,10 +134,9 @@ export function effectBounds(element: Element): DOMRect {
       right = Math.max(right, box.right + outset);
       bottom = Math.max(bottom, box.bottom + outset);
     }
-    for (const child of node.children) visit(child);
-    if (node.shadowRoot) for (const child of node.shadowRoot.children) visit(child);
-  };
-  visit(element);
+    for (const child of node.children) pending.push(child);
+    if (node.shadowRoot) for (const child of node.shadowRoot.children) pending.push(child);
+  }
   return Number.isFinite(left)
     ? new DOMRect(left, top, right - left, bottom - top)
     : element.getBoundingClientRect();
@@ -85,20 +147,23 @@ export function effectBounds(element: Element): DOMRect {
 export function protectedBounds(): DOMRect[] {
   const bounds: DOMRect[] = [];
   let visited = 0;
-  const visit = (element: Element) => {
-    if (++visited > 15000) throw new Error("Page too complex for safe screenshot fallbacks.");
+  const deadline = performance.now() + 25;
+  const pending: Element[] = [document.documentElement];
+  while (pending.length) {
+    if (++visited > 15000 || performance.now() > deadline)
+      throw new Error("Page too complex for safe screenshot fallbacks.");
+    const element = pending.pop()!;
     if (
-      element.matches(
-        'input, textarea, select, iframe, object, embed, [contenteditable]:not([contenteditable="false"])',
-      )
+      isProtectedElement(element) ||
+      // A closed shadow tree cannot be inspected for private controls.
+      (element.tagName.includes("-") && !element.shadowRoot)
     ) {
       const box = element.getBoundingClientRect();
       if (box.width && box.height) bounds.push(box);
-      return;
+      continue;
     }
-    for (const child of element.children) visit(child);
-    if (element.shadowRoot) for (const child of element.shadowRoot.children) visit(child);
-  };
-  visit(document.documentElement);
+    for (const child of element.children) pending.push(child);
+    if (element.shadowRoot) for (const child of element.shadowRoot.children) pending.push(child);
+  }
   return bounds;
 }

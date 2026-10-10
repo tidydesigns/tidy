@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./avatar": "./avatar.tsx",
     "./button": "./button.tsx",
-    "./select-menu": "./select-menu.tsx"
+    "./select-menu": "./select-menu.tsx",
+    "./tidy-logo": "./tidy-logo.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -89,7 +89,13 @@ function services() {
         void _user;
         void _import;
         void _resolution;
-        return { fileId, revision: 2, url: `/files/${fileId}`, nodeCount: 2, warnings: [] };
+        return {
+          fileId,
+          revision: 2,
+          url: `/files/${fileId}`,
+          nodeCount: 2,
+          warnings: [] as { message: string }[],
+        };
       },
     ),
     abortImport: mock(async () => ({ aborted: true })),
@@ -145,6 +151,23 @@ describe("web import service", () => {
     await expect(importWebCapture("user", input(), deps)).rejects.toThrow("Asset missing");
     expect(deps.abortImport).toHaveBeenCalledWith("user", fileId);
     expect(deps.commitImport).not.toHaveBeenCalled();
+  });
+  test("returns notes from this capture without repeating older file warnings", async () => {
+    const deps = services();
+    const capture = input();
+    capture.capture.document.warnings = [{ message: "Current capture limitation" }];
+    deps.commitImport.mockImplementation(async () => ({
+      fileId,
+      revision: 2,
+      url: `/files/${fileId}`,
+      nodeCount: 2,
+      warnings: [
+        { message: "Previous capture limitation" },
+        { message: "Current capture limitation" },
+      ],
+    }));
+    const result = await importWebCapture("user", capture, deps);
+    expect(result.warnings).toEqual([{ message: "Current capture limitation" }]);
   });
   test("revision conflicts abort instead of overwriting another editor", async () => {
     const deps = services();

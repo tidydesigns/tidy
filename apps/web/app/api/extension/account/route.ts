@@ -19,7 +19,7 @@ export async function GET(request: Request) {
   const organizations = await listDesignOrganizations(session.user.id);
   return Response.json(
     {
-      user: { id: session.user.id, name: session.user.name },
+      user: { id: session.user.id, name: session.user.name, image: session.user.image ?? null },
       organizations: await Promise.all(
         organizations
           .filter((organization) => organization.canEdit)

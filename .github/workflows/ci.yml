@@ -14,6 +14,8 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       NODE_OPTIONS: "--max-old-space-size=4096"
       BETTER_AUTH_URL: http://localhost:3000
+      # Reserved fixture origin; this CI build is never a deployment artifact.
+      WXT_BELLA_URL: https://extension-build.invalid
       BETTER_AUTH_SECRET: ci-fixture-auth-secret-never-used-by-a-deployment
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

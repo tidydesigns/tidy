@@ -91,6 +91,7 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
         githubReviews={githubReviews}
         viewerId={session.user.id}
         initialReviewId={typeof requestedReview === "string" ? requestedReview : undefined}
+        initialFocusNodeId={typeof query.node === "string" ? query.node : undefined}
       />
     </FeedbackProvider>
   );

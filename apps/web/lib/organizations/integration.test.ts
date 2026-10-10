@@ -1697,7 +1697,7 @@ integration(
     ).rejects.toThrow("access denied");
     const { GET: destinations } = await import("../../app/api/extension/account/route");
     const extensionHeaders = new Headers(invited);
-    extensionHeaders.set("x-bella-extension", "1");
+    extensionHeaders.set("x-tidy-extension", "1");
     const account = await destinations(
       new Request("http://localhost:3000/api/extension/account", { headers: extensionHeaders }),
     );

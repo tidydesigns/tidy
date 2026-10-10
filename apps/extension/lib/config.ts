@@ -1,4 +1,3 @@
-export const BELLA_URL = (import.meta.env.WXT_BELLA_URL ?? "http://localhost:3000").replace(
-  /\/$/,
-  "",
-);
+import { appOrigin } from "./app-origin";
+
+export const BELLA_URL = appOrigin(import.meta.env.WXT_BELLA_URL);

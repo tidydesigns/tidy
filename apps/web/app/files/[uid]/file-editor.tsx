@@ -103,6 +103,7 @@ import {
   containingDrawParent,
 } from "@/lib/design/draw-placement";
 import { gestureZoomFactor, wheelZoomFactor } from "@/lib/design/canvas-zoom";
+import { CANVAS_FIT_PADDING, fitCanvasView as fit } from "@/lib/design/canvas-view";
 import {
   clipboardAssetIds,
   remapClipboardAssets,
@@ -265,21 +266,6 @@ function CanvasToolButton({
   );
 }
 
-function fit(nodes: DesignNode[], width: number, height: number): View {
-  const roots = nodes.filter((node) => node.parentId === null);
-  if (!roots.length) return { zoom: 1, x: 0, y: 0 };
-  const left = Math.min(...roots.map((node) => node.box.x));
-  const top = Math.min(...roots.map((node) => node.box.y));
-  const right = Math.max(...roots.map((node) => node.box.x + node.box.width));
-  const bottom = Math.max(...roots.map((node) => node.box.y + node.box.height));
-  const zoom = Math.min(1, (width - 120) / (right - left), (height - 120) / (bottom - top));
-  return {
-    zoom,
-    x: (width - (right - left) * zoom) / 2 - left * zoom,
-    y: (height - (bottom - top) * zoom) / 2 - top * zoom,
-  };
-}
-
 function downloadBlob(blob: Blob, name: string) {
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
@@ -306,6 +292,7 @@ export function FileEditor({
   githubReviews,
   viewerId,
   initialReviewId,
+  initialFocusNodeId,
   agents: initialAgents,
 }: {
   fileId: string;
@@ -326,6 +313,7 @@ export function FileEditor({
     | { ready: boolean; reviews: Omit<Review, "content">[] };
   viewerId?: string;
   initialReviewId?: string;
+  initialFocusNodeId?: string;
   agents?: ThreadsWorkspaceProps | Promise<ThreadsWorkspaceProps | undefined>;
 }) {
   // Archived snapshots use the static viewer: no live room, comments or writes.
@@ -364,7 +352,10 @@ export function FileEditor({
     () => ({ ...initialDocument.content.assetMimeTypes, ...snapshot.content.assetMimeTypes }),
     [initialDocument.content.assetMimeTypes, snapshot.content.assetMimeTypes],
   );
-  const [activePageId, setActivePageId] = useState(documentPages(initialDocument.content)[0].id);
+  const [activePageId, setActivePageId] = useState(() => {
+    const target = initialDocument.content.nodes.find((node) => node.id === initialFocusNodeId);
+    return target ? nodePageId(target) : documentPages(initialDocument.content)[0].id;
+  });
   const activePageRef = useRef(activePageId);
   const pageViewsRef = useRef(new Map<string, View>());
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
@@ -1571,14 +1562,16 @@ export function FileEditor({
     if (viewportReady || !canvas) return;
     // Fit before revealing server-rendered artwork; an effect alone allows a 100% flash.
     function initializeViewport() {
-      if (!canvas || canvas.clientWidth <= 0 || canvas.clientHeight <= 0) return;
-      setView(
-        fit(
-          pageNodes(initialDocument.content, currentPageId),
-          canvas.clientWidth,
-          canvas.clientHeight,
-        ),
-      );
+      if (
+        !canvas ||
+        canvas.clientWidth <= CANVAS_FIT_PADDING ||
+        canvas.clientHeight <= CANVAS_FIT_PADDING
+      )
+        return;
+      const nodes = pageNodes(initialDocument.content, currentPageId);
+      let target = nodes.find((node) => node.id === initialFocusNodeId);
+      while (target?.parentId) target = nodes.find((node) => node.id === target!.parentId);
+      setView(fit(target?.visible ? [target] : nodes, canvas.clientWidth, canvas.clientHeight));
       setViewportReady(true);
     }
     initializeViewport();
@@ -1586,7 +1579,7 @@ export function FileEditor({
     const observer = new ResizeObserver(initializeViewport);
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [initialDocument, currentPageId, viewportReady]);
+  }, [initialDocument, currentPageId, initialFocusNodeId, viewportReady]);
 
   useLayoutEffect(() => {
     const canvas = viewport.current;

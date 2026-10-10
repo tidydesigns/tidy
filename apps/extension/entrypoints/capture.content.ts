@@ -2,93 +2,57 @@ import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
 import { currentViewport } from "@bella/design/capture-effects";
 import { captureElement } from "../lib/capture";
+import { captureSelection } from "../lib/capture-selection";
+import { startElementPicker } from "../lib/element-picker";
 
 export default defineContentScript({
   registration: "runtime",
   main(ctx) {
-    let selected: Element | undefined;
-    let stopPicking: (() => void) | undefined;
-
-    const pick = () => {
-      stopPicking?.();
-      const host = document.createElement("div");
-      host.dataset.bellaPicker = "";
-      host.style.cssText =
-        "all:initial!important;position:fixed!important;inset:0!important;z-index:2147483647!important;pointer-events:none!important";
-      const shadow = host.attachShadow({ mode: "closed" });
-      const outline = document.createElement("div");
-      outline.style.cssText =
-        "position:fixed;pointer-events:none;border:1px solid #888;background:rgba(220,220,220,.12);box-sizing:border-box";
-      const hint = document.createElement("div");
-      hint.textContent = "Click to copy · ↑ parent · ↓ child · Esc cancel";
-      hint.style.cssText =
-        "position:fixed;bottom:16px;left:50%;transform:translateX(-50%);padding:10px 14px;background:#fff;color:#333;border:1px solid #ddd;border-radius:8px;font:13px system-ui;box-shadow:0 2px 12px #0001;white-space:nowrap";
-      shadow.append(outline, hint);
-      document.documentElement.append(host);
-      let target: Element | undefined;
-      const highlight = () => {
-        if (!target) return;
-        const box = target.getBoundingClientRect();
-        Object.assign(outline.style, {
-          left: `${box.left}px`,
-          top: `${box.top}px`,
-          width: `${box.width}px`,
-          height: `${box.height}px`,
-        });
-      };
-      const move = (event: PointerEvent) => {
-        target = event.composedPath().find((node) => node instanceof Element && node !== host) as
-          | Element
-          | undefined;
-        highlight();
-      };
-      const suppress = (event: Event) => {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      };
-      const click = (event: MouseEvent) => {
-        suppress(event);
-        if (!target) return;
-        selected = target;
-        cleanup();
-        void browser.runtime.sendMessage({ type: "bella:picked" }).catch(() => undefined);
-      };
-      const key = (event: KeyboardEvent) => {
-        if (event.key === "Escape") {
-          suppress(event);
-          cleanup();
-          void browser.runtime.sendMessage({ type: "bella:cancelled" }).catch(() => undefined);
-        } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-          suppress(event);
-          target =
-            (event.key === "ArrowUp" ? target?.parentElement : target?.firstElementChild) ?? target;
-          highlight();
-        } else if (event.key === "Enter" && target) {
-          suppress(event);
-          selected = target;
-          cleanup();
-          void browser.runtime.sendMessage({ type: "bella:picked" }).catch(() => undefined);
-        }
-      };
-      function cleanup() {
-        host.remove();
-        window.removeEventListener("pointermove", move, true);
-        window.removeEventListener("pointerdown", suppress, true);
-        window.removeEventListener("pointerup", suppress, true);
-        window.removeEventListener("click", click, true);
-        window.removeEventListener("keydown", key, true);
-        window.removeEventListener("scroll", highlight, true);
-        stopPicking = undefined;
-      }
-      stopPicking = cleanup;
-      window.addEventListener("pointermove", move, true);
-      window.addEventListener("pointerdown", suppress, true);
-      window.addEventListener("pointerup", suppress, true);
-      window.addEventListener("click", click, true);
-      window.addEventListener("keydown", key, true);
-      window.addEventListener("scroll", highlight, true);
-      ctx.onInvalidated(cleanup);
+    let selected: Element[] = [];
+    let picker: ReturnType<typeof startElementPicker> | undefined;
+    let snapshotObserver: MutationObserver | undefined;
+    let snapshotChanged = true;
+    let disposed = false;
+    const invalidateSnapshot = () => {
+      snapshotChanged = true;
     };
+    const stopSnapshot = () => {
+      snapshotChanged = true;
+      snapshotObserver?.disconnect();
+      snapshotObserver = undefined;
+      window.removeEventListener("scroll", invalidateSnapshot, true);
+      window.removeEventListener("resize", invalidateSnapshot);
+    };
+    const screenshotValid = () => {
+      if (snapshotObserver?.takeRecords().length) snapshotChanged = true;
+      return !snapshotChanged;
+    };
+    const stopPicking = () => {
+      picker?.stop();
+      picker = undefined;
+    };
+    const pick = (theme: unknown) => {
+      stopSnapshot();
+      stopPicking();
+      selected = [];
+      picker = startElementPicker({
+        theme,
+        onConfirm(elements) {
+          selected = elements;
+          picker = undefined;
+          void browser.runtime.sendMessage({ type: "bella:picked" }).catch(() => undefined);
+        },
+        onCancel() {
+          picker = undefined;
+          selected = [];
+          void browser.runtime.sendMessage({ type: "bella:cancelled" }).catch(() => undefined);
+        },
+      });
+    };
+    const themeChanged = (changes: Record<string, { newValue?: unknown }>, area: string) => {
+      if (area === "local" && changes.theme) picker?.setTheme(changes.theme.newValue);
+    };
+    browser.storage.onChanged.addListener(themeChanged);
     const onMessage: Parameters<typeof browser.runtime.onMessage.addListener>[0] = (
       message,
       sender,
@@ -96,17 +60,19 @@ export default defineContentScript({
     ) => {
       if (sender.id !== browser.runtime.id || !message || typeof message !== "object") return;
       if (message.type === "bella:pick") {
-        pick();
+        pick(message.theme);
         respond({ data: true });
         return;
       }
       if (message.type === "bella:stop") {
-        stopPicking?.();
+        stopSnapshot();
+        stopPicking();
         respond({ data: true });
         return;
       }
       if (message.type === "bella:prepare-capture") {
-        stopPicking?.();
+        stopSnapshot();
+        stopPicking();
         // Paint picker removal and let loaded fonts settle before the screenshot.
         Promise.race([document.fonts.ready, new Promise((resolve) => setTimeout(resolve, 2000))])
           .then(
@@ -115,29 +81,69 @@ export default defineContentScript({
                 requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
               ),
           )
-          .then(() => respond({ data: currentViewport() }));
+          .then(() => {
+            if (disposed) return respond({ error: "The capture was interrupted. Start again." });
+            snapshotChanged = false;
+            snapshotObserver = new MutationObserver(invalidateSnapshot);
+            const observe = (target: Node) =>
+              snapshotObserver!.observe(target, {
+                subtree: true,
+                childList: true,
+                attributes: true,
+                characterData: true,
+              });
+            observe(document.documentElement);
+            const pending: Element[] = [document.documentElement];
+            let visited = 0;
+            while (pending.length) {
+              if (++visited > 15000) {
+                snapshotChanged = true;
+                break;
+              }
+              const element = pending.pop()!;
+              for (const child of element.children) pending.push(child);
+              if (element.shadowRoot) {
+                observe(element.shadowRoot);
+                for (const child of element.shadowRoot.children) pending.push(child);
+              }
+            }
+            window.addEventListener("scroll", invalidateSnapshot, true);
+            window.addEventListener("resize", invalidateSnapshot);
+            respond({ data: currentViewport() });
+          });
         return true;
       }
       if (message.type !== "bella:capture") return;
-      stopPicking?.();
-      const root = message.mode === "element" ? selected : document.body;
-      if (!root?.isConnected) {
-        respond({ error: "Selected element disappeared. Select it again." });
-        return;
-      }
-      captureElement(root, message.mode, message.screenshot, message.screenshotViewport).then(
-        (data) => respond({ data }),
-        (error) =>
-          respond({
-            error: error instanceof Error ? error.message : "Could not capture this page.",
-          }),
-      );
+      stopPicking();
+      const capture =
+        message.mode === "element"
+          ? captureSelection(
+              selected,
+              message.screenshot,
+              message.screenshotViewport,
+              screenshotValid,
+            )
+          : captureElement(document.body, "page", message.screenshot, message.screenshotViewport, {
+              screenshotValid,
+            });
+      capture
+        .then(
+          (data) => respond({ data }),
+          (error) =>
+            respond({
+              error: error instanceof Error ? error.message : "Could not capture this page.",
+            }),
+        )
+        .finally(stopSnapshot);
       return true;
     };
     browser.runtime.onMessage.addListener(onMessage);
     ctx.onInvalidated(() => {
-      stopPicking?.();
+      disposed = true;
+      stopSnapshot();
+      stopPicking();
       browser.runtime.onMessage.removeListener(onMessage);
+      browser.storage.onChanged.removeListener(themeChanged);
     });
   },
 });

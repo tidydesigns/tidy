@@ -12,6 +12,7 @@ import {
 } from "@/lib/design/document-service";
 import type { ActivityObserver } from "@/lib/realtime/agent-activity";
 import type { ImportCommitResult } from "./document-service";
+import { PublicActionError } from "@/lib/security/public-error";
 
 const importServices = {
   getDesignFile,
@@ -31,11 +32,11 @@ export async function importWebCapture(
 ): Promise<ImportCommitResult> {
   const { userId: expectedUserId, organizationId, fileId, capture } = webImportSchema.parse(input);
   if (expectedUserId !== userId)
-    throw new Error("Your Tidy account changed. Choose the destination again.");
+    throw new PublicActionError("Your Tidy account changed. Choose the destination again.");
   if (fileId) {
     const file = await services.getDesignFile(userId, fileId);
     if (!file || file.organizationId !== organizationId)
-      throw new Error("File not found or access denied.");
+      throw new PublicActionError("File not found or access denied.");
   }
   const staging = await services.createImport(userId, organizationId, capture.title, fileId);
   try {
@@ -130,8 +131,11 @@ export async function importWebCapture(
     await observe?.("validating");
     await services.validateImport(userId, staging.importId);
     await observe?.("publishing");
+    const committed = await services.commitImport(userId, staging.importId, "duplicate");
     return {
-      ...(await services.commitImport(userId, staging.importId, "duplicate")),
+      ...committed,
+      // The popup describes this copy; earlier imports retain their notes in the file.
+      warnings: document.warnings,
       sourceProject: details.sourceProject,
       sourceRoute: details.sourceRoute,
     };
