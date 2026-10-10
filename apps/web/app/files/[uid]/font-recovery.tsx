@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo } from "react";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
 import {
   documentFontReferences,
@@ -12,7 +12,7 @@ import { useFontRegistry } from "@/lib/design/fonts/use-document-fonts";
 import { mapConcurrent } from "@/lib/map-concurrent";
 import { FontPicker } from "./font-picker";
 
-export function FontRecovery({
+export const FontRecovery = memo(function FontRecovery({
   document,
   onDocument,
 }: {
@@ -106,4 +106,4 @@ export function FontRecovery({
       </div>
     </details>
   );
-}
+});
