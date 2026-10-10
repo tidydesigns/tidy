@@ -248,7 +248,21 @@ try {
   const outline = await page.locator('[data-agent-target="heading"]').boundingBox(),
     frame = await page.locator('[data-node-id="heading"]').boundingBox();
   assert.ok(Math.abs(outline.x - frame.x) < 2 && Math.abs(outline.width - frame.width) < 2);
-  const dot = page.locator('[data-agent-activity="editing"] [data-agent-spark] i').first();
+  const identity = await page.locator('[data-agent-activity="editing"] summary').boundingBox();
+  assert.ok(identity.height <= 28, "Presence must stay a compact single line");
+  assert.equal(
+    await page
+      .locator('[data-agent-activity="editing"]')
+      .evaluate(
+        (element) =>
+          element
+            .getAnimations({ subtree: true })
+            .filter((animation) => animation.effect.getTiming().iterations === Infinity).length,
+      ),
+    1,
+    "Only the small activity dot loops",
+  );
+  const dot = page.locator('[data-agent-activity="editing"] [data-agent-pulse]').first();
   assert.notEqual(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
   await page.emulateMedia({ reducedMotion: "reduce" });
   assert.equal(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
@@ -276,6 +290,27 @@ try {
   console.log(
     "PASS: actual MCP edits animate the target, survive concurrent exports/reconnects, skip artwork/panel renders and document refreshes, honor reduced motion, and commit live",
   );
+  // Import-local IDs can collide with live IDs. Preparing content must not
+  // impersonate an edit to the existing artwork.
+  const collision = (
+    await call("create_import", {
+      organization_id: organization,
+      file_id: fileId,
+      name: "Unpublished copy",
+    })
+  ).structuredContent;
+  assert.ok(
+    !(
+      await call("put_import_chunk", {
+        import_id: collision.importId,
+        chunk_id: "001",
+        nodes: [nodes[0]],
+      })
+    ).isError,
+  );
+  await page.locator('[data-agent-fallback][data-agent-activity="staged"]').waitFor();
+  assert.equal(await page.locator("[data-agent-target]").count(), 0);
+  assert.ok(!(await call("abort_import", { import_id: collision.importId })).isError);
   const created = (
     await call("create_import", {
       organization_id: organization,
@@ -300,8 +335,12 @@ try {
   assert.ok(!(await call("put_import_chunk", chunk)).isError);
   const staged = page.locator('[data-agent-fallback][data-agent-activity="staged"]');
   await staged.waitFor();
+  assert.equal(await staged.locator("summary").innerText(), "Local coding agent");
+  const stagedBounds = await staged.boundingBox();
+  const canvasBounds = await page.locator('[aria-label="Design canvas"]').boundingBox();
+  assert.ok(stagedBounds.y < canvasBounds.y + 100, "Unplaced agents never become a bottom banner");
   await staged.locator("summary").click();
-  await staged.getByText("1 layer staged · 0 assets", { exact: true }).waitFor();
+  await staged.getByText("1 layer · 0 assets", { exact: true }).waitFor();
   await staged.getByText("src/checkout.tsx", { exact: true }).waitFor();
   assert.ok(!(await call("validate_import", { import_id: created.importId })).isError);
   assert.ok(!(await call("commit_import", { import_id: created.importId })).isError);

@@ -6,24 +6,23 @@ export function placePresence(
   target: PresenceBox,
   viewport: { width: number; height: number },
   occupied: PresenceBox[],
+  preferredWidth = 160,
 ): PresenceBox | undefined {
-  const width = Math.max(0, Math.min(220, viewport.width - 24));
-  const left = target.left + Math.min(target.width - 8, 64);
-  const top = target.top - 64;
+  const width = Math.max(0, Math.min(preferredWidth, viewport.width - 24));
+  const left = target.left + target.width - width;
+  const top = target.top - 34;
   for (const [dx, dy] of [
     [0, 0],
-    [232, 0],
-    [-232, 0],
-    [0, -64],
-    [0, 64],
-    [232, 64],
-    [-232, 64],
+    [width + 12, 0],
+    [-width - 12, 0],
+    [0, -38],
+    [0, target.height + 42],
   ]) {
     const box = {
       left: Math.max(12, Math.min(left + dx, viewport.width - width - 12)),
-      top: Math.max(12, Math.min(top + dy, viewport.height - 80)),
+      top: Math.max(12, Math.min(top + dy, viewport.height - 40)),
       width,
-      height: 48,
+      height: 24,
     };
     if (
       !occupied.some(
