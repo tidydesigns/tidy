@@ -113,67 +113,103 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
     results.push(row);
     console.info("MCP_BENCHMARK", JSON.stringify(row));
   }
+  async function measureLoad(concurrency) {
+    for (let i = 0; i < 5; i++)
+      await call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } });
+    const latencies = [];
+    let bytes = 0,
+      sequence = 0;
+    queries = 0;
+    const cpu = process.cpuUsage(),
+      started = performance.now(),
+      deadline = started + 5000;
+    await Promise.all(
+      Array.from({ length: concurrency }, async () => {
+        while (performance.now() < deadline) {
+          const index = sequence++,
+            start = performance.now();
+          const response = await call(
+            "tools/call",
+            index % 5 === 0
+              ? { name: "rename_file", arguments: { file_id: "file-a", name: `Load ${index}` } }
+              : { name: "get_document", arguments: { file_id: "file-a" } },
+          );
+          latencies.push(performance.now() - start);
+          bytes += response.bytes;
+        }
+      }),
+    );
+    const elapsed = performance.now() - started,
+      used = process.cpuUsage(cpu),
+      count = latencies.length;
+    latencies.sort((a, b) => a - b);
+    const round = (value) => Math.round(value * 100) / 100;
+    const row = {
+      name: "sustained mixed 80% reads / 20% writes",
+      samples: count,
+      concurrency,
+      durationMs: round(elapsed),
+      p50Ms: round(latencies[Math.ceil(count * 0.5) - 1]),
+      p95Ms: round(latencies[Math.ceil(count * 0.95) - 1]),
+      p99Ms: round(latencies[Math.ceil(count * 0.99) - 1]),
+      requestsPerSecond: round((count / elapsed) * 1000),
+      sqlPerRequest: round(queries / count),
+      bytesPerResponse: Math.round(bytes / count),
+      processCpuMsPerRequest: round((used.user + used.system) / 1000 / count),
+    };
+    results.push(row);
+    console.info("MCP_BENCHMARK", JSON.stringify(row));
+  }
   try {
-    await measure("tools/list legacy", () => call("tools/list", {}));
-    await measure("tools/list modern", () => call("tools/list", {}, true));
-    await measure("get_document small", () =>
-      call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
-    );
-    await measure(
-      "get_document concurrent",
-      () => call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
-      5,
-    );
-    await measure("rename_file", () =>
-      call("tools/call", {
-        name: "rename_file",
-        arguments: { file_id: "file-a", name: "Benchmark" },
-      }),
-    );
-    await measure(
-      "linear read 100ms provider concurrent",
-      () => call("tools/call", linear.params),
-      5,
-    );
-    const document = blankDesignDocument();
-    document.nodes = Array.from({ length: 5000 }, (_, i) =>
-      designNodeSchema.parse({
-        id: `node-${i}`,
-        name: `Layer ${i}`,
-        type: "container",
-        parentId: null,
-        box: { x: (i % 100) * 10, y: Math.floor(i / 100) * 10, width: 8, height: 8 },
-      }),
-    );
-    await admin.query(
-      'update "designDocument" set "content"=$1,"revision"=1 where "fileId"=\'file-a\'',
-      [document],
-    );
-    await measure("get_document 5000 nodes", () =>
-      call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
-    );
-    await measure("get_document page 50/5000", () =>
-      call("tools/call", {
-        name: "get_document",
-        arguments: { file_id: "file-a", offset: 2500, limit: 50 },
-      }),
-    );
-    let revision = 1;
-    await measure("patch_document 5000 nodes", async () => {
-      const response = await call("tools/call", {
-        name: "patch_document",
-        arguments: {
-          file_id: "file-a",
-          expected_revision: revision,
-          node_id: "node-2500",
-          changes: { name: `Changed ${revision}` },
-        },
-      });
-      revision = response.result.structuredContent.revision;
-      return response;
-    });
-    if (process.env.MCP_BENCHMARK_COMPACT === "1") {
-      await measure("patch_document compact 5000 nodes", async () => {
+    if (process.env.MCP_BENCHMARK_LOAD === "1") {
+      for (const concurrency of [1, 5, 20, 50]) await measureLoad(concurrency);
+    } else {
+      await measure("tools/list legacy", () => call("tools/list", {}));
+      await measure("tools/list modern", () => call("tools/list", {}, true));
+      await measure("get_document small", () =>
+        call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
+      );
+      await measure(
+        "get_document concurrent",
+        () => call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
+        5,
+      );
+      await measure("rename_file", () =>
+        call("tools/call", {
+          name: "rename_file",
+          arguments: { file_id: "file-a", name: "Benchmark" },
+        }),
+      );
+      await measure(
+        "linear read 100ms provider concurrent",
+        () => call("tools/call", linear.params),
+        5,
+      );
+      const document = blankDesignDocument();
+      document.nodes = Array.from({ length: 5000 }, (_, i) =>
+        designNodeSchema.parse({
+          id: `node-${i}`,
+          name: `Layer ${i}`,
+          type: "container",
+          parentId: null,
+          box: { x: (i % 100) * 10, y: Math.floor(i / 100) * 10, width: 8, height: 8 },
+        }),
+      );
+      await admin.query(
+        'update "designDocument" set "content"=$1,"revision"=1 where "fileId"=\'file-a\'',
+        [document],
+      );
+      await measure("get_document 5000 nodes", () =>
+        call("tools/call", { name: "get_document", arguments: { file_id: "file-a" } }),
+      );
+      await measure("get_document page 50/5000", () =>
+        call("tools/call", {
+          name: "get_document",
+          arguments: { file_id: "file-a", offset: 2500, limit: 50 },
+        }),
+      );
+      let revision = 1;
+      await measure("patch_document 5000 nodes", async () => {
         const response = await call("tools/call", {
           name: "patch_document",
           arguments: {
@@ -181,12 +217,130 @@ export async function benchmarkMcp({ POST, auth, admin, grant, fetch }) {
             expected_revision: revision,
             node_id: "node-2500",
             changes: { name: `Changed ${revision}` },
-            include_document: false,
           },
         });
         revision = response.result.structuredContent.revision;
         return response;
       });
+      if (process.env.MCP_BENCHMARK_COMPACT === "1") {
+        await measure("patch_document compact 5000 nodes", async () => {
+          const response = await call("tools/call", {
+            name: "patch_document",
+            arguments: {
+              file_id: "file-a",
+              expected_revision: revision,
+              node_id: "node-2500",
+              changes: { name: `Changed ${revision}` },
+              include_document: false,
+            },
+          });
+          revision = response.result.structuredContent.revision;
+          return response;
+        });
+      }
+      if (process.env.MCP_BENCHMARK_WORKFLOWS === "1") {
+        await measure("import guidance", () =>
+          call("tools/call", { name: "get_import_guidance", arguments: {} }),
+        );
+        await measure("design guidance", () =>
+          call("tools/call", { name: "get_design_guidance", arguments: {} }),
+        );
+        // User outcome: update 20 layers and read back all resulting values. Both
+        // implementations return the same final content; the batch commits once.
+        const batched = process.env.MCP_BENCHMARK_BATCH === "1";
+        await measure("edit 20 layers and verify / 5000 nodes", async () => {
+          const edits = Array.from({ length: 20 }, (_, i) => ({
+            node_id: `node-${2500 + i}`,
+            changes: { name: `Variation ${revision}-${i}` },
+          }));
+          let bytes = 0;
+          if (batched) {
+            const response = await call("tools/call", {
+              name: "patch_document",
+              arguments: {
+                file_id: "file-a",
+                expected_revision: revision,
+                ...edits[0],
+                additional_edits: edits.slice(1),
+                include_document: false,
+              },
+            });
+            revision = response.result.structuredContent.revision;
+            bytes += response.bytes;
+          } else
+            for (const edit of edits) {
+              const response = await call("tools/call", {
+                name: "patch_document",
+                arguments: {
+                  file_id: "file-a",
+                  expected_revision: revision,
+                  ...edit,
+                  include_document: false,
+                },
+              });
+              revision = response.result.structuredContent.revision;
+              bytes += response.bytes;
+            }
+          const read = await call("tools/call", {
+            name: "get_document",
+            arguments: { file_id: "file-a", offset: 2500, limit: 20 },
+          });
+          if (
+            read.result.structuredContent.revision !== revision ||
+            read.result.structuredContent.nodes.some(
+              (node, i) => node.name !== edits[i].changes.name,
+            )
+          )
+            throw new Error("Workflow lost a layer edit");
+          return { bytes: bytes + read.bytes };
+        });
+        const master = designNodeSchema.parse({
+          id: "master",
+          name: "Button",
+          type: "container",
+          parentId: null,
+          isComponent: true,
+          box: { x: 0, y: 0, width: 100, height: 32 },
+        });
+        const linked = {
+          ...blankDesignDocument(),
+          nodes: [
+            master,
+            ...Array.from({ length: 1499 }, (_, i) => ({
+              ...master,
+              id: `copy-${i}`,
+              isComponent: undefined,
+              instanceOf: "master",
+              componentSourceId: "master",
+              instanceOverrides: [],
+            })),
+          ],
+        };
+        await admin.query(
+          'update "designDocument" set "content"=$1,"revision"=1 where "fileId"=\'file-a\'',
+          [linked],
+        );
+        revision = 1;
+        await measure("edit master / 1500 linked nodes", async () => {
+          const response = await call("tools/call", {
+            name: "patch_document",
+            arguments: {
+              file_id: "file-a",
+              expected_revision: revision,
+              node_id: "master",
+              changes: { style: { fill: revision % 2 ? "#112233" : "#334455" } },
+              include_document: false,
+            },
+          });
+          revision = response.result.structuredContent.revision;
+          return response;
+        });
+        const saved = (
+          await admin.query('select "content" from "designDocument" where "fileId"=\'file-a\'')
+        ).rows[0].content;
+        if (saved.nodes.some((node) => node.style.fill !== saved.nodes[0].style.fill))
+          throw new Error("Workflow lost component inheritance");
+      }
     }
     const report = {
       at: new Date().toISOString(),

@@ -1,0 +1,118 @@
+{
+  "runtime": "Bun 1.3.14",
+  "cpu": "Apple M5",
+  "results": [
+    {
+      "name": "validation",
+      "size": 100,
+      "samples": 20,
+      "p50Ms": 0.839,
+      "p95Ms": 1.059
+    },
+    {
+      "name": "propagation",
+      "size": 100,
+      "samples": 20,
+      "p50Ms": 0.213,
+      "p95Ms": 0.34
+    },
+    {
+      "name": "reconciliation",
+      "size": 100,
+      "samples": 20,
+      "p50Ms": 0.406,
+      "p95Ms": 0.446
+    },
+    {
+      "name": "completeEdit",
+      "size": 100,
+      "samples": 20,
+      "p50Ms": 1.243,
+      "p95Ms": 1.933
+    },
+    {
+      "name": "validation",
+      "size": 500,
+      "samples": 20,
+      "p50Ms": 1.35,
+      "p95Ms": 1.966
+    },
+    {
+      "name": "propagation",
+      "size": 500,
+      "samples": 20,
+      "p50Ms": 0.722,
+      "p95Ms": 1.088
+    },
+    {
+      "name": "reconciliation",
+      "size": 500,
+      "samples": 20,
+      "p50Ms": 1.304,
+      "p95Ms": 1.895
+    },
+    {
+      "name": "completeEdit",
+      "size": 500,
+      "samples": 20,
+      "p50Ms": 3.747,
+      "p95Ms": 4.546
+    },
+    {
+      "name": "validation",
+      "size": 1500,
+      "samples": 20,
+      "p50Ms": 4.511,
+      "p95Ms": 4.625
+    },
+    {
+      "name": "propagation",
+      "size": 1500,
+      "samples": 20,
+      "p50Ms": 2.111,
+      "p95Ms": 2.657
+    },
+    {
+      "name": "reconciliation",
+      "size": 1500,
+      "samples": 20,
+      "p50Ms": 3.923,
+      "p95Ms": 4.467
+    },
+    {
+      "name": "completeEdit",
+      "size": 1500,
+      "samples": 20,
+      "p50Ms": 11.489,
+      "p95Ms": 14.554
+    },
+    {
+      "name": "validation",
+      "size": 5000,
+      "samples": 20,
+      "p50Ms": 14.755,
+      "p95Ms": 15.924
+    },
+    {
+      "name": "propagation",
+      "size": 5000,
+      "samples": 20,
+      "p50Ms": 6.521,
+      "p95Ms": 8.467
+    },
+    {
+      "name": "reconciliation",
+      "size": 5000,
+      "samples": 20,
+      "p50Ms": 13.856,
+      "p95Ms": 15.253
+    },
+    {
+      "name": "completeEdit",
+      "size": 5000,
+      "samples": 20,
+      "p50Ms": 39.401,
+      "p95Ms": 42.372
+    }
+  ]
+}

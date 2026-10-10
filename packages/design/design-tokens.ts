@@ -35,19 +35,35 @@ export function bindingPath(binding: TokenBinding) {
       : binding;
 }
 
-export function tokenBindingExclusions(paths: readonly string[]) {
-  const result = [...paths];
-  const excluded = (path: string) =>
-    paths.some((key) => path === key || path.startsWith(`${key}.`));
-  for (const binding of Object.keys(bindingKinds) as TokenBinding[]) {
-    const token = `tokenBindings.${binding}`;
-    const properties =
-      binding === "textStyle"
-        ? typographyProperties.map((key) => `style.${key}`)
-        : [bindingPath(binding)];
-    if (excluded(token) || properties.some(excluded)) result.push(token, ...properties);
+// Index the fixed binding/property relationships once, including path ancestors
+// (e.g. "style" excludes all style properties). Preserve declaration order and
+// duplicates exactly as the former scan did; only the lookup work changes.
+const exclusionGroups = (Object.keys(bindingKinds) as TokenBinding[]).map((binding) => [
+  `tokenBindings.${binding}`,
+  ...(binding === "textStyle"
+    ? typographyProperties.map((key) => `style.${key}`)
+    : [bindingPath(binding)]),
+]);
+const exclusionsByPath = new Map<string, Set<number>>();
+exclusionGroups.forEach((paths, index) => {
+  for (const path of paths) {
+    const parts = path.split(".");
+    for (let count = 1; count <= parts.length; count++) {
+      const key = parts.slice(0, count).join(".");
+      const groups = exclusionsByPath.get(key) ?? new Set<number>();
+      groups.add(index);
+      exclusionsByPath.set(key, groups);
+    }
   }
-  return result;
+});
+
+export function tokenBindingExclusions(paths: readonly string[]) {
+  const groups = new Set<number>();
+  for (const path of paths) for (const group of exclusionsByPath.get(path) ?? []) groups.add(group);
+  return [
+    ...paths,
+    ...[...groups].sort((a, b) => a - b).flatMap((group) => exclusionGroups[group]!),
+  ];
 }
 
 /** Resolve aliases once per document. Old color records retain their original wire format. */

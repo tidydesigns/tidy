@@ -794,6 +794,28 @@ export async function patchDocumentNode(
   nodeId: string,
   changes: DesignNodeChanges,
 ) {
+  const saved = await patchNodes(userId, fileId, expectedRevision, [{ nodeId, changes }], false);
+  return { revision: saved.revision, node: saved.nodes[0], document: saved.document };
+}
+
+export function patchDocumentNodes(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  edits: { nodeId: string; changes: DesignNodeChanges }[],
+) {
+  return patchNodes(userId, fileId, expectedRevision, edits, true);
+}
+
+async function patchNodes(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  edits: { nodeId: string; changes: DesignNodeChanges }[],
+  requireTargets: boolean,
+) {
+  if (edits.length < 1 || edits.length > 250)
+    throw new PublicActionError("Provide between 1 and 250 layer edits.");
   await requireDocumentSchema();
   const client = await db.connect();
   try {
@@ -817,11 +839,18 @@ export async function patchDocumentNode(
     if (!current) throw new PublicActionError("Document not found or access denied.");
     if (current.revision !== expectedRevision)
       throw new PublicActionError("Document changed. Refresh before editing.");
-    const nodes = changedLayers(current.content, [nodeId], changes);
+    const existing = new Set(current.content.nodes.map((node) => node.id));
+    if (requireTargets && edits.some((edit) => !existing.has(edit.nodeId)))
+      throw new PublicActionError("Layer not found. Refresh before editing.");
+    let nodes = current.content.nodes;
+    for (const { nodeId, changes } of edits)
+      nodes = changedLayers({ ...current.content, nodes }, [nodeId], changes);
     const document = trackDocumentChanges(current.content, {
       ...current.content,
       nodes,
-      editedNodeIds: [...new Set([...current.content.editedNodeIds, nodeId])],
+      editedNodeIds: [
+        ...new Set([...current.content.editedNodeIds, ...edits.map((edit) => edit.nodeId)]),
+      ],
     });
     await verifyAssets(client, access.rows[0].organizationId, document);
     const revision = current.revision + 1;
@@ -832,7 +861,14 @@ export async function patchDocumentNode(
     await client.query(`update "designFile" set "updatedAt" = now() where "id" = $1`, [fileId]);
     await client.query("commit");
     await publishFileChanges(fileId);
-    return { revision, node: document.nodes.find((node) => node.id === nodeId), document };
+    const byId = new Map(document.nodes.map((node) => [node.id, node]));
+    return {
+      revision,
+      nodes: [...new Set(edits.map((edit) => edit.nodeId))].flatMap((id) =>
+        byId.has(id) ? [byId.get(id)!] : [],
+      ),
+      document,
+    };
   } catch (error) {
     await client.query("rollback");
     throw error;

@@ -1,4 +1,3 @@
-import { instanceRoot } from "./component-structure";
 import type { DesignNodeChanges } from "@/lib/design/document";
 import type { DesignNode, DesignDocument } from "./document";
 import { materializeChangedBindings, tokenBindingExclusions } from "./design-tokens";
@@ -36,14 +35,59 @@ export function syncComponentEdit(
         }
       : updated,
   );
+  // Index once: propagation visits affected copies instead of rescanning every
+  // layer for every source in the queue (O(n + affected), excluding patch size).
+  const copiesBySource = new Map<string, DesignNode[]>();
+  for (const node of nodes) {
+    if (!node.componentSourceId || !node.instanceOf) continue;
+    const copies = copiesBySource.get(node.componentSourceId);
+    if (copies) copies.push(node);
+    else copiesBySource.set(node.componentSourceId, [node]);
+  }
+  // Interaction/mask remaps previously rebuilt an ancestry map for every
+  // candidate lookup. Relationships cannot change in a property patch, so one
+  // lazy per-operation index safely serves all copied references.
+  let references: Map<string | undefined, Map<string, string>> | undefined;
+  const roots = new Map<string, string | undefined>();
+  const referenceInInstance = (sourceId: string, copyId: string) => {
+    const rootOf = (id: string) => {
+      const path = new Set<string>();
+      let current = next.get(id),
+        root: string | undefined;
+      while (current && !path.has(current.id)) {
+        if (roots.has(current.id)) {
+          root = roots.get(current.id);
+          break;
+        }
+        path.add(current.id);
+        if (current.instanceOf && current.componentSourceId === current.instanceOf) {
+          root = current.id;
+          break;
+        }
+        current = next.get(current.parentId ?? "");
+      }
+      for (const member of path) roots.set(member, root);
+      return root;
+    };
+    if (!references) {
+      references = new Map();
+      for (const node of nodes) {
+        if (!node.componentSourceId) continue;
+        const root = rootOf(node.id);
+        const family = references.get(root) ?? new Map<string, string>();
+        if (!family.has(node.componentSourceId)) family.set(node.componentSourceId, node.id);
+        references.set(root, family);
+      }
+    }
+    return references.get(rootOf(copyId))?.get(sourceId) ?? sourceId;
+  };
   const queue = [{ id: nodeId, changes }];
   const visited = new Set<string>();
   for (let index = 0; index < queue.length; index++) {
     const edit = queue[index];
     if (visited.has(edit.id)) throw new Error("Recursive component source references.");
     visited.add(edit.id);
-    for (const node of nodes) {
-      if (node.componentSourceId !== edit.id || !node.instanceOf) continue;
+    for (const node of copiesBySource.get(edit.id) ?? []) {
       const current = next.get(node.id)!;
       const exclusions = tokenBindingExclusions([
         ...(current.instanceOverrides ?? []),
@@ -62,14 +106,8 @@ export function syncComponentEdit(
       const scopedChanges = Object.hasOwn(edit.changes, "interactions")
         ? {
             ...edit.changes,
-            interactions: remapInteractions(
-              edit.changes.interactions,
-              (id) =>
-                nodes.find(
-                  (candidate) =>
-                    candidate.componentSourceId === id &&
-                    instanceRoot(nodes, candidate.id)?.id === instanceRoot(nodes, node.id)?.id,
-                )?.id ?? id,
+            interactions: remapInteractions(edit.changes.interactions, (id) =>
+              referenceInInstance(id, node.id),
             ),
           }
         : edit.changes;
@@ -78,12 +116,7 @@ export function syncComponentEdit(
             ...scopedChanges,
             mask: {
               ...scopedChanges.mask,
-              sourceId:
-                nodes.find(
-                  (candidate) =>
-                    candidate.componentSourceId === edit.changes.mask!.sourceId &&
-                    instanceRoot(nodes, candidate.id)?.id === instanceRoot(nodes, node.id)?.id,
-                )?.id ?? scopedChanges.mask.sourceId,
+              sourceId: referenceInInstance(edit.changes.mask!.sourceId, node.id),
             },
           }
         : scopedChanges;

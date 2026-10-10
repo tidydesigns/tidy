@@ -14,6 +14,7 @@ import {
   getDocument,
   getDocumentPage,
   patchDocumentNode,
+  patchDocumentNodes,
   putAsset,
   putImportChunk,
   validateImport,
@@ -407,19 +408,47 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("patch_document"),
       description:
-        "Edit one UI node. Requires the current revision returned by get_document; changes are visible in the browser. Set include_document=false for a compact revision and node acknowledgment on large files; read affected pages again for propagated component changes.",
+        "Edit UI nodes at the current expected_revision. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
       inputSchema: mcpSchema("patch_document", () =>
         z.object({
           file_id: z.string().min(1),
           expected_revision: z.number().int().min(1),
           node_id: z.string().min(1),
           changes: designNodeChangesSchema,
+          additional_edits: z
+            .array(z.object({ node_id: z.string().min(1), changes: designNodeChangesSchema }))
+            .max(249)
+            .optional(),
           include_document: z.boolean().default(true),
         }),
       ),
     },
-    async ({ file_id, expected_revision, node_id, changes, include_document }) => {
+    async ({
+      file_id,
+      expected_revision,
+      node_id,
+      changes,
+      additional_edits = [],
+      include_document,
+    }) => {
       try {
+        if (additional_edits.length) {
+          const saved = await patchDocumentNodes(
+            userId,
+            file_id,
+            expected_revision,
+            [{ node_id, changes }, ...additional_edits].map(({ node_id, changes }) => ({
+              nodeId: node_id,
+              changes,
+            })),
+          );
+          const value = {
+            revision: saved.revision,
+            node: saved.nodes.find((node) => node.id === node_id),
+            nodes: saved.nodes,
+          };
+          return result(include_document ? { ...value, document: saved.document } : value);
+        }
         const saved = await patchDocumentNode(userId, file_id, expected_revision, node_id, changes);
         return result(include_document ? saved : { revision: saved.revision, node: saved.node });
       } catch (error) {

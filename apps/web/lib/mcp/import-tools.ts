@@ -46,6 +46,9 @@ const result = (value: object) => ({
   structuredContent: value,
 });
 
+// Static schemas/guidance only; authenticated admission still runs on every call.
+let guidanceResult: ReturnType<typeof result> | undefined;
+
 export function registerImportTools(
   server: McpServer,
   userId: string,
@@ -61,12 +64,12 @@ export function registerImportTools(
       annotations: { ...mcpToolPolicy("get_import_guidance").annotations, readOnlyHint: true },
     },
     async () =>
-      result({
+      (guidanceResult ??= result({
         ...importGuidance,
-        nodeSchema: z.toJSONSchema(designNodeSchema),
-        captureSchema: z.toJSONSchema(webCaptureSchema),
+        nodeSchema: z.toJSONSchema(designNodeSchema, { reused: "ref" }),
+        captureSchema: z.toJSONSchema(webCaptureSchema, { reused: "ref" }),
         maxCaptureBytes: MAX_CAPTURE_BYTES,
-      }),
+      })),
   );
 
   server.registerTool(
