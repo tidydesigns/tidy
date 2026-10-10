@@ -38,11 +38,12 @@ import {
   type ReactNode,
 } from "react";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
+import { flushSync } from "react-dom";
 import { Icon } from "@/components/ui/icon";
 import { ComponentLibraryPanel } from "./component-library-panel";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { PanelToggle } from "./panel-toggle";
-import { EditorPanel } from "./editor-panel";
+import { EditorChrome, EditorPanel } from "./editor-panel";
 import { CanvasViewMenu, type CanvasPreferences } from "./canvas-view-menu";
 import { EditorHeader, type EditorUser } from "./editor-header";
 import dynamic from "next/dynamic";
@@ -1566,7 +1567,13 @@ export function FileEditor({
       width = nextWidth;
       height = nextHeight;
       // Preserve the current canvas centre throughout panel motion, including reversals.
-      if (dx || dy) setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy }));
+      if (dx || dy) {
+        // ResizeObserver runs before paint; commit now to avoid a stale canvas position
+        // being painted against the next panel width for one frame.
+        flushSync(() =>
+          setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy })),
+        );
+      }
     });
     observer.observe(canvas);
     return () => observer.disconnect();
@@ -3402,7 +3409,7 @@ export function FileEditor({
       />
       <EditorPanel open={panelsOpen && !prototypeMode} width={256}>
         <aside className="z-10 flex h-full w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white">
-          <div className="flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
+          <div className="editor-panel-heading flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
             <Link
               href={backHref}
               prefetch={true}
@@ -3620,7 +3627,7 @@ export function FileEditor({
         </aside>
       </EditorPanel>
       <EditorPanel open={panelsOpen && !prototypeMode} width={53}>
-        <aside className="z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
+        <aside className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
           {toolRail}
         </aside>
       </EditorPanel>
@@ -4213,10 +4220,10 @@ export function FileEditor({
               }}
             />
           )}
-          {(!panelsOpen || prototypeMode) && (
+          <EditorChrome visible={!panelsOpen || prototypeMode}>
             <div
               data-canvas-control
-              className="absolute left-3 top-6 z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 items-center gap-2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
+              className="fixed left-3 top-6 z-20 flex max-w-[calc(100%-1.5rem)] min-w-0 items-center gap-2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
             >
               <Link
                 href={backHref}
@@ -4240,15 +4247,15 @@ export function FileEditor({
               )}
               {!prototypeMode && <PanelToggle expanded={false} onClick={togglePanels} />}
             </div>
-          )}
-          {!panelsOpen && !prototypeMode && (
+          </EditorChrome>
+          <EditorChrome visible={!panelsOpen && !prototypeMode}>
             <div
               data-canvas-control
-              className="absolute left-3 top-1/2 z-20 -translate-y-1/2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
+              className="fixed left-3 top-1/2 z-20 -translate-y-1/2 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm"
             >
               {toolRail}
             </div>
-          )}
+          </EditorChrome>
           {prototypeMode && (
             <div
               data-canvas-control
