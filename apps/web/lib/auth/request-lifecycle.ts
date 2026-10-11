@@ -9,14 +9,3 @@ export {
   startRequestPhase as startAuthOperation,
   traceRequestPhase as traceAuthOperation,
 } from "../request-lifecycle";
-import { requestSignal } from "../request-lifecycle";
-
-export function onRequestCanceled(cancel: () => void) {
-  const signal = requestSignal();
-  if (!signal) return () => {};
-  signal.addEventListener("abort", cancel, { once: true });
-  if (signal.aborted) cancel();
-  return () => {
-    signal.removeEventListener("abort", cancel);
-  };
-}

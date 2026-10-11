@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { handleAuthRequest, isAuthRequest } from "./request-boundary";
-import { assertRequestActive, onRequestCanceled, traceAuthOperation } from "./request-lifecycle";
+import { assertRequestActive, requestSignal, traceAuthOperation } from "./request-lifecycle";
 
 for (const phase of [
   "routing",
@@ -24,9 +24,13 @@ for (const phase of [
         request,
         () =>
           traceAuthOperation(phase, () => {
-            onRequestCanceled(() => {
-              canceled = true;
-            });
+            requestSignal()!.addEventListener(
+              "abort",
+              () => {
+                canceled = true;
+              },
+              { once: true },
+            );
             return new Promise<Response>(() => {});
           }),
         20,

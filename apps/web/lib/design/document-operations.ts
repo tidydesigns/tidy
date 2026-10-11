@@ -1,11 +1,5 @@
 import { remapInteractions } from "@bella/design/prototype";
-import {
-  buildDrawnNode,
-  nodePageId,
-  parseDesignDocument,
-  type DesignDocument,
-  type DesignNode,
-} from "./document";
+import { nodePageId, parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
 import { removeComponentReferences, resolveVariantNodes } from "./component-variants";
 import { isLayerLocked, isLayerVisible } from "./edit-document";
 import { reparentGeometry, type MeasuredBoxes } from "./reparent-geometry";
@@ -23,71 +17,6 @@ export function moveLayer(document: DesignDocument, id: string, direction: -1 | 
   const other = siblings[siblingIndex + direction];
   if (!other) return document;
   [nodes[index], nodes[other.position]] = [nodes[other.position], nodes[index]];
-  return parseDesignDocument({ ...document, nodes });
-}
-
-export function groupLayers(
-  document: DesignDocument,
-  ids: string[],
-  groupId: string,
-): DesignDocument {
-  const selected = document.nodes.filter((node) => ids.includes(node.id));
-  if (
-    selected.length < 2 ||
-    selected.some(
-      (node) =>
-        node.parentId !== selected[0].parentId ||
-        node.type === "artboard" ||
-        isLayerLocked(document.nodes, node.id),
-    )
-  ) {
-    throw new Error("Select at least two unlocked sibling layers to group.");
-  }
-  const left = Math.min(...selected.map((node) => node.box.x));
-  const top = Math.min(...selected.map((node) => node.box.y));
-  const right = Math.max(...selected.map((node) => node.box.x + node.box.width));
-  const bottom = Math.max(...selected.map((node) => node.box.y + node.box.height));
-  const group: DesignNode = {
-    ...buildDrawnNode(groupId, "container", selected[0].parentId, {
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    }),
-    pageId: nodePageId(selected[0]),
-    name: "Group",
-    style: {},
-  };
-  const selectedIds = new Set(ids);
-  const firstIndex = document.nodes.findIndex((node) => selectedIds.has(node.id));
-  const nodes = document.nodes.map((node) =>
-    selectedIds.has(node.id)
-      ? {
-          ...node,
-          parentId: groupId,
-          box: { ...node.box, x: node.box.x - left, y: node.box.y - top },
-        }
-      : node,
-  );
-  nodes.splice(firstIndex, 0, group);
-  return parseDesignDocument({ ...document, nodes });
-}
-
-export function ungroupLayer(document: DesignDocument, groupId: string): DesignDocument {
-  const group = document.nodes.find((node) => node.id === groupId);
-  if (!group || group.type !== "container" || group.locked || group.isComponent)
-    throw new Error("Select an unlocked group or container that is not a component master.");
-  const nodes = document.nodes
-    .filter((node) => node.id !== groupId)
-    .map((node) =>
-      node.parentId === groupId
-        ? {
-            ...node,
-            parentId: group.parentId,
-            box: { ...node.box, x: node.box.x + group.box.x, y: node.box.y + group.box.y },
-          }
-        : node,
-    );
   return parseDesignDocument({ ...document, nodes });
 }
 

@@ -1,15 +1,14 @@
+import { wrapLayers, unwrapLayer } from "./layout-operations";
 import { test, expect } from "bun:test";
 import { blankDesignDocument, buildDrawnNode } from "./document";
 import {
   alignLayers,
   distributeLayers,
-  groupLayers,
   makeComponent,
   moveLayer,
   relocateLayer,
   removeLayers,
   reparentLayer,
-  ungroupLayer,
 } from "./document-operations";
 import { legacyToDocument } from "./legacy-to-document";
 
@@ -34,14 +33,14 @@ test("group and ungroup preserve children world positions", () => {
   const a = buildDrawnNode("a", "container", "frame", { x: 20, y: 30, width: 40, height: 40 });
   const b = buildDrawnNode("b", "container", "frame", { x: 100, y: 80, width: 30, height: 30 });
   const document = { ...blankDesignDocument(), nodes: [parent, a, b] };
-  const grouped = groupLayers(document, ["a", "b"], "group");
+  const grouped = wrapLayers(document, ["a", "b"], "group", "group").document;
   expect(grouped.nodes.find((node) => node.id === "group")?.box).toEqual({
     x: 20,
     y: 30,
     width: 110,
     height: 80,
   });
-  const restored = ungroupLayer(grouped, "group");
+  const restored = unwrapLayer(grouped, "group");
   expect(restored.nodes.find((node) => node.id === "a")?.box).toEqual(a.box);
   expect(restored.nodes.find((node) => node.id === "b")?.box).toEqual(b.box);
 });
@@ -118,7 +117,9 @@ test("locked ancestors protect descendants from cut, delete, and reparent", () =
   expect(() => relocateLayer(document, "child", "frame", "after")).toThrow("unlocked layers");
   expect(() => moveLayer(document, "child", 1)).toThrow("Unlock this layer");
   expect(() => makeComponent(document, "child")).toThrow("unlocked layer");
-  expect(() => groupLayers(document, ["child", "second"], "group")).toThrow("unlocked sibling");
+  expect(() => wrapLayers(document, ["child", "second"], "group", "group").document).toThrow(
+    "Unlock selected layers",
+  );
   expect(() => alignLayers(document, ["child", "second"], "left")).toThrow("unlocked sibling");
   expect(() => distributeLayers(document, ["child", "second", "third"], "horizontal")).toThrow(
     "unlocked sibling",

@@ -2,9 +2,9 @@ import { bindingKinds, type TokenBinding } from "./token-bindings";
 export { bindingKinds, type TokenBinding } from "./token-bindings";
 import { z } from "zod";
 
-export const tokenNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
+const tokenNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
 const finite = z.number().finite();
-export const typographyTokenValueSchema = z
+const typographyTokenValueSchema = z
   .object({
     fontFamily: z.string().max(100).optional(),
     fontSource: z.enum(["web", "local", "system"]).optional(),
@@ -30,7 +30,7 @@ export const tokenTypeSchema = z.enum([
   "number",
   "typography",
 ]);
-export const designTokenSchema = z.union([
+const designTokenSchema = z.union([
   z
     .object({
       type: z.literal("color"),

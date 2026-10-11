@@ -101,7 +101,7 @@ const stops = z
     (values) => new Set(values.map((stop) => stop.id)).size === values.length,
     "Gradient stop IDs must be unique.",
   );
-export const designPaintSchema = z.discriminatedUnion("type", [
+const designPaintSchema = z.discriminatedUnion("type", [
   z.object({ ...paintBase, type: z.literal("solid"), color, token: tokenName.optional() }).strict(),
   z
     .object({
@@ -146,13 +146,13 @@ export const designPaintSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 export type DesignPaint = z.infer<typeof designPaintSchema>;
-export const designStrokePaintSchema = z.union([
+const designStrokePaintSchema = z.union([
   designPaintSchema.options[0],
   designPaintSchema.options[1],
   designPaintSchema.options[2],
 ]);
 export type DesignStrokePaint = z.infer<typeof designStrokePaintSchema>;
-export const designEffectSchema = z
+const designEffectSchema = z
   .object({
     id: z.string().min(1).max(120),
     type: z.enum(["blur", "brightness", "contrast", "grayscale", "saturation", "hueRotate"]),
@@ -285,7 +285,7 @@ const style = z
   })
   .strict();
 
-export const elementSchema = z.enum([
+const elementSchema = z.enum([
   "div",
   "span",
   "button",
@@ -318,7 +318,7 @@ const stateStyle = style.pick({
   colorToken: true,
   borderColorToken: true,
 });
-export const semanticsSchema = z
+const semanticsSchema = z
   .object({
     element: elementSchema,
     label: z.string().trim().min(1).max(240).optional(),

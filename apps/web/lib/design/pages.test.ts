@@ -1,11 +1,17 @@
+import { wrapLayers } from "./layout-operations";
 import { describe, expect, test } from "bun:test";
-import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
+import {
+  blankDesignDocument,
+  buildDrawnNode,
+  parseDesignDocument,
+  type DesignDocument,
+} from "./document";
 import { deletePage, duplicatePage, pageNodes } from "./pages";
-import { groupLayers, moveLayer } from "./document-operations";
+import { moveLayer } from "./document-operations";
 
 describe("file pages", () => {
   test("older documents open on Page 1", () => {
-    const old = blankDesignDocument();
+    const old: Partial<DesignDocument> = blankDesignDocument();
     delete old.pages;
     old.nodes = [
       buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 200, height: 200 }),
@@ -67,7 +73,7 @@ describe("file pages", () => {
       "a",
       "b",
     ]);
-    const grouped = groupLayers(document, ["a", "b"], "group");
+    const grouped = wrapLayers(document, ["a", "b"], "group", "group").document;
     expect(pageNodes(grouped, "page-2").map((node) => node.id)).toEqual(["group", "a", "b"]);
     expect(pageNodes(grouped, "page-1").map((node) => node.id)).toEqual(["first-page"]);
   });

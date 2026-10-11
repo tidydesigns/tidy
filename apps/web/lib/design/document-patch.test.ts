@@ -1,13 +1,20 @@
+import { wrapLayers } from "./layout-operations";
 import { describe, test, expect } from "bun:test";
-import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
+import {
+  blankDesignDocument,
+  buildDrawnNode,
+  parseDesignDocument,
+  type DesignDocument,
+  type DesignNode,
+} from "./document";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
-import { groupLayers, removeLayers } from "./document-operations";
+import { removeLayers } from "./document-operations";
 import { importNoteKey, importNotes, setImportNoteStatus } from "./import-notes";
 import { removeColorToken } from "./tokens";
 import { trackDocumentChanges } from "./edit-document";
 
 // JSONB does not preserve object key order across storage and transport.
-const stored = (value) =>
+const stored = <T>(value: T): T =>
   JSON.parse(
     JSON.stringify(value, (_key, item) =>
       item && typeof item === "object" && !Array.isArray(item)
@@ -15,10 +22,10 @@ const stored = (value) =>
         : item,
     ),
   );
-const node = (id, x = 10) =>
+const node = (id: string, x = 10) =>
   buildDrawnNode(id, "container", null, { x, y: 20, width: 100, height: 80 });
 const fixture = () => ({ ...blankDesignDocument(), nodes: [node("a"), node("b", 200)] });
-const change = (doc, id, transform) => ({
+const change = (doc: DesignDocument, id: string, transform: (node: DesignNode) => DesignNode) => ({
   ...doc,
   nodes: doc.nodes.map((n) => (n.id === id ? transform(n) : n)),
 });
@@ -139,13 +146,13 @@ describe("multiplayer document patches", () => {
   });
   test("grouping is atomic and undo restores the previous tree", () => {
     const base = fixture();
-    const patch = diffDocument(base, groupLayers(base, ["a", "b"], "group"));
+    const patch = diffDocument(base, wrapLayers(base, ["a", "b"], "group", "group").document);
     const grouped = applyDocumentPatch(base, patch);
-    expect(grouped.nodes.find((n) => n.id === "a").parentId).toBe("group");
+    expect(grouped.nodes.find((n) => n.id === "a")!.parentId).toBe("group");
     expect(applyDocumentPatch(grouped, invertPatch(patch), true)).toEqual(base);
   });
   test("deleting a parent with a new remote child rejects the stale operation", () => {
-    const parent = { ...node("parent"), type: "artboard" };
+    const parent: DesignNode = { ...node("parent"), type: "artboard" };
     const base = { ...blankDesignDocument(), nodes: [parent] };
     const child = { ...node("child"), parentId: "parent" };
     const remote = applyDocumentPatch(
@@ -203,7 +210,7 @@ test("undo on imported layers preserves another editor's bookkeeping", () => {
 });
 
 test("marking an import note read does not contaminate token deletion history after JSONB storage", () => {
-  let current = stored({
+  let current: DesignDocument = stored({
     ...fixture(),
     tokens: { brand: "#ff0000" },
     warnings: [
@@ -226,7 +233,7 @@ test("marking an import note read does not contaminate token deletion history af
   expect(canonical.some((change) => change.path[0] === "warnings")).toBe(false);
   const restored = applyDocumentPatch(stored(deleted), invertPatch(canonical), true);
   expect(restored.tokens.brand).toBe("#ff0000");
-  expect(restored.warnings.find((note) => importNoteKey(note) === noteKey).status).toBe("read");
+  expect(restored.warnings.find((note) => importNoteKey(note) === noteKey)!.status).toBe("read");
 });
 
 test("undo and redo of layer deletion tolerate reordered nested object keys", () => {
