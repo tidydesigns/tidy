@@ -28,6 +28,7 @@ const browser = await chromium.launch({ headless: true });
 const live = process.argv.includes("--shale");
 const profile = process.argv.includes("--profile");
 const artifacts = process.argv.includes("--artifacts");
+const search = process.argv.includes("--search");
 const selector = profile ? "#profile" : undefined;
 const width = live ? 1440 : 1000,
   height = live ? 1000 : 800;
@@ -37,7 +38,49 @@ try {
     deviceScaleFactor: process.argv.includes("--retina") ? 2 : 1,
   });
   if (live) await page.goto("https://shales.dev/", { waitUntil: "networkidle" });
-  else if (artifacts) {
+  else if (search) {
+    const image = (color) =>
+      `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="${color}"/><circle cx="40" cy="40" r="20" fill="#eee"/></svg>`)}`;
+    await page.route("https://images.test/partial.svg", (route) =>
+      route.fulfill({
+        contentType: "image/svg+xml",
+        body: '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><rect width="100" height="100" fill="#f28434"/></svg>',
+      }),
+    );
+    await page.route("https://capture.test/", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<style>
+      *{box-sizing:border-box}body{margin:0;background:color(srgb .13 .14 .15);color:#ddd;font:20px Arial}
+      main{position:relative;width:1000px;height:1800px}
+      img{position:absolute;width:80px;height:80px}
+      #hero{position:absolute;left:30px;top:150px;width:480px;height:200px;overflow:hidden}
+      #hero img{width:96px;height:200px;object-fit:cover}
+      #divider{position:absolute;left:30px;top:390px;width:480px;height:40px;color:white;border:0;border-bottom:2px solid color(srgb .3 .32 .34 / .6)}
+      #edges{position:absolute;left:30px;top:450px;width:300px;height:70px;border:6px solid transparent;border-left-color:oklch(.6 .1 140);border-right-color:color(display-p3 .7 .2 .3);border-bottom-color:color(srgb .3 .32 .34)}
+      .symbol{position:absolute;left:600px;width:40px;height:40px;color:#498df4}
+      #pseudo{position:absolute;left:690px;top:250px;width:40px;height:40px;border:1px solid color(srgb .3 .32 .34);border-radius:50%}
+      #pseudo::before{content:"";position:absolute;left:9px;top:9px;width:20px;height:20px;border-radius:50%;background:oklch(.65 .15 140)}
+      #pseudo::after{content:"+";position:absolute;left:13px;top:8px;font:20px Arial;color:white}
+      #carousel{position:absolute;left:400px;top:480px;width:80px;height:80px;overflow:hidden}
+      #partial{left:950px;top:450px;width:100px;height:100px}
+      </style><main>
+      ${Array.from({ length: 105 }, (_, i) => `<img alt="Offscreen ${i}" style="left:${(i % 10) * 90}px;top:${1200 + Math.floor(i / 10) * 40}px" src="${image(`#${(0x100000 + i * 1001).toString(16)}`)}">`).join("")}
+      ${Array.from({ length: 120 }, (_, i) => `<img alt="Repeated ${i}" style="width:12px;height:12px;left:${30 + (i % 60) * 14}px;top:${600 + Math.floor(i / 60) * 20}px" src="${image("#396594")}">`).join("")}
+      <svg width="0" height="0" style="position:absolute"><defs><symbol id="social" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></symbol></defs></svg>
+      <section id="hero">${["#ba7750", "#659cba", "#7d60ad", "#5d9655", "#c08c43"].map((color, i) => `<img alt="Hero ${i}" style="left:${i * 96}px" src="${image(color)}">`).join("")}</section>
+      <div id="divider"></div><div id="edges"></div>
+      <svg class="symbol" style="top:250px"><use href="#social"/></svg>
+      <svg class="symbol" style="top:1100px"><use href="#social"/></svg>
+      <div id="pseudo"></div><div id="carousel">${Array.from({ length: 105 }, (_, i) => `<img alt="Clipped ${i}" style="left:${100 + i * 90}px" src="${image("#b23f50")}">`).join("")}</div>
+      <img id="partial" alt="Partial" src="https://images.test/partial.svg">
+      <input style="position:absolute;top:30px;left:30px" value="private search token">
+      </main>`,
+      }),
+    );
+    await page.goto("https://capture.test/");
+    await page.evaluate(() => Promise.all([...document.images].map((image) => image.decode())));
+  } else if (artifacts) {
     await page.route("https://capture.test/", (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -143,7 +186,49 @@ try {
     ],
     { cwd: repo, stdio: "pipe" },
   );
-  if (artifacts) {
+  if (search) {
+    assert.equal(capture.assets.length, 100, "Unique assets stay within the existing budget");
+    assert.ok(!JSON.stringify(capture).includes("private search token"));
+    assert.ok(
+      !capture.document.warnings.some(({ message }) => message.includes("advanced CSS colors")),
+    );
+    const divider = capture.document.nodes.find((node) => node.name === "divider");
+    assert.ok(divider.style.borderColor.startsWith("#4"), "Bottom divider retains its dark color");
+    const edges = capture.document.nodes.find((node) => node.name === "edges");
+    assert.equal(edges.style.borderColor, "#00000000");
+    assert.ok(
+      edges.style.borderBottomColor && edges.style.borderLeftColor && edges.style.borderRightColor,
+    );
+    for (let i = 0; i < 5; i++)
+      assert.ok(
+        capture.document.nodes.some((node) => node.name === `Hero ${i}`),
+        "Visible hero images survive offscreen image pressure",
+      );
+    const repeated = capture.document.nodes.filter((node) => node.name.startsWith("Repeated "));
+    assert.equal(repeated.length, 120);
+    assert.equal(
+      new Set(repeated.map((node) => node.assetId)).size,
+      1,
+      "Repeated pixels share one asset",
+    );
+    assert.ok(
+      !capture.document.nodes.some((node) => node.name.startsWith("Clipped ")),
+      "Carousel clips do not consume image slots",
+    );
+    assert.ok(
+      capture.document.nodes.some((node) => node.name.includes("Generated CSS content")),
+      "Generated icon is retained",
+    );
+    assert.ok(
+      capture.document.nodes.some((node) => node.name === "Partial"),
+      "Partially visible cross-origin images use the visible crop",
+    );
+    assert.equal(
+      capture.document.nodes.filter((node) => node.name === "svg").length,
+      2,
+      "Local SVG symbols work inside and outside the viewport",
+    );
+  } else if (artifacts) {
     const upgrade = capture.document.nodes.find((node) => node.name === "upgrade");
     assert.equal(upgrade.style.borderColor, "#00000000", "Transparent borders stay invisible");
     assert.equal(upgrade.style.borderWidth, 1, "Invisible borders retain their layout width");
@@ -305,36 +390,43 @@ try {
       sharp(bytes).resize(width, height).removeAlpha().raw().toBuffer(),
     ),
   );
-  const regions = artifacts
+  const regions = search
     ? [
-        { name: "public custom-element content", x: 20, y: 20, width: 520, height: 150 },
-        { name: "transparent upgrade button border", x: 740, y: 20, width: 180, height: 70 },
+        { name: "visible photo grid", x: 20, y: 140, width: 500, height: 220 },
+        { name: "modern colors and independent borders", x: 20, y: 380, width: 500, height: 150 },
+        { name: "local SVG and generated CSS icons", x: 590, y: 240, width: 150, height: 60 },
+        { name: "partially visible cross-origin image", x: 940, y: 440, width: 60, height: 120 },
       ]
-    : profile
+    : artifacts
       ? [
-          { name: "profile background and avatar", x: 0, y: 0, width: 250, height: 170 },
-          { name: "profile button", x: 750, y: 20, width: 250, height: 80 },
-          { name: "profile text and SVG", x: 20, y: 175, width: 930, height: 320 },
-          { name: "multiline editable text", x: 20, y: 500, width: 380, height: 160 },
-          { name: "filter and clip path", x: 490, y: 510, width: 100, height: 100 },
-          { name: "rotated shape", x: 620, y: 490, width: 160, height: 150 },
+          { name: "public custom-element content", x: 20, y: 20, width: 520, height: 150 },
+          { name: "transparent upgrade button border", x: 740, y: 20, width: 180, height: 70 },
         ]
-      : live
+      : profile
         ? [
-            { name: "header logo icon", x: 130, y: 30, width: 28, height: 30 },
-            { name: "GitHub header icon", x: 1207, y: 40, width: 20, height: 20 },
-            { name: "GitHub CTA icon", x: 562, y: 308, width: 22, height: 22 },
-            { name: "left forest", x: 0, y: 300, width: 250, height: 650 },
-            { name: "right forest", x: 1210, y: 300, width: 230, height: 650 },
-            // Compare the physical laptop, excluding its intentionally redacted controls.
-            { name: "laptop top and sides", x: 340, y: 375, width: 790, height: 275 },
-            { name: "laptop base", x: 275, y: 837, width: 918, height: 65 },
+            { name: "profile background and avatar", x: 0, y: 0, width: 250, height: 170 },
+            { name: "profile button", x: 750, y: 20, width: 250, height: 80 },
+            { name: "profile text and SVG", x: 20, y: 175, width: 930, height: 320 },
+            { name: "multiline editable text", x: 20, y: 500, width: 380, height: 160 },
+            { name: "filter and clip path", x: 490, y: 510, width: 100, height: 100 },
+            { name: "rotated shape", x: 620, y: 490, width: 160, height: 150 },
           ]
-        : [
-            { name: "left forest", x: 0, y: 150, width: 290, height: 550 },
-            { name: "right forest", x: 710, y: 150, width: 290, height: 550 },
-            { name: "laptop", x: 290, y: 230, width: 420, height: 320 },
-          ];
+        : live
+          ? [
+              { name: "header logo icon", x: 130, y: 30, width: 28, height: 30 },
+              { name: "GitHub header icon", x: 1207, y: 40, width: 20, height: 20 },
+              { name: "GitHub CTA icon", x: 562, y: 308, width: 22, height: 22 },
+              { name: "left forest", x: 0, y: 300, width: 250, height: 650 },
+              { name: "right forest", x: 1210, y: 300, width: 230, height: 650 },
+              // Compare the physical laptop, excluding its intentionally redacted controls.
+              { name: "laptop top and sides", x: 340, y: 375, width: 790, height: 275 },
+              { name: "laptop base", x: 275, y: 837, width: 918, height: 65 },
+            ]
+          : [
+              { name: "left forest", x: 0, y: 150, width: 290, height: 550 },
+              { name: "right forest", x: 710, y: 150, width: 290, height: 550 },
+              { name: "laptop", x: 290, y: 230, width: 420, height: 320 },
+            ];
   for (const region of regions) {
     let total = 0;
     for (let y = region.y; y < region.y + region.height; y++)

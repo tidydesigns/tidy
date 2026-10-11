@@ -82,6 +82,34 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     return value;
   };
   let count = 0;
+  const references = new Set<Element>();
+  const svgNamespace = "http://www.w3.org/2000/svg";
+  // Keep referenced geometry inert and self-contained while preserving SVG
+  // inheritance from the use host, particularly fill/stroke=currentColor.
+  const symbolClone = async (source: Element): Promise<Element> => {
+    checkBudget();
+    if (++count > 2000) throw new Error("SVG reference is too complex.");
+    if (
+      source.namespaceURI !== svgNamespace ||
+      ["script", "foreignObject", "image", "use", "a"].includes(source.localName)
+    )
+      throw new Error("SVG reference needs a screenshot.");
+    const target = source.cloneNode(false) as SVGElement;
+    for (const attribute of [...target.attributes]) {
+      if (/^on/i.test(attribute.name) || /^(?:href|xlink:href)$/i.test(attribute.name))
+        target.removeAttribute(attribute.name);
+      else if (attribute.value.includes("url("))
+        target.setAttribute(attribute.name, await inlineUrls(attribute.value));
+    }
+    for (const name of [...target.style])
+      target.style.setProperty(name, await inlineUrls(target.style.getPropertyValue(name)));
+    for (const child of source.childNodes) {
+      if (child instanceof Element) target.append(await symbolClone(child));
+      else if (child.nodeType === Node.TEXT_NODE) target.append(child.cloneNode());
+    }
+    checkBudget(new XMLSerializer().serializeToString(target).length);
+    return target;
+  };
   const clone = async (source: Element): Promise<Element | undefined> => {
     checkBudget();
     if (performance.now() - lastYield > 8) {
@@ -111,7 +139,27 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       (css.backdropFilter && css.backdropFilter !== "none")
     )
       throw new Error("Backdrop-dependent group needs a screenshot.");
-    const target = source.cloneNode(false) as HTMLElement | SVGElement;
+    const isUse = source.localName === "use" && source.namespaceURI === svgNamespace;
+    const href = isUse && (source.getAttribute("href") || source.getAttribute("xlink:href"));
+    const reference =
+      href && href.startsWith("#") ? source.ownerDocument.getElementById(href.slice(1)) : null;
+    if (isUse && (!reference || references.has(reference)))
+      throw new Error("SVG symbol is unavailable.");
+    const target = isUse
+      ? document.createElementNS(svgNamespace, "svg")
+      : (source.cloneNode(false) as HTMLElement | SVGElement);
+    if (isUse) {
+      for (const attribute of [...source.attributes])
+        target.setAttribute(attribute.name, attribute.value);
+      if (reference!.localName === "symbol") {
+        const viewBox = reference!.getAttribute("viewBox");
+        if (viewBox) target.setAttribute("viewBox", viewBox);
+        target.setAttribute(
+          "preserveAspectRatio",
+          reference!.getAttribute("preserveAspectRatio") || "xMidYMid meet",
+        );
+      }
+    }
     // Keep structural SVG attributes but never event handlers or live resources.
     for (const attribute of [...target.attributes]) {
       if (
@@ -129,7 +177,16 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     // Freeze computed transforms, rather than advancing the animation in the clone.
     if (source instanceof HTMLImageElement)
       target.setAttribute("src", await embed(source.currentSrc || source.src));
-    if (source.tagName.toLowerCase() === "use") throw new Error("SVG symbols need a screenshot.");
+    if (isUse) {
+      references.add(reference!);
+      try {
+        const geometry = await symbolClone(reference!);
+        if (reference!.localName === "symbol") target.append(...geometry.childNodes);
+        else target.append(geometry);
+      } finally {
+        references.delete(reference!);
+      }
+    }
     checkBudget(new XMLSerializer().serializeToString(target).length);
     // Generated visuals need their CSS too. Materialize pseudo-elements without
     // changing the source document or relying on its stylesheets.
@@ -139,8 +196,30 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       const span = document.createElement("span");
       for (const name of style)
         span.style.setProperty(name, await inlineUrls(style.getPropertyValue(name)), "important");
-      if (style.content === '""' || style.content === "''") span.textContent = "";
-      else throw new Error("Unsupported generated content.");
+      if (style.display === "none" || style.visibility === "hidden") return;
+      if (/^["']/.test(style.content)) {
+        const matches = [...style.content.matchAll(/"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'/g)];
+        if (!matches.length) throw new Error("Unsupported generated content.");
+        span.textContent = matches
+          .map((match) =>
+            (match[1] ?? match[2] ?? "").replace(
+              /\\([\da-f]{1,6})\s?|\\([^\n\r\f])/gi,
+              (_match, hex: string | undefined, escaped: string | undefined) =>
+                hex
+                  ? String.fromCodePoint(Math.min(parseInt(hex, 16), 0x10ffff) || 0xfffd)
+                  : escaped!,
+            ),
+          )
+          .join("");
+      } else if (/^url\(/.test(style.content)) {
+        const img = document.createElement("img");
+        const resource = style.content.match(/^url\(["']?([^"')]+)["']?\)/)?.[1];
+        if (!resource) throw new Error("Unsupported generated image.");
+        img.src = await embed(resource);
+        img.style.cssText = "width:100%;height:100%;object-fit:contain";
+        span.append(img);
+      } else throw new Error("Unsupported generated content.");
+      span.style.setProperty("content", "normal", "important");
       checkBudget(new XMLSerializer().serializeToString(span).length);
       target.append(span);
     };

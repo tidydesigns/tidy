@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Window } from "happy-dom";
 import { parseDesignDocument } from "@bella/design/document";
-import { captureElement, cssColor } from "./capture";
+import { captureElement, captureStyle, cssColor } from "./capture";
 
 type Listener = (
   message: { type: string; mode?: string },
@@ -80,6 +80,20 @@ function bounds(element: Element, x: number, y: number, width: number, height: n
 }
 
 describe("rendered webpage capture", () => {
+  test("preserves bottom-only divider alpha and independent edge colors", () => {
+    const divider = win.document.createElement("div");
+    divider.style.cssText = "color:white;border:0;border-bottom:1px solid rgba(80,85,90,.6)";
+    win.document.body.append(divider);
+    expect(captureStyle(getComputedStyle(divider as unknown as Element)).borderColor).toBe(
+      "#50555a99",
+    );
+    divider.style.cssText =
+      "border:2px solid transparent;border-left-color:rgb(10,20,30);border-bottom-color:rgb(40,50,60)";
+    const style = captureStyle(getComputedStyle(divider as unknown as Element));
+    expect(style.borderColor).toBe("#00000000");
+    expect(style.borderLeftColor).toBe("#0a141e");
+    expect(style.borderBottomColor).toBe("#28323c");
+  });
   test("converts an element into editable layers with local positions and excludes form values", async () => {
     win.document.body.innerHTML =
       '<section id="card" style="background:rgb(255,255,255)"><h1 style="font-size:24px;line-height:24px;color:rgb(20,20,20)">Hello Bella</h1><input value="private-password"><script>secret</script></section>';
