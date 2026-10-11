@@ -1812,10 +1812,10 @@ export function FileEditor({
     );
   }
 
-  async function remove(nodeId: string | null = selection) {
-    if (!nodeId || readOnly) return;
+  async function removeSelection() {
+    if (!selectedIds.length || readOnly) return;
     setContextMenu(null);
-    await changeDocument((content) => removeLayers(content, [nodeId]), null);
+    await changeDocument((content) => removeLayers(content, selectedIds), null);
   }
 
   async function duplicate(nodeId?: string | null) {
@@ -2053,7 +2053,7 @@ export function FileEditor({
     event.stopPropagation();
     if (!selectedIds.includes(nodeId)) selectNode(nodeId);
     const behindIds: string[] = [];
-    if (event.currentTarget.hasAttribute("data-node-id")) {
+    if ((event.target as Element).closest("[data-node-id]")) {
       const seen = new Set([nodeId]);
       for (const element of document.elementsFromPoint(event.clientX, event.clientY)) {
         const id = element.closest("[data-node-id]")?.getAttribute("data-node-id");
@@ -2091,7 +2091,10 @@ export function FileEditor({
       if (
         readOnly ||
         prototypeMode ||
-        (vectorMode === selection && tool === "select") ||
+        (vectorMode !== null &&
+          vectorMode === selection &&
+          selectedIds.length === 1 &&
+          tool === "select") ||
         tool === "pen" ||
         event.repeat ||
         event.isComposing
@@ -2239,9 +2242,7 @@ export function FileEditor({
       if (event.metaKey || event.ctrlKey || (event.key !== "Backspace" && event.key !== "Delete"))
         return;
       event.preventDefault();
-      if (selectedIds.length > 1)
-        void changeDocument((content) => removeLayers(content, selectedIds), null);
-      else void remove(selection);
+      void removeSelection();
     }
     selectionKeyHandler.current = onKeyDown;
   });
@@ -2429,6 +2430,7 @@ export function FileEditor({
       return;
     }
     if (tool === "select") {
+      setVectorMode(null);
       const bounds = viewport.current!.getBoundingClientRect();
       const start = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
       marqueeRef.current = { start, end: start, additive: event.shiftKey ? selectedIds : [] };
@@ -2746,11 +2748,11 @@ export function FileEditor({
   );
   function beginLayerDrag(event: PointerEvent<HTMLDivElement>, ids: string[], id: string) {
     if (drag.current || readOnly) return;
+    event.preventDefault();
+    viewport.current?.focus({ preventScroll: true });
     // Eligibility belongs to the selected roots, not the child under the cursor.
     const movable = movableSelectionRoots(nodes, ids);
     if (!movable.length) return;
-    event.preventDefault();
-    viewport.current?.focus({ preventScroll: true });
     const movingIds = movable.map((node) => node.id);
     drag.current = {
       pointerId: event.pointerId,
@@ -3237,8 +3239,8 @@ export function FileEditor({
           label: "Delete",
           shortcut: "⌫",
           danger: true,
-          disabled: isLayerLocked(nodes, contextNode.id),
-          onSelect: () => void remove(contextNode.id),
+          disabled: selectedIds.some((id) => isLayerLocked(nodes, id)),
+          onSelect: () => void removeSelection(),
         },
       ]
     : [];
@@ -3719,6 +3721,20 @@ export function FileEditor({
           if (viewPreferences.rightClickPan) event.preventDefault();
         }}
         onPointerDownCapture={beginSelectedLayersDrag}
+        onContextMenuCapture={(event) => {
+          if (selectedIds.length < 2 || readOnly || prototypeMode) return;
+          if ((event.target as Element).closest("[data-canvas-control]")) return;
+          const hitId =
+            (event.target as Element).closest("[data-node-id]")?.getAttribute("data-node-id") ??
+            null;
+          const target = selectionDragTarget(nodesById, selectedIds, hitId);
+          if (
+            target &&
+            (target.kind === "layer" ||
+              selectionContainsPoint(viewport.current, selectedIds, event.clientX, event.clientY))
+          )
+            openNodeMenu(event, target.kind === "layer" ? target.id : selectedIds[0]);
+        }}
         onLostPointerCapture={(event) => {
           if (drag.current?.pointerId === event.pointerId) artworkCancel();
         }}
@@ -3986,6 +4002,7 @@ export function FileEditor({
             />
           )}
           {selected?.vectorPath &&
+            selectedIds.length === 1 &&
             vectorMode === selected.id &&
             tool === "select" &&
             !readOnly &&
