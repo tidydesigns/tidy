@@ -9,6 +9,7 @@ test("the MCP browser script is regenerated when the shared capture engine chang
     "browser-capture-entry.ts",
     "browser-capture.ts",
     "capture-gradients.ts",
+    "capture-background.ts",
     "effects.ts",
     "capture-effects.ts",
     "rasterize-element.ts",

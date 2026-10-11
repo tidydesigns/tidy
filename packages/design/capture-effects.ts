@@ -113,7 +113,13 @@ export function effectBounds(element: Element): DOMRect {
       throw new Error("Visual group too complex.");
     const node = pending.pop()!;
     const css = getComputedStyle(node);
-    if (css.display === "none" || css.visibility === "hidden") continue;
+    if (
+      css.display === "none" ||
+      css.visibility === "hidden" ||
+      css.opacity === "0" ||
+      isFullyClipped(css)
+    )
+      continue;
     const box = node.getBoundingClientRect();
     if (box.width && box.height) {
       // Computed shadows serialize colors as rgb(...); remove them before reading lengths.
@@ -180,4 +186,40 @@ export function protectedBounds(): { bounds: DOMRect; backgrounds?: string[] }[]
     if (element.shadowRoot) for (const child of element.shadowRoot.children) pending.push(child);
   }
   return bounds;
+}
+
+// Screen-reader helpers have layout boxes but no painted pixels. Do not expose
+// their text or spend raster slots attempting to capture an empty clipping area.
+export function isFullyClipped(css: CSSStyleDeclaration): boolean {
+  const rect = css.clip
+    ?.match(/^rect\(([^)]+)\)$/)?.[1]
+    ?.match(/-?[\d.]+px/g)
+    ?.map(parseFloat);
+  if (rect?.length === 4 && ["absolute", "fixed"].includes(css.position))
+    return rect[2]! <= rect[0]! || rect[1]! <= rect[3]!;
+  return false;
+}
+
+export function hasPaintedPseudo(css: CSSStyleDeclaration): boolean {
+  if (
+    !css.content ||
+    ["none", "normal"].includes(css.content) ||
+    css.display === "none" ||
+    css.visibility === "hidden" ||
+    css.opacity === "0"
+  )
+    return false;
+  if (!['""', "''"].includes(css.content)) return true;
+  const opaque = (color: string) =>
+    Boolean(color && color !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(color));
+  return Boolean(
+    opaque(css.backgroundColor) ||
+    (css.backgroundImage && css.backgroundImage !== "none") ||
+    (css.boxShadow && css.boxShadow !== "none") ||
+    ["Top", "Right", "Bottom", "Left"].some(
+      (side) =>
+        parseFloat(css.getPropertyValue(`border-${side.toLowerCase()}-width`)) > 0 &&
+        opaque(css.getPropertyValue(`border-${side.toLowerCase()}-color`)),
+    ),
+  );
 }

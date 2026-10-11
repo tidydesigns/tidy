@@ -1,3 +1,4 @@
+import { drawCaptureBackground } from "./capture-background";
 import { captureGradientStack } from "./capture-gradients";
 import { parseCssShadows } from "./effects";
 import type { DesignNode } from "./document";
@@ -13,6 +14,8 @@ import {
   effectBounds,
   intersectBounds,
   isProtectedElement,
+  isFullyClipped,
+  hasPaintedPseudo,
   protectedBounds,
   rasterEffect,
   sameViewport,
@@ -458,7 +461,7 @@ export async function captureElement(
     if (
       assetBytes + bytes > MAX_ASSET_BASE64_BYTES ||
       result.assets.length + unique.size > 100 ||
-      result.document.nodes.length + tiles.length + 1 > 4900
+      result.document.nodes.length + tiles.length + (tiles.length > 1 ? 1 : 0) > 5000
     )
       throw new Error("Raster capture budget exceeded.");
     assetBytes += bytes;
@@ -623,6 +626,16 @@ export async function captureElement(
         css.objectPosition,
         css.backgroundSize,
         css.backgroundPosition,
+        css.backgroundRepeat,
+        css.backgroundOrigin,
+        ...(backgroundUrl
+          ? [...element.getClientRects()].map((rect) => [
+              rect.x - bounds.x,
+              rect.y - bounds.y,
+              rect.width,
+              rect.height,
+            ])
+          : []),
         window.devicePixelRatio,
       ]);
     const cachedPixels = imageKey && renderedImages.get(imageKey);
@@ -678,7 +691,12 @@ export async function captureElement(
             ? source.naturalHeight
             : (source as HTMLCanvasElement).height;
         const fit = backgroundUrl ? css.backgroundSize : css.objectFit;
-        if (["cover", "contain"].includes(fit) && sourceWidth && sourceHeight) {
+        if (backgroundUrl) {
+          context.scale(canvas.width / bounds.width, canvas.height / bounds.height);
+          drawCaptureBackground(context, source, sourceWidth, sourceHeight, css, bounds, [
+            ...element.getClientRects(),
+          ]);
+        } else if (["cover", "contain"].includes(fit) && sourceWidth && sourceHeight) {
           const ratio =
             fit === "cover"
               ? Math.max(canvas.width / sourceWidth, canvas.height / sourceHeight)
@@ -766,9 +784,9 @@ export async function captureElement(
                 ...captureStyle(css, false, bounds),
                 fill: undefined,
                 objectFit: "fill",
-                ...(backgroundUrl && parent
+                ...(backgroundUrl
                   ? {
-                      opacity: 1,
+                      opacity: parent ? 1 : captureStyle(css).opacity,
                       borderWidth: 0,
                       borderTopWidth: 0,
                       borderRightWidth: 0,
@@ -870,17 +888,17 @@ export async function captureElement(
     }
     const css = getComputedStyle(element),
       bounds = element.getBoundingClientRect();
-    if (css.display === "none" || css.visibility === "hidden" || css.opacity === "0") return;
+    if (
+      css.display === "none" ||
+      css.visibility === "hidden" ||
+      css.opacity === "0" ||
+      isFullyClipped(css)
+    )
+      return;
     let effect = rasterEffect(css);
     for (const pseudo of ["::before", "::after"]) {
       const pseudoCss = getComputedStyle(element, pseudo);
-      if (
-        pseudoCss.content &&
-        !["none", "normal"].includes(pseudoCss.content) &&
-        pseudoCss.display !== "none" &&
-        pseudoCss.visibility !== "hidden" &&
-        pseudoCss.opacity !== "0"
-      )
+      if (hasPaintedPseudo(pseudoCss))
         effect ??= rasterEffect(pseudoCss) ?? "Generated CSS content";
     }
     let visualBounds: DOMRect | undefined;
@@ -912,11 +930,17 @@ export async function captureElement(
           const index = result.document.nodes.indexOf(marker);
           if (index < 0) return;
           result.document.nodes.splice(index, 1);
-          const start = result.document.nodes.length;
-          if (!(await rasterize(element, reason, parent))) return;
-          const added = result.document.nodes.splice(start);
+          const original = result.document.nodes;
           const removed = new Set(fallback);
-          result.document.nodes = result.document.nodes.filter((node) => !removed.has(node));
+          // Replacing a group frees its fallback layers. Count the replacement,
+          // not both representations, against the document's layer budget.
+          result.document.nodes = original.filter((node) => !removed.has(node));
+          const start = result.document.nodes.length;
+          if (!(await rasterize(element, reason, parent))) {
+            result.document.nodes = original;
+            return;
+          }
+          const added = result.document.nodes.splice(start);
           result.document.nodes.splice(index, 0, ...added);
         },
       });

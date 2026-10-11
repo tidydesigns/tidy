@@ -1,4 +1,4 @@
-import { decodeCaptureImage, isProtectedElement } from "./capture-effects";
+import { decodeCaptureImage, isProtectedElement, isFullyClipped } from "./capture-effects";
 
 // Render an isolated, inert clone in SVG foreignObject. The browser applies the
 // original masks, with transparent pixels around the group. 3D scenes need
@@ -131,7 +131,13 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
     )
       throw new Error("Visual group needs a screenshot.");
     const css = getComputedStyle(source);
-    if (css.display === "none") return undefined;
+    if (
+      css.display === "none" ||
+      css.visibility === "hidden" ||
+      css.opacity === "0" ||
+      isFullyClipped(css)
+    )
+      return undefined;
     if (
       (css.perspective && css.perspective !== "none") ||
       css.transform.startsWith("matrix3d(") ||
