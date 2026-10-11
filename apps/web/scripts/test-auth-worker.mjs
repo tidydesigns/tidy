@@ -355,3 +355,32 @@ try {
 } finally {
   await worker.dispose();
 }
+
+const legacyWorker = new Miniflare(
+  convertV4MiniflareOptions({
+    modules: true,
+    script: await build.outputs[0].text(),
+    compatibilityDate: "2026-09-26",
+    compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
+    bindings: { BETTER_AUTH_SECRET: "worker-fixture-budget-secret-at-least-32-characters" },
+    durableObjects: { AUTH_GUARD: { className: "LegacyAuthGuard", useSQLite: true } },
+    outboundService,
+  }),
+);
+try {
+  await legacyWorker.ready;
+  const attempts = await Promise.all(
+    Array.from({ length: 65 }, (_, index) =>
+      legacyWorker.dispatchFetch(
+        `https://auth.test/image-budget?kind=thumbnail&user=legacy-renderer&organization=legacy-${index}`,
+      ),
+    ),
+  );
+  assert.equal(attempts.filter((response) => response.status === 204).length, 60);
+  assert.equal(attempts.filter((response) => response.status === 429).length, 5);
+  console.log(
+    "PASS: upgraded image clients retain full quota enforcement against legacy workerd guards",
+  );
+} finally {
+  await legacyWorker.dispose();
+}

@@ -9,6 +9,7 @@ type CacheRow = {
 };
 type Counter = { count: number };
 export type RateRule = { window: number; max: number };
+export type RateCheck = { key: string; rule: RateRule };
 export type RateDecision = { allowed: boolean; retryAfter: number | null };
 export class AuthGuardLimit extends Error {}
 
@@ -65,6 +66,13 @@ export class AuthGuardStore {
       now + rule.window * 1000,
     );
     return { allowed: true, retryAfter: null };
+  }
+
+  /** Ordered reservations: keep the first charge when the second denies.
+   * Synchronous storage work cannot interleave between these two checks. */
+  consumePair(first: RateCheck, second: RateCheck): RateDecision {
+    const decision = this.consume(first.key, first.rule);
+    return decision.allowed ? this.consume(second.key, second.rule) : decision;
   }
 
   acquireFetch(url: string, now = Date.now()) {

@@ -1,6 +1,6 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { traceAuthOperation, requestSignal, waitForSignal } from "./request-lifecycle";
-import type { RateRule } from "./guard-store";
+import type { RateCheck, RateRule } from "./guard-store";
 
 export function authGuard() {
   const { env } = getCloudflareContext();
@@ -17,31 +17,58 @@ export function consumeMutationRateLimit(organizationId: string, key: string, ru
   return consumeRateLimit(key, rule, `application-mutations-v1:${organizationId}`);
 }
 
+/** One RPC per account/workspace on upgraded guards. A legacy guard ignores the
+ * third argument; only an acknowledged successful first check permits fallback.
+ * Never replay a call after a timeout or another ambiguous transport failure. */
+export function consumeMutationRateLimitPair(scope: string, first: RateCheck, second: RateCheck) {
+  return traceAuthOperation("rate_limit", async () => {
+    const { guard, fingerprint } = await rateLimitContext(`application-mutations-v1:${scope}`);
+    const key = await fingerprint(first.key);
+    const next = { key: await fingerprint(second.key), rule: second.rule };
+    const signal = rateLimitSignal();
+    signal.throwIfAborted();
+    const decision = await waitForSignal(guard.consume(key, first.rule, next), signal);
+    if (!decision.allowed || ("batchSupported" in decision && decision.batchSupported === true))
+      return decision;
+    const fallbackSignal = rateLimitSignal();
+    fallbackSignal.throwIfAborted();
+    return waitForSignal(guard.consume(next.key, next.rule), fallbackSignal);
+  });
+}
+
 async function consumeRateLimit(key: string, rule: RateRule, scope?: string) {
   return traceAuthOperation("rate_limit", async () => {
-    const { env } = getCloudflareContext();
-    // Rate-limit keys can contain client IPs; never store their original form.
-    const secret = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(env.BETTER_AUTH_SECRET),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"],
-    );
-    const digest = await crypto.subtle.sign("HMAC", secret, new TextEncoder().encode(key));
-    const fingerprint = [...new Uint8Array(digest)]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-    const parent = requestSignal();
-    const signal = AbortSignal.any([AbortSignal.timeout(2000), ...(parent ? [parent] : [])]);
-    let guard = authGuard();
-    if (scope) {
-      const scopeDigest = await crypto.subtle.sign("HMAC", secret, new TextEncoder().encode(scope));
-      const name = [...new Uint8Array(scopeDigest)]
-        .map((byte) => byte.toString(16).padStart(2, "0"))
-        .join("");
-      guard = env.AUTH_GUARD.get(env.AUTH_GUARD.idFromName(`mutations:${name}`));
-    }
-    return waitForSignal(guard.consume(fingerprint, rule), signal);
+    const { guard, fingerprint } = await rateLimitContext(scope);
+    const name = await fingerprint(key);
+    const signal = rateLimitSignal();
+    signal.throwIfAborted();
+    return waitForSignal(guard.consume(name, rule), signal);
   });
+}
+
+function rateLimitSignal() {
+  const parent = requestSignal();
+  return AbortSignal.any([AbortSignal.timeout(2000), ...(parent ? [parent] : [])]);
+}
+
+async function rateLimitContext(scope?: string) {
+  const { env } = getCloudflareContext();
+  // Rate-limit keys can contain client IPs; never store their original form.
+  const secret = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(env.BETTER_AUTH_SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const fingerprint = async (value: string) => {
+    const digest = await crypto.subtle.sign("HMAC", secret, new TextEncoder().encode(value));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  };
+  let guard = authGuard();
+  if (scope) {
+    const name = await fingerprint(scope);
+    guard = env.AUTH_GUARD.get(env.AUTH_GUARD.idFromName(`mutations:${name}`));
+  }
+  return { guard, fingerprint };
 }

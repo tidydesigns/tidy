@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { AuthGuardStore, metadataFreshness } from "./guard-store";
 
@@ -33,6 +33,52 @@ test("independent callers consume the same atomic budget and recover after expir
     expect(result.find((value) => !value.allowed)?.retryAfter).toBe(60);
     expect(guard.consume("different-key", { window: 60, max: 3 }, 1000).allowed).toBe(true);
     expect(guard.consume("shared-ip-and-route", { window: 60, max: 3 }, 61_000).allowed).toBe(true);
+  } finally {
+    database.close();
+  }
+});
+
+test("paired minute/hour reservations match sequential counters, denials and expiry", () => {
+  const before = store(),
+    batched = store();
+  const clock = spyOn(Date, "now");
+  const first = { key: "minute", rule: { window: 60, max: 3 } };
+  const second = { key: "hour", rule: { window: 3600, max: 5 } };
+  try {
+    for (const now of [
+      1000, 1001, 1002, 1003, 61_003, 61_004, 61_005, 61_006, 122_006, 3_722_007,
+    ]) {
+      clock.mockReturnValue(now);
+      let expected = before.guard.consume(first.key, first.rule);
+      if (expected.allowed) expected = before.guard.consume(second.key, second.rule);
+      expect(batched.guard.consumePair(first, second)).toEqual(expected);
+      expect(batched.database.query("select * from auth_bucket order by key").all()).toEqual(
+        before.database.query("select * from auth_bucket order by key").all(),
+      );
+    }
+  } finally {
+    clock.mockRestore();
+    before.database.close();
+    batched.database.close();
+  }
+});
+
+test("concurrent paired checks retain the minute charge when the hour is exhausted", async () => {
+  const { database, guard } = store();
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 20 }, async () =>
+        guard.consumePair(
+          { key: "minute", rule: { window: 60, max: 3 } },
+          { key: "hour", rule: { window: 3600, max: 2 } },
+        ),
+      ),
+    );
+    expect(results.filter((result) => result.allowed)).toHaveLength(2);
+    expect(database.query("select key,count from auth_bucket order by key").all()).toEqual([
+      { key: "hour", count: 2 },
+      { key: "minute", count: 3 },
+    ]);
   } finally {
     database.close();
   }

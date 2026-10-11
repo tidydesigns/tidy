@@ -1,5 +1,5 @@
-import { consumeMutationRateLimit } from "@/lib/auth/guard-client";
-import type { RateDecision, RateRule } from "@/lib/auth/guard-store";
+import { consumeMutationRateLimit, consumeMutationRateLimitPair } from "@/lib/auth/guard-client";
+import type { RateCheck, RateDecision, RateRule } from "@/lib/auth/guard-store";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
 import { IMAGE_OPERATION_LIMITS } from "@/lib/security/resource-limits";
 import { safeErrorCode, traceDetails, traceOperation, traceStorage } from "@/lib/trace-context";
@@ -18,23 +18,21 @@ export async function consumeImageBudget(
   userId: string,
   organizationId: string,
   consume: (scope: string, key: string, rule: RateRule) => Promise<RateDecision>,
+  consumePair?: (scope: string, first: RateCheck, second: RateCheck) => Promise<RateDecision>,
 ) {
   const limits = IMAGE_OPERATION_LIMITS[kind];
-  for (const [scope, key, rule] of [
-    [`image-${kind}-account:${userId}`, "minute", { window: 60, max: limits.accountMinute }],
-    [`image-${kind}-account:${userId}`, "hour", { window: 3600, max: limits.accountHour }],
-    [
-      `image-${kind}-workspace:${organizationId}`,
-      "minute",
-      { window: 60, max: limits.workspaceMinute },
-    ],
-    [
-      `image-${kind}-workspace:${organizationId}`,
-      "hour",
-      { window: 3600, max: limits.workspaceHour },
-    ],
+  for (const [scope, minuteMax, hourMax] of [
+    [`image-${kind}-account:${userId}`, limits.accountMinute, limits.accountHour],
+    [`image-${kind}-workspace:${organizationId}`, limits.workspaceMinute, limits.workspaceHour],
   ] as const) {
-    const decision = await consume(scope, key, rule);
+    const minute = { key: "minute", rule: { window: 60, max: minuteMax } };
+    const hour = { key: "hour", rule: { window: 3600, max: hourMax } };
+    let decision: RateDecision;
+    if (consumePair) decision = await consumePair(scope, minute, hour);
+    else {
+      decision = await consume(scope, minute.key, minute.rule);
+      if (decision.allowed) decision = await consume(scope, hour.key, hour.rule);
+    }
     if (!decision.allowed) throw new MutationBudgetError(decision.retryAfter ?? 60);
   }
 }
@@ -42,7 +40,13 @@ export async function reserveImageOperation(kind: Kind, userId: string, organiza
   if (typeof navigator === "undefined" || navigator.userAgent !== "Cloudflare-Workers") return;
   try {
     await traceOperation("image.budget", () =>
-      consumeImageBudget(kind, userId, organizationId, consumeMutationRateLimit),
+      consumeImageBudget(
+        kind,
+        userId,
+        organizationId,
+        consumeMutationRateLimit,
+        consumeMutationRateLimitPair,
+      ),
     );
   } catch (error) {
     if (error instanceof MutationBudgetError) throw error;

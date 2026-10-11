@@ -3,7 +3,7 @@ import { resolvedDocumentNodes, resolvedColorTokens } from "./design-tokens";
 import { textFontSegments } from "@bella/design/rich-text";
 import { resolveVariantNodes, componentSubtreeIds } from "./component-variants";
 import { fontRegistry } from "./fonts/runtime";
-import { embedDesignImages } from "./export-images";
+import { createExportImageSession, embedDesignImages } from "./export-images";
 import {
   exportRoots,
   exportDimensions,
@@ -86,30 +86,37 @@ export async function createSelectionExport(
       html: string;
       native: string;
     }[] = [];
-  for (let index = 0; index < plans.length; index++) {
-    const { group, bounds } = plans[index],
-      { width, height } = dimensions[index],
-      clones = group.map((n) => exportClone(elements.get(n.id)!, n, nodes, bounds));
-    for (const clone of clones) await embedDesignImages(clone);
-    const html = foreignObjectSvg(clones, bounds, width, height, fontCss);
-    let native = html;
-    if (request.format === "svg") {
-      const result = nativeSvg(
-        clones,
-        nodes,
-        resolvedColorTokens(document),
-        bounds,
-        width,
-        height,
-        fontCss,
-      );
-      if (result.unsupported.length)
-        warnings.push(
-          ...result.unsupported.map((reason) => `SVG retained HTML rendering for ${reason}.`),
+  // One clone already deduplicates its sources; avoid retaining an extra cache
+  // for a single selected root.
+  const images = roots.length > 1 ? createExportImageSession() : undefined;
+  try {
+    for (let index = 0; index < plans.length; index++) {
+      const { group, bounds } = plans[index],
+        { width, height } = dimensions[index],
+        clones = group.map((n) => exportClone(elements.get(n.id)!, n, nodes, bounds));
+      for (const clone of clones) await embedDesignImages(clone, undefined, images);
+      const html = foreignObjectSvg(clones, bounds, width, height, fontCss);
+      let native = html;
+      if (request.format === "svg") {
+        const result = nativeSvg(
+          clones,
+          nodes,
+          resolvedColorTokens(document),
+          bounds,
+          width,
+          height,
+          fontCss,
         );
-      else native = result.svg;
+        if (result.unsupported.length)
+          warnings.push(
+            ...result.unsupported.map((reason) => `SVG retained HTML rendering for ${reason}.`),
+          );
+        else native = result.svg;
+      }
+      prepared.push({ bounds, width, height, html, native });
     }
-    prepared.push({ bounds, width, height, html, native });
+  } finally {
+    images?.dispose();
   }
   const names =
     request.mode === "batch"

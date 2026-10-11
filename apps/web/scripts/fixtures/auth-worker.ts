@@ -26,6 +26,8 @@ import {
 import { consumeEmailBudget } from "../../lib/auth/email-budget";
 import { withRequestBodyLimit } from "../../lib/http/request-body";
 import { AuthGuard } from "../../lib/auth/guard";
+import { DurableObject } from "cloudflare:workers";
+import { AuthGuardStore, type RateRule } from "../../lib/auth/guard-store";
 import { handleAuthRequest } from "../../lib/auth/request-boundary";
 import { readMcpRequest } from "../../lib/mcp/scopes";
 import {
@@ -35,6 +37,17 @@ import {
   GitHubWorkLimitError,
 } from "../../lib/github/work-budget";
 export { AuthGuard };
+// Matches the deployed single-counter RPC signature; extra arguments are ignored.
+export class LegacyAuthGuard extends DurableObject<CloudflareEnv> {
+  private store: AuthGuardStore;
+  constructor(ctx: DurableObjectState, env: CloudflareEnv) {
+    super(ctx, env);
+    this.store = new AuthGuardStore(ctx.storage.sql);
+  }
+  consume(key: string, rule: RateRule) {
+    return this.store.consume(key, rule);
+  }
+}
 const worker = {
   async fetch(request: Request, env: { AUTH_GUARD: DurableObjectNamespace<AuthGuard> }) {
     const path = new URL(request.url).pathname;

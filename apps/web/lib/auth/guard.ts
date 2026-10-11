@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { AuthGuardLimit, AuthGuardStore, type RateRule } from "./guard-store";
+import { AuthGuardLimit, AuthGuardStore, type RateCheck, type RateRule } from "./guard-store";
 import { waitForSignal } from "./request-lifecycle";
 
 export class AuthGuard extends DurableObject<CloudflareEnv> {
@@ -9,8 +9,9 @@ export class AuthGuard extends DurableObject<CloudflareEnv> {
     this.store = new AuthGuardStore(ctx.storage.sql);
   }
 
-  consume(key: string, rule: RateRule) {
-    return this.store.consume(key, rule);
+  consume(key: string, rule: RateRule, next?: RateCheck) {
+    if (!next) return this.store.consume(key, rule);
+    return { ...this.store.consumePair({ key, rule }, next), batchSupported: true };
   }
 
   async fetch(request: Request) {
