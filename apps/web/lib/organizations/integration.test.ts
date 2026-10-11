@@ -2874,6 +2874,7 @@ integration("document edit transport bounds bytes, encodings and aborted streams
   const { createDesignFileForUser } = await import("../design/service");
   const { ensureEditorDocument } = await import("../design/document-service");
   const { POST } = await import("../../app/api/files/[uid]/changes/route");
+  const { DOCUMENT_HISTORY_LIMITS } = await import("../design/history-retention");
   const file = await createDesignFileForUser(ownerId, orgId, "Bounded edits");
   const initial = await ensureEditorDocument(ownerId, file.id);
   const headers = new Headers(owner);
@@ -2882,7 +2883,7 @@ integration("document edit transport bounds bytes, encodings and aborted streams
   const url = `http://localhost:3000/api/files/${file.id}/changes`;
   const context = { params: Promise.resolve({ uid: file.id }) };
   const advertised = new Headers(headers);
-  advertised.set("content-length", "2000001");
+  advertised.set("content-length", String(DOCUMENT_HISTORY_LIMITS.operationBytes + 1));
   expect(
     (await POST(new Request(url, { method: "POST", headers: advertised, body: "{}" }), context))
       .status,
@@ -2890,7 +2891,11 @@ integration("document edit transport bounds bytes, encodings and aborted streams
   expect(
     (
       await POST(
-        new Request(url, { method: "POST", headers, body: " ".repeat(2_000_001) }),
+        new Request(url, {
+          method: "POST",
+          headers,
+          body: " ".repeat(DOCUMENT_HISTORY_LIMITS.operationBytes + 1),
+        }),
         context,
       )
     ).status,
@@ -2946,6 +2951,77 @@ integration("document edit transport bounds bytes, encodings and aborted streams
   expect(expired.status).toBe(410);
   expect(((await expired.json()) as { code: string }).code).toBe("EDIT_EXPIRED");
 });
+
+integration(
+  "authenticated bulk capture deletion and undo accept multi-megabyte requests",
+  async () => {
+    const { createDesignFileForUser } = await import("../design/service");
+    const { ensureEditorDocument } = await import("../design/document-service");
+    const { blankDesignDocument, buildDrawnNode, parseDesignDocument } =
+      await import("../design/document");
+    const { diffDocument, invertPatch } = await import("../design/document-patch");
+    const { POST } = await import("../../app/api/files/[uid]/changes/route");
+    const file = await createDesignFileForUser(ownerId, orgId, "Large capture edits");
+    const initial = await ensureEditorDocument(ownerId, file.id);
+    const document = parseDesignDocument({
+      ...blankDesignDocument(),
+      nodes: Array.from({ length: 500 }, (_, index) => ({
+        ...buildDrawnNode(`capture-${index}`, "text", null, {
+          x: 0,
+          y: index * 20,
+          width: 500,
+          height: 20,
+        }),
+        text: "Article content. ".repeat(300),
+        importKey: "en.wikipedia.org:web-capture/00000000-0000-4000-8000-000000000001",
+        sourceKey: `capture-${index}`,
+      })),
+    });
+    await db.query('update "designDocument" set "content"=$2::jsonb where "fileId"=$1', [
+      file.id,
+      JSON.stringify(document),
+    ]);
+    const headers = new Headers(owner);
+    headers.set("origin", "http://localhost:3000");
+    headers.set("content-type", "application/json");
+    const url = `http://localhost:3000/api/files/${file.id}/changes`;
+    const context = { params: Promise.resolve({ uid: file.id }) };
+    const patch = diffDocument(document, { ...document, nodes: [] });
+    const body = JSON.stringify({
+      operationId: crypto.randomUUID(),
+      baseRevision: initial.revision,
+      patch,
+    });
+    expect(Buffer.byteLength(body)).toBeGreaterThan(2_000_000);
+    const deletedResponse = await POST(
+      new Request(url, { method: "POST", headers, body }),
+      context,
+    );
+    expect(deletedResponse.status).toBe(200);
+    const deleted = (await deletedResponse.json()) as {
+      revision: number;
+      sequence: number;
+      patch: Parameters<typeof invertPatch>[0];
+    };
+    expect((await ensureEditorDocument(ownerId, file.id)).content.nodes).toHaveLength(0);
+    const restoredResponse = await POST(
+      new Request(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          operationId: crypto.randomUUID(),
+          baseRevision: deleted.revision,
+          patch: invertPatch(deleted.patch),
+          conditional: true,
+          expectedSequence: deleted.sequence,
+        }),
+      }),
+      context,
+    );
+    expect(restoredResponse.status).toBe(200);
+    expect((await ensureEditorDocument(ownerId, file.id)).content.nodes).toEqual(document.nodes);
+  },
+);
 
 integration(
   "every comment service rejects unverified, unknown-role, archived and foreign access",
