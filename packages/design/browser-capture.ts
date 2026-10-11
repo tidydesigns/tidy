@@ -69,6 +69,10 @@ export function captureStyle(
     overflow: css.overflow === "hidden" || css.overflow === "clip" ? "hidden" : "visible",
     fill: cssColor(css.backgroundColor),
   };
+  const visibleBorder = (["Top", "Right", "Bottom", "Left"] as const).find(
+    (edge) => px(css[`border${edge}Width`]) > 0,
+  );
+  if (visibleBorder) style.borderColor = cssColor(css[`border${visibleBorder}Color`]);
   if (css.boxShadow && css.boxShadow !== "none") {
     const shadows = parseCssShadows(css.boxShadow, "captured-shadow", cssColor(css.color));
     if (shadows) style.shadows = shadows;

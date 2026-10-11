@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { widgetHtml, widgetUri } from "@tidy/gpt-plugin/widget";
@@ -54,7 +55,9 @@ export function registerPluginTools(
       title: "Preview a Tidy design",
       description:
         "Show a saved Tidy file in the conversation after creating or editing it. The preview includes all visible roots for instant frame selection. Returns its revision and editable file URL. Read get_document before edits. This renders UI for the user; it does not supply a screenshot to the model or verify visual fidelity.",
-      inputSchema: z.object({ file_id: z.string().min(1), root_id: z.string().min(1).optional() }),
+      inputSchema: mcpSchema("preview_design", () =>
+        z.object({ file_id: z.string().min(1), root_id: z.string().min(1).optional() }),
+      ),
       outputSchema: previewSummarySchema,
       ...mcpToolPolicy("preview_design"),
       _meta: {

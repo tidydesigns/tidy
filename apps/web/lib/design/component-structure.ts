@@ -1,6 +1,6 @@
 import { remapInteractions } from "@bella/design/prototype";
 import type { DesignNode } from "./document";
-import { componentSubtreeIds, resolveVariantNodes } from "./component-variants";
+import { resolveVariantNodes } from "./component-variants";
 import { equalJsonValues as equal } from "./json-value";
 
 const identity = new Set([
@@ -76,6 +76,52 @@ export function reconcileComponentStructure(
 ): DesignNode[] {
   if (!before.some((node) => node.instanceOf) && !input.some((node) => node.instanceOf))
     return [...input];
+  // Each immutable array gets one parent/order index. Property-only edits keep
+  // that array throughout refresh; structural replacements rebuild as needed.
+  const indexes = new WeakMap<
+    readonly DesignNode[],
+    {
+      children: Map<string, DesignNode[]>;
+      positions: Map<string, number>;
+    }
+  >();
+  const index = (list: readonly DesignNode[]) => {
+    let value = indexes.get(list);
+    if (!value) {
+      const children = new Map<string, DesignNode[]>();
+      const positions = new Map<string, number>();
+      list.forEach((node, position) => {
+        positions.set(node.id, position);
+        if (node.parentId) {
+          const siblings = children.get(node.parentId);
+          if (siblings) siblings.push(node);
+          else children.set(node.parentId, [node]);
+        }
+      });
+      value = { children, positions };
+      indexes.set(list, value);
+    }
+    return value;
+  };
+  const subtreeIds = (list: readonly DesignNode[], root: string) => {
+    const children = index(list).children;
+    const ids = new Set([root]);
+    for (const id of ids) for (const child of children.get(id) ?? []) ids.add(child.id);
+    return ids;
+  };
+  const subtreeNodes = (
+    list: readonly DesignNode[],
+    ids: ReadonlySet<string>,
+    lookup: ReadonlyMap<string, DesignNode>,
+  ) => {
+    const positions = index(list).positions;
+    return [...ids]
+      .filter((id) => lookup.has(id))
+      .sort((a, b) => positions.get(a)! - positions.get(b)!)
+      .map((id) => lookup.get(id)!);
+  };
+  const order = (list: readonly DesignNode[], parent: string) =>
+    (index(list).children.get(parent) ?? []).map((node) => node.componentSourceId ?? node.id);
   const old = new Map(before.map((node) => [node.id, node]));
   let nodes = [...input];
   let byId = new Map(nodes.map((node) => [node.id, node]));
@@ -93,7 +139,7 @@ export function reconcileComponentStructure(
       )
       .map((node) => node.id),
   );
-  for (const id of removed) for (const child of componentSubtreeIds(nodes, id)) removed.add(child);
+  for (const id of removed) for (const child of subtreeIds(nodes, id)) removed.add(child);
   nodes = nodes.filter((node) => !removed.has(node.id));
   byId = new Map(nodes.map((node) => [node.id, node]));
   const renderedBefore = new Map(resolveVariantNodes(before).map((node) => [node.id, node]));
@@ -157,17 +203,17 @@ export function reconcileComponentStructure(
     const master = byId.get(root.instanceOf);
     if (!master?.isComponent) return;
     visiting.add(rootId);
-    let sources = componentSubtreeIds(nodes, master.id);
+    let sources = subtreeIds(nodes, master.id);
     if (sources.has(rootId)) throw new Error("A component cannot contain an instance of itself.");
     for (const id of sources) {
       const child = byId.get(id)!;
       if (child.instanceOf && child.instanceOf === child.componentSourceId) refresh(id);
     }
-    sources = componentSubtreeIds(nodes, master.id);
-    const subtree = componentSubtreeIds(nodes, rootId);
+    sources = subtreeIds(nodes, master.id);
+    const subtree = subtreeIds(nodes, rootId);
     const copies = new Map<string, DesignNode>();
-    for (const node of nodes)
-      if (subtree.has(node.id) && node.instanceOf === master.id && node.componentSourceId) {
+    for (const node of subtreeNodes(nodes, subtree, byId))
+      if (node.instanceOf === master.id && node.componentSourceId) {
         if (copies.has(node.componentSourceId))
           throw new Error(
             "Duplicate linked component child. Detach before changing instance structure.",
@@ -180,7 +226,7 @@ export function reconcileComponentStructure(
         id === master.id ? rootId : (copies.get(id)?.id ?? instanceChildId(rootId, id)),
       ]),
     );
-    const sourceNodes = nodes.filter((node) => sources.has(node.id));
+    const sourceNodes = subtreeNodes(nodes, sources, byId);
     const newNodes = sourceNodes.map((source) => {
       const existing = copies.get(source.id);
       const id = ids.get(source.id)!;
@@ -216,8 +262,8 @@ export function reconcileComponentStructure(
       return existing && equal(existing, copy) ? existing : copy;
     });
     const local = master.librarySource
-      ? nodes.filter(
-          (node) => subtree.has(node.id) && node.id !== rootId && node.instanceOf !== master.id,
+      ? subtreeNodes(nodes, subtree, byId).filter(
+          (node) => node.id !== rootId && node.instanceOf !== master.id,
         )
       : [];
     const localIds = new Set(local.map((node) => node.id));
@@ -230,13 +276,10 @@ export function reconcileComponentStructure(
       }
     const previousRoot = old.get(rootId);
     if (previousRoot?.instanceOf === master.id) {
-      const priorIds = componentSubtreeIds(before, rootId);
+      const priorIds = subtreeIds(before, rootId);
       const priorCopies = new Map(
-        before
-          .filter(
-            (node) =>
-              priorIds.has(node.id) && node.instanceOf === master.id && node.componentSourceId,
-          )
+        subtreeNodes(before, priorIds, old)
+          .filter((node) => node.instanceOf === master.id && node.componentSourceId)
           .map((node) => [node.componentSourceId!, node]),
       );
       for (const source of sourceNodes) {
@@ -253,19 +296,17 @@ export function reconcileComponentStructure(
         )
           throw new Error("Detach the instance before reparenting its children.");
       }
-      const order = (list: readonly DesignNode[], parent: string) =>
-        list
-          .filter((node) => node.parentId === parent)
-          .map((node) => node.componentSourceId ?? node.id);
       for (const source of sourceNodes) {
         const parent = ids.get(source.id)!;
         const priorOrder = order(before, parent),
           nextOrder = order(nodes, parent);
-        const common = priorOrder.filter((id) => nextOrder.includes(id));
+        const nextIds = new Set(nextOrder);
+        const common = priorOrder.filter((id) => nextIds.has(id));
+        const commonIds = new Set(common);
         if (
           !equal(
             common,
-            nextOrder.filter((id) => common.includes(id)),
+            nextOrder.filter((id) => commonIds.has(id)),
           ) &&
           equal(order(before, source.id), order(nodes, source.id))
         )
@@ -273,17 +314,22 @@ export function reconcileComponentStructure(
       }
     }
     // Keep the instance root's place in its siblings and emit children in source order.
-    const position = nodes.findIndex((node) => node.id === rootId);
+    const position = index(nodes).positions.get(rootId)!;
+    const rootCopy = newNodes.find((node) => node.id === rootId)!;
+    const replacement = [rootCopy, ...newNodes.filter((node) => node.id !== rootId), ...local];
+    // Preserve exact canonical order. Avoid an O(n) array copy and map rebuild
+    // when refresh produced the same contiguous subtree by identity.
+    if (
+      subtree.size === replacement.length &&
+      replacement.every((node, i) => nodes[position + i] === node)
+    ) {
+      visiting.delete(rootId);
+      complete.add(rootId);
+      return;
+    }
     const first = nodes.slice(0, position).filter((node) => !subtree.has(node.id));
     const rest = nodes.slice(position + 1).filter((node) => !subtree.has(node.id));
-    const rootCopy = newNodes.find((node) => node.id === rootId)!;
-    nodes = [
-      ...first,
-      rootCopy,
-      ...newNodes.filter((node) => node.id !== rootId),
-      ...local,
-      ...rest,
-    ];
+    nodes = [...first, ...replacement, ...rest];
     if (nodes.length > 5000) throw new Error("Component update exceeds the 5000-layer limit.");
     byId = new Map(nodes.map((node) => [node.id, node]));
     visiting.delete(rootId);

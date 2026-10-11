@@ -112,14 +112,18 @@ async function observeTracedRequest(
     const response = await traceOperation("worker.routing", handle);
     status = response.status;
     const contentType = response.headers.get("content-type")?.split(";", 1)[0].trim();
-    // OpenNext resolves its Response when headers are ready, before rendering
-    // finishes. Only finite page/RSC bodies need this extra lifecycle tracking.
-    // Leave WebSocket upgrades, assets and API responses untouched.
+    // OpenNext pages and legacy MCP POSTs can return headers before their work
+    // completes. Keep the request trace alive through those finite streams, so
+    // MCP execution/database spans aren't marked unfinished at SSE headers.
+    // Other API streams and WebSocket upgrades retain their existing lifecycle.
     watchingBody =
-      request.method === "GET" &&
       status !== 101 &&
       response.body !== null &&
-      (contentType === "text/html" || contentType === "text/x-component");
+      ((request.method === "GET" &&
+        (contentType === "text/html" || contentType === "text/x-component")) ||
+        (request.method === "POST" &&
+          details.route === "/api/mcp" &&
+          contentType === "text/event-stream"));
     if (!watchingBody) {
       const elapsedMs = elapsed();
       if (status >= 500 || elapsedMs >= 1000) {
