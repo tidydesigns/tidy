@@ -1058,20 +1058,10 @@ export async function deleteDocumentNode(
           changed = true;
         }
     }
-    const tombstones = current.content.nodes
-      .filter((node) => removed.has(node.id) && node.importKey && node.sourceKey)
-      .map((node) => ({ importKey: node.importKey!, sourceKey: node.sourceKey! }));
-    const deletedSourceKeys = [...(current.content.deletedSourceKeys ?? []), ...tombstones].filter(
-      (item, index, all) =>
-        all.findIndex(
-          (other) => other.importKey === item.importKey && other.sourceKey === item.sourceKey,
-        ) === index,
-    );
     const document = trackDocumentChanges(current.content, {
       ...current.content,
       nodes: removeComponentReferences(current.content.nodes, removed),
       editedNodeIds: current.content.editedNodeIds.filter((id) => !removed.has(id)),
-      deletedSourceKeys,
     });
     const revision = current.revision + 1;
     await client.query(

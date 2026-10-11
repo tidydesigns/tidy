@@ -1,4 +1,4 @@
-import { ExpiredDocumentEdit } from "@/lib/design/history-retention";
+import { DOCUMENT_HISTORY_LIMITS, ExpiredDocumentEdit } from "@/lib/design/history-retention";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { getDesignFile } from "@/lib/design/service";
 import { can } from "@/lib/organizations/roles";
@@ -73,7 +73,9 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
       { status: 503 },
     );
   try {
-    const input = inputSchema.parse(await (await boundedRequest(request, 2_000_000)).json());
+    const input = inputSchema.parse(
+      await (await boundedRequest(request, DOCUMENT_HISTORY_LIMITS.operationBytes)).json(),
+    );
     const result = await commitDocumentPatch(
       session.user.id,
       uid,

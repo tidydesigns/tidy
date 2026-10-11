@@ -3,7 +3,9 @@ import type { PoolClient } from "pg";
 export const DOCUMENT_HISTORY_LIMITS = {
   operations: 1000,
   bytes: 16_000_000,
-  operationBytes: 2_000_000,
+  // A bulk delete (and its undo) contains the removed layers. Admit one full
+  // supported capture while keeping total retained history bounded below.
+  operationBytes: 16_000_000,
   days: 7,
 } as const;
 

@@ -2,6 +2,8 @@ import { beforeAll, afterAll, describe, test, expect, mock } from "bun:test";
 import pg from "pg";
 import { blankDesignDocument, buildDrawnNode } from "../design/document";
 import { diffDocument, invertPatch } from "../design/document-patch";
+import { removeLayers } from "../design/document-operations";
+import { trackDocumentChanges } from "../design/edit-document";
 
 mock.module("server-only", () => ({}));
 const url = process.env.MULTIPLAYER_TEST_DATABASE_URL;
@@ -815,6 +817,66 @@ describe.skipIf(!enabled)("local Postgres multiplayer commands", () => {
         )
       ).rows[0].count,
     ).toBeLessThanOrEqual(1000);
+  }, 30_000);
+  test("a multi-megabyte capture can be deleted, undone and deleted again in one edit", async () => {
+    const importKey = "en.wikipedia.org:web-capture/00000000-0000-4000-8000-000000000001";
+    const document = {
+      ...blankDesignDocument(),
+      nodes: Array.from({ length: 3000 }, (_, index) => ({
+        ...buildDrawnNode(
+          `capture-${index}`,
+          index === 0 ? "container" : "text",
+          index === 0 ? null : "capture-0",
+          {
+            x: 0,
+            y: index,
+            width: 100,
+            height: 20,
+          },
+        ),
+        text: "Article text. ".repeat(70),
+        importKey,
+        sourceKey: `capture-${index}`,
+      })),
+      deletedSourceKeys: Array.from({ length: 3030 }, (_, index) => ({
+        importKey,
+        sourceKey: `previous-${index}`,
+      })),
+    };
+    await client.query('update "designDocument" set "content"=$2::jsonb where "fileId"=$1', [
+      fileId,
+      JSON.stringify(document),
+    ]);
+    const patch = diffDocument(
+      document,
+      trackDocumentChanges(document, removeLayers(document, ["capture-0"])),
+    );
+    expect(Buffer.byteLength(JSON.stringify(patch))).toBeGreaterThan(2_000_000);
+    const deleted = await commitDocumentPatch(userA, fileId, crypto.randomUUID(), patch, false);
+    expect(deleted.snapshot.content.nodes).toEqual([]);
+    expect(deleted.snapshot.content.deletedSourceKeys).toEqual([]);
+    const restored = await commitDocumentPatch(
+      userA,
+      fileId,
+      crypto.randomUUID(),
+      invertPatch(deleted.patch),
+      true,
+      undefined,
+      deleted.sequence,
+    );
+    expect(restored.snapshot.content.nodes).toEqual(document.nodes);
+    expect(restored.snapshot.content.deletedSourceKeys).toEqual([]);
+    const redone = await commitDocumentPatch(
+      userA,
+      fileId,
+      crypto.randomUUID(),
+      invertPatch(restored.patch),
+      true,
+      undefined,
+      restored.sequence,
+    );
+    expect(redone.snapshot.content.nodes).toEqual([]);
+    expect(redone.snapshot.content.deletedSourceKeys).toEqual([]);
   }, 30_000);
 });
 

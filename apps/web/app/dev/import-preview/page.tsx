@@ -20,6 +20,16 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
   const query = await searchParams;
   const cropTestAssetId = "00000000-0000-4000-8000-000000000001";
   const cropTest = query.crop === "1";
+  const loginDocument = buildLoginDocument(cropTest ? cropTestAssetId : undefined);
+  if (query.captureHistory === "1") {
+    const importKey = "example.org:web-capture/00000000-0000-4000-8000-000000000001";
+    loginDocument.nodes = loginDocument.nodes.map((node) => ({ ...node, importKey }));
+    // Reproduce a file that reached the old deletion-history limit after captures.
+    loginDocument.deletedSourceKeys = Array.from({ length: 5000 }, (_, index) => ({
+      importKey: "example.org:web-capture/00000000-0000-4000-8000-000000000002",
+      sourceKey: `deleted-${index}`,
+    }));
+  }
   return (
     <FileEditor
       fileId={typeof query.file === "string" ? query.file.slice(0, 120) : "preview"}
@@ -43,7 +53,7 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
                       ? buildComponentsDocument()
                       : query.tokens === "1"
                         ? buildTokenDocument()
-                        : buildLoginDocument(cropTest ? cropTestAssetId : undefined),
+                        : loginDocument,
       }}
       canEdit={query.viewer !== "1"}
       preview={query.edit !== "1"}

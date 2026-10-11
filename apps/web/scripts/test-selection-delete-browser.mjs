@@ -8,8 +8,8 @@ export async function checkSelectionDeletion(vector = false) {
     if (!condition) throw new Error(message);
     results.push(message);
   };
-  const settle = () =>
-    new Promise((resolve) => {
+  const settle = async () => {
+    await new Promise((resolve) => {
       // Background collaborative tabs can suspend animation frames.
       const fallback = setTimeout(resolve, 100);
       requestAnimationFrame(() =>
@@ -19,6 +19,15 @@ export async function checkSelectionDeletion(vector = false) {
         }),
       );
     });
+    // Panel width transitions move the canvas centre. Wait before measuring a
+    // marquee rather than selecting against coordinates from mid-animation.
+    await Promise.allSettled(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getComputedTiming().iterations !== Infinity)
+        .map((animation) => animation.finished),
+    );
+  };
   const canvas = document.querySelector('[aria-label="Design canvas"]');
   const nodes = () => [...canvas.querySelectorAll("[data-node-id]")];
   const selected = () => nodes().filter((node) => node.dataset.selected === "true");
@@ -216,10 +225,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1536, height: 960 } });
-    for (const vector of [false, true]) {
-      await page.goto(`${base}/dev/import-preview?edit=1${vector ? "&vector=1" : ""}`);
+    for (const scenario of ["", "&vector=1", "&captureHistory=1"]) {
+      const vector = scenario === "&vector=1";
+      await page.goto(`${base}/dev/import-preview?edit=1${scenario}`);
       await page.waitForSelector("[data-node-id]");
-      console.log(await page.evaluate(checkSelectionDeletion, vector));
+      console.log(scenario || "standard", await page.evaluate(checkSelectionDeletion, vector));
+      assert.deepEqual(
+        (await page.locator('[role="alert"]').allTextContents()).filter((text) => text.trim()),
+        [],
+        "No editor error is shown",
+      );
     }
   } finally {
     await browser.close();

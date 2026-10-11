@@ -646,6 +646,21 @@ export type DesignNodeChanges = z.infer<typeof designNodeChangesSchema>;
 export type ComponentVariants = z.infer<typeof componentVariantsSchema>;
 export type VariantNodeChanges = z.infer<typeof variantNodeChangesSchema>;
 
+// Web captures use a fresh source route for every copy and never update an
+// earlier import. They do not need deletion markers for future reimports.
+export function isWebCaptureImportKey(key: string): boolean {
+  const marker = key.lastIndexOf(":web-capture/");
+  if (marker <= 0) return false;
+  const ids = key.slice(marker + ":web-capture/".length).split("#");
+  return (
+    ids.length <= 2 &&
+    ids.every((id) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
+  );
+}
+const deletedSourceKeySchema = z
+  .object({ importKey: z.string().max(700), sourceKey: z.string().max(240) })
+  .strict();
+
 export const designDocumentSchema = z
   .object({
     schemaVersion: z.literal(1),
@@ -705,8 +720,12 @@ export const designDocumentSchema = z
       .max(500),
     editedNodeIds: z.array(z.string().max(120)).max(5000).default([]),
     deletedSourceKeys: z
-      .array(z.object({ importKey: z.string().max(700), sourceKey: z.string().max(240) }).strict())
-      .max(5000)
+      .array(deletedSourceKeySchema)
+      // Allow the previous history plus one full-document deletion while
+      // cleaning obsolete web-capture markers. Retained history stays bounded.
+      .max(10000)
+      .transform((items) => items.filter((item) => !isWebCaptureImportKey(item.importKey)))
+      .pipe(z.array(deletedSourceKeySchema).max(5000))
       .default([]),
   })
   .strict();

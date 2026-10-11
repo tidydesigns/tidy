@@ -1,4 +1,5 @@
 "use client";
+import { editorErrorMessage } from "@/lib/design/editor-error";
 import { ImageEditor } from "./image-editor";
 import {
   imageEditNode,
@@ -972,7 +973,7 @@ export function FileEditor({
       const content = trackDocumentChanges(before.content, transform(before.content));
       patch = diffDocument(before.content, content);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not change layers.");
+      setError(editorErrorMessage(cause, "Could not change layers."));
       return;
     }
     if (!patch.length) {
@@ -1005,7 +1006,7 @@ export function FileEditor({
       });
       await committed;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not change layers.");
+      setError(editorErrorMessage(cause, "Could not change layers."));
     } finally {
       pendingCountRef.current--;
       busyRef.current = pendingCountRef.current > 0;
@@ -1039,7 +1040,7 @@ export function FileEditor({
       setAssetError("");
     } catch (cause) {
       if (version !== assetRequests.current.version) return;
-      setAssetError(cause instanceof Error ? cause.message : "Could not load assets.");
+      setAssetError(editorErrorMessage(cause, "Could not load assets."));
     } finally {
       if (version === assetRequests.current.version) setAssetLoading(false);
     }
@@ -1104,7 +1105,7 @@ export function FileEditor({
     try {
       if (!captured) validatePlacementTarget(room.getSnapshot().content, target);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Invalid destination.");
+      setError(editorErrorMessage(cause, "Invalid destination."));
       return;
     }
     const version = selectionVersion.current;
@@ -1135,14 +1136,14 @@ export function FileEditor({
           });
         } catch (cause) {
           failures.push(
-            `${file.name || "Image"}: ${cause instanceof Error ? cause.message : "Could not upload image."}`,
+            `${file.name || "Image"}: ${editorErrorMessage(cause, "Could not upload image.")}`,
           );
         }
       }
       if (assets.length) await completeAssets(assets, target, version, captured);
       if (failures.length) setError(failures.join(" "));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not place images.");
+      setError(editorErrorMessage(cause, "Could not place images."));
     } finally {
       uploadInProgress.current = false;
       setUploading(false);
@@ -1166,7 +1167,7 @@ export function FileEditor({
         version,
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not place asset.");
+      setError(editorErrorMessage(cause, "Could not place asset."));
     } finally {
       uploadInProgress.current = false;
       setUploading(false);
@@ -1265,7 +1266,7 @@ export function FileEditor({
       );
       void loadAssets();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not upload fill image.");
+      setError(editorErrorMessage(cause, "Could not upload fill image."));
     }
   }
 
@@ -1287,7 +1288,7 @@ export function FileEditor({
       for (const file of result.files) downloadBlob(file.blob, file.name);
       setExportWarnings(result.warnings);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not export selection.");
+      setError(editorErrorMessage(cause, "Could not export selection."));
     } finally {
       exportRunning.current = false;
       setExportPending(false);
@@ -1317,7 +1318,7 @@ export function FileEditor({
     } catch (error) {
       if (version === nameVersionRef.current) {
         setName(previous);
-        setError(error instanceof Error ? error.message : "Could not rename the file.");
+        setError(editorErrorMessage(error, "Could not rename the file."));
       }
     } finally {
       if (version === nameVersionRef.current) nameSavingRef.current = false;
@@ -1429,7 +1430,7 @@ export function FileEditor({
     try {
       await action.committed;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not undo this edit.");
+      setError(editorErrorMessage(cause, "Could not undo this edit."));
     } finally {
       pendingCountRef.current--;
       busyRef.current = pendingCountRef.current > 0;
@@ -1594,7 +1595,9 @@ export function FileEditor({
       width = nextWidth;
       height = nextHeight;
       // Preserve the current canvas centre throughout panel motion, including reversals.
-      if (dx || dy) {
+      // Clearing selection can collapse the inspector during a marquee. Keep
+      // artwork under the pointer instead of moving its hit bounds mid-drag.
+      if ((dx || dy) && !marqueeRef.current) {
         // ResizeObserver runs before paint; commit now to avoid a stale canvas position
         // being painted against the next panel width for one frame.
         flushSync(() =>
@@ -1761,7 +1764,7 @@ export function FileEditor({
       );
       void changeDocument(() => wrapped.document, wrapped.id);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not wrap layers.");
+      setError(editorErrorMessage(cause, "Could not wrap layers."));
     }
   }
 
@@ -1937,8 +1940,7 @@ export function FileEditor({
       }
       if (!signal?.aborted) await commitClipboard(payload, context, inPlace);
     } catch (cause) {
-      if (!signal?.aborted)
-        setError(cause instanceof Error ? cause.message : "Could not paste layers.");
+      if (!signal?.aborted) setError(editorErrorMessage(cause, "Could not paste layers."));
     }
   }
 
@@ -1989,7 +1991,7 @@ export function FileEditor({
         if (event.type === "cut")
           void changeDocument((content) => removeLayers(content, selectedIds), null);
       } catch (cause) {
-        setError(cause instanceof Error ? cause.message : "Could not copy layers.");
+        setError(editorErrorMessage(cause, "Could not copy layers."));
       }
     }
     function paste(event: ClipboardEvent) {
@@ -3930,7 +3932,7 @@ export function FileEditor({
                       ),
                     });
                   } catch (cause) {
-                    setError(cause instanceof Error ? cause.message : "Could not scale layers.");
+                    setError(editorErrorMessage(cause, "Could not scale layers."));
                   }
                 }}
                 onScaleCommit={(factor) => {
@@ -3962,7 +3964,7 @@ export function FileEditor({
                       ),
                     });
                   } catch (cause) {
-                    setError(cause instanceof Error ? cause.message : "Could not resize layers.");
+                    setError(editorErrorMessage(cause, "Could not resize layers."));
                   }
                 }}
                 onResizeCommit={(handle, delta, centered, aspect) => {
@@ -3975,7 +3977,7 @@ export function FileEditor({
                       resizeSelectedLayers(content, gesture.ids, target, gesture.boxes),
                     );
                   } catch (cause) {
-                    setError(cause instanceof Error ? cause.message : "Could not resize layers.");
+                    setError(editorErrorMessage(cause, "Could not resize layers."));
                     room.restore();
                   }
                 }}
@@ -4046,9 +4048,7 @@ export function FileEditor({
                     });
                   } catch (cause) {
                     room.restore();
-                    setError(
-                      cause instanceof Error ? cause.message : "Could not preview this point edit.",
-                    );
+                    setError(editorErrorMessage(cause, "Could not preview this point edit."));
                   }
                 }}
                 onCommit={(contours) => {

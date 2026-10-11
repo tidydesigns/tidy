@@ -1,5 +1,6 @@
 import {
   designNodeSchema,
+  isWebCaptureImportKey,
   parseDesignDocument,
   type DesignDocument,
   type DesignNode,
@@ -227,7 +228,7 @@ export function trackDocumentChanges(
   for (const node of before.nodes) {
     const next = nextNodes.get(node.id);
     if (node.importKey && next && !equalJsonValues(node, next)) edited.add(node.id);
-    if (!next && node.importKey && node.sourceKey)
+    if (!next && node.importKey && node.sourceKey && !isWebCaptureImportKey(node.importKey))
       deleted.push({ importKey: node.importKey, sourceKey: node.sourceKey });
   }
   return parseDesignDocument({
