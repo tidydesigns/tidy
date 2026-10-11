@@ -191,10 +191,18 @@ export function protectedBounds(): { bounds: DOMRect; backgrounds?: string[] }[]
 // Screen-reader helpers have layout boxes but no painted pixels. Do not expose
 // their text or spend raster slots attempting to capture an empty clipping area.
 export function isFullyClipped(css: CSSStyleDeclaration): boolean {
-  const rect = css.clip
-    ?.match(/^rect\(([^)]+)\)$/)?.[1]
-    ?.match(/-?[\d.]+px/g)
-    ?.map(parseFloat);
+  const clip = css.clip ?? "";
+  const parts =
+    clip.length < 512 && clip.startsWith("rect(") && clip.endsWith(")")
+      ? clip
+          .slice(5, -1)
+          .trim()
+          .split(/[,\s]+/)
+      : [];
+  const rect =
+    parts.length === 4 && parts.every((value) => /^-?(?:\d+(?:\.\d+)?|\.\d+)px$/.test(value))
+      ? parts.map(parseFloat)
+      : [];
   if (rect?.length === 4 && ["absolute", "fixed"].includes(css.position))
     return rect[2]! <= rect[0]! || rect[1]! <= rect[3]!;
   return false;
@@ -211,7 +219,15 @@ export function hasPaintedPseudo(css: CSSStyleDeclaration): boolean {
     return false;
   if (!['""', "''"].includes(css.content)) return true;
   const opaque = (color: string) =>
-    Boolean(color && color !== "transparent" && !/rgba\([^)]*,\s*0\s*\)/.test(color));
+    Boolean(
+      color &&
+      color !== "transparent" &&
+      !(
+        color.startsWith("rgba(") &&
+        color.endsWith(")") &&
+        Number(color.slice(5, -1).split(",")[3]) === 0
+      ),
+    );
   return Boolean(
     opaque(css.backgroundColor) ||
     (css.backgroundImage && css.backgroundImage !== "none") ||
