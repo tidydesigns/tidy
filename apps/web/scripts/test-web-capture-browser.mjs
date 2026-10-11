@@ -64,11 +64,22 @@ try {
       #pseudo::after{content:"+";position:absolute;left:13px;top:8px;font:20px Arial;color:white}
       #carousel{position:absolute;left:400px;top:480px;width:80px;height:80px;overflow:hidden}
       #partial{left:950px;top:450px;width:100px;height:100px}
+      #tabs{position:absolute;left:30px;top:90px;display:flex;gap:20px;background:color(srgb 0 0 0 / 0)}
+      #tabs span{border-bottom:3px solid transparent;padding-bottom:8px}
+      #tabs .active{border-bottom-color:#ddd}
+      #search-pill{position:absolute;left:300px;top:20px;width:400px;height:40px;border:1px solid #4d5156;border-radius:20px;background:#363840}
+      .filtered{position:absolute;left:850px;top:1200px;width:12px;height:12px;filter:grayscale(.3);background:#c17544}
+      #contents{display:contents;overflow:hidden}
+      #contents::after{content:""}
+      .repeated-icon{position:absolute;left:850px;top:650px;width:12px;height:12px;background:#498df4;filter:grayscale(.3)}
       </style><main>
+      ${Array.from({ length: 105 }, (_, i) => `<div class="filtered" style="top:${1200 + i * 3}px;background:rgb(${i},100,140)"></div>`).join("")}
       ${Array.from({ length: 105 }, (_, i) => `<img alt="Offscreen ${i}" style="left:${(i % 10) * 90}px;top:${1200 + Math.floor(i / 10) * 40}px" src="${image(`#${(0x100000 + i * 1001).toString(16)}`)}">`).join("")}
       ${Array.from({ length: 120 }, (_, i) => `<img alt="Repeated ${i}" style="width:12px;height:12px;left:${30 + (i % 60) * 14}px;top:${600 + Math.floor(i / 60) * 20}px" src="${image("#396594")}">`).join("")}
       <svg width="0" height="0" style="position:absolute"><defs><symbol id="social" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></symbol></defs></svg>
-      <section id="hero">${["#ba7750", "#659cba", "#7d60ad", "#5d9655", "#c08c43"].map((color, i) => `<img alt="Hero ${i}" style="left:${i * 96}px" src="${image(color)}">`).join("")}</section>
+      <div id="contents"><section id="hero">${["#ba7750", "#659cba", "#7d60ad", "#5d9655", "#c08c43"].map((color, i) => `<img alt="Hero ${i}" style="left:${i * 96}px" src="${image(color)}">`).join("")}</section></div>
+      <nav id="tabs"><span class="active">All</span><span>Images</span><span>News</span></nav><div id="search-pill"></div>
+      ${Array.from({ length: 10 }, (_, i) => `<div class="repeated-icon" style="left:${850 + i * 13}px"></div>`).join("")}
       <div id="divider"></div><div id="edges"></div>
       <svg class="symbol" style="top:250px"><use href="#social"/></svg>
       <svg class="symbol" style="top:1100px"><use href="#social"/></svg>
@@ -155,6 +166,14 @@ try {
   });
   await page.addScriptTag({ content: await readFile(bundle, "utf8") });
   await page.addScriptTag({ content: browserCaptureScript });
+  const borderSamples = search
+    ? await page.evaluate(() =>
+        [...document.querySelectorAll("#tabs span, #search-pill")].map((element) => {
+          const box = element.getBoundingClientRect();
+          return { x: Math.floor(box.left + box.width / 2), y: Math.floor(box.bottom - 1) };
+        }),
+      )
+    : [];
   const viewport = await page.evaluate(
     (selector) => globalThis.__tidyCapture.prepare({ selector }),
     selector,
@@ -199,11 +218,17 @@ try {
     assert.ok(
       edges.style.borderBottomColor && edges.style.borderLeftColor && edges.style.borderRightColor,
     );
-    for (let i = 0; i < 5; i++)
-      assert.ok(
-        capture.document.nodes.some((node) => node.name === `Hero ${i}`),
-        "Visible hero images survive offscreen image pressure",
-      );
+    assert.ok(
+      capture.document.nodes.some((node) => node.name.startsWith("contents:")),
+      "Visible photo group survives offscreen image pressure",
+    );
+    const icons = capture.document.nodes.filter((node) => node.name.startsWith("repeated-icon:"));
+    assert.equal(icons.length, 10);
+    assert.equal(
+      new Set(icons.map((node) => node.assetId)).size,
+      1,
+      "Repeated raster effects share an asset",
+    );
     const repeated = capture.document.nodes.filter((node) => node.name.startsWith("Repeated "));
     assert.equal(repeated.length, 120);
     assert.equal(
@@ -352,34 +377,21 @@ try {
     async ({ capture, width, height }) => {
       const root = document.createElement("div");
       root.style.cssText = `position:relative;width:${width}px;height:${height}px;background:#fff;overflow:hidden`;
-      const byId = new Map();
-      for (const node of capture.document.nodes) {
-        const el = document.createElement("div"),
-          style = window.nodeStyle(node, "absolute", {});
-        for (const [key, value] of Object.entries(style))
-          if (value !== undefined)
-            el.style[key] =
-              typeof value === "number" &&
-              !["opacity", "zIndex", "fontWeight", "lineHeight", "flexGrow", "flexShrink"].includes(
-                key,
-              )
-                ? `${value}px`
-                : String(value);
-        if (node.type === "text") window.renderText(el, node);
-        if (node.type === "image" || node.type === "vector") {
-          const img = document.createElement("img"),
-            asset = capture.assets.find((asset) => asset.id === node.assetId);
-          img.src = `data:${asset.mimeType};base64,${asset.base64}`;
-          Object.assign(img.style, window.imageStyle(node), { display: "block" }); // Match Tidy's Tailwind preflight.
-          el.append(img);
-          await img.decode();
-        }
-        (byId.get(node.parentId) || root).append(el);
-        byId.set(node.id, el);
-      }
       for (const style of document.querySelectorAll("style, link[rel=stylesheet]")) style.remove();
       document.body.replaceChildren(root);
       document.body.style.cssText = "margin:0;padding:0";
+      window.renderCapture(
+        root,
+        capture.document,
+        Object.fromEntries(
+          capture.assets.map((asset) => [
+            asset.id,
+            `data:${asset.mimeType};base64,${asset.base64}`,
+          ]),
+        ),
+      );
+      await Promise.all([...document.images].map((image) => image.decode().catch(() => {})));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
       window.scrollTo(0, 0);
     },
     { capture, width, height },
@@ -427,6 +439,14 @@ try {
               { name: "right forest", x: 710, y: 150, width: 290, height: 550 },
               { name: "laptop", x: 290, y: 230, width: 420, height: 320 },
             ];
+  for (const { x, y } of borderSamples) {
+    const index = (y * width + x) * 3;
+    assert.deepEqual(
+      pixels[1].subarray(index, index + 3),
+      pixels[0].subarray(index, index + 3),
+      "React rendering retains the exact active, transparent and dark border pixels",
+    );
+  }
   for (const region of regions) {
     let total = 0;
     for (let y = region.y; y < region.y + region.height; y++)

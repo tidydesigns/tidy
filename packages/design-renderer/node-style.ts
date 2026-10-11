@@ -49,6 +49,7 @@ export function nodeStyle(
     parentLayout === "flex-column" ? node.widthMode === "fill" : node.heightMode === "fill";
   const radius = node.style.radius ?? 0;
   const border = node.style.borderWidth ?? 0;
+  const stroke = strokeStyle(node, tokens);
   const parentGap =
     parentLayout === "flex-row"
       ? (parent?.columnGap ?? parent?.gap ?? 0)
@@ -158,10 +159,13 @@ export function nodeStyle(
         : fill,
     color,
     borderColor: borderColor ?? "#000000",
-    borderTopColor: node.style.borderTopColor,
-    borderRightColor: node.style.borderRightColor,
-    borderBottomColor: node.style.borderBottomColor,
-    borderLeftColor: node.style.borderLeftColor,
+    // React clears undefined longhands after applying a shorthand. Explicit
+    // fallbacks keep a transparent/dark common border from becoming currentColor.
+    borderTopColor: stroke.borderColor ?? node.style.borderTopColor ?? borderColor ?? "#000000",
+    borderRightColor: stroke.borderColor ?? node.style.borderRightColor ?? borderColor ?? "#000000",
+    borderBottomColor:
+      stroke.borderColor ?? node.style.borderBottomColor ?? borderColor ?? "#000000",
+    borderLeftColor: stroke.borderColor ?? node.style.borderLeftColor ?? borderColor ?? "#000000",
     borderStyle: node.style.borderStyle ?? "solid",
     borderTopWidth: node.style.borderTopWidth ?? border,
     borderRightWidth: node.style.borderRightWidth ?? border,
@@ -214,7 +218,7 @@ export function nodeStyle(
     whiteSpace:
       node.type === "text" ? (node.style.textWrap === "nowrap" ? "pre" : "pre-wrap") : undefined,
     ...constraintStyle(node, parent, absolute),
-    ...strokeStyle(node, tokens),
+    ...stroke,
     ...(node.vectorPath
       ? {
           background: undefined,

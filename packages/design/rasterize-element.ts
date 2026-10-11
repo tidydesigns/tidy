@@ -16,6 +16,10 @@ export async function rasterizeElement(element: Element, bounds: DOMRect): Promi
       throw new Error("Visual group exceeds the rendering budget.");
   };
   const rootCss = getComputedStyle(element);
+  // A boxless wrapper cannot be positioned in an isolated foreignObject.
+  // It can decode successfully while painting its children outside the crop.
+  // Use the visible screenshot or retain the editable descendants instead.
+  if (rootCss.display === "contents") throw new Error("Boxless visual groups need a screenshot.");
   // Perspective/3D on a parent must be captured with that parent, not a child.
   if (
     (rootCss.perspective && rootCss.perspective !== "none") ||

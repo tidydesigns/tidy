@@ -49,6 +49,13 @@ test("stroke placement changes ink bounds while retaining per-side layout widths
       style.borderLeftWidth,
     ]).toEqual([4, 8, 12, 16]);
     expect([style.width, style.height]).toEqual([100, 100]);
+    if (fraction > 0)
+      expect([
+        style.borderTopColor,
+        style.borderRightColor,
+        style.borderBottomColor,
+        style.borderLeftColor,
+      ]).toEqual(["transparent", "transparent", "transparent", "transparent"]);
   }
   expect(strokeStyle(base, {}).borderImageSource).toBeUndefined();
   expect(

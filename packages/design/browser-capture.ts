@@ -140,7 +140,7 @@ export function captureStyle(
       radiusTopRight: 0,
       radiusBottomRight: 0,
       radiusBottomLeft: 0,
-      color: cssColor(css.color) ?? "#000000",
+      color: cssColor(css.color, true) ?? "#000000",
       fontSize: size,
       fontFamily: css.fontFamily.slice(0, 100),
       fontWeight: clamp(px(css.fontWeight) || 400, 100, 900),
@@ -451,17 +451,23 @@ export async function captureElement(
     overlay = false,
     parent?: CaptureParent,
   ) => {
-    const bytes = tiles.reduce((sum, tile) => sum + tile.base64.length, 0);
+    const unique = new Set(
+      tiles.map((tile) => tile.base64).filter((pixels) => !assetIds.has(pixels)),
+    );
+    const bytes = [...unique].reduce((sum, pixels) => sum + pixels.length, 0);
     if (
       assetBytes + bytes > MAX_ASSET_BASE64_BYTES ||
-      result.assets.length + tiles.length > 100 ||
+      result.assets.length + unique.size > 100 ||
       result.document.nodes.length + tiles.length + 1 > 4900
     )
       throw new Error("Raster capture budget exceeded.");
     assetBytes += bytes;
     const assets = tiles.map((tile) => {
+      const existing = assetIds.get(tile.base64);
+      if (existing) return existing;
       const id = crypto.randomUUID();
       result.assets.push({ id, mimeType: "image/png", base64: tile.base64 });
+      assetIds.set(tile.base64, id);
       return id;
     });
     const render = () => {
@@ -793,6 +799,8 @@ export async function captureElement(
     // window. Those pixels cannot contribute to this import or its budget.
     for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
       const style = getComputedStyle(ancestor);
+      // display:contents has no CSS box; its overflow cannot clip descendants.
+      if (style.display === "contents") continue;
       const clipX = ["hidden", "clip", "auto", "scroll"].includes(
         style.overflowX || style.overflow,
       );
@@ -824,6 +832,7 @@ export async function captureElement(
       ),
       run: async () => {
         const index = result.document.nodes.indexOf(marker);
+        if (index < 0) return; // An ancestor was already rasterized.
         result.document.nodes.splice(index, 1);
         const start = result.document.nodes.length;
         await asset(element, bounds, css, backgroundUrl, parent);
@@ -834,7 +843,12 @@ export async function captureElement(
   };
   let visited = 0;
   let lastYield = performance.now();
-  const visit = async (element: Element, depth: number, parent?: CaptureParent) => {
+  const visit = async (
+    element: Element,
+    depth: number,
+    parent?: CaptureParent,
+    skipEffect = false,
+  ) => {
     if (performance.now() > deadline)
       throw new Error("This capture took too long. Select a smaller portion of the page.");
     if (++visited > 15000 || depth > 80 || result.document.nodes.length >= 5000) {
@@ -864,11 +878,53 @@ export async function captureElement(
         pseudoCss.content &&
         !["none", "normal"].includes(pseudoCss.content) &&
         pseudoCss.display !== "none" &&
-        pseudoCss.visibility !== "hidden"
+        pseudoCss.visibility !== "hidden" &&
+        pseudoCss.opacity !== "0"
       )
         effect ??= rasterEffect(pseudoCss) ?? "Generated CSS content";
     }
-    if (effect && (await rasterize(element, effect, parent))) return;
+    let visualBounds: DOMRect | undefined;
+    if (effect && !skipEffect) {
+      try {
+        visualBounds = effectBounds(element);
+      } catch {
+        warn(
+          "Some visual groups exceeded the capture complexity limit; editable layers were retained.",
+        );
+      }
+    }
+    if (effect && !skipEffect && visualBounds) {
+      // Effects share the image budget with ordinary photos. Queue both kinds
+      // in viewport order so offscreen decorations cannot consume every slot.
+      // Keep editable fallbacks until the group has actually been rendered.
+      const marker = { id: crypto.randomUUID() } as DesignNode;
+      result.document.nodes.push(marker);
+      let fallback: DesignNode[] = [];
+      const reason = effect;
+      assetJobs.push({
+        visible: Boolean(
+          intersectBounds(
+            visualBounds,
+            new DOMRect(0, 0, startViewport.width, startViewport.height),
+          ),
+        ),
+        run: async () => {
+          const index = result.document.nodes.indexOf(marker);
+          if (index < 0) return;
+          result.document.nodes.splice(index, 1);
+          const start = result.document.nodes.length;
+          if (!(await rasterize(element, reason, parent))) return;
+          const added = result.document.nodes.splice(start);
+          const removed = new Set(fallback);
+          result.document.nodes = result.document.nodes.filter((node) => !removed.has(node));
+          result.document.nodes.splice(index, 0, ...added);
+        },
+      });
+      const start = result.document.nodes.length;
+      await visit(element, depth, parent, true);
+      fallback = result.document.nodes.slice(start);
+      return;
+    }
     const style = captureStyle(css, false, bounds);
     // The propagated color is already on every artboard. Painting it again at
     // body bounds would double the opacity of translucent canvas backgrounds.
@@ -909,9 +965,9 @@ export async function captureElement(
       style.fill = undefined;
     }
     if (
-      (css.color && !cssColor(css.color)) ||
+      (css.color && !cssColor(css.color, true)) ||
       (css.backgroundColor &&
-        !cssColor(css.backgroundColor) &&
+        !cssColor(css.backgroundColor, true) &&
         css.backgroundColor !== "rgba(0, 0, 0, 0)" &&
         css.backgroundColor !== "transparent")
     )
@@ -944,7 +1000,7 @@ export async function captureElement(
         bounds,
         parent,
       );
-      if (clips || style.opacity! < 1) {
+      if (nodes.size && (clips || style.opacity! < 1)) {
         for (const node of nodes.values()) node.style.overflow = clips ? "hidden" : "visible";
         contentParent = {
           bounds: new Map(
@@ -1078,7 +1134,7 @@ export async function captureElement(
     }
     for (const pseudo of ["::before", "::after"]) {
       const content = getComputedStyle(element, pseudo).content;
-      if (content && content !== "none" && content !== "normal" && content !== '""')
+      if (!effect && content && content !== "none" && content !== "normal" && content !== '""')
         warn("Generated CSS content may be missing; text and shapes remain editable.");
     }
   };
