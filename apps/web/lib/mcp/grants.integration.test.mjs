@@ -16,6 +16,8 @@ const { withMcpGrantOperation } = await import("./grant-operation");
 const { consumeMcpCall, meterMcpServer } = await import("./usage");
 const { runWithRequestSignal } = await import("../request-lifecycle");
 const { blankDesignDocument } = await import("../design/document");
+const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
+const { linearReadFixture } = await import("./linear-read-fixture.mjs");
 const { renameDesignFileForUser } = await import("../design/service");
 const { withoutDatabaseScope, inDatabaseScope, scopedDatabaseClient } =
   await import("../database-scope");
@@ -30,7 +32,22 @@ const enabled = Boolean(
   ) &&
   new URL(testUrl).port === new URL(setupUrl).port,
 );
-const integration = enabled ? test : test.skip;
+const integration = enabled && process.env.MCP_BENCHMARK !== "1" ? test : test.skip;
+if (enabled && process.env.MCP_BENCHMARK === "1") {
+  test(
+    "MCP local HTTP performance benchmark",
+    async () => {
+      if (process.env.MCP_WORKFLOW === "1") {
+        const { serveMcpWorkflow } = await import("./workflow-server.mjs");
+        await serveMcpWorkflow({ POST, auth, admin, grant, fetch: originalFetch });
+      } else {
+        const { benchmarkMcp } = await import("./performance-benchmark.mjs");
+        await benchmarkMcp({ POST, auth, admin, grant, fetch: originalFetch });
+      }
+    },
+    process.env.MCP_WORKFLOW === "1" ? 7_200_000 : 180_000,
+  );
+}
 const resource = "http://localhost:3000/api/mcp",
   originalFetch = globalThis.fetch;
 let admin;
@@ -1853,6 +1870,247 @@ afterAll(async () => {
   }
 });
 
+integration("MCP slow provider reads release workspace gates and pool connections", async () => {
+  const held = pause();
+  const fixture = await linearReadFixture(admin, held.hook);
+  const slow = request("tools/call", fixture.params, { scope: fixture.scope });
+  try {
+    await held.entered;
+    expect(
+      Number(
+        (
+          await admin.query(
+            "select count(*) from pg_stat_activity where usename='tidy_runtime_fixture' and state='idle in transaction'",
+          )
+        ).rows[0].count,
+      ),
+    ).toBe(0);
+    // This write must complete while the provider remains paused.
+    const write = await request("tools/call", {
+      name: "rename_file",
+      arguments: { file_id: "file-a", name: "Concurrent" },
+    });
+    expect((await responseMessage(write)).result.isError).not.toBe(true);
+    expect(await fileName()).toBe("Concurrent");
+    held.release();
+    expect((await responseMessage(await slow)).result.isError).not.toBe(true);
+    expect(await calls()).toBe(2);
+  } finally {
+    held.release();
+    await slow.catch(() => {});
+    fixture.restore();
+  }
+});
+
+for (const revoke of ["consent", "membership", "expiry", "parent", "credential"])
+  integration(`MCP provider read refuses publication after ${revoke} changes`, async () => {
+    const held = pause();
+    const fixture = await linearReadFixture(admin, held.hook);
+    const slow = request("tools/call", fixture.params, { scope: fixture.scope });
+    try {
+      await held.entered;
+      if (revoke === "consent") await revokeMcpAuthorization("alice", "client-a");
+      if (revoke === "membership")
+        await admin.query('delete from "member" where "id"=\'member-a\'');
+      if (revoke === "expiry")
+        await admin.query(
+          'update "session" set "expiresAt"=clock_timestamp() where "id"=\'session-a\'',
+        );
+      if (revoke === "parent")
+        await admin.query('update "connectorConnection" set "organizationId"=\'org-b\'');
+      if (revoke === "credential")
+        await admin.query(
+          'update "connectorAccount" set "state"=\'reconnect\', "credentials"=null',
+        );
+      held.release();
+      const result = (await responseMessage(await slow)).result;
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent).toBeUndefined();
+      expect(await calls()).toBe(1);
+    } finally {
+      held.release();
+      await slow.catch(() => {});
+      fixture.restore();
+    }
+  });
+
+integration(
+  "MCP document pages preserve ordering, metadata, empty bounds and tenant access",
+  async () => {
+    const { designNodeSchema } = await import("../design/document");
+    const document = blankDesignDocument();
+    document.nodes = Array.from({ length: 12 }, (_, i) =>
+      designNodeSchema.parse({
+        id: `node-${i}`,
+        name: `Layer ${i}`,
+        type: "container",
+        parentId: null,
+        box: { x: i, y: 0, width: 10, height: 10 },
+      }),
+    );
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const page = await getDocumentPage("alice", "file-a", 4, 3);
+    expect(page.nodes).toEqual(document.nodes.slice(4, 7));
+    expect(page).toMatchObject({
+      revision: 1,
+      offset: 4,
+      totalNodes: 12,
+      nextOffset: 7,
+      schemaVersion: document.schemaVersion,
+    });
+    expect((await getDocumentPage("alice", "file-a", 11, 3)).nextOffset).toBeNull();
+    expect((await getDocumentPage("alice", "file-a", 100, 3)).nodes).toEqual([]);
+    expect(await getDocumentPage("bob", "file-a", 0, 3)).toBeNull();
+    await expect(getDocumentPage("alice", "file-a", -1, 3)).rejects.toThrow();
+    await expect(getDocumentPage("alice", "file-a", 0, 251)).rejects.toThrow();
+    // Removing redundant validation must still reject invalid graphs atomically.
+    await expect(
+      patchDocumentNode("alice", "file-a", 1, "node-0", { parentId: "missing" }),
+    ).rejects.toThrow();
+    expect((await getDocumentPage("alice", "file-a", 0, 3)).revision).toBe(1);
+  },
+);
+
+integration(
+  "MCP modern discovery is cacheable and body/header disagreement cannot dispatch",
+  async () => {
+    const { token } = await auth.api.signJWT({
+      body: { payload: grant({ scope: "mcp:read" }).claims },
+    });
+    const modern = (method, params = {}, headers = {}) =>
+      POST(
+        new Request(resource, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": method,
+            ...headers,
+          },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method,
+            params: {
+              ...params,
+              _meta: {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": { name: "fixture", version: "1" },
+                "io.modelcontextprotocol/clientCapabilities": {},
+              },
+            },
+          }),
+        }),
+      );
+    const list = await responseMessage(await modern("tools/list"));
+    expect(list.result.ttlMs).toBe(300_000);
+    expect(list.result.cacheScope).toBe("private");
+    expect(list.result.tools.some((tool) => tool.name === "get_document")).toBe(true);
+    expect((await modern("server/discover")).status).toBe(200);
+    const mismatch = await modern(
+      "tools/call",
+      { name: "get_document", arguments: { file_id: "file-a" } },
+      { "Mcp-Name": "rename_file" },
+    );
+    expect(mismatch.status).toBe(400);
+    expect(await calls()).toBe(0);
+    expect(await fileName()).toBe("Original");
+    const read = await responseMessage(
+      await modern(
+        "tools/call",
+        { name: "get_document", arguments: { file_id: "file-a" } },
+        { "Mcp-Name": "get_document" },
+      ),
+    );
+    expect(read.result.isError).not.toBe(true);
+    expect(read.result.structuredContent.document.revision).toBe(1);
+    const { buttonExample } = await import("./design-tools");
+    const composed = await responseMessage(
+      await modern(
+        "tools/call",
+        { name: "compose_component", arguments: { tree: buttonExample } },
+        { "Mcp-Name": "compose_component" },
+      ),
+    );
+    expect(composed.result.isError).not.toBe(true);
+    expect(composed.result.structuredContent.document.nodes.length).toBeGreaterThan(1);
+  },
+);
+
+integration(
+  "MCP retained grant recheck detects authority changed by the composed transaction",
+  async () => {
+    await expect(
+      withMcpGrantOperation(grant(), "alice", "org-a", { file_id: "file-a" }, async () => {
+        await renameDesignFileForUser("alice", "file-a", "Forbidden");
+        await db.query('update "user" set "emailVerified"=false where "id"=\'alice\'');
+        return { content: [] };
+      }),
+    ).rejects.toThrow();
+    expect(await fileName()).toBe("Original");
+    expect(
+      (await admin.query('select "emailVerified" from "user" where "id"=\'alice\'')).rows[0]
+        .emailVerified,
+    ).toBe(true);
+    expect(await hasMcpAuthorization(grant({ bella_grant_version: 0 }).claims, resource)).toBe(
+      false,
+    );
+  },
+);
+
+integration("MCP compact edits preserve revision checks and default full responses", async () => {
+  const { designNodeSchema } = await import("../design/document");
+  const document = blankDesignDocument();
+  document.nodes = [
+    designNodeSchema.parse({
+      id: "node",
+      name: "Before",
+      type: "container",
+      parentId: null,
+      box: { x: 0, y: 0, width: 10, height: 10 },
+    }),
+  ];
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    document,
+  ]);
+  const params = {
+    file_id: "file-a",
+    expected_revision: 1,
+    node_id: "node",
+    changes: { name: "After" },
+  };
+  const compact = (
+    await responseMessage(
+      await request("tools/call", {
+        name: "patch_document",
+        arguments: { ...params, include_document: false },
+      }),
+    )
+  ).result;
+  expect(compact.structuredContent).toMatchObject({ revision: 2, node: { name: "After" } });
+  expect(compact.structuredContent.document).toBeUndefined();
+  const stale = (
+    await responseMessage(
+      await request("tools/call", { name: "patch_document", arguments: params }),
+    )
+  ).result;
+  expect(stale.isError).toBe(true);
+  const full = (
+    await responseMessage(
+      await request("tools/call", {
+        name: "patch_document",
+        arguments: { ...params, expected_revision: 2 },
+      }),
+    )
+  ).result;
+  expect(full.structuredContent.document.nodes).toHaveLength(1);
+  expect(full.structuredContent.revision).toBe(3);
+});
+
 integration(
   "MCP actual signed HTTP dispatch reads and writes only the verified grant's tenant",
   async () => {
@@ -1946,28 +2204,25 @@ integration(
   },
 );
 
-integration("MCP read-only request rechecks consent after bounded body parsing", async () => {
-  let controller;
-  const stream = new ReadableStream({
-    start(value) {
-      controller = value;
+integration("MCP read-only request checks current consent after bounded body parsing", async () => {
+  let controller, reading;
+  const ready = new Promise((resolve) => {
+    reading = resolve;
+  });
+  const stream = new ReadableStream(
+    {
+      start(value) {
+        controller = value;
+      },
+      pull() {
+        reading();
+      },
     },
-  });
-  const query = db.query.bind(db),
-    seen = pause();
-  const spy = mock(async (...args) => {
-    const result = await query(...args);
-    if (String(args[0]).includes('from "verification"') && String(args[1]).includes("mcp-grant:")) {
-      seen.release();
-      await seen.hook();
-    }
-    return result;
-  });
-  db.query = spy;
+    { highWaterMark: 0 },
+  );
   const response = request("tools/call", {}, {}, stream);
   try {
-    await seen.entered;
-    db.query = query;
+    await ready;
     await revokeMcpAuthorization("alice", "client-a");
     controller.enqueue(
       new TextEncoder().encode(
@@ -1983,8 +2238,6 @@ integration("MCP read-only request rechecks consent after bounded body parsing",
     expect((await response).status).toBe(401);
     expect(await calls()).toBe(0);
   } finally {
-    db.query = query;
-    seen.release();
     await response.catch(() => {});
   }
 });
@@ -2407,3 +2660,398 @@ integration(
     }
   },
 );
+
+// Express ordered edit lists through the backward-compatible patch tool.
+function requestBatch(method, params, claims = {}) {
+  const { edits, ...input } = params.arguments;
+  return request(
+    method,
+    {
+      ...params,
+      arguments: {
+        ...input,
+        ...edits[0],
+        additional_edits: edits.slice(1),
+        include_document: input.include_document ?? false,
+      },
+    },
+    claims,
+  );
+}
+
+integration(
+  "MCP batch edits match ordered single edits, preserve inheritance and commit one revision",
+  async () => {
+    const { buildDrawnNode, parseDesignDocument } = await import("../design/document");
+    const { createComponentInstance } = await import("../design/document-operations");
+    const { changedLayers, trackDocumentChanges } = await import("../design/edit-document");
+    const master = {
+      ...buildDrawnNode("master", "container", null, { x: 0, y: 0, width: 120, height: 40 }),
+      isComponent: true,
+    };
+    const label = {
+      ...buildDrawnNode("label", "text", "master", { x: 10, y: 10, width: 100, height: 20 }),
+      text: "Before",
+      importKey: "test:/",
+      sourceKey: "label",
+    };
+    let index = 0;
+    const document = createComponentInstance(
+      parseDesignDocument({ ...blankDesignDocument(), nodes: [master, label] }),
+      "master",
+      () => `copy-${index++}`,
+    ).document;
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const edits = [
+      { node_id: "copy-1", changes: { text: "Local override" } },
+      { node_id: "label", changes: { text: "After" } },
+      { node_id: "master", changes: { box: { width: 150 } } },
+      { node_id: "label", changes: { style: { color: "#112233" } } },
+    ];
+    let expected = document;
+    for (const edit of edits)
+      expected = trackDocumentChanges(expected, {
+        ...expected,
+        nodes: changedLayers(expected, [edit.node_id], edit.changes),
+        editedNodeIds: [...new Set([...expected.editedNodeIds, edit.node_id])],
+      });
+    const result = (
+      await responseMessage(
+        await requestBatch("tools/call", {
+          name: "patch_document",
+          arguments: { file_id: "file-a", expected_revision: 1, edits, include_document: true },
+        }),
+      )
+    ).result;
+    expect(result.isError).toBeUndefined();
+    expect(result.structuredContent.document).toEqual(expected);
+    expect(result.structuredContent.revision).toBe(2);
+    expect(result.structuredContent.nodes.map((node) => node.id)).toEqual([
+      "copy-1",
+      "label",
+      "master",
+    ]);
+    expect(result.structuredContent.document.nodes.find((node) => node.id === "copy-1").text).toBe(
+      "Local override",
+    );
+    expect(await calls()).toBe(1);
+    const stale = (
+      await responseMessage(
+        await requestBatch("tools/call", {
+          name: "patch_document",
+          arguments: { file_id: "file-a", expected_revision: 1, edits },
+        }),
+      )
+    ).result;
+    expect(stale.isError).toBe(true);
+    const compact = (
+      await responseMessage(
+        await requestBatch("tools/call", {
+          name: "patch_document",
+          arguments: {
+            file_id: "file-a",
+            expected_revision: 2,
+            edits: [{ node_id: "label", changes: { text: "Final" } }],
+          },
+        }),
+      )
+    ).result;
+    expect(compact.structuredContent.document).toBeUndefined();
+    expect(compact.structuredContent.revision).toBe(3);
+  },
+);
+
+for (const failure of [
+  "missing layer",
+  "invalid graph",
+  "private asset",
+  "foreign file",
+  "read scope",
+  "too many edits",
+])
+  integration(`MCP batch rejects ${failure} without a partial write`, async () => {
+    const { buildDrawnNode } = await import("../design/document");
+    const document = {
+      ...blankDesignDocument(),
+      nodes: [buildDrawnNode("node", "container", null, { x: 0, y: 0, width: 20, height: 20 })],
+    };
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const edits = [
+      { node_id: "node", changes: { name: "Must roll back" } },
+      {
+        node_id: failure === "missing layer" ? "absent" : "node",
+        changes:
+          failure === "invalid graph"
+            ? { linkTo: "missing" }
+            : failure === "private asset"
+              ? { style: { paints: [{ type: "image", assetId: "foreign-asset", opacity: 1 }] } }
+              : { name: "Changed" },
+      },
+    ];
+    const response = await requestBatch(
+      "tools/call",
+      {
+        name: "patch_document",
+        arguments: {
+          file_id: failure === "foreign file" ? "file-b" : "file-a",
+          expected_revision: 1,
+          edits: failure === "too many edits" ? Array.from({ length: 251 }, () => edits[0]) : edits,
+        },
+      },
+      failure === "read scope" ? { scope: "mcp:read" } : {},
+    );
+    const message = await responseMessage(response);
+    expect(Boolean(message.error || message.result?.isError)).toBe(true);
+    const saved = (
+      await admin.query(
+        'select "revision","content" from "designDocument" where "fileId"=\'file-a\'',
+      )
+    ).rows[0];
+    expect(saved).toEqual({ revision: 1, content: document });
+  });
+
+integration(
+  "bulk collaboration events match the original diff paths and preserve event sequencing",
+  async () => {
+    const { readFile } = await import("node:fs/promises");
+    const original = await readFile(
+      new URL("../../../../migrations/20260928-file-multiplayer.sql", import.meta.url),
+      "utf8",
+    );
+    const definition = original
+      .match(/create or replace function bella_changed_paths[\s\S]*?\$\$;/)[0]
+      .replaceAll("bella_changed_paths", "pg_temp.original_changed_paths");
+    await admin.query("begin");
+    try {
+      await admin.query(definition);
+      const node = { id: "a", style: { fill: "#112233", border: { width: 1 } }, values: [1, 2] };
+      const cases = [
+        [
+          { nodes: [], pages: [] },
+          { nodes: [node], pages: [{ id: "p", name: "First" }] },
+        ],
+        [
+          { nodes: [node], pages: [] },
+          { nodes: [], pages: [] },
+        ],
+        [node, { ...node, style: { fill: "#334455", border: { width: 2 } }, values: [2, 1] }],
+        [node, { ...node, style: null, values: [] }],
+        [
+          { ...node, style: {} },
+          { ...node, style: { fill: null } },
+        ],
+        [
+          { ...node, style: { fill: null } },
+          { ...node, style: {} },
+        ],
+        [node, { ...node, style: { "a.b": { 'quoted"key': false } } }],
+      ].map(([before, after]) =>
+        before.id
+          ? [
+              { nodes: [before], pages: [{ id: "p", name: "Before" }], metadata: { nested: [1] } },
+              {
+                nodes: [after],
+                pages: [{ id: "p", name: "After" }],
+                metadata: { nested: null },
+                commentPages: ["ignored"],
+              },
+            ]
+          : [before, after],
+      );
+      cases.push([cases[0][1], cases[0][1]]); // No-op updates still emit a durable event.
+      cases.push([
+        { nodes: Array.from({ length: 1500 }, (_, i) => ({ ...node, id: String(i) })), pages: [] },
+        {
+          nodes: Array.from({ length: 1500 }, (_, i) => ({
+            ...node,
+            id: String(i),
+            style: { ...node.style, fill: "#abcdef" },
+          })),
+          pages: [],
+        },
+      ]);
+      for (const [before, after] of cases) {
+        await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+          before,
+        ]);
+        const previous = (
+          await admin.query(
+            'select "sequence" from "designRealtimeState" where "fileId"=\'file-a\'',
+          )
+        ).rows[0].sequence;
+        const expected = (
+          await admin.query(
+            `
+        select collection.name as collection, changed.id as "entityId", paths.path
+        from unnest(array['nodes','pages']) collection(name)
+        cross join lateral (
+          select coalesce(b.value->>'id',a.value->>'id') as id, b.value as before_value,a.value as after_value
+          from jsonb_array_elements($1::jsonb->collection.name) b
+          full join jsonb_array_elements($2::jsonb->collection.name) a on b.value->>'id'=a.value->>'id'
+        ) changed
+        cross join lateral pg_temp.original_changed_paths(changed.before_value,changed.after_value) paths(path)
+        union all select 'document','',paths.path from pg_temp.original_changed_paths(
+          $1::jsonb-'nodes'-'pages'-'commentPages', $2::jsonb-'nodes'-'pages'-'commentPages') paths(path)
+        order by collection,"entityId",path`,
+            [before, after],
+          )
+        ).rows;
+        await admin.query(
+          'update "designDocument" set "content"=$1,"revision"="revision"+1 where "fileId"=\'file-a\'',
+          [after],
+        );
+        const sequence = (
+          await admin.query(
+            'select "sequence" from "designRealtimeState" where "fileId"=\'file-a\'',
+          )
+        ).rows[0].sequence;
+        expect(BigInt(sequence)).toBe(BigInt(previous) + 1n);
+        const actual = (
+          await admin.query(
+            `select "collection","entityId","path" from "designRealtimeProperty"
+        where "fileId"='file-a' and "sequence"=$1 order by "collection","entityId","path"`,
+            [sequence],
+          )
+        ).rows;
+        expect(actual).toEqual(expected);
+        expect(
+          (
+            await admin.query(
+              'select "kind" from "designRealtimeEvent" where "fileId"=\'file-a\' and "sequence"=$1',
+              [sequence],
+            )
+          ).rows,
+        ).toEqual([{ kind: "document" }]);
+      }
+    } finally {
+      await admin.query("rollback");
+    }
+  },
+);
+
+integration("document events disable JIT locally without changing the caller setting", async () => {
+  await admin.query("begin");
+  try {
+    await admin.query(`set local jit=on;
+      create function pg_temp.check_event_jit() returns trigger language plpgsql as $$
+      begin
+        if current_setting('jit') <> 'off' then
+          raise exception 'Document event enabled JIT';
+        end if;
+        return new;
+      end;
+      $$;
+      create trigger fixture_check_event_jit before insert or update on "designRealtimeProperty"
+      for each row execute function pg_temp.check_event_jit();`);
+    await admin.query(`update "designDocument" set "content"=jsonb_set("content",'{jitFixture}','true')
+      where "fileId"='file-a'`);
+    expect((await admin.query("select current_setting('jit') as jit")).rows[0].jit).toBe("on");
+    expect(
+      (
+        await admin.query(`select "path" from "designRealtimeProperty"
+        where "fileId"='file-a' and "collection"='document' and "path"=array['jitFixture']`)
+      ).rows,
+    ).toEqual([{ path: ["jitFixture"] }]);
+  } finally {
+    await admin.query("rollback");
+  }
+});
+
+integration("concurrent MCP batches at one revision commit exactly once", async () => {
+  const { buildDrawnNode } = await import("../design/document");
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    {
+      ...blankDesignDocument(),
+      nodes: [
+        buildDrawnNode("a", "container", null, { x: 0, y: 0, width: 100, height: 40 }),
+        buildDrawnNode("b", "container", null, { x: 0, y: 50, width: 100, height: 40 }),
+      ],
+    },
+  ]);
+  const results = await Promise.all(
+    ["First", "Second"].map(
+      async (name) =>
+        (
+          await responseMessage(
+            await requestBatch("tools/call", {
+              name: "patch_document",
+              arguments: {
+                file_id: "file-a",
+                expected_revision: 1,
+                edits: [
+                  { node_id: "a", changes: { name } },
+                  { node_id: "b", changes: { name } },
+                ],
+              },
+            }),
+          )
+        ).result,
+    ),
+  );
+  expect(results.filter((result) => result.isError)).toHaveLength(1);
+  const saved = (
+    await admin.query('select "revision","content" from "designDocument" where "fileId"=\'file-a\'')
+  ).rows[0];
+  expect(saved.revision).toBe(2);
+  expect(saved.content.nodes[0].name).toBe(saved.content.nodes[1].name);
+  expect(["First", "Second"]).toContain(saved.content.nodes[0].name);
+  expect(await calls()).toBe(2);
+});
+
+integration("MCP July 2026 dispatch validates and publishes an ordered batch", async () => {
+  const { buildDrawnNode } = await import("../design/document");
+  const document = {
+    ...blankDesignDocument(),
+    nodes: [buildDrawnNode("node", "container", null, { x: 0, y: 0, width: 20, height: 20 })],
+  };
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    document,
+  ]);
+  const { token } = await auth.api.signJWT({ body: { payload: grant().claims } });
+  const response = await POST(
+    new Request(resource, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/call",
+        "Mcp-Name": "patch_document",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "patch_document",
+          arguments: {
+            file_id: "file-a",
+            expected_revision: 1,
+            node_id: "node",
+            changes: { name: "First" },
+            additional_edits: [{ node_id: "node", changes: { name: "Final" } }],
+            include_document: false,
+          },
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "fixture", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    }),
+  );
+  const message = await responseMessage(response);
+  expect(message.result.isError).toBeUndefined();
+  expect(message.result.structuredContent).toMatchObject({
+    revision: 2,
+    node: { name: "Final" },
+    nodes: [{ name: "Final" }],
+  });
+  expect(await calls()).toBe(1);
+});

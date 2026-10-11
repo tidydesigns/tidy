@@ -19,6 +19,7 @@ const readTools = new Set([
   "export_visual_preview",
 ]);
 const readMethods = new Set([
+  "server/discover",
   "initialize",
   "ping",
   "tools/list",
@@ -84,7 +85,8 @@ export async function readMcpRequest(request: Request) {
       body.set(chunk, offset);
       offset += chunk.byteLength;
     }
-    const scopes = requiredMcpScopes(JSON.parse(new TextDecoder().decode(body)));
+    const parsedBody: unknown = JSON.parse(new TextDecoder().decode(body));
+    const scopes = requiredMcpScopes(parsedBody);
     // Next.js passes a Proxy around the request. workerd cannot unwrap it as
     // a native Request and instead tries to parse "[object Request]" as a URL.
     // Rebuild from explicit fields after inspecting the bounded body.
@@ -97,6 +99,7 @@ export async function readMcpRequest(request: Request) {
         body,
       }),
       scopes,
+      parsedBody,
     };
   } catch (error) {
     void reader.cancel().catch(() => {});

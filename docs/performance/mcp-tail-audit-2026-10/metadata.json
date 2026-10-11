@@ -1,0 +1,32 @@
+{
+  "date": "2026-10-11 Europe/Dublin",
+  "phase2Commit": "5fb2721",
+  "phase3Commit": "9b890ac",
+  "closedLoopOrder": ["a1", "b1", "b2", "a2", "a3", "b3"],
+  "phase2Label": "a",
+  "phase3Label": "b",
+  "hostLimitations": "Shared Apple M5 workstation; unrelated Next server PID45424 consuming approximately one CPU core plus variable browser/system activity. Left existing processes untouched. Fresh disposable local PostgreSQL per run. No competing audit benchmark/test processes. Bun client and server in same process; not a deployed Worker or production network.",
+  "unchangedFiles": [
+    "apps/web/lib/db.ts",
+    "apps/web/lib/mcp/usage.ts",
+    "apps/web/lib/mcp/grant-operation.ts",
+    "apps/web/lib/mcp/activity.ts",
+    "apps/web/lib/design/service.ts"
+  ],
+  "harnessV1Sha256": "f58d23105f780dccdd9ad6bd17c73955cc40a87c4294ea351459c8e1d4a4e451",
+  "harnessV2Sha256": "91ccc90eb87efa010cc498b755b7e42f3f52180652f27473f515cb4431152215",
+  "harnessCorrection": "The first fixed-rate series used Bun.sleep once per scheduled arrival, which could wake fractionally early. Its actual-launch latencies remain reported; do not use its scheduled-latency field. Repeat series uses a deadline loop and a minimum 1 ms sleep so no arrival launches early. Closed-loop and phase traces unaffected. Both versions always use the same harness within each series.",
+  "fixedRateOrder": [
+    "a100",
+    "b100",
+    "b300",
+    "a300",
+    "b100repeat",
+    "a100repeat",
+    "a300repeat",
+    "b300repeat"
+  ],
+  "rebasedPhase2Commit": "82cc5752e9153015b02f0280cb9e1c53957d9470",
+  "rebasedPhase3Commit": "1f2f7fd59e44ae09a0ffc0eae66d65c624fe39c4",
+  "rebaseNote": "Rebased onto af52ed8 for PR. Capture conflict resolved using current main capture behavior plus visible-border color fix; measured MCP read/rename and batch hot paths unchanged. Historical measurements were not rerun on the rebased revision."
+}

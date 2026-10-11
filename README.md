@@ -74,6 +74,11 @@ The account suite is `bun run test:account-controls`; `package.json` also lists
 auth, MCP, agents, plans, files, versions, images, clipboard, runtime, storage, multiplayer
 and connector suites. See [contributing](CONTRIBUTING.md) for required checks.
 
+Run `bun run bench:mcp` for authenticated MCP HTTP latency, throughput, query-count
+and payload benchmarks against a disposable local database. See the
+[MCP performance report](docs/performance/mcp-2026-10.md) for reproducible comparisons
+and the distinction between local measurements and hosted Worker performance.
+
 ## Self-hosting
 
 The hosted app uses Cloudflare Workers, Hyperdrive, private R2 buckets, Images

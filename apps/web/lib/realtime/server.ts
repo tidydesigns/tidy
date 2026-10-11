@@ -23,11 +23,15 @@ export async function publishAgentActivity(input: AgentActivity) {
       /* Local relay below. */
     }
     if (context?.env.FILE_ROOMS) {
-      await withDeadline(
+      const delivery = withDeadline(
         context.env.FILE_ROOMS.getByName(activity.fileId).activity(activity),
         1000,
         "Agent activity relay timed out.",
-      );
+      ).catch(() => {});
+      // Presence is advisory, versioned, and bounded. Keep it alive through
+      // Worker response completion without holding an MCP transaction or reply.
+      // Terminal phases reach here only after their product transaction commits.
+      context.ctx.waitUntil(delivery);
     } else if (process.env.BELLA_REALTIME_URL && process.env.BETTER_AUTH_SECRET) {
       const authorization = await signTicket(
         {

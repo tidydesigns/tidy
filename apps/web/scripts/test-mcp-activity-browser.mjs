@@ -41,8 +41,8 @@ try {
   const userId = (await client.query('select "id" from "user" where "email"=$1', [email])).rows[0]
     .id;
   await client.query(
-    `insert into "organization" ("id","name","slug","createdAt") values ($1,'Activity test',$1,now())`,
-    [organization],
+    `insert into "organization" ("id","name","slug","createdAt","createdByUserId") values ($1,'Activity test',$1,now(),$2)`,
+    [organization, userId],
   );
   await client.query(
     `insert into "member" ("id","organizationId","userId","role","createdAt") values ($1,$2,$3,'owner',now())`,
@@ -102,6 +102,11 @@ try {
     `insert into "oauthConsent" ("id","clientId","userId","resources","scopes","createdAt","updatedAt") values ($1,$1,$2,$3::jsonb,'["mcp:read","mcp:write"]',now(),now())`,
     [clientId, userId, JSON.stringify([`${base}/api/mcp`])],
   );
+  const session = await (await context.request.get(`${base}/api/auth/get-session`)).json();
+  await client.query(
+    `insert into "oauthClientResource" ("id","clientId","resourceId") values ($1,$1,$2)`,
+    [clientId, `${base}/api/mcp`],
+  );
   const token = JSON.parse(
     execFileSync(
       "bun",
@@ -109,11 +114,35 @@ try {
         "--conditions",
         "react-server",
         "-e",
-        `const {auth}=await import('./lib/auth');const ctx=await auth.$context;const signed=await auth.api.signJWT({body:{payload:{sub:${JSON.stringify(userId)},client_id:${JSON.stringify(clientId)},scope:'mcp:read mcp:write',aud:${JSON.stringify(`${base}/api/mcp`)},iss:ctx.baseURL,bella_grant_version:'0',exp:Math.floor(Date.now()/1000)+600}}});console.log(JSON.stringify(signed));process.exit(0);`,
+        `const { mock } = await import('bun:test');
+        const { readFileSync } = await import('node:fs');
+        mock.module('server-only', () => ({}));
+        const claims = JSON.parse(readFileSync(0, 'utf8'));
+        const { auth } = await import('./lib/auth');
+        const ctx = await auth.$context;
+        const signed = await auth.api.signJWT({ body: { payload: {
+          sub: claims.userId,
+          sid: claims.sessionId,
+          client_id: claims.clientId,
+          scope: 'mcp:read mcp:write',
+          aud: claims.audience,
+          iss: ctx.baseURL,
+          bella_grant_version: '0',
+          exp: Math.floor(Date.now() / 1000) + 600,
+        } } });
+        console.log(JSON.stringify(signed));
+        process.exit(0);`,
       ],
       {
         cwd: new URL("../", import.meta.url),
         env: { ...process.env, DATABASE_URL: connectionString, BETTER_AUTH_URL: base },
+        // Keep runtime values out of executable source, including test fixture values.
+        input: JSON.stringify({
+          userId,
+          sessionId: session.session.id,
+          clientId,
+          audience: `${base}/api/mcp`,
+        }),
         encoding: "utf8",
       },
     ),
@@ -214,7 +243,7 @@ try {
     changes: { text: "Edited by agent" },
   }));
   await page.locator('[data-agent-activity="editing"]').waitFor();
-  await page.locator('[data-agent-target="frame"]').waitFor();
+  await page.locator('[data-agent-target="heading"]').waitFor();
   assert.ok(
     !(
       await call("export_component", {
@@ -225,26 +254,42 @@ try {
     ).isError,
   );
   await page.locator('[data-agent-activity="editing"]').waitFor();
+  assert.equal(
+    await page.locator("[data-agent-actor]").count(),
+    1,
+    "Concurrent calls share a teammate identity",
+  );
   await page.locator('[data-agent-activity="editing"] summary').click();
-  await page.getByText("heading", { exact: true }).last().waitFor();
+  await page
+    .locator("[data-agent-activity-details]")
+    .getByText("Local coding agent · heading", { exact: true })
+    .waitFor();
   assert.equal(changes, initialChanges, "Activity must not fetch document changes");
   const during = await page.evaluate(() => ({ ...window.activityProfile }));
   for (const name of ["CanvasArtwork", "LayerTree", "SelectionInspector"])
     assert.equal(during[name], before[name], `${name} must not render for activity`);
   assert.ok(during.AgentActivityOverlay > before.AgentActivityOverlay);
-  const outline = await page.locator('[data-agent-target="frame"]').boundingBox(),
-    frame = await page.locator('[data-node-id="frame"]').boundingBox();
+  const outline = await page.locator('[data-agent-target="heading"]').boundingBox(),
+    frame = await page.locator('[data-node-id="heading"]').boundingBox();
   assert.ok(Math.abs(outline.x - frame.x) < 2 && Math.abs(outline.width - frame.width) < 2);
-  const dot = page.locator('[data-agent-activity="editing"] summary span').first();
-  assert.notEqual(
-    await dot.evaluate((element) => getComputedStyle(element, "::after").animationName),
-    "none",
-  );
-  await page.emulateMedia({ reducedMotion: "reduce" });
+  const identity = await page.locator('[data-agent-activity="editing"] summary').boundingBox();
+  assert.ok(identity.height <= 28, "Presence must stay a compact single line");
   assert.equal(
-    await dot.evaluate((element) => getComputedStyle(element, "::after").animationName),
-    "none",
+    await page
+      .locator('[data-agent-activity="editing"]')
+      .evaluate(
+        (element) =>
+          element
+            .getAnimations({ subtree: true })
+            .filter((animation) => animation.effect.getTiming().iterations === Infinity).length,
+      ),
+    1,
+    "Only the small activity dot loops",
   );
+  const dot = page.locator('[data-agent-activity="editing"] [data-agent-pulse]').first();
+  assert.notEqual(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  assert.equal(await dot.evaluate((element) => getComputedStyle(element).animationName), "none");
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await mkdir(".artifacts/mcp-activity", { recursive: true });
   await page.screenshot({ path: ".artifacts/mcp-activity/editing.png" });
@@ -269,6 +314,27 @@ try {
   console.log(
     "PASS: actual MCP edits animate the target, survive concurrent exports/reconnects, skip artwork/panel renders and document refreshes, honor reduced motion, and commit live",
   );
+  // Import-local IDs can collide with live IDs. Preparing content must not
+  // impersonate an edit to the existing artwork.
+  const collision = (
+    await call("create_import", {
+      organization_id: organization,
+      file_id: fileId,
+      name: "Unpublished copy",
+    })
+  ).structuredContent;
+  assert.ok(
+    !(
+      await call("put_import_chunk", {
+        import_id: collision.importId,
+        chunk_id: "001",
+        nodes: [nodes[0]],
+      })
+    ).isError,
+  );
+  await page.locator('[data-agent-fallback][data-agent-activity="staged"]').waitFor();
+  assert.equal(await page.locator("[data-agent-target]").count(), 0);
+  assert.ok(!(await call("abort_import", { import_id: collision.importId })).isError);
   const created = (
     await call("create_import", {
       organization_id: organization,
@@ -293,8 +359,12 @@ try {
   assert.ok(!(await call("put_import_chunk", chunk)).isError);
   const staged = page.locator('[data-agent-fallback][data-agent-activity="staged"]');
   await staged.waitFor();
+  assert.equal(await staged.locator("summary").innerText(), "Local coding agent");
+  const stagedBounds = await staged.boundingBox();
+  const canvasBounds = await page.locator('[aria-label="Design canvas"]').boundingBox();
+  assert.ok(stagedBounds.y < canvasBounds.y + 100, "Unplaced agents never become a bottom banner");
   await staged.locator("summary").click();
-  await staged.getByText("1 layer staged · 0 assets", { exact: true }).waitFor();
+  await staged.getByText("1 layer · 0 assets", { exact: true }).waitFor();
   await staged.getByText("src/checkout.tsx", { exact: true }).waitFor();
   assert.ok(!(await call("validate_import", { import_id: created.importId })).isError);
   assert.ok(!(await call("commit_import", { import_id: created.importId })).isError);

@@ -60,10 +60,11 @@ const suites = {
   linear: ["tidy_connectors_test", "LINEAR_TEST_DATABASE_URL", "linear/integration.test.mjs"],
 };
 const args = process.argv.slice(2);
-const suite = args.length ? args[0].replace(/^--/, "") : "accounts";
+const benchmark = args[0] === "--mcp-benchmark";
+const suite = benchmark ? "mcp" : args.length ? args[0].replace(/^--/, "") : "accounts";
 if (args.length > 1 || !Object.hasOwn(suites, suite))
   throw new Error(
-    "Choose --accounts, --auth, --plans, --agents, --github, --linear, --runtime, --storage, --multiplayer, --clipboard, --images, --files, --versions, --personal or --mcp.",
+    "Choose --accounts, --auth, --plans, --agents, --github, --linear, --runtime, --storage, --multiplayer, --clipboard, --images, --files, --versions, --personal, --mcp or --mcp-benchmark.",
   );
 const [databaseName, databaseVariable, testFile] = suites[suite];
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -183,6 +184,7 @@ try {
       ...(suite === "personal" ? { PERSONAL_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "github" ? { GITHUB_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "mcp" ? { MCP_SETUP_DATABASE_URL: url } : {}),
+      ...(benchmark ? { MCP_BENCHMARK: "1" } : {}),
       ...(suite === "versions" ? { VERSION_SETUP_DATABASE_URL: url } : {}),
       AGENT_RUNNER_URL: "",
       AGENT_RUNNER_SECRET: "",

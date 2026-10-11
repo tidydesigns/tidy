@@ -24,7 +24,7 @@ import {
 import { mergeImport } from "@/lib/design/merge-import";
 import { duplicateNodeTree } from "@/lib/design/duplicate-node";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
-import { changedLayers } from "@/lib/design/edit-document";
+import { changedLayerBatch } from "@/lib/design/edit-document";
 import { trackDocumentChanges } from "@/lib/design/edit-document";
 import { removeComponentReferences } from "./component-variants";
 import { layoutReport } from "./layout-diagnostics";
@@ -794,48 +794,82 @@ export async function patchDocumentNode(
   nodeId: string,
   changes: DesignNodeChanges,
 ) {
+  const saved = await patchNodes(userId, fileId, expectedRevision, [{ nodeId, changes }], false);
+  return { revision: saved.revision, node: saved.nodes[0], document: saved.document };
+}
+
+export function patchDocumentNodes(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  edits: { nodeId: string; changes: DesignNodeChanges }[],
+) {
+  return patchNodes(userId, fileId, expectedRevision, edits, true);
+}
+
+async function patchNodes(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  edits: { nodeId: string; changes: DesignNodeChanges }[],
+  requireTargets: boolean,
+) {
+  if (edits.length < 1 || edits.length > 250)
+    throw new PublicActionError("Provide between 1 and 250 layer edits.");
   await requireDocumentSchema();
   const client = await db.connect();
   try {
     await client.query("begin");
-    const access = await client.query(
-      `select f."id", f."organizationId" from "designFile" f
+    // Retain the existing file/authority-before-document lock order, with one
+    // round trip. The materialized access row gates the document lock/read.
+    const result = await client.query<{
+      revision: number;
+      content: DesignDocument;
+      organizationId: string;
+    }>(
+      `with access as materialized (
+      select f."id", f."organizationId" from "designFile" f
       join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${EDIT_ROLES_SQL}
       join "user" u on u."id"=m."userId" and u."emailVerified"=true
-      where f."id" = $1 and f."archivedAt" is null for update of f for share of m,u`,
-      [fileId, userId],
-    );
-    if (!access.rowCount) throw new PublicActionError("Document not found or access denied.");
-    const result = await client.query<{ revision: number; content: DesignDocument }>(
-      `select d."revision", d."content" from "designDocument" d
-      join "designFile" f on f."id" = d."fileId" join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${EDIT_ROLES_SQL}
-      join "user" u on u."id"=m."userId" and u."emailVerified"=true
-      where d."fileId" = $1 and f."archivedAt" is null for update of d for share of m,u`,
+      where f."id" = $1 and f."archivedAt" is null for update of f for share of m,u
+      ) select d."revision", d."content", access."organizationId" from access
+      join "designDocument" d on d."fileId"=access."id" for update of d`,
       [fileId, userId],
     );
     const current = result.rows[0];
     if (!current) throw new PublicActionError("Document not found or access denied.");
     if (current.revision !== expectedRevision)
       throw new PublicActionError("Document changed. Refresh before editing.");
-    const nodes = changedLayers(current.content, [nodeId], changes);
-    const document = trackDocumentChanges(
-      current.content,
-      parseDesignDocument({
-        ...current.content,
-        nodes,
-        editedNodeIds: [...new Set([...current.content.editedNodeIds, nodeId])],
-      }),
-    );
-    await verifyAssets(client, access.rows[0].organizationId, document);
+    const existing = new Set(current.content.nodes.map((node) => node.id));
+    if (requireTargets && edits.some((edit) => !existing.has(edit.nodeId)))
+      throw new PublicActionError("Layer not found. Refresh before editing.");
+    const nodes = changedLayerBatch(current.content, edits);
+    const document = trackDocumentChanges(current.content, {
+      ...current.content,
+      nodes,
+      editedNodeIds: [
+        ...new Set([...current.content.editedNodeIds, ...edits.map((edit) => edit.nodeId)]),
+      ],
+    });
+    await verifyAssets(client, current.organizationId, document);
     const revision = current.revision + 1;
     await client.query(
-      `update "designDocument" set "revision" = $2, "content" = $3::jsonb, "updatedAt" = now() where "fileId" = $1`,
+      `with saved as (
+        update "designDocument" set "revision" = $2, "content" = $3::jsonb, "updatedAt" = now()
+        where "fileId" = $1 returning "fileId"
+      ) update "designFile" set "updatedAt" = now() where "id" in (select "fileId" from saved)`,
       [fileId, revision, JSON.stringify(document)],
     );
-    await client.query(`update "designFile" set "updatedAt" = now() where "id" = $1`, [fileId]);
     await client.query("commit");
     await publishFileChanges(fileId);
-    return { revision, node: document.nodes.find((node) => node.id === nodeId), document };
+    const byId = new Map(document.nodes.map((node) => [node.id, node]));
+    return {
+      revision,
+      nodes: [...new Set(edits.map((edit) => edit.nodeId))].flatMap((id) =>
+        byId.has(id) ? [byId.get(id)!] : [],
+      ),
+      document,
+    };
   } catch (error) {
     await client.query("rollback");
     throw error;
@@ -1132,6 +1166,58 @@ async function withAssetMimeTypes<T extends { content: DesignDocument } | null>(
 }
 export async function getDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readDocument(userId, fileId));
+}
+
+/** Project the requested page in Postgres: large documents must not cross the
+ * database connection or be decoded/scanned in JS merely to return 50 nodes. */
+export async function getDocumentPage(
+  userId: string,
+  fileId: string,
+  offset: number,
+  limit: number,
+) {
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > 250
+  )
+    throw new PublicActionError("Invalid document page.");
+  if (!(await documentSchemaReady())) return null;
+  const { rows } = await db.query<{
+    revision: number;
+    metadata: Omit<DesignDocument, "nodes">;
+    nodes: DesignNode[];
+    totalNodes: number;
+  }>(
+    `select d."revision", d."content" - 'nodes' as metadata,
+      jsonb_array_length(d."content"->'nodes') as "totalNodes",
+      jsonb_path_query_array(d."content", '$.nodes[$start to $end]',
+        jsonb_build_object('start',$3::bigint,'end',$4::bigint)) as nodes
+     from "designDocument" d join "designFile" f on f."id"=d."fileId"
+     join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     where d."fileId"=$1 and m."role" in ${VIEW_ROLES_SQL} and f."archivedAt" is null`,
+    [fileId, userId, offset, Math.min(Number.MAX_SAFE_INTEGER, offset + limit - 1)],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { metadata } = row;
+  return {
+    revision: row.revision,
+    schemaVersion: metadata.schemaVersion,
+    source: metadata.source,
+    tokens: metadata.tokens ?? {},
+    designTokens: metadata.designTokens ?? {},
+    warnings: metadata.warnings,
+    editedNodeIds: metadata.editedNodeIds,
+    deletedSourceKeys: metadata.deletedSourceKeys ?? [],
+    nodes: row.nodes,
+    offset,
+    totalNodes: row.totalNodes,
+    nextOffset: offset + limit < row.totalNodes ? offset + limit : null,
+  };
 }
 export async function getArchivedEditorDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readArchivedEditorDocument(userId, fileId));

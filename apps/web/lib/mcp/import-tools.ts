@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import { mcpToolPolicy } from "@/lib/mcp/tool-policy";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
@@ -45,6 +46,9 @@ const result = (value: object) => ({
   structuredContent: value,
 });
 
+// Static schemas/guidance only; authenticated admission still runs on every call.
+let guidanceResult: ReturnType<typeof result> | undefined;
+
 export function registerImportTools(
   server: McpServer,
   userId: string,
@@ -60,12 +64,12 @@ export function registerImportTools(
       annotations: { ...mcpToolPolicy("get_import_guidance").annotations, readOnlyHint: true },
     },
     async () =>
-      result({
+      (guidanceResult ??= result({
         ...importGuidance,
-        nodeSchema: z.toJSONSchema(designNodeSchema),
-        captureSchema: z.toJSONSchema(webCaptureSchema),
+        nodeSchema: z.toJSONSchema(designNodeSchema, { reused: "ref" }),
+        captureSchema: z.toJSONSchema(webCaptureSchema, { reused: "ref" }),
         maxCaptureBytes: MAX_CAPTURE_BYTES,
-      }),
+      })),
   );
 
   server.registerTool(
@@ -107,11 +111,13 @@ export function registerImportTools(
       ...mcpToolPolicy("import_web_capture"),
       description:
         "Import an already captured rendered page from get_browser_capture_script or the extension (editable nodes and raster assets). Does not browse a URL or accept HTML. Appends a new copy on EVERY call; do not blindly retry after a timeout—check list_files/get_document first. For retry-safe publishing use the staged import tools. Read get_import_guidance first.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        file_id: z.uuid().optional(),
-        capture: webCaptureSchema,
-      }),
+      inputSchema: mcpSchema("import_web_capture", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          file_id: z.uuid().optional(),
+          capture: webCaptureSchema,
+        }),
+      ),
       annotations: {
         ...mcpToolPolicy("import_web_capture").annotations,
         readOnlyHint: false,

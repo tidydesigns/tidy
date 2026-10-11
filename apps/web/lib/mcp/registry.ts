@@ -1,3 +1,4 @@
+import { mcpSchema } from "@/lib/mcp/schema";
 import { actionError } from "@/lib/action-error";
 import { mcpToolPolicy } from "@/lib/mcp/tool-policy";
 import { designNodeChangesSchema } from "@/lib/design/document";
@@ -11,7 +12,9 @@ import {
   createImport,
   ensureEditorDocument,
   getDocument,
+  getDocumentPage,
   patchDocumentNode,
+  patchDocumentNodes,
   putAsset,
   putImportChunk,
   validateImport,
@@ -96,7 +99,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("list_files"),
       description: "List active design files in one of your Tidy organizations.",
-      inputSchema: z.object({ organization_id: z.string().min(1) }),
+      inputSchema: mcpSchema("list_files", () => z.object({ organization_id: z.string().min(1) })),
     },
     async ({ organization_id }) =>
       result({ files: await listDesignFiles(userId, organization_id) }),
@@ -108,7 +111,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("get_file"),
       description:
         "Read a design file, its frames, and its rectangles. Use this again to see changes made in the browser.",
-      inputSchema: z.object({ file_id: z.string().min(1) }),
+      inputSchema: mcpSchema("get_file", () => z.object({ file_id: z.string().min(1) })),
     },
     async ({ file_id }) => {
       const file = await getDesignFile(userId, file_id);
@@ -123,10 +126,12 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("create_file"),
       description: "Create an empty design file in an organization you belong to.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        name: z.string().min(1).max(120),
-      }),
+      inputSchema: mcpSchema("create_file", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          name: z.string().min(1).max(120),
+        }),
+      ),
     },
     async ({ organization_id, name }) => {
       try {
@@ -146,7 +151,9 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("rename_file"),
       description: "Rename a design file. The new name appears in the browser canvas.",
-      inputSchema: z.object({ file_id: z.string().min(1), name: z.string().min(1).max(120) }),
+      inputSchema: mcpSchema("rename_file", () =>
+        z.object({ file_id: z.string().min(1), name: z.string().min(1).max(120) }),
+      ),
     },
     async ({ file_id, name }) => {
       try {
@@ -163,20 +170,22 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("add_frames"),
       description:
         "Draw 1 to 50 frames in a design file. Coordinates and sizes are canvas pixels. Frames appear in the browser canvas.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        frames: z
-          .array(
-            z.object({
-              x: z.number().int().min(0).max(100000),
-              y: z.number().int().min(0).max(100000),
-              width: z.number().int().min(40).max(5000),
-              height: z.number().int().min(40).max(5000),
-            }),
-          )
-          .min(1)
-          .max(50),
-      }),
+      inputSchema: mcpSchema("add_frames", () =>
+        z.object({
+          file_id: z.string().min(1),
+          frames: z
+            .array(
+              z.object({
+                x: z.number().int().min(0).max(100000),
+                y: z.number().int().min(0).max(100000),
+                width: z.number().int().min(40).max(5000),
+                height: z.number().int().min(40).max(5000),
+              }),
+            )
+            .min(1)
+            .max(50),
+        }),
+      ),
     },
     async ({ file_id, frames }) => {
       try {
@@ -193,20 +202,22 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("add_rectangles"),
       description:
         "Draw 1 to 50 filled rectangles in a design file. Coordinates and sizes are canvas pixels. Rectangles appear in the browser canvas.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        rectangles: z
-          .array(
-            z.object({
-              x: z.number().int().min(0).max(100000),
-              y: z.number().int().min(0).max(100000),
-              width: z.number().int().min(1).max(5000),
-              height: z.number().int().min(1).max(5000),
-            }),
-          )
-          .min(1)
-          .max(50),
-      }),
+      inputSchema: mcpSchema("add_rectangles", () =>
+        z.object({
+          file_id: z.string().min(1),
+          rectangles: z
+            .array(
+              z.object({
+                x: z.number().int().min(0).max(100000),
+                y: z.number().int().min(0).max(100000),
+                width: z.number().int().min(1).max(5000),
+                height: z.number().int().min(1).max(5000),
+              }),
+            )
+            .min(1)
+            .max(50),
+        }),
+      ),
     },
     async ({ file_id, rectangles }) => {
       try {
@@ -225,33 +236,22 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("get_document"),
       description:
         "Read the editable UI tree and revision of a Tidy file. To visually inspect screenshots or image assets, call get_file_image with file_id and a referenced assetId. For large files, pass offset and limit (up to 250) to page through nodes before updating an import.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        offset: z.number().int().min(0).optional(),
-        limit: z.number().int().min(1).max(250).optional(),
-      }),
+      inputSchema: mcpSchema("get_document", () =>
+        z.object({
+          file_id: z.string().min(1),
+          offset: z.number().int().min(0).optional(),
+          limit: z.number().int().min(1).max(250).optional(),
+        }),
+      ),
     },
     async ({ file_id, offset, limit }) => {
+      if (offset !== undefined || limit !== undefined) {
+        const page = await getDocumentPage(userId, file_id, offset ?? 0, limit ?? 250);
+        return page ? result(page) : failure("Document not found or access denied.");
+      }
       const document = await getDocument(userId, file_id);
       if (!document) return failure("Document not found or access denied.");
-      if (offset === undefined && limit === undefined) return result({ document });
-      const start = offset ?? 0;
-      const count = limit ?? 250;
-      const totalNodes = document.content.nodes.length;
-      return result({
-        revision: document.revision,
-        schemaVersion: document.content.schemaVersion,
-        source: document.content.source,
-        tokens: document.content.tokens ?? {},
-        designTokens: document.content.designTokens ?? {},
-        warnings: document.content.warnings,
-        editedNodeIds: document.content.editedNodeIds,
-        deletedSourceKeys: document.content.deletedSourceKeys ?? [],
-        nodes: document.content.nodes.slice(start, start + count),
-        offset: start,
-        totalNodes,
-        nextOffset: start + count < totalNodes ? start + count : null,
-      });
+      return result({ document });
     },
   );
 
@@ -261,11 +261,13 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("create_import"),
       description:
         "Start atomic UI creation or a codebase import. For new UI read get_design_guidance and use compose_component; for measured imports read get_import_guidance. Call put_asset and put_import_chunk, validate_import, then commit_import.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        name: z.string().min(1).max(120),
-        file_id: z.string().optional(),
-      }),
+      inputSchema: mcpSchema("create_import", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          name: z.string().min(1).max(120),
+          file_id: z.string().optional(),
+        }),
+      ),
     },
     async ({ organization_id, name, file_id }) => {
       try {
@@ -282,12 +284,14 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("put_asset"),
       description:
         "Upload a local PNG, JPEG, WebP, or SVG used by the UI. Include icons and logos, not just photos. SVG must be self-contained with resolved colors and symbols. Send base64 file bytes (2 MB maximum). Pass import_id when staging an import to show upload activity in its destination file.",
-      inputSchema: z.object({
-        organization_id: z.string().min(1),
-        import_id: z.uuid().optional(),
-        mime_type: z.enum(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]),
-        base64: z.string().min(1),
-      }),
+      inputSchema: mcpSchema("put_asset", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          import_id: z.uuid().optional(),
+          mime_type: z.enum(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]),
+          base64: z.string().min(1),
+        }),
+      ),
     },
     async ({ organization_id, mime_type, base64 }) => {
       try {
@@ -304,29 +308,31 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("put_import_chunk"),
       description:
         "Stage up to 250 editable UI nodes. For new UI use compose_component to build intentional layouts. Chunks are ordered by chunk_id. Put source metadata and warnings in the first chunk. validate_import reports layout errors that must be fixed before commit_import.",
-      inputSchema: z.object({
-        import_id: z.string().uuid(),
-        chunk_id: z.string().min(1).max(40),
-        nodes: z.array(designNodeSchema).max(250),
-        source: z
-          .object({
-            project: z.string().max(120),
-            route: z.string().max(500),
-            revision: z.string().max(120).optional(),
-          })
-          .optional(),
-        warnings: z
-          .array(z.object({ nodeId: z.string().optional(), message: z.string().max(500) }))
-          .max(500)
-          .optional(),
-        tokens: z
-          .record(
-            z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/),
-            z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/),
-          )
-          .optional(),
-        designTokens: designTokensSchema.optional(),
-      }),
+      inputSchema: mcpSchema("put_import_chunk", () =>
+        z.object({
+          import_id: z.string().uuid(),
+          chunk_id: z.string().min(1).max(40),
+          nodes: z.array(designNodeSchema).max(250),
+          source: z
+            .object({
+              project: z.string().max(120),
+              route: z.string().max(500),
+              revision: z.string().max(120).optional(),
+            })
+            .optional(),
+          warnings: z
+            .array(z.object({ nodeId: z.string().optional(), message: z.string().max(500) }))
+            .max(500)
+            .optional(),
+          tokens: z
+            .record(
+              z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/),
+              z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/),
+            )
+            .optional(),
+          designTokens: designTokensSchema.optional(),
+        }),
+      ),
     },
     async ({ import_id, chunk_id, nodes, source, warnings, tokens, designTokens }) => {
       try {
@@ -354,7 +360,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("validate_import"),
       description:
         "Validate staged structure, assets, control alignment, sizing and provable overflow. Inspect layout.valid and layout.issues; resolve errors before commit_import. This does not measure fonts or verify visual fidelity; compare rendered UI separately.",
-      inputSchema: z.object({ import_id: z.string().uuid() }),
+      inputSchema: mcpSchema("validate_import", () => z.object({ import_id: z.string().uuid() })),
     },
     async ({ import_id }) => {
       try {
@@ -371,10 +377,12 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("commit_import"),
       description:
         "Atomically publish a validated staged UI. Retrying the same import ID returns the original result.",
-      inputSchema: z.object({
-        import_id: z.string().uuid(),
-        resolution: z.enum(["keep_user", "use_import", "duplicate"]).optional(),
-      }),
+      inputSchema: mcpSchema("commit_import", () =>
+        z.object({
+          import_id: z.string().uuid(),
+          resolution: z.enum(["keep_user", "use_import", "duplicate"]).optional(),
+        }),
+      ),
     },
     async ({ import_id, resolution }) => {
       try {
@@ -390,7 +398,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("abort_import"),
       description: "Discard an unfinished import.",
-      inputSchema: z.object({ import_id: z.string().uuid() }),
+      inputSchema: mcpSchema("abort_import", () => z.object({ import_id: z.string().uuid() })),
     },
     async ({ import_id }) => result(await abortImport(userId, import_id)),
   );
@@ -400,19 +408,49 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("patch_document"),
       description:
-        "Edit one UI node. Requires the current revision returned by get_document; changes are visible in the browser.",
-      inputSchema: z.object({
-        file_id: z.string().min(1),
-        expected_revision: z.number().int().min(1),
-        node_id: z.string().min(1),
-        changes: designNodeChangesSchema,
-      }),
+        "Edit UI nodes at the current expected_revision. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
+      inputSchema: mcpSchema("patch_document", () =>
+        z.object({
+          file_id: z.string().min(1),
+          expected_revision: z.number().int().min(1),
+          node_id: z.string().min(1),
+          changes: designNodeChangesSchema,
+          additional_edits: z
+            .array(z.object({ node_id: z.string().min(1), changes: designNodeChangesSchema }))
+            .max(249)
+            .optional(),
+          include_document: z.boolean().default(true),
+        }),
+      ),
     },
-    async ({ file_id, expected_revision, node_id, changes }) => {
+    async ({
+      file_id,
+      expected_revision,
+      node_id,
+      changes,
+      additional_edits = [],
+      include_document,
+    }) => {
       try {
-        return result(
-          await patchDocumentNode(userId, file_id, expected_revision, node_id, changes),
-        );
+        if (additional_edits.length) {
+          const saved = await patchDocumentNodes(
+            userId,
+            file_id,
+            expected_revision,
+            [{ node_id, changes }, ...additional_edits].map(({ node_id, changes }) => ({
+              nodeId: node_id,
+              changes,
+            })),
+          );
+          const value = {
+            revision: saved.revision,
+            node: saved.nodes.find((node) => node.id === node_id),
+            nodes: saved.nodes,
+          };
+          return result(include_document ? { ...value, document: saved.document } : value);
+        }
+        const saved = await patchDocumentNode(userId, file_id, expected_revision, node_id, changes);
+        return result(include_document ? saved : { revision: saved.revision, node: saved.node });
       } catch (error) {
         return failure(actionError(error, "Could not edit node."));
       }

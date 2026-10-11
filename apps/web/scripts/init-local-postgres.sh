@@ -34,7 +34,8 @@ for migration in \
   20261007-linear-operation-indexes.sql \
   20261007-github-oauth-state-indexes.sql \
   20261005-agent-threads.sql \
-  20261007-file-version-history.sql
+  20261007-file-version-history.sql \
+  20261010-document-event-performance.sql
 do
   set -- "$@" -f "$migrations_dir/$migration"
 done

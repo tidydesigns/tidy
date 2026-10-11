@@ -56,62 +56,65 @@ async function liveMcpGrant(
   const tokenLive = () =>
     typeof claims.exp === "number" && Number.isFinite(claims.exp) && claims.exp > Date.now() / 1000;
   if (!tokenLive()) return false;
+  if (claims.bella_grant_version != null && typeof claims.bella_grant_version !== "string")
+    return false;
   const userId = claims.sub as string,
     clientId = claims.client_id as string;
   if (lock)
     await client.query("select pg_advisory_xact_lock_shared(hashtextextended($1,0))", [
       `mcp-consent:${userId}`,
     ]);
-  // User first: account deletion locks it before cascading to client/session rows.
-  const rows: [string, unknown[]][] = [
-    ['select 1 from "user" where "id"=$1 and "emailVerified"=true', [userId]],
+  // MATERIALIZED dependencies retain the existing user → client → resource →
+  // link → session → consent lock order, in one database round trip. A plain
+  // join with FOR SHARE lets the planner reorder locks and can deadlock with
+  // account deletion. Never cache this result across requests or transactions.
+  const held = lock ? " for share" : "";
+  const result = await client.query(
+    `with
+    grant_user as materialized (
+      select 1 from "user" where "id"=$1 and "emailVerified"=true${held}
+    ), grant_client as materialized (
+      select 1 from "oauthClient" where "clientId"=$2 and "disabled" is not true
+      and ("scopes" is null or "scopes" ?& $4::text[])
+      and exists(select 1 from grant_user)${held}
+    ), grant_resource as materialized (
+      select 1 from "oauthResource" where "identifier"=$3 and "disabled" is not true
+      and ("allowedScopes" is null or "allowedScopes" ?& $4::text[])
+      and exists(select 1 from grant_client)${held}
+    ), grant_link as materialized (
+      select 1 from "oauthClientResource" where "clientId"=$2 and "resourceId"=$3
+      and exists(select 1 from grant_resource)${held}
+    ), grant_session as materialized (
+      select "expiresAt" from "session" where "id"=$5 and "userId"=$1 and "expiresAt">clock_timestamp()
+      and exists(select 1 from grant_link)${held}
+    ), grant_consent as materialized (
+      select 1 from "oauthConsent" where "userId"=$1 and "clientId"=$2
+      and "resources" @> jsonb_build_array($3::text) and "scopes" ?& $4::text[]
+      and exists(select 1 from grant_session)${held}
+    )
+    select (select "expiresAt" from grant_session)>clock_timestamp() as live from grant_consent
+    where coalesce((select "value" from "verification" where "id"=$6),'0')=$7`,
     [
-      'select 1 from "oauthClient" where "clientId"=$1 and "disabled" is not true and ("scopes" is null or "scopes" ?& $2::text[])',
-      [clientId, scopes],
+      userId,
+      clientId,
+      resource,
+      scopes,
+      claims.sid,
+      versionId(userId, clientId),
+      claims.bella_grant_version ?? "0",
     ],
-    [
-      'select 1 from "oauthResource" where "identifier"=$1 and "disabled" is not true and ("allowedScopes" is null or "allowedScopes" ?& $2::text[])',
-      [resource, scopes],
-    ],
-    [
-      'select 1 from "oauthClientResource" where "clientId"=$1 and "resourceId"=$2',
-      [clientId, resource],
-    ],
-    [
-      'select 1 from "session" where "id"=$1 and "userId"=$2 and "expiresAt">clock_timestamp()',
-      [claims.sid, userId],
-    ],
-    [
-      `select 1 from "oauthConsent" where "userId"=$1 and "clientId"=$2
-      and "resources" @> jsonb_build_array($3::text) and "scopes" ?& $4::text[]`,
-      [userId, clientId, resource, scopes],
-    ],
-  ];
-  for (const [sql, values] of rows) {
-    if (!(await client.query(sql + (lock ? " for share" : ""), values)).rowCount) return false;
-  }
-  if (
-    (claims.bella_grant_version ?? "0") !== (await authorizationVersion(userId, clientId, client))
-  )
-    return false;
-  // Acquiring consent/identity locks can itself queue after the first clock
-  // check. Retained rows exclude mutations, but never stop time passing.
-  if (
-    lock &&
-    !(
-      await client.query(
-        'select 1 from "session" where "id"=$1 and "userId"=$2 and "expiresAt">clock_timestamp()',
-        [claims.sid, userId],
-      )
-    ).rowCount
-  )
-    return false;
+  );
+  // The volatile clock expression is in the final projection, after the
+  // materialized consent row (and therefore every preceding lock) is obtained.
+  // A WHERE predicate could be pushed earlier and miss expiry during a wait.
+  if (!result.rowCount || result.rows.some((row) => row.live !== true)) return false;
   return tokenLive();
 }
 
-/** Caller holds the workspace gate before acquiring this shared account gate.
- * UI revocation uses its exclusive counterpart; identity/consent rows are retained
- * until the caller commits or rolls back. Never use a session-level pool lock. */
+/** Mutating callers hold the workspace gate before this shared account gate.
+ * Read publication must never acquire a workspace gate after this point.
+ * UI revocation uses the exclusive counterpart; identity/consent rows remain
+ * held until commit or rollback. Never use a session-level pool lock. */
 export async function requireMcpGrant(
   client: Pick<PoolClient, "query">,
   grant: McpGrant,
@@ -123,6 +126,13 @@ export async function requireMcpGrant(
     !(await liveMcpGrant(client, grant, true))
   )
     throw new McpGrantError();
+}
+
+/** Only after requireMcpGrant retained all authority rows in this same open
+ * transaction. Those rows cannot be revoked while held, but clocks advance
+ * during provider I/O and target-lock waits. Keep the epoch check as well. */
+export async function recheckRetainedMcpGrant(client: Pick<PoolClient, "query">, grant: McpGrant) {
+  if (!(await liveMcpGrant(client, grant))) throw new McpGrantError();
 }
 
 /** Internal only: caller holds the exclusive account gate and has resolved an

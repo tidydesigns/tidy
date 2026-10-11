@@ -5,7 +5,8 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
-  useReducer,
+  useRef,
+  type ReactNode,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -13,16 +14,18 @@ import { nodePageId, type DesignDocument, type DesignNode } from "@/lib/design/d
 import {
   activityLabels,
   activityTerminal,
-  activityVisible,
   activityWorking,
   type AgentActivity,
   type AgentActivityStore,
 } from "@/lib/realtime/agent-activity";
+import { agentPresences, presenceColor, presenceDeadline } from "@/lib/realtime/agent-presence";
+import { layoutPresences, presenceDetailsLayout } from "./agent-presence-layout";
 import { canvasElements } from "./canvas-elements";
 import styles from "./agent-activity-overlay.module.css";
 
 type Bounds = { left: number; top: number; width: number; height: number };
 type Region = { key: string; activity: AgentActivity; node?: DesignNode; root?: DesignNode };
+type Geometry = { focus?: Bounds; nodeId?: string; width: number; height: number };
 function label(activity: AgentActivity, revision: number) {
   if (activity.phase === "published" && activity.revision && activity.revision > revision)
     return "Published · Updating canvas";
@@ -49,12 +52,9 @@ function ActivityDetails({
   revision: number;
 }) {
   return (
-    <div
-      className="mt-1 max-h-48 w-72 max-w-full overflow-auto rounded-lg border border-primary-grey/70 bg-surface p-3 text-xs leading-5 shadow-sm"
-      data-agent-activity-details
-    >
+    <div className={styles.detailItem} data-agent-activity-details>
       <p>{target ?? "Current file"}</p>
-      <p className="text-secondary-ink">{label(activity, revision)}</p>
+      <p className="text-secondary-ink">{presenceLabel(activity, revision)}</p>
       {activity.sourceProject && (
         <p className="break-words text-secondary-ink">
           {activity.sourceProject}
@@ -67,7 +67,7 @@ function ActivityDetails({
       {(activity.nodeCount !== undefined || activity.assetCount !== undefined) && (
         <p className="text-secondary-ink">
           {activity.nodeCount !== undefined &&
-            `${activity.nodeCount} ${activity.nodeCount === 1 ? "layer" : "layers"}${activity.phase === "staged" ? " staged" : ""}`}
+            `${activity.nodeCount} ${activity.nodeCount === 1 ? "layer" : "layers"}`}
           {activity.nodeCount !== undefined && activity.assetCount !== undefined && " · "}
           {activity.assetCount !== undefined &&
             `${activity.assetCount} ${activity.assetCount === 1 ? "asset" : "assets"}${activity.tool === "put_asset" && activity.phase === "staged" ? " received" : ""}`}
@@ -88,7 +88,9 @@ function ActivityDetails({
         </p>
       )}
       {activity.phase === "staged" && (
-        <p className="mt-1 text-secondary-ink">Waiting for the next MCP call.</p>
+        <p className="mt-1 text-secondary-ink">
+          Layers are prepared. They’ll appear on the canvas when the agent places them.
+        </p>
       )}
       {activity.phase === "failed" && (
         <p className="mt-1 text-secondary-ink">
@@ -99,16 +101,106 @@ function ActivityDetails({
   );
 }
 
-/** Activity subscribes here, never in the editor, artwork, or panel trees. */
-export function AgentActivityOverlay({
-  store,
-  document,
-  revision,
-  pageId,
+function PresenceMark({ activity }: { activity: AgentActivity }) {
+  const done = ["completed", "published"].includes(activity.phase);
+  const attention = ["failed", "unavailable"].includes(activity.phase);
+  return done || attention || activity.phase === "aborted" ? (
+    <svg
+      viewBox="0 0 16 16"
+      className={styles.result}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d={done ? "m3 8 3 3 7-7" : attention ? "M8 3v6m0 3h.01" : "m4 4 8 8m0-8-8 8"} />
+    </svg>
+  ) : (
+    <span className={styles.pulse} data-agent-pulse aria-hidden="true" />
+  );
+}
+
+function identityWidth(activity: AgentActivity) {
+  // Reserve a bounded slot without measuring text or waiting for fonts.
+  const nameWidth = Math.min(160, Math.max(72, activity.actorName.length * 7 + 30));
+  return ["failed", "unavailable"].includes(activity.phase) ? nameWidth + 90 : nameWidth;
+}
+
+function presenceLabel(activity: AgentActivity, revision: number) {
+  if (activity.phase === "editing" && !["rename_file", "move_file"].includes(activity.tool))
+    return "Editing layers";
+  if (activity.phase === "receiving") return "Receiving layers";
+  if (activity.phase === "staged")
+    return activity.tool === "put_asset"
+      ? "Asset ready"
+      : activity.nodeCount
+        ? `${activity.nodeCount} ${activity.nodeCount === 1 ? "layer" : "layers"} ready`
+        : "Preparing";
+  if (activity.phase === "publishing") return "Placing on canvas";
+  if (activity.phase === "published")
+    return activity.revision && activity.revision > revision
+      ? "Updating canvas"
+      : "Added to canvas";
+  if (activity.phase === "failed") return "Needs attention";
+  return label(activity, revision);
+}
+
+/** Only a change of work target travels. User pan/zoom stays attached instantly. */
+function PresencePosition({
+  target,
   view,
-  viewport,
-  panelsOpen,
+  x,
+  y,
+  width,
+  children,
 }: {
+  target: string;
+  view: string;
+  x: number;
+  y: number;
+  width: number;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const previous = useRef<{ target: string; view: string; transform: string } | null>(null);
+  const transform = `translate(${x}px, ${y}px)`;
+  useLayoutEffect(() => {
+    const element = ref.current;
+    const before = previous.current;
+    previous.current = { target, view, transform };
+    if (!element || !before) return;
+    const animations = element.getAnimations();
+    const from = animations.length ? getComputedStyle(element).transform : before.transform;
+    for (const animation of animations) animation.cancel();
+    if (
+      before.target !== target &&
+      before.view === view &&
+      !matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      element.animate([{ transform: from }, { transform }], {
+        duration: 200,
+        easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+      });
+    }
+  }, [target, view, transform]);
+  useEffect(() => {
+    const media = matchMedia("(prefers-reduced-motion: reduce)");
+    const cancel = () => {
+      if (media.matches) ref.current?.getAnimations().forEach((animation) => animation.cancel());
+    };
+    media.addEventListener("change", cancel);
+    return () => media.removeEventListener("change", cancel);
+  }, []);
+  return (
+    <div ref={ref} className={styles.position} data-agent-position style={{ transform, width }}>
+      {children}
+    </div>
+  );
+}
+
+type OverlayProps = {
   store: AgentActivityStore;
   document: DesignDocument;
   revision: number;
@@ -116,15 +208,61 @@ export function AgentActivityOverlay({
   view: { x: number; y: number; zoom: number };
   viewport: React.RefObject<HTMLDivElement | null>;
   panelsOpen: boolean;
-}) {
-  const activities = useSyncExternalStore(
-    store.subscribe,
-    store.getSnapshot,
-    store.getServerSnapshot,
+};
+
+/** No document indexing, layout reads, observers, or animation when idle/hidden.
+ * Activity subscribes here, never in the editor, artwork, or panel trees. */
+export function AgentActivityOverlay(props: OverlayProps) {
+  const { store } = props;
+  const [clock, setClock] = useState(() => Date.now());
+  const [hidden, setHidden] = useState(
+    () => typeof window !== "undefined" && window.document.hidden,
   );
-  const [clock, tick] = useReducer((value) => value + 1, 0);
-  const [hidden, setHidden] = useState(false);
-  const [bounds, setBounds] = useState<Map<string, Bounds>>(() => new Map());
+  const subscribe = useCallback(
+    (notify: () => void) =>
+      store.subscribe(() => {
+        setClock(Date.now());
+        notify();
+      }),
+    [store],
+  );
+  const activities = useSyncExternalStore(subscribe, store.getSnapshot, store.getServerSnapshot);
+  const presences = useMemo(() => agentPresences(activities, clock), [activities, clock]);
+  useEffect(() => {
+    if (hidden || !presences.length) return;
+    const now = Date.now();
+    const deadlines = presences
+      .flatMap((activity) => [presenceDeadline(activity) - 180, presenceDeadline(activity)])
+      .filter((time) => time > now);
+    if (!deadlines.length) return;
+    const timer = setTimeout(() => setClock(Date.now()), Math.min(...deadlines) - now + 10);
+    return () => clearTimeout(timer);
+  }, [presences, hidden]);
+  useEffect(() => {
+    const visibility = () => {
+      setHidden(window.document.hidden);
+      setClock(Date.now());
+    };
+    window.document.addEventListener("visibilitychange", visibility);
+    return () => window.document.removeEventListener("visibilitychange", visibility);
+  }, []);
+  return !hidden && presences.length ? (
+    <VisibleAgentPresence {...props} presences={presences} clock={clock} />
+  ) : null;
+}
+
+function VisibleAgentPresence({
+  document,
+  revision,
+  pageId,
+  view,
+  viewport,
+  panelsOpen,
+  presences,
+  clock,
+}: OverlayProps & { presences: AgentActivity[]; clock: number }) {
+  const overlay = useRef<HTMLDivElement>(null);
+  const [geometry, setGeometry] = useState<Map<string, Geometry>>(() => new Map());
   const index = useMemo(
     () => new Map(document.nodes.map((node) => [node.id, node])),
     [document.nodes],
@@ -138,213 +276,272 @@ export function AgentActivityOverlay({
       ),
     [document.nodes],
   );
-  const regions = useMemo(() => {
-    const grouped = new Map<string, Region>();
-    // A quick concurrent read must not hide a still-running edit on the same frame.
-    for (const activity of activities
-      .filter((activity) => !activity.threadId)
-      .sort(
-        (a, b) =>
-          Number(activityWorking(b)) - Number(activityWorking(a)) ||
-          b.updatedAt - a.updatedAt ||
-          b.version - a.version,
-      )) {
-      const node =
-        activity.nodeIds?.map((id) => index.get(id)).find(Boolean) ??
-        (activity.sourceProject && activity.sourceRoute
-          ? importRoots.get(`${activity.sourceProject}:${activity.sourceRoute}`)
-          : undefined);
-      let root = node;
-      const visited = new Set<string>();
-      while (root?.parentId && !visited.has(root.id)) {
-        visited.add(root.id);
-        root = index.get(root.parentId);
-      }
-      const key = `${activity.actorId}:${activity.importId ?? root?.id ?? "file"}`;
-      if (!grouped.has(key)) grouped.set(key, { key, activity, node, root });
-    }
-    return [...grouped.values()];
-  }, [activities, importRoots, index]);
-  const geometryKey = regions.map((region) => `${region.key}:${region.root?.id ?? ""}`).join("|");
-  // Phase/counter messages don't change targets or reconnect geometry observers.
+  // Re-evaluate at expiry boundaries as well as on messages. Stale activity must
+  // not mask a teammate's next operation or reappear after their departure.
+  const regions = useMemo(
+    () =>
+      presences.map((activity): Region => {
+        // Staged IDs live in a separate namespace until publication. They can
+        // match existing layer IDs without referring to those canvas layers.
+        const onCanvas = !activity.importId || activity.phase === "published";
+        const node = onCanvas
+          ? (activity.nodeIds?.map((id) => index.get(id)).find(Boolean) ??
+            (activity.sourceProject && activity.sourceRoute
+              ? importRoots.get(`${activity.sourceProject}:${activity.sourceRoute}`)
+              : undefined))
+          : undefined;
+        let root = node;
+        const visited = new Set<string>();
+        while (root?.parentId && !visited.has(root.id)) {
+          visited.add(root.id);
+          root = index.get(root.parentId);
+        }
+        return { key: activity.actorId, activity, node, root };
+      }),
+    [presences, importRoots, index],
+  );
+  const geometryKey = regions
+    .map(({ key, root, node }) => `${key}:${root?.id}:${node?.id}`)
+    .join("|");
   const targets = useMemo(
-    () => regions.map(({ key, root }) => ({ key, root })).slice(0, 10),
+    () => regions.map(({ key, root, node }) => ({ key, root, node })).slice(0, 10),
+    // Counter/phase messages do not reconnect geometry observers.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [geometryKey, document.nodes],
   );
-  const measure = useCallback(() => {
-    const canvas = viewport.current;
-    if (!canvas || !targets.length) return;
-    const origin = canvas.getBoundingClientRect(),
-      elements = canvasElements(canvas),
-      next = new Map<string, Bounds>();
-    for (const region of targets) {
-      if (!region.root || nodePageId(region.root) !== pageId) continue;
-      const element = elements.get(region.root.id);
-      if (!element) continue;
-      const box = element.getBoundingClientRect();
-      if (
-        box.right <= origin.left ||
-        box.left >= origin.right ||
-        box.bottom <= origin.top ||
-        box.top >= origin.bottom
-      )
-        continue;
-      next.set(region.key, {
-        left: box.left - origin.left,
-        top: box.top - origin.top,
-        width: box.width,
-        height: box.height,
-      });
-    }
-    setBounds((before) =>
-      before.size === next.size &&
-      [...next].every(([key, box]) => {
-        const previous = before.get(key);
-        return (
-          previous &&
-          previous.left === box.left &&
-          previous.top === box.top &&
-          previous.width === box.width &&
-          previous.height === box.height
-        );
-      })
-        ? before
-        : next,
-    );
-  }, [targets, pageId, viewport]);
-  useLayoutEffect(() => {
-    const frame = requestAnimationFrame(measure);
-    return () => cancelAnimationFrame(frame);
-  }, [measure, view]);
+  const measure = useCallback(
+    (canvas: HTMLDivElement | null) => {
+      if (!canvas || !targets.length) return;
+      const origin = canvas.getBoundingClientRect(),
+        elements = canvasElements(canvas),
+        next = new Map<string, Geometry>(),
+        boxes = new Map<string, Bounds | undefined>();
+      const bounds = (id?: string) => {
+        if (!id) return undefined;
+        if (boxes.has(id)) return boxes.get(id);
+        const element = elements.get(id);
+        if (!element) return undefined;
+        const box = element.getBoundingClientRect();
+        if (
+          box.width === 0 ||
+          box.height === 0 ||
+          box.right <= origin.left ||
+          box.left >= origin.right ||
+          box.bottom <= origin.top ||
+          box.top >= origin.bottom
+        )
+          return undefined;
+        const result = {
+          left: box.left - origin.left,
+          top: box.top - origin.top,
+          width: box.width,
+          height: box.height,
+        };
+        boxes.set(id, result);
+        return result;
+      };
+      for (const region of targets) {
+        const onPage = region.root && nodePageId(region.root) === pageId;
+        next.set(region.key, {
+          nodeId: region.node?.id,
+          width: origin.width,
+          height: origin.height,
+          focus: onPage ? bounds(region.node?.id) : undefined,
+        });
+      }
+      setGeometry((before) =>
+        before.size === next.size &&
+        [...next].every(([key, value]) => {
+          const old = before.get(key);
+          return (
+            old !== undefined &&
+            old.nodeId === value.nodeId &&
+            old.width === value.width &&
+            old.height === value.height &&
+            old.focus?.left === value.focus?.left &&
+            old.focus?.top === value.focus?.top &&
+            old.focus?.width === value.focus?.width &&
+            old.focus?.height === value.focus?.height
+          );
+        })
+          ? before
+          : next,
+      );
+    },
+    [targets, pageId],
+  );
+  // Pan/zoom and document changes attach in the same paint. Resize bursts are
+  // coalesced; activity phase/count changes do not schedule geometry work.
+  // Layout measurement is intentionally synchronous, so the highlight never
+  // paints at the previous zoom or target before its bounds are known.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useLayoutEffect(() => measure(viewport.current), [measure, view, viewport]);
   useEffect(() => {
-    if (!targets.length || !viewport.current) return;
-    const observer = new ResizeObserver(measure);
-    observer.observe(viewport.current);
+    const canvas = viewport.current;
+    if (!canvas) return;
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      if (!frame)
+        frame = requestAnimationFrame(() => {
+          frame = 0;
+          measure(canvas);
+        });
+    });
+    observer.observe(canvas);
+    const elements = canvasElements(canvas);
+    const observed = new Set<HTMLElement>();
     for (const target of targets) {
-      const element = target.root && canvasElements(viewport.current).get(target.root.id);
-      if (element) observer.observe(element);
+      const element = target.node && elements.get(target.node.id);
+      if (element && !observed.has(element)) {
+        observed.add(element);
+        observer.observe(element);
+      }
     }
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
   }, [measure, targets, viewport]);
   useEffect(() => {
-    if (!activities.length) return;
-    const now = Date.now();
-    const deadlines = activities
-      .flatMap((activity) => [
-        activity.expiresAt,
-        ...(activityTerminal(activity) ? [activity.updatedAt + 6000] : []),
-      ])
-      .filter((time) => time > now);
-    if (!deadlines.length) return;
-    const timer = setTimeout(tick, Math.min(...deadlines) - now + 20);
-    return () => clearTimeout(timer);
-  }, [activities, clock]);
-  useEffect(() => {
-    const visibility = () => setHidden(window.document.hidden);
-    window.document.addEventListener("visibilitychange", visibility);
-    return () => window.document.removeEventListener("visibilitychange", visibility);
+    const dismiss = (event: PointerEvent) => {
+      overlay.current?.querySelectorAll<HTMLDetailsElement>("details[open]").forEach((detail) => {
+        if (!detail.contains(event.target as Node)) detail.open = false;
+      });
+    };
+    window.document.addEventListener("pointerdown", dismiss, true);
+    return () => window.document.removeEventListener("pointerdown", dismiss, true);
   }, []);
-  const visible = regions.filter((region) => activityVisible(region.activity));
-  if (!visible.length) return null;
-  const anchored = visible.filter((region) => bounds.has(region.key)).slice(0, 3);
-  const fallback = visible.filter((region) => !anchored.includes(region));
-  const summary = (region: Region) =>
-    `${region.activity.actorName} · ${label(region.activity, revision)}${region.node && region.activity.phase === "editing" ? ` · ${region.node.name}` : region.activity.sourceRoute ? ` · ${region.activity.sourceRoute}` : ""}`;
+  const canvasSize = geometry.values().next().value ?? {
+    width: viewport.current?.clientWidth ?? 320,
+    height: viewport.current?.clientHeight ?? 500,
+  };
+  const { placements, margin } = layoutPresences(
+    regions.map((region) => ({
+      key: region.key,
+      width: identityWidth(region.activity),
+      focus: geometry.get(region.key)?.focus,
+    })),
+    canvasSize,
+    panelsOpen,
+  );
+  const anchored = regions.filter((region) => placements.has(region.key));
+  const fallback = regions.filter((region) => !anchored.includes(region));
+  const shown = [...anchored, ...fallback.slice(0, 1)];
   return (
     <div
       data-agent-activity-overlay
-      data-hidden={hidden}
+      ref={overlay}
       className={`${styles.overlay} pointer-events-none absolute inset-0 z-[16] overflow-hidden`}
     >
-      {anchored.map((region) => {
-        const box = bounds.get(region.key)!;
+      {shown.map((region) => {
+        const measured = geometry.get(region.key);
+        const unanchored = !anchored.includes(region);
+        const focus = unanchored ? undefined : measured?.focus;
+        const width = measured?.width ?? viewport.current?.clientWidth ?? 320;
+        const height = measured?.height ?? viewport.current?.clientHeight ?? 500;
+        const attention = ["failed", "unavailable"].includes(region.activity.phase);
+        const badgeWidth = Math.max(
+          0,
+          Math.min(
+            identityWidth(region.activity) + (unanchored && fallback.length > 1 ? 24 : 0),
+            width - 24,
+          ),
+        );
+        const placement = placements.get(region.key);
+        const x = placement?.left ?? margin!.left;
+        const y = placement?.top ?? margin!.top;
+        const { above, ...detailsStyle } = presenceDetailsLayout(x, y, { width, height });
+        const retiring = presenceDeadline(region.activity) - clock <= 180;
+        const terminal = activityTerminal(region.activity);
+        const target = region.node?.name ?? region.root?.name;
+        const status = presenceLabel(region.activity, revision);
+        const context =
+          unanchored && region.root
+            ? nodePageId(region.root) !== pageId
+              ? "Another page"
+              : "Outside view"
+            : target;
         return (
-          <div key={region.key}>
-            <div
-              data-agent-target={region.root?.id}
-              aria-hidden="true"
-              className="absolute border border-primary-orange transition-opacity duration-200 motion-reduce:transition-none"
-              style={{ ...box, opacity: activityTerminal(region.activity) ? 0 : 0.65 }}
-            />
-            <details
-              data-agent-activity={region.activity.phase}
-              data-working={activityWorking(region.activity)}
-              data-canvas-control
-              className={`${styles.marker} pointer-events-auto absolute max-w-[calc(100%-1.5rem)]`}
-              style={{
-                left: Math.max(
-                  12,
-                  Math.min(box.left, (viewport.current?.clientWidth ?? 320) - 300),
-                ),
-                top: Math.max(
-                  12,
-                  Math.min(box.top - 38, (viewport.current?.clientHeight ?? 500) - 42),
-                ),
-              }}
-              onPointerDown={(event) => event.stopPropagation()}
-              onWheel={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-            >
-              <summary className="flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-primary-grey/70 bg-surface px-2.5 py-1.5 text-[11px] leading-4 shadow-sm focus-visible:outline-2 focus-visible:outline-primary-orange">
-                <span className={styles.dot} aria-hidden="true" />
-                <span className="truncate">{summary(region)}</span>
-              </summary>
+          <div
+            key={region.key}
+            className={styles.teammate}
+            data-tone={presenceColor(region.activity.actorId)}
+            data-working={activityWorking(region.activity)}
+            data-terminal={terminal}
+            data-retiring={retiring}
+            data-phase={region.activity.phase}
+          >
+            {focus && (
               <div
-                className={
-                  box.top > (viewport.current?.clientHeight ?? 500) - 260
-                    ? "absolute bottom-full mb-1 w-72 max-w-full"
-                    : ""
-                }
+                data-agent-target={measured?.nodeId}
+                aria-hidden="true"
+                className={styles.focus}
+                style={focus}
+              />
+            )}
+            <PresencePosition
+              target={`${pageId}:${unanchored ? "edge" : measured?.nodeId}`}
+              view={`${view.x}:${view.y}:${view.zoom}:${width}:${height}`}
+              x={x}
+              y={y}
+              width={badgeWidth}
+            >
+              <details
+                data-agent-activity={region.activity.phase}
+                data-agent-actor={region.key}
+                data-agent-fallback={unanchored || undefined}
+                data-working={activityWorking(region.activity)}
+                data-canvas-control
+                className={styles.marker}
+                onPointerDown={(event) => event.stopPropagation()}
+                onWheel={(event) => event.stopPropagation()}
+                onKeyDown={(event) => {
+                  event.stopPropagation();
+                  if (event.key === "Escape") {
+                    event.currentTarget.open = false;
+                    event.currentTarget.querySelector("summary")?.focus();
+                  }
+                }}
               >
-                <ActivityDetails
-                  activity={region.activity}
-                  target={region.node?.name ?? region.root?.name}
-                  revision={revision}
+                <summary
+                  className={styles.identity}
+                  title={`${status}${context ? ` · ${context}` : ""}`}
+                  aria-label={`${region.activity.actorName}: ${status}${context ? ` · ${context}` : ""}. Activity details`}
+                >
+                  <span className={styles.name}>{region.activity.actorName}</span>
+                  <PresenceMark activity={region.activity} />
+                  {attention && <span className={styles.status}>{status}</span>}
+                  {unanchored && fallback.length > 1 && (
+                    <span className={styles.count}>+{fallback.length - 1}</span>
+                  )}
+                </summary>
+                <div className={styles.details} data-above={above} style={detailsStyle}>
+                  {(unanchored ? fallback : [region]).map((item) => (
+                    <ActivityDetails
+                      key={item.key}
+                      activity={item.activity}
+                      target={`${item.activity.actorName} · ${item.node?.name ?? item.root?.name ?? "Current file"}`}
+                      revision={revision}
+                    />
+                  ))}
+                </div>
+              </details>
+              <svg className={styles.cursor} viewBox="0 0 28 32" fill="none" aria-hidden="true">
+                <path
+                  d="M4 3 23 17l-9 1-4 9L4 3Z"
+                  fill="currentColor"
+                  stroke="white"
+                  strokeWidth="1.8"
+                  strokeLinejoin="round"
                 />
-              </div>
-            </details>
+              </svg>
+            </PresencePosition>
           </div>
         );
       })}
-      {fallback.length > 0 && (
-        <details
-          data-agent-fallback
-          data-agent-activity={fallback[0].activity.phase}
-          data-working={fallback.some((region) => activityWorking(region.activity))}
-          data-canvas-control
-          className={`${styles.marker} pointer-events-auto absolute bottom-5`}
-          style={{ left: panelsOpen ? 12 : 72, maxWidth: `calc(100% - ${panelsOpen ? 24 : 84}px)` }}
-          onPointerDown={(event) => event.stopPropagation()}
-          onWheel={(event) => event.stopPropagation()}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <summary className="flex h-10 min-w-0 cursor-pointer items-center gap-2 rounded-lg border border-primary-grey/70 bg-surface px-2.5 py-1.5 text-[11px] leading-4 shadow-sm focus-visible:outline-2 focus-visible:outline-primary-orange">
-            <span className={styles.dot} aria-hidden="true" />
-            <span className="truncate">
-              {summary(fallback[0])}
-              {fallback.length > 1 && ` · +${fallback.length - 1}`}
-            </span>
-          </summary>
-          <div className="absolute bottom-full mb-1 max-h-64 w-72 max-w-full overflow-auto">
-            {fallback.map((region) => (
-              <ActivityDetails
-                key={region.key}
-                activity={region.activity}
-                target={
-                  region.root
-                    ? `${region.root.name}${nodePageId(region.root) !== pageId ? " · Another page" : " · Outside view"}`
-                    : undefined
-                }
-                revision={revision}
-              />
-            ))}
-          </div>
-        </details>
-      )}
       <span role="status" aria-live="polite" className="sr-only">
-        {visible
-          .map((region) => `${region.activity.actorName}: ${label(region.activity, revision)}`)
+        {regions
+          .map(({ activity }) => `${activity.actorName}: ${presenceLabel(activity, revision)}`)
           .join(". ")}
       </span>
     </div>

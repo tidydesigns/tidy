@@ -1,4 +1,5 @@
 import "server-only";
+import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ConnectorError } from "@/lib/connectors/http";
@@ -69,7 +70,11 @@ export function registerLinearTools(server: McpServer, userId: string) {
   for (const [name, description, inputSchema, operation, readOnlyHint] of tools) {
     server.registerTool(
       name,
-      { description, inputSchema, annotations: { readOnlyHint, openWorldHint: true } },
+      {
+        description,
+        inputSchema: mcpSchema(name, () => inputSchema),
+        annotations: { readOnlyHint, openWorldHint: true },
+      },
       (input: unknown) => safely(() => operation(userId, input)),
     );
   }
@@ -78,7 +83,9 @@ export function registerLinearTools(server: McpServer, userId: string) {
     {
       description:
         "List your Linear connections for a Tidy organisation. Connect Linear in Settings → Connectors first. Credentials are never returned.",
-      inputSchema: z.object({ organizationId: z.string().min(1).max(200) }),
+      inputSchema: mcpSchema("linear_list_connections", () =>
+        z.object({ organizationId: z.string().min(1).max(200) }),
+      ),
       annotations: { readOnlyHint: true },
     },
     (input) => safely(() => linearStatus(userId, input.organizationId)),

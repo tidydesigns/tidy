@@ -6,7 +6,7 @@ import {
   type DesignNodeChanges,
 } from "./document";
 import { reconcileComponentStructure } from "./component-structure";
-import { syncComponentEdit } from "./component-sync";
+import { componentEditSession } from "./component-sync";
 import { duplicateNodeTree } from "./duplicate-node";
 import { rotatePoint } from "./resize-box";
 import { innerSize } from "./constraints";
@@ -64,17 +64,41 @@ export function changedLayers(
   ids: string[],
   changes: DesignNodeChanges | ((node: DesignNode) => DesignNodeChanges),
 ): DesignNode[] {
-  let nodes = document.nodes;
-  for (const id of ids) {
-    const node = nodeIndex(nodes).get(id);
+  return changedLayerBatch(
+    document,
+    ids.map((nodeId) => ({ nodeId, changes })),
+  );
+}
+
+/** Ordered property edits share topology indexes; later edits observe earlier
+ * locks, overrides, token materialization and fully settled resize constraints. */
+export function changedLayerBatch(
+  document: DesignDocument,
+  edits: {
+    nodeId: string;
+    changes: DesignNodeChanges | ((node: DesignNode) => DesignNodeChanges);
+  }[],
+): DesignNode[] {
+  if (!edits.length) return document.nodes;
+  const session = componentEditSession(document.nodes, document);
+  for (const { nodeId: id, changes } of edits) {
+    const node = session.get(id);
     if (!node) continue;
-    const resolved = resolveNodeTokens(node, document);
-    const patch = typeof changes === "function" ? changes(resolved) : changes;
-    if (isLayerLocked(nodes, id) && !(patch.locked === false && Object.keys(patch).length === 1))
-      continue;
-    nodes = syncComponentEdit(nodes, id, patch, document);
+    const patch =
+      typeof changes === "function" ? changes(resolveNodeTokens(node, document)) : changes;
+    let ancestor: DesignNode | undefined = node;
+    let locked = false;
+    while (ancestor) {
+      if (ancestor.locked || ancestor.librarySource) {
+        locked = true;
+        break;
+      }
+      ancestor = ancestor.parentId ? session.get(ancestor.parentId) : undefined;
+    }
+    if (locked && !(patch.locked === false && Object.keys(patch).length === 1)) continue;
+    session.edit(id, patch);
   }
-  return nodes;
+  return session.finish();
 }
 
 export function editLayers(

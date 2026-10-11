@@ -316,3 +316,36 @@ test("reimported master structure updates local instances without stealing impor
   expect(copyOf(result, "new-child").importKey).toBeUndefined();
   expect(copyOf(result, "new-child").sourceKey).toBeUndefined();
 });
+
+test("property refresh preserves canonical instance node identities and order", () => {
+  const before = fixture();
+  const synced = editLayers(before, ["label"], { text: "Shared label" });
+  const normalized = reconcileComponentStructure(before.nodes, synced.nodes);
+  const again = reconcileComponentStructure(normalized, normalized);
+  expect(again).toEqual(normalized);
+  expect(again.every((node, index) => node === normalized[index])).toBe(true);
+  expect(again.filter((node) => node.type === "text").map((node) => node.text)).toEqual([
+    "Shared label",
+    "Shared label",
+  ]);
+});
+
+test("indexed refresh canonicalizes interleaved children without losing unrelated siblings", () => {
+  const original = fixture();
+  const canonical = reconcileComponentStructure(original.nodes, original.nodes);
+  const root = canonical.find((node) => node.id === "copy-0")!;
+  const children = canonical.filter((node) => node.parentId === root.id);
+  const unrelated = layer("unrelated");
+  const scattered = [
+    ...canonical.filter((node) => !children.includes(node)),
+    unrelated,
+    ...children,
+  ];
+  const normalized = reconcileComponentStructure(scattered, scattered);
+  const position = normalized.findIndex((node) => node.id === root.id);
+  expect(normalized.slice(position, position + children.length + 1).map((node) => node.id)).toEqual(
+    [root.id, ...children.map((node) => node.id)],
+  );
+  expect(normalized.filter((node) => node.id === "unrelated")).toEqual([unrelated]);
+  expect(new Set(normalized.map((node) => node.id)).size).toBe(scattered.length);
+});

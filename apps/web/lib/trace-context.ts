@@ -2,6 +2,13 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Span } from "posthog-node";
 
 export type TraceOperation =
+  | "mcp.request"
+  | "mcp.request_body"
+  | "mcp.authorization"
+  | "mcp.admission"
+  | "mcp.workspace_lock"
+  | "mcp.execution"
+  | "mcp.publication"
   | "worker.routing"
   | "auth.initialize"
   | "auth.api"
