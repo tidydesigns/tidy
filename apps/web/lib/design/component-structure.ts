@@ -57,18 +57,6 @@ export function instanceChildId(root: string, source: string) {
   return `ci-${words.map((word) => (word >>> 0).toString(16).padStart(8, "0")).join("")}`;
 }
 
-export function instanceRoot(nodes: readonly DesignNode[], id: string) {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  let node = byId.get(id);
-  const seen = new Set<string>();
-  while (node && !seen.has(node.id)) {
-    seen.add(node.id);
-    if (node.instanceOf && node.componentSourceId === node.instanceOf) return node;
-    node = byId.get(node.parentId ?? "");
-  }
-  return undefined;
-}
-
 /** Linked structure belongs to the master; property overrides belong to the instance. */
 export function reconcileComponentStructure(
   before: readonly DesignNode[],

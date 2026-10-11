@@ -1,5 +1,4 @@
 import { expect, mock, test } from "bun:test";
-import React from "react";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OrganizationNamesProvider } from "@/components/workspace/organization-names";
