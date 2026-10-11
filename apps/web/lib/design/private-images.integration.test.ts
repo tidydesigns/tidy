@@ -534,8 +534,25 @@ integration(
 );
 
 integration(
-  "private image concurrency admits four bounded reads and rejects extra work without queuing",
+  "private image concurrency rejects overflow before charging shared budgets",
   async () => {
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    const context = globals[symbol] as { env: Record<string, unknown> };
+    let consumed = 0;
+    context.env.BETTER_AUTH_SECRET = "private-images-test-budget-secret-at-least-32-characters";
+    context.env.AUTH_GUARD = {
+      idFromName: (name: string) => name,
+      get: () => ({
+        consume: async () => {
+          consumed++;
+          return { allowed: true };
+        },
+      }),
+    };
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { userAgent: "Cloudflare-Workers" },
+    });
     const pause = paused();
     onGet = pause.hook;
     const pending = Array.from({ length: 5 }, () => assetRead());
@@ -545,12 +562,18 @@ integration(
       expect(unavailable.headers.get("retry-after")).toBe("1");
       for (let attempt = 0; attempt < 100 && gets < 4; attempt++) await Bun.sleep(5);
       expect(gets).toBe(4);
+      expect(consumed).toBe(16); // Four counters for each admitted read, none for overflow.
+      pause.release();
+      const responses = await Promise.all(pending);
+      expect(responses.filter((r) => r.status === 200)).toHaveLength(4);
+      expect((await assetRead()).status).toBe(200);
+      expect(consumed).toBe(20);
     } finally {
       pause.release();
+      await Promise.allSettled(pending);
+      if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+      else Reflect.deleteProperty(globalThis, "navigator");
     }
-    const responses = await Promise.all(pending);
-    expect(responses.filter((r) => r.status === 200)).toHaveLength(4);
-    expect((await assetRead()).status).toBe(200);
   },
 );
 

@@ -9,6 +9,9 @@ import { requestDatabaseClient } from "./request-database-client";
 import { runWithRequestSignal } from "./request-lifecycle";
 import { tracedDatabaseClient } from "./traced-database-client";
 import type { PoolClient } from "pg";
+import { imageFailureResponse, ImageBudgetUnavailableError } from "./design/image-budget";
+import { ImageCapacityError } from "./design/image-capacity";
+import { MutationBudgetError } from "./security/mutation-budget";
 
 type ExportSpan = {
   name: string;
@@ -60,6 +63,47 @@ function collector() {
 function attr(span: ExportSpan, key: string) {
   return span.attributes.find((item) => item.key === key)?.value;
 }
+
+test("image failures distinguish capacity, quota and unavailable guards without private error details", async () => {
+  const c = collector();
+  const logs = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    for (const [error, reason, status] of [
+      [new ImageCapacityError(), "capacity", 503],
+      [new MutationBudgetError(23), "rate_limit", 429],
+      [
+        new ImageBudgetUnavailableError(
+          Object.assign(new Error("private guard detail"), { code: "ETIMEDOUT" }),
+        ),
+        "budget_unavailable",
+        503,
+      ],
+      [new Error("private database detail"), "unexpected_error", 503],
+    ] as const) {
+      const trace = createRequestTrace(
+        new Request("https://app.test/api/assets/private-id"),
+        c.runtime,
+      );
+      const response = trace.run(() => imageFailureResponse(error));
+      expect(response.status).toBe(status);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(await response.text()).not.toContain("private");
+      trace.finish("request_completed", status);
+      const roots = (await c.spans()).filter((span) => span.name === "GET /api/assets/:id");
+      const root = roots.at(-1)!;
+      expect(attr(root, "image.failure_reason")?.stringValue).toBe(reason);
+      if (reason === "budget_unavailable")
+        expect(attr(root, "error.code")?.stringValue).toBe("ETIMEDOUT");
+    }
+    expect(c.payloads.join("\n")).not.toMatch(/private-id|private guard|private database/);
+    expect(JSON.stringify(logs.mock.calls)).not.toMatch(
+      /private-id|private guard|private database/,
+    );
+  } finally {
+    logs.mockRestore();
+    c.transport.mockRestore();
+  }
+});
 
 test("edge SDK spans stay nested across await and concurrent requests without recording private input", async () => {
   const c = collector();

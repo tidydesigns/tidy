@@ -1,4 +1,6 @@
 import { mapConcurrent } from "../map-concurrent";
+import { isManagedImage } from "@tidy/design-renderer/image-display";
+import { fetchImage } from "@tidy/design-renderer/image-loading";
 function asDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -19,6 +21,11 @@ export async function embedDesignImages(clone: HTMLElement, signal?: AbortSignal
   const data = new Map(
     await mapConcurrent([...new Set(sources)], 4, async (url) => {
       if (url.startsWith("data:")) return [url, url] as const;
+      if (isManagedImage(url))
+        return [
+          url,
+          await asDataUrl(await fetchImage(url, signal ?? new AbortController().signal)),
+        ] as const;
       const response = await fetch(url, { signal });
       if (!response.ok) throw new Error("Could not include an image in the export.");
       return [url, await asDataUrl(await response.blob())] as const;

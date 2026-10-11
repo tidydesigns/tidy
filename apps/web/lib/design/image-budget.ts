@@ -2,12 +2,13 @@ import { consumeMutationRateLimit } from "@/lib/auth/guard-client";
 import type { RateDecision, RateRule } from "@/lib/auth/guard-store";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
 import { IMAGE_OPERATION_LIMITS } from "@/lib/security/resource-limits";
+import { safeErrorCode, traceDetails, traceOperation, traceStorage } from "@/lib/trace-context";
 import { ImageCapacityError } from "./image-capacity";
 
 type Kind = "read" | "thumbnail";
 export class ImageBudgetUnavailableError extends Error {
-  constructor() {
-    super("Images are temporarily unavailable. Try again shortly.");
+  constructor(cause?: unknown) {
+    super("Images are temporarily unavailable. Try again shortly.", { cause });
   }
 }
 
@@ -40,14 +41,29 @@ export async function consumeImageBudget(
 export async function reserveImageOperation(kind: Kind, userId: string, organizationId: string) {
   if (typeof navigator === "undefined" || navigator.userAgent !== "Cloudflare-Workers") return;
   try {
-    await consumeImageBudget(kind, userId, organizationId, consumeMutationRateLimit);
+    await traceOperation("image.budget", () =>
+      consumeImageBudget(kind, userId, organizationId, consumeMutationRateLimit),
+    );
   } catch (error) {
     if (error instanceof MutationBudgetError) throw error;
-    throw new ImageBudgetUnavailableError();
+    throw new ImageBudgetUnavailableError(error);
   }
 }
 
 export function imageFailureResponse(error: unknown) {
+  const reason =
+    error instanceof MutationBudgetError
+      ? "rate_limit"
+      : error instanceof ImageCapacityError
+        ? "capacity"
+        : error instanceof ImageBudgetUnavailableError
+          ? "budget_unavailable"
+          : "unexpected_error";
+  const code = safeErrorCode(error instanceof ImageBudgetUnavailableError ? error.cause : error);
+  const root = traceStorage.getStore()?.trace.root;
+  root?.setAttribute("image.failure_reason", reason);
+  if (code) root?.setAttribute("error.code", code);
+  console.warn(JSON.stringify({ event: "image_failed", reason, code, ...traceDetails() }));
   const headers: Record<string, string> = { "Cache-Control": "private, no-store" };
   if (error instanceof MutationBudgetError) {
     headers["Retry-After"] = String(error.retryAfter);

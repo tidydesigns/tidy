@@ -34,8 +34,10 @@ export async function withPrivateImageAccess<T>(
   ]);
   if (discovered.rows.length !== 1) return null;
   const organizationId = discovered.rows[0]!.organizationId;
-  await reserveImageOperation("read", userId, organizationId);
   return withImageReadCapacity(async () => {
+    // Local overload must not consume persistent quota again on every retry.
+    // Admission still precedes locks, and authority is rechecked below.
+    await reserveImageOperation("read", userId, organizationId);
     const client = await db.connect();
     try {
       await client.query("begin");

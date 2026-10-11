@@ -6,6 +6,39 @@ export type ImageLoad =
 const transient = new Set([429, 502, 503, 504]);
 const attempts = 4;
 const maxDelay = 30_000;
+// A canvas can mount hundreds of distinct images at once. Leave two of the
+// server's four read slots for thumbnails/other requests. Queue only in the
+// browser; a Worker must never await another request's I/O.
+const concurrentRequests = 2;
+let activeRequests = 0;
+const waiting: (() => void)[] = [];
+async function imageRequest<T>(signal: AbortSignal, work: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const start = () => {
+      signal.removeEventListener("abort", abort);
+      activeRequests++;
+      resolve();
+    };
+    const abort = () => {
+      const index = waiting.indexOf(start);
+      if (index >= 0) waiting.splice(index, 1);
+      reject(signal.reason);
+    };
+    if (activeRequests < concurrentRequests) start();
+    else {
+      waiting.push(start);
+      signal.addEventListener("abort", abort, { once: true });
+    }
+  });
+  try {
+    signal.throwIfAborted();
+    return await work();
+  } finally {
+    activeRequests--;
+    waiting.shift()?.();
+  }
+}
 export function retryDelay(value: string | null, attempt: number, now = Date.now()) {
   const seconds = value === null || value.trim() === "" ? NaN : Number(value);
   const date = value ? Date.parse(value) : NaN;
@@ -33,31 +66,29 @@ function pause(ms: number, signal: AbortSignal) {
 }
 export async function fetchImage(source: string, signal: AbortSignal): Promise<Blob> {
   for (let attempt = 0; attempt < attempts; attempt++) {
-    let response: Response;
+    let result: Blob | { status: number; delay: number };
     try {
-      response = await fetch(source, {
-        signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
-        credentials: "same-origin",
+      result = await imageRequest(signal, async () => {
+        const response = await fetch(source, {
+          signal: AbortSignal.any([signal, AbortSignal.timeout(15_000)]),
+          credentials: "same-origin",
+        });
+        // Hold the slot until the body is consumed, not just until headers arrive.
+        if (response.ok) return await response.blob();
+        const delay = retryDelay(response.headers.get("Retry-After"), attempt);
+        await response.body?.cancel();
+        return { status: response.status, delay };
       });
     } catch (error) {
       if (signal.aborted || attempt === attempts - 1) throw error;
-      await pause(retryDelay(null, attempt), signal);
+      await pause(retryDelay(null, attempt) + Math.random() * 250, signal);
       continue;
     }
-    if (response.ok) {
-      try {
-        return await response.blob();
-      } catch (error) {
-        if (signal.aborted || attempt === attempts - 1) throw error;
-        await pause(retryDelay(null, attempt), signal);
-        continue;
-      }
-    }
-    const delay = retryDelay(response.headers.get("Retry-After"), attempt);
-    await response.body?.cancel();
-    if (!transient.has(response.status) || attempt === attempts - 1 || delay > maxDelay)
-      throw new Error(`Image request failed (${response.status}).`);
-    await pause(delay, signal);
+    if (result instanceof Blob) return result;
+    if (!transient.has(result.status) || attempt === attempts - 1 || result.delay > maxDelay)
+      throw new Error(`Image request failed (${result.status}).`);
+    // Release the slot during backoff, and stagger retries from separate tabs.
+    await pause(result.delay + Math.random() * 250, signal);
   }
   throw new Error("Image recovery exhausted.");
 }

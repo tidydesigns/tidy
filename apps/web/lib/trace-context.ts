@@ -27,7 +27,8 @@ export type TraceOperation =
   | "files.schema"
   | "files.list"
   | "asset.session"
-  | "asset.query";
+  | "asset.query"
+  | "image.budget";
 
 export type OperationSpan = {
   name: TraceOperation;
