@@ -4,7 +4,11 @@ import {
   type DesignDocument,
   type DesignNode,
 } from "@/lib/design/document";
-import { remapComponentProperties, remapComponentVariants } from "./component-variants";
+import {
+  componentSubtreeIds,
+  remapComponentProperties,
+  remapComponentVariants,
+} from "./component-variants";
 import { remapInteractions } from "@bella/design/prototype";
 
 export function duplicateNodeTree(
@@ -14,16 +18,7 @@ export function duplicateNodeTree(
 ) {
   const source = document.nodes.find((node) => node.id === nodeId);
   if (!source || source.locked) throw new Error("Layer not found or locked.");
-  const copied = new Set([nodeId]);
-  let expanded = true;
-  while (expanded) {
-    expanded = false;
-    for (const node of document.nodes)
-      if (node.parentId && copied.has(node.parentId) && !copied.has(node.id)) {
-        copied.add(node.id);
-        expanded = true;
-      }
-  }
+  const copied = componentSubtreeIds(document.nodes, nodeId);
   const originals = document.nodes.filter((node) => copied.has(node.id));
   const ids = new Map(originals.map((node) => [node.id, createId()]));
   const shift =

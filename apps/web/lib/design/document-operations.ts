@@ -1,6 +1,10 @@
 import { remapInteractions } from "@bella/design/prototype";
 import { nodePageId, parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
-import { removeComponentReferences, resolveVariantNodes } from "./component-variants";
+import {
+  componentSubtreeIds,
+  removeComponentReferences,
+  resolveVariantNodes,
+} from "./component-variants";
 import { isLayerLocked, isLayerVisible } from "./edit-document";
 import { reparentGeometry, type MeasuredBoxes } from "./reparent-geometry";
 
@@ -269,15 +273,7 @@ export function createComponentInstance(
 ): { document: DesignDocument; rootId: string } {
   const root = document.nodes.find((node) => node.id === componentId && node.isComponent);
   if (!root) throw new Error("Component not found.");
-  const copied = new Set([root.id]);
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const node of document.nodes)
-      if (node.parentId && copied.has(node.parentId) && !copied.has(node.id)) {
-        copied.add(node.id);
-        changed = true;
-      }
-  }
+  const copied = componentSubtreeIds(document.nodes, root.id);
   const originals = document.nodes.filter((node) => copied.has(node.id));
   const ids = new Map(originals.map((node) => [node.id, createId()]));
   const nodes: DesignNode[] = originals.map((node) => ({
