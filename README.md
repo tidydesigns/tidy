@@ -83,6 +83,12 @@ write rather than repeatedly rewriting a growing JSONB row. Off-screen free
 frames use cached rendered overflow bounds for canvas culling; fonts and edits
 invalidate those bounds conservatively.
 
+For a database-free local prototype, run the web development server and open
+`/dev/figma-import`. Import a `.fig` or paste native Figma elements into the canvas.
+The current draft, edits and image bytes are retained automatically in IndexedDB
+and restored on reload. This is one local draft per browser origin; importing a
+new file replaces it. The prototype route is unavailable in production builds.
+
 Use `bun run test:figma:browser` against a local development server on port 3057
 (or set `FIGMA_TEST_BASE_URL`). It checks real keyboard clipboard replay, native
 hierarchy, source pixels, component dependency placement, undo/redo and recovery.

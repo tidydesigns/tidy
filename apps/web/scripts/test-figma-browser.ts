@@ -32,6 +32,16 @@ await page.route("**/__analytics/**", (route) =>
   route.fulfill({ contentType: "application/json", body: "{}" }),
 );
 async function open() {
+  // Leave the editor before clearing storage so its queued edits cannot restore an old draft.
+  await page.goto(`${base}/icon.svg`);
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.deleteDatabase("tidy-figma-prototype");
+        request.onsuccess = () => resolve();
+        request.onerror = () => reject(request.error);
+      }),
+  );
   await page.goto(`${base}/dev/figma-import`);
   await page.waitForFunction(() => {
     const input = document.querySelector('[aria-label="Import Figma file"]');
@@ -101,7 +111,9 @@ try {
     [255, 0, 0],
     "Ellipse retains exact source fill",
   );
-  console.log("PASS: .fig upload, native hierarchy and source colour pixels");
+  await page.reload();
+  await layerCount(2);
+  console.log("PASS: .fig upload, native hierarchy, source colour pixels and retained local draft");
 
   await open();
   const html = await readFile(fixture("group.clipboard.html"), "utf8");
@@ -115,6 +127,21 @@ try {
   await page.keyboard.press("Control+z");
   await layerCount(0);
   await paste(html);
+  await layerCount(4);
+  await page.waitForFunction(async () => {
+    const request = indexedDB.open("tidy-figma-prototype", 1);
+    return new Promise<boolean>((resolve) => {
+      request.onsuccess = () => {
+        const db = request.result;
+        const read = db.transaction("draft").objectStore("draft").get("current");
+        read.onsuccess = () => {
+          db.close();
+          resolve(read.result?.document?.nodes.length === 4);
+        };
+      };
+    });
+  });
+  await page.reload();
   await layerCount(4);
   console.log("PASS: real keyboard clipboard paste, escaped HTML, undo, redo and repeated paste");
   await page.getByLabel("Import Figma file").setInputFiles({
@@ -170,6 +197,25 @@ try {
     assert(model);
     assert.equal(model.pages.length, names.length, "Full file preserves every chosen page");
     assert(model.nodes.length > 5000);
+    await page.reload();
+    await page.locator("[data-node-id]").first().waitFor({ timeout: 60_000 });
+    const retained = await page.evaluate(async () => {
+      const request = indexedDB.open("tidy-figma-prototype", 1);
+      return new Promise<{ nodes: number; images: number }>((resolve) => {
+        request.onsuccess = () => {
+          const db = request.result,
+            tx = db.transaction(["draft", "assets"]);
+          const draft = tx.objectStore("draft").get("current"),
+            images = tx.objectStore("assets").count();
+          tx.oncomplete = () => {
+            db.close();
+            resolve({ nodes: draft.result.document.nodes.length, images: images.result });
+          };
+        };
+      });
+    });
+    assert.equal(retained.nodes, model.nodes.length);
+    assert(retained.images > 0, "Image bytes survive reload alongside the imported document");
 
     const fitCount = await page.locator("[data-node-id]").count();
     await page.getByRole("button", { name: /^Zoom \d+%$/ }).click();

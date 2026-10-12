@@ -291,6 +291,7 @@ export function FileEditor({
   archived = false,
   canEdit = true,
   local = false,
+  onLocalDocumentChange,
   initialPanelsOpen = false,
   initialToolbarPlacement = "left",
   user,
@@ -313,6 +314,7 @@ export function FileEditor({
   initialToolbarPlacement?: EditorToolbarPlacement;
   user?: EditorUser;
   local?: boolean;
+  onLocalDocumentChange?: (document: DesignDocument, assets: Record<string, string>) => void;
   githubReviews?:
     | Promise<{ ready: boolean; reviews: Omit<Review, "content">[] }>
     | { ready: boolean; reviews: Omit<Review, "content">[] };
@@ -1841,7 +1843,13 @@ export function FileEditor({
 
   const [figmaPreviewAssets, setFigmaPreviewAssets] = useState<Record<string, string>>({});
   const figmaObjectUrls = useRef<string[]>([]);
-  const previewAssetUrls = { ...suppliedPreviewAssetUrls, ...figmaPreviewAssets };
+  const previewAssetUrls = useMemo(
+    () => ({ ...suppliedPreviewAssetUrls, ...figmaPreviewAssets }),
+    [suppliedPreviewAssetUrls, figmaPreviewAssets],
+  );
+  useEffect(() => {
+    if (local) onLocalDocumentChange?.(snapshot.content, previewAssetUrls);
+  }, [local, onLocalDocumentChange, snapshot.content, previewAssetUrls]);
   useEffect(
     () => () => {
       for (const url of figmaObjectUrls.current) URL.revokeObjectURL(url);
