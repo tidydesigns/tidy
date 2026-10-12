@@ -1,3 +1,4 @@
+import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
 import { z } from "zod";
 
 export const activityPhaseSchema = z.enum([
@@ -32,7 +33,7 @@ export const agentActivitySchema = z
     sourceProject: z.string().max(80).optional(),
     sourceRoute: z.string().max(160).optional(),
     sourcePaths: z.array(z.string().max(96)).max(3).optional(),
-    nodeCount: z.number().int().min(0).max(5000).optional(),
+    nodeCount: z.number().int().min(0).max(DESIGN_DOCUMENT_LIMITS.nodes).optional(),
     assetCount: z.number().int().min(0).max(5000).optional(),
     warningCount: z.number().int().min(0).max(10000).optional(),
     issueCount: z.number().int().min(0).max(10000).optional(),

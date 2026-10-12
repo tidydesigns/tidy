@@ -696,3 +696,132 @@ for (const change of ["membership", "verification"])
       }
     },
   );
+
+// Run with the existing disposable file-management cluster and restricted runtime login.
+integration("Figma publication retains page names, hierarchy and permissions", async () => {
+  const { publishFigmaImport } = await import("./figma-import-service");
+  const { getDocument } = await import("./document-service");
+  const base = blankDesignDocument();
+  const node = buildDrawnNode("one", "artboard", null, { x: 0, y: 0, width: 200, height: 100 });
+  const imported = {
+    ...base,
+    pages: [
+      { id: "p1", name: "First" },
+      { id: "p2", name: "Second" },
+    ],
+    nodes: [
+      { ...node, pageId: "p1" },
+      { ...node, id: "two", pageId: "p2" },
+    ],
+  };
+  const published = await publishFigmaImport("editor", "a", "Figma fixture", imported, "folder");
+  const saved = await getDocument("editor", published.fileId);
+  expect(saved?.content.pages).toEqual(imported.pages);
+  expect(saved?.content.nodes.map((node) => node.pageId)).toEqual(["p1", "p2"]);
+  expect(
+    (await admin.query('select "folderId" from "designFile" where "id"=$1', [published.fileId]))
+      .rows[0].folderId,
+  ).toBe("folder");
+  const before = await state();
+  await expect(
+    publishFigmaImport("editor", "a", "Foreign folder", imported, "foreign"),
+  ).rejects.toThrow();
+  expect(await state()).toEqual(before);
+  await expect(publishFigmaImport("viewer", "a", "Forbidden", imported)).rejects.toThrow();
+  await expect(publishFigmaImport("outsider", "a", "Forbidden", imported)).rejects.toThrow();
+  expect(await state()).toEqual(before);
+});
+
+const privateFigma = enabled && process.env.FIGMA_TEST_FILE ? test : test.skip;
+privateFigma(
+  "large operator-supplied Figma page publishes images and native layers in the disposable database",
+  async () => {
+    const { importFigma, decodeFigma, figmaPages } = await import("@bella/design/figma");
+    const { publishFigmaImport } = await import("./figma-import-service");
+    const { putAsset, getDocument } = await import("./document-service");
+    const input = new Uint8Array(await Bun.file(process.env.FIGMA_TEST_FILE!).arrayBuffer());
+    const pages = figmaPages(decodeFigma(input));
+    const selected =
+      pages.find((page) => page.nodeCount > 1000 && page.nodeCount <= 5000) ?? pages[0];
+    const imported = importFigma(input, "Private Figma fixture", [selected.id]);
+    const ids = new Map<string, string>();
+    for (const asset of imported.assets) {
+      const saved = await putAsset(
+        "editor",
+        "a",
+        asset.mimeType,
+        Buffer.from(asset.bytes).toString("base64"),
+      );
+      ids.set(asset.id, saved.assetId);
+    }
+    imported.document.nodes = imported.document.nodes.map((node) => ({
+      ...node,
+      assetId: node.assetId ? ids.get(node.assetId) : undefined,
+      style: {
+        ...node.style,
+        paints: node.style.paints?.map((paint) =>
+          paint.type === "image"
+            ? { ...paint, assetId: paint.assetId ? ids.get(paint.assetId) : undefined }
+            : paint,
+        ),
+      },
+    }));
+    const published = await publishFigmaImport(
+      "editor",
+      "a",
+      "Private Figma fixture",
+      imported.document,
+    );
+    const saved = await getDocument("editor", published.fileId);
+    expect(saved?.content.nodes.length).toBe(imported.document.nodes.length);
+    expect(saved?.content.pages?.[0].name).toBe(selected.name);
+    expect(Object.keys(saved?.content.designTokens ?? {}).length).toBe(
+      Object.keys(imported.document.designTokens ?? {}).length,
+    );
+    expect(
+      (await admin.query('select count(*)::int as count from "designAsset"')).rows[0].count,
+    ).toBe(new Set(ids.values()).size);
+  },
+  30_000,
+);
+
+privateFigma(
+  "complete operator-supplied Figma file retains every page and layer",
+  async () => {
+    const { importFigma } = await import("@bella/design/figma");
+    const { publishFigmaImport } = await import("./figma-import-service");
+    const { putAsset, getDocument } = await import("./document-service");
+    const result = importFigma(
+      new Uint8Array(await Bun.file(process.env.FIGMA_TEST_FILE!).arrayBuffer()),
+      "Whole Figma fixture",
+    );
+    const ids = new Map<string, string>();
+    for (const asset of result.assets) {
+      ids.set(
+        asset.id,
+        (await putAsset("editor", "a", asset.mimeType, Buffer.from(asset.bytes).toString("base64")))
+          .assetId,
+      );
+    }
+    result.document.nodes = result.document.nodes.map((node) => ({
+      ...node,
+      style: {
+        ...node.style,
+        paints: node.style.paints?.map((paint) =>
+          paint.type === "image" ? { ...paint, assetId: ids.get(paint.assetId!) } : paint,
+        ),
+      },
+    }));
+    const published = await publishFigmaImport(
+      "editor",
+      "a",
+      "Whole Figma fixture",
+      result.document,
+    );
+    const saved = await getDocument("editor", published.fileId);
+    expect(saved?.content.nodes.length).toBe(result.document.nodes.length);
+    expect(saved?.content.pages).toEqual(result.document.pages);
+    expect(result.document.nodes.length).toBeGreaterThan(5000);
+  },
+  30_000,
+);

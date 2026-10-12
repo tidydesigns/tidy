@@ -9,6 +9,9 @@ import { designTokensSchema, tokenBindingsSchema } from "./token-schema";
 import { resolveNodeTokens, resolvedDesignTokens } from "./design-tokens";
 import { prototypeInteractionSchema, validatePrototype } from "./prototype";
 
+import { DESIGN_DOCUMENT_LIMITS } from "./document-limits";
+export { DESIGN_DOCUMENT_LIMITS } from "./document-limits";
+
 const number = z.number().finite();
 const color = z.string().regex(/^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$/);
 const tokenName = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
@@ -708,7 +711,7 @@ export const designDocumentSchema = z
         z.object({ name: z.string().trim().min(1).max(120), style }).strict(),
       )
       .optional(),
-    nodes: z.array(designNodeSchema).max(5000),
+    nodes: z.array(designNodeSchema).max(DESIGN_DOCUMENT_LIMITS.nodes),
     warnings: z
       .array(
         z.object({
@@ -719,7 +722,7 @@ export const designDocumentSchema = z
         }),
       )
       .max(500),
-    editedNodeIds: z.array(z.string().max(120)).max(5000).default([]),
+    editedNodeIds: z.array(z.string().max(120)).max(DESIGN_DOCUMENT_LIMITS.nodes).default([]),
     deletedSourceKeys: z
       .array(deletedSourceKeySchema)
       // Allow the previous history plus one full-document deletion while

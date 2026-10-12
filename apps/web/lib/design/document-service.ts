@@ -2,6 +2,7 @@ import { PublicActionError } from "@/lib/security/public-error";
 import { withOrganizationEditAuthority } from "./organization-authority";
 import { inDatabaseScope } from "@/lib/database-scope";
 import { IMPORT_LIMITS, DESIGN_READ_LIMITS } from "@/lib/security/resource-limits";
+import { folderAuthority } from "./file-management-authority";
 import { requestWork } from "@/lib/request-work";
 import {
   designObjectBytes,
@@ -53,6 +54,7 @@ type ImportRow = {
       warnings?: unknown[];
       tokens?: unknown;
       designTokens?: unknown;
+      pages?: DesignDocument["pages"];
     }
   >;
   status: string;
@@ -442,7 +444,7 @@ export async function createImport(
     fileId: fileId ?? null,
     expectedRevision,
     expiresInHours: 24,
-    maxNodes: 5000,
+    maxNodes: IMPORT_LIMITS.nodesPerImport,
     maxChunkNodes: 250,
   };
 }
@@ -456,16 +458,19 @@ export async function putImportChunk(
   warnings?: unknown[],
   tokens?: unknown,
   designTokens?: unknown,
+  pages?: DesignDocument["pages"],
 ) {
   await requireDocumentSchema();
   if (
     !/^[a-zA-Z0-9_-]{1,40}$/.test(chunkId) ||
     nodes.length > 250 ||
-    Buffer.byteLength(JSON.stringify({ nodes, source, warnings, tokens, designTokens }), "utf8") >
-      IMPORT_LIMITS.bytesPerChunk
+    Buffer.byteLength(
+      JSON.stringify({ nodes, source, warnings, tokens, designTokens, pages }),
+      "utf8",
+    ) > IMPORT_LIMITS.bytesPerChunk
   )
     throw new PublicActionError("Invalid or oversized import chunk.");
-  const chunk = { nodes, source, warnings, tokens, designTokens };
+  const chunk = { nodes, source, warnings, tokens, designTokens, pages };
   const result = await db.query<{ chunks: Record<string, unknown> }>(
     `update "designImport" set "chunks" = "chunks" || jsonb_build_object($3::text, $4::jsonb)
      where "id" = $1 and "userId" = $2 and "status" = 'staging' and "expiresAt" > now()
@@ -499,6 +504,35 @@ export async function putImportChunk(
   };
 }
 
+/** Browser file uploads arrive as one validated document. Stage it once rather
+ * than repeatedly rewriting an ever-growing JSONB row for each 250-node chunk. */
+export async function putImportDocument(userId: string, importId: string, input: DesignDocument) {
+  await requireDocumentSchema();
+  const document = parseDesignDocument(input);
+  const chunk = {
+    nodes: document.nodes,
+    source: document.source,
+    warnings: document.warnings,
+    tokens: document.tokens,
+    designTokens: document.designTokens,
+    pages: document.pages,
+  };
+  const json = JSON.stringify(chunk);
+  if (Buffer.byteLength(json) > IMPORT_LIMITS.bytesPerImport)
+    throw new PublicActionError("Figma document is too large. Select fewer pages.");
+  const stored = await db.query(
+    `update "designImport" i set "chunks"=jsonb_build_object('0000',$3::jsonb)
+    where i."id"=$1 and i."userId"=$2 and i."status"='staging' and i."expiresAt">now()
+      and (i."chunks"='{}'::jsonb or i."chunks"=jsonb_build_object('0000',$3::jsonb))
+      and exists(select 1 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
+        where m."organizationId"=i."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL})
+    returning i."id"`,
+    [importId, userId, json],
+  );
+  if (!stored.rowCount)
+    throw new PublicActionError("Import is unavailable or already contains different data.");
+}
+
 function assemble(chunks: ImportRow["chunks"]): DesignDocument {
   const ordered = Object.entries(chunks)
     .sort(([a], [b]) => a.localeCompare(b))
@@ -517,6 +551,7 @@ function assemble(chunks: ImportRow["chunks"]): DesignDocument {
       .flatMap((chunk) => chunk.nodes)
       .map((node) => ({ ...(node as object), importKey })),
     source,
+    pages: ordered.find((chunk) => chunk.pages)?.pages,
     tokens,
     designTokens: Object.assign({}, ...ordered.map((chunk) => chunk.designTokens ?? {})),
     warnings: ordered.flatMap((chunk) => chunk.warnings ?? []),
@@ -583,6 +618,7 @@ export async function commitImport(
   userId: string,
   importId: string,
   resolution?: "keep_user" | "use_import" | "duplicate",
+  folderId?: string | null,
 ): Promise<ImportCommitResult> {
   await requireDocumentSchema();
   const client = await db.connect();
@@ -660,10 +696,11 @@ export async function commitImport(
       revision = (current.rows[0].revision ?? 0) + 1;
       currentDocument = current.rows[0].content;
     } else {
+      if (folderId) await folderAuthority(client, staging.organizationId, folderId);
       fileId = randomUUID();
       await client.query(
-        `insert into "designFile" ("id", "organizationId", "name", "createdBy") values ($1,$2,$3,$4)`,
-        [fileId, staging.organizationId, staging.name, userId],
+        `insert into "designFile" ("id", "organizationId", "name", "createdBy", "folderId") values ($1,$2,$3,$4,$5)`,
+        [fileId, staging.organizationId, staging.name, userId, folderId ?? null],
       );
     }
     const document = mergeImport(currentDocument, incoming, importId, resolution);

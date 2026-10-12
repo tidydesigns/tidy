@@ -1,5 +1,8 @@
 {
-  "paper": { "source": "LICENSE.txt", "notice": "Paper.js.txt" },
+  "paper": {
+    "source": "LICENSE.txt",
+    "notice": "Paper.js.txt"
+  },
   "@wxt-dev/browser": {
     "notice": "WXT.txt",
     "versions": ["0.3.0"],
@@ -10,8 +13,38 @@
     "versions": ["0.21.4"],
     "upstream": "https://github.com/wxt-dev/wxt/blob/main/LICENSE"
   },
-  "react": { "source": "LICENSE", "notice": "React.txt" },
-  "react-dom": { "source": "LICENSE", "notice": "React.txt" },
-  "scheduler": { "source": "LICENSE", "notice": "React.txt" },
-  "zod": { "source": "LICENSE", "notice": "Zod.txt" }
+  "react": {
+    "source": "LICENSE",
+    "notice": "React.txt"
+  },
+  "react-dom": {
+    "source": "LICENSE",
+    "notice": "React.txt"
+  },
+  "scheduler": {
+    "source": "LICENSE",
+    "notice": "React.txt"
+  },
+  "zod": {
+    "source": "LICENSE",
+    "notice": "Zod.txt"
+  },
+  "fflate": {
+    "source": "LICENSE",
+    "notice": "fflate.txt"
+  },
+  "fzstd": {
+    "source": "LICENSE",
+    "notice": "fzstd.txt"
+  },
+  "kiwi-schema": {
+    "notice": "Kiwi.txt",
+    "versions": ["0.5.0"],
+    "upstream": "https://github.com/evanw/kiwi/blob/master/LICENSE.md"
+  },
+  "openfig-core": {
+    "notice": "OpenFig.txt",
+    "versions": ["0.4.1"],
+    "upstream": "https://github.com/OpenFig-org/openfig-core/blob/main/package.json"
+  }
 }

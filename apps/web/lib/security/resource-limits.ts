@@ -1,11 +1,12 @@
+import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
 /** Hosted resource safety ceilings, independent of paid editing/file allowances. */
 export const IMPORT_LIMITS = {
   recordsPerOrganization: 100,
   pendingPerUserPerOrganization: 10,
-  chunksPerImport: 32,
-  bytesPerImport: 5_000_000,
+  chunksPerImport: 64,
+  bytesPerImport: DESIGN_DOCUMENT_LIMITS.bytes,
   bytesPerChunk: 500_000,
-  nodesPerImport: 5000,
+  nodesPerImport: DESIGN_DOCUMENT_LIMITS.nodes,
 } as const;
 
 /** Persistent collaboration capacity. Deletions release capacity; rate budgets do not. */
@@ -62,7 +63,7 @@ export const IMAGE_READ_LIMITS = {
 export const FILE_MANAGEMENT_LIMITS = {
   filesPerCopy: 25,
   filesPerFolderRemoval: 1000,
-  documentBytesPerFile: 5_000_000,
+  documentBytesPerFile: DESIGN_DOCUMENT_LIMITS.bytes,
   documentBytesPerCopy: 16_000_000,
   nodesPerCopy: 10_000,
   legacyShapesPerCopy: 10_000,

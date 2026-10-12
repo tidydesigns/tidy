@@ -7,6 +7,7 @@ export function visibleCanvasRoots(
   view: CanvasView,
   size: { width: number; height: number },
   pinnedIds: Iterable<string>,
+  measuredOverflowBounds?: ReadonlyMap<string, DesignNode["box"]>,
 ): string[] {
   const byId = nodeIndex(nodes),
     pinned = new Set<string>();
@@ -23,8 +24,16 @@ export function visibleCanvasRoots(
   return nodes
     .filter((node) => {
       if (node.parentId !== null) return false;
+      if (pinned.has(node.id)) return true;
+      const measured = measuredOverflowBounds?.get(node.id);
+      if (measured)
+        return (
+          measured.x <= right &&
+          measured.x + measured.width >= left &&
+          measured.y <= bottom &&
+          measured.y + measured.height >= top
+        );
       if (
-        pinned.has(node.id) ||
         node.type !== "artboard" ||
         node.style.overflow === "visible" ||
         node.style.overflow === "auto" ||

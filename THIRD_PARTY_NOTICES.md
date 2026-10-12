@@ -9,6 +9,12 @@ and assets retain their original licenses and copyright notices.
   and affiliates. Their shared upstream license is retained at
   `licenses/bundled/React.txt`.
 
+- **fflate**, **fzstd** and **kiwi-schema**: MIT. Their upstream notices are
+  retained in `licenses/bundled/fflate.txt`, `fzstd.txt` and `Kiwi.txt`.
+- **openfig-core 0.4.1**: its package metadata declares MIT and names rcoenen
+  as author. It omits a standalone license file; the declaration and MIT terms
+  are retained in `licenses/bundled/OpenFig.txt`, with that limitation recorded.
+
 - **Iconoir** icons: MIT, copyright Iconoir contributors. The full license is
   retained at `apps/web/public/icons/LICENSE.iconoir`.
 - **Instrument Serif**: SIL Open Font License 1.1, copyright the Instrument Serif

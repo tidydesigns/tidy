@@ -9,6 +9,7 @@ import { remapInteractions } from "@bella/design/prototype";
 import {
   blankDesignDocument,
   designNodeSchema,
+  DESIGN_DOCUMENT_LIMITS,
   nodeAssetIds,
   nodePageId,
   parseDesignDocument,
@@ -32,8 +33,8 @@ const payloadSchema = z
     bellaClipboard: z.literal(1),
     kind: z.enum(["layers", "properties"]),
     sourceFile: z.string().max(120),
-    nodes: z.array(designNodeSchema).min(1).max(5000),
-    resolvedNodes: z.array(designNodeSchema).max(5000).optional(),
+    nodes: z.array(designNodeSchema).min(1).max(DESIGN_DOCUMENT_LIMITS.nodes),
+    resolvedNodes: z.array(designNodeSchema).max(DESIGN_DOCUMENT_LIMITS.nodes).optional(),
     tokens: z.record(z.string(), z.string()).default({}),
     designTokens: designTokensSchema.optional(),
   })
@@ -188,6 +189,7 @@ export function pasteLayers(
     inPlace?: boolean;
     createId: () => string;
     boxes?: MeasuredBoxes;
+    importedDependencyIds?: ReadonlySet<string>;
   },
 ): { document: DesignDocument; ids: string[] } {
   if (payload.kind !== "layers") throw new Error("The clipboard does not contain layers.");
@@ -198,6 +200,7 @@ export function pasteLayers(
   const libraryIds = new Set<string>();
   for (const n of payload.nodes.filter((n) => n.librarySource))
     for (const id of componentSubtreeIds(payload.nodes, n.id)) libraryIds.add(id);
+  const dependencyIds = options.importedDependencyIds ?? new Set<string>();
   const roots = payload.nodes.filter((node) => node.parentId === null);
   const parent = options.parentId ? existing.get(options.parentId) : undefined;
   if (
@@ -227,7 +230,7 @@ export function pasteLayers(
     const parentId = root
       ? node.type === "artboard"
         ? null
-        : node.librarySource
+        : node.librarySource || dependencyIds.has(node.id)
           ? null
           : options.parentId
       : ids.get(node.parentId!)!;
@@ -237,8 +240,8 @@ export function pasteLayers(
         : styled;
     const placementBox = {
       ...geometrySource.box,
-      x: geometrySource.box.x + (options.inPlace ? 0 : 24),
-      y: geometrySource.box.y + (options.inPlace ? 0 : 24),
+      x: geometrySource.box.x + (options.inPlace || dependencyIds.has(node.id) ? 0 : 24),
+      y: geometrySource.box.y + (options.inPlace || dependencyIds.has(node.id) ? 0 : 24),
     };
     const placed = root
       ? reparentGeometry(
@@ -256,7 +259,11 @@ export function pasteLayers(
     return {
       ...styled,
       id: ids.get(node.id)!,
-      pageId: libraryIds.has(node.id) ? "library-components" : options.pageId,
+      pageId: libraryIds.has(node.id)
+        ? "library-components"
+        : dependencyIds.has(node.id)
+          ? "figma-components"
+          : options.pageId,
       parentId,
       ...(placed
         ? {
@@ -315,13 +322,20 @@ export function pasteLayers(
       ...document,
       tokens: imported.tokens,
       designTokens: imported.designTokens,
-      pages:
-        libraryIds.size && !document.pages.some((p) => p.id === "library-components")
-          ? [...document.pages, { id: "library-components", name: "Libraries" }]
-          : document.pages,
+      pages: [
+        ...document.pages,
+        ...(libraryIds.size && !document.pages.some((p) => p.id === "library-components")
+          ? [{ id: "library-components", name: "Libraries" }]
+          : []),
+        ...(dependencyIds.size && !document.pages.some((p) => p.id === "figma-components")
+          ? [{ id: "figma-components", name: "Imported components" }]
+          : []),
+      ],
       nodes: [...document.nodes, ...nodes],
     }),
-    ids: roots.filter((node) => !node.librarySource).map((node) => ids.get(node.id)!),
+    ids: roots
+      .filter((node) => !node.librarySource && !dependencyIds.has(node.id))
+      .map((node) => ids.get(node.id)!),
   };
 }
 

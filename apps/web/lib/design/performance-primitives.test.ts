@@ -102,3 +102,22 @@ test("frame telemetry uses a bounded histogram and ignores invalid timings", () 
   expect(stats.slow).toBe(5);
   expect(stats.bins.length).toBe(201);
 });
+
+test("measured free-tree bounds retain overflowing descendants and pinned selections", () => {
+  const root = buildDrawnNode("root", "container", null, {
+    x: 4000,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  root.style.overflow = "visible";
+  const view = { x: 0, y: 0, zoom: 1 },
+    size = { width: 1200, height: 900 };
+  expect(visibleCanvasRoots([root], view, size, [])).toEqual(["root"]);
+  const bounds = new Map([["root", { x: 4000, y: 0, width: 200, height: 100 }]]);
+  expect(visibleCanvasRoots([root], view, size, [], bounds)).toEqual([]);
+  bounds.set("root", { x: 100, y: 0, width: 4100, height: 100 });
+  expect(visibleCanvasRoots([root], view, size, [], bounds)).toEqual(["root"]);
+  bounds.set("root", { x: 4000, y: 0, width: 100, height: 100 });
+  expect(visibleCanvasRoots([root], view, size, ["root"], bounds)).toEqual(["root"]);
+});

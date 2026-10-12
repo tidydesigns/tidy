@@ -17,6 +17,7 @@ import {
   renameDesignFolder,
   setDesignFileArchived,
 } from "./actions";
+import { FigmaFileImport } from "./figma-file-import";
 import { NewFileButton } from "./new-file-button";
 import { FileThumbnail, FileThumbnailUpdates } from "./file-thumbnail";
 import { fileVersion } from "@/lib/design/file-version";
@@ -539,6 +540,7 @@ export function FilesBrowser({
         <div className="flex items-center gap-2">
           {canEdit && !archived && (
             <>
+              <FigmaFileImport folderId={currentFolder?.id ?? null} />
               <NewFileButton folderId={currentFolder?.id ?? null} />
               {!currentFolder && (
                 <button

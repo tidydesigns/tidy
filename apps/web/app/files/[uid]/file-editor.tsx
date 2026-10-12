@@ -1,4 +1,6 @@
 "use client";
+import { isFigmaClipboard } from "@bella/design/figma-input";
+import { readFigma, remapFigmaAssets } from "@/lib/design/figma-client";
 import { editorErrorMessage } from "@/lib/design/editor-error";
 import { ImageEditor } from "./image-editor";
 import {
@@ -284,7 +286,7 @@ export function FileEditor({
   organizationName,
   backHref,
   initialDocument,
-  previewAssetUrls,
+  previewAssetUrls: suppliedPreviewAssetUrls,
   preview: previewMode = false,
   archived = false,
   canEdit = true,
@@ -1837,6 +1839,15 @@ export function FileEditor({
     await changeDocument(() => copy.document, copy.ids);
   }
 
+  const [figmaPreviewAssets, setFigmaPreviewAssets] = useState<Record<string, string>>({});
+  const figmaObjectUrls = useRef<string[]>([]);
+  const previewAssetUrls = { ...suppliedPreviewAssetUrls, ...figmaPreviewAssets };
+  useEffect(
+    () => () => {
+      for (const url of figmaObjectUrls.current) URL.revokeObjectURL(url);
+    },
+    [],
+  );
   const clipboardRequest = useRef(0);
   const clipboardController = useRef<AbortController | null>(null);
   useEffect(() => {
@@ -1861,6 +1872,8 @@ export function FileEditor({
         boxes: Map<string, DesignNode["box"]>;
       },
       inPlace: boolean,
+      importWarnings: DesignDocument["warnings"] = [],
+      importedDependencyIds: ReadonlySet<string> = new Set(),
     ) => {
       if (readOnly) return;
       const current = pasteContext();
@@ -1871,22 +1884,34 @@ export function FileEditor({
       const ids = new Map(payload.nodes.map((node) => [node.id, crypto.randomUUID()]));
       let index = 0;
       const rootIds = payload.nodes
-        .filter((node) => node.parentId === null)
+        .filter((node) => node.parentId === null && !importedDependencyIds.has(node.id))
         .map((node) => ids.get(node.id)!);
       const keepSelection =
         current.pageId !== context.pageId ||
         current.selectedIds !== context.selectedIds ||
         clipboardRequest.current !== context.request;
       return changeDocument(
-        (content) =>
-          pasteLayers(content, payload, {
+        (content) => {
+          const next = pasteLayers(content, payload, {
             fileId,
             pageId: context.pageId,
             parentId: context.parentId,
             inPlace,
             boxes: current.pageId === context.pageId ? measuredBoxes() : context.boxes,
             createId: () => ids.get(payload.nodes[index++].id)!,
-          }).document,
+            importedDependencyIds,
+          }).document;
+          return {
+            ...next,
+            warnings: [
+              ...next.warnings,
+              ...importWarnings.map((warning) => ({
+                ...warning,
+                nodeId: warning.nodeId ? ids.get(warning.nodeId) : undefined,
+              })),
+            ].slice(-500),
+          };
+        },
         keepSelection ? undefined : rootIds,
       );
     },
@@ -1952,6 +1977,86 @@ export function FileEditor({
     }
   }
 
+  async function pasteFigma(
+    html: string,
+    inPlace = false,
+    origin = { ...pasteContext(), request: ++clipboardRequest.current, boxes: measuredBoxes() },
+  ) {
+    if (readOnly) return;
+    const content = room.getSnapshot().content;
+    const selected = content.nodes.find((node) => node.id === origin.selection);
+    const parentId =
+      selected && ["artboard", "container"].includes(selected.type)
+        ? selected.id
+        : (selected?.parentId ?? null);
+    const context = {
+      selectedIds: origin.selectedIds,
+      parentId,
+      pageId: origin.pageId,
+      request: origin.request,
+      boxes: origin.boxes,
+    };
+    const signal = clipboardController.current?.signal;
+    try {
+      const result = await readFigma({ html }, signal);
+      let payload: DesignClipboard = {
+        bellaClipboard: 1,
+        kind: "layers",
+        sourceFile: fileId,
+        nodes: result.document.nodes,
+        tokens: {},
+        designTokens: result.document.designTokens ?? {},
+      };
+      const dependencies = new Set(
+        result.document.nodes
+          .filter((node) => node.pageId === "figma-components")
+          .map((node) => node.id),
+      );
+      // Check destination and capacity before uploading any images.
+      pasteLayers(room.getSnapshot().content, payload, {
+        fileId,
+        pageId: context.pageId,
+        parentId,
+        boxes: context.boxes,
+        createId: () => crypto.randomUUID(),
+      });
+      const assetIds = new Map<string, string>();
+      for (const asset of result.assets) {
+        if (signal?.aborted) return;
+        if (local) {
+          const url = URL.createObjectURL(
+            new Blob([asset.bytes.slice().buffer as ArrayBuffer], { type: asset.mimeType }),
+          );
+          figmaObjectUrls.current.push(url);
+          setFigmaPreviewAssets((current) => ({ ...current, [asset.id]: url }));
+          assetIds.set(asset.id, asset.id);
+        } else {
+          const form = new FormData();
+          form.set(
+            "image",
+            new File([asset.bytes.slice().buffer as ArrayBuffer], "Figma image", {
+              type: asset.mimeType,
+            }),
+          );
+          const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
+            method: "POST",
+            body: form,
+            signal,
+          });
+          const value: { assetId?: string; error?: string } = await response.json();
+          if (!response.ok || !value.assetId)
+            throw new Error(value.error ?? "Could not upload Figma image.");
+          assetIds.set(asset.id, value.assetId);
+        }
+      }
+      payload = { ...payload, nodes: remapFigmaAssets(result, assetIds).document.nodes };
+      if (!signal?.aborted)
+        await commitClipboard(payload, context, inPlace, result.document.warnings, dependencies);
+    } catch (cause) {
+      if (!signal?.aborted) setError(editorErrorMessage(cause, "Could not paste Figma layers."));
+    }
+  }
+
   async function pasteFromSystem(inPlace = false, properties = false) {
     const origin = {
       ...pasteContext(),
@@ -1959,6 +2064,18 @@ export function FileEditor({
       boxes: measuredBoxes(),
     };
     try {
+      if (!properties && navigator.clipboard.read) {
+        // Some browsers allow plain text but deny rich clipboard reads.
+        const items = await navigator.clipboard.read().catch(() => []);
+        for (const item of items)
+          if (item.types.includes("text/html")) {
+            const html = await (await item.getType("text/html")).text();
+            if (isFigmaClipboard(html)) {
+              await pasteFigma(html, inPlace, origin);
+              return;
+            }
+          }
+      }
       await pasteClipboard(await navigator.clipboard.readText(), inPlace, properties, origin);
     } catch {
       setError("Could not read the clipboard.");
@@ -2004,6 +2121,12 @@ export function FileEditor({
     }
     function paste(event: ClipboardEvent) {
       if (typing() || !event.clipboardData) return;
+      const html = event.clipboardData.getData("text/html");
+      if (isFigmaClipboard(html)) {
+        event.preventDefault();
+        void pasteFigma(html);
+        return;
+      }
       const text = event.clipboardData.getData("text/plain");
       if (readDesignClipboard(text)) {
         event.preventDefault();

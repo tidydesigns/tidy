@@ -184,3 +184,41 @@ test("layer relocation preserves absolute position, ordering, and prevents desce
   expect(() => relocateLayer(nested, "a", "child", "inside")).toThrow("own children");
   expect(relocateLayer(source, "b", "a", "before").nodes[0].id).toBe("b");
 });
+
+test("Figma paste keeps component dependencies off the destination page and selection", () => {
+  const master = { ...layer("master"), isComponent: true, pageId: "figma-components" };
+  const child = { ...layer("child", "master"), pageId: "figma-components" };
+  const instance = { ...layer("instance"), instanceOf: master.id, componentSourceId: master.id };
+  const copy = { ...layer("copy", "instance"), instanceOf: master.id, componentSourceId: child.id };
+  let index = 0;
+  const pasted = pasteLayers(
+    blankDesignDocument(),
+    {
+      bellaClipboard: 1,
+      kind: "layers",
+      sourceFile: "figma",
+      tokens: {},
+      nodes: [master, child, instance, copy],
+    },
+    {
+      fileId: "target",
+      pageId: "page-1",
+      parentId: null,
+      createId: () => `copy-${++index}`,
+      importedDependencyIds: new Set([master.id, child.id]),
+    },
+  );
+  expect(pasted.ids).toEqual(["copy-3"]);
+  expect(pasted.document.pages).toContainEqual({
+    id: "figma-components",
+    name: "Imported components",
+  });
+  expect(
+    pasted.document.nodes.slice(0, 2).every((node) => node.pageId === "figma-components"),
+  ).toBe(true);
+  expect(pasted.document.nodes[2]).toMatchObject({ pageId: "page-1", instanceOf: "copy-1" });
+  expect(pasted.document.nodes[3]).toMatchObject({
+    parentId: "copy-3",
+    componentSourceId: "copy-2",
+  });
+});
