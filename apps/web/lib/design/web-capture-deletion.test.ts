@@ -8,7 +8,6 @@ import {
 import { trackDocumentChanges } from "./edit-document";
 import { removeLayers } from "./document-operations";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
-import { rebaseDocument } from "./edit-queue";
 
 const captureKey = "en.wikipedia.org:web-capture/00000000-0000-4000-8000-000000000001";
 const duplicateKey = `${captureKey}#00000000-0000-4000-8000-000000000002`;
@@ -100,7 +99,7 @@ test("capture deletion supports undo, redo and a concurrent unrelated edit", () 
       node.id === "other" ? { ...node, name: "Remote edit" } : node,
     ),
   });
-  const merged = rebaseDocument(before, after, remote);
+  const merged = applyDocumentPatch(remote, patch);
   expect(merged.nodes.map((node) => node.name)).toEqual(["Remote edit"]);
   expect(merged.deletedSourceKeys).toEqual(before.deletedSourceKeys);
   const allDeleted = trackDocumentChanges(merged, removeLayers(merged, ["other"]));
