@@ -30,6 +30,7 @@
     "@tidy/ui": "workspace:*",
     "better-auth": "1.7.7",
     "fflate": "0.8.3",
+    "imagetracerjs": "1.2.6",
     "jose": "6.2.12",
     "next": "16.3.8",
     "pdf-lib": "1.17.1",

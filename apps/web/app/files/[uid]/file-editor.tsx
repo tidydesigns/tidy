@@ -4,6 +4,12 @@ import { readFigma, remapFigmaAssets } from "@/lib/design/figma-client";
 import { editorErrorMessage } from "@/lib/design/editor-error";
 import { ImageEditor } from "./image-editor";
 import {
+  applyRasterTrace,
+  vectorisationSource,
+  vectorisationUnavailable,
+} from "@/lib/design/raster-vectorisation";
+import type { TraceColors } from "@/lib/design/raster-trace-contract";
+import {
   imageEditNode,
   imageEditChanges,
   type ImageEditTarget,
@@ -674,6 +680,25 @@ export function FileEditor({
       ),
     }));
   }
+  const canVectoriseImage =
+    editedImage &&
+    !imageTarget?.paintId &&
+    !vectorisationUnavailable(snapshot.content, editedImage);
+  async function vectoriseImage(colors: TraceColors, signal: AbortSignal) {
+    if (!editedImage || !canVectoriseImage) return;
+    const node = editedImage;
+    const expected = vectorisationSource(node);
+    const { traceImage } = await import("@/lib/design/raster-trace-client");
+    const trace = await traceImage(
+      node,
+      previewAssetUrls?.[node.assetId!] ?? `/api/assets/${node.assetId}`,
+      colors,
+      signal,
+    );
+    if (signal.aborted) return;
+    // Commit against the latest room snapshot; never reset selection after asynchronous work.
+    await changeDocument((content) => applyRasterTrace(content, node.id, expected, trace));
+  }
   const multiScaleIds = useMemo(
     () =>
       selectedIds.length > 1 &&
@@ -1074,6 +1099,16 @@ export function FileEditor({
       requests.version++;
     };
   }, [fileId, local, preview, loadAssets]);
+
+  function worldPoint(event: { clientX: number; clientY: number }): Point {
+    const bounds = viewport.current!.getBoundingClientRect();
+    return canvasWorldPoint(
+      { x: event.clientX, y: event.clientY },
+      { x: bounds.left, y: bounds.top },
+      view,
+      viewPreferences.snapPixels,
+    );
+  }
 
   function placementTarget(): PlacementTarget {
     const parentId =
@@ -2464,16 +2499,6 @@ export function FileEditor({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
-
-  function worldPoint(event: { clientX: number; clientY: number }): Point {
-    const bounds = viewport.current!.getBoundingClientRect();
-    return canvasWorldPoint(
-      { x: event.clientX, y: event.clientY },
-      { x: bounds.left, y: bounds.top },
-      view,
-      viewPreferences.snapPixels,
-    );
-  }
 
   async function createDrawnNode(
     type: "artboard" | "container" | "text",
@@ -4571,6 +4596,7 @@ export function FileEditor({
           onEdit={editImage}
           onClose={() => setImageTarget(null)}
           onCrop={!imageTarget.paintId ? toggleCrop : undefined}
+          onVectorise={canVectoriseImage ? vectoriseImage : undefined}
           getImage={() => {
             const element = canvasElements(viewport.current).get(imageTarget.nodeId);
             const root = imageTarget.paintId

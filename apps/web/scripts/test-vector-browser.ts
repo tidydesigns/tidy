@@ -3,7 +3,9 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium } from "playwright";
+import { chromium, type Locator } from "playwright";
+import type { SvgImportResult } from "../lib/design/svg-path-import";
+declare const vectorBrowserTools: { inspectSvgImport: (source: string) => SvgImportResult };
 import sharp from "sharp";
 
 const base = process.env.VECTOR_TEST_BASE_URL ?? "http://localhost:3032";
@@ -11,18 +13,21 @@ if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
   throw new Error("Vector browser checks require a localhost app.");
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-const errors = [];
+const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const temporary = await mkdtemp(join(tmpdir(), "tidy-vector-"));
 const sourcePath = async (id = "editable-path") =>
   page.locator(`[data-node-id="${id}"] img[data-vector-path]`).evaluate((element) =>
     new DOMParser()
-      .parseFromString(decodeURIComponent(element.src.split(",")[1]), "image/svg+xml")
-      .querySelector("path")
-      .getAttribute("d"),
+      .parseFromString(
+        decodeURIComponent((element as HTMLImageElement).src.split(",")[1]),
+        "image/svg+xml",
+      )
+      .querySelector("path")!
+      .getAttribute("d")!,
   );
 const countAnchors = () => page.locator('[data-vector-control="anchor"]').count();
-const drag = async (locator, dx, dy) => {
+const drag = async (locator: Locator, dx: number, dy: number) => {
   const box = await locator.boundingBox();
   assert.ok(box);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
@@ -42,7 +47,7 @@ try {
   const delta = await page.locator('[data-node-id="editable-path"]').evaluate((element) => {
     let matrix = new DOMMatrix();
     for (
-      let current = element;
+      let current: Element | null = element;
       current && !current.hasAttribute("data-canvas-viewport");
       current = current.parentElement
     ) {
@@ -66,11 +71,13 @@ try {
   assert.notEqual(await sourcePath(), original);
   await page.keyboard.press("Meta+z");
   await page.waitForFunction((original) => {
-    const image = document.querySelector('[data-node-id="editable-path"] img[data-vector-path]');
+    const image = document.querySelector<HTMLImageElement>(
+      '[data-node-id="editable-path"] img[data-vector-path]',
+    );
     return (
       new DOMParser()
-        .parseFromString(decodeURIComponent(image.src.split(",")[1]), "image/svg+xml")
-        .querySelector("path")
+        .parseFromString(decodeURIComponent(image!.src.split(",")[1]), "image/svg+xml")
+        .querySelector("path")!
         .getAttribute("d") === original
     );
   }, original);
@@ -87,6 +94,7 @@ try {
   assert.ok((await sourcePath()).endsWith("Z"));
   const segment = page.locator('[data-vector-editor] svg path[stroke="transparent"]').nth(1);
   const segmentBox = await segment.boundingBox();
+  assert.ok(segmentBox);
   await segment.dblclick({
     position: { x: segmentBox.width / 2, y: segmentBox.height / 2 },
     force: true,
@@ -112,6 +120,7 @@ try {
   const nativeImage = await page
     .locator(`[data-node-id="${nativeId}"] img[data-vector-path]`)
     .getAttribute("src");
+  assert.ok(nativeImage);
   const svg = decodeURIComponent(nativeImage.split(",")[1]);
   const rendered = await sharp(Buffer.from(svg)).png().toBuffer();
   assert.ok(rendered.length > 100);
@@ -137,8 +146,10 @@ try {
       destination = join(temporary, `frame.${format}`);
     await download.saveAs(destination);
     const bytes = await readFile(destination);
-    if (format === "svg") assert.ok(bytes.toString().includes("data:image/svg+xml"));
-    else {
+    if (format === "svg") {
+      assert.ok(bytes.toString().includes("<path"));
+      assert.ok(!bytes.toString().includes("<foreignObject"), "Authored vectors export native SVG");
+    } else {
       const image = sharp(bytes),
         metadata = await image.metadata();
       assert.equal(metadata.width, 620);
@@ -166,7 +177,7 @@ try {
   );
   await page.addScriptTag({ content: bundle });
   const imports = await page.evaluate(() => {
-    const wrap = (shape) =>
+    const wrap = (shape: string) =>
       `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" fill="#f60">${shape}</svg>`;
     return [
       '<path d="M10 10h80v80h-80z"/>',
@@ -189,8 +200,8 @@ try {
   for (const [index, imported] of imports.entries()) {
     if (index < 8) {
       assert.ok(imported.result.editable, imported.result.reason);
-      const path = imported.result.editable.vectorPath;
-      assert.ok(path.contours.length && path.contours[0].points.length);
+      const path = imported.result.editable.vectorPath!;
+      assert.ok(path.contours?.length && path.contours[0].points.length);
       const original = await sharp(Buffer.from(imported.source))
         .resize(300, 300)
         .ensureAlpha()
@@ -208,7 +219,7 @@ try {
       let error = 0;
       for (let i = 3; i < original.length; i += 4) error += Math.abs(original[i] - converted[i]);
       assert.ok(error / (original.length / 4) < 0.2, `Imported shape ${index} differs`);
-    } else assert.match(imported.result.reason, /^Original SVG retained:/);
+    } else assert.match(imported.result.reason ?? "", /^Original SVG retained:/);
   }
   assert.deepEqual(errors, []);
   console.log(

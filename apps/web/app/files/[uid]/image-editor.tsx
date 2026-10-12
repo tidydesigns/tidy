@@ -12,6 +12,7 @@ import type { ImageEdit } from "@/lib/design/image-edit-target";
 import { DesignImage } from "@/components/design/design-image";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
+import type { TraceColors } from "@/lib/design/raster-trace-contract";
 
 const keys = Object.keys(imageAdjustmentLabels) as ImageAdjustment[];
 const reset = Object.fromEntries(keys.map((key) => [key, 0])) as ImageAdjustments;
@@ -52,6 +53,7 @@ export function ImageEditor({
   onClose,
   onCrop,
   getImage,
+  onVectorise,
   right = 16,
 }: {
   node: DesignNode;
@@ -60,9 +62,37 @@ export function ImageEditor({
   onClose: () => void;
   onCrop?: () => void;
   getImage: () => Element | null;
+  onVectorise?: (colors: TraceColors, signal: AbortSignal) => Promise<void>;
   right?: number;
 }) {
   const [draft, setDraft] = useState<ImageAdjustments | null>(null);
+  const [traceColors, setTraceColors] = useState<TraceColors>(8);
+  const [tracing, setTracing] = useState(false);
+  const [traceError, setTraceError] = useState("");
+  const traceController = useRef<AbortController | null>(null);
+  useEffect(() => () => traceController.current?.abort(), []);
+  function closeEditor() {
+    traceController.current?.abort();
+    onClose();
+  }
+  async function vectorise() {
+    if (!onVectorise || traceController.current) return;
+    const controller = new AbortController();
+    traceController.current = controller;
+    setTracing(true);
+    setTraceError("");
+    try {
+      await onVectorise(traceColors, controller.signal);
+    } catch (error) {
+      if (!controller.signal.aborted)
+        setTraceError(error instanceof Error ? error.message : "Could not vectorise this image.");
+    } finally {
+      if (traceController.current === controller) {
+        traceController.current = null;
+        setTracing(false);
+      }
+    }
+  }
   const values = { ...node.style.imageAdjustments, ...draft };
   const canvasImage = getImage();
   const loadedSource =
@@ -132,7 +162,7 @@ export function ImageEditor({
         if (event.key === "Escape") {
           event.preventDefault();
           if (gesture.current) cancel();
-          else onClose();
+          else closeEditor();
         }
       }}
     >
@@ -146,7 +176,7 @@ export function ImageEditor({
           type="button"
           aria-label="Close image editor"
           className={`${button} text-secondary-ink`}
-          onClick={onClose}
+          onClick={closeEditor}
         >
           <Icon name="xmark" size={14} />
         </button>
@@ -173,7 +203,7 @@ export function ImageEditor({
               type="button"
               className={button}
               onClick={() => {
-                onClose();
+                closeEditor();
                 onCrop();
               }}
             >
@@ -232,6 +262,42 @@ export function ImageEditor({
             Reset adjustments
           </button>
         </div>
+        {onVectorise && (
+          <div className="mt-3 border-t border-primary-grey/50 pt-3">
+            <div className="flex items-center gap-2">
+              <SelectMenu
+                label="Vector colours"
+                size="sm"
+                className="flex-1"
+                value={String(traceColors)}
+                options={[
+                  { value: "2", label: "2 colours" },
+                  { value: "8", label: "8 colours" },
+                  { value: "16", label: "16 colours" },
+                ]}
+                onChange={(value) => setTraceColors(Number(value) as TraceColors)}
+                disabled={tracing}
+              />
+              <button
+                type="button"
+                className={button}
+                onClick={() => (tracing ? traceController.current?.abort() : void vectorise())}
+              >
+                {tracing ? "Cancel vectorisation" : "Vectorise image"}
+              </button>
+            </div>
+            {tracing && (
+              <p role="status" className="mt-2 text-xs text-secondary-ink">
+                Vectorising…
+              </p>
+            )}
+            {traceError && (
+              <p role="alert" className="mt-2 text-xs text-secondary-ink">
+                {traceError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
     </section>
   );
