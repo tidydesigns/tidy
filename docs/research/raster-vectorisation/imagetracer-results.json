@@ -1,0 +1,262 @@
+{
+  "measuredAt": "2026-10-12T21:05:18.357Z",
+  "runtime": "1.3.14",
+  "platform": "linux/x64",
+  "samples": 5,
+  "warmups": 1,
+  "workingSizeExample": {
+    "width": 512,
+    "height": 512
+  },
+  "rows": [
+    {
+      "fixture": "logo-holes",
+      "format": "png",
+      "colors": 2,
+      "medianMs": 15.96,
+      "paths": 2,
+      "points": 25,
+      "svgBytes": 619,
+      "documentBytes": 2155,
+      "meanChannelError": 0.368
+    },
+    {
+      "fixture": "logo-holes",
+      "format": "png",
+      "colors": 8,
+      "medianMs": 8.63,
+      "paths": 2,
+      "points": 25,
+      "svgBytes": 619,
+      "documentBytes": 2155,
+      "meanChannelError": 0.368
+    },
+    {
+      "fixture": "logo-holes",
+      "format": "png",
+      "colors": 16,
+      "medianMs": 8.4,
+      "paths": 2,
+      "points": 25,
+      "svgBytes": 619,
+      "documentBytes": 2155,
+      "meanChannelError": 0.368
+    },
+    {
+      "fixture": "logo-holes",
+      "format": "jpeg",
+      "colors": 2,
+      "medianMs": 7.29,
+      "paths": 3,
+      "points": 56,
+      "svgBytes": 1236,
+      "documentBytes": 4730,
+      "meanChannelError": 24.02
+    },
+    {
+      "fixture": "logo-holes",
+      "format": "jpeg",
+      "colors": 8,
+      "medianMs": 11.27,
+      "paths": 8,
+      "points": 121,
+      "svgBytes": 2450,
+      "documentBytes": 9455,
+      "meanChannelError": 1.919
+    },
+    {
+      "fixture": "logo-holes",
+      "format": "jpeg",
+      "colors": 16,
+      "medianMs": 10.92,
+      "paths": 8,
+      "points": 121,
+      "svgBytes": 2450,
+      "documentBytes": 9455,
+      "meanChannelError": 1.919
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "png",
+      "colors": 2,
+      "medianMs": 8.35,
+      "paths": 2,
+      "points": 44,
+      "svgBytes": 1469,
+      "documentBytes": 5256,
+      "meanChannelError": 0.727
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "png",
+      "colors": 8,
+      "medianMs": 8.19,
+      "paths": 2,
+      "points": 44,
+      "svgBytes": 1469,
+      "documentBytes": 5256,
+      "meanChannelError": 0.727
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "png",
+      "colors": 16,
+      "medianMs": 8.15,
+      "paths": 2,
+      "points": 44,
+      "svgBytes": 1469,
+      "documentBytes": 5256,
+      "meanChannelError": 0.727
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "jpeg",
+      "colors": 2,
+      "medianMs": 6.97,
+      "paths": 3,
+      "points": 68,
+      "svgBytes": 1894,
+      "documentBytes": 7018,
+      "meanChannelError": 1.447
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "jpeg",
+      "colors": 8,
+      "medianMs": 6.76,
+      "paths": 3,
+      "points": 68,
+      "svgBytes": 1894,
+      "documentBytes": 7018,
+      "meanChannelError": 1.447
+    },
+    {
+      "fixture": "rounded-icon",
+      "format": "jpeg",
+      "colors": 16,
+      "medianMs": 6.85,
+      "paths": 3,
+      "points": 68,
+      "svgBytes": 1894,
+      "documentBytes": 7018,
+      "meanChannelError": 1.447
+    },
+    {
+      "fixture": "gradient",
+      "format": "png",
+      "colors": 2,
+      "medianMs": 6.78,
+      "paths": 2,
+      "points": 31,
+      "svgBytes": 776,
+      "documentBytes": 2773,
+      "meanChannelError": 15.356
+    },
+    {
+      "fixture": "gradient",
+      "format": "png",
+      "colors": 8,
+      "medianMs": 19.69,
+      "paths": 28,
+      "points": 129,
+      "svgBytes": 3855,
+      "documentBytes": 13446,
+      "meanChannelError": 4.856
+    },
+    {
+      "fixture": "gradient",
+      "format": "png",
+      "colors": 16,
+      "medianMs": 18.12,
+      "paths": 28,
+      "points": 129,
+      "svgBytes": 3855,
+      "documentBytes": 13446,
+      "meanChannelError": 4.856
+    },
+    {
+      "fixture": "gradient",
+      "format": "jpeg",
+      "colors": 2,
+      "medianMs": 6.78,
+      "paths": 3,
+      "points": 60,
+      "svgBytes": 1237,
+      "documentBytes": 4762,
+      "meanChannelError": 15.257
+    },
+    {
+      "fixture": "gradient",
+      "format": "jpeg",
+      "colors": 8,
+      "medianMs": 19.21,
+      "paths": 36,
+      "points": 288,
+      "svgBytes": 6529,
+      "documentBytes": 24798,
+      "meanChannelError": 5.623
+    },
+    {
+      "fixture": "gradient",
+      "format": "jpeg",
+      "colors": 16,
+      "medianMs": 17.92,
+      "paths": 36,
+      "points": 288,
+      "svgBytes": 6529,
+      "documentBytes": 24798,
+      "meanChannelError": 5.623
+    },
+    {
+      "fixture": "fine-details",
+      "format": "png",
+      "colors": 2,
+      "medianMs": 13.06,
+      "paths": 120,
+      "points": 480,
+      "svgBytes": 33538,
+      "documentBytes": 110092,
+      "meanChannelError": 4.231
+    },
+    {
+      "fixture": "fine-details",
+      "format": "png",
+      "colors": 8,
+      "medianMs": 24.2,
+      "paths": 120,
+      "points": 960,
+      "svgBytes": 20637,
+      "documentBytes": 72475,
+      "meanChannelError": 2.608
+    },
+    {
+      "fixture": "fine-details",
+      "format": "png",
+      "colors": 16,
+      "medianMs": 23.59,
+      "paths": 120,
+      "points": 960,
+      "svgBytes": 20637,
+      "documentBytes": 72475,
+      "meanChannelError": 2.608
+    },
+    {
+      "fixture": "fine-details",
+      "format": "jpeg",
+      "colors": 2,
+      "error": "This trace has too many shapes. Try fewer colours or a simpler image."
+    },
+    {
+      "fixture": "fine-details",
+      "format": "jpeg",
+      "colors": 8,
+      "error": "This trace has too many shapes. Try fewer colours or a simpler image."
+    },
+    {
+      "fixture": "fine-details",
+      "format": "jpeg",
+      "colors": 16,
+      "error": "This trace has too many shapes. Try fewer colours or a simpler image."
+    }
+  ]
+}
