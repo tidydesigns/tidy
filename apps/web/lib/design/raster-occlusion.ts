@@ -48,7 +48,11 @@ export function recoverRasterOcclusion(
   const removed = new Set<Path>();
   const output: Path[] = [];
   for (const path of paths) {
-    if (removed.has(path) || path.opacity !== 1 || path.name) {
+    if (
+      removed.has(path) ||
+      path.opacity !== 1 ||
+      (path.name && path.name !== "Polygon" && path.name !== "Triangle")
+    ) {
       if (!removed.has(path)) output.push(path);
       continue;
     }
@@ -89,7 +93,7 @@ export function recoverRasterOcclusion(
       const own = hull(sampleRasterContour(path.vectorPath.contours![0]));
       candidate = fitRasterShape(makeContour(own));
       boundary = own;
-      if (!candidate.name) {
+      if (!["Ellipse", "Rectangle", "Rounded rectangle"].includes(candidate.name ?? "")) {
         output.push(path);
         continue;
       }

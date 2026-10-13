@@ -1,4 +1,4 @@
-import type { DesignNode } from "./document";
+import type { DesignNode, DesignPaint } from "./document";
 
 export const traceLimits = {
   pixels: 262144,
@@ -8,12 +8,16 @@ export const traceLimits = {
   bytes: 1500000,
   timeout: 20000,
 } as const;
-export type TraceColors = 2 | 8 | 16;
+export type TraceColors = "auto" | 2 | 8 | 16 | 32;
+export type RasterPixels = { width: number; height: number; data: Uint8ClampedArray };
+export type TraceStage = "reading" | "tracing" | "checking";
 export type RasterTrace = {
+  fallback?: Omit<RasterTrace, "fallback">;
   width: number;
   height: number;
   paths: {
     name?: string;
+    fill?: Extract<DesignPaint, { type: "linear" }>;
     vectorPath: NonNullable<DesignNode["vectorPath"]>;
     color: string;
     opacity: number;

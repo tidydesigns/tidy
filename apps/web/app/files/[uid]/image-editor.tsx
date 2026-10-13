@@ -12,7 +12,7 @@ import type { ImageEdit } from "@/lib/design/image-edit-target";
 import { DesignImage } from "@/components/design/design-image";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
-import type { TraceColors } from "@/lib/design/raster-trace-contract";
+import type { TraceColors, TraceStage } from "@/lib/design/raster-trace-contract";
 
 const keys = Object.keys(imageAdjustmentLabels) as ImageAdjustment[];
 const reset = Object.fromEntries(keys.map((key) => [key, 0])) as ImageAdjustments;
@@ -62,11 +62,16 @@ export function ImageEditor({
   onClose: () => void;
   onCrop?: () => void;
   getImage: () => Element | null;
-  onVectorise?: (colors: TraceColors, signal: AbortSignal) => Promise<void>;
+  onVectorise?: (
+    colors: TraceColors,
+    signal: AbortSignal,
+    onProgress: (stage: TraceStage) => void,
+  ) => Promise<void>;
   right?: number;
 }) {
   const [draft, setDraft] = useState<ImageAdjustments | null>(null);
-  const [traceColors, setTraceColors] = useState<TraceColors>(8);
+  const [traceColors, setTraceColors] = useState<TraceColors>("auto");
+  const [traceStage, setTraceStage] = useState<TraceStage>("reading");
   const [tracing, setTracing] = useState(false);
   const [traceError, setTraceError] = useState("");
   const traceController = useRef<AbortController | null>(null);
@@ -82,7 +87,9 @@ export function ImageEditor({
     setTracing(true);
     setTraceError("");
     try {
-      await onVectorise(traceColors, controller.signal);
+      await onVectorise(traceColors, controller.signal, (stage) => {
+        if (!controller.signal.aborted) setTraceStage(stage);
+      });
     } catch (error) {
       if (!controller.signal.aborted)
         setTraceError(error instanceof Error ? error.message : "Could not vectorise this image.");
@@ -271,11 +278,15 @@ export function ImageEditor({
                 className="flex-1"
                 value={String(traceColors)}
                 options={[
+                  { value: "auto", label: "Auto colours" },
                   { value: "2", label: "2 colours" },
                   { value: "8", label: "8 colours" },
                   { value: "16", label: "16 colours" },
+                  { value: "32", label: "32 colours" },
                 ]}
-                onChange={(value) => setTraceColors(Number(value) as TraceColors)}
+                onChange={(value) =>
+                  setTraceColors(value === "auto" ? "auto" : (Number(value) as TraceColors))
+                }
                 disabled={tracing}
               />
               <button
@@ -288,7 +299,13 @@ export function ImageEditor({
             </div>
             {tracing && (
               <p role="status" className="mt-2 text-xs text-secondary-ink">
-                Vectorising…
+                {
+                  {
+                    reading: "Reading image…",
+                    tracing: "Finding shapes…",
+                    checking: "Checking result…",
+                  }[traceStage]
+                }
               </p>
             )}
             {traceError && (

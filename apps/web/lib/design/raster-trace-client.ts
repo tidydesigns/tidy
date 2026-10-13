@@ -1,3 +1,4 @@
+import { verifyRasterTrace } from "./raster-trace-quality";
 import { imageAdjustmentFilter, hasImageAdjustments } from "@bella/design/image-adjustments";
 import type { DesignNode } from "./document";
 import { imageViewport } from "./image-viewport";
@@ -6,6 +7,7 @@ import {
   traceSize,
   type RasterTrace,
   type TraceColors,
+  type TraceStage,
 } from "./raster-trace-contract";
 
 const aborted = () => new DOMException("Vectorisation cancelled.", "AbortError");
@@ -38,8 +40,10 @@ export async function traceImage(
   source: string,
   colors: TraceColors,
   signal: AbortSignal,
+  onProgress?: (stage: TraceStage) => void,
 ): Promise<RasterTrace> {
   check(signal);
+  onProgress?.("reading");
   const response = await fetch(source, { signal, credentials: "same-origin" });
   if (!response.ok) throw new Error("Could not read the image. Check your file access.");
   const mime = response.headers.get("content-type")?.split(";")[0];
@@ -143,7 +147,9 @@ export async function traceImage(
     if (!context) throw new Error("Canvas image processing is unavailable.");
     context.drawImage(raster, 0, 0);
     const pixels = context.getImageData(0, 0, size.width, size.height);
-    return await new Promise<RasterTrace>((resolve, reject) => {
+    const original = { width: size.width, height: size.height, data: pixels.data.slice() };
+    onProgress?.("tracing");
+    const trace = await new Promise<RasterTrace>((resolve, reject) => {
       const worker = new Worker(new URL("./raster-trace.worker.ts", import.meta.url), {
         type: "module",
       });
@@ -169,10 +175,36 @@ export async function traceImage(
       if (signal.aborted) cancel();
       else
         worker.postMessage(
-          { width: size.width, height: size.height, buffer: pixels.data.buffer, colors },
+          {
+            width: size.width,
+            height: size.height,
+            buffer: pixels.data.buffer,
+            colors,
+            lossy: mime === "image/jpeg",
+          },
           [pixels.data.buffer],
         );
     });
+    check(signal);
+    onProgress?.("checking");
+    // Yield so cancellation and progress can paint before image-space verification.
+    await new Promise<void>((resolve, reject) => {
+      const finish = () => {
+        signal.removeEventListener("abort", cancel);
+        resolve();
+      };
+      const timer = setTimeout(finish, 0);
+      const cancel = () => {
+        clearTimeout(timer);
+        reject(aborted());
+      };
+      signal.addEventListener("abort", cancel, { once: true });
+      if (signal.aborted) cancel();
+    });
+    check(signal);
+    const verified = verifyRasterTrace(original, trace);
+    check(signal);
+    return verified;
   } finally {
     URL.revokeObjectURL(sourceUrl);
     if (rasterUrl) URL.revokeObjectURL(rasterUrl);

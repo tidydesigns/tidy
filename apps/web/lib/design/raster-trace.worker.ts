@@ -9,6 +9,7 @@ const worker = self as unknown as {
           height: number;
           buffer: ArrayBuffer;
           colors: TraceColors;
+          lossy?: boolean;
         }>,
       ) => void)
     | null;
@@ -20,6 +21,7 @@ worker.onmessage = ({ data }) => {
       trace: traceRaster(
         { width: data.width, height: data.height, data: new Uint8ClampedArray(data.buffer) },
         data.colors,
+        { lossy: data.lossy },
       ),
     });
   } catch (error) {

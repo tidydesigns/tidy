@@ -8,7 +8,7 @@ import {
   vectorisationSource,
   vectorisationUnavailable,
 } from "@/lib/design/raster-vectorisation";
-import type { TraceColors } from "@/lib/design/raster-trace-contract";
+import type { TraceColors, TraceStage } from "@/lib/design/raster-trace-contract";
 import {
   imageEditNode,
   imageEditChanges,
@@ -684,7 +684,11 @@ export function FileEditor({
     editedImage &&
     !imageTarget?.paintId &&
     !vectorisationUnavailable(snapshot.content, editedImage);
-  async function vectoriseImage(colors: TraceColors, signal: AbortSignal) {
+  async function vectoriseImage(
+    colors: TraceColors,
+    signal: AbortSignal,
+    onProgress: (stage: TraceStage) => void,
+  ) {
     if (!editedImage || !canVectoriseImage) return;
     const node = editedImage;
     const expected = vectorisationSource(node);
@@ -694,10 +698,13 @@ export function FileEditor({
       previewAssetUrls?.[node.assetId!] ?? `/api/assets/${node.assetId}`,
       colors,
       signal,
+      onProgress,
     );
     if (signal.aborted) return;
     // Commit against the latest room snapshot; never reset selection after asynchronous work.
-    await changeDocument((content) => applyRasterTrace(content, node.id, expected, trace));
+    await changeDocument((content) =>
+      signal.aborted ? content : applyRasterTrace(content, node.id, expected, trace),
+    );
   }
   const multiScaleIds = useMemo(
     () =>

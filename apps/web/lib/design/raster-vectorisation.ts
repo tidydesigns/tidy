@@ -94,13 +94,26 @@ export function applyRasterTrace(
       vectorPath: { ...path.vectorPath, viewBox: { x, y, width, height } },
       style: {
         paints: [
-          {
-            id: "trace-fill",
-            type: "solid",
-            color: path.color,
-            opacity: path.opacity,
-            visible: true,
-          },
+          path.fill
+            ? {
+                ...path.fill,
+                start: {
+                  x: (path.fill.start!.x * trace.width - x) / width,
+                  y: (path.fill.start!.y * trace.height - y) / height,
+                },
+                end: {
+                  x: (path.fill.end!.x * trace.width - x) / width,
+                  y: (path.fill.end!.y * trace.height - y) / height,
+                },
+                opacity: path.opacity,
+              }
+            : {
+                id: "trace-fill",
+                type: "solid",
+                color: path.color,
+                opacity: path.opacity,
+                visible: true,
+              },
         ],
       },
       visible: true,
