@@ -17,6 +17,7 @@ const readTools = new Set([
   "validate_document",
   "export_component",
   "export_visual_preview",
+  "preview_design",
 ]);
 const readMethods = new Set([
   "server/discover",

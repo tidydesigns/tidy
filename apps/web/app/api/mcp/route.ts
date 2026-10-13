@@ -20,6 +20,9 @@ const resource = new URL(
   "/api/mcp",
   process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
 ).toString();
+// Ask for design editing at consent; read-only grants still authorize reads.
+const connectionScopes = ["mcp:read", "mcp:write"];
+
 function buildServer(userId: string, clientId: string, grant: McpGrant) {
   const activity = new McpActivity({ userId, clientId });
   return registerTidyTools(
@@ -82,7 +85,7 @@ async function grantFailure(
     message: "Agent authorization has ended. Authorize again to reconnect.",
   });
   const challenge = createResourceServerChallenge(error, resource, {
-    challengeScopes: [...scopes],
+    challengeScopes: [...new Set([...connectionScopes, ...scopes])],
   });
   if (!challenge) throw error;
   return Response.json(
@@ -124,7 +127,7 @@ const authenticatedPost = requireMcpAuth(
       mcpHandler.fetch(parsed.request, { parsedBody: parsed.parsedBody }),
     );
   },
-  { resource, requiredScopes: ["mcp:read"], challengeScopes: ["mcp:read"] },
+  { resource, requiredScopes: ["mcp:read"], challengeScopes: connectionScopes },
 );
 
 export function POST(request: Request) {

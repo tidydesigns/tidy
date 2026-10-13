@@ -48,6 +48,7 @@ test("read requests use read scope; unknown tools and methods require write scop
     "validate_document",
     "export_component",
     "export_visual_preview",
+    "preview_design",
   ])
     expect(requiredMcpScopes({ method: "tools/call", params: { name } })).toEqual(["mcp:read"]);
   for (const name of ["create_file", "patch_document", "commit_import", "future_tool"])

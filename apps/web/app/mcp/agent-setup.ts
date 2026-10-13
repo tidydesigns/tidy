@@ -49,8 +49,8 @@ export function setupFor(agent: Agent, name: string, resourceUrl: string) {
     case "opencode":
       install = {
         title: "Add Tidy to OpenCode",
-        description: `Run in your terminal. Choose Remote, name it ${name}, and enter this URL.`,
-        values: [command("opencode mcp add"), url(resourceUrl)],
+        description: "Run in your terminal.",
+        values: [command(`opencode mcp add ${name} --url ${resourceUrl}`)],
       };
       authorize = {
         title: "Sign in to Tidy",

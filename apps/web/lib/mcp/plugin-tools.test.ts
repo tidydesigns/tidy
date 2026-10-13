@@ -1,7 +1,8 @@
 import { expect, test, mock } from "bun:test";
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
 import { blankDesignDocument, buildDrawnNode } from "@bella/design/document";
-import { registerPluginTools } from "./plugin-tools";
+mock.module("server-only", () => ({}));
+const { registerPluginTools } = await import("./plugin-tools");
 
 function setup(denied = false) {
   const document = {
@@ -67,7 +68,7 @@ test("advertises the UI, OAuth policy, exact output schema and a working bundled
   });
   expect(tool._meta.securitySchemes[0]).toEqual({
     type: "oauth2",
-    scopes: ["mcp:read", "mcp:write"],
+    scopes: ["mcp:read"],
   });
   expect(tool.outputSchema.properties.revision).toBeDefined();
   const resource = await call("resources/read", { uri: tool._meta.ui.resourceUri });

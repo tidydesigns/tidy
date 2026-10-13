@@ -1,3 +1,5 @@
+import { requiredMcpScopes } from "./scopes";
+
 const readTools = new Set([
   "list_organizations",
   "list_files",
@@ -20,7 +22,7 @@ const readTools = new Set([
 ]);
 const overwriteTools = new Set(["patch_document", "commit_import", "import_web_capture"]);
 
-/** This endpoint currently requires both scopes, including for reads. Match its actual auth contract. */
+/** Discovery describes each tool's enforced scopes; annotations are only hints. */
 export function mcpToolPolicy(name: string) {
   return {
     annotations: {
@@ -28,6 +30,13 @@ export function mcpToolPolicy(name: string) {
       destructiveHint: overwriteTools.has(name),
       openWorldHint: false,
     },
-    _meta: { securitySchemes: [{ type: "oauth2", scopes: ["mcp:read", "mcp:write"] }] },
+    _meta: {
+      securitySchemes: [
+        {
+          type: "oauth2",
+          scopes: [...requiredMcpScopes({ method: "tools/call", params: { name } })],
+        },
+      ],
+    },
   };
 }

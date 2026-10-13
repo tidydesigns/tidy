@@ -232,6 +232,15 @@ export function McpConnection({
             </div>
           )}
           <p>Sign-in timed out? Close the browser tab and try step 2 again.</p>
+          {agent === "opencode" && (
+            <div>
+              <p className="mb-2">
+                Can read but cannot edit? Clear the old sign-in, then repeat step 2 and approve
+                design read and write access.
+              </p>
+              <CopyableValue value={`opencode mcp logout ${name}`} copyLabel="Copy command" />
+            </div>
+          )}
           {agent === "other" && <p>Your agent must support OAuth.</p>}
           {name === "tidy-local" && <p>Keep Tidy running while you connect.</p>}
           <div>
