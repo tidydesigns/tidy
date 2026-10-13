@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { createDesignFile } from "./actions";
 
 export function NewFileButton({ folderId = null }: { folderId?: string | null }) {

@@ -4,7 +4,7 @@ import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { Dialog } from "@/components/ui/dialog";
 import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import type { DesignDocument } from "@/lib/design/document";
 import type { Review, ReviewContext } from "@/lib/github/reviews";
 import { DesignSnapshot } from "./design-snapshot";

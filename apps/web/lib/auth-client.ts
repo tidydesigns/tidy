@@ -1,7 +1,7 @@
 import { createAuthClient } from "better-auth/react";
 import { organizationClient } from "better-auth/client/plugins";
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { clearThumbnailCache } from "@/app/files/thumbnail-cache";
 
 import { organizationRoles } from "@/lib/organizations/access-control";

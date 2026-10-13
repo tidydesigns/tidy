@@ -2,7 +2,7 @@
 
 import { Dialog } from "@/components/ui/dialog";
 import { useRef, useState, type FormEvent } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { Icon } from "@/components/ui/icon";
 import { EditLogin } from "./edit-login";

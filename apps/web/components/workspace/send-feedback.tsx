@@ -9,7 +9,8 @@ import {
   isFeedbackShortcut,
   openFeedback,
 } from "@/lib/feedback/commands";
-import posthog from "posthog-js";
+import { posthogCollectionEnabled } from "@/lib/posthog-policy";
+import posthog from "@/lib/posthog-client";
 import { IMAGE_TYPES, validateImages } from "@/lib/feedback/validation";
 
 const surveyId = process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID;
@@ -135,7 +136,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (uploading.current) return;
+    if (!posthogCollectionEnabled() || uploading.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
     const type = data.get("type");
@@ -233,7 +234,10 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             ×
           </button>
         </div>
-        <form onSubmit={submit} className="mt-6 space-y-5">
+        {!posthogCollectionEnabled() && (
+          <p className="mt-6 text-sm text-secondary-ink">Feedback is temporarily unavailable.</p>
+        )}
+        <form hidden={!posthogCollectionEnabled()} onSubmit={submit} className="mt-6 space-y-5">
           <fieldset disabled={busy} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">What is this about?</legend>
             <label className="flex items-center gap-3 text-sm">

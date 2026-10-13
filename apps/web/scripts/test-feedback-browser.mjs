@@ -21,7 +21,7 @@ function Fixture() {
     <button onClick={() => setCompact(value => !value)}>Toggle panels</button>
     <button onClick={openFeedback}>Open with command</button>
     <SendFeedback compact={compact} showShortcut className={compact ? "rounded-full" : ""} />
-    <UpgradeDialog organizationId="test-org" owner firstMonthUsed={false} limits={{files:null,editors:null,storageBytes:null}} triggerClassName="" />
+    <UpgradeDialog organizationId="test-org" owner firstMonthUsed={false} limits={{files:null,editors:null,storageBytes:null,mcpCalls:null}} triggerClassName="" />
     <dialog id="other-dialog"><button onClick={() => document.getElementById("other-dialog").close()}>Close other</button></dialog>
   </FeedbackProvider>;
 }
@@ -36,7 +36,13 @@ const build = await Bun.build({
     {
       name: "mock-posthog",
       setup(build) {
-        build.onLoad({ filter: /posthog-js.*\.(js|mjs)$/ }, () => ({
+        // This isolated fixture exercises the dormant feedback form with a fake
+        // transport. Production keeps it unavailable while collection is paused.
+        build.onLoad({ filter: /posthog-policy\.ts$/ }, () => ({
+          contents: "export function posthogCollectionEnabled() { return true; }",
+          loader: "js",
+        }));
+        build.onLoad({ filter: /posthog-client\.ts$/ }, () => ({
           contents:
             "export default { capture(event, properties) { window.events ??= []; window.events.push({event, properties}); return window.rejectAnalytics ? undefined : {}; } };",
           loader: "js",
@@ -46,6 +52,15 @@ const build = await Bun.build({
   ],
 });
 assert.ok(build.success, String(build.logs));
+// Also exercise the shipped pause without either mock module.
+const pausedBuild = await Bun.build({
+  entrypoints: [`${fixture}/entry.tsx`],
+  target: "browser",
+  outdir: fixture,
+  naming: "paused.[ext]",
+  define: { "process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID": JSON.stringify("test-survey") },
+});
+assert.ok(pausedBuild.success, String(pausedBuild.logs));
 let uploads = 0,
   failUpload = true;
 const ids = [];
@@ -54,6 +69,7 @@ const server = Bun.serve({
   port: 0,
   async fetch(request) {
     const path = new URL(request.url).pathname;
+    if (path === "/paused.js") return new Response(Bun.file(`${fixture}/paused.js`));
     if (path === "/entry.js") return new Response(Bun.file(`${fixture}/entry.js`));
     if (path === "/api/feedback/attachments") {
       uploads++;
@@ -64,7 +80,7 @@ const server = Bun.serve({
       return Response.json({ urls: ["https://app.example/api/feedback/attachments/test/0"] });
     }
     return new Response(
-      '<!doctype html><html><body><div id="root"></div><script type="module" src="/entry.js"></script></body></html>',
+      `<!doctype html><html><body><div id="root"></div><script type="module" src="/${new URL(request.url).searchParams.has("paused") ? "paused" : "entry"}.js"></script></body></html>`,
       { headers: { "Content-Type": "text/html" } },
     );
   },
@@ -75,6 +91,20 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  const pauseRequests = [];
+  const recordPauseRequest = (request) => pauseRequests.push(new URL(request.url()).pathname);
+  page.on("request", recordPauseRequest);
+  await page.goto(new URL("?paused", server.url).href);
+  await page.waitForTimeout(100);
+  assert.deepEqual(errors, [], "Paused fixture must render without script errors");
+  await page.getByRole("button", { name: "Send feedback", exact: true }).click();
+  assert.equal(await page.getByText("Feedback is temporarily unavailable.").isVisible(), true);
+  assert.equal(await page.getByRole("button", { name: "Submit", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("textbox", { name: "Feedback", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Close", exact: true }).click();
+  assert.equal(uploads, 0);
+  assert.deepEqual(pauseRequests, ["/", "/paused.js"]);
+  page.off("request", recordPauseRequest);
   await page.goto(server.url.href);
   const trigger = page.getByRole("button", { name: "Send feedback", exact: true });
   const dialog = page.getByRole("dialog", { name: "Send feedback", exact: true });

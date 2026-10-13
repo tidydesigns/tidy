@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import type { ConnectionStatus } from "@/lib/github/connections";
 
 const button =

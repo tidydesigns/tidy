@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import * as posthogPolicy from "./posthog-policy";
+import { beforeEach, afterEach, expect, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
 import {
   analyticsIdentity,
@@ -6,6 +7,13 @@ import {
   safeServerError,
   serverErrorCategory,
 } from "./posthog-server";
+
+// Exercise the dormant transport with fake credentials and mocked fetch only.
+let policyOverride: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  policyOverride = spyOn(posthogPolicy, "posthogCollectionEnabled").mockReturnValue(true);
+});
+afterEach(() => policyOverride.mockRestore());
 
 test("analytics correlation reads only this project's cookie and handles malformed values", () => {
   const headers = new Headers({

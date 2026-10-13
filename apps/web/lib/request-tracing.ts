@@ -1,3 +1,4 @@
+import { posthogCollectionEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node/edge";
 import type { Span, SpanRecord } from "posthog-node";
 import { normalizedRoute } from "./route-normalization";
@@ -36,6 +37,7 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
     "app.version": runtime.release ?? "",
   };
   const configured =
+    posthogCollectionEnabled() &&
     runtime.key &&
     runtime.host &&
     runtime.enabled !== "0" &&

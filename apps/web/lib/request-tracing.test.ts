@@ -1,4 +1,5 @@
-import { expect, spyOn, test } from "bun:test";
+import * as posthogPolicy from "./posthog-policy";
+import { beforeEach, afterEach, expect, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
 import { createRequestTrace } from "./request-tracing";
 import { startOperation, traceDetails, traceOperation } from "./trace-context";
@@ -12,6 +13,13 @@ import type { PoolClient } from "pg";
 import { imageFailureResponse, ImageBudgetUnavailableError } from "./design/image-budget";
 import { ImageCapacityError } from "./design/image-capacity";
 import { MutationBudgetError } from "./security/mutation-budget";
+
+// Exercise the dormant transport with fake credentials and mocked fetch only.
+let policyOverride: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  policyOverride = spyOn(posthogPolicy, "posthogCollectionEnabled").mockReturnValue(true);
+});
+afterEach(() => policyOverride.mockRestore());
 
 type ExportSpan = {
   name: string;

@@ -1,3 +1,4 @@
+import { posthogCollectionEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { safeErrorCode, traceDetails } from "./trace-context";
@@ -96,6 +97,7 @@ export function safeServerError(value: unknown, event: string) {
 }
 
 export function createErrorReporter(headers: HeaderReader, runtime?: ReportingRuntime) {
+  if (!posthogCollectionEnabled()) return async () => {};
   // Tests exercise delivery only with explicit test credentials/transport.
   if (process.env.NODE_ENV === "test" && !runtime?.key) return async () => {};
   if (!runtime) {

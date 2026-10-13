@@ -3,7 +3,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { useState, type FormEvent } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { createOrganization } from "./actions";
 import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, type RefObject } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { FrameStats, nodeBucket } from "@/lib/performance/frame-stats";
 import { useEditorEvent } from "./use-editor-event";
 

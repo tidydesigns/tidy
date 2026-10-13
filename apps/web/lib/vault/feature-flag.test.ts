@@ -1,9 +1,17 @@
-import { expect, mock, spyOn, test } from "bun:test";
+import * as posthogPolicy from "../posthog-policy";
+import { beforeEach, afterEach, expect, mock, spyOn, test } from "bun:test";
 import { resolve } from "node:path";
 
 mock.module("server-only", () => ({}));
 const { vaultEnabled } = await import("./feature-flag");
 const runtime = { key: "test-key", host: "https://posthog.invalid" };
+
+// Exercise the dormant transport with fake credentials and mocked fetch only.
+let policyOverride: ReturnType<typeof spyOn>;
+beforeEach(() => {
+  policyOverride = spyOn(posthogPolicy, "posthogCollectionEnabled").mockReturnValue(true);
+});
+afterEach(() => policyOverride.mockRestore());
 
 test("Vault requires an explicit boolean true for the authenticated user", async () => {
   let response: Record<string, boolean | string> = {};

@@ -6,7 +6,7 @@ import { Avatar } from "@/components/ui/avatar";
 import { avatarPath } from "@/lib/avatars";
 import { Dialog } from "@/components/ui/dialog";
 import { useId, useRef, useState } from "react";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { authClient } from "@/lib/auth-client";
 import { SignOutButton } from "@/app/sign-out-button";
 import { OrganizationForm } from "@/app/onboarding/organization/organization-form";
