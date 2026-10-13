@@ -32,7 +32,7 @@
     "test:agents:browser": "node apps/web/scripts/test-agents-browser.mjs",
     "test:agents": "node apps/web/scripts/test-account-controls.mjs --agents",
     "agents:runner": "bun --env-file=apps/web/agent-runner/.env.local apps/web/agent-runner/main.ts",
-    "test:auth-worker": "bun apps/web/scripts/test-auth-worker.mjs",
+    "test:auth-worker": "bun apps/web/scripts/test-auth-context-worker.mjs && bun apps/web/scripts/test-auth-worker.mjs",
     "zip:extension": "bun run --cwd apps/extension zip",
     "dev:realtime": "bun run --cwd apps/web dev:realtime",
     "test:multiplayer": "bun run --cwd apps/web test:multiplayer",
