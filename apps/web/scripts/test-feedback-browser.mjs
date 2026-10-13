@@ -1,4 +1,4 @@
-// Isolated component exercise: real browser UI, mocked upload and analytics services.
+// Real feedback UI with the shipped analytics pause and local support endpoints.
 import assert from "node:assert/strict";
 import { mkdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -32,35 +32,10 @@ const build = await Bun.build({
   target: "browser",
   outdir: fixture,
   define: { "process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID": JSON.stringify("test-survey") },
-  plugins: [
-    {
-      name: "mock-posthog",
-      setup(build) {
-        // This isolated fixture exercises the dormant feedback form with a fake
-        // transport. Production keeps it unavailable while collection is paused.
-        build.onLoad({ filter: /posthog-policy\.ts$/ }, () => ({
-          contents: "export function posthogCollectionEnabled() { return true; }",
-          loader: "js",
-        }));
-        build.onLoad({ filter: /posthog-client\.ts$/ }, () => ({
-          contents:
-            "export default { capture(event, properties) { window.events ??= []; window.events.push({event, properties}); return window.rejectAnalytics ? undefined : {}; } };",
-          loader: "js",
-        }));
-      },
-    },
-  ],
 });
 assert.ok(build.success, String(build.logs));
-// Also exercise the shipped pause without either mock module.
-const pausedBuild = await Bun.build({
-  entrypoints: [`${fixture}/entry.tsx`],
-  target: "browser",
-  outdir: fixture,
-  naming: "paused.[ext]",
-  define: { "process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID": JSON.stringify("test-survey") },
-});
-assert.ok(pausedBuild.success, String(pausedBuild.logs));
+const submissions = [];
+let failSubmission = false;
 let uploads = 0,
   failUpload = true;
 const ids = [];
@@ -69,8 +44,13 @@ const server = Bun.serve({
   port: 0,
   async fetch(request) {
     const path = new URL(request.url).pathname;
-    if (path === "/paused.js") return new Response(Bun.file(`${fixture}/paused.js`));
     if (path === "/entry.js") return new Response(Bun.file(`${fixture}/entry.js`));
+    if (path === "/api/feedback") {
+      const submission = await request.json();
+      if (failSubmission) return Response.json({ error: "Fixture failure" }, { status: 503 });
+      submissions.push(submission);
+      return Response.json({ received: true });
+    }
     if (path === "/api/feedback/attachments") {
       uploads++;
       const form = await request.formData();
@@ -80,7 +60,7 @@ const server = Bun.serve({
       return Response.json({ urls: ["https://app.example/api/feedback/attachments/test/0"] });
     }
     return new Response(
-      `<!doctype html><html><body><div id="root"></div><script type="module" src="/${new URL(request.url).searchParams.has("paused") ? "paused" : "entry"}.js"></script></body></html>`,
+      `<!doctype html><html><body><div id="root"></div><script type="module" src="/entry.js"></script></body></html>`,
       { headers: { "Content-Type": "text/html" } },
     );
   },
@@ -91,20 +71,10 @@ try {
   const page = await browser.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  const pauseRequests = [];
-  const recordPauseRequest = (request) => pauseRequests.push(new URL(request.url()).pathname);
-  page.on("request", recordPauseRequest);
-  await page.goto(new URL("?paused", server.url).href);
-  await page.waitForTimeout(100);
-  assert.deepEqual(errors, [], "Paused fixture must render without script errors");
-  await page.getByRole("button", { name: "Send feedback", exact: true }).click();
-  assert.equal(await page.getByText("Feedback is temporarily unavailable.").isVisible(), true);
-  assert.equal(await page.getByRole("button", { name: "Submit", exact: true }).count(), 0);
-  assert.equal(await page.getByRole("textbox", { name: "Feedback", exact: true }).count(), 0);
-  await page.getByRole("button", { name: "Close", exact: true }).click();
-  assert.equal(uploads, 0);
-  assert.deepEqual(pauseRequests, ["/", "/paused.js"]);
-  page.off("request", recordPauseRequest);
+  const externalRequests = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).origin !== server.url.origin) externalRequests.push(request.url());
+  });
   await page.goto(server.url.href);
   const trigger = page.getByRole("button", { name: "Send feedback", exact: true });
   const dialog = page.getByRole("dialog", { name: "Send feedback", exact: true });
@@ -220,30 +190,23 @@ try {
   assert.equal(await page.getByLabel("Feedback", { exact: true }).inputValue(), "Screenshot issue");
   assert.equal(await page.getByRole("img").count(), 1);
   failUpload = false;
-  await page.evaluate(() => {
-    window.rejectAnalytics = true;
-  });
+  failSubmission = true;
   await page.getByRole("button", { name: "Submit", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "Could not send feedback" }).waitFor();
-  await page.evaluate(() => {
-    window.rejectAnalytics = false;
-  });
+  failSubmission = false;
   await page.getByRole("button", { name: "Submit", exact: true }).click();
   await toast.waitFor();
   await dialog.waitFor({ state: "hidden" });
   assert.equal(uploads, 3);
   assert.equal(new Set(ids).size, 1, "Retries retain the upload ID");
-  const sent = await page.evaluate(() =>
-    window.events.filter((item) => item.event === "survey sent").at(-1),
-  );
-  assert.match(
-    sent.properties.$survey_questions[1].response,
-    /Screenshot issue\n\nImages:\nhttps:\/\/app.example/,
-  );
-  assert.equal(sent.properties.feedback_attachment_urls.length, 1);
+  assert.equal(submissions.length, 2);
+  assert.equal(submissions[0].message, "Text only");
+  assert.equal(submissions[1].message, "Screenshot issue");
+  assert.equal(submissions[1].id, ids[0], "Feedback and attachments share an ID");
+  assert.deepEqual(externalRequests, [], "Feedback works without any PostHog requests");
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: feedback/upgrade backdrop dismissal, padding and drag guards, pending checkout dismissal guards, shortcut, editable-field and dialog guards, minimised trigger, shared command, draft retention, automatic dialog close, toast expiry, focus restoration; text-only feedback, picker, screenshot paste, removal, upload failure, analytics failure, retry and survey attachment links",
+    "PASS: feedback/upgrade backdrop dismissal, padding and drag guards, pending checkout dismissal guards, shortcut, editable-field and dialog guards, minimised trigger, shared command, draft retention, automatic dialog close, toast expiry, focus restoration; text-only feedback, picker, screenshot paste, removal, upload failure, submission failure, retry, linked attachments and no PostHog traffic",
   );
 } finally {
   await browser?.close();

@@ -68,6 +68,7 @@ export class CodexAppServer extends EventEmitter {
     });
     if (version.stdout.trim() !== `codex-cli ${CODEX_VERSION}`)
       throw new Error(`Tidy requires Codex ${CODEX_VERSION}.`);
+    if (this.stopped) throw new Error("Codex runtime has stopped.");
     const child = spawn(
       this.executable,
       [
@@ -182,6 +183,21 @@ export class CodexAppServer extends EventEmitter {
     }
     this.pending.clear();
     this.emit("disconnect", error);
+  }
+  async stop() {
+    const child = this.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      this.close();
+      return;
+    }
+    const exited = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    this.close();
+    const force = setTimeout(() => child.kill("SIGKILL"), 2000);
+    try {
+      await exited;
+    } finally {
+      clearTimeout(force);
+    }
   }
   close() {
     this.stopped = true;

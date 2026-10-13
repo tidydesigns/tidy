@@ -9,6 +9,8 @@ import {
 
 export function requestDeadline(request: Request) {
   const path = new URL(request.url).pathname;
+  // One authenticated erasure delivery can include a 20-second runner request.
+  if (request.method === "POST" && path === "/api/privacy/cleanup") return 30_000;
   // These small reads and ephemeral tickets should finish before the editor's
   // ten-second client deadline. Never classify an edit mutation as a read.
   if (

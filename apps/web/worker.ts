@@ -9,6 +9,21 @@ import { handleAuthRequest, isAuthRequest } from "./lib/auth/request-boundary";
 export { AuthGuard } from "./lib/auth/guard";
 export { FileRoom } from "./lib/realtime/file-room";
 export default {
+  async scheduled(_event, env, ctx) {
+    const secret = (env as CloudflareEnv & { PRIVACY_CLEANUP_SECRET?: string })
+      .PRIVACY_CLEANUP_SECRET;
+    if (!secret || !env.WORKER_SELF_REFERENCE)
+      throw new Error("PRIVACY_CLEANUP_SECRET is required for scheduled erasure");
+    // The self binding enters the ordinary OpenNext request context (DB/R2/env).
+    const response = await env.WORKER_SELF_REFERENCE.fetch(
+      new Request("https://privacy.internal/api/privacy/cleanup", {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}` },
+      }),
+    );
+    if (!response.ok) throw new Error("Scheduled privacy cleanup failed");
+    ctx.waitUntil(response.arrayBuffer());
+  },
   async fetch(request, env, ctx) {
     const monitoringEnv = buildEnv as Record<string, string>;
     const tracingEnv = env as CloudflareEnv & {

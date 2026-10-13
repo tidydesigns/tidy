@@ -56,6 +56,7 @@ jobs:
             files,
             versions,
             personal,
+            privacy,
             mcp,
           ]
     steps:

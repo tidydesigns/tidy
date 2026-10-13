@@ -125,6 +125,7 @@ beforeAll(async () => {
     "20261002-feedback-images.sql",
     "20261005-agent-threads.sql",
     "20261007-file-version-history.sql",
+    "20261011-account-privacy.sql",
   ]) {
     if (file === "20261004-organization-creation-limit.sql") {
       await db.query(`update "billingDeployment" set "selfHosted"=true;
@@ -165,7 +166,7 @@ beforeEach(async () => {
   deliveries = [];
   mailStatus = 200;
   await db.query('update "billingDeployment" set "selfHosted"=true');
-  await db.query('truncate "user", "organization" cascade');
+  await db.query('truncate "user", "organization", "privacyCleanup" cascade');
   const a = await account("Owner", "owner@example.com");
   owner = a.headers;
   ownerId = a.id;
@@ -4792,5 +4793,109 @@ integration(
         ])
       ).rows[0],
     ).toEqual({ status: "aborted", chunks: {} });
+  },
+);
+
+integration(
+  "privacy deletion queues orphan runner data and every avatar version without removing shared work",
+  async () => {
+    const { deleteAccount, DELETED_USER } = await import("../privacy/delete");
+    const { exportAccount } = await import("../privacy/export");
+    const previousRunnerUrl = testEnvironment.AGENT_RUNNER_URL;
+    const previousRunnerSecret = testEnvironment.AGENT_RUNNER_SECRET;
+    testEnvironment.AGENT_RUNNER_URL = "https://runner.example.test";
+    testEnvironment.AGENT_RUNNER_SECRET = "disposable-runner-secret-at-least-32-characters";
+    try {
+      await db.query(
+        `insert into "user" (id,name,email,"emailVerified") values ($1,'Deleted user','deleted@tidy.invalid',false)`,
+        [DELETED_USER],
+      );
+      await db.query(
+        `update "user" set image='/api/avatars/user/' || id || '?v=11111111-1111-4111-8111-111111111111' where id=$1`,
+        [invitedId],
+      );
+      const actor = (await auth.api.getSession({ headers: invited }))!;
+      const feedbackId = "11111111-1111-4111-8111-111111111111";
+      await db.query(
+        `insert into "feedbackSubmission" (id,"userId",category,message) values ($1,$2,'general','My feedback')`,
+        [feedbackId, invitedId],
+      );
+      const exported = await exportAccount(invitedId, actor.session.id);
+      expect(exported.feedback).toEqual([expect.objectContaining({ message: "My feedback" })]);
+      expect(
+        (await db.query('select id from "agentConnection" where "userId"=$1', [invitedId]))
+          .rowCount,
+      ).toBe(0);
+      await deleteAccount(invitedId, actor.session.id, actor.user.email);
+      const jobs = (await db.query('select kind,subject from "privacyCleanup" order by kind')).rows;
+      expect(jobs).toEqual([
+        { kind: "avatar", subject: `avatars/user/${encodeURIComponent(invitedId)}/` },
+        { kind: "posthog", subject: invitedId },
+        { kind: "runner", subject: invitedId },
+      ]);
+      expect(
+        await auth.api.getSession({ headers: invited, query: { disableCookieCache: true } }),
+      ).toBeNull();
+      expect(
+        (await db.query('select id from "feedbackSubmission" where id=$1', [feedbackId])).rowCount,
+      ).toBe(0);
+      expect((await db.query("select id from organization where id=$1", [orgId])).rowCount).toBe(1);
+      expect((await auth.api.getSession({ headers: owner }))?.user.id).toBe(ownerId);
+    } finally {
+      if (previousRunnerUrl === undefined) delete testEnvironment.AGENT_RUNNER_URL;
+      else testEnvironment.AGENT_RUNNER_URL = previousRunnerUrl;
+      if (previousRunnerSecret === undefined) delete testEnvironment.AGENT_RUNNER_SECRET;
+      else testEnvironment.AGENT_RUNNER_SECRET = previousRunnerSecret;
+    }
+  },
+);
+
+integration(
+  "accepted PostHog erasure remains visible for verification and is not submitted repeatedly",
+  async () => {
+    const { processPrivacyCleanup } = await import("../privacy/cleanup");
+    const keys = [
+      "PRIVACY_POSTHOG_HOST",
+      "PRIVACY_POSTHOG_PROJECT_ID",
+      "PRIVACY_POSTHOG_API_KEY",
+      "PRIVACY_POSTHOG_DISABLED",
+    ];
+    const previous = keys.map((key) => testEnvironment[key]);
+    Object.assign(testEnvironment, {
+      PRIVACY_POSTHOG_HOST: "https://posthog.example.test",
+      PRIVACY_POSTHOG_PROJECT_ID: "fixture",
+      PRIVACY_POSTHOG_API_KEY: "fixture-key",
+    });
+    delete testEnvironment.PRIVACY_POSTHOG_DISABLED;
+    try {
+      await db.query(
+        `insert into "privacyCleanup" (id,kind,subject) values ('11111111-1111-4111-8111-111111111111','posthog','deleted-fixture-account')`,
+      );
+      fetchMock.mockResolvedValueOnce(
+        Response.json(
+          {
+            events_queued_for_deletion: true,
+            recordings_queued_for_deletion: true,
+            deletion_errors: [],
+          },
+          { status: 202 },
+        ),
+      );
+      expect(await processPrivacyCleanup()).toEqual({ completed: 0, failed: 0 });
+      expect(
+        (
+          await db.query(
+            `select subject,attempts,"nextAttemptAt"='infinity'::timestamptz as awaiting from "privacyCleanup"`,
+          )
+        ).rows,
+      ).toEqual([{ subject: "deleted-fixture-account", attempts: 1, awaiting: true }]);
+      expect(await processPrivacyCleanup()).toEqual({ completed: 0, failed: 0 });
+      expect((await db.query('select attempts from "privacyCleanup"')).rows[0].attempts).toBe(1);
+    } finally {
+      keys.forEach((key, index) => {
+        if (previous[index] === undefined) delete testEnvironment[key];
+        else testEnvironment[key] = previous[index];
+      });
+    }
   },
 );

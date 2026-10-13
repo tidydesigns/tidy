@@ -1,26 +1,30 @@
+import { rm } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { CodexAppServer } from "./app-server";
 
 export type Runtime = Pick<CodexAppServer, "start" | "request" | "reject" | "respond" | "close"> &
-  Pick<EventEmitter, "on" | "off">;
+  Pick<EventEmitter, "on" | "off"> &
+  Partial<Pick<CodexAppServer, "stop">>;
 type RunnerOptions = {
   secret: string;
   directory: string;
   createRuntime?: (directory: string) => Runtime;
   onRuntime?: (owner: string, runtime: Runtime) => void;
 };
-const actions = new Set(["login", "account", "logout", "limits", "models"]);
+const actions = new Set(["login", "account", "logout", "erase", "limits", "models"]);
 
 export function createRunnerHandler(options: RunnerOptions) {
   if (options.secret.length < 32)
     throw new Error("AGENT_RUNNER_SECRET must contain at least 32 characters.");
   const accounts = new Map<string, Runtime>();
+  const erased = new Set<string>();
   const logins = new Map<string, { result: Promise<{ loginId?: string }>; expiresAt: number }>();
   const makeRuntime = options.createRuntime ?? ((directory) => new CodexAppServer(directory));
   const secret = Buffer.from(`Bearer ${options.secret}`);
   async function runtime(owner: string) {
+    if (erased.has(owner)) throw new Error("Account runtime was erased.");
     let app = accounts.get(owner);
     if (!app) {
       app = makeRuntime(resolve(options.directory, owner));
@@ -49,6 +53,16 @@ export function createRunnerHandler(options: RunnerOptions) {
         return new Response(null, { status: 404 });
       const [, owner, action] = match;
       try {
+        if (action === "erase") {
+          erased.add(owner);
+          const app = accounts.get(owner);
+          if (app?.stop) await app.stop();
+          else app?.close();
+          accounts.delete(owner);
+          logins.delete(owner);
+          await rm(resolve(options.directory, owner), { recursive: true, force: true });
+          return Response.json({ ok: true });
+        }
         const app = await runtime(owner);
         if (action === "login") {
           let login = logins.get(owner);

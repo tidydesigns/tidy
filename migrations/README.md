@@ -46,3 +46,11 @@ avoid recursive-plan compilation overhead on LLVM-enabled PostgreSQL; the caller
 setting is restored on return. Fresh local databases apply it automatically; existing
 local databases must apply it before measuring phase-three database improvements.
 Production application still requires an explicitly approved target and operation.
+
+## Account privacy
+
+`20261011-account-privacy.sql` follows the existing migrations. It adds anonymous
+shared-work attribution, the durable external-erasure outbox, and consent-independent
+feedback submissions. Reapply the runtime grant manifest after applying it to an
+explicitly approved target. See [privacy rollout](../docs/privacy.md) for required
+processor credentials, the cleanup schedule and retention/access operations.

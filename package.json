@@ -56,7 +56,8 @@
     "check:public-source": "node scripts/public-source.mjs",
     "test:release": "node --test scripts/release.test.mjs",
     "audit:dependencies": "node scripts/dependency-audit.mjs",
-    "test:request-worker": "bun apps/web/scripts/test-request-worker.mjs"
+    "test:request-worker": "bun apps/web/scripts/test-request-worker.mjs",
+    "test:privacy:db": "node apps/web/scripts/test-account-controls.mjs --privacy"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

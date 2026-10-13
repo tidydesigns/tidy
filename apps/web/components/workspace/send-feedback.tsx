@@ -9,13 +9,7 @@ import {
   isFeedbackShortcut,
   openFeedback,
 } from "@/lib/feedback/commands";
-import { posthogCollectionEnabled } from "@/lib/posthog-policy";
-import posthog from "@/lib/posthog-client";
 import { IMAGE_TYPES, validateImages } from "@/lib/feedback/validation";
-
-const surveyId = process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID;
-const categoryQuestionId = "4d4c2893-65dc-42dd-ae8c-177a25bfa385";
-const messageQuestionId = "e2a09982-e1fc-4333-bb1a-cb87853cedbd";
 
 export function SendFeedback({
   className,
@@ -104,7 +98,6 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       if (!dialog.current || document.querySelector("dialog[open]")) return;
       setError("");
       dialog.current.showModal();
-      if (surveyId) posthog.capture("survey shown", { $survey_id: surveyId });
     }
     function shortcut(event: KeyboardEvent) {
       if (!isFeedbackShortcut(event) || document.querySelector("dialog[open]")) return;
@@ -136,7 +129,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!posthogCollectionEnabled() || uploading.current) return;
+    if (uploading.current) return;
     const form = event.currentTarget;
     const data = new FormData(form);
     const type = data.get("type");
@@ -145,16 +138,11 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       setError("Choose a category and enter feedback.");
       return;
     }
-    if (!surveyId) {
-      setError("Could not send feedback. Please try again.");
-      return;
-    }
 
     uploading.current = true;
     setBusy(true);
     setError("");
     try {
-      let urls: string[] = [];
       uploadId.current ??= crypto.randomUUID();
       if (images.length) {
         const body = new FormData();
@@ -169,28 +157,14 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           const failure = (await uploaded.json().catch(() => null)) as { error?: string } | null;
           throw new Error(failure?.error ?? "Could not upload images. Please try again.");
         }
-        urls = ((await uploaded.json()) as { urls: string[] }).urls;
       }
-      const responseText = urls.length ? `${message}\n\nImages:\n${urls.join("\n")}` : message;
-      const category = type === "broken" ? "Something’s broken" : "General feedback";
       setError("");
-      const response = posthog.capture("survey sent", {
-        $survey_id: surveyId,
-        $survey_submission_id: uploadId.current,
-        feedback_attachment_urls: urls,
-        $survey_completed: true,
-        [`$survey_response_${categoryQuestionId}`]: category,
-        [`$survey_response_${messageQuestionId}`]: responseText,
-        $survey_questions: [
-          { id: categoryQuestionId, question: "What is this about?", response: category },
-          { id: messageQuestionId, question: "Feedback", response: responseText },
-        ],
+      const saved = await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: uploadId.current, category: type, message }),
       });
-      if (!response) {
-        setError("Could not send feedback. Please try again.");
-        return;
-      }
-      posthog.capture("feedback_submitted", { feedback_type: type, attachment_count: urls.length });
+      if (!saved.ok) throw new Error("Could not send feedback. Please try again.");
       form.reset();
       for (const image of images) {
         URL.revokeObjectURL(image.url);
@@ -234,10 +208,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
             ×
           </button>
         </div>
-        {!posthogCollectionEnabled() && (
-          <p className="mt-6 text-sm text-secondary-ink">Feedback is temporarily unavailable.</p>
-        )}
-        <form hidden={!posthogCollectionEnabled()} onSubmit={submit} className="mt-6 space-y-5">
+        <form onSubmit={submit} className="mt-6 space-y-5">
           <fieldset disabled={busy} className="space-y-3">
             <legend className="mb-3 text-sm font-medium">What is this about?</legend>
             <label className="flex items-center gap-3 text-sm">
