@@ -1,55 +1,76 @@
 # Tidy
 
-[![Codex in Ghostty edits a landing page alongside Tidy’s live teammate cursor](docs/demo/codex-canvas-teammate.gif)](docs/demo/codex-canvas-teammate.mp4)
+Tidy is an open source canvas for designing interfaces together. Designers and
+engineers can edit designs directly, while AI agents can read, create and edit
+them in the same workspace.
 
-Tidy is a product canvas for designers, engineers and agents. It includes an
-editable design workspace, collaboration, a webpage-capture extension and an MCP
-server for working with designs through agents.
+[Try Tidy](https://app.tidydesign.co) · [Website](https://tidydesign.co) ·
+[Changelog](https://tidydesign.co/changelog) · [Contribute](CONTRIBUTING.md)
 
-Tidy is open source under the [Apache License 2.0](LICENSE). Bundled third-party
-assets retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md).
+[![Tidy's design canvas, editable layers and agent workflow](docs/demo/tidy-launch.gif)](docs/demo/tidy-launch.mp4)
+
+Design interfaces, edit them with an agent and keep working on the same layers.
+Click the preview to watch the full video with sound.
+
+## What you can do
+
+**Design interfaces.** Create and edit designs in a shared canvas.
+
+**Work together.** Collaborate with teammates and see their presence in the workspace.
+
+**Capture webpages.** Bring webpages into Tidy with the browser extension.
+
+**Connect agents.** Let AI tools read, create and edit designs through MCP, a
+protocol that connects agents to applications.
+
+You can use the [hosted app](https://app.tidydesign.co), run Tidy locally or host
+it on your own infrastructure.
 
 ## Local development
 
-Requirements: Bun 1.3.14, Git, Docker Compose and PostgreSQL 17 command-line tools
-for the disposable database tests. Use your own development mail and optional
-provider applications; the source contains no hosted-service credentials.
+You'll need Bun 1.3.14, Git and Docker Compose. Database tests also require
+PostgreSQL 17 command-line tools.
 
 ```sh
+git clone https://github.com/tidydesigns/tidy.git
+cd tidy
+
 bun install --frozen-lockfile
 docker compose up -d --wait
 cp apps/web/.env.example apps/web/.env.local
 ```
 
-Generate `BETTER_AUTH_SECRET` and a separate base64-encoded 32-byte
-`VAULT_ENCRYPTION_KEY` in the app's local environment file. The example database
-URL points to loopback PostgreSQL on port 55432; its password is a development
-fixture, never a production credential. Do not inherit a production database URL
-when running local commands. Fresh Docker databases apply ordered migrations
-automatically; existing databases need the missing files from `migrations/`.
+In `apps/web/.env.local`, generate and set `BETTER_AUTH_SECRET` and a separate
+`VAULT_ENCRYPTION_KEY`. The encryption key must be a base64-encoded, 32-byte value.
 
-Password accounts must verify email before sign-in. Configure your own Cloudflare
-Email Sending token, account and sender before creating accounts; disable email
-previews that retain verification/reset links. Optional social sign-in,
-connectors, analytics, billing and native agents stay unconfigured until you add
-their own environment values in [the environment example](apps/web/.env.example).
+Password accounts require email verification. Before creating an account,
+configure your own Cloudflare Email Sending token, account and sender. Disable
+email previews that retain verification or password-reset links.
+
+The [environment example](apps/web/.env.example) lists the available settings.
+Social sign-in, connectors, analytics, billing and native agents are optional.
+
+Start the app:
 
 ```sh
 bun dev
-# In another terminal, for local realtime presence:
+```
+
+In another terminal, start realtime collaboration:
+
+```sh
 bun dev:realtime
 ```
 
-Open `http://localhost:3000`. `bun dev:site` starts the optional landing page on
-port 3001. `bun dev:extension` starts the WXT extension; its default server is
-localhost. To load it in your own Chrome profile, run `bun run build:extension`,
-enable Developer mode at `chrome://extensions`, and load unpacked
-`apps/extension/.output/chrome-mv3`. Set `WXT_BELLA_URL` to your own HTTPS app
-origin when building for distribution.
+Open [localhost:3000](http://localhost:3000).
 
-Stop the local database with `docker compose down`; adding `-v` removes its data.
-Local Node development bypasses Worker-specific shared attempt limits. See
-[self-hosting](#self-hosting) before exposing any deployment publicly.
+The local database runs on port `55432`. Fresh databases apply migrations
+automatically. For an existing database, apply any missing files from
+[`migrations/`](migrations/README.md). Use a development database and your own
+provider accounts. Do not use a production database URL for local commands.
+
+Stop the database with `docker compose down`. Adding `-v` also deletes its data.
+See [self-hosting](#self-hosting) before making a deployment public.
 
 ## Importing Figma designs
 
@@ -108,63 +129,119 @@ Optionally set `FIGMA_TEST_FILE` to a private multi-page design-system fixture
 with over 5,000 layers to exercise the large-file checks in these suites. Keep it
 outside the repository; browser screenshots and logs default to `/tmp`.
 
-## Workspaces
+## Browser extension
 
-| Workspace                  | Purpose                                     |
-| -------------------------- | ------------------------------------------- |
-| `apps/web`                 | Next.js application and Cloudflare Worker   |
-| `apps/site`                | Optional static landing page                |
-| `apps/extension`           | WXT webpage capture extension               |
-| `apps/gpt-plugin`          | Agent plugin, skill and preview UI          |
-| `packages/design`          | Browser-safe document and capture schemas   |
-| `packages/design-renderer` | Shared editor, preview and export rendering |
-| `packages/ui`              | Shared UI controls                          |
+The extension captures webpages for use in Tidy.
 
-Workspace commands run from the root: `bun typecheck`, `bun lint`, `bun test` and
-`bun run build`. Use `bun run build:worker` for the Cloudflare Webpack/OpenNext build.
-Source archives and new repositories with no commits are supported. You can set
-`NEXT_PUBLIC_APP_VERSION` for a release label independent of Git.
+```sh
+bun run build:extension
+```
 
-Database fixtures own disposable PostgreSQL clusters and simulate provider HTTP.
-Run the relevant suites explicitly; default unit tests skip database suites.
-The account suite is `bun run test:account-controls`; `package.json` also lists
-auth, MCP, agents, plans, files, versions, images, clipboard, runtime, storage, multiplayer
-and connector suites. See [contributing](CONTRIBUTING.md) for required checks.
+Open `chrome://extensions`, enable **Developer mode**, then choose
+**Load unpacked** and select `apps/extension/.output/chrome-mv3`.
 
-Run `bun run bench:mcp` for authenticated MCP HTTP latency, throughput, query-count
-and payload benchmarks against a disposable local database. These local measurements
-do not represent hosted Worker performance.
+The extension connects to localhost by default. To build it for your own
+deployment, set `WXT_BELLA_URL` to your app's HTTPS address.
+
+Use `bun dev:extension` when developing the extension.
+
+## Connect an agent
+
+Tidy's MCP server lets agents work with the same files and designs you edit in
+the canvas.
+
+[Watch an agent edit a landing page](docs/demo/codex-canvas-teammate.mp4), with
+its cursor visible on the canvas.
+
+See the [agent plugin guide](apps/gpt-plugin/README.md) for setup, or the
+[native runner guide](apps/web/agent-runner/README.md) for running agents
+alongside Tidy.
 
 ## Self-hosting
 
-The hosted app uses Cloudflare Workers, Hyperdrive, private R2 buckets, Images
-and Durable Objects. The tracked `apps/web/wrangler.jsonc` is a build template.
-Copy it to the ignored `apps/web/wrangler.deploy.jsonc` and configure your own
-Worker name, matching `WORKER_SELF_REFERENCE`, domain, Hyperdrive connection and
-storage bindings. Retain the Durable Object bindings and migration tags.
+Tidy's hosted architecture uses Cloudflare Workers, Hyperdrive for PostgreSQL
+connections, private R2 storage, Images and Durable Objects for realtime
+collaboration.
 
-Use separate runtime and migration database logins. Apply ordered
-[database migrations](migrations/README.md) and the restricted runtime grants
-before starting the app. Configure `BETTER_AUTH_URL` to your HTTPS origin and
-supply runtime variables and secrets through Cloudflare, using
-`apps/web/.env.example` as the configuration reference. Keep secrets out of
-Wrangler files and `NEXT_PUBLIC_*` variables. Preserve both auth and encryption
-secrets when restoring an existing database.
+Copy `apps/web/wrangler.jsonc` to the ignored `apps/web/wrangler.deploy.jsonc`.
+Configure your own Worker name, domain, database connection and storage bindings.
+Set `WORKER_SELF_REFERENCE` to match the Worker name, and retain the Durable
+Object bindings and migration tags.
 
-From the repository root, build and deploy using your private configuration:
+Follow the [database setup guide](migrations/README.md). Apply the ordered
+migrations and restricted runtime grants before starting the app. Use separate
+database accounts for migrations and the running app.
+
+Set `BETTER_AUTH_URL` to your app's HTTPS address. Use
+[`apps/web/.env.example`](apps/web/.env.example) as the configuration reference,
+and supply runtime settings and secrets through Cloudflare. Keep secrets out of
+Wrangler files and `NEXT_PUBLIC_*` variables.
+
+From the repository root:
 
 ```sh
 bun run build:worker
 TIDY_DEPLOY_CONFIG=./wrangler.deploy.jsonc bun run deploy:worker
 ```
 
-The configuration path is relative to `apps/web`. Preview and production need
-separate secrets, databases and buckets. Test authentication and workspace
-isolation with two users before accepting real data. Public Node deployments
-require an equivalent shared limiter, private storage and realtime transport;
-the Node commands support local development.
+The configuration path is relative to `apps/web`.
 
-See the [agent plugin](apps/gpt-plugin/README.md) and
-[native runner](apps/web/agent-runner/README.md) for agent setup.
-CI uses synthetic fixtures and a read-only token. Report vulnerabilities privately
-using the process in [SECURITY.md](SECURITY.md).
+Use separate databases, storage and secrets for preview and production. Preserve
+the authentication and encryption secrets when restoring an existing database.
+
+Before accepting user data, test sign-in and workspace access with two users.
+Node.js supports local development and bypasses some Worker-specific shared
+rate limits. Public Node deployments need equivalent shared rate limits,
+private storage and realtime transport.
+
+## Contributing
+
+Bug reports, documentation improvements and code contributions are welcome.
+[Open an issue](https://github.com/tidydesigns/tidy/issues) to report a problem,
+or read the [contribution guide](CONTRIBUTING.md) before opening a pull request.
+
+Run workspace commands from the repository root:
+
+```sh
+bun typecheck
+bun lint
+bun test
+bun run build
+```
+
+The contribution guide lists additional required checks. Database tests use
+disposable PostgreSQL clusters and run separately; `bun test` skips those suites.
+See [`package.json`](package.json) for available test commands.
+
+### Repository layout
+
+| Directory | Contents |
+| --- | --- |
+| `apps/web` | Canvas app, server and Cloudflare Worker |
+| `apps/site` | Website and changelog |
+| `apps/extension` | Webpage capture extension |
+| `apps/gpt-plugin` | Agent plugin and design preview |
+| `packages/design` | Shared design and capture formats |
+| `packages/design-renderer` | Editor, preview and export rendering |
+| `packages/ui` | Shared interface controls |
+
+Use `bun dev:site` to run the website on port `3001`.
+
+### MCP benchmarks
+
+Run `bun run bench:mcp` to measure MCP request speed, throughput, database query
+counts and response sizes against a disposable local database. These results
+do not represent hosted Worker performance.
+
+## Security
+
+Please report vulnerabilities privately using the process in
+[SECURITY.md](SECURITY.md). CI uses synthetic test data and a read-only token;
+it does not deploy the app.
+
+## License
+
+Tidy is available under the [Apache License 2.0](LICENSE).
+
+Bundled third-party assets retain their own licenses. See
+[third-party notices](THIRD_PARTY_NOTICES.md).
