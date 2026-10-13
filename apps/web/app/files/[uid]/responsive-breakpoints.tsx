@@ -390,6 +390,7 @@ export function ResponsiveBreakpoints({
                           ["center", "Center"],
                           ["end", "End"],
                           ["space-between", "Space between"],
+                          ["space-evenly", "Space evenly"],
                         ]}
                         onChange={(value) =>
                           update(breakpoint.id, {

@@ -10,6 +10,7 @@ import {
 import { effectCss } from "@bella/design/effects";
 import { strokeWidths, vectorOutset } from "./strokes";
 import { vectorSvg } from "./vector-path";
+import { imageMaskPaint } from "@bella/design/vector-relationships";
 
 export { booleanRenderNode };
 const transform = (matrix: Affine) => `matrix(${matrix.join(" ")})`;
@@ -193,11 +194,54 @@ export function vectorCompositeStyle(
   nodes: readonly DesignNode[],
   tokens: Record<string, string>,
   containingParent?: DesignNode,
+  assets: Record<string, string> | ((id: string) => string | undefined) = {},
 ): CSSProperties {
   const parent = containingParent ?? nodes.find((n) => n.id === node.parentId);
   if (parent?.vectorBoolean || (parent?.mask?.enabled && parent.mask.sourceId === node.id))
     return { opacity: 0, pointerEvents: "none" };
   if (!node.mask?.enabled) return {};
+  const source = nodes.find((child) => child.id === node.mask!.sourceId);
+  const paint = source && imageMaskPaint(source, nodes);
+  if (source && paint) {
+    const url = typeof assets === "function" ? assets(paint.assetId!) : assets[paint.assetId!];
+    const image = url ? `url(${JSON.stringify(url)})` : "none";
+    const w = source.box.width,
+      h = source.box.height;
+    const natural = paint.intrinsicSize ?? { width: w, height: h };
+    const scale =
+      paint.fit === "contain"
+        ? Math.min(w / natural.width, h / natural.height)
+        : Math.max(w / natural.width, h / natural.height);
+    const width = paint.fit === "fill" ? w : natural.width * scale;
+    const height = paint.fit === "fill" ? h : natural.height * scale;
+    const x = source.box.x + ((w - width) * paint.positionX) / 100;
+    const y = source.box.y + ((h - height) * paint.positionY) / 100;
+    // Intersect the fitted image with the source surface. This preserves cover
+    // cropping and follows edits to the source's position and dimensions.
+    const maskImage = `${image}, linear-gradient(white, white)`;
+    const size = `${width}px ${height}px, ${w}px ${h}px`;
+    const position = `${x}px ${y}px, ${source.box.x}px ${source.box.y}px`;
+    return {
+      // Missing assets must not silently reveal content outside the mask.
+      opacity:
+        !url || !source.visible
+          ? 0
+          : (node.style.opacity ?? 1) * (source.style.opacity ?? 1) * paint.opacity,
+      maskImage,
+      WebkitMaskImage: maskImage,
+      maskSize: size,
+      WebkitMaskSize: size,
+      maskPosition: position,
+      WebkitMaskPosition: position,
+      maskRepeat: "no-repeat",
+      WebkitMaskRepeat: "no-repeat",
+      maskMode: `${node.mask.mode}, alpha`,
+      maskComposite: "intersect",
+      WebkitMaskComposite: "source-in",
+      maskClip: "border-box",
+      WebkitMaskClip: "border-box",
+    };
+  }
   const viewport = maskViewport(node, compositeChildren(nodes), nodes);
   const image = `url("data:image/svg+xml,${encodeURIComponent(vectorMaskSvg(node, nodes, tokens, viewport))}")`;
   return {

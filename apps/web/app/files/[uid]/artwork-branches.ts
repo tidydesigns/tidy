@@ -7,6 +7,7 @@ export type ArtworkBranchProps = {
   childrenById: ReadonlyMap<string | null, readonly DesignNode[]>;
   visibleRootIds: ReadonlySet<string>;
   tokens: Record<string, string>;
+  previewAssetUrls?: Record<string, string>;
   selectedIds: readonly string[];
   prototypeMode: boolean;
   prototypeArtboardId: string | null;
@@ -129,11 +130,15 @@ export function createArtworkBranches() {
       const selected = selection.has(node.id),
         cropping = props.cropId === node.id,
         editing = props.editingTextId === node.id;
-      const composite = vectorCompositeStyle(node, allNodes, props.tokens, parent);
+      const composite = vectorCompositeStyle(node, allNodes, props.tokens, parent, (id) => props.previewAssetUrls?.[id] ?? `/api/assets/${id}`);
       if (
         old &&
         old.parent === parent &&
         old.composite.maskImage === composite.maskImage &&
+        old.composite.opacity === composite.opacity &&
+        old.composite.maskSize === composite.maskSize &&
+        old.composite.maskPosition === composite.maskPosition &&
+        old.composite.maskMode === composite.maskMode &&
         old.flowIndex === flowIndex &&
         old.viewportWidth === viewportWidth &&
         old.selected === selected &&

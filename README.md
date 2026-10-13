@@ -60,13 +60,18 @@ file, copy them in Figma and paste with the keyboard or Tidy's paste action.
 No Figma plugin or account token is required.
 
 The importer translates source records into editable native layers. It preserves
-pages, hierarchy, paint order, supported vector geometry, images, basic text,
-Auto Layout, and resolvable component instances with overrides. Component masters
+pages, hierarchy, paint order, supported vector geometry, images, text marks,
+Auto Layout (including space-evenly), and resolvable component instances with overrides. Component masters
 needed by a pasted instance live on an **Imported components** page. Color
 variables become named snapshots; aliases and modes do not remain live bindings.
 
-This is a compatibility importer, not a guaranteed 1:1 round trip. Masks, mixed
-text runs, complex component overrides/scales, variant axes, image crop transforms,
+Alpha/luminance masks with supported vector sources or simple PNG image surfaces are
+preserved as editable groups. Image masks use the original asset directly through
+CSS masking, avoiding a second raster copy or per-frame image processing. Text
+range bold, italic, underline and strikethrough marks remain editable.
+
+This is a compatibility importer, not a guaranteed 1:1 round trip. Complex masks,
+per-range font families/sizes/colors, complex component overrides/scales, variant axes, image crop transforms,
 unsupported paints and effects can differ. Import notes identify approximations;
 repeated notes are grouped. Fonts must be available to Tidy. FigJam and Slides are
 not supported, and clipboard images without embedded bytes require a `.fig` copy.

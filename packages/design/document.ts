@@ -44,7 +44,7 @@ const responsiveBreakpoint = z
     gridRowTracks: z.array(gridTrack).max(12).optional(),
     wrap: z.boolean().optional(),
     align: z.enum(["start", "center", "end", "stretch", "baseline"]).optional(),
-    justify: z.enum(["start", "center", "end", "space-between"]).optional(),
+    justify: z.enum(["start", "center", "end", "space-between", "space-evenly"]).optional(),
     widthMode: z.enum(["fixed", "fill", "hug"]).optional(),
     heightMode: z.enum(["fixed", "fill", "hug"]).optional(),
     minWidth: number.min(0).max(5000).optional(),
@@ -141,6 +141,10 @@ const designPaintSchema = z.discriminatedUnion("type", [
       ...paintBase,
       type: z.literal("image"),
       assetId: z.string().uuid().optional(),
+      intrinsicSize: z
+        .object({ width: number.min(1).max(1000000), height: number.min(1).max(1000000) })
+        .strict()
+        .optional(),
       fit: z.enum(["contain", "cover", "fill"]).default("cover"),
       positionX: number.min(0).max(100).default(50),
       positionY: number.min(0).max(100).default(50),
@@ -418,7 +422,7 @@ const baseNodeSchema = z
       .optional()
       .describe("Cross-axis alignment. Set explicitly on content containers and controls."),
     justify: z
-      .enum(["start", "center", "end", "space-between"])
+      .enum(["start", "center", "end", "space-between", "space-evenly"])
       .optional()
       .describe("Main-axis alignment. Set explicitly on content containers and controls."),
     wrap: z.boolean().optional(),

@@ -69,7 +69,7 @@ export function DesignSnapshot({
       parent ? responsiveNode(parent, frameWidth) : undefined,
       flowIndex,
     );
-    Object.assign(style, vectorCompositeStyle(node, renderedNodes, tokens, parent));
+    Object.assign(style, vectorCompositeStyle(node, renderedNodes, tokens, parent, imageUrl));
     if (node.id === frameId) {
       style.left = left;
       style.top = top;

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createExportImageSession } from "./export-images";
+import { createExportImageSession, embedDesignImages } from "./export-images";
 
 const originalFetch = globalThis.fetch;
 const originalReader = globalThis.FileReader;
@@ -37,6 +37,25 @@ function images(body = new Uint8Array([1, 2, 3])) {
   }) as unknown as typeof fetch;
   return calls;
 }
+
+test("raster exports embed CSS image masks once and keep the intersection layer", async () => {
+  const calls = images();
+  const style = {
+    maskImage: 'url("/api/assets/mask"), linear-gradient(white, white)',
+    webkitMaskImage: "",
+  };
+  const second = { maskImage: style.maskImage, webkitMaskImage: "" };
+  const clone = {
+    querySelectorAll(selector: string) {
+      return selector === "[style]" ? [{ style }, { style: second }] : [];
+    },
+  } as unknown as HTMLElement;
+  await embedDesignImages(clone);
+  expect(calls).toEqual(["/api/assets/mask"]);
+  expect(style.maskImage).toBe('url("data:image/png;base64,AQID"), linear-gradient(white, white)');
+  expect(second.maskImage).toBe(style.maskImage);
+  expect(style.webkitMaskImage).toBe(style.maskImage);
+});
 
 test("an export shares identical original bytes and in-flight reads, then releases them", async () => {
   const calls = images();

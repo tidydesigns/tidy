@@ -165,7 +165,13 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
     );
     Object.assign(
       style,
-      vectorCompositeStyle(node, renderedContent.nodes, resolvedColorTokens(content), parent),
+      vectorCompositeStyle(
+        node,
+        renderedContent.nodes,
+        resolvedColorTokens(content),
+        parent,
+        (id) => `/api/assets/${id}`,
+      ),
     );
     if (node.parentId === null) {
       style.left = node.box.x - crop.x;

@@ -813,6 +813,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                       ["center", "Center"],
                       ["end", "End"],
                       ["space-between", "Space between"],
+                      ["space-evenly", "Space evenly"],
                     ]}
                     onChange={(value) => onPatch({ justify: value as DesignNode["justify"] })}
                   />

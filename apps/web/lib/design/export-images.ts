@@ -117,14 +117,32 @@ export async function embedDesignImages(
       image.getAttribute("data-original-src") ??
       (image instanceof HTMLImageElement ? image.src : (image.getAttribute("href") ?? "")),
   );
+  const masks = [...clone.querySelectorAll<HTMLElement>("[style]")].flatMap((element) => {
+    const css = element.style.maskImage || element.style.webkitMaskImage;
+    const match = css?.match(/url\("([^"]+)"\)/);
+    if (!match || match[1].startsWith("data:")) return [];
+    return [{ element, css, url: match[1] }];
+  });
   const data = new Map(
-    await mapConcurrent([...new Set(sources)], 4, async (url) => {
-      return [url, await (session ? session.load(url) : originalDataUrl(url, signal))] as const;
-    }),
+    await mapConcurrent(
+      [...new Set([...sources, ...masks.map((mask) => mask.url)])],
+      4,
+      async (url) => {
+        return [url, await (session ? session.load(url) : originalDataUrl(url, signal))] as const;
+      },
+    ),
   );
   signal?.throwIfAborted();
   images.forEach((image, index) => {
     if (image instanceof HTMLImageElement) image.src = data.get(sources[index])!;
     else image.setAttribute("href", data.get(sources[index])!);
   });
+  for (const mask of masks) {
+    const css = mask.css.replace(
+      `url(${JSON.stringify(mask.url)})`,
+      `url(${JSON.stringify(data.get(mask.url)!)})`,
+    );
+    mask.element.style.maskImage = css;
+    mask.element.style.webkitMaskImage = css;
+  }
 }

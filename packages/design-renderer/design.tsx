@@ -129,7 +129,7 @@ function RenderNode(props: TreeProps) {
       props.flowIndex,
     ),
   };
-  Object.assign(style, vectorCompositeStyle(node, document.nodes, colors, parent));
+  Object.assign(style, vectorCompositeStyle(node, document.nodes, colors, parent, assets));
   // Undefined values must not remove the native-control reset above.
   if (!style.background) style.background = "transparent";
   style.color ??= "inherit";

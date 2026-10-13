@@ -34,6 +34,43 @@ function maskSource(
   return result;
 }
 
+/** A single, untransformed image surface can be used directly as a CSS mask.
+ * Restrict this to cases whose image fit and opacity can be represented exactly. */
+export function imageMaskPaint(node: DesignNode, nodes: readonly DesignNode[]) {
+  const paints = node.style.paints?.filter((paint) => paint.visible);
+  const paint = paints?.[0];
+  if (
+    node.type !== "container" ||
+    paints?.length !== 1 ||
+    paint?.type !== "image" ||
+    !paint.assetId ||
+    (paint.fit !== "fill" && !paint.intrinsicSize) ||
+    paint.crop ||
+    paint.adjustments ||
+    nodes.some((child) => child.parentId === node.id) ||
+    node.style.rotation ||
+    node.style.flipX ||
+    node.style.flipY ||
+    node.style.radius ||
+    node.style.radiusTopLeft ||
+    node.style.radiusTopRight ||
+    node.style.radiusBottomLeft ||
+    node.style.radiusBottomRight ||
+    node.style.borderWidth ||
+    node.style.blur ||
+    node.style.backdropBlur ||
+    node.style.shadows?.length ||
+    node.style.effects?.length ||
+    node.style.brightness ||
+    node.style.contrast ||
+    node.style.grayscale ||
+    node.style.saturation ||
+    node.style.hueRotate ||
+    (paint.blendMode && paint.blendMode !== "normal")
+  )
+    return undefined;
+  return paint;
+}
 export function vectorMaskSource(node: DesignNode, nodes: readonly DesignNode[]): boolean {
   return maskSource(node, (id) => nodes.filter((child) => child.parentId === id));
 }
@@ -97,9 +134,9 @@ export function validateVectorRelationships(nodes: DesignNode[]) {
         node.layout !== "absolute" ||
         !source ||
         source.parentId !== node.id ||
-        !vectorMaskSource(source, nodes)
+        (!vectorMaskSource(source, nodes) && !imageMaskPaint(source, nodes))
       )
-        throw new Error("Masks require an absolute container and a vector source child.");
+        throw new Error("Masks require an absolute container and a supported source child.");
     }
   }
 }

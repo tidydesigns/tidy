@@ -3,6 +3,8 @@ import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 import sharp from "sharp";
+import { fidelityFixture } from "../../../packages/design/figma-fidelity-fixture";
+import type { DesignDocument } from "@bella/design/document";
 
 const base = process.env.FIGMA_TEST_BASE_URL ?? "http://localhost:3057";
 if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
@@ -92,6 +94,98 @@ async function collectFrames(action: (page: Page) => Promise<void>) {
   return { samples: intervals.length, p95Ms: intervals[Math.floor(intervals.length * 0.95)] ?? 0 };
 }
 try {
+  const alphaPixels = Buffer.alloc(200 * 100 * 4);
+  for (let y = 0; y < 100; y++)
+    for (let x = 0; x < 200; x++) {
+      const offset = (y * 200 + x) * 4;
+      alphaPixels[offset] = alphaPixels[offset + 1] = alphaPixels[offset + 2] = 255;
+      alphaPixels[offset + 3] = x < 100 ? 255 : 0;
+    }
+  const alphaImage = await sharp(alphaPixels, { raw: { width: 200, height: 100, channels: 4 } })
+    .png()
+    .toBuffer();
+  await open();
+  await page.getByLabel("Import Figma file").setInputFiles({
+    name: "Fidelity reference.fig",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from(await fidelityFixture(alphaImage)),
+  });
+  await page.locator("[data-node-id]").first().waitFor();
+  await page.getByRole("button", { name: /^Zoom \d+%$/ }).click();
+  await page.getByRole("menuitem", { name: "Zoom to 100%", exact: false }).click();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-node-id]")].some((n) =>
+      getComputedStyle(n).maskImage.includes("blob:"),
+    ),
+  );
+  const rendered = await page.evaluate(() => {
+    const mask = [...document.querySelectorAll<HTMLElement>("[data-node-id]")].find((n) =>
+      getComputedStyle(n).maskImage.includes("blob:"),
+    )!;
+    const root = mask.parentElement!.closest<HTMLElement>("[data-node-id]")!;
+    const box = root.getBoundingClientRect();
+    const texts = [
+      ...document.querySelectorAll<HTMLElement>("[data-design-text] [data-text-paragraph] > span"),
+    ].map((n) => ({
+      text: n.textContent,
+      weight: getComputedStyle(n).fontWeight,
+      decoration: getComputedStyle(n).textDecorationLine,
+    }));
+    const stack = [...document.querySelectorAll<HTMLElement>("[data-node-id]")].find(
+      (n) => getComputedStyle(n).justifyContent === "space-evenly",
+    )!;
+    const bounds = stack.getBoundingClientRect();
+    const offsets = [...stack.querySelectorAll<HTMLElement>(":scope > [data-node-id]")].map((n) =>
+      Math.round(n.getBoundingClientRect().x - bounds.x),
+    );
+    return { box: { x: box.x, y: box.y, width: box.width, height: box.height }, texts, offsets };
+  });
+  assert.deepEqual(rendered.offsets, [80, 200]);
+  assert(rendered.texts.some((run) => run.text === "bold " && run.weight === "700"));
+  assert(
+    rendered.texts.some((run) => run.text === "under" && run.decoration.includes("underline")),
+  );
+  // Decode the actual CSS image before checking pixels, including on reload.
+  const maskReady = async () =>
+    page.evaluate(async () => {
+      const mask = [...document.querySelectorAll("[data-node-id]")].find((n) =>
+        getComputedStyle(n).maskImage.includes("blob:"),
+      )!;
+      const image = new Image();
+      image.src = getComputedStyle(mask).maskImage.match(/url\("([^"]+)"\)/)![1];
+      await image.decode();
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+    });
+  await maskReady();
+  const maskShot = await page.screenshot({
+    clip: rendered.box,
+    path: join(output, "fidelity-mask.png"),
+  });
+  const maskPixels = await sharp(maskShot)
+    .removeAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const sample = (x: number, y: number) => [
+    ...maskPixels.data.subarray(
+      (y * maskPixels.info.width + x) * 3,
+      (y * maskPixels.info.width + x) * 3 + 3,
+    ),
+  ];
+  assert.deepEqual(sample(50, 50), [255, 0, 0], "Opaque mask pixels reveal content");
+  assert.deepEqual(sample(150, 50), [255, 255, 255], "Transparent mask pixels hide content");
+  assert.deepEqual(sample(250, 30), [0, 0, 255], "Earlier siblings remain outside mask scope");
+  await page.reload();
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-node-id]")].some((n) =>
+      getComputedStyle(n).maskImage.includes("blob:"),
+    ),
+  );
+  await maskReady();
+  console.log(
+    "PASS: native image mask pixels/sibling scope, mixed text marks, space-evenly layout and retained mask assets",
+  );
   await open();
   await page.getByLabel("Import Figma file").setInputFiles(fixture("circle.fig").pathname);
   await layerCount(2);
@@ -190,13 +284,21 @@ try {
     await page.locator("[data-node-id]").first().waitFor({ timeout: 60_000 });
     const importMs = performance.now() - start;
     const model = await page.evaluate(
-      () =>
-        (window as Window & { figmaFixtureDocument?: { nodes: unknown[]; pages: unknown[] } })
-          .figmaFixtureDocument,
+      () => (window as Window & { figmaFixtureDocument?: DesignDocument }).figmaFixtureDocument,
     );
     assert(model);
-    assert.equal(model.pages.length, names.length, "Full file preserves every chosen page");
+    assert.equal(model.pages!.length, names.length, "Full file preserves every chosen page");
     assert(model.nodes.length > 5000);
+    const masks = model.nodes.filter((node) => node.mask);
+    for (const mask of masks) {
+      const targetPage = model.pages!.find((p) => p.id === mask.pageId)!;
+      await page.getByRole("button", { name: targetPage.name, exact: true }).click();
+      await page.waitForFunction((id) => {
+        const element = document.querySelector(`[data-node-id="${id}"]`);
+        return element && getComputedStyle(element).maskImage !== "none";
+      }, mask.id);
+    }
+    await page.getByRole("button", { name: model.pages![0].name, exact: true }).click();
     await page.reload();
     await page.locator("[data-node-id]").first().waitFor({ timeout: 60_000 });
     const retained = await page.evaluate(async () => {
@@ -243,6 +345,9 @@ try {
     console.log(
       JSON.stringify({
         importMs: Math.round(importMs),
+        masks: masks.length,
+        spaceEvenly: model.nodes.filter((node) => node.justify === "space-evenly").length,
+        richText: model.nodes.filter((node) => node.richText).length,
         fitMountedLayers: fitCount,
         actualMountedLayers: actualCount,
         pan,

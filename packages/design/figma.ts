@@ -1,4 +1,6 @@
 import { expandFigmaInstances } from "./figma-instances";
+import { figmaFontWeight, figmaRichText } from "./figma-text";
+import { importFigmaMasks } from "./figma-masks";
 import { Inflate, Unzip, UnzipInflate } from "fflate";
 import { Decompress } from "fzstd";
 import { compileSchema, decodeBinarySchema } from "kiwi-schema";
@@ -189,6 +191,18 @@ function mime(bytes: Uint8Array) {
     return "image/webp";
   return null;
 }
+function imageSize(bytes: Uint8Array, type: string) {
+  if (
+    type !== "image/png" ||
+    bytes.length < 24 ||
+    decoder.decode(bytes.subarray(12, 16)) !== "IHDR"
+  )
+    return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const width = view.getUint32(16),
+    height = view.getUint32(20);
+  return width && height && width <= 1000000 && height <= 1000000 ? { width, height } : undefined;
+}
 
 export function convertFigma(
   doc: FigDocument,
@@ -206,6 +220,7 @@ export function convertFigma(
     warnings: DesignDocument["warnings"] = [];
   const ids = new Map(doc.nodes.map((n) => [nodeId(n), crypto.randomUUID()]));
   const assetIds = new Map<string, string>();
+  const imageSizes = new Map<string, { width: number; height: number }>();
   const pages: NonNullable<DesignDocument["pages"]> = [];
   const visited = new Set<string>();
   let omittedWarnings = 0;
@@ -258,6 +273,8 @@ export function convertFigma(
     const id = crypto.randomUUID();
     assetIds.set(key || id, id);
     assets.push({ id, mimeType, bytes: bytes.slice() });
+    const dimensions = imageSize(bytes, mimeType);
+    if (dimensions) imageSizes.set(id, dimensions);
     return id;
   };
   const paints = (values: FigPaint[] | undefined, node: FigNode): DesignPaint[] =>
@@ -335,6 +352,7 @@ export function convertFigma(
             ...base,
             type: "image" as const,
             assetId,
+            ...(imageSizes.has(assetId) ? { intrinsicSize: imageSizes.get(assetId)! } : {}),
             fit:
               (paint as FigPaint & { imageScaleMode?: string }).imageScaleMode === "FIT"
                 ? ("contain" as const)
@@ -489,19 +507,7 @@ export function convertFigma(
       style.fontFamily = n.fontName?.family ?? "Arial";
       style.fontSize = numeric(n.fontSize, 16);
       const face = n.fontName?.style ?? "Regular";
-      style.fontWeight = /black|heavy/i.test(face)
-        ? 900
-        : /extra.?bold/i.test(face)
-          ? 800
-          : /semi.?bold/i.test(face)
-            ? 600
-            : /bold/i.test(face)
-              ? 700
-              : /medium/i.test(face)
-                ? 500
-                : /light/i.test(face)
-                  ? 300
-                  : 400;
+      style.fontWeight = figmaFontWeight(face);
       style.fontStyle = /italic|oblique/i.test(face) ? "italic" : "normal";
       style.textAlign =
         n.textAlignHorizontal === "CENTER"
@@ -520,12 +526,10 @@ export function convertFigma(
         style.letterSpacing = numeric(n.letterSpacing.value, 0);
       else if (n.letterSpacing?.units === "PERCENT")
         style.letterSpacing = (style.fontSize * numeric(n.letterSpacing.value, 0)) / 100;
-      if (
-        (n.textData as { characterStyleIDs?: number[] } | undefined)?.characterStyleIDs?.some(
-          (id: number) => id !== 0,
-        )
-      )
-        warn(n, "Mixed text formatting is approximated with the layer's base style.");
+      const formatted = figmaRichText(n);
+      node.richText = formatted.richText;
+      if (formatted.unsupported)
+        warn(n, "Some text range styles cannot be represented; supported formatting is retained.");
     } else if (
       ["VECTOR", "ELLIPSE", "LINE", "REGULAR_POLYGON", "STAR", "BOOLEAN_OPERATION"].includes(n.type)
     ) {
@@ -587,9 +591,7 @@ export function convertFigma(
         "Some component overrides or dependencies could not be resolved; inspect this instance.",
       );
     const nativeStack =
-      (n.stackMode === "HORIZONTAL" || n.stackMode === "VERTICAL") &&
-      !n.stackReverseZIndex &&
-      n.stackPrimaryAlignItems !== "SPACE_EVENLY";
+      (n.stackMode === "HORIZONTAL" || n.stackMode === "VERTICAL") && !n.stackReverseZIndex;
     if (nativeStack) {
       const horizontal = n.stackMode === "HORIZONTAL";
       node.layout = horizontal ? "flex-row" : "flex-column";
@@ -622,7 +624,9 @@ export function convertFigma(
             ? "end"
             : justify === "SPACE_BETWEEN"
               ? "space-between"
-              : "start";
+              : justify === "SPACE_EVENLY"
+                ? "space-evenly"
+                : "start";
       node.wrap = n.stackWrap === "WRAP";
     } else if (n.stackMode && n.stackMode !== "NONE")
       warn(n, "Unsupported Auto Layout preserved at its measured positions.");
@@ -662,7 +666,6 @@ export function convertFigma(
       } else if (n.stackChildAlignSelf === "CENTER") node.alignSelf = "center";
       else if (n.stackChildAlignSelf === "MAX") node.alignSelf = "end";
     }
-    if (n.isMask || n.mask) warn(n, "Mask behaviour is not imported yet.");
     if (n.boundVariables || n.variableBindings) warn(n, "Variable bindings are not imported yet.");
     for (const effect of n.effects ?? []) {
       if (effect.visible === false) continue;
@@ -725,6 +728,7 @@ export function convertFigma(
     }
     visit(master, null, dependencyPage.id, 0);
   }
+  importFigmaMasks(doc, nodes, ids, warn);
   const byId = new Map(nodes.map((node) => [node.id, node]));
   const identity = new Set([
     "id",
