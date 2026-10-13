@@ -48,7 +48,7 @@ test("R2 bytes, variants and internal cache are gated by current membership; leg
     mock.module("@/lib/db", () => ({ db: { query, connect: async () => ({ query, release() {} }) } }));
     mock.module("@/lib/auth", () => ({ auth: { api: { getSession: async () => session } } }));
     mock.module("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: { DESIGN_OBJECTS: bucket,
-      IMAGES: { input: stream => ({ transform: options => { expect(options).toEqual({ width: 256, fit: "scale-down" }); transforms++; return { output: async () => ({ response: () => new Response("small-image") }) }; } }) } },
+      IMAGES: { input: stream => ({ transform: options => { expect(options).toEqual({ width: 256, fit: "scale-down" }); transforms++; return { output: async options => { expect(options).toEqual({format:"image/png"}); return { response: () => new Response("small-image") }; } }; } }) } },
       ctx: { waitUntil: promise => waits.push(promise) } }) }));
     globalThis.caches = { default: { match: async request => cached.get(request.url)?.clone(), put: async (request,response) => cached.set(request.url,response) } };
     const { GET } = await import("./app/api/assets/[id]/route.ts");
@@ -161,13 +161,17 @@ test("private display reads bound originals and transformed output and cancel st
     },ctx:{waitUntil:promise=>promise.catch(()=>{})}})}));
     globalThis.caches={default:{match:async()=>{if(mode==="cache-stall"){enter();return new Promise(()=>{});} return null;},put:async()=>{cachePuts++;}}};
     const {designImageResponse}=await import("./lib/storage/design-objects.ts");
-    const metadata={mimeType:"image/png",objectKey:"private",sha256:null,byteSize:1};
+    const metadata={mimeType:"image/webp",objectKey:"private",sha256:null,byteSize:1};
     const request=signal=>new Request("https://app.example/image?width=256",{signal});
     await expect(designImageResponse(metadata,async()=>null,request())).rejects.toThrow("too large");
     expect(transforms).toBe(0); expect(cachePuts).toBe(0);
     mode="output";
     await expect(designImageResponse(metadata,async()=>null,request())).rejects.toThrow("too large");
     expect(transforms).toBe(1); expect(cachePuts).toBe(0);
+    const lossless=await designImageResponse({...metadata,mimeType:"image/png"},async()=>null,request());
+    expect(lossless.headers.get("Content-Type")).toBe("image/png");
+    expect((await lossless.arrayBuffer()).byteLength).toBe(1);
+    cachePuts=0;
     for(const next of ["transform-stall","cache-stall"]){
       mode=next; entered=new Promise(resolve=>{enter=resolve});
       const controller=new AbortController(), before=gets;
@@ -177,6 +181,39 @@ test("private display reads bound originals and transformed output and cancel st
     }
     expect(cachePuts).toBe(0); console.log("PASS");
   `,
+    ],
+    {
+      cwd: resolve(import.meta.dir, "../.."),
+      env: { ...process.env, NODE_ENV: "test" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  expect(child.exitCode, child.stderr.toString()).toBe(0);
+  expect(child.stdout.toString()).toContain("PASS");
+});
+
+test("animated PNG originals bypass resizing and retain their original bytes", () => {
+  const child = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+      import { mock, expect } from "bun:test";
+      mock.module("@/lib/db", () => ({ db: {} }));
+      const bytes = new Uint8Array([137,80,78,71,13,10,26,10, 0,0,0,8, 97,99,84,76, 0,0,0,2,0,0,0,0, 0,0,0,0]);
+      mock.module("@opennextjs/cloudflare", () => ({ getCloudflareContext: () => ({ env: {
+        DESIGN_OBJECTS: { get: async () => ({ size: bytes.length, body: new Response(bytes).body }) },
+        IMAGES: { input: () => { throw new Error("Animated PNG must not be transformed"); } },
+      }, ctx: { waitUntil: promise => promise.catch(() => {}) } }) }));
+      globalThis.caches = { default: { match: async () => undefined, put: async () => {} } };
+      const { designImageResponse } = await import("./lib/storage/design-objects.ts");
+      const response = await designImageResponse({ mimeType: "image/png", objectKey: "animated", sha256: null, byteSize: bytes.length },
+        async () => null, new Request("https://app.example/api/assets/animated?width=256"));
+      expect(response.headers.get("Content-Type")).toBe("image/png");
+      expect(new Uint8Array(await response.arrayBuffer())).toEqual(bytes);
+      console.log("PASS");
+    `,
     ],
     {
       cwd: resolve(import.meta.dir, "../.."),

@@ -1,5 +1,6 @@
 import { afterEach, expect, test, spyOn } from "bun:test";
 import {
+  createImagePool,
   fetchImage,
   retryDelay,
   subscribeImage,
@@ -184,5 +185,122 @@ test("retry backoff releases its slot so other images can load", async () => {
   } finally {
     canceled.abort();
     expect((await settled).every((result) => result.status === "rejected")).toBe(true);
+  }
+});
+
+test("a canvas shares decoded sources, retains small idle images, and clears private URLs", async () => {
+  const originalImage = globalThis.Image;
+  let decodes = 0;
+  globalThis.Image = class {
+    src = "";
+    naturalWidth = 512;
+    naturalHeight = 512;
+    async decode() {
+      decodes++;
+    }
+  } as unknown as typeof Image;
+  const pool = createImagePool(true);
+  const calls = responses(200, 200);
+  const revoke = spyOn(URL, "revokeObjectURL");
+  const ready = (source: string) =>
+    new Promise<() => void>((resolve) => {
+      const release = pool.subscribe(source, (state) => {
+        if (state.status === "ready") resolve(release);
+      });
+    });
+  try {
+    const [a, b] = await Promise.all([ready("/api/assets/small"), ready("/api/assets/small")]);
+    expect(decodes).toBe(1);
+    a();
+    b();
+    expect(revoke).not.toHaveBeenCalled();
+    const again = await ready("/api/assets/small");
+    expect(calls()).toBe(1);
+    expect(decodes).toBe(1);
+    again();
+    pool.clear();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    (await ready("/api/assets/small"))();
+    expect(calls()).toBe(2);
+  } finally {
+    pool.clear();
+    revoke.mockRestore();
+    globalThis.Image = originalImage;
+  }
+});
+test("idle retention is bounded by decoded pixels and never evicts an active consumer", async () => {
+  const originalImage = globalThis.Image;
+  globalThis.Image = class {
+    src = "";
+    naturalWidth = 2048;
+    naturalHeight = 2048;
+    async decode() {}
+  } as unknown as typeof Image;
+  const pool = createImagePool(true);
+  const calls = responses(200, 200, 200, 200);
+  const revoke = spyOn(URL, "revokeObjectURL");
+  const ready = (source: string) =>
+    new Promise<() => void>((resolve) => {
+      const release = pool.subscribe(source, (state) => {
+        if (state.status === "ready") resolve(release);
+      });
+    });
+  try {
+    const active = await ready("/api/assets/active");
+    (await ready("/api/assets/old"))();
+    (await ready("/api/assets/new"))();
+    expect(revoke).toHaveBeenCalledTimes(1);
+    const sameActive = await ready("/api/assets/active");
+    expect(calls()).toBe(3);
+    sameActive();
+    (await ready("/api/assets/old"))();
+    expect(calls()).toBe(4);
+    active();
+  } finally {
+    pool.clear();
+    revoke.mockRestore();
+    globalThis.Image = originalImage;
+  }
+});
+
+test("small raster URLs stay stable across canvas mounts without retaining private blob URLs", async () => {
+  const originalImage = globalThis.Image;
+  globalThis.Image = class {
+    src = "";
+    naturalWidth = 256;
+    naturalHeight = 256;
+    async decode() {}
+  } as unknown as typeof Image;
+  let calls = 0;
+  globalThis.fetch = (async () => {
+    calls++;
+    return new Response(new Uint8Array([1, 2, calls > 2 ? 4 : 3]), {
+      headers: { "Content-Type": "image/png" },
+    });
+  }) as unknown as typeof fetch;
+  const pool = createImagePool(true);
+  const create = spyOn(URL, "createObjectURL");
+  const ready = (source: string) =>
+    new Promise<{ state: ImageLoad; release: () => void }>((resolve) => {
+      const release = pool.subscribe(source, (state) => {
+        if (state.status === "ready") resolve({ state, release });
+      });
+    });
+  try {
+    const first = await ready("/api/assets/one");
+    first.release();
+    pool.clear();
+    const second = await ready("/api/assets/one");
+    expect(second.state).toEqual(first.state);
+    second.release();
+    const replacement = await ready("/api/assets/one?version=two");
+    expect(replacement.state).not.toEqual(first.state);
+    replacement.release();
+    expect(calls).toBe(3);
+    expect(create).not.toHaveBeenCalled();
+  } finally {
+    pool.clear();
+    create.mockRestore();
+    globalThis.Image = originalImage;
   }
 });

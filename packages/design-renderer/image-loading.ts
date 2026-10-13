@@ -1,7 +1,7 @@
 /** One fetch/recovery sequence and object URL per resolved URL while consumers remain mounted. */
 export type ImageLoad =
   | { status: "loading" }
-  | { status: "ready"; url: string }
+  | { status: "ready"; url: string; width?: number; height?: number }
   | { status: "failed" };
 const transient = new Set([429, 502, 503, 504]);
 const attempts = 4;
@@ -97,42 +97,123 @@ type Entry = {
   listeners: Set<(state: ImageLoad) => void>;
   controller: AbortController;
   objectUrl?: string;
+  bytes: number;
+  pixels: number;
+  idleAt: number;
 };
-const entries = new Map<string, Entry>();
-export function subscribeImage(source: string, listener: (state: ImageLoad) => void) {
-  let entry = entries.get(source);
-  if (!entry) {
-    entry = {
-      state: { status: "loading" },
-      listeners: new Set(),
-      controller: new AbortController(),
-    };
-    entries.set(source, entry);
-    const current = entry;
-    void fetchImage(source, current.controller.signal)
-      .then((blob) => {
-        if (current.controller.signal.aborted) return;
-        current.objectUrl = URL.createObjectURL(blob);
-        current.state = { status: "ready", url: current.objectUrl };
-        for (const notify of current.listeners) notify(current.state);
-      })
-      .catch(() => {
-        if (current.controller.signal.aborted) return;
-        current.state = { status: "failed" };
-        for (const notify of current.listeners) notify(current.state);
-      });
-  }
-  entry.listeners.add(listener);
-  listener(entry.state);
-  const current = entry;
-  let released = false;
-  return () => {
-    if (released) return;
-    released = true;
-    current.listeners.delete(listener);
-    if (current.listeners.size) return;
-    entries.delete(source);
-    current.controller.abort();
-    if (current.objectUrl) URL.revokeObjectURL(current.objectUrl);
+export type ImagePool = ReturnType<typeof createImagePool>;
+/** Retained images belong to one mounted canvas, never to another file or user.
+ * The pixel allowance estimates one RGBA buffer; browser/GPU copies are extra. */
+export function createImagePool(retain = false) {
+  const entries = new Map<string, Entry>();
+  let expiry: ReturnType<typeof setTimeout> | undefined;
+  const remove = (source: string, entry: Entry) => {
+    if (entries.get(source) === entry) entries.delete(source);
+    entry.controller.abort();
+    if (entry.objectUrl?.startsWith("blob:")) URL.revokeObjectURL(entry.objectUrl);
+  };
+  const prune = () => {
+    clearTimeout(expiry);
+    expiry = undefined;
+    const idle = [...entries].filter(([, entry]) => !entry.listeners.size);
+    let bytes = idle.reduce((sum, [, entry]) => sum + entry.bytes, 0);
+    let pixels = idle.reduce((sum, [, entry]) => sum + entry.pixels, 0);
+    let count = idle.length;
+    const now = Date.now();
+    for (const [source, entry] of idle.sort((a, b) => a[1].idleAt - b[1].idleAt)) {
+      if (
+        count > 32 ||
+        bytes > 4 * 1024 * 1024 ||
+        pixels > 16 * 1024 * 1024 ||
+        now - entry.idleAt >= 30_000
+      ) {
+        bytes -= entry.bytes;
+        pixels -= entry.pixels;
+        count--;
+        remove(source, entry);
+      } else {
+        expiry ??= setTimeout(prune, Math.max(1, 30_000 - (now - entry.idleAt)));
+      }
+    }
+  };
+  return {
+    clear() {
+      clearTimeout(expiry);
+      expiry = undefined;
+      for (const [source, entry] of entries) remove(source, entry);
+    },
+    subscribe(source: string, listener: (state: ImageLoad) => void) {
+      let entry = entries.get(source);
+      if (!entry) {
+        entry = {
+          state: { status: "loading" },
+          listeners: new Set(),
+          controller: new AbortController(),
+          bytes: 0,
+          pixels: Infinity,
+          idleAt: 0,
+        };
+        entries.set(source, entry);
+        const current = entry;
+        void fetchImage(source, current.controller.signal)
+          .then(async (blob) => {
+            if (current.controller.signal.aborted) return;
+            current.bytes = blob.size;
+            // Stable small raster URLs let the browser reuse its decoded cache
+            // across canvas mounts. Fresh blob URLs otherwise leave distinct native
+            // cache entries even after revocation. Keep larger images as blobs.
+            if (retain && blob.size <= 256 * 1024 && /^image\/(png|jpeg|webp)$/.test(blob.type)) {
+              const bytes = new Uint8Array(await blob.arrayBuffer());
+              current.controller.signal.throwIfAborted();
+              let binary = "";
+              for (let offset = 0; offset < bytes.length; offset += 16_384)
+                binary += String.fromCharCode(...bytes.subarray(offset, offset + 16_384));
+              current.objectUrl = `data:${blob.type};base64,${btoa(binary)}`;
+              current.bytes += current.objectUrl.length * 2;
+            } else current.objectUrl = URL.createObjectURL(blob);
+            let width: number | undefined, height: number | undefined;
+            if (typeof Image !== "undefined") {
+              // One decode per shared source, including repeated image fills.
+              const image = new Image();
+              image.src = current.objectUrl;
+              await image.decode();
+              width = image.naturalWidth;
+              height = image.naturalHeight;
+              current.pixels = width * height * 4;
+            }
+            if (current.controller.signal.aborted) return;
+            current.state = { status: "ready", url: current.objectUrl, width, height };
+            for (const notify of current.listeners) notify(current.state);
+          })
+          .catch(() => {
+            if (current.controller.signal.aborted) return;
+            if (current.objectUrl?.startsWith("blob:")) URL.revokeObjectURL(current.objectUrl);
+            current.objectUrl = undefined;
+            current.state = { status: "failed" };
+            for (const notify of current.listeners) notify(current.state);
+          });
+      }
+      entry.listeners.add(listener);
+      const initial = entry;
+      if (initial.state.status === "loading") listener(initial.state);
+      else
+        queueMicrotask(() => {
+          if (initial.listeners.has(listener)) listener(initial.state);
+        });
+      const current = entry;
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        current.listeners.delete(listener);
+        if (current.listeners.size) return;
+        if (retain && current.state.status === "ready" && entries.get(source) === current) {
+          current.idleAt = Date.now();
+          prune();
+        } else remove(source, current);
+      };
+    },
   };
 }
+const defaultPool = createImagePool();
+export const subscribeImage = defaultPool.subscribe;

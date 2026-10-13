@@ -89,7 +89,7 @@ try {
   console.log("PASS: selective tonal masks and alpha preservation");
   await image.waitFor();
   await page.getByRole("button", { name: "Select Landscape", exact: true }).click();
-  await image.dblclick({ position: { x: 30, y: 30 } });
+  await image.dblclick({ position: { x: 80, y: 80 } });
   await panel.waitFor();
   assert.equal(await panel.getByRole("slider").count(), 7);
   const bounds = await image.boundingBox();
@@ -147,11 +147,11 @@ try {
   await page.mouse.up();
   assert.ok((await values()).exposure > 0.5);
   await panel.getByRole("button", { name: "Close image editor" }).click();
-  await page.locator('[data-node-id="landscape"]').click({ position: { x: 20, y: 20 } });
+  await page.locator('[data-node-id="landscape"]').click({ position: { x: 80, y: 80 } });
   await page.keyboard.press("Control+z");
   assert.equal((await values()).exposure, 0, "Entire drag is one undo entry");
   console.log("PASS: live preview and one undo per drag");
-  await image.dblclick({ position: { x: 30, y: 30 } });
+  await image.dblclick({ position: { x: 80, y: 80 } });
   await slider.focus();
   await slider.press("ArrowRight");
   assert.equal((await values()).exposure, 0.01);

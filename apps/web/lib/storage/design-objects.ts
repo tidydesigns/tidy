@@ -1,7 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { createHash } from "node:crypto";
 import { requestSignal, waitForSignal } from "@/lib/request-lifecycle";
-import { boundedRequest } from "@/lib/http/request-body";
+import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 import { db } from "@/lib/db";
 import { IMAGE_READ_LIMITS } from "@/lib/security/resource-limits";
 
@@ -146,6 +146,18 @@ export async function designObjectBytes(
   return bytes;
 }
 
+/** APNG must stay animated; PNG output from a resizing service may flatten it. */
+function animatedPng(bytes: Uint8Array) {
+  const data = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  for (let offset = 8; offset + 12 <= bytes.length;) {
+    const length = data.getUint32(offset);
+    if (offset + length + 12 > bytes.length) return false;
+    if (data.getUint32(offset + 4) === 0x6163544c) return true; // acTL
+    offset += length + 12;
+  }
+  return false;
+}
+
 const widths = new Set([128, 256, 512, 1024, 2048]);
 export function displayImageWidth(request?: Request) {
   const width = Number(request ? new URL(request.url).searchParams.get("width") : 0);
@@ -193,9 +205,12 @@ export async function designImageResponse(
   const bucket = image.objectKey ? designBucket() : null;
   const width =
     image.mimeType !== "image/svg+xml" && context?.env.IMAGES ? displayImageWidth(request) : 0;
-  const etag = image.sha256 ? `"${image.sha256}${width ? `-w${width}-v1` : ""}"` : undefined;
+  // Lossless PNG derivatives avoid adding compression artifacts to photographs,
+  // screenshots and translucent edges. WebP retains its existing animation path.
+  const format = image.mimeType === "image/webp" ? "image/webp" : "image/png";
+  const etag = image.sha256 ? `"${image.sha256}${width ? `-w${width}-v2` : ""}"` : undefined;
   const headers = new Headers({
-    "Content-Type": width ? "image/webp" : image.mimeType,
+    "Content-Type": width ? format : image.mimeType,
     "Cache-Control": "private, no-cache",
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -216,12 +231,15 @@ export async function designImageResponse(
     cache = (caches as CacheStorage & { default: Cache }).default;
     cacheKey = new Request(
       new URL(
-        `/__design-object-cache/${encodeURIComponent(image.objectKey)}/${width || "original"}/v1`,
+        `/__design-object-cache/${encodeURIComponent(image.objectKey)}/${width || "original"}/${width ? "v2" : "v1"}`,
         request.url,
       ),
     );
     const hit = await waitForSignal(cache.match(cacheKey), signal);
-    if (hit) return new Response(await responseImageBytes(hit, signal), { headers });
+    if (hit) {
+      headers.set("Content-Type", hit.headers.get("Content-Type") ?? headers.get("Content-Type")!);
+      return new Response(await responseImageBytes(hit, signal), { headers });
+    }
   }
   let response: Response;
   const object =
@@ -232,16 +250,31 @@ export async function designImageResponse(
       throw new Error("Image bytes exceed the read allowance.");
     }
     const bytes = await responseImageBytes(new Response(object.body), signal);
-    if (width) {
+    if (width && !(image.mimeType === "image/png" && animatedPng(bytes))) {
       const optimized = await waitForSignal(
         context!.env
           .IMAGES!.input(new Response(bytes).body!)
           .transform({ width, fit: "scale-down" })
-          .output({ format: "image/webp", quality: 85 }),
+          .output(format === "image/png" ? { format } : { format, quality: 85 }),
         signal,
       );
-      response = new Response(await responseImageBytes(optimized.response(), signal), { headers });
-    } else response = new Response(bytes, { headers });
+      try {
+        response = new Response(await responseImageBytes(optimized.response(), signal), {
+          headers,
+        });
+      } catch (error) {
+        // A lossless derivative can exceed the original's compressed size. Serve
+        // the already bounded original instead of breaking an otherwise valid image.
+        if (format !== "image/png" || !(error instanceof RequestBodyError) || error.status !== 413)
+          throw error;
+        signal.throwIfAborted();
+        headers.set("Content-Type", image.mimeType);
+        response = new Response(bytes, { headers });
+      }
+    } else {
+      headers.set("Content-Type", image.mimeType);
+      response = new Response(bytes, { headers });
+    }
   } else {
     const bytes = await waitForSignal(fallback(), signal);
     if (!bytes)

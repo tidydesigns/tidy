@@ -144,6 +144,7 @@ import { useEditorEvent } from "./use-editor-event";
 import { useFrameEvent } from "./use-frame-event";
 import { useEditorPerformance } from "./use-editor-performance";
 import { useVisibleArtboards } from "./use-visible-artboards";
+import { ImageViewportProvider } from "@tidy/design-renderer/image-viewport";
 import { CanvasArtwork } from "./canvas-artwork";
 import {
   attachCanvasElements,
@@ -3810,28 +3811,30 @@ export function FileEditor({
             }
             className="absolute left-0 top-0"
           >
-            <CanvasArtwork
-              assetMimeTypes={assetMimeTypes}
-              visibleRootIds={visibleRootIds}
-              registerElement={registerElement}
-              nodesById={renderedById}
-              childrenById={children}
-              tokens={tokens}
-              selectedIds={selectedIds}
-              prototypeMode={prototypeMode}
-              prototypeArtboardId={prototypeArtboardId}
-              cropId={cropping ? cropId : null}
-              editingTextId={editingTextId}
-              previewAssetUrls={previewAssetUrls}
-              onMenu={panelMenu}
-              onDoubleClick={artworkDoubleClick}
-              onPointerDown={artworkPointerDown}
-              onPointerMove={artworkPointerMove}
-              onPointerUp={artworkPointerUp}
-              onPointerCancel={artworkCancel}
-              onTextDraft={artworkTextDraft}
-              onTextFinish={artworkTextFinish}
-            />
+            <ImageViewportProvider viewport={viewport} zoom={view.zoom} selectedIds={selectedIds}>
+              <CanvasArtwork
+                assetMimeTypes={assetMimeTypes}
+                visibleRootIds={visibleRootIds}
+                registerElement={registerElement}
+                nodesById={renderedById}
+                childrenById={children}
+                tokens={tokens}
+                selectedIds={selectedIds}
+                prototypeMode={prototypeMode}
+                prototypeArtboardId={prototypeArtboardId}
+                cropId={cropping ? cropId : null}
+                editingTextId={editingTextId}
+                previewAssetUrls={previewAssetUrls}
+                onMenu={panelMenu}
+                onDoubleClick={artworkDoubleClick}
+                onPointerDown={artworkPointerDown}
+                onPointerMove={artworkPointerMove}
+                onPointerUp={artworkPointerUp}
+                onPointerCancel={artworkCancel}
+                onTextDraft={artworkTextDraft}
+                onTextFinish={artworkTextFinish}
+              />
+            </ImageViewportProvider>
           </div>
           {viewPreferences.guides && !readOnly && !prototypeMode && (
             <CanvasGuides

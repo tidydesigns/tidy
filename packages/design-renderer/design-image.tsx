@@ -4,8 +4,9 @@ import type { DesignNode } from "@bella/design/document";
 import { imageStyle } from "./node-style";
 import { vectorImageStyle, vectorSvg } from "./vector-path";
 import { useId, useState } from "react";
-import { displayImageUrl, isManagedImage } from "./image-display";
+import { displayImageUrl, imageDisplayPixels, isManagedImage } from "./image-display";
 import { useImageMimeType } from "./image-context";
+import { useImageViewport } from "./image-viewport";
 import { useLoadedImage } from "./use-loaded-image";
 const emptyImage = "data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22/%3E";
 const fallback =
@@ -28,18 +29,35 @@ export function DesignImage({
   const id = useId(),
     crop = node.style.imageCrop;
   const metadata = useImageMimeType(node.assetId);
+  const viewport = useImageViewport();
+  const [size, setSize] = useState<{ identity: string; aspect: number }>();
+  const visible = !viewport.measurement || viewport.measurement.visible;
+  const pixels = viewport.measurement
+    ? imageDisplayPixels(
+        node,
+        viewport.measurement.width,
+        viewport.measurement.height,
+        viewport.measurement.density,
+        size?.identity === src ? size.aspect : undefined,
+      )
+    : (node.box.width * 6) / (crop?.width ?? 1);
   const display = displayImageUrl(
     src,
-    (node.box.width * 6) / (crop?.width ?? 1),
+    viewport.measurement ? pixels * 1.05 : pixels,
     mimeType ?? metadata,
   );
-  const load = useLoadedImage(node.vectorPath ? "" : display, src);
+  const load = useLoadedImage(node.vectorPath ? "" : display, src, visible, viewport.pool);
+  if (load.status === "ready" && load.width && load.height && size?.identity !== src) {
+    setSize({ identity: src, aspect: load.width / load.height });
+  }
   const [decodeError, setDecodeError] = useState<string>();
   const resolved = isManagedImage(display)
     ? load.status === "ready"
       ? load.url
       : undefined
-    : display;
+    : visible
+      ? display
+      : undefined;
   const failed = load.status === "failed" || (resolved !== undefined && decodeError === resolved);
   if (node.vectorPath)
     return (
@@ -77,6 +95,7 @@ export function DesignImage({
       <>
         {filter && definitions}
         <img
+          ref={viewport.ref}
           src={failed ? fallback : (resolved ?? emptyImage)}
           data-original-src={src}
           data-image-loading={(!failed && resolved === undefined) || undefined}
@@ -97,6 +116,7 @@ export function DesignImage({
     height = crop.height * crop.sourceHeight;
   return (
     <svg
+      ref={viewport.ref}
       role="img"
       aria-label={failed ? `${node.name || "Image"} unavailable` : node.name}
       data-image-failed={failed || undefined}
