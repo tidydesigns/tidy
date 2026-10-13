@@ -12,7 +12,7 @@ export function ReauthResult({ success }: { success: boolean }) {
       <p role="status">
         {success
           ? "Authentication complete. Return to Tidy to continue."
-          : "Authentication was not completed. Return to Tidy and try again with your linked Google account."}
+          : "Authentication was not completed. Return to Tidy and try again with an account linked to Tidy."}
       </p>
     </main>
   );

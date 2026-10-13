@@ -377,7 +377,7 @@ integration(
   async () => {
     const { spyOn } = await import("bun:test");
     const { generateKeyPair, exportJWK, SignJWT } = await import("jose");
-    const { startGoogleReauth, finishGoogleReauth } = await import("./reauth");
+    const { startSocialReauth, finishSocialReauth } = await import("./reauth");
     const keys = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "BETTER_AUTH_URL"];
     const previous = keys.map((key) => process.env[key]);
     Object.assign(process.env, {
@@ -418,7 +418,7 @@ integration(
         nonceOverride,
         audience = "privacy-fixture-client",
       ) => {
-        const url = new URL(await startGoogleReauth("alice", "alice-session"));
+        const url = new URL(await startSocialReauth("google", "alice", "alice-session"));
         expect(url.searchParams.get("prompt")).toBe("select_account");
         expect(url.searchParams.get("code_challenge_method")).toBe("S256");
         idToken = await new SignJWT({
@@ -435,34 +435,34 @@ integration(
         return url.searchParams.get("state");
       };
       let state = await begin();
-      await expect(finishGoogleReauth("bob", "bob-session", state, "fixture-code")).rejects.toThrow(
-        "expired",
-      );
+      await expect(
+        finishSocialReauth("google", "bob", "bob-session", state, "fixture-code"),
+      ).rejects.toThrow("expired");
       await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
-      await finishGoogleReauth("alice", "alice-session", state, "fixture-code");
+      await finishSocialReauth("google", "alice", "alice-session", state, "fixture-code");
       expect((await exportAccount("alice", "alice-session")).profile[0].id).toBe("alice");
       await expect(
-        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
       ).rejects.toThrow("expired");
       await admin.query(`delete from verification where identifier='privacy-reauth:alice-session'`);
       state = await begin("google-other");
       await expect(
-        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
       ).rejects.toThrow("linked");
       state = await begin("google-alice", "wrong-nonce");
       await expect(
-        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
       ).rejects.toThrow("verify your identity");
       state = await begin("google-alice", undefined, "wrong-client");
       await expect(
-        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
       ).rejects.toThrow("verify your identity");
       state = await begin();
       await admin.query(
         `update verification set "expiresAt"=now()-interval '1 second' where id='privacy-google:alice-session'`,
       );
       await expect(
-        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
       ).rejects.toThrow("expired");
       await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
     } finally {
@@ -495,5 +495,169 @@ integration(
       (await admin.query(`select id from verification where identifier='privacy-attempt:alice'`))
         .rowCount,
     ).toBe(0);
+  },
+);
+
+integration("reauthentication offers configured sign-in providers only when linked", async () => {
+  const { reauthMethods, startSocialReauth } = await import("./reauth");
+  const keys = [
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "AUTH_GITHUB_CLIENT_ID",
+    "AUTH_GITHUB_CLIENT_SECRET",
+  ];
+  const previous = keys.map((key) => process.env[key]);
+  try {
+    keys.forEach((key) => {
+      process.env[key] = "fixture";
+    });
+    expect(await reauthMethods("alice")).toEqual({ password: true, google: false, github: false });
+    await expect(startSocialReauth("github", "alice", "alice-session")).rejects.toThrow(
+      "not linked",
+    );
+    await admin.query(`insert into account (id,"accountId","providerId","userId","createdAt","updatedAt") values
+      ('alice-github','123','github','alice',now(),now()),('alice-google','google-alice','google','alice',now(),now())`);
+    expect(await reauthMethods("alice")).toEqual({ password: true, google: true, github: true });
+    await admin.query(`delete from account where "providerId" != 'github' and "userId"='alice'`);
+    expect(await reauthMethods("alice")).toEqual({ password: false, google: false, github: true });
+    process.env.AUTH_GITHUB_CLIENT_SECRET = " ";
+    expect(await reauthMethods("alice")).toEqual({ password: false, google: false, github: false });
+    await expect(startSocialReauth("github", "alice", "alice-session")).rejects.toThrow(
+      "unavailable",
+    );
+  } finally {
+    keys.forEach((key, index) => {
+      if (previous[index] === undefined) delete process.env[key];
+      else process.env[key] = previous[index];
+    });
+  }
+});
+
+integration(
+  "GitHub reauthentication checks PKCE, identity, state, expiry and session revocation",
+  async () => {
+    const { spyOn } = await import("bun:test");
+    const { createHash } = await import("node:crypto");
+    const { startSocialReauth, finishSocialReauth } = await import("./reauth");
+    const keys = ["AUTH_GITHUB_CLIENT_ID", "AUTH_GITHUB_CLIENT_SECRET", "BETTER_AUTH_URL"];
+    const previous = keys.map((key) => process.env[key]);
+    Object.assign(process.env, {
+      AUTH_GITHUB_CLIENT_ID: "privacy-github-client",
+      AUTH_GITHUB_CLIENT_SECRET: "privacy-github-secret",
+      BETTER_AUTH_URL: "https://app.example.test",
+    });
+    let subject = 123,
+      verified = true,
+      tokenFailure = false,
+      profileFailure = false;
+    let authorization;
+    let exchanges = 0;
+    const transport = spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === "https://github.com/login/oauth/access_token") {
+        exchanges++;
+        const body = new URLSearchParams(String(init?.body));
+        expect(body.get("client_id")).toBe("privacy-github-client");
+        expect(body.get("redirect_uri")).toBe("https://app.example.test/api/auth/callback/github");
+        expect(createHash("sha256").update(body.get("code_verifier")).digest("base64url")).toBe(
+          authorization.searchParams.get("code_challenge"),
+        );
+        return Response.json(
+          tokenFailure
+            ? { token_type: "bearer" }
+            : {
+                access_token: "fresh-github-token",
+                token_type: "bearer",
+                scope: "read:user,user:email",
+              },
+        );
+      }
+      if (url === "https://api.github.com/user" || url === "https://api.github.com/user/emails") {
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer fresh-github-token");
+        if (url.endsWith("/emails"))
+          return Response.json([{ email: "alice@example.test", primary: true, verified }]);
+        return profileFailure
+          ? Response.json({}, { status: 401 })
+          : Response.json({ id: subject, login: "alice", email: null });
+      }
+      throw new Error("Unexpected external request");
+    });
+    try {
+      await admin.query(
+        `insert into account (id,"accountId","providerId","userId","createdAt","updatedAt") values ('alice-github','123','github','alice',now(),now())`,
+      );
+      await admin.query(
+        `update session set "createdAt"=now()-interval '1 day' where "userId"='alice'`,
+      );
+      const begin = async () => {
+        authorization = new URL(await startSocialReauth("github", "alice", "alice-session"));
+        expect(authorization.origin).toBe("https://github.com");
+        expect(authorization.searchParams.get("prompt")).toBe("select_account");
+        expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
+        expect(authorization.searchParams.get("redirect_uri")).toBe(
+          "https://app.example.test/api/auth/callback/github",
+        );
+        return authorization.searchParams.get("state");
+      };
+      const finish = (state) =>
+        finishSocialReauth("github", "alice", "alice-session", state, "fixture-code");
+      let state = await begin();
+      await expect(
+        finishSocialReauth("github", "bob", "bob-session", state, "fixture-code"),
+      ).rejects.toThrow("expired");
+      await expect(
+        finishSocialReauth("google", "alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("expired");
+      await expect(finish("privacy-github:" + "x".repeat(43))).rejects.toThrow("expired");
+      expect(exchanges).toBe(0);
+      await finish(state);
+      expect((await exportAccount("alice", "alice-session")).profile[0].id).toBe("alice");
+      await expect(finish(state)).rejects.toThrow("expired");
+      expect(exchanges).toBe(1);
+      await admin.query(`delete from verification where identifier='privacy-reauth:alice-session'`);
+      subject = 456; // Same verified email must not authorize a different GitHub ID.
+      await expect(finish(await begin())).rejects.toThrow("linked");
+      subject = 123;
+      verified = false;
+      await expect(finish(await begin())).rejects.toThrow("verified GitHub");
+      verified = true;
+      tokenFailure = true;
+      await expect(finish(await begin())).rejects.toThrow("verify your identity");
+      tokenFailure = false;
+      profileFailure = true;
+      await expect(finish(await begin())).rejects.toThrow("verified GitHub");
+      profileFailure = false;
+      state = await begin();
+      await admin.query(
+        `update verification set "expiresAt"=now()-interval '1 second' where id='privacy-github:alice-session'`,
+      );
+      await expect(finish(state)).rejects.toThrow("expired");
+      state = await begin();
+      await begin(); // A newer attempt replaces the older state for this session.
+      await expect(finish(state)).rejects.toThrow("expired");
+      state = await begin();
+      await admin.query(`delete from account where id='alice-github'`);
+      await expect(finish(state)).rejects.toThrow("linked");
+      await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+      await admin.query(
+        `insert into account (id,"accountId","providerId","userId","createdAt","updatedAt") values ('alice-github','123','github','alice',now(),now())`,
+      );
+      state = await begin();
+      await admin.query(`delete from session where id='alice-session'`);
+      await expect(finish(state)).rejects.toThrow("session has ended");
+      expect(
+        (
+          await admin.query(
+            `select id from verification where identifier='privacy-reauth:alice-session'`,
+          )
+        ).rowCount,
+      ).toBe(0);
+    } finally {
+      transport.mockRestore();
+      keys.forEach((key, index) => {
+        if (previous[index] === undefined) delete process.env[key];
+        else process.env[key] = previous[index];
+      });
+    }
   },
 );

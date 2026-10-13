@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from "react";
+import { SocialProviderButton } from "@/components/auth/social-provider-button";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
@@ -18,7 +19,11 @@ export function ReauthDialog({
   const popup = useRef<Window | null>(null);
   const requestAbort = useRef<AbortController | null>(null);
   const closedTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [methods, setMethods] = useState<{ password: boolean; google: boolean } | null>(null);
+  const [methods, setMethods] = useState<{
+    password: boolean;
+    google: boolean;
+    github: boolean;
+  } | null>(null);
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -53,10 +58,7 @@ export function ReauthDialog({
       popup.current = null;
       setPending(false);
       if (event.data.success === true) notifyVerified();
-      else
-        setError(
-          "Google verification was not completed. Try again with your linked Google account.",
-        );
+      else setError("Verification was not completed. Try again with an account linked to Tidy.");
     }
     window.addEventListener("message", message);
     return () => {
@@ -65,17 +67,17 @@ export function ReauthDialog({
       popup.current?.close();
     };
   }, []);
-  async function verify(provider: "password" | "google") {
+  async function verify(provider: "password" | "google" | "github") {
     if (pending) return;
     setError("");
-    if (provider === "google") {
+    if (provider !== "password") {
       popup.current = window.open(
         "about:blank",
         "tidy-privacy-reauth",
         "popup,width=500,height=650",
       );
       if (!popup.current) {
-        setError("Allow the Google sign-in window, then try again.");
+        setError("Allow the sign-in window, then try again.");
         return;
       }
     }
@@ -101,14 +103,14 @@ export function ReauthDialog({
         onVerified();
         return;
       }
-      if (!result.url) throw new Error("Could not open Google sign-in.");
+      if (!result.url) throw new Error("Could not open sign-in.");
       popup.current!.location.href = result.url;
       closedTimer.current = setInterval(() => {
         if (popup.current?.closed) {
           if (closedTimer.current) clearInterval(closedTimer.current);
           popup.current = null;
           setPending(false);
-          setError("Google sign-in was closed. Try again when you’re ready.");
+          setError("Sign-in was closed. Try again when you’re ready.");
         }
       }, 500);
     } catch (error) {
@@ -138,11 +140,18 @@ export function ReauthDialog({
         Confirm it’s you to access your data or delete your account. You’ll stay signed in.
       </p>
       <p className="mb-5 break-all text-sm font-medium">{email}</p>
-      {methods?.google && (
-        <Button disabled={pending} onClick={() => void verify("google")}>
-          Continue with Google
-        </Button>
-      )}
+      <div className="space-y-3">
+        {(["google", "github"] as const)
+          .filter((provider) => methods?.[provider])
+          .map((provider) => (
+            <SocialProviderButton
+              key={provider}
+              provider={provider}
+              disabled={pending}
+              onClick={() => void verify(provider)}
+            />
+          ))}
+      </div>
       {methods?.password && (
         <form onSubmit={submit} className="space-y-4 mt-4">
           <TextField
@@ -167,10 +176,9 @@ export function ReauthDialog({
           Loading sign-in methods…
         </p>
       )}
-      {methods && !methods.password && !methods.google && (
+      {methods && !methods.password && !methods.google && !methods.github && (
         <p className="text-sm text-secondary-ink">
-          No password or Google sign-in is available for this account. Use your usual sign-in method
-          to authenticate again.
+          No linked sign-in method is currently available. Sign in again to continue.
         </p>
       )}
       {error && (

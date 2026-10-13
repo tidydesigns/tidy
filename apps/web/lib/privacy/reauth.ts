@@ -1,11 +1,12 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { verifyPassword } from "better-auth/crypto";
-import { google } from "better-auth/social-providers";
+import { google, github } from "better-auth/social-providers";
 import { verifyProviderIdToken } from "@better-auth/core/oauth2";
 import { decodeJwt } from "jose";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
+import { enabledSocialProviders, socialProviderConfiguration } from "@/lib/auth-social";
 import { lockPrivacyAccount, PrivacyError } from "./access";
 
 export async function checkPrivacyAuthentication(userId: string, sessionId: string) {
@@ -47,15 +48,24 @@ export async function reserveReauthAttempts(userId: string) {
 }
 
 const proofId = (sessionId: string) => `privacy-reauth:${sessionId}`;
-function googleProvider() {
-  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
-  if (!clientId || !clientSecret) throw new PrivacyError("Google sign-in is unavailable.", 503);
-  return google({ clientId, clientSecret, prompt: "select_account", accessType: "online" });
+export type ReauthSocialProvider = "google" | "github";
+const providerLabels = { google: "Google", github: "GitHub" };
+function socialProvider(name: ReauthSocialProvider) {
+  const configuration = socialProviderConfiguration()[name];
+  if (!configuration)
+    throw new PrivacyError(`${providerLabels[name]} sign-in is unavailable.`, 503);
+  const { clientId, clientSecret } = configuration;
+  return name === "google"
+    ? google({ clientId, clientSecret, prompt: "select_account", accessType: "online" })
+    : github({ clientId, clientSecret, prompt: "select_account" });
 }
-function callbackUrl() {
-  if (!process.env.BETTER_AUTH_URL) throw new PrivacyError("Google sign-in is unavailable.", 503);
-  return new URL("/api/privacy/reauth/google", process.env.BETTER_AUTH_URL).href;
+function callbackUrl(name: ReauthSocialProvider) {
+  if (!process.env.BETTER_AUTH_URL)
+    throw new PrivacyError(`${providerLabels[name]} sign-in is unavailable.`, 503);
+  // GitHub shares the registered sign-in callback; namespaced state routes only
+  // these challenges to reauthentication without creating/replacing a session.
+  const path = name === "github" ? "/api/auth/callback/github" : "/api/privacy/reauth/google";
+  return new URL(path, process.env.BETTER_AUTH_URL).href;
 }
 export async function reauthMethods(userId: string) {
   const accounts = (
@@ -64,11 +74,11 @@ export async function reauthMethods(userId: string) {
       [userId],
     )
   ).rows;
+  const enabled = enabledSocialProviders();
   return {
     password: accounts.some((a) => a.providerId === "credential" && Boolean(a.password)),
-    google:
-      Boolean(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()) &&
-      accounts.some((a) => a.providerId === "google"),
+    google: enabled.includes("google") && accounts.some((a) => a.providerId === "google"),
+    github: enabled.includes("github") && accounts.some((a) => a.providerId === "github"),
   };
 }
 async function lockSession(client: PoolClient, userId: string, sessionId: string) {
@@ -114,11 +124,15 @@ export async function reauthenticatePassword(userId: string, sessionId: string, 
   }
 }
 
-type GoogleChallenge = { userId: string; sessionId: string; verifier: string; nonce: string };
-export async function startGoogleReauth(userId: string, sessionId: string) {
-  const provider = googleProvider();
-  const state = randomBytes(32).toString("base64url");
-  const challenge: GoogleChallenge = {
+type SocialChallenge = { userId: string; sessionId: string; verifier: string; nonce: string };
+export async function startSocialReauth(
+  name: ReauthSocialProvider,
+  userId: string,
+  sessionId: string,
+) {
+  const provider = socialProvider(name);
+  const state = `${name === "github" ? "privacy-github:" : ""}${randomBytes(32).toString("base64url")}`;
+  const challenge: SocialChallenge = {
     userId,
     sessionId,
     verifier: randomBytes(32).toString("base64url"),
@@ -129,14 +143,15 @@ export async function startGoogleReauth(userId: string, sessionId: string) {
     await client.query("begin");
     await lockSession(client, userId, sessionId);
     const linked = await client.query(
-      `select id from account where "userId"=$1 and "providerId"='google'`,
-      [userId],
+      `select id from account where "userId"=$1 and "providerId"=$2`,
+      [userId, name],
     );
-    if (!linked.rowCount) throw new PrivacyError("Google is not linked to this account.");
+    if (!linked.rowCount)
+      throw new PrivacyError(`${providerLabels[name]} is not linked to this account.`);
     await client.query(
       `insert into verification (id,identifier,value,"expiresAt") values ($1,$2,$3,now()+interval '10 minutes')
       on conflict(id) do update set identifier=excluded.identifier,value=excluded.value,"expiresAt"=excluded."expiresAt","updatedAt"=now()`,
-      [`privacy-google:${sessionId}`, `privacy-google:${state}`, JSON.stringify(challenge)],
+      [`privacy-${name}:${sessionId}`, `privacy-${name}:${state}`, JSON.stringify(challenge)],
     );
     await client.query("commit");
   } catch (error) {
@@ -147,53 +162,73 @@ export async function startGoogleReauth(userId: string, sessionId: string) {
   }
   const url = await provider.createAuthorizationURL({
     state,
-    redirectURI: callbackUrl(),
+    redirectURI: callbackUrl(name),
     codeVerifier: challenge.verifier,
   });
   // The provider adapter filters nonce from additionalParams, so set our nonce explicitly.
-  url.searchParams.set("nonce", challenge.nonce);
+  if (name === "google") url.searchParams.set("nonce", challenge.nonce);
   return url.href;
 }
-export async function finishGoogleReauth(
+export async function finishSocialReauth(
+  name: ReauthSocialProvider,
   userId: string,
   sessionId: string,
   state: string,
   code: string,
 ) {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(state) || !code || code.length > 4096)
-    throw new PrivacyError("Google verification expired. Try again.");
+  const label = providerLabels[name];
+  const statePattern =
+    name === "github" ? /^privacy-github:[A-Za-z0-9_-]{43}$/ : /^[A-Za-z0-9_-]{43}$/;
+  if (!statePattern.test(state) || !code || code.length > 4096)
+    throw new PrivacyError(`${label} verification expired. Try again.`);
   // Atomically consume the challenge; another session cannot consume or use it.
   const row = (
     await db.query<{ value: string }>(
       `delete from verification where id=$1 and identifier=$2 and "expiresAt">clock_timestamp() returning value`,
-      [`privacy-google:${sessionId}`, `privacy-google:${state}`],
+      [`privacy-${name}:${sessionId}`, `privacy-${name}:${state}`],
     )
   ).rows[0];
-  if (!row) throw new PrivacyError("Google verification expired. Try again.");
-  const challenge = JSON.parse(row.value) as GoogleChallenge;
+  if (!row) throw new PrivacyError(`${label} verification expired. Try again.`);
+  const challenge = JSON.parse(row.value) as SocialChallenge;
   if (challenge.userId !== userId || challenge.sessionId !== sessionId)
-    throw new PrivacyError("Use the Google account linked to your current Tidy account.");
-  const provider = googleProvider();
+    throw new PrivacyError(`Use the ${label} account linked to your current Tidy account.`);
+  const provider = socialProvider(name);
   const tokens = await provider.validateAuthorizationCode({
     code,
     codeVerifier: challenge.verifier,
-    redirectURI: callbackUrl(),
+    redirectURI: callbackUrl(name),
   });
-  if (!tokens.idToken || !(await verifyProviderIdToken(provider, tokens.idToken, challenge.nonce)))
-    throw new PrivacyError("Google could not verify your identity. Try again.");
-  const claims = decodeJwt(tokens.idToken);
-  if (!claims.sub || claims.email_verified !== true)
-    throw new PrivacyError("Use a verified Google account.");
+  if (!tokens?.accessToken)
+    throw new PrivacyError(`${label} could not verify your identity. Try again.`);
+  let subject: string;
+  if (provider.id === "google") {
+    if (
+      !tokens.idToken ||
+      !(await verifyProviderIdToken(provider, tokens.idToken, challenge.nonce))
+    )
+      throw new PrivacyError("Google could not verify your identity. Try again.");
+    const claims = decodeJwt(tokens.idToken);
+    if (!claims.sub || claims.email_verified !== true)
+      throw new PrivacyError("Use a verified Google account.");
+    subject = claims.sub;
+  } else {
+    // Read identity from GitHub using the newly exchanged token, never an email
+    // match or a stored token. GitHub's immutable numeric ID is the linked subject.
+    const profile = await provider.getUserInfo(tokens);
+    if (!profile?.data.id || !profile.user.emailVerified)
+      throw new PrivacyError("Use a verified GitHub account.");
+    subject = String(profile.data.id);
+  }
   const client = await db.connect();
   try {
     await client.query("begin");
     await lockSession(client, userId, sessionId);
     const linked = await client.query(
-      `select id from account where "userId"=$1 and "providerId"='google' and "accountId"=$2 for share`,
-      [userId, claims.sub],
+      `select id from account where "userId"=$1 and "providerId"=$2 and "accountId"=$3 for share`,
+      [userId, name, subject],
     );
     if (!linked.rowCount)
-      throw new PrivacyError("Use the Google account linked to your current Tidy account.");
+      throw new PrivacyError(`Use the ${label} account linked to your current Tidy account.`);
     await recordProof(client, userId, sessionId);
     await client.query("commit");
   } catch (error) {

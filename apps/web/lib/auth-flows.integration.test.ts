@@ -578,3 +578,90 @@ test("provider configuration requires both dedicated credentials and does not re
     }
   }
 });
+
+integration(
+  "GitHub reauthentication callback preserves the signed-in account and normal sign-in",
+  async () => {
+    const { GET: callback } = await import("../app/api/auth/[...all]/route");
+    const { GET: methods, POST: start } = await import("../app/api/privacy/reauth/route");
+    const { checkPrivacyAuthentication } = await import("./privacy/reauth");
+    // Exercise ordinary sign-in through the same route that dispatches reauthentication.
+    const signIn = await startSocial("github");
+    const signedIn = await callback(
+      new Request(
+        `${origin}/api/auth/callback/github?code=test-code&state=${signIn.target.searchParams.get("state")}`,
+        { headers: { cookie: signIn.cookie } },
+      ),
+    );
+    expect(signedIn.status).toBe(302);
+    const headers = new Headers({
+      cookie: cookie(signedIn.headers),
+      origin,
+      "X-Tidy-Privacy": "1",
+      "Content-Type": "application/json",
+    });
+    const session = (await auth.api.getSession({ headers }))!;
+    expect(session.user.email).toBe(identity.email);
+    await db.query("update session set \"createdAt\"=now()-interval '1 day' where id=$1", [
+      session.session.id,
+    ]);
+    await expect(checkPrivacyAuthentication(session.user.id, session.session.id)).rejects.toThrow(
+      "Authenticate again",
+    );
+    const available = (await (
+      await methods(new Request(`${origin}/api/privacy/reauth`, { headers }))
+    ).json()) as { password: boolean; google: boolean; github: boolean };
+    expect(available).toEqual({ password: false, google: false, github: true });
+    const begin = async () => {
+      const response = await start(
+        new Request(`${origin}/api/privacy/reauth`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ provider: "github" }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as { url: string };
+      return new URL(payload.url).searchParams.get("state")!;
+    };
+    const finish = (state: string, extra = "code=test-code", withSession = true) =>
+      callback(
+        new Request(
+          `${origin}/api/auth/callback/github?state=${encodeURIComponent(state)}&${extra}`,
+          { headers: withSession ? headers : {} },
+        ),
+      );
+    let state = await begin();
+    const canceled = await finish(state, "error=access_denied");
+    expect(new URL(canceled.headers.get("location")!).searchParams.get("result")).toBe("error");
+    const missingSession = await finish(state, "code=test-code", false);
+    expect(new URL(missingSession.headers.get("location")!).searchParams.get("result")).toBe(
+      "error",
+    );
+    identity.subject = "another-github-account";
+    const wrongAccount = await finish(state);
+    expect(new URL(wrongAccount.headers.get("location")!).searchParams.get("result")).toBe("error");
+    await expect(checkPrivacyAuthentication(session.user.id, session.session.id)).rejects.toThrow(
+      "Authenticate again",
+    );
+    identity.subject = "test-provider-user";
+    state = await begin();
+    const verified = await finish(state);
+    expect(verified.status).toBe(303);
+    expect(new URL(verified.headers.get("location")!).searchParams.get("result")).toBe("success");
+    expect(verified.headers.getSetCookie()).toEqual([]);
+    expect(verified.headers.get("cache-control")).toBe("private, no-store");
+    await checkPrivacyAuthentication(session.user.id, session.session.id);
+    const replay = await finish(state);
+    expect(new URL(replay.headers.get("location")!).searchParams.get("result")).toBe("error");
+    const preserved = (await auth.api.getSession({
+      headers,
+      query: { disableCookieCache: true },
+    }))!;
+    expect(preserved.user.id).toBe(session.user.id);
+    expect(preserved.session.id).toBe(session.session.id);
+    expect((await db.query("select count(*)::integer as count from session")).rows[0].count).toBe(
+      1,
+    );
+  },
+);

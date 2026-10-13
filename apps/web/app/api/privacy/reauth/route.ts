@@ -6,7 +6,7 @@ import {
   reserveReauthAttempts,
   reauthMethods,
   reauthenticatePassword,
-  startGoogleReauth,
+  startSocialReauth,
 } from "@/lib/privacy/reauth";
 export async function GET(request: Request) {
   try {
@@ -32,9 +32,9 @@ export async function POST(request: Request) {
       provider?: unknown;
       password?: unknown;
     } | null;
-    if (data?.provider === "google")
+    if (data?.provider === "google" || data?.provider === "github")
       return Response.json(
-        { url: await startGoogleReauth(user.id, session.id) },
+        { url: await startSocialReauth(data.provider, user.id, session.id) },
         { headers: privateHeaders },
       );
     if (
