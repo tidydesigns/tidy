@@ -1,0 +1,30 @@
+diff --git a/dist/async_hooks/index.mjs b/dist/async_hooks/index.mjs
+index c74f6a88c8fee3581e243fe4045c2b1d848109da..c349b10f225abe49903423fc57d9634d3fad2a9e 100644
+--- a/dist/async_hooks/index.mjs
++++ b/dist/async_hooks/index.mjs
+@@ -1,20 +1,10 @@
++import { AsyncLocalStorage } from "node:async_hooks";
+ //#region src/async_hooks/index.ts
+-const AsyncLocalStoragePromise = import(
+-	/* @vite-ignore */
+-	/* webpackIgnore: true */
+-	"node:async_hooks"
+-).then((mod) => mod.AsyncLocalStorage).catch((err) => {
+-	if ("AsyncLocalStorage" in globalThis) return globalThis.AsyncLocalStorage;
+-	if (typeof window !== "undefined") return null;
+-	console.warn("[better-auth] Warning: AsyncLocalStorage is not available in this environment. Some features may not work as expected.");
+-	console.warn("[better-auth] Please read more about this warning at https://better-auth.com/docs/installation#mount-handler");
+-	console.warn("[better-auth] If you are using Cloudflare Workers, please see: https://developers.cloudflare.com/workers/configuration/compatibility-flags/#nodejs-compatibility-flag");
+-	throw err;
+-});
++// Node and nodejs_compat Workers provide this module at startup. A dynamic
++// import driven by a canceled Worker request can stay pending across requests.
++// Browser and edge exports continue to use the separate pure implementation.
+ async function getAsyncLocalStorage() {
+-	const mod = await AsyncLocalStoragePromise;
+-	if (mod === null) throw new Error("getAsyncLocalStorage is only available in server code");
+-	else return mod;
++	return AsyncLocalStorage;
+ }
+ //#endregion
+ export { getAsyncLocalStorage };

@@ -155,6 +155,7 @@
     "unrs-resolver",
   ],
   "patchedDependencies": {
+    "@better-auth/core@1.7.7": "patches/@better-auth%2Fcore@1.7.7.patch",
     "paper@0.12.18": "patches/paper@0.12.18.patch",
     "@better-auth/oauth-provider@1.7.7": "patches/@better-auth%2Foauth-provider@1.7.7.patch",
   },

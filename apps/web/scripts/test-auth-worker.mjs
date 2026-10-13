@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+await import("./test-auth-context-worker.mjs");
+
 // Use Wrangler's matching Miniflare/workerd version. Never contact production.
 const require = createRequire(import.meta.url);
 const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
