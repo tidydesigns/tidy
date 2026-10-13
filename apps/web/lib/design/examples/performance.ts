@@ -32,3 +32,30 @@ export function performanceDocument(count: number) {
   }
   return parseDesignDocument(document);
 }
+
+/** Dense sibling selections exercise per-layer work rather than moving a few artboard roots. */
+export function selectionPerformanceDocument(selectedCount: number) {
+  if (!Number.isInteger(selectedCount) || selectedCount < 1 || selectedCount > 4999)
+    throw new Error("Select between 1 and 4,999 layers within the document limit.");
+  const document = blankDesignDocument();
+  const columns = Math.min(50, selectedCount);
+  document.nodes.push(
+    buildDrawnNode("selection-frame", "artboard", null, {
+      x: 0,
+      y: 0,
+      width: columns * 28 + 40,
+      height: Math.ceil(selectedCount / columns) * 20 + 40,
+    }),
+  );
+  for (let index = 0; index < selectedCount; index++) {
+    const node = buildDrawnNode(`selected-${index}`, "container", "selection-frame", {
+      x: (index % columns) * 28 + 20,
+      y: Math.floor(index / columns) * 20 + 20,
+      width: 20,
+      height: 12,
+    });
+    node.name = `Selected layer ${index + 1}`;
+    document.nodes.push(node);
+  }
+  return parseDesignDocument(document);
+}

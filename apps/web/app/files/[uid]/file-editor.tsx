@@ -616,12 +616,13 @@ export function FileEditor({
     [renderedNodes],
   );
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const inspectorSelection = useMemo(
     () =>
       renderedNodes.filter(
-        (node) => selectedIds.includes(node.id) && (readOnly || !isLayerLocked(nodes, node.id)),
+        (node) => selectedIdSet.has(node.id) && (readOnly || !isLayerLocked(nodes, node.id)),
       ),
-    [renderedNodes, nodes, selectedIds, readOnly],
+    [renderedNodes, nodes, selectedIdSet, readOnly],
   );
   useEditorPerformance(viewport, nodes.length, panelsOpen, selectedIds.length > 0);
   const visibleRootIds = useVisibleArtboards(
@@ -665,14 +666,10 @@ export function FileEditor({
     [nodes, nodesById, selectedIds],
   );
   const multiScaleParent =
-    multiScaleIds.length > 1
-      ? nodes.find((node) => node.id === multiScaleIds[0])?.parentId
-      : undefined;
+    multiScaleIds.length > 1 ? nodesById.get(multiScaleIds[0])?.parentId : undefined;
   const canScaleSelection =
     multiScaleIds.length > 1 &&
-    multiScaleIds.every(
-      (id) => nodes.find((node) => node.id === id)?.parentId === multiScaleParent,
-    );
+    multiScaleIds.every((id) => nodesById.get(id)?.parentId === multiScaleParent);
   const inspectorOpen =
     !prototypeMode &&
     selected !== null &&

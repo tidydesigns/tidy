@@ -1,0 +1,128 @@
+{
+  "baselineCommit": "dddb3f4",
+  "priorOptimizedCommit": "a069cb0",
+  "order": ["baseline-1", "optimized-1", "optimized-2", "baseline-2"],
+  "aggregation": "median of per-run medians; small exploratory samples",
+  "results": [
+    {
+      "selected": 100,
+      "metrics": {
+        "selectionP50Ms": {
+          "baseline": 110.05,
+          "optimized": 117.6,
+          "speedup": 0.936
+        },
+        "dragPreviewP50Ms": {
+          "baseline": 61.9,
+          "optimized": 60.0,
+          "speedup": 1.032
+        },
+        "dragStartMs": {
+          "baseline": 17.9,
+          "optimized": 24.85,
+          "speedup": 0.72
+        },
+        "dropCommitFrameMs": {
+          "baseline": 107.15,
+          "optimized": 75.25,
+          "speedup": 1.424
+        },
+        "dragTaskMs": {
+          "baseline": 765.4,
+          "optimized": 671.25,
+          "speedup": 1.14
+        },
+        "dragScriptMs": {
+          "baseline": 517.1,
+          "optimized": 448.9,
+          "speedup": 1.152
+        },
+        "dragLayoutMs": {
+          "baseline": 7.2,
+          "optimized": 6.6,
+          "speedup": 1.091
+        }
+      }
+    },
+    {
+      "selected": 1000,
+      "metrics": {
+        "selectionP50Ms": {
+          "baseline": 602.55,
+          "optimized": 442.75,
+          "speedup": 1.361
+        },
+        "dragPreviewP50Ms": {
+          "baseline": 406.2,
+          "optimized": 295.9,
+          "speedup": 1.373
+        },
+        "dragStartMs": {
+          "baseline": 33.9,
+          "optimized": 34.25,
+          "speedup": 0.99
+        },
+        "dropCommitFrameMs": {
+          "baseline": 654.2,
+          "optimized": 354.6,
+          "speedup": 1.845
+        },
+        "dragTaskMs": {
+          "baseline": 3981.0,
+          "optimized": 2951.2,
+          "speedup": 1.349
+        },
+        "dragScriptMs": {
+          "baseline": 3260.75,
+          "optimized": 2225.55,
+          "speedup": 1.465
+        },
+        "dragLayoutMs": {
+          "baseline": 24.15,
+          "optimized": 24.0,
+          "speedup": 1.006
+        }
+      }
+    },
+    {
+      "selected": 4999,
+      "metrics": {
+        "selectionP50Ms": {
+          "baseline": 4274.55,
+          "optimized": 1731.2,
+          "speedup": 2.469
+        },
+        "dragPreviewP50Ms": {
+          "baseline": 3013.0,
+          "optimized": 1204.7,
+          "speedup": 2.501
+        },
+        "dragStartMs": {
+          "baseline": 146.7,
+          "optimized": 148.95,
+          "speedup": 0.985
+        },
+        "dropCommitFrameMs": {
+          "baseline": 5437.4,
+          "optimized": 1423.15,
+          "speedup": 3.821
+        },
+        "dragTaskMs": {
+          "baseline": 30323.25,
+          "optimized": 11933.45,
+          "speedup": 2.541
+        },
+        "dragScriptMs": {
+          "baseline": 26864.3,
+          "optimized": 9011.8,
+          "speedup": 2.981
+        },
+        "dragLayoutMs": {
+          "baseline": 138.9,
+          "optimized": 128.05,
+          "speedup": 1.085
+        }
+      }
+    }
+  ]
+}

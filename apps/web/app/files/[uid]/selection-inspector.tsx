@@ -11,7 +11,11 @@ import {
   createVectorMask,
   releaseVectorComposite,
 } from "@/lib/design/vector-composite-operations";
-import { vectorMaskSource, vectorOperand } from "@bella/design/vector-relationships";
+import {
+  vectorMaskSource,
+  vectorMaskSources,
+  vectorOperand,
+} from "@bella/design/vector-relationships";
 import type { VectorBoolean } from "@bella/design/vector-boolean";
 import { ComponentPropertiesInspector } from "./component-properties-inspector";
 import { ReusableStylesInspector } from "./reusable-styles-inspector";
@@ -193,7 +197,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   const text = selected.every((item) => item.type === "text");
   const vector = selected.every((item) => Boolean(item.vectorPath || item.vectorBoolean));
   const hasVector = selected.some((item) => Boolean(item.vectorPath || item.vectorBoolean));
-  const maskSources = selected.filter((item) => vectorMaskSource(item, document.nodes));
+  const maskSources = vectorMaskSources(selected, document.nodes);
   const chosenMaskSource =
     maskSources.find((item) => item.id === maskSourceId) ?? maskSources.at(-1);
   function combinePaths(operation: VectorBoolean) {

@@ -2,7 +2,10 @@ import { notFound } from "next/navigation";
 import { headers } from "next/headers";
 import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { FilesBrowser } from "@/app/files/files-browser";
-import { performanceDocument } from "@/lib/design/examples/performance";
+import {
+  performanceDocument,
+  selectionPerformanceDocument,
+} from "@/lib/design/examples/performance";
 import { thumbnailVersion } from "@/lib/design/thumbnail-version";
 import { ThumbnailPrewarmFixture } from "./thumbnail-prewarm-fixture";
 export default async function PerformancePreview({
@@ -56,13 +59,21 @@ export default async function PerformancePreview({
     );
   }
   const count = [100, 1000, 5000].includes(Number(query.nodes)) ? Number(query.nodes) : 1000;
+  const selectionCount = [100, 1000, 4999].includes(Number(query.selection))
+    ? Number(query.selection)
+    : null;
   return (
     <FileEditor
       fileId="performance-fixture"
-      fileName={`${count} layers`}
+      fileName={selectionCount ? `${selectionCount} selectable siblings` : `${count} layers`}
       organizationName="Local performance fixture"
       backHref="/files"
-      initialDocument={{ revision: 1, content: performanceDocument(count) }}
+      initialDocument={{
+        revision: 1,
+        content: selectionCount
+          ? selectionPerformanceDocument(selectionCount)
+          : performanceDocument(count),
+      }}
       local
       initialPanelsOpen={query.compact !== "1"}
     />
