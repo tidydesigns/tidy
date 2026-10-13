@@ -9,6 +9,7 @@ export class PrivacyError extends PublicActionError {
   constructor(
     message: string,
     readonly status = 400,
+    readonly code?: "REAUTH_REQUIRED" | "SESSION_REQUIRED",
   ) {
     super(message);
   }
@@ -20,7 +21,7 @@ export const privateHeaders = {
 
 export async function privacyAccount(
   request: Request,
-  operation: "privacy-export" | "privacy-delete",
+  operation: "privacy-export" | "privacy-delete" | "privacy-reauth",
 ) {
   // Next.js/proxies can expose an internal request URL. Use the configured public
   // origin, never a caller-supplied Host or forwarded header, for the CSRF boundary.
@@ -33,7 +34,7 @@ export async function privacyAccount(
     headers: request.headers,
     query: { disableCookieCache: true },
   });
-  if (!session) throw new PrivacyError("Sign in to manage your data.", 401);
+  if (!session) throw new PrivacyError("Sign in to manage your data.", 401, "SESSION_REQUIRED");
   await reservePersonalAttempts(operation, session.user.id);
   return session;
 }
@@ -49,12 +50,14 @@ export async function lockPrivacyAccount(client: PoolClient, userId: string, ses
   const session = (
     await client.query(
       `select id from "session" where id=$1 and "userId"=$2 and "expiresAt">clock_timestamp()
-     and "createdAt">clock_timestamp()-interval '5 minutes' for share`,
+     and ("createdAt">clock_timestamp()-interval '5 minutes' or exists
+       (select 1 from verification v where v.identifier='privacy-reauth:' || session.id
+        and v.value=$2 and v."expiresAt">clock_timestamp())) for share`,
       [sessionId, userId],
     )
   ).rows[0];
   if (!user || !session)
-    throw new PrivacyError("Sign out and sign in again, then retry within five minutes.", 401);
+    throw new PrivacyError("Authenticate again to continue.", 401, "REAUTH_REQUIRED");
   return user;
 }
 export function privacyFailure(error: unknown) {
@@ -64,7 +67,10 @@ export function privacyFailure(error: unknown) {
     error instanceof RequestBodyError;
   if (!known) console.error(JSON.stringify({ event: "privacy_request_failed" }));
   return Response.json(
-    { error: known ? error.message : "Could not complete your privacy request. Please try again." },
+    {
+      error: known ? error.message : "Could not complete your privacy request. Please try again.",
+      ...(error instanceof PrivacyError && error.code ? { code: error.code } : {}),
+    },
     { status: known ? error.status : 500, headers: privateHeaders },
   );
 }

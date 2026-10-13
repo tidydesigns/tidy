@@ -64,11 +64,11 @@ integration(
   },
 );
 integration("export rejects expired, other-user and old sessions", async () => {
-  await expect(exportAccount("alice", "bob-session")).rejects.toThrow("Sign out");
+  await expect(exportAccount("alice", "bob-session")).rejects.toThrow("Authenticate again");
   await admin.query(
     `update session set "createdAt"=now()-interval '6 minutes' where id='alice-session'`,
   );
-  await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Sign out");
+  await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
 });
 integration("wrong confirmation and last owner cannot delete or enqueue cleanup", async () => {
   await expect(deleteAccount("alice", "alice-session", "wrong")).rejects.toThrow("email address");
@@ -103,7 +103,7 @@ integration(
     expect((await admin.query('select kind from "privacyCleanup"')).rows).toEqual([
       { kind: "posthog" },
     ]);
-    await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Sign out");
+    await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
   },
 );
 integration(
@@ -219,5 +219,235 @@ integration(
       if (previous === undefined) delete process.env.BETTER_AUTH_URL;
       else process.env.BETTER_AUTH_URL = previous;
     }
+  },
+);
+
+integration(
+  "password reauthentication unlocks only the current live session and expires after five minutes",
+  async () => {
+    const { hashPassword } = await import("better-auth/crypto");
+    const { reauthenticatePassword } = await import("./reauth");
+    await admin.query(`update account set password=$1 where "userId"='alice'`, [
+      await hashPassword("fixture-password-123"),
+    ]);
+    await admin.query(
+      `update session set "createdAt"=now()-interval '1 day' where "userId"='alice'`,
+    );
+    await expect(
+      reauthenticatePassword("alice", "alice-session", "wrong-password"),
+    ).rejects.toThrow("incorrect");
+    await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+    await reauthenticatePassword("alice", "alice-session", "fixture-password-123");
+    expect((await exportAccount("alice", "alice-session")).profile[0].id).toBe("alice");
+    expect(
+      (
+        await admin.query(
+          `select "createdAt"<now()-interval '1 hour' as old from session where id='alice-session'`,
+        )
+      ).rows[0].old,
+    ).toBe(true);
+    await admin.query(
+      `insert into session (id,token,"userId","expiresAt","createdAt","updatedAt") values ('alice-other','OTHER_SECRET','alice',now()+interval '1 day',now()-interval '1 day',now())`,
+    );
+    await expect(exportAccount("alice", "alice-other")).rejects.toThrow("Authenticate again");
+    await expect(
+      reauthenticatePassword("bob", "alice-session", "fixture-password-123"),
+    ).rejects.toThrow("session has ended");
+    await admin.query(
+      `update verification set "expiresAt"=now()-interval '1 second' where identifier='privacy-reauth:alice-session'`,
+    );
+    await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+    await admin.query(`delete from session where id='alice-session'`);
+    await expect(
+      reauthenticatePassword("alice", "alice-session", "fixture-password-123"),
+    ).rejects.toThrow("session has ended");
+  },
+);
+
+integration(
+  "revoking a verified session blocks export and deletion without affecting other sessions",
+  async () => {
+    const { hashPassword } = await import("better-auth/crypto");
+    const { reauthenticatePassword } = await import("./reauth");
+    await admin.query(`update account set password=$1 where "userId"='alice'`, [
+      await hashPassword("fixture-password-123"),
+    ]);
+    await admin.query(
+      `update session set "createdAt"=now()-interval '1 day' where id='alice-session'`,
+    );
+    await admin.query(`insert into session (id,token,"userId","expiresAt","createdAt","updatedAt")
+    values ('alice-other','OTHER_SECRET','alice',now()+interval '1 day',now(),now())`);
+    await reauthenticatePassword("alice", "alice-session", "fixture-password-123");
+    await admin.query(`delete from session where id='alice-other'`);
+    expect((await exportAccount("alice", "alice-session")).profile[0].id).toBe("alice");
+    await admin.query(`delete from session where id='alice-session'`);
+    expect(
+      (
+        await admin.query(`select id from verification where identifier='privacy-reauth:alice-session'
+    and "expiresAt">now()`)
+      ).rowCount,
+    ).toBe(1);
+    await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+    await expect(deleteAccount("alice", "alice-session", "alice@example.test")).rejects.toThrow(
+      "Authenticate again",
+    );
+    await expect(
+      reauthenticatePassword("alice", "alice-session", "fixture-password-123"),
+    ).rejects.toThrow("session has ended");
+    expect((await admin.query(`select id from "user" where id='alice'`)).rowCount).toBe(1);
+    expect(
+      (await admin.query(`select id from "designCommentMessage" where "authorId"='alice'`))
+        .rowCount,
+    ).toBe(1);
+    expect((await admin.query(`select id from "privacyCleanup"`)).rowCount).toBe(0);
+  },
+);
+
+integration(
+  "reauthenticated deletion removes the verification proof with the account",
+  async () => {
+    const { hashPassword } = await import("better-auth/crypto");
+    const { reauthenticatePassword } = await import("./reauth");
+    await admin.query(`update account set password=$1 where "userId"='alice'`, [
+      await hashPassword("fixture-password-123"),
+    ]);
+    await admin.query(
+      `update session set "createdAt"=now()-interval '1 day' where "userId"='alice'`,
+    );
+    await reauthenticatePassword("alice", "alice-session", "fixture-password-123");
+    await deleteAccount("alice", "alice-session", "alice@example.test");
+    expect(
+      (
+        await admin.query(
+          `select id from verification where identifier='privacy-reauth:alice-session'`,
+        )
+      ).rowCount,
+    ).toBe(0);
+  },
+);
+
+integration(
+  "Google reauthentication binds signed identity, nonce, one-use state and the original session",
+  async () => {
+    const { spyOn } = await import("bun:test");
+    const { generateKeyPair, exportJWK, SignJWT } = await import("jose");
+    const { startGoogleReauth, finishGoogleReauth } = await import("./reauth");
+    const keys = ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "BETTER_AUTH_URL"];
+    const previous = keys.map((key) => process.env[key]);
+    Object.assign(process.env, {
+      GOOGLE_CLIENT_ID: "privacy-fixture-client",
+      GOOGLE_CLIENT_SECRET: "privacy-fixture-secret",
+      BETTER_AUTH_URL: "https://app.example.test",
+    });
+    const pair = await generateKeyPair("RS256");
+    const jwk = {
+      ...(await exportJWK(pair.publicKey)),
+      kid: "privacy-fixture",
+      alg: "RS256",
+      use: "sig",
+    };
+    let idToken;
+    const transport = spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url === "https://oauth2.googleapis.com/token")
+        return Response.json({
+          access_token: "fixture",
+          token_type: "Bearer",
+          expires_in: 3600,
+          id_token: idToken,
+        });
+      if (url === "https://www.googleapis.com/oauth2/v3/certs")
+        return Response.json({ keys: [jwk] });
+      throw new Error("Unexpected external request");
+    });
+    try {
+      await admin.query(
+        `insert into account (id,"accountId","providerId","userId","createdAt","updatedAt") values ('alice-google','google-alice','google','alice',now(),now())`,
+      );
+      await admin.query(
+        `update session set "createdAt"=now()-interval '1 day' where "userId"='alice'`,
+      );
+      const begin = async (
+        subject = "google-alice",
+        nonceOverride,
+        audience = "privacy-fixture-client",
+      ) => {
+        const url = new URL(await startGoogleReauth("alice", "alice-session"));
+        expect(url.searchParams.get("prompt")).toBe("select_account");
+        expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+        idToken = await new SignJWT({
+          nonce: nonceOverride ?? url.searchParams.get("nonce"),
+          email_verified: true,
+        })
+          .setProtectedHeader({ alg: "RS256", kid: "privacy-fixture" })
+          .setIssuer("https://accounts.google.com")
+          .setAudience(audience)
+          .setSubject(subject)
+          .setIssuedAt()
+          .setExpirationTime("5m")
+          .sign(pair.privateKey);
+        return url.searchParams.get("state");
+      };
+      let state = await begin();
+      await expect(finishGoogleReauth("bob", "bob-session", state, "fixture-code")).rejects.toThrow(
+        "expired",
+      );
+      await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+      await finishGoogleReauth("alice", "alice-session", state, "fixture-code");
+      expect((await exportAccount("alice", "alice-session")).profile[0].id).toBe("alice");
+      await expect(
+        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("expired");
+      await admin.query(`delete from verification where identifier='privacy-reauth:alice-session'`);
+      state = await begin("google-other");
+      await expect(
+        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("linked");
+      state = await begin("google-alice", "wrong-nonce");
+      await expect(
+        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("verify your identity");
+      state = await begin("google-alice", undefined, "wrong-client");
+      await expect(
+        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("verify your identity");
+      state = await begin();
+      await admin.query(
+        `update verification set "expiresAt"=now()-interval '1 second' where id='privacy-google:alice-session'`,
+      );
+      await expect(
+        finishGoogleReauth("alice", "alice-session", state, "fixture-code"),
+      ).rejects.toThrow("expired");
+      await expect(exportAccount("alice", "alice-session")).rejects.toThrow("Authenticate again");
+    } finally {
+      transport.mockRestore();
+      keys.forEach((key, index) => {
+        if (previous[index] === undefined) delete process.env[key];
+        else process.env[key] = previous[index];
+      });
+    }
+  },
+);
+
+integration(
+  "reauthentication attempts are atomically limited across sessions and cleaned on deletion",
+  async () => {
+    const { reserveReauthAttempts } = await import("./reauth");
+    const results = await Promise.allSettled(
+      Array.from({ length: 8 }, () => reserveReauthAttempts("alice")),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(5);
+    expect(results.filter((result) => result.status === "rejected")).toHaveLength(3);
+    await admin.query(
+      `update verification set "expiresAt"=now()-interval '1 second' where id='privacy-attempt:alice:60'`,
+    );
+    await reserveReauthAttempts("alice");
+    await admin.query(`update verification set value='20' where id='privacy-attempt:alice:3600'`);
+    await expect(reserveReauthAttempts("alice")).rejects.toMatchObject({ status: 429 });
+    await deleteAccount("alice", "alice-session", "alice@example.test");
+    expect(
+      (await admin.query(`select id from verification where identifier='privacy-attempt:alice'`))
+        .rowCount,
+    ).toBe(0);
   },
 );

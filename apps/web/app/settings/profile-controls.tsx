@@ -270,7 +270,7 @@ export function ProfileControls({
           </ul>
         </div>
       )}
-      <PrivacyControls email={user.email} returnPath="/settings#account-data" />
+      <PrivacyControls email={user.email} />
     </section>
   );
 }

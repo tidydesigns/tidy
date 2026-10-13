@@ -1,22 +1,19 @@
 "use client";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
+import { ReauthDialog } from "./reauth-dialog";
 
-export function PrivacyControls({
-  email,
-  returnPath = "/account/privacy",
-}: {
-  email: string;
-  returnPath?: "/account/privacy" | "/settings#account-data";
-}) {
+class ReauthRequired extends Error {}
+
+export function PrivacyControls({ email }: { email: string }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState("");
-  const [reauth, setReauth] = useState(false);
+  const [authOperation, setAuthOperation] = useState<"delete" | "export" | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
@@ -27,8 +24,16 @@ export function PrivacyControls({
       body: JSON.stringify(operation === "delete" ? { confirmation } : {}),
     });
     if (!response.ok) {
-      if (response.status === 401) setReauth(true);
-      const result = (await response.json().catch(() => null)) as { error?: string } | null;
+      const result = (await response.json().catch(() => null)) as {
+        error?: string;
+        code?: string;
+      } | null;
+      if (result?.code === "REAUTH_REQUIRED") {
+        dialog.current?.close();
+        setError("");
+        setAuthOperation(operation);
+        throw new ReauthRequired();
+      }
       throw new Error(result?.error ?? "Could not complete your request. Please try again.");
     }
     return response;
@@ -53,7 +58,8 @@ export function PrivacyControls({
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setMessage("Your personal data download is ready.");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Download failed.");
+      if (!(error instanceof ReauthRequired))
+        setError(error instanceof Error ? error.message : "Download failed.");
     } finally {
       setPending(false);
     }
@@ -69,34 +75,30 @@ export function PrivacyControls({
       await authClient.signOut().catch(() => {});
       window.location.replace("/login?deleted=1");
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Deletion failed.");
+      if (!(error instanceof ReauthRequired))
+        setError(error instanceof Error ? error.message : "Deletion failed.");
       setPending(false);
     }
   }
-  async function signInAgain() {
-    setPending(true);
+  function verified() {
+    const operation = authOperation;
+    setAuthOperation(null);
     setError("");
-    try {
-      const result = await authClient.signOut();
-      if (result.error) throw new Error("Could not sign out. Please try again.");
-      resetPostHogUser();
-      window.location.assign(`/login?next=${encodeURIComponent(returnPath)}`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not sign out.");
-      setPending(false);
+    if (operation === "export") void download();
+    else {
+      // Reauthentication never submits a destructive action automatically.
+      setConfirmation("");
+      setDialogOpen(true);
+      dialog.current?.showModal();
     }
   }
+  const cancelAuth = useCallback(() => setAuthOperation(null), []);
   const status = (
     <>
       {error && (
         <p role="alert" className="my-4 text-sm text-danger">
           {error}
         </p>
-      )}
-      {reauth && (
-        <Button variant="text" disabled={pending} onClick={() => void signInAgain()}>
-          Sign out and sign in again
-        </Button>
       )}
     </>
   );
@@ -113,8 +115,8 @@ export function PrivacyControls({
           Download your profile, memberships, comments, connections, agent conversations and designs
           you created, plus feedback stored in Tidy, as JSON. Passwords and access tokens are
           excluded. Export complete design files with images from the editor. For historical
-          analytics, legacy feedback or other records held outside Tidy, contact the operator.
-          Export and deletion require a sign-in within the last five minutes.
+          analytics, legacy feedback or other records held outside Tidy, contact the operator. We’ll
+          ask you to authenticate again when needed.
         </p>
         <Button disabled={pending} onClick={() => void download()}>
           {pending ? "Working…" : "Download my data"}
@@ -151,6 +153,7 @@ export function PrivacyControls({
         </Button>
       </section>
       {!dialogOpen && status}
+      {authOperation && <ReauthDialog email={email} onVerified={verified} onCancel={cancelAuth} />}
       <Dialog
         ref={dialog}
         onClose={() => setDialogOpen(false)}

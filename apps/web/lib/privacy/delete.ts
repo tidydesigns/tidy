@@ -100,12 +100,13 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
     // OAuth authorization codes containing this subject, including pending resets.
     await client.query(
       `delete from verification where identifier=$1 or identifier=$2 or value=$1
-      or value like $3 or value like $4`,
+      or value like $3 or value like $4 or identifier=$5`,
       [
         userId,
         user.email,
         `%"userId":"${userId.replace(/[\\%_]/g, "\\$&")}"%`,
         `%"email":"${user.email.replace(/[\\%_]/g, "\\$&")}"%`,
+        `privacy-attempt:${userId}`,
       ],
     );
     // Cascades revoke all sessions, OAuth consents/tokens, connections, vault
