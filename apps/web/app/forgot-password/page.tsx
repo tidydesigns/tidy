@@ -1,8 +1,15 @@
+import type { Metadata } from "next";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { authEmailConfigured } from "@/lib/auth-email";
 import { ForgotPasswordForm } from "./reset-form";
 import { headers } from "next/headers";
+
+export const metadata: Metadata = {
+  title: "Reset your password — Tidy",
+  description: "Request a password reset link for your Tidy account.",
+  robots: { index: false },
+};
 
 export default async function ForgotPasswordPage() {
   // Delivery configuration belongs to the running app, not its build environment.

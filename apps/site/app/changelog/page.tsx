@@ -2,12 +2,13 @@ import type { Metadata } from "next";
 import { SiteFooter } from "../../components/site-footer";
 import { SiteHeader } from "../../components/site-header";
 import { changelog, type ChangelogItem } from "../../content/changelog";
+import { pageMetadata } from "../../lib/page-metadata";
 
-export const metadata: Metadata = {
-  title: "Changelog — Tidy",
-  description: "The latest features and fixes in Tidy, day by day.",
-  alternates: { canonical: "/changelog" },
-};
+export const metadata: Metadata = pageMetadata(
+  "/changelog",
+  "Changelog — Tidy",
+  "The latest features and fixes in Tidy, the open-source design canvas for teams and AI agents.",
+);
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",

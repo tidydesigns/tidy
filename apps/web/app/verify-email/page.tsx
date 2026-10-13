@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -5,6 +6,12 @@ import { authEmailConfigured } from "@/lib/auth-email";
 import { authReturnPath } from "@/lib/auth-return-path";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { VerificationForm } from "@/components/auth/verification-form";
+
+export const metadata: Metadata = {
+  title: "Verify your email — Tidy",
+  description: "Verify your email to finish signing in to Tidy.",
+  robots: { index: false },
+};
 
 export default async function VerifyEmailPage({ searchParams }: PageProps<"/verify-email">) {
   const params = await searchParams;

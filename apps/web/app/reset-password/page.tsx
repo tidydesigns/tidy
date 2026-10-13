@@ -1,6 +1,13 @@
+import type { Metadata } from "next";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { AuthShell } from "@/components/auth/auth-shell";
 import { ResetPasswordForm } from "./reset-form";
+
+export const metadata: Metadata = {
+  title: "Choose a new password — Tidy",
+  description: "Choose a new password for your Tidy account.",
+  robots: { index: false },
+};
 
 export default async function ResetPasswordPage({
   searchParams,

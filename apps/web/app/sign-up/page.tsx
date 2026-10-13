@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -5,6 +6,12 @@ import { SignUpForm } from "./sign-up-form";
 import { authReturnPath, socialSignInError } from "@/lib/auth-return-path";
 import { enabledSocialProviders } from "@/lib/auth-social";
 import { authEmailConfigured } from "@/lib/auth-email";
+
+export const metadata: Metadata = {
+  title: "Create an account — Tidy",
+  description: "Create an account to start designing in Tidy.",
+  robots: { index: false },
+};
 
 export default async function SignUpPage({ searchParams }: PageProps<"/sign-up">) {
   const params = await searchParams;
