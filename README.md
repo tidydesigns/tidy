@@ -75,9 +75,8 @@ auth, MCP, agents, plans, files, versions, images, clipboard, runtime, storage, 
 and connector suites. See [contributing](CONTRIBUTING.md) for required checks.
 
 Run `bun run bench:mcp` for authenticated MCP HTTP latency, throughput, query-count
-and payload benchmarks against a disposable local database. See the
-[MCP performance report](docs/performance/mcp-2026-10.md) for reproducible comparisons
-and the distinction between local measurements and hosted Worker performance.
+and payload benchmarks against a disposable local database. These local measurements
+do not represent hosted Worker performance.
 
 ## Self-hosting
 
