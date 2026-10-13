@@ -1,17 +1,70 @@
 "use client";
-import { useCallback, useId, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { NavigationLink } from "@/components/ui/navigation-link";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { ReauthDialog } from "./reauth-dialog";
 
 class ReauthRequired extends Error {}
+class OwnershipRequired extends Error {}
+
+type BlockingOrganization = { id: string; name: string };
+
+function OwnershipAlert({
+  organizations,
+  onClose,
+}: {
+  organizations: BlockingOrganization[];
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  useEffect(() => {
+    dialog.current?.showModal();
+    document.getElementById(`${id}-cancel`)?.focus();
+  }, [id]);
+  return (
+    <Dialog
+      ref={dialog}
+      role="alertdialog"
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-description`}
+      onClose={onClose}
+    >
+      <h2 id={`${id}-title`} className="text-lg font-semibold">
+        Resolve organization ownership first
+      </h2>
+      <p id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
+        You’re the last owner of{" "}
+        {organizations.length === 1 ? "this organization" : "these organizations"}. Before you can
+        delete your account, delete {organizations.length === 1 ? "it" : "each one"} or transfer
+        ownership to another member in organization settings. Your account has not been deleted.
+      </p>
+      <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+        {organizations.map((organization) => (
+          <li key={organization.id}>
+            <NavigationLink
+              href={`/settings?tab=organization&organization=${encodeURIComponent(organization.id)}&returnTo=account`}
+              className="inline-flex min-h-9 items-center underline underline-offset-4"
+            >
+              Open {organization.name} settings
+            </NavigationLink>
+          </li>
+        ))}
+      </ul>
+      <Button id={`${id}-cancel`} className="mt-6" onClick={() => dialog.current?.close()}>
+        Cancel
+      </Button>
+    </Dialog>
+  );
+}
 
 export function PrivacyControls({ email }: { email: string }) {
   const [operation, setOperation] = useState<"export" | "check-delete" | "delete" | null>(null);
   const pending = operation !== null;
-  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
+  const [organizations, setOrganizations] = useState<BlockingOrganization[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -26,7 +79,10 @@ export function PrivacyControls({ email }: { email: string }) {
         ? { cache: "no-store" }
         : {
             method: "POST",
-            headers: { "Content-Type": "application/json", "X-Tidy-Privacy": "1" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-Tidy-Privacy": "1",
+            },
             body: JSON.stringify(operation === "delete" ? { confirmation } : {}),
           },
     );
@@ -39,6 +95,7 @@ export function PrivacyControls({ email }: { email: string }) {
       if (result?.code === "ORGANIZATION_OWNERSHIP_REQUIRED") {
         dialog.current?.close();
         setOrganizations(result.organizations ?? []);
+        if (result.organizations?.length) throw new OwnershipRequired();
       }
       if (result?.code === "REAUTH_REQUIRED") {
         dialog.current?.close();
@@ -64,7 +121,7 @@ export function PrivacyControls({ email }: { email: string }) {
       await request("delete", true);
       confirmDeletion();
     } catch (error) {
-      if (!(error instanceof ReauthRequired))
+      if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
         setError(
           error instanceof Error ? error.message : "Could not check authentication. Try again.",
         );
@@ -93,7 +150,7 @@ export function PrivacyControls({ email }: { email: string }) {
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
       setMessage("Your personal data download is ready.");
     } catch (error) {
-      if (!(error instanceof ReauthRequired))
+      if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
         setError(error instanceof Error ? error.message : "Download failed.");
     } finally {
       setOperation(null);
@@ -110,7 +167,7 @@ export function PrivacyControls({ email }: { email: string }) {
       await authClient.signOut().catch(() => {});
       window.location.replace("/login?deleted=1");
     } catch (error) {
-      if (!(error instanceof ReauthRequired))
+      if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
         setError(error instanceof Error ? error.message : "Deletion failed.");
       setOperation(null);
     }
@@ -132,20 +189,6 @@ export function PrivacyControls({ email }: { email: string }) {
         <p role="alert" className="my-4 text-sm text-danger">
           {error}
         </p>
-      )}
-      {organizations.length > 0 && (
-        <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
-          {organizations.map((organization) => (
-            <li key={organization.id}>
-              <a
-                href={`/settings?tab=organization&organization=${encodeURIComponent(organization.id)}&returnTo=account`}
-                className="inline-flex min-h-9 items-center underline underline-offset-4"
-              >
-                {organization.name} settings
-              </a>
-            </li>
-          ))}
-        </ul>
       )}
     </>
   );
@@ -186,6 +229,7 @@ export function PrivacyControls({ email }: { email: string }) {
           External storage and analytics cleanup continues after your account closes.
         </p>
         <Button
+          id={`${id}-delete-button`}
           variant="text"
           className="min-h-11 rounded-md text-sm font-medium text-danger hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4"
           disabled={pending}
@@ -195,6 +239,15 @@ export function PrivacyControls({ email }: { email: string }) {
         </Button>
       </section>
       {!dialogOpen && status}
+      {organizations.length > 0 && (
+        <OwnershipAlert
+          organizations={organizations}
+          onClose={() => {
+            setOrganizations([]);
+            document.getElementById(`${id}-delete-button`)?.focus();
+          }}
+        />
+      )}
       {authOperation && <ReauthDialog email={email} onVerified={verified} onCancel={cancelAuth} />}
       <Dialog
         ref={dialog}
