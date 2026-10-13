@@ -1,6 +1,8 @@
 # Bulk selection and dragging: October 2026
 
-The original editor optimization and its 5× single-layer editing result did not establish bulk-selection or dragging performance. This follow-up measures those workloads directly and adds targeted fixes on `perf/editor-incremental-processing`, after commit `a069cb0`. Baseline: `origin/main` at `dddb3f4`.
+Measured implementation: `ec16354` on `perf/editor-incremental-processing`. Baseline: `dddb3f4`. The original single-layer results at `a069cb0` did not establish bulk-selection or dragging performance.
+
+This report records the targeted bulk-selection follow-up. Later architecture changes and their verification are described in the [directory index](./README.md); the measurements below remain tied to `ec16354`.
 
 ## Measured results
 
@@ -46,7 +48,7 @@ Baseline and optimized production builds use the same additional diagnostic scen
 
 The fixture does not cover marquee selection, selection spanning artboards, deep hierarchies, linked component propagation during bulk drag, rotated/flipped parents, responsive constraints, effects, snapping, mobile devices or real multiplayer updates. These remain required workloads for a comprehensive gesture optimization effort.
 
-## Validation
+## Verification at `ec16354`
 
 `bun typecheck`, `bun lint`, `bun test` and `bun run build` passed on the corrected source. Web test summary: 804 passed, 665 skipped, zero failures, 14,425 assertions. Database-gated tests remain skipped. New eligibility tests compare batch results with independent recursive evaluation for nested, empty, painted, image, vector and text candidates; preserve rendered candidate styles and ordering; check mutable changes between calls; and exercise 60 changes across a 200-node hierarchy. The final browser runs additionally verify all bulk movement and one-step undo results.
 
@@ -58,7 +60,7 @@ Priorities: cache gesture roots/affine transforms and geometry with invalidation
 
 ## Reproduce
 
-Build both checkouts with the local configuration described in the [original performance report](./editor-2026-10.md). Apply the same diagnostic scene function and route selection query to the baseline; its application implementation stays at `dddb3f4`. Start the loopback servers with `TIDY_LOCAL_PERFORMANCE_FIXTURES=1`, then run the same harness sequentially:
+To reproduce this historical comparison, check out `ec16354` and baseline `dddb3f4`, and use the harness from `ec16354` against both. Build both checkouts with the local configuration described in the [original performance report](./editor-2026-10.md). Apply the same diagnostic scene function and route selection query to the baseline; its application implementation stays at `dddb3f4`. Start the loopback servers with `TIDY_LOCAL_PERFORMANCE_FIXTURES=1`, then run the same harness sequentially:
 
 ```bash
 EDITOR_TEST_URL=http://localhost:3117 EDITOR_BENCH_OUTPUT=/tmp/selection-baseline.json bun apps/web/scripts/benchmark-editor-selection.ts
