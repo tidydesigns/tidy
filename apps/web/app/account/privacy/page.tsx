@@ -1,8 +1,24 @@
-export const metadata = { title: "Account privacy · Tidy" };
+export const metadata = { title: "Your account · Tidy" };
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
+import { organizationCreationStatus } from "@/lib/organizations/creation";
+import { SignOutButton } from "@/app/sign-out-button";
+import { TidyLogo } from "@/components/ui/tidy-logo";
+import { AccountOrganizationOptions } from "./organization-options";
 import { PrivacyControls } from "./privacy-controls";
+
+function activeInvitations(
+  invitations: { id: string; organizationName?: string; expiresAt: Date }[] | null,
+) {
+  const now = Date.now();
+  return (
+    invitations
+      ?.filter((invitation) => new Date(invitation.expiresAt).getTime() > now)
+      .map(({ id, organizationName }) => ({ id, organizationName })) ?? null
+  );
+}
+
 export default async function AccountPrivacyPage() {
   const requestHeaders = await headers();
   const account = await auth.api.getSession({
@@ -12,15 +28,29 @@ export default async function AccountPrivacyPage() {
   if (!account) redirect("/login?next=/account/privacy");
   const organizations = await auth.api.listOrganizations({ headers: requestHeaders });
   if (organizations.length) redirect("/settings#account-data");
+  const [creation, invitations] = await Promise.all([
+    organizationCreationStatus(account.user.id),
+    account.user.emailVerified
+      ? auth.api.listUserInvitations({ headers: requestHeaders }).catch(() => null)
+      : Promise.resolve([]),
+  ]);
   return (
-    <main className="mx-auto max-w-2xl px-6 py-12 pb-24">
-      <a
-        className="inline-flex min-h-9 items-center rounded-md text-sm font-medium text-secondary-ink hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4"
-        href="/settings"
-      >
-        Back to settings
-      </a>
-      <h1 className="my-8 text-3xl font-semibold">Account privacy</h1>
+    <main className="mx-auto max-w-2xl space-y-8 px-6 py-12 pb-24">
+      <div className="flex items-center justify-between gap-6">
+        <TidyLogo />
+        <SignOutButton />
+      </div>
+      <div className="space-y-3">
+        <h1 className="text-3xl font-semibold">Your account</h1>
+        <p className="text-sm text-secondary-ink">
+          You’re signed in as {account.user.email}. You don’t belong to an organization.
+        </p>
+      </div>
+      <AccountOrganizationOptions
+        email={account.user.email}
+        canCreate={creation.ready && creation.canCreateOrganization}
+        invitations={activeInvitations(invitations)}
+      />
       <PrivacyControls email={account.user.email} />
     </main>
   );

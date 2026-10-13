@@ -18,7 +18,7 @@ export const workspaceAccount = cache(async () => {
   const organizations = await observeOperation(requestHeaders, "workspace.organizations", () =>
     auth.api.listOrganizations({ headers: requestHeaders }),
   );
-  if (!organizations.length) redirect("/onboarding/organization");
+  if (!organizations.length) redirect("/account/privacy");
   return { requestHeaders, session, organizations };
 });
 

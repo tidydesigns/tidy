@@ -7,7 +7,7 @@ export function OnboardingShell({
   description,
   children,
 }: {
-  step: 1 | 2;
+  step?: 1 | 2;
   title: string;
   description: string;
   children: ReactNode;
@@ -17,9 +17,11 @@ export function OnboardingShell({
       <TidyLogo />
       <div className="flex flex-1 flex-col justify-center py-16">
         <div className="w-full max-w-md">
-          <p className="text-xs font-semibold uppercase tracking-widest text-secondary-ink">
-            Step {step} of 2
-          </p>
+          {step && (
+            <p className="text-xs font-semibold uppercase tracking-widest text-secondary-ink">
+              Step {step} of 2
+            </p>
+          )}
           <h1 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
           <p className="mt-3 text-sm leading-6 text-secondary-ink">{description}</p>
           {children}

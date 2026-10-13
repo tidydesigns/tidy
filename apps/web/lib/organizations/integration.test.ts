@@ -418,16 +418,21 @@ integration(
     const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(owner);
     try {
       const { default: OrganizationPage } = await import("../../app/onboarding/organization/page");
-      await expect(OrganizationPage()).rejects.toThrow("NEXT_REDIRECT");
+      const page = () =>
+        OrganizationPage({
+          params: Promise.resolve({}),
+          searchParams: Promise.resolve({ returnTo: "account" }),
+        });
+      await expect(page()).rejects.toThrow("NEXT_REDIRECT");
       await db.query('update "billingDeployment" set "selfHosted"=true');
       const membership = await import("./membership");
       await membership.transferOwnership(ownerId, orgId, await memberId(invitedId));
       await membership.leaveOrganization(ownerId, orgId);
       await db.query('update "billingDeployment" set "selfHosted"=false');
       const { renderToStaticMarkup } = await import("react-dom/server");
-      expect(renderToStaticMarkup(await OrganizationPage())).toContain(
-        "You already created an organisation.",
-      );
+      const html = renderToStaticMarkup(await page());
+      expect(html).toContain("You already created an organisation.");
+      expect(html).toContain("Back to account");
     } finally {
       requestHeaders.mockRestore();
     }
