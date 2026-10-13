@@ -170,11 +170,15 @@ try {
   });
   assert.equal(active.status, 200, active.body);
   await page.goto(`${base}/files`);
-  await page.getByRole("button", { name: "Import Figma", exact: true }).waitFor();
+  await page.getByRole("button", { name: "New file options", exact: true }).waitFor();
   await page.waitForFunction(() => {
     const input = document.querySelector('[aria-label="Import Figma file"]');
     return input && Object.keys(input).some((key) => key.startsWith("__reactProps"));
   });
+  await page.getByRole("button", { name: "New file options", exact: true }).click();
+  await page.screenshot({ path: join(artifacts, "files-import-menu.png") });
+  await page.getByRole("menuitem", { name: "Import from Figma…", exact: true }).click();
+  await page.screenshot({ path: join(artifacts, "import-dialog.png") });
   const path =
     process.env.FIGMA_TEST_FILE ??
     fileURLToPath(new URL("./fixtures/figma/circle.fig", import.meta.url));
@@ -189,11 +193,16 @@ try {
     mimeType: "application/octet-stream",
     buffer: await readFile(path),
   });
-  if (process.env.FIGMA_TEST_FILE)
-    await page
-      .getByRole("dialog", { name: "Choose Figma pages" })
-      .getByRole("button", { name: "Import pages", exact: true })
-      .click();
+  await page
+    .getByRole("dialog", { name: "Import from Figma" })
+    .getByRole("checkbox")
+    .first()
+    .waitFor();
+  await page.screenshot({ path: join(artifacts, "import-pages.png") });
+  await page
+    .getByRole("dialog", { name: "Import from Figma" })
+    .getByRole("button", { name: "Import pages", exact: true })
+    .click();
   const response = await responsePromise;
   assert.equal(response.status(), 200, await response.text());
   const { fileId } = (await response.json()) as { fileId: string };

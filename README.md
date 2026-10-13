@@ -53,9 +53,10 @@ Local Node development bypasses Worker-specific shared attempt limits. See
 
 ## Importing Figma designs
 
-In the file browser, use **Import Figma** or drop a Figma Design `.fig` local copy.
-Choose pages when the file contains more than one; imports open immediately in
-Tidy and belong to the current folder. To bring selected elements into an open
+On the Files screen or in a folder, choose **New file → Import from Figma…**
+or drop a Figma Design `.fig` local copy. The dialog lets you choose the file
+and select pages before creating a Tidy file in the current folder. Imported
+files open immediately in the editor. To bring selected elements into an open
 file, copy them in Figma and paste with the keyboard or Tidy's paste action.
 No Figma plugin or account token is required.
 
@@ -89,7 +90,8 @@ frames use cached rendered overflow bounds for canvas culling; fonts and edits
 invalidate those bounds conservatively.
 
 For a database-free local prototype, run the web development server and open
-`/dev/figma-import`. Import a `.fig` or paste native Figma elements into the canvas.
+`/dev/figma-import`. Use the Files creation menu to import a `.fig`, then open
+the editor to paste native Figma elements.
 The current draft, edits and image bytes are retained automatically in IndexedDB
 and restored on reload. This is one local draft per browser origin; importing a
 new file replaces it. The prototype route is unavailable in production builds.

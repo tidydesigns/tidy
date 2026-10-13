@@ -49,11 +49,19 @@ async function open() {
     const input = document.querySelector('[aria-label="Import Figma file"]');
     return input && Object.keys(input).some((key) => key.startsWith("__reactProps"));
   });
-  await page.evaluate(
-    () =>
-      new Promise<void>((resolve) =>
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-      ),
+  await page.getByRole("button", { name: "New file options", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Import from Figma…", exact: true }).click();
+  await page.getByRole("dialog", { name: "Import from Figma", exact: true }).waitFor();
+}
+async function openEditor() {
+  await open();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.goto(`${base}/dev/figma-import?editor=1`);
+  await page.getByRole("button", { name: /^Zoom/ }).waitFor();
+  assert.equal(
+    await page.getByLabel("Import Figma file").count(),
+    0,
+    "Canvas has no file-import entry point",
   );
 }
 async function paste(html: string) {
@@ -105,11 +113,29 @@ try {
     .png()
     .toBuffer();
   await open();
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("dialog", { name: "Import from Figma", exact: true })
+    .waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "New file options", exact: true }).focus();
+  await page.keyboard.press("ArrowDown");
+  await page.getByRole("menuitem", { name: "Import from Figma…", exact: true }).waitFor();
+  await page.keyboard.press("Enter");
+  await page.getByRole("dialog", { name: "Import from Figma", exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mobileDialog = await page
+    .getByRole("dialog", { name: "Import from Figma", exact: true })
+    .boundingBox();
+  assert(mobileDialog && mobileDialog.x >= 0 && mobileDialog.x + mobileDialog.width <= 390);
+  await page.screenshot({ path: join(output, "import-mobile.png") });
+  await page.setViewportSize({ width: 1600, height: 1050 });
+  console.log("PASS: Files-level import menu, keyboard access, Escape and mobile dialog bounds");
   await page.getByLabel("Import Figma file").setInputFiles({
     name: "Fidelity reference.fig",
     mimeType: "application/octet-stream",
     buffer: Buffer.from(await fidelityFixture(alphaImage)),
   });
+  await page.getByRole("button", { name: "Import pages", exact: true }).click();
   await page.locator("[data-node-id]").first().waitFor();
   await page.getByRole("button", { name: /^Zoom \d+%$/ }).click();
   await page.getByRole("menuitem", { name: "Zoom to 100%", exact: false }).click();
@@ -188,6 +214,7 @@ try {
   );
   await open();
   await page.getByLabel("Import Figma file").setInputFiles(fixture("circle.fig").pathname);
+  await page.getByRole("button", { name: "Import pages", exact: true }).click();
   await layerCount(2);
   const bounds = await page.locator("[data-node-id]").first().boundingBox();
   assert(bounds);
@@ -209,7 +236,7 @@ try {
   await layerCount(2);
   console.log("PASS: .fig upload, native hierarchy, source colour pixels and retained local draft");
 
-  await open();
+  await openEditor();
   const html = await readFile(fixture("group.clipboard.html"), "utf8");
   await paste(html);
   await layerCount(4);
@@ -238,12 +265,18 @@ try {
   await page.reload();
   await layerCount(4);
   console.log("PASS: real keyboard clipboard paste, escaped HTML, undo, redo and repeated paste");
+  await page.goto(`${base}/dev/figma-import`);
+  await page.getByRole("button", { name: "New file options", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Import from Figma…", exact: true }).click();
   await page.getByLabel("Import Figma file").setInputFiles({
     name: "broken.fig",
     mimeType: "application/octet-stream",
     buffer: Buffer.from("broken"),
   });
   await page.getByRole("alert").filter({ hasText: "Figma Design" }).waitFor();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.goto(`${base}/dev/figma-import?editor=1`);
+  await layerCount(4);
   assert.equal(
     await page.locator("[data-node-id]").count(),
     4,
@@ -251,7 +284,7 @@ try {
   );
   console.log("PASS: malformed file recovery without destroying canvas content");
 
-  await open();
+  await openEditor();
   await paste(await readFile(fixture("component.clipboard.html"), "utf8"));
   await layerCount(2);
   assert.equal(
@@ -276,8 +309,9 @@ try {
       mimeType: "application/octet-stream",
       buffer: bytes,
     });
-    const choice = page.getByRole("dialog", { name: "Choose Figma pages" });
+    const choice = page.getByRole("dialog", { name: "Import from Figma" });
     await choice.waitFor();
+    await choice.getByRole("checkbox").first().waitFor();
     const names = await choice.getByRole("checkbox").allTextContents();
     assert(names.length > 1);
     await choice.getByRole("button", { name: "Import pages", exact: true }).click();

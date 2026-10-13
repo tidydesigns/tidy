@@ -1,6 +1,11 @@
 import { notFound } from "next/navigation";
 import { FigmaImportPreview } from "./preview";
-export default function Page() {
+export default async function Page({
+  searchParams,
+}: {
+  searchParams: Promise<{ editor?: string }>;
+}) {
   if (process.env.NODE_ENV !== "development") notFound();
-  return <FigmaImportPreview />;
+  const params = await searchParams;
+  return <FigmaImportPreview editor={params.editor === "1"} />;
 }
