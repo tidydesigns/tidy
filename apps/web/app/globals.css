@@ -42,6 +42,8 @@
 
 :root {
   color-scheme: light dark;
+  /* Keep page width steady when folder navigation toggles vertical overflow. */
+  scrollbar-gutter: stable;
 }
 
 :root[data-theme="light"] {
