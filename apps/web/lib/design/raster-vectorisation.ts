@@ -63,37 +63,50 @@ export function applyRasterTrace(
   )
     throw new Error("There is not enough layer capacity for this trace.");
   const viewport = imageViewport(node);
-  const children = trace.paths.map((path, index): DesignNode => ({
-    id: makeId(),
-    name: `Shape ${index + 1}`,
-    parentId: node.id,
-    pageId: node.pageId,
-    type: "vector",
-    box: {
-      x: node.paddingLeft ?? node.padding ?? 0,
-      y: node.paddingTop ?? node.padding ?? 0,
-      width: viewport.width,
-      height: viewport.height,
-    },
-    layout: "absolute",
-    positionMode: "absolute",
-    horizontalConstraint: "scale",
-    verticalConstraint: "scale",
-    vectorPath: path.vectorPath,
-    style: {
-      paints: [
-        {
-          id: "trace-fill",
-          type: "solid",
-          color: path.color,
-          opacity: path.opacity,
-          visible: true,
-        },
-      ],
-    },
-    visible: true,
-    locked: false,
-  }));
+  const children = trace.paths.map((path, index): DesignNode => {
+    const points = path.vectorPath.contours!.flatMap((contour) =>
+      contour.points.flatMap((point) => [
+        point,
+        ...(point.in ? [point.in] : []),
+        ...(point.out ? [point.out] : []),
+      ]),
+    );
+    const x = Math.min(...points.map((point) => point.x)),
+      y = Math.min(...points.map((point) => point.y));
+    const width = Math.max(0.01, Math.max(...points.map((point) => point.x)) - x),
+      height = Math.max(0.01, Math.max(...points.map((point) => point.y)) - y);
+    return {
+      id: makeId(),
+      name: path.name ?? `Shape ${index + 1}`,
+      parentId: node.id,
+      pageId: node.pageId,
+      type: "vector",
+      box: {
+        x: (node.paddingLeft ?? node.padding ?? 0) + (x * viewport.width) / trace.width,
+        y: (node.paddingTop ?? node.padding ?? 0) + (y * viewport.height) / trace.height,
+        width: (width * viewport.width) / trace.width,
+        height: (height * viewport.height) / trace.height,
+      },
+      layout: "absolute",
+      positionMode: "absolute",
+      horizontalConstraint: "scale",
+      verticalConstraint: "scale",
+      vectorPath: { ...path.vectorPath, viewBox: { x, y, width, height } },
+      style: {
+        paints: [
+          {
+            id: "trace-fill",
+            type: "solid",
+            color: path.color,
+            opacity: path.opacity,
+            visible: true,
+          },
+        ],
+      },
+      visible: true,
+      locked: false,
+    };
+  });
   const style = { ...node.style };
   delete style.imageCrop;
   delete style.imageAdjustments;

@@ -109,3 +109,20 @@ test("component ancestry, SVGs and reusable styles are explicitly unsupported", 
   current.assetMimeTypes![assetId] = "image/svg+xml";
   expect(vectorisationUnavailable(current, current.nodes[0])).toContain("SVG");
 });
+
+test("each shape gets its own movable bounds without changing its rendered position", () => {
+  const input = { width: 32, height: 32, data: new Uint8ClampedArray(32 * 32 * 4) };
+  for (let y = 8; y < 24; y++)
+    for (let x = 4; x < 20; x++) input.data.set([255, 0, 0, 255], (y * 32 + x) * 4);
+  const traced = traceRaster(input, 8);
+  const before = document();
+  const after = applyRasterTrace(before, "logo", vectorisationSource(before.nodes[0]), traced);
+  const shape = after.nodes[1],
+    bounds = shape.vectorPath!.viewBox;
+  expect(shape.name).toBe("Rectangle");
+  expect(shape.box.width).toBeLessThan(before.nodes[0].box.width);
+  expect(shape.box.height).toBeLessThan(before.nodes[0].box.height);
+  expect(shape.box.x).toBeCloseTo((bounds.x * 200) / 32);
+  expect(shape.box.y).toBeCloseTo((bounds.y * 100) / 32);
+  expect(shape.box.width).toBeCloseTo((bounds.width * 200) / 32);
+});

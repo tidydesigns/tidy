@@ -12,7 +12,12 @@ export type TraceColors = 2 | 8 | 16;
 export type RasterTrace = {
   width: number;
   height: number;
-  paths: { vectorPath: NonNullable<DesignNode["vectorPath"]>; color: string; opacity: number }[];
+  paths: {
+    name?: string;
+    vectorPath: NonNullable<DesignNode["vectorPath"]>;
+    color: string;
+    opacity: number;
+  }[];
   pointCount: number;
 };
 export function traceSize(width: number, height: number) {

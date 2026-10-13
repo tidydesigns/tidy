@@ -70,7 +70,26 @@ export async function traceImage(
     if (image.naturalWidth * image.naturalHeight > 16000000)
       throw new Error("Choose an image with at most 16 million source pixels.");
     const viewport = imageViewport(node);
-    const size = traceSize(viewport.width, viewport.height);
+    const cropPixels = node.style.imageCrop;
+    const sourceWidth = cropPixels ? cropPixels.width * cropPixels.sourceWidth : image.naturalWidth;
+    const sourceHeight = cropPixels
+      ? cropPixels.height * cropPixels.sourceHeight
+      : image.naturalHeight;
+    const fit = node.style.objectFit ?? (cropPixels ? "cover" : "contain");
+    const renderScale =
+      fit === "contain"
+        ? Math.min(viewport.width / sourceWidth, viewport.height / sourceHeight)
+        : Math.max(viewport.width / sourceWidth, viewport.height / sourceHeight);
+    // Upsampling does not recover detail. Trace the source pixels rather than creating
+    // hundreds of new interpolated edge colours from a small JPEG on a large canvas.
+    const density = Math.min(
+      1,
+      1 / (renderScale * (cropPixels ? 1 : (node.style.objectScale ?? 1))),
+    );
+    const size = traceSize(
+      Math.max(1, viewport.width * density),
+      Math.max(1, viewport.height * density),
+    );
     const dataUrl = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       const cancel = () => reader.abort();
