@@ -1,13 +1,17 @@
 "use client";
-import { useRouter } from "next/navigation";
 import { useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 
-export function PrivacyControls({ email }: { email: string }) {
-  const router = useRouter();
+export function PrivacyControls({
+  email,
+  returnPath = "/account/privacy",
+}: {
+  email: string;
+  returnPath?: "/account/privacy" | "/settings#account-data";
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -76,8 +80,7 @@ export function PrivacyControls({ email }: { email: string }) {
       const result = await authClient.signOut();
       if (result.error) throw new Error("Could not sign out. Please try again.");
       resetPostHogUser();
-      router.push("/login?next=/account/privacy");
-      router.refresh();
+      window.location.assign(`/login?next=${encodeURIComponent(returnPath)}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not sign out.");
       setPending(false);
@@ -98,13 +101,12 @@ export function PrivacyControls({ email }: { email: string }) {
     </>
   );
   return (
-    <div className="space-y-10">
-      <p className="text-sm text-secondary-ink">
-        For your security, exporting or deleting your account requires a sign-in within the last
-        five minutes.
-      </p>
-      <section aria-labelledby={`${id}-export`} className="space-y-4">
-        <h2 id={`${id}-export`} className="text-xl font-semibold">
+    <div id="account-data" className="scroll-mt-8 space-y-10">
+      <section
+        aria-labelledby={`${id}-export`}
+        className="space-y-4 border-t border-primary-grey pt-6"
+      >
+        <h2 id={`${id}-export`} className="text-lg font-semibold">
           Export personal data
         </h2>
         <p className="text-sm text-secondary-ink">
@@ -112,6 +114,7 @@ export function PrivacyControls({ email }: { email: string }) {
           you created, plus feedback stored in Tidy, as JSON. Passwords and access tokens are
           excluded. Export complete design files with images from the editor. For historical
           analytics, legacy feedback or other records held outside Tidy, contact the operator.
+          Export and deletion require a sign-in within the last five minutes.
         </p>
         <Button disabled={pending} onClick={() => void download()}>
           {pending ? "Working…" : "Download my data"}
@@ -120,8 +123,11 @@ export function PrivacyControls({ email }: { email: string }) {
           {message}
         </p>
       </section>
-      <section aria-labelledby={`${id}-delete`} className="space-y-4">
-        <h2 id={`${id}-delete`} className="text-xl font-semibold">
+      <section
+        aria-labelledby={`${id}-delete`}
+        className="space-y-4 border-t border-primary-grey pt-6"
+      >
+        <h2 id={`${id}-delete`} className="text-lg font-semibold">
           Delete account
         </h2>
         <p className="text-sm text-secondary-ink">
@@ -154,7 +160,7 @@ export function PrivacyControls({ email }: { email: string }) {
           if (pending) event.preventDefault();
         }}
       >
-        <h2 id={`${id}-title`} className="text-xl font-semibold">
+        <h2 id={`${id}-title`} className="text-lg font-semibold">
           Permanently delete your account?
         </h2>
         <p id={`${id}-description`} className="my-4 text-sm">

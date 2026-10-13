@@ -2,6 +2,8 @@ export function authReturnPath(value: string | string[] | undefined, fallback: s
   return typeof value === "string" &&
     (value === "/" ||
       value === "/onboarding/organization" ||
+      value === "/account/privacy" ||
+      value === "/settings#account-data" ||
       /^\/api\/feedback\/attachments\/[0-9a-f-]{36}\/[0-2]$/.test(value) ||
       /^\/accept-invitation\/[a-zA-Z0-9_-]+$/.test(value) ||
       /^\/mcp\/consent\?[^\r\n#]*$/.test(value))

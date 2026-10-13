@@ -4,11 +4,14 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { PrivacyControls } from "./privacy-controls";
 export default async function AccountPrivacyPage() {
+  const requestHeaders = await headers();
   const account = await auth.api.getSession({
-    headers: await headers(),
+    headers: requestHeaders,
     query: { disableCookieCache: true },
   });
   if (!account) redirect("/login?next=/account/privacy");
+  const organizations = await auth.api.listOrganizations({ headers: requestHeaders });
+  if (organizations.length) redirect("/settings#account-data");
   return (
     <main className="mx-auto max-w-2xl px-6 py-12 pb-24">
       <a

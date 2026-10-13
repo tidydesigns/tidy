@@ -232,14 +232,6 @@ export function SettingsTabs({
         </SettingsPanel>
 
         <SettingsPanel item="profile" selected={tab}>
-          <p className="mb-6">
-            <a
-              href="/account/privacy"
-              className="underline underline-offset-4 focus-visible:outline-2"
-            >
-              Account privacy and data
-            </a>
-          </p>
           <ProfileControls
             user={user}
             sessions={currentSessions}

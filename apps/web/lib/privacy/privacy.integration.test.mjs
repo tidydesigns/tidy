@@ -118,7 +118,7 @@ integration(
           new Request("https://app.test/api/privacy/delete", { method: "POST", headers }),
           "privacy-delete",
         ),
-      ).rejects.toThrow("Open account privacy");
+      ).rejects.toThrow("configured app address");
     }
   },
 );
@@ -179,3 +179,45 @@ integration("erasure clears retained author names, personal uploads and feedback
     (await admin.query('select kind from "privacyCleanup" order by kind')).rows.map((x) => x.kind),
   ).toEqual(["avatar", "feedback", "posthog"]);
 });
+
+integration(
+  "privacy uses the configured public origin across internal rewrites without trusting forwarded headers",
+  async () => {
+    const previous = process.env.BETTER_AUTH_URL;
+    process.env.BETTER_AUTH_URL = "https://app.example.test";
+    try {
+      for (const operation of ["privacy-export", "privacy-delete"]) {
+        const request = (headers) =>
+          new Request("http://localhost:3046/api/privacy/export", {
+            method: "POST",
+            headers,
+          });
+        // No cookie: reaching authentication proves the legitimate origin passed.
+        await expect(
+          privacyAccount(
+            request({ origin: "https://app.example.test", "x-tidy-privacy": "1" }),
+            operation,
+          ),
+        ).rejects.toThrow("Sign in to manage your data");
+        for (const headers of [
+          {
+            origin: "https://evil.test",
+            "x-tidy-privacy": "1",
+            "x-forwarded-host": "evil.test",
+            "x-forwarded-proto": "https",
+          },
+          { origin: "http://localhost:3046", "x-tidy-privacy": "1" },
+          { origin: "https://app.example.test" },
+          { "x-tidy-privacy": "1" },
+        ]) {
+          await expect(privacyAccount(request(headers), operation)).rejects.toThrow(
+            "configured app address",
+          );
+        }
+      }
+    } finally {
+      if (previous === undefined) delete process.env.BETTER_AUTH_URL;
+      else process.env.BETTER_AUTH_URL = previous;
+    }
+  },
+);

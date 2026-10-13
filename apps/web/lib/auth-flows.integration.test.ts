@@ -539,7 +539,10 @@ integration(
 
 test("auth destinations and provider errors remain bounded", () => {
   expect(authReturnPath("/onboarding/organization", "/")).toBe("/onboarding/organization");
+  expect(authReturnPath("/account/privacy", "/")).toBe("/account/privacy");
+  expect(authReturnPath("/settings#account-data", "/")).toBe("/settings#account-data");
   for (const value of [
+    "/settings#account-data?next=https://evil.example",
     "https://evil.example",
     "//evil.example",
     "/\\evil.example",

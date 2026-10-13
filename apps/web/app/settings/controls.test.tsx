@@ -136,6 +136,7 @@ test("profile renders editable identity, password and other session controls wit
           }}
           sessions={[
             {
+              ...{ token: "private-session-token-fixture" },
               id: "current",
               createdAt: "2026-09-28T12:00:00.000Z",
               expiresAt: "2026-10-01T12:00:00.000Z",
@@ -161,6 +162,10 @@ test("profile renders editable identity, password and other session controls wit
   expect(html).toContain('value="owner@example.test"');
   expect(html).toContain("Verify your email");
   expect(html).toContain("Change password");
+  expect(html).toContain("Download my data");
+  expect(html).toContain("Delete my account");
+  expect(html).not.toContain('href="/account/privacy"');
+  expect(html.indexOf("Change password")).toBeLessThan(html.indexOf("Download my data"));
   expect(html).toContain('id="settings-tab-preferences"');
   expect(html).toContain('id="settings-tab-organization"');
   expect(html).not.toContain('id="settings-tab-settings"');
@@ -170,7 +175,7 @@ test("profile renders editable identity, password and other session controls wit
   expect(html).toContain("End session");
   expect(html).not.toContain('id="settings-tab-billing"');
   expect(html).not.toContain("Get Pro");
-  expect(html).not.toContain("token");
+  expect(html).not.toContain("private-session-token-fixture");
 });
 
 test("preferences keep appearance and editor controls outside profile and respect saved choices", () => {

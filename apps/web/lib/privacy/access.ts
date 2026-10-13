@@ -22,12 +22,13 @@ export async function privacyAccount(
   request: Request,
   operation: "privacy-export" | "privacy-delete",
 ) {
-  // Same-origin POST, custom header and JSON prevent drive-by downloads and CSRF.
+  // Next.js/proxies can expose an internal request URL. Use the configured public
+  // origin, never a caller-supplied Host or forwarded header, for the CSRF boundary.
   if (
-    request.headers.get("origin") !== new URL(request.url).origin ||
+    request.headers.get("origin") !== new URL(process.env.BETTER_AUTH_URL || request.url).origin ||
     request.headers.get("x-tidy-privacy") !== "1"
   )
-    throw new PrivacyError("Open account privacy in Tidy to continue.", 403);
+    throw new PrivacyError("Reload Tidy at its configured app address and try again.", 403);
   const session = await auth.api.getSession({
     headers: request.headers,
     query: { disableCookieCache: true },

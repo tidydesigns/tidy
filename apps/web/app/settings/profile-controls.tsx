@@ -8,6 +8,7 @@ import { ImmediateField } from "@/components/ui/immediate-field";
 import { TextField } from "@/components/ui/text-field";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
+import { PrivacyControls } from "../account/privacy/privacy-controls";
 import { AvatarControl } from "./avatar-control";
 import { revokeAccountSession } from "./actions";
 
@@ -269,6 +270,7 @@ export function ProfileControls({
           </ul>
         </div>
       )}
+      <PrivacyControls email={user.email} returnPath="/settings#account-data" />
     </section>
   );
 }
