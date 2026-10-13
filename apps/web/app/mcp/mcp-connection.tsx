@@ -20,7 +20,7 @@ function CopyableValue({ value, copyLabel }: SetupValue) {
       setCopied(true);
     } catch {
       setCopied(false);
-      setError("Could not copy. Select and copy the text above.");
+      setError("Could not copy. Copy the text manually.");
     }
   }
 
@@ -134,20 +134,16 @@ export function McpConnection({
     <section className="min-w-0">
       <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
       <p className="mt-2 text-sm text-secondary-ink">
-        Let your coding agent read, create, and edit your Tidy designs.
+        Read, create, and edit Tidy designs from your agent.
       </p>
 
       <div className="mt-6">
-        <span id="mcp-agent-label" className="block text-xs font-medium text-secondary-ink">
-          Agent
-        </span>
         <SelectMenu
           label="Agent"
-          labelledBy="mcp-agent-label"
           value={agent}
           onChange={(value) => setAgent(value as Agent)}
           options={[...agentOptions]}
-          className="mt-2 w-[210px] max-w-full"
+          className="w-[210px] max-w-full"
         />
       </div>
 
@@ -175,7 +171,7 @@ export function McpConnection({
 
       {currentClients.length > 0 && (
         <div className="mt-6 border-t border-primary-grey/70 pt-4">
-          <h2 className="text-xs font-medium text-secondary-ink">Authorized agents</h2>
+          <h2 className="text-sm font-medium">Authorized agents</h2>
           <ul className="mt-2 space-y-2">
             {currentClients.map((client) => (
               <li
@@ -196,7 +192,7 @@ export function McpConnection({
                     );
                   }}
                 >
-                  This agent will lose access to your Tidy account until you authorize it again.
+                  This agent will lose access to Tidy until you reconnect it.
                 </ConfirmAction>
               </li>
             ))}
@@ -206,7 +202,7 @@ export function McpConnection({
 
       <details className="group mt-4 border-t border-primary-grey/70">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded py-3 text-[13px] text-secondary-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange [&::-webkit-details-marker]:hidden">
-          Connection help &amp; server details
+          Connection help
           <svg
             aria-hidden="true"
             width="16"
@@ -227,7 +223,7 @@ export function McpConnection({
         <div className="max-h-80 space-y-4 overflow-y-auto pb-4 text-[13px] leading-5 text-secondary-ink">
           {setup.connectionCheck && (
             <div>
-              <p className="mb-2">Check the connection from your terminal:</p>
+              <p className="mb-2">Check from your terminal:</p>
               <CopyableValue
                 key={`${agent}-check`}
                 value={setup.connectionCheck}
@@ -235,11 +231,9 @@ export function McpConnection({
               />
             </div>
           )}
-          <p>If sign-in times out, close the sign-in tab and repeat the authorization step.</p>
-          {agent === "other" && <p>Your client must support OAuth for protected MCP servers.</p>}
-          {name === "tidy-local" && (
-            <p>Keep Tidy running on this computer while your agent connects.</p>
-          )}
+          <p>Sign-in timed out? Close the browser tab and try step 2 again.</p>
+          {agent === "other" && <p>Your agent must support OAuth.</p>}
+          {name === "tidy-local" && <p>Keep Tidy running while you connect.</p>}
           <div>
             <div className="flex items-center justify-between gap-3">
               <h2 className="font-medium text-primary-black">Server</h2>
@@ -248,14 +242,11 @@ export function McpConnection({
             <p className="mt-2 break-all font-mono text-xs">{resourceUrl}</p>
             {endpoint === "misconfigured" && (
               <p className="mt-2">
-                This page and the MCP endpoint report different addresses. Check the Tidy public URL
-                configuration.
+                Server addresses do not match. Check Tidy’s public URL configuration.
               </p>
             )}
             {endpoint === "unavailable" && (
-              <p className="mt-2">
-                The MCP endpoint is not responding. Check that Tidy is running, then try again.
-              </p>
+              <p className="mt-2">Server unavailable. Check that Tidy is running, then retry.</p>
             )}
           </div>
           <Button
@@ -265,12 +256,9 @@ export function McpConnection({
             onClick={() => void check()}
             className="rounded border border-primary-grey px-3 py-2 text-xs font-medium text-primary-black hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
           >
-            {checking ? "Checking…" : "Check server & authorizations"}
+            {checking ? "Checking…" : "Check server access"}
           </Button>
-          <p className="text-xs">
-            This checks server availability and account authorizations. Use the test prompt above to
-            verify your agent can use Tidy.
-          </p>
+          <p className="text-xs">This checks server access. Use step 3 to test your agent.</p>
           {error && (
             <p role="alert" className="text-danger">
               {error}

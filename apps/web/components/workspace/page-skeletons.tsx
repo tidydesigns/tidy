@@ -349,8 +349,7 @@ export function McpSkeleton() {
     <Surface name="mcp" className={mcpPage}>
       <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
       <Block className="mt-2 h-5 w-full max-w-md" />
-      <Block className="mt-6 h-4 w-10" />
-      <Block className="mt-2 h-10 w-[210px]" />
+      <Block className="mt-6 h-10 w-[210px]" />
       <div className="mt-6 space-y-6">
         {[0, 1, 2].map((step) => (
           <div key={step} className="flex gap-4">
