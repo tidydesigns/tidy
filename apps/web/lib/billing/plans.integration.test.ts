@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type Stripe from "stripe";
 import { db } from "../db";
 import { planLimitMessage } from "./plans";
+import { IMPORT_LIMITS } from "../security/resource-limits";
 
 // Destructive fixtures require the private cluster owned by test:plans.
 const url = process.env.PLANS_TEST_DATABASE_URL;
@@ -945,7 +946,7 @@ integration(
   async () => {
     const small = await documents.createImport(owner.id, org, "Small chunks");
     await Promise.all(
-      Array.from({ length: 32 }, (_, index) =>
+      Array.from({ length: IMPORT_LIMITS.chunksPerImport }, (_, index) =>
         documents.putImportChunk(owner.id, small.importId, `chunk-${index}`, []),
       ),
     );
@@ -954,23 +955,41 @@ integration(
     );
     await expect(
       documents.putImportChunk(owner.id, small.importId, "chunk-0", []),
-    ).resolves.toMatchObject({ chunkCount: 32 });
+    ).resolves.toMatchObject({ chunkCount: IMPORT_LIMITS.chunksPerImport });
     const large = await documents.createImport(owner.id, org, "Large chunks");
+    // Leave room for chunk metadata, then measure PostgreSQL's actual JSONB
+    // representation rather than assuming a fixed aggregate byte allowance.
+    const warnings = ["x".repeat(IMPORT_LIMITS.bytesPerChunk - 10_000)];
+    const chunkBytes = (
+      await db.query<{ bytes: number }>(
+        "select octet_length(jsonb_build_object('chunk-0000', $1::jsonb)::text) as bytes",
+        [JSON.stringify({ nodes: [], warnings })],
+      )
+    ).rows[0].bytes;
+    const acceptedChunks = Math.floor(IMPORT_LIMITS.bytesPerImport / chunkBytes);
+    expect(acceptedChunks).toBeLessThan(IMPORT_LIMITS.chunksPerImport);
     const outcomes = await Promise.allSettled(
-      Array.from({ length: 15 }, (_, index) =>
-        documents.putImportChunk(owner.id, large.importId, `chunk-${index}`, [], undefined, [
-          "x".repeat(490_000),
-        ]),
+      Array.from({ length: acceptedChunks + 1 }, (_, index) =>
+        documents.putImportChunk(
+          owner.id,
+          large.importId,
+          `chunk-${String(index).padStart(4, "0")}`,
+          [],
+          undefined,
+          warnings,
+        ),
       ),
     );
-    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(10);
+    expect(outcomes.filter((result) => result.status === "fulfilled")).toHaveLength(acceptedChunks);
+    expect(outcomes.filter((result) => result.status === "rejected")).toHaveLength(1);
     const row = (
       await db.query(
         'select octet_length("chunks"::text) as bytes from "designImport" where "id"=$1',
         [large.importId],
       )
     ).rows[0];
-    expect(row.bytes).toBeLessThanOrEqual(5_000_000);
+    expect(row.bytes).toBe(acceptedChunks * chunkBytes);
+    expect(row.bytes).toBeLessThanOrEqual(IMPORT_LIMITS.bytesPerImport);
     await documents.abortImport(owner.id, large.importId);
     expect(
       (await db.query('select "chunks" from "designImport" where "id"=$1', [large.importId]))
