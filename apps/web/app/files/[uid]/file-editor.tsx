@@ -87,6 +87,7 @@ import { diffDocument, type DocumentPatch } from "@/lib/design/document-patch";
 import { equalJsonValues } from "@/lib/design/json-value";
 import {
   buildDrawnNode,
+  parseImmutableDesignDocument,
   nodePageId,
   type DesignDocument,
   type DesignNode,
@@ -348,7 +349,10 @@ export function FileEditor({
   const [name, setName] = useState(fileName);
   const [editingName, setEditingName] = useState(false);
   const [nameDraft, setNameDraft] = useState(fileName);
-  const [snapshot, setSnapshotState] = useState(initialDocument);
+  const [snapshot, setSnapshotState] = useState(() => ({
+    ...initialDocument,
+    content: parseImmutableDesignDocument(initialDocument.content),
+  }));
   const assetMimeTypes = useMemo(
     () => ({ ...initialDocument.content.assetMimeTypes, ...snapshot.content.assetMimeTypes }),
     [initialDocument.content.assetMimeTypes, snapshot.content.assetMimeTypes],
@@ -581,7 +585,7 @@ export function FileEditor({
   const room = useFileRoom({
     fileId,
     enabled: !preview && !local,
-    initialSnapshot: initialDocument,
+    initialSnapshot: snapshot,
     onSnapshot: receiveSnapshot,
     onName: receiveName,
     onPermission: receivePermission,
@@ -970,7 +974,11 @@ export function FileEditor({
     let patch: DocumentPatch;
     try {
       // Validate the completed transaction once, including prepared inspector/gesture edits.
-      const content = trackDocumentChanges(before.content, transform(before.content));
+      const content = trackDocumentChanges(
+        before.content,
+        transform(before.content),
+        parseImmutableDesignDocument,
+      );
       patch = diffDocument(before.content, content);
     } catch (cause) {
       setError(editorErrorMessage(cause, "Could not change layers."));

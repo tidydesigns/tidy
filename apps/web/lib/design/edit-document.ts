@@ -2,6 +2,7 @@ import {
   designNodeSchema,
   isWebCaptureImportKey,
   parseDesignDocument,
+  type DocumentParser,
   type DesignDocument,
   type DesignNode,
   type DesignNodeChanges,
@@ -220,6 +221,7 @@ export function duplicateLayers(
 export function trackDocumentChanges(
   before: DesignDocument,
   after: DesignDocument,
+  parse: DocumentParser = parseDesignDocument,
 ): DesignDocument {
   after = { ...after, nodes: reconcileComponentStructure(before.nodes, after.nodes) };
   const nextNodes = new Map(after.nodes.map((node) => [node.id, node]));
@@ -231,7 +233,7 @@ export function trackDocumentChanges(
     if (!next && node.importKey && node.sourceKey && !isWebCaptureImportKey(node.importKey))
       deleted.push({ importKey: node.importKey, sourceKey: node.sourceKey });
   }
-  return parseDesignDocument({
+  return parse({
     ...after,
     editedNodeIds: [...edited].filter((id) => nextNodes.has(id)),
     deletedSourceKeys: [

@@ -21,8 +21,12 @@ function childOrigin(node: DesignNode) {
 
 function compositeChildren(nodes: readonly DesignNode[]) {
   const children = new Map<string, DesignNode[]>();
-  for (const node of nodes)
-    if (node.parentId) children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
+  for (const node of nodes) {
+    if (!node.parentId) continue;
+    const siblings = children.get(node.parentId);
+    if (siblings) siblings.push(node);
+    else children.set(node.parentId, [node]);
+  }
   return children;
 }
 function maskViewport(

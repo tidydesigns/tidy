@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { applyDocumentPatch, diffDocument, type DocumentPatch } from "@/lib/design/document-patch";
 import { applyRevisionChanges, type RevisionChanges } from "@/lib/design/revision-sync";
-import type { DesignDocument } from "@/lib/design/document";
+import { parseImmutableDesignDocument, type DesignDocument } from "@/lib/design/document";
 import {
   RoomEditQueue,
   type CommitDependency,
@@ -44,7 +44,9 @@ export function useFileRoom({
   useEffect(() => {
     callbacks.current = { onSnapshot, onName, onPermission };
   }, [onSnapshot, onName, onPermission]);
-  const [edits] = useState(() => new RoomEditQueue(initialSnapshot, onSnapshot));
+  const [edits] = useState(
+    () => new RoomEditQueue(initialSnapshot, onSnapshot, parseImmutableDesignDocument),
+  );
   useEffect(() => edits.setNotify(onSnapshot), [edits, onSnapshot]);
   const getSnapshot = useCallback(() => edits.getSnapshot(), [edits]);
   const reconcile = useCallback(() => edits.restore(), [edits]);
@@ -110,7 +112,9 @@ export function useFileRoom({
           if (controller.signal.aborted) return;
           callbacks.current.onPermission?.(result.canEdit);
           const saved = edits.saved;
-          const next = result.snapshot ?? applyRevisionChanges(saved, result as RevisionChanges);
+          const next =
+            result.snapshot ??
+            applyRevisionChanges(saved, result as RevisionChanges, parseImmutableDesignDocument);
           if (next !== saved) edits.receive(next);
           requireSnapshot = false;
           if (!result.canEdit) edits.restore();
@@ -252,7 +256,12 @@ export function useFileRoom({
         async (operationId, canonicalPatch, expectedSequence, allowedSequences) => {
           if (local) {
             const before = edits.saved;
-            const content = applyDocumentPatch(before.content, canonicalPatch, conditional);
+            const content = applyDocumentPatch(
+              before.content,
+              canonicalPatch,
+              conditional,
+              parseImmutableDesignDocument,
+            );
             const accepted = diffDocument(before.content, content);
             const snapshot = { revision: before.revision + Number(accepted.length > 0), content };
             return { patch: accepted, snapshot, sequence: snapshot.revision };

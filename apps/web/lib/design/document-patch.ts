@@ -1,7 +1,7 @@
 import { reconcileComponentStructure } from "./component-structure";
 import { z } from "zod";
 import { replacePlainText } from "@bella/design/rich-text";
-import { parseDesignDocument, type DesignDocument } from "./document";
+import { parseDesignDocument, type DocumentParser, type DesignDocument } from "./document";
 import { importNoteKey, importNotes, type ImportNote } from "./import-notes";
 import { equalJsonValues as equal, jsonValueKey } from "./json-value";
 
@@ -100,10 +100,11 @@ export function applyDocumentPatch(
   document: DesignDocument,
   input: DocumentPatch,
   conditional = false,
+  parse: DocumentParser = parseDesignDocument,
 ): DesignDocument {
   const patch = documentPatchSchema.parse(input);
   // Copy only edited paths while staging the transaction. The full schema parse
-  // below still validates every entity and returns an independently owned result.
+  // below validates every entity; the editor parser may reuse its frozen nodes.
   const result: ObjectValue = {
     ...document,
     nodes: [...document.nodes],
@@ -334,5 +335,5 @@ export function applyDocumentPatch(
   );
   const liveIds = new Set((result.nodes as ObjectValue[]).map((node) => node.id));
   result.editedNodeIds = (result.editedNodeIds as string[]).filter((id) => liveIds.has(id));
-  return parseDesignDocument(result);
+  return parse(result);
 }

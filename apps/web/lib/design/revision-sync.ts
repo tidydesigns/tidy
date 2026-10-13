@@ -1,9 +1,14 @@
+import { parseDesignDocument, type DocumentParser } from "./document";
 import { applyDocumentPatch, type DocumentPatch } from "./document-patch";
 import type { RoomSnapshot } from "./room-edit-queue";
 import type { RevisionPatch } from "./changes";
 export type RevisionChanges = { baseRevision: number; revision: number; patches: RevisionPatch[] };
 
-export function applyRevisionChanges(before: RoomSnapshot, changes: RevisionChanges): RoomSnapshot {
+export function applyRevisionChanges(
+  before: RoomSnapshot,
+  changes: RevisionChanges,
+  parse: DocumentParser = parseDesignDocument,
+): RoomSnapshot {
   if (changes.revision < before.revision) return before;
   if (changes.baseRevision !== before.revision)
     throw new Error("File synchronization requires a snapshot.");
@@ -16,5 +21,7 @@ export function applyRevisionChanges(before: RoomSnapshot, changes: RevisionChan
     patch.push(...change.patch);
   }
   if (revision !== changes.revision) throw new Error("File change history is incomplete.");
-  return patch.length ? { revision, content: applyDocumentPatch(before.content, patch) } : before;
+  return patch.length
+    ? { revision, content: applyDocumentPatch(before.content, patch, false, parse) }
+    : before;
 }

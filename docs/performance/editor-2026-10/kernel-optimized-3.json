@@ -1,0 +1,87 @@
+{
+  "runtime": "Bun 1.4.2",
+  "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+  "samples": 80,
+  "warmups": 10,
+  "parser": "immutable editor",
+  "results": [
+    {
+      "scenario": "move preview",
+      "nodes": 100,
+      "p50Ms": 0.092,
+      "p95Ms": 0.131
+    },
+    {
+      "scenario": "sparse committed edit",
+      "nodes": 100,
+      "p50Ms": 0.537,
+      "p95Ms": 1.341
+    },
+    {
+      "scenario": "revalidate editor snapshot",
+      "nodes": 100,
+      "p50Ms": 0,
+      "p95Ms": 0.001
+    },
+    {
+      "scenario": "mutable full validation",
+      "nodes": 100,
+      "p50Ms": 0.839,
+      "p95Ms": 3.207
+    },
+    {
+      "scenario": "move preview",
+      "nodes": 1000,
+      "p50Ms": 0.35,
+      "p95Ms": 0.401
+    },
+    {
+      "scenario": "sparse committed edit",
+      "nodes": 1000,
+      "p50Ms": 3.107,
+      "p95Ms": 4.158
+    },
+    {
+      "scenario": "revalidate editor snapshot",
+      "nodes": 1000,
+      "p50Ms": 0,
+      "p95Ms": 0
+    },
+    {
+      "scenario": "mutable full validation",
+      "nodes": 1000,
+      "p50Ms": 7.91,
+      "p95Ms": 23.919
+    },
+    {
+      "scenario": "move preview",
+      "nodes": 5000,
+      "p50Ms": 0.966,
+      "p95Ms": 2.107
+    },
+    {
+      "scenario": "sparse committed edit",
+      "nodes": 5000,
+      "p50Ms": 22.342,
+      "p95Ms": 25.37
+    },
+    {
+      "scenario": "revalidate editor snapshot",
+      "nodes": 5000,
+      "p50Ms": 0,
+      "p95Ms": 0
+    },
+    {
+      "scenario": "mutable full validation",
+      "nodes": 5000,
+      "p50Ms": 37.821,
+      "p95Ms": 40.758
+    },
+    {
+      "scenario": "linked master committed edit",
+      "nodes": 1500,
+      "p50Ms": 74.925,
+      "p95Ms": 81.944
+    }
+  ]
+}

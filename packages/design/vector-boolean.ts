@@ -65,8 +65,12 @@ const cache = new WeakMap<DesignNode, { dependencies: DesignNode[]; d: string; b
 /** Curves remain curves. Results are derived from preserved operand nodes, never flattened assets. */
 export function vectorBooleanPath(node: DesignNode, nodes: readonly DesignNode[]): string {
   const children = new Map<string, DesignNode[]>();
-  for (const n of nodes)
-    if (n.parentId) children.set(n.parentId, [...(children.get(n.parentId) ?? []), n]);
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    const siblings = children.get(n.parentId);
+    if (siblings) siblings.push(n);
+    else children.set(n.parentId, [n]);
+  }
   const dependencies: DesignNode[] = [];
   const collect = (n: DesignNode) => {
     dependencies.push(n);

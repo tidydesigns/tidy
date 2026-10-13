@@ -1,4 +1,4 @@
-import type { DesignDocument } from "./document";
+import { parseDesignDocument, type DocumentParser, type DesignDocument } from "./document";
 import { applyDocumentPatch, invertPatch, type DocumentPatch } from "./document-patch";
 import { equalJsonValues } from "./json-value";
 import { applyRevisionChanges, type RevisionChanges } from "./revision-sync";
@@ -20,8 +20,12 @@ export class RoomEditQueue {
   constructor(
     initial: RoomSnapshot,
     private notify: (snapshot: RoomSnapshot) => void,
+    private parse: DocumentParser = parseDesignDocument,
   ) {
-    this.authoritative = initial;
+    this.authoritative =
+      this.parse === parseDesignDocument
+        ? initial
+        : { ...initial, content: this.parse(initial.content) };
   }
   setNotify(notify: (snapshot: RoomSnapshot) => void) {
     this.notify = notify;
@@ -37,7 +41,7 @@ export class RoomEditQueue {
     let applied: Pending | undefined;
     for (const operation of this.pending) {
       try {
-        content = applyDocumentPatch(content, operation.patch);
+        content = applyDocumentPatch(content, operation.patch, false, this.parse);
         if (this.pending.length === 1)
           applied = { operationId: operation.operationId, patch: structuredClone(operation.patch) };
       } catch {
@@ -67,14 +71,17 @@ export class RoomEditQueue {
       return { revision: changes.revision, content: cached.snapshot.content };
     }
     // Server-derived edits, concurrent changes and rejected previews take the normal validation path.
-    return applyRevisionChanges(base, changes);
+    return applyRevisionChanges(base, changes, this.parse);
   }
   restore() {
     this.notify(this.getSnapshot());
   }
   receive(snapshot: RoomSnapshot) {
     if (snapshot.revision >= this.authoritative.revision) {
-      this.authoritative = snapshot;
+      this.authoritative =
+        this.parse === parseDesignDocument
+          ? snapshot
+          : { ...snapshot, content: this.parse(snapshot.content) };
       this.optimistic = undefined;
     }
     this.restore();

@@ -3,7 +3,7 @@ import type { TextContent } from "@bella/design/rich-text";
 
 import { memo, useCallback, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
 import type { DesignNode } from "@/lib/design/document";
-import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
+import { createArtworkBranches, type Branch } from "./artwork-branches";
 import { nodeStyle } from "@/lib/design/node-style";
 import { responsiveNode } from "@/lib/design/responsive-layout";
 import { NodeStrokes } from "@/components/design/node-strokes";
@@ -36,87 +36,6 @@ type Props = {
   onTextDraft: (node: DesignNode, value: TextContent) => void;
   onTextFinish: (node: DesignNode, value: TextContent | null) => void;
 };
-
-type Branch = {
-  node: DesignNode;
-  parent?: DesignNode;
-  flowIndex: number;
-  viewportWidth: number;
-  selected: boolean;
-  cropping: boolean;
-  editing: boolean;
-  children: Branch[];
-  painted: DesignNode;
-  composite: React.CSSProperties;
-};
-
-function branchBuilder() {
-  const previous = new WeakMap<DesignNode, Branch>();
-  let previousMap: Props["nodesById"] | undefined;
-  let allNodes: DesignNode[] = [];
-  return (props: Props) => {
-    if (previousMap !== props.nodesById) {
-      previousMap = props.nodesById;
-      allNodes = [...props.nodesById.values()];
-    }
-    const selection = new Set(props.selectedIds);
-    function build(node: DesignNode, flowIndex = 0, frameWidth = node.box.width): Branch | null {
-      if (!node.visible || (node.parentId === null && !props.visibleRootIds.has(node.id)))
-        return null;
-      if (
-        props.prototypeMode &&
-        node.parentId === null &&
-        (node.type !== "artboard" || node.id !== props.prototypeArtboardId)
-      )
-        return null;
-      const viewportWidth = node.type === "artboard" ? node.box.width : frameWidth;
-      const parent = props.nodesById.get(node.parentId ?? "");
-      let childFlowIndex = 0;
-      const children: Branch[] = [];
-      for (const child of props.childrenById.get(node.id) ?? []) {
-        const branch = build(child, childFlowIndex, viewportWidth);
-        if (child.visible && child.positionMode !== "absolute") childFlowIndex++;
-        if (branch) children.push(branch);
-      }
-      const selected = selection.has(node.id),
-        cropping = props.cropId === node.id,
-        editing = props.editingTextId === node.id;
-      const old = previous.get(node);
-      const composite = vectorCompositeStyle(node, allNodes, props.tokens, parent);
-      if (
-        old &&
-        old.parent === parent &&
-        old.composite.maskImage === composite.maskImage &&
-        old.flowIndex === flowIndex &&
-        old.viewportWidth === viewportWidth &&
-        old.selected === selected &&
-        old.cropping === cropping &&
-        old.editing === editing &&
-        old.children.length === children.length &&
-        old.children.every((child, index) => child === children[index])
-      )
-        return old;
-      const branch = {
-        node,
-        parent,
-        flowIndex,
-        viewportWidth,
-        selected,
-        cropping,
-        editing,
-        children,
-        painted: booleanRenderNode(node, allNodes),
-        composite,
-      };
-      previous.set(node, branch);
-      return branch;
-    }
-    return (props.childrenById.get(null) ?? []).flatMap((node) => {
-      const branch = build(node);
-      return branch ? [branch] : [];
-    });
-  };
-}
 
 type Handlers = Pick<
   Props,
@@ -216,7 +135,7 @@ const ArtworkNode = memo(function ArtworkNode({
 
 /** View movement leaves artwork untouched; edits render only affected branches. */
 export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
-  const [build] = useState(branchBuilder);
+  const [build] = useState(createArtworkBranches);
   const {
     registerElement,
     onMenu,

@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { FilesBrowser } from "@/app/files/files-browser";
 import { performanceDocument } from "@/lib/design/examples/performance";
@@ -7,7 +8,15 @@ import { ThumbnailPrewarmFixture } from "./thumbnail-prewarm-fixture";
 export default async function PerformancePreview({
   searchParams,
 }: PageProps<"/dev/performance-preview">) {
-  if (process.env.NODE_ENV !== "development") notFound();
+  if (process.env.NODE_ENV !== "development") {
+    // Opt-in production-build diagnostics are restricted to loopback requests.
+    const host = (await headers()).get("host")?.split(":")[0];
+    if (
+      process.env.TIDY_LOCAL_PERFORMANCE_FIXTURES !== "1" ||
+      (host !== "localhost" && host !== "127.0.0.1")
+    )
+      notFound();
+  }
   const query = await searchParams;
   if (query.prewarm === "1") return <ThumbnailPrewarmFixture />;
   if (query.workspace === "1") {

@@ -1,0 +1,27 @@
+{
+  "runtime": "Bun 1.4.2",
+  "cpu": "AMD Ryzen 5 3600 6-Core Processor",
+  "samples": 80,
+  "warmups": 10,
+  "parser": "isolated mutable control",
+  "results": [
+    {
+      "scenario": "isolated mutable validation",
+      "nodes": 100,
+      "p50Ms": 0.812,
+      "p95Ms": 4.091
+    },
+    {
+      "scenario": "isolated mutable validation",
+      "nodes": 1000,
+      "p50Ms": 7.488,
+      "p95Ms": 18.245
+    },
+    {
+      "scenario": "isolated mutable validation",
+      "nodes": 5000,
+      "p50Ms": 35.285,
+      "p95Ms": 55.114
+    }
+  ]
+}

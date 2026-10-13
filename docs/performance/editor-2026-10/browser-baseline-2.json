@@ -1,0 +1,78 @@
+{
+  "browser": "151.0.7922.34",
+  "build": "local production fixture",
+  "results": [
+    {
+      "nodes": 100,
+      "samples": 60,
+      "warmups": 10,
+      "cpuThrottle": 4,
+      "firstSelectionMs": 1552,
+      "nudgeUpdateRafP50Ms": 48.7,
+      "nudgeUpdateRafP95Ms": 71.1,
+      "taskMs": 4026.1,
+      "scriptMs": 2758.1,
+      "layoutMs": 106.6,
+      "styleMs": 48.2,
+      "mounted": 100,
+      "rows": 100
+    },
+    {
+      "nodes": 100,
+      "scenario": "120 pan events",
+      "cpuThrottle": 4,
+      "taskMs": 1619.1,
+      "scriptMs": 716.7,
+      "layoutMs": 18.5,
+      "styleMs": 46.8
+    },
+    {
+      "nodes": 1000,
+      "samples": 60,
+      "warmups": 10,
+      "cpuThrottle": 4,
+      "firstSelectionMs": 1787,
+      "nudgeUpdateRafP50Ms": 163.2,
+      "nudgeUpdateRafP95Ms": 206.7,
+      "taskMs": 12444.1,
+      "scriptMs": 8508.2,
+      "layoutMs": 122.9,
+      "styleMs": 73.6,
+      "mounted": 300,
+      "rows": 33
+    },
+    {
+      "nodes": 1000,
+      "scenario": "120 pan events",
+      "cpuThrottle": 4,
+      "taskMs": 1591.3,
+      "scriptMs": 809.5,
+      "layoutMs": 18.2,
+      "styleMs": 47.7
+    },
+    {
+      "nodes": 5000,
+      "samples": 60,
+      "warmups": 10,
+      "cpuThrottle": 4,
+      "firstSelectionMs": 3064,
+      "nudgeUpdateRafP50Ms": 650.9,
+      "nudgeUpdateRafP95Ms": 811.8,
+      "taskMs": 48321.7,
+      "scriptMs": 32518,
+      "layoutMs": 124.4,
+      "styleMs": 68.2,
+      "mounted": 300,
+      "rows": 33
+    },
+    {
+      "nodes": 5000,
+      "scenario": "120 pan events",
+      "cpuThrottle": 4,
+      "taskMs": 1843.1,
+      "scriptMs": 1256.9,
+      "layoutMs": 19.8,
+      "styleMs": 39.9
+    }
+  ]
+}
