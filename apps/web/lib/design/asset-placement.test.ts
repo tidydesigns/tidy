@@ -5,12 +5,18 @@ import {
   designNodeChangesSchema,
   parseDesignDocument,
 } from "./document";
-import { intrinsicSize, placeAssets, replaceImageAsset } from "./asset-placement";
+import {
+  intrinsicSize,
+  placeAssets,
+  replaceImageAsset,
+  replaceImagePaint,
+} from "./asset-placement";
 import { initialImageCrop, panImageCrop, resizeImageCrop } from "./image-crop";
 import { imageViewport } from "./image-viewport";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
 import { editLayers } from "./edit-document";
 import { mergeImport } from "./merge-import";
+import { vectorCompositeStyle } from "../../../../packages/design-renderer/vector-composites";
 import { rotatePoint } from "./resize-box";
 const asset = "00000000-0000-4000-8000-000000000001",
   other = "00000000-0000-4000-8000-000000000002";
@@ -197,4 +203,52 @@ test("placement and replacement retain image MIME metadata through patches and u
     mimeType: "image/webp",
   });
   expect(replaced.assetMimeTypes?.[other]).toBe("image/webp");
+});
+
+test("image fill replacement updates mask dimensions, preserves fit and survives undo/reload", () => {
+  const group = buildDrawnNode("mask", "container", null, { x: 0, y: 0, width: 100, height: 100 });
+  group.mask = { sourceId: "source", mode: "alpha", enabled: true };
+  const source = buildDrawnNode("source", "container", "mask", {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  source.style.paints = [
+    {
+      type: "image",
+      id: "paint",
+      assetId: asset,
+      intrinsicSize: { width: 200, height: 100 },
+      fit: "cover",
+      positionX: 50,
+      positionY: 50,
+      opacity: 1,
+      visible: true,
+    },
+  ];
+  const before = parseDesignDocument({ ...blankDesignDocument(), nodes: [group, source] });
+  const paint = before.nodes[1].style.paints![0];
+  if (paint.type !== "image") throw new Error("Expected image paint");
+  // Decoding includes SVG metadata; only dimensions belong in the strict intrinsicSize schema.
+  const decoded = { width: 100, height: 200, vector: undefined, reason: undefined };
+  const after = editLayers(before, ["source"], {
+    style: { paints: [replaceImagePaint(paint, other, decoded)] },
+  });
+  expect(after.nodes[1].style.paints![0]).toMatchObject({
+    assetId: other,
+    intrinsicSize: { width: 100, height: 200 },
+    fit: "cover",
+    positionX: 50,
+    positionY: 50,
+  });
+  expect(
+    vectorCompositeStyle(after.nodes[0], after.nodes, {}, undefined, () => "blob:portrait")
+      .maskSize,
+  ).toBe("100px 200px, 100px 100px");
+  expect(parseDesignDocument(JSON.parse(JSON.stringify(after)))).toEqual(after);
+  const patch = diffDocument(before, after);
+  expect(applyDocumentPatch(after, invertPatch(patch), true)).toEqual(before);
+  expect(applyDocumentPatch(before, patch)).toEqual(after);
+  expect(() => replaceImagePaint(paint, other, { width: 0, height: 100 })).toThrow("dimensions");
 });

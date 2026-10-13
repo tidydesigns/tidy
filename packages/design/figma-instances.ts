@@ -2,7 +2,7 @@ import { nodeId as rawId, type FigDocument, type FigNode } from "openfig-core";
 
 export type FigmaInstanceLink = { master: string; source: string };
 /** Resolve source component children before translating paints and layout. */
-export function expandFigmaInstances(input: FigDocument) {
+export function expandFigmaInstances(input: FigDocument, rootIds?: readonly string[]) {
   const nodes = [...input.nodes],
     nodeMap = new Map(input.nodeMap),
     childrenMap = new Map(input.childrenMap);
@@ -113,6 +113,23 @@ export function expandFigmaInstances(input: FigDocument) {
     done.add(rootKey);
     visiting.delete(rootKey);
   }
-  for (const node of input.nodes) if (node.type === "INSTANCE") expand(node);
+  if (rootIds) {
+    const walked = new Set<string>();
+    function walk(root: string, depth = 0) {
+      if (depth > 100) throw new Error("Figma layer hierarchy is too deeply nested.");
+      if (walked.has(root)) return;
+      walked.add(root);
+      // Copies are already expanded from their source. Only walk original
+      // records here, so nested copies are not expanded a second time.
+      if (!input.nodeMap.has(root)) return;
+      const node = nodeMap.get(root)!;
+      const children = childrenMap.get(root) ?? [];
+      if (node.type === "INSTANCE") expand(node);
+      for (const child of children) walk(key(child), depth + 1);
+    }
+    for (const root of rootIds) walk(root);
+  } else {
+    for (const node of input.nodes) if (node.type === "INSTANCE") expand(node);
+  }
   return { document: { ...input, nodes, nodeMap, childrenMap }, links, unsupported };
 }

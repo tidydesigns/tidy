@@ -209,7 +209,19 @@ export function convertFigma(
   name = "Figma import",
   selectedPages?: string[],
 ): FigmaImport {
-  const expanded = expandFigmaInstances(doc);
+  if (selectedPages && !selectedPages.length) fail("Choose at least one Figma page.");
+  const sourcePages = doc.nodes.filter(
+    (n) =>
+      n.type === "CANVAS" &&
+      !n.internalOnly &&
+      (!selectedPages || selectedPages.includes(nodeId(n))),
+  );
+  if (selectedPages && sourcePages.length !== new Set(selectedPages).size)
+    fail("Selected Figma pages are unavailable.");
+  const roots = sourcePages.length
+    ? sourcePages.flatMap((page) => (doc.childrenMap.get(nodeId(page)) ?? []).map(nodeId))
+    : undefined;
+  const expanded = expandFigmaInstances(doc, roots);
   doc = expanded.document;
   const requiredMasters = new Set<string>();
   const designTokens: NonNullable<DesignDocument["designTokens"]> = {};
@@ -688,15 +700,6 @@ export function convertFigma(
     nodes.push(node);
     for (const child of doc.childrenMap.get(key) ?? []) visit(child, node.id, pageId, depth + 1);
   }
-  if (selectedPages && !selectedPages.length) fail("Choose at least one Figma page.");
-  const sourcePages = doc.nodes.filter(
-    (n) =>
-      n.type === "CANVAS" &&
-      !n.internalOnly &&
-      (!selectedPages || selectedPages.includes(nodeId(n))),
-  );
-  if (selectedPages && sourcePages.length !== new Set(selectedPages).size)
-    fail("Selected Figma pages are unavailable.");
   if (sourcePages.length)
     for (const p of sourcePages) {
       const id = ids.get(nodeId(p))!;

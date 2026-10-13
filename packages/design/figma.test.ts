@@ -244,3 +244,88 @@ test("invalid page choices and more than 10,000 layers fail explicitly", () => {
   }
   expect(() => convertFigma(doc)).toThrow("10,000 editable layers");
 });
+
+function libraryFixture(internalOnly = false) {
+  const doc = decodeFigma(fixture("circle.fig"));
+  const add = (node: FigNode) => {
+    doc.nodes.push(node);
+    doc.nodeMap.set(`${node.guid.sessionID}:${node.guid.localID}`, node);
+    if (node.parentIndex) {
+      const parent = `${node.parentIndex.guid.sessionID}:${node.parentIndex.guid.localID}`;
+      doc.childrenMap.set(parent, [...(doc.childrenMap.get(parent) ?? []), node]);
+    }
+  };
+  add({
+    guid: { sessionID: 9, localID: 9999 },
+    type: "CANVAS",
+    name: "Library",
+    internalOnly,
+  } as FigNode);
+  add({
+    guid: { sessionID: 9, localID: 1 },
+    parentIndex: { guid: { sessionID: 9, localID: 9999 }, position: "a" },
+    type: "SYMBOL",
+    name: "Master",
+    size: { x: 100, y: 100 },
+  } as FigNode);
+  for (let index = 0; index < 100; index++)
+    add({
+      guid: { sessionID: 9, localID: 100 + index },
+      parentIndex: { guid: { sessionID: 9, localID: 1 }, position: String(index) },
+      type: "RECTANGLE",
+      name: "Child",
+      size: { x: 10, y: 10 },
+    } as FigNode);
+  for (let index = 0; index < 510; index++)
+    add({
+      guid: { sessionID: 9, localID: 1000 + index },
+      parentIndex: { guid: { sessionID: 9, localID: 9999 }, position: String(index) },
+      type: "INSTANCE",
+      name: "Unselected instance",
+      symbolData: { symbolID: { sessionID: 9, localID: 1 } },
+      size: { x: 100, y: 100 },
+    } as FigNode);
+  return { doc, add };
+}
+
+test("unselected page instances do not exhaust the selected page expansion budget", () => {
+  const { doc } = libraryFixture();
+  expect(convertFigma(doc, "Selected", ["0:1"]).document.nodes).toHaveLength(2);
+  // The same library remains bounded when explicitly requested.
+  expect(() => convertFigma(doc, "Library", ["9:9999"])).toThrow("record limit");
+});
+
+test("hidden libraries expand only transitive component dependencies", () => {
+  const { doc, add } = libraryFixture(true);
+  expect(convertFigma(doc).document.nodes).toHaveLength(2);
+  add({
+    guid: { sessionID: 8, localID: 1 },
+    parentIndex: { guid: { sessionID: 9, localID: 9999 }, position: "z" },
+    type: "SYMBOL",
+    name: "Nested master",
+    size: { x: 100, y: 100 },
+  } as FigNode);
+  add({
+    guid: { sessionID: 8, localID: 2 },
+    parentIndex: { guid: { sessionID: 8, localID: 1 }, position: "a" },
+    type: "INSTANCE",
+    name: "Nested instance",
+    symbolData: { symbolID: { sessionID: 9, localID: 1 } },
+    size: { x: 100, y: 100 },
+  } as FigNode);
+  add({
+    guid: { sessionID: 8, localID: 3 },
+    parentIndex: { guid: { sessionID: 0, localID: 1 }, position: "z" },
+    type: "INSTANCE",
+    name: "Selected instance",
+    symbolData: { symbolID: { sessionID: 8, localID: 1 } },
+    size: { x: 100, y: 100 },
+  } as FigNode);
+  const result = convertFigma(doc, "Selected", ["0:1"]).document;
+  const instance = result.nodes.find((node) => node.name === "Selected instance")!;
+  expect(instance.instanceOf).toBeDefined();
+  expect(result.nodes.find((node) => node.id === instance.instanceOf)?.isComponent).toBe(true);
+  const nested = result.nodes.find((node) => node.parentId === instance.id)!;
+  expect(result.nodes.filter((node) => node.parentId === nested.id)).toHaveLength(100);
+  expect(result.nodes.some((node) => node.name === "Unselected instance")).toBe(false);
+});

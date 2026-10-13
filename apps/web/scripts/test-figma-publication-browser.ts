@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import sharp from "sharp";
 import { chromium, type Browser } from "playwright";
 import { verifiedTestAccount } from "./fixtures/verified-test-account.mjs";
 
@@ -331,6 +332,96 @@ try {
   console.log(
     "PASS: native Figma paste, undo and redo persist through the authenticated editor and reload",
   );
+  if (process.env.FIGMA_TEST_FILE) {
+    const mask = record.nodes.find((node: { mask?: { enabled: boolean } }) => node.mask?.enabled);
+    assert(mask, "Reference file contains an image mask");
+    const source = record.nodes.find((node: { id: string }) => node.id === mask.mask.sourceId);
+    const originalPaint = source.style.paints.find(
+      (paint: { type: string }) => paint.type === "image",
+    );
+    assert(originalPaint?.assetId, "Mask source has an image fill");
+    const sourcePage = record.pages.find((item: { id: string }) => item.id === source.pageId);
+    const expandPanels = page.getByRole("button", { name: "Expand editor panels", exact: true });
+    if (await expandPanels.isVisible()) await expandPanels.click();
+    await page.getByRole("button", { name: sourcePage.name, exact: true }).click();
+    await page.getByRole("textbox", { name: "Search layers", exact: true }).fill(source.name);
+    await page.getByRole("button", { name: `Select ${source.name}`, exact: true }).click();
+    await page.getByRole("button", { name: "Edit fill 1", exact: true }).click();
+    const replacement = await sharp({
+      create: {
+        width: 100,
+        height: 200,
+        channels: 4,
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      },
+    })
+      .png()
+      .toBuffer();
+    const uploadPromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/api/files/${fileId}/assets`) &&
+        response.request().method() === "POST",
+    );
+    await page
+      .getByLabel("Fill image", { exact: true })
+      .setInputFiles({ name: "portrait-mask.png", mimeType: "image/png", buffer: replacement });
+    const upload = await uploadPromise;
+    assert.equal(upload.status(), 200, await upload.text());
+    const uploaded = await upload.json();
+    async function persistedPaint(assetId: string) {
+      for (let attempt = 0; attempt < 120; attempt++) {
+        const saved = (
+          await client!.query('select "content" from "designDocument" where "fileId"=$1', [fileId])
+        ).rows[0].content;
+        const paint = saved.nodes
+          .find((node: { id: string }) => node.id === source.id)
+          .style.paints.find((paint: { id: string }) => paint.id === originalPaint.id);
+        if (paint.assetId === assetId) return paint;
+        await delay(100);
+      }
+      throw new Error("Mask replacement did not persist");
+    }
+    assert.deepEqual((await persistedPaint(uploaded.assetId)).intrinsicSize, {
+      width: 100,
+      height: 200,
+    });
+    // Close the inspector popover before testing document undo shortcuts.
+    await page.keyboard.press("Escape");
+    await page.getByRole("textbox", { name: "Search layers", exact: true }).fill("");
+    await page.getByRole("textbox", { name: "Search layers", exact: true }).blur();
+    await page.keyboard.press("Control+z");
+    assert.deepEqual(
+      (await persistedPaint(originalPaint.assetId)).intrinsicSize,
+      originalPaint.intrinsicSize,
+    );
+    await page.keyboard.press("Control+Shift+z");
+    await persistedPaint(uploaded.assetId);
+    await page.reload();
+    await page.locator("[data-node-id]").first().waitFor();
+    assert.deepEqual((await persistedPaint(uploaded.assetId)).intrinsicSize, {
+      width: 100,
+      height: 200,
+    });
+    if (await expandPanels.isVisible()) await expandPanels.click();
+    await page.getByRole("button", { name: sourcePage.name, exact: true }).click();
+    const scale =
+      originalPaint.fit === "contain"
+        ? Math.min(source.box.width / 100, source.box.height / 200)
+        : Math.max(source.box.width / 100, source.box.height / 200);
+    const width = originalPaint.fit === "fill" ? source.box.width : 100 * scale;
+    const height = originalPaint.fit === "fill" ? source.box.height : 200 * scale;
+    await page.waitForFunction(
+      ({ id, size }) => {
+        const element = document.querySelector(`[data-node-id="${id}"]`);
+        return element && getComputedStyle(element).maskSize === size;
+      },
+      { id: mask.id, size: `${width}px ${height}px, ${source.box.width}px ${source.box.height}px` },
+    );
+    await page.screenshot({ path: join(artifacts, "replaced-mask.png") });
+    console.log(
+      "PASS: real mask fill upload updates source dimensions, persists and supports undo/redo/reload",
+    );
+  }
   const outsider = await browser.newContext();
   const denied = await outsider.request.post(`${base}/api/figma/import`, {
     headers: { Origin: base },

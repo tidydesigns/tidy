@@ -4,6 +4,7 @@ import {
   buildDrawnNode,
   isWebCaptureImportKey,
   parseDesignDocument,
+  DESIGN_DOCUMENT_LIMITS,
 } from "./document";
 import { trackDocumentChanges } from "./edit-document";
 import { removeLayers } from "./document-operations";
@@ -41,9 +42,9 @@ test("deleting a full 5000-layer capture succeeds with 5000 old deletion records
   expect(restored.nodes).toEqual(before.nodes);
   expect(restored.deletedSourceKeys).toEqual([]);
   expect(applyDocumentPatch(restored, patch, true)).toEqual(after);
-});
+}, 10000);
 
-test("legacy capture history is cleaned without relaxing other imports' limits", () => {
+test("legacy capture history is cleaned with bounds matching document capacity", () => {
   const retained = { importKey: "project:/page", sourceKey: "deleted-code-layer" };
   expect(
     parseDesignDocument({
@@ -54,14 +55,17 @@ test("legacy capture history is cleaned without relaxing other imports' limits",
   expect(() =>
     parseDesignDocument({
       ...blankDesignDocument(),
-      deletedSourceKeys: Array.from({ length: 5001 }, (_, index) => ({
+      deletedSourceKeys: Array.from({ length: DESIGN_DOCUMENT_LIMITS.nodes + 1 }, (_, index) => ({
         ...retained,
         sourceKey: `${index}`,
       })),
     }),
   ).toThrow();
   expect(() =>
-    parseDesignDocument({ ...blankDesignDocument(), deletedSourceKeys: legacyHistory(10001) }),
+    parseDesignDocument({
+      ...blankDesignDocument(),
+      deletedSourceKeys: legacyHistory(DESIGN_DOCUMENT_LIMITS.nodes * 2 + 1),
+    }),
   ).toThrow();
   expect(isWebCaptureImportKey(captureKey)).toBe(true);
   expect(isWebCaptureImportKey(duplicateKey)).toBe(true);
@@ -123,3 +127,23 @@ test("older clients' capture deletion patches are normalized on application", ()
   expect(after.nodes).toEqual([]);
   expect(after.deletedSourceKeys).toEqual([]);
 });
+
+test("source-tracked deletion retains all 10000 tombstones and supports undo/redo", () => {
+  const nodes = captureNodes(DESIGN_DOCUMENT_LIMITS.nodes).map((node) => ({
+    ...node,
+    importKey: "project:/page",
+    parentId: null,
+  }));
+  const before = parseDesignDocument({ ...blankDesignDocument(), nodes });
+  const first = trackDocumentChanges(before, { ...before, nodes: before.nodes.slice(6000) });
+  expect(first.deletedSourceKeys).toHaveLength(6000);
+  const after = trackDocumentChanges(first, { ...first, nodes: [] });
+  expect(after.deletedSourceKeys).toHaveLength(DESIGN_DOCUMENT_LIMITS.nodes);
+  expect(new Set(after.deletedSourceKeys.map((item) => item.sourceKey)).size).toBe(
+    DESIGN_DOCUMENT_LIMITS.nodes,
+  );
+  expect(parseDesignDocument(JSON.parse(JSON.stringify(after)))).toEqual(after);
+  const patch = diffDocument(first, after);
+  expect(applyDocumentPatch(after, invertPatch(patch), true)).toEqual(first);
+  expect(applyDocumentPatch(first, patch)).toEqual(after);
+}, 10000);

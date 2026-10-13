@@ -731,9 +731,9 @@ export const designDocumentSchema = z
       .array(deletedSourceKeySchema)
       // Allow the previous history plus one full-document deletion while
       // cleaning obsolete web-capture markers. Retained history stays bounded.
-      .max(10000)
+      .max(DESIGN_DOCUMENT_LIMITS.nodes * 2)
       .transform((items) => items.filter((item) => !isWebCaptureImportKey(item.importKey)))
-      .pipe(z.array(deletedSourceKeySchema).max(5000))
+      .pipe(z.array(deletedSourceKeySchema).max(DESIGN_DOCUMENT_LIMITS.nodes))
       .default([]),
   })
   .strict();

@@ -1,5 +1,10 @@
 import { isLayerLocked, isLayerVisible } from "./edit-document";
-import { parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
+import {
+  parseDesignDocument,
+  type DesignDocument,
+  type DesignNode,
+  type DesignPaint,
+} from "./document";
 import { editLayers } from "./edit-document";
 import { importSvgPath, inspectSvgImport } from "./svg-path-import";
 
@@ -17,6 +22,29 @@ export function intrinsicSize(width: number, height: number) {
     throw new Error("Image dimensions are unavailable.");
   const factor = Math.min(1, 5000 / width, 5000 / height);
   return { width: Math.max(1, width * factor), height: Math.max(1, height * factor) };
+}
+/** Asset identity and its source dimensions must change together. Keep the
+ * latest fit, position and unrelated paint properties during an async upload. */
+export function replaceImagePaint(
+  paint: Extract<DesignPaint, { type: "image" }>,
+  assetId: string,
+  dimensions: { width: number; height: number },
+) {
+  if (
+    !Number.isFinite(dimensions.width) ||
+    !Number.isFinite(dimensions.height) ||
+    dimensions.width < 1 ||
+    dimensions.height < 1 ||
+    dimensions.width > 1000000 ||
+    dimensions.height > 1000000
+  )
+    throw new Error("Image dimensions are unavailable.");
+  return {
+    ...paint,
+    assetId,
+    intrinsicSize: { width: dimensions.width, height: dimensions.height },
+    crop: undefined,
+  };
 }
 export function validatePlacementTarget(document: DesignDocument, target: PlacementTarget) {
   if (!document.pages.some((page) => page.id === target.pageId))

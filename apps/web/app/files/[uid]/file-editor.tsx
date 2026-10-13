@@ -24,6 +24,7 @@ import {
   placeAssets,
   replaceImageAsset,
   readImageFile,
+  replaceImagePaint,
   validatePlacementTarget,
   type PlacementAsset,
   type PlacementTarget,
@@ -1245,6 +1246,7 @@ export function FileEditor({
       })
       .filter((target) => target.paintId);
     try {
+      const dimensions = await readImageFile(file);
       const form = new FormData();
       form.set("image", file);
       const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
@@ -1267,7 +1269,7 @@ export function FileEditor({
                 paint.id === targets.find((target) => target.id === node.id)?.paintId &&
                 paint.type === "image" &&
                 paint.assetId === targets.find((target) => target.id === node.id)?.assetId
-                  ? { ...paint, assetId: result.assetId, crop: undefined }
+                  ? replaceImagePaint(paint, result.assetId!, dimensions)
                   : paint,
               ),
             ),
