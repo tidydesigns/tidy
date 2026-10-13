@@ -1,8 +1,13 @@
+import type { Metadata } from "next";
 import { SiteFooter } from "../components/site-footer";
 import { SiteHeader } from "../components/site-header";
 
 const loginUrl = new URL("/login", process.env.NEXT_PUBLIC_APP_URL ?? "https://app.tidydesign.co")
   .href;
+
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
 
 export default function HomePage() {
   return (

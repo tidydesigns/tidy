@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { siteUrl } from "../lib/site-url";
 import "./globals.css";
 
 const instrumentSans = localFont({
@@ -16,7 +17,7 @@ const instrumentSerif = localFont({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://tidydesign.co"),
+  metadataBase: siteUrl,
   title: "Tidy — A product canvas",
   description:
     "A product canvas for designers, engineers, and agents. Work on interfaces together, connect agents through MCP, and self-host or extend the canvas.",
