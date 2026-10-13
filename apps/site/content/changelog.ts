@@ -41,11 +41,6 @@ export const changelog: readonly ChangelogEntry[] = [
         title: "Steadier folder navigation",
         details: "Controls and file cards now stay in place when moving between folders and Files.",
       },
-      {
-        title: "Analytics collection paused",
-        details:
-          "Product analytics, session replay and analytics-based error reporting are paused. Vault is temporarily unavailable; existing records are preserved.",
-      },
     ],
   },
   {
