@@ -4,10 +4,10 @@ import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/v
 
 export type ArtworkBranchProps = {
   nodesById: ReadonlyMap<string, DesignNode>;
-  childrenById: ReadonlyMap<string | null, DesignNode[]>;
+  childrenById: ReadonlyMap<string | null, readonly DesignNode[]>;
   visibleRootIds: ReadonlySet<string>;
   tokens: Record<string, string>;
-  selectedIds: string[];
+  selectedIds: readonly string[];
   prototypeMode: boolean;
   prototypeArtboardId: string | null;
   cropId: string | null;
@@ -27,9 +27,11 @@ export type Branch = {
   composite: CSSProperties;
 };
 
+/** Node identities and child lists describe immutable render snapshots. */
 export function createArtworkBranches() {
   const previous = new WeakMap<DesignNode, Branch>();
   let previousMap: ArtworkBranchProps["nodesById"] | undefined;
+  let previousChildren: ArtworkBranchProps["childrenById"] | undefined;
   let allNodes: DesignNode[] = [];
   const dirty = new Set<string>();
   let previousSelection = new Set<string>();
@@ -51,7 +53,7 @@ export function createArtworkBranches() {
         for (const node of props.nodesById.values())
           if (previousMap.get(node.id) !== node) {
             mark(node.id, props.nodesById);
-            if (previousMap) mark(node.id, previousMap);
+            mark(node.id, previousMap);
           }
       if (previousMap)
         for (const node of previousMap.values())
@@ -60,6 +62,23 @@ export function createArtworkBranches() {
       previousMap = props.nodesById;
       allNodes = [...props.nodesById.values()];
     }
+    if (previousChildren && previousChildren !== props.childrenById) {
+      // A document can reorder siblings without changing any node object.
+      // Only quiet parents need this check; changed descendants already dirtied theirs.
+      for (const [parentId, children] of props.childrenById) {
+        if (parentId === null || dirty.has(parentId)) continue;
+        const before = previousChildren.get(parentId);
+        if (
+          !before ||
+          before.length !== children.length ||
+          before.some((node, index) => node.id !== children[index].id)
+        )
+          mark(parentId, props.nodesById);
+      }
+      for (const parentId of previousChildren.keys())
+        if (parentId !== null && !props.childrenById.has(parentId)) mark(parentId, props.nodesById);
+    }
+    previousChildren = props.childrenById;
     const selection = new Set(props.selectedIds);
     for (const id of new Set([...selection, ...previousSelection]))
       if (selection.has(id) !== previousSelection.has(id)) mark(id, props.nodesById);

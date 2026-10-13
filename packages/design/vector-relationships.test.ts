@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { buildDrawnNode, type DesignNode } from "./document";
-import { vectorMaskSource, vectorMaskSources } from "@bella/design/vector-relationships";
+import { vectorMaskSource, vectorMaskSources } from "./vector-relationships";
 
 const node = (id: string, parentId: string | null = null): DesignNode =>
   buildDrawnNode(id, "container", parentId, { x: 0, y: 0, width: 20, height: 20 });
 
 describe("batched vector mask eligibility", () => {
-  test("matches independent evaluation for nested, painted, empty, image and vector candidates", () => {
+  test("matches single-candidate evaluation for nested, painted, empty, image and vector candidates", () => {
     const root = node("root");
     root.style = {};
     const child = node("child", "root");

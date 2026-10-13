@@ -3,55 +3,61 @@ import type { DesignNode } from "./document";
 export function vectorOperand(node: DesignNode): boolean {
   return Boolean(node.vectorPath || node.vectorBoolean);
 }
-/** Build a hierarchy index for one evaluation batch; never cache mutable caller arrays. */
-function maskSourceSelector(nodes: readonly DesignNode[]) {
-  const children = new Map<string | null, DesignNode[]>();
-  for (const node of nodes) {
-    const siblings = children.get(node.parentId);
-    if (siblings) siblings.push(node);
-    else children.set(node.parentId, [node]);
-  }
-  const results = new WeakMap<DesignNode, boolean>();
-  function eligible(node: DesignNode): boolean {
-    const known = results.get(node);
-    if (known !== undefined) return known;
-    if (vectorOperand(node)) return true;
-    if (node.type !== "container" || node.layout !== "absolute") return false;
-    if (node.style.paints?.some((p) => p.type === "image")) return false;
-    const descendants = children.get(node.id) ?? [];
+type ChildrenOf = (id: string) => readonly DesignNode[];
+
+/** Both public APIs share the same eligibility rules; only child lookup differs. */
+function maskSource(
+  node: DesignNode,
+  childrenOf: ChildrenOf,
+  results?: WeakMap<DesignNode, boolean>,
+): boolean {
+  const known = results?.get(node);
+  if (known !== undefined) return known;
+  let result: boolean;
+  if (vectorOperand(node)) result = true;
+  else if (node.type !== "container" || node.layout !== "absolute") result = false;
+  else if (node.style.paints?.some((paint) => paint.type === "image")) result = false;
+  else {
+    const children = childrenOf(node.id);
     const painted = Boolean(
       node.style.fill ||
       node.style.fillToken ||
       node.style.gradientFrom ||
-      node.style.paints?.some((p) => p.visible) ||
+      node.style.paints?.some((paint) => paint.visible) ||
       node.style.borderWidth,
     );
-    const result = (painted || descendants.length > 0) && descendants.every(eligible);
-    results.set(node, result);
-    return result;
+    result =
+      (painted || children.length > 0) &&
+      children.every((child) => maskSource(child, childrenOf, results));
   }
-  return eligible;
+  results?.set(node, result);
+  return result;
 }
+
 export function vectorMaskSource(node: DesignNode, nodes: readonly DesignNode[]): boolean {
-  if (vectorOperand(node)) return true;
-  if (node.type !== "container" || node.layout !== "absolute") return false;
-  if (node.style.paints?.some((p) => p.type === "image")) return false;
-  const children = nodes.filter((n) => n.parentId === node.id);
-  const painted = Boolean(
-    node.style.fill ||
-    node.style.fillToken ||
-    node.style.gradientFrom ||
-    node.style.paints?.some((p) => p.visible) ||
-    node.style.borderWidth,
-  );
-  return (painted || children.length > 0) && children.every((n) => vectorMaskSource(n, nodes));
+  return maskSource(node, (id) => nodes.filter((child) => child.parentId === id));
 }
-/** Preserve candidate order and rendered styles while sharing descendant traversal. */
+
+/** Preserve candidate order and rendered styles; share hierarchy work within this batch only. */
 export function vectorMaskSources(
   candidates: readonly DesignNode[],
   nodes: readonly DesignNode[],
 ): DesignNode[] {
-  return candidates.filter(maskSourceSelector(nodes));
+  let children: Map<string | null, DesignNode[]> | undefined;
+  const childrenOf: ChildrenOf = (id) => {
+    // Vectors, text and other immediately decidable candidates need no scene index.
+    if (!children) {
+      children = new Map();
+      for (const node of nodes) {
+        const siblings = children.get(node.parentId);
+        if (siblings) siblings.push(node);
+        else children.set(node.parentId, [node]);
+      }
+    }
+    return children.get(id) ?? [];
+  };
+  const results = new WeakMap<DesignNode, boolean>();
+  return candidates.filter((node) => maskSource(node, childrenOf, results));
 }
 export function validateVectorRelationships(nodes: DesignNode[]) {
   const byId = new Map(nodes.map((n) => [n.id, n]));

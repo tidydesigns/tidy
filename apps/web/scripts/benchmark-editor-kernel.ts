@@ -1,6 +1,7 @@
 import { cpus } from "node:os";
 import { resolve } from "node:path";
 import type { DesignDocument } from "../../../packages/design/document";
+import { percentile, writeBenchmarkReport } from "./editor-benchmark";
 
 // One harness runs against either checkout. Only in-memory synthetic documents are used.
 const root = resolve(process.env.EDITOR_BENCH_ROOT ?? process.cwd());
@@ -23,12 +24,11 @@ function measure(scenario: string, nodes: number, work: () => void) {
     work();
     times.push(performance.now() - start);
   }
-  times.sort((a, b) => a - b);
   results.push({
     scenario,
     nodes,
-    p50Ms: +times[Math.ceil(samples * 0.5) - 1].toFixed(3),
-    p95Ms: +times[Math.ceil(samples * 0.95) - 1].toFixed(3),
+    p50Ms: percentile(times, 0.5, 3),
+    p95Ms: percentile(times, 0.95, 3),
   });
 }
 for (const count of [100, 1000, 5000]) {
@@ -106,6 +106,4 @@ const report = {
       : "baseline",
   results,
 };
-const json = JSON.stringify(report, null, 2) + "\n";
-if (process.env.EDITOR_BENCH_OUTPUT) await Bun.write(process.env.EDITOR_BENCH_OUTPUT, json);
-console.log(json);
+console.log(await writeBenchmarkReport(report));

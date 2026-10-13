@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
+import {
+  browserCosts,
+  editorBenchmarkContext,
+  editorBenchmarkUrl,
+  percentile,
+  writeBenchmarkReport,
+} from "./editor-benchmark";
 
 type DragCapture = {
   downMs: number | null;
@@ -11,34 +18,35 @@ declare global {
     editorDragCapture: DragCapture;
   }
 }
-const base = process.env.EDITOR_TEST_URL ?? "http://localhost:3117";
-if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
-  throw new Error("Use the local synthetic performance fixture.");
+const base = editorBenchmarkUrl();
 const counts = (process.env.EDITOR_SELECTION_COUNTS ?? "100,1000,4999").split(",").map(Number);
 if (counts.some((count) => ![100, 1000, 4999].includes(count)))
   throw new Error("Use fixture selections of 100, 1000 or 4999 layers.");
 const browser = await chromium.launch({ headless: true });
-const results: unknown[] = [];
-const percentile = (values: number[], fraction: number) => {
-  const sorted = [...values].sort((a, b) => a - b);
-  return +sorted[Math.ceil(sorted.length * fraction) - 1].toFixed(1);
+type SelectionResult = {
+  selected: number;
+  documentNodes: number;
+  cpuThrottle: number;
+  selectionSamples: number;
+  selectionP50Ms: number;
+  selectionP95Ms: number;
+  dragStartMs: number;
+  dragSamples: number;
+  dragPreviewP50Ms: number;
+  dragPreviewP95Ms: number;
+  dropCommitFrameMs: number;
+  dragTaskMs: number;
+  dragScriptMs: number;
+  dragLayoutMs: number;
+  movement: number;
+  mounted: number;
+  pageErrors: string[];
+  oneStepUndoRestoredAll: boolean;
 };
+const results: SelectionResult[] = [];
 try {
   for (const count of counts) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-    await context.route("**/*", (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname === "/api/auth/get-session")
-        return route.fulfill({ contentType: "application/json", body: "null" });
-      if (
-        url.pathname.startsWith("/api/") ||
-        url.pathname.startsWith("/files") ||
-        !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        url.port === "9"
-      )
-        return route.abort();
-      return route.continue();
-    });
+    const context = await editorBenchmarkContext(browser);
     const page = await context.newPage();
     page.setDefaultTimeout(120_000);
     const errors: string[] = [];
@@ -117,7 +125,6 @@ try {
     await cdp.send("Performance.enable");
     const beforeMetrics = await cdp.send("Performance.getMetrics");
     await page.evaluate(() => {
-      const canvas = document.querySelector<HTMLElement>('[aria-label="Design canvas"]')!;
       const layer = document.querySelector<HTMLElement>('[data-node-id="selected-0"]')!;
       const state: DragCapture = { downMs: null, upMs: null, frames: [] };
       window.editorDragCapture = state;
@@ -220,12 +227,7 @@ try {
           throw new Error(`Undo did not restore layer ${index}.`);
     });
     assert.deepEqual(errors, []);
-    const metric = (name: string) =>
-      +(
-        ((afterMetrics.metrics.find((metric) => metric.name === name)?.value ?? 0) -
-          (beforeMetrics.metrics.find((metric) => metric.name === name)?.value ?? 0)) *
-        1000
-      ).toFixed(1);
+    const costs = browserCosts(beforeMetrics, afterMetrics);
     results.push({
       selected: count,
       documentNodes: count + 1,
@@ -238,9 +240,9 @@ try {
       dragPreviewP50Ms: percentile(capture.frames.slice(2), 0.5),
       dragPreviewP95Ms: percentile(capture.frames.slice(2), 0.95),
       dropCommitFrameMs: +capture.upMs!.toFixed(1),
-      dragTaskMs: metric("TaskDuration"),
-      dragScriptMs: metric("ScriptDuration"),
-      dragLayoutMs: metric("LayoutDuration"),
+      dragTaskMs: costs.taskMs,
+      dragScriptMs: costs.scriptMs,
+      dragLayoutMs: costs.layoutMs,
       movement,
       mounted: await page.locator("[data-node-id]").count(),
       pageErrors: errors,
@@ -250,8 +252,7 @@ try {
     await context.close();
   }
   const report = { browser: browser.version(), build: "local production dense fixture", results };
-  if (process.env.EDITOR_BENCH_OUTPUT)
-    await Bun.write(process.env.EDITOR_BENCH_OUTPUT, JSON.stringify(report, null, 2) + "\n");
+  await writeBenchmarkReport(report);
 } finally {
   await browser.close();
 }

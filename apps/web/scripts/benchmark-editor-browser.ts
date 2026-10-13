@@ -1,28 +1,34 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 
-const base = process.env.EDITOR_TEST_URL ?? "http://localhost:3117";
-if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
-  throw new Error("Use the local synthetic performance fixture.");
+import {
+  browserCosts,
+  editorBenchmarkContext,
+  editorBenchmarkUrl,
+  percentile,
+  writeBenchmarkReport,
+  type BrowserCosts,
+} from "./editor-benchmark";
+
+type NudgeResult = BrowserCosts & {
+  nodes: number;
+  samples: number;
+  warmups: number;
+  cpuThrottle: number;
+  firstSelectionMs: number;
+  nudgeUpdateRafP50Ms: number;
+  nudgeUpdateRafP95Ms: number;
+  mounted: number;
+  rows: number;
+};
+type PanResult = BrowserCosts & { nodes: number; scenario: string; cpuThrottle: number };
+
+const base = editorBenchmarkUrl();
 const browser = await chromium.launch({ headless: true });
-const results: unknown[] = [];
+const results: (NudgeResult | PanResult)[] = [];
 try {
   for (const nodes of [100, 1000, 5000]) {
-    const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
-    // Fixture runs never send analytics, auth, fonts or other requests externally.
-    await context.route("**/*", (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname === "/api/auth/get-session")
-        return route.fulfill({ contentType: "application/json", body: "null" });
-      if (
-        url.pathname.startsWith("/api/") ||
-        url.pathname.startsWith("/files") ||
-        !["localhost", "127.0.0.1"].includes(url.hostname) ||
-        url.port === "9"
-      )
-        return route.abort();
-      return route.continue();
-    });
+    const context = await editorBenchmarkContext(browser);
     const page = await context.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -71,11 +77,6 @@ try {
       return { samples: samples.sort((a, b) => a - b), initialX, finalX };
     });
     const endMetrics = await cdp.send("Performance.getMetrics");
-    const metric = (name: string) => {
-      const before = startMetrics.metrics.find((metric) => metric.name === name)?.value ?? 0;
-      const after = endMetrics.metrics.find((metric) => metric.name === name)?.value ?? 0;
-      return +((after - before) * 1000).toFixed(1);
-    };
     const mounted = await page.locator("[data-node-id]").count();
     const rows = await page
       .getByRole("tree", { name: "Layers", exact: true })
@@ -90,12 +91,9 @@ try {
       warmups: 10,
       cpuThrottle: 4,
       firstSelectionMs,
-      nudgeUpdateRafP50Ms: +timings.samples[29].toFixed(1),
-      nudgeUpdateRafP95Ms: +timings.samples[56].toFixed(1),
-      taskMs: metric("TaskDuration"),
-      scriptMs: metric("ScriptDuration"),
-      layoutMs: metric("LayoutDuration"),
-      styleMs: metric("RecalcStyleDuration"),
+      nudgeUpdateRafP50Ms: percentile(timings.samples, 0.5),
+      nudgeUpdateRafP95Ms: percentile(timings.samples, 0.95),
+      ...browserCosts(startMetrics, endMetrics),
       mounted,
       rows,
     });
@@ -121,20 +119,11 @@ try {
       if (surface.style.transform === before) throw new Error("Pan did not update the viewport.");
     });
     const panEnd = await cdp.send("Performance.getMetrics");
-    const panMetric = (name: string) =>
-      +(
-        ((panEnd.metrics.find((metric) => metric.name === name)?.value ?? 0) -
-          (panStart.metrics.find((metric) => metric.name === name)?.value ?? 0)) *
-        1000
-      ).toFixed(1);
     results.push({
       nodes,
       scenario: "120 pan events",
       cpuThrottle: 4,
-      taskMs: panMetric("TaskDuration"),
-      scriptMs: panMetric("ScriptDuration"),
-      layoutMs: panMetric("LayoutDuration"),
-      styleMs: panMetric("RecalcStyleDuration"),
+      ...browserCosts(panStart, panEnd),
     });
     await context.close();
   }
@@ -143,9 +132,7 @@ try {
     build: process.env.EDITOR_BENCH_BUILD ?? "local production fixture",
     results,
   };
-  const json = JSON.stringify(report, null, 2) + "\n";
-  if (process.env.EDITOR_BENCH_OUTPUT) await Bun.write(process.env.EDITOR_BENCH_OUTPUT, json);
-  console.log(json);
+  console.log(await writeBenchmarkReport(report));
 } finally {
   await browser.close();
 }

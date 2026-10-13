@@ -7,6 +7,8 @@ import {
 } from "@/lib/design/document";
 import { createArtworkBranches, type ArtworkBranchProps } from "./artwork-branches";
 
+const tokens = {};
+
 function props(nodes: DesignNode[]): ArtworkBranchProps {
   const children = new Map<string | null, DesignNode[]>();
   for (const node of nodes) {
@@ -18,7 +20,7 @@ function props(nodes: DesignNode[]): ArtworkBranchProps {
     nodesById: new Map(nodes.map((node) => [node.id, node])),
     childrenById: children,
     visibleRootIds: new Set(nodes.filter((node) => !node.parentId).map((node) => node.id)),
-    tokens: {},
+    tokens,
     selectedIds: [],
     prototypeMode: false,
     prototypeArtboardId: null,
@@ -34,6 +36,7 @@ function scene() {
       buildDrawnNode("right", "artboard", null, { x: 800, y: 0, width: 500, height: 500 }),
       buildDrawnNode("group", "container", "left", { x: 0, y: 0, width: 200, height: 200 }),
       buildDrawnNode("leaf", "text", "group", { x: 0, y: 0, width: 100, height: 20 }),
+      buildDrawnNode("leaf-two", "text", "group", { x: 0, y: 30, width: 100, height: 20 }),
       buildDrawnNode("other", "text", "right", { x: 0, y: 0, width: 100, height: 20 }),
     ],
   }).nodes;
@@ -57,6 +60,19 @@ test("edits and selection reuse unrelated subtrees while matching a fresh traver
   expect(edited[0].children[0].children[0].node.text).toBe("Changed");
 });
 
+test("sibling reordering invalidates cached ancestry without replacing unchanged node objects", () => {
+  const build = createArtworkBranches();
+  const nodes = scene();
+  const initial = build(props(nodes));
+  const reordered = props([...nodes].reverse());
+  const branches = build(reordered);
+  const left = branches.find((branch) => branch.node.id === "left")!;
+  const right = branches.find((branch) => branch.node.id === "right")!;
+  expect(left.children[0].children.map((branch) => branch.node.id)).toEqual(["leaf-two", "leaf"]);
+  expect(right).toBe(initial[1]);
+  expect(branches).toEqual(createArtworkBranches()(reordered));
+});
+
 test("reparenting invalidates both ancestor chains, including unchanged old parents", () => {
   const build = createArtworkBranches();
   const nodes = scene();
@@ -71,7 +87,7 @@ test("reparenting invalidates both ancestor chains, including unchanged old pare
 
 test("offscreen branches retain invalidations for selection, tokens, and edits until remounted", () => {
   const build = createArtworkBranches();
-  let current = { ...props(scene()), selectedIds: ["leaf"] };
+  let current: ArtworkBranchProps = { ...props(scene()), selectedIds: ["leaf"] };
   build(current);
   current = { ...current, visibleRootIds: new Set(["right"]), selectedIds: [] };
   build(current);
