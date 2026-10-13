@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { checkDeletionOwnership } from "@/lib/privacy/deletion-eligibility";
 import { boundedRequest } from "@/lib/http/request-body";
 import { privacyAccount, privacyFailure, privateHeaders, PrivacyError } from "@/lib/privacy/access";
 import {
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
     });
     if (!account) throw new PrivacyError("Sign in to continue.", 401, "SESSION_REQUIRED");
     if (new URL(request.url).searchParams.get("check") === "1") {
+      await checkDeletionOwnership(account.user.id);
       await checkPrivacyAuthentication(account.user.id, account.session.id);
       return Response.json({ verified: true }, { headers: privateHeaders });
     }

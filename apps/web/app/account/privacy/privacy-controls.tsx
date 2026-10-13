@@ -9,7 +9,9 @@ import { ReauthDialog } from "./reauth-dialog";
 class ReauthRequired extends Error {}
 
 export function PrivacyControls({ email }: { email: string }) {
-  const [pending, setPending] = useState(false);
+  const [operation, setOperation] = useState<"export" | "check-delete" | "delete" | null>(null);
+  const pending = operation !== null;
+  const [organizations, setOrganizations] = useState<{ id: string; name: string }[]>([]);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -32,7 +34,12 @@ export function PrivacyControls({ email }: { email: string }) {
       const result = (await response.json().catch(() => null)) as {
         error?: string;
         code?: string;
+        organizations?: { id: string; name: string }[];
       } | null;
+      if (result?.code === "ORGANIZATION_OWNERSHIP_REQUIRED") {
+        dialog.current?.close();
+        setOrganizations(result.organizations ?? []);
+      }
       if (result?.code === "REAUTH_REQUIRED") {
         dialog.current?.close();
         setError("");
@@ -50,8 +57,9 @@ export function PrivacyControls({ email }: { email: string }) {
   }
   async function beginDeletion() {
     if (pending) return;
-    setPending(true);
+    setOperation("check-delete");
     setError("");
+    setOrganizations([]);
     try {
       await request("delete", true);
       confirmDeletion();
@@ -61,13 +69,14 @@ export function PrivacyControls({ email }: { email: string }) {
           error instanceof Error ? error.message : "Could not check authentication. Try again.",
         );
     } finally {
-      setPending(false);
+      setOperation(null);
     }
   }
   async function download() {
     if (pending) return;
-    setPending(true);
+    setOperation("export");
     setError("");
+    setOrganizations([]);
     setMessage("");
     try {
       const response = await request("export");
@@ -87,13 +96,13 @@ export function PrivacyControls({ email }: { email: string }) {
       if (!(error instanceof ReauthRequired))
         setError(error instanceof Error ? error.message : "Download failed.");
     } finally {
-      setPending(false);
+      setOperation(null);
     }
   }
   async function remove(event: FormEvent) {
     event.preventDefault();
     if (pending) return;
-    setPending(true);
+    setOperation("delete");
     setError("");
     try {
       await request("delete");
@@ -103,7 +112,7 @@ export function PrivacyControls({ email }: { email: string }) {
     } catch (error) {
       if (!(error instanceof ReauthRequired))
         setError(error instanceof Error ? error.message : "Deletion failed.");
-      setPending(false);
+      setOperation(null);
     }
   }
   function verified() {
@@ -113,7 +122,7 @@ export function PrivacyControls({ email }: { email: string }) {
     if (operation === "export") void download();
     else {
       // Reauthentication never submits a destructive action automatically.
-      confirmDeletion();
+      void beginDeletion();
     }
   }
   const cancelAuth = useCallback(() => setAuthOperation(null), []);
@@ -123,6 +132,20 @@ export function PrivacyControls({ email }: { email: string }) {
         <p role="alert" className="my-4 text-sm text-danger">
           {error}
         </p>
+      )}
+      {organizations.length > 0 && (
+        <ul className="max-h-48 space-y-2 overflow-y-auto text-sm">
+          {organizations.map((organization) => (
+            <li key={organization.id}>
+              <a
+                href={`/settings?tab=organization&organization=${encodeURIComponent(organization.id)}&returnTo=account`}
+                className="inline-flex min-h-9 items-center underline underline-offset-4"
+              >
+                {organization.name} settings
+              </a>
+            </li>
+          ))}
+        </ul>
       )}
     </>
   );
@@ -143,7 +166,7 @@ export function PrivacyControls({ email }: { email: string }) {
           ask you to authenticate again when needed.
         </p>
         <Button disabled={pending} onClick={() => void download()}>
-          {pending ? "Working…" : "Download my data"}
+          {operation === "export" ? "Working…" : "Download my data"}
         </Button>
         <p role="status" className="text-sm">
           {message}
@@ -168,7 +191,7 @@ export function PrivacyControls({ email }: { email: string }) {
           disabled={pending}
           onClick={() => void beginDeletion()}
         >
-          Delete my account
+          {operation === "check-delete" ? "Checking…" : "Delete my account"}
         </Button>
       </section>
       {!dialogOpen && status}

@@ -301,7 +301,10 @@ export function SettingsTabs({
               }}
             />
             {currentRole.split(",").includes("owner") && (
-              <DeleteOrganization organization={currentOrganization} />
+              <DeleteOrganization
+                organization={currentOrganization}
+                returnToAccount={searchParams.get("returnTo") === "account"}
+              />
             )}
           </section>
         </SettingsPanel>

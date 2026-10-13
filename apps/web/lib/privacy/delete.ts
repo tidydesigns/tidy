@@ -5,6 +5,7 @@ import { avatarObjectKey } from "@/lib/avatars";
 import { designBucket } from "@/lib/storage/design-objects";
 import { runnerConfigured } from "@/lib/agents/runner-client";
 import { lockPrivacyAccount, PrivacyError } from "./access";
+import { checkDeletionOwnership } from "./deletion-eligibility";
 
 export const DELETED_USER = "tidy-deleted-user";
 export async function deleteAccount(userId: string, sessionId: string, confirmation: string) {
@@ -30,20 +31,8 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
     const user = await lockPrivacyAccount(client, userId, sessionId);
     if (confirmation !== user.email)
       throw new PrivacyError("Enter your email address exactly to confirm deletion.");
-    const lastOwner = (
-      await client.query<{ name: string }>(
-        `select o.name from member m join organization o on o.id=m."organizationId"
-       where m."userId"=$1 and m.role='owner' and not exists
-       (select 1 from member other where other."organizationId"=m."organizationId" and other."userId"<>$1 and other.role='owner')`,
-        [userId],
-      )
-    ).rows;
-    if (lastOwner.length)
-      throw new PrivacyError(
-        "Transfer ownership or delete these organizations in Settings first: " +
-          lastOwner.map((o) => o.name).join(", "),
-        409,
-      );
+    // Recheck under the transaction's organization locks: the preflight is only guidance.
+    await checkDeletionOwnership(userId, client);
     const enqueue = async (kind: string, subject: string) =>
       client.query('insert into "privacyCleanup" (id,kind,subject) values ($1,$2,$3)', [
         randomUUID(),

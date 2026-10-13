@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { Client } from "pg";
 mock.module("server-only", () => ({}));
 const { db } = await import("../db");
@@ -127,6 +127,62 @@ integration("wrong confirmation and last owner cannot delete or enqueue cleanup"
   expect((await admin.query('select * from "privacyCleanup"')).rows).toHaveLength(0);
   expect((await admin.query(`select * from "user" where id='alice'`)).rows).toHaveLength(1);
 });
+integration(
+  "deletion preflight points sole owners to their organizations before reauthentication",
+  async () => {
+    const { auth } = await import("../auth");
+    const { GET } = await import("../../app/api/privacy/reauth/route");
+    const session = spyOn(auth.api, "getSession").mockResolvedValue({
+      user: { id: "alice" },
+      session: { id: "alice-session" },
+    });
+    const request = () => GET(new Request("https://app.example.test/api/privacy/reauth?check=1"));
+    try {
+      await admin.query(`update session set "createdAt"=now()-interval '6 minutes' where id='alice-session';
+      update member set role='owner' where id='a';
+      update member set role='editor' where id='b'`);
+      const blocked = await request();
+      expect(blocked.status).toBe(409);
+      expect(blocked.headers.get("Cache-Control")).toBe("private, no-store");
+      expect(await blocked.json()).toMatchObject({
+        code: "ORGANIZATION_OWNERSHIP_REQUIRED",
+        organizations: [{ id: "org", name: "Shared" }],
+      });
+      expect(
+        (await admin.query(`select id from verification where identifier like 'privacy-%'`))
+          .rowCount,
+      ).toBe(0);
+      expect((await admin.query('select id from "privacyCleanup"')).rowCount).toBe(0);
+
+      // No membership (including the other user's organizations) is exposed without a session.
+      session.mockResolvedValueOnce(null);
+      const anonymous = await request();
+      expect(anonymous.status).toBe(401);
+      expect(await anonymous.json()).not.toHaveProperty("organizations");
+
+      // With a second owner, the same stale session now advances to reauthentication.
+      await admin.query(`update member set role='owner' where id='b'`);
+      const stale = await request();
+      expect(stale.status).toBe(401);
+      expect(await stale.json()).toMatchObject({ code: "REAUTH_REQUIRED" });
+      await admin.query(`insert into verification (id,identifier,value,"expiresAt")
+      values ('privacy-reauth:alice-session','privacy-reauth:alice-session','alice',now()+interval '5 minutes')`);
+      expect(await (await request()).json()).toEqual({ verified: true });
+
+      // Ownership can change after preflight; final deletion still checks under locks.
+      await admin.query(`update member set role='editor' where id='b'`);
+      await expect(
+        deleteAccount("alice", "alice-session", "alice@example.test"),
+      ).rejects.toMatchObject({
+        code: "ORGANIZATION_OWNERSHIP_REQUIRED",
+        organizations: [{ id: "org", name: "Shared" }],
+      });
+      expect((await admin.query(`select id from "user" where id='alice'`)).rowCount).toBe(1);
+    } finally {
+      session.mockRestore();
+    }
+  },
+);
 integration(
   "deletion revokes access and removes personal data while retaining shared work",
   async () => {

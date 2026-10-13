@@ -23,7 +23,11 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const requestedTab = settingsTab(params.tab);
 
   const { session, organization, role, canInvite } = await getWorkspace(
-    typeof params.connectorOrganization === "string" ? params.connectorOrganization : undefined,
+    typeof params.organization === "string"
+      ? params.organization
+      : typeof params.connectorOrganization === "string"
+        ? params.connectorOrganization
+        : undefined,
   );
 
   const agentStatus = async () =>

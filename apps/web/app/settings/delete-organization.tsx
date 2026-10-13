@@ -10,8 +10,10 @@ import { TextField } from "@/components/ui/text-field";
 
 export function DeleteOrganization({
   organization,
+  returnToAccount = false,
 }: {
   organization: { id: string; name: string };
+  returnToAccount?: boolean;
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -33,7 +35,7 @@ export function DeleteOrganization({
       });
       if (result.error) throw new Error(result.error.message || "Unable to delete organization.");
       // Workspace pages resolve another membership, or send the user to creation.
-      await navigateWithFreshSession("/files");
+      await navigateWithFreshSession(returnToAccount ? "/account/privacy" : "/files");
     } catch (error) {
       unstable_rethrow(error);
       setError(error instanceof Error ? error.message : "Unable to delete organization.");

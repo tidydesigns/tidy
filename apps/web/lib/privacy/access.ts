@@ -9,7 +9,8 @@ export class PrivacyError extends PublicActionError {
   constructor(
     message: string,
     readonly status = 400,
-    readonly code?: "REAUTH_REQUIRED" | "SESSION_REQUIRED",
+    readonly code?: "REAUTH_REQUIRED" | "SESSION_REQUIRED" | "ORGANIZATION_OWNERSHIP_REQUIRED",
+    readonly organizations?: { id: string; name: string }[],
   ) {
     super(message);
   }
@@ -70,6 +71,9 @@ export function privacyFailure(error: unknown) {
     {
       error: known ? error.message : "Could not complete your privacy request. Please try again.",
       ...(error instanceof PrivacyError && error.code ? { code: error.code } : {}),
+      ...(error instanceof PrivacyError && error.organizations
+        ? { organizations: error.organizations }
+        : {}),
     },
     { status: known ? error.status : 500, headers: privateHeaders },
   );
