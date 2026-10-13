@@ -347,30 +347,27 @@ function SettingsLayoutSkeleton({
 export function McpSkeleton() {
   return (
     <Surface name="mcp" className={mcpPage}>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-3xl font-semibold tracking-tight">MCP</h1>
-        <Block className="h-[42px] w-36" />
+      <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
+      <Block className="mt-2 h-5 w-full max-w-md" />
+      <Block className="mt-6 h-4 w-10" />
+      <Block className="mt-2 h-10 w-[210px]" />
+      <div className="mt-6 space-y-6">
+        {[0, 1, 2].map((step) => (
+          <div key={step} className="flex gap-4">
+            <Block className="size-[26px] shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1">
+              <Block className="h-[26px] w-40" />
+              <Block className="mt-1 h-5 w-full max-w-lg" />
+              <Block className="mt-2 h-[54px] w-full" />
+            </div>
+          </div>
+        ))}
       </div>
-      <Block className="mt-4 h-5 w-full" />
-      <div className="mt-10 border-t border-primary-grey/70 py-6">
-        <div className="flex items-center justify-between">
-          <Block className="h-7 w-28" />
-          <Block className="h-5 w-20" />
-        </div>
-        <Block className="mt-2 h-4 w-3/4" />
+      <div className="mt-6 border-t border-primary-grey/70 pt-4">
+        <Block className="h-4 w-28" />
+        <Block className="mt-2 h-6 w-full" />
       </div>
-      <div className="border-t border-primary-grey/70 py-6">
-        <Block className="h-7 w-44" />
-        <Block className="mt-3 h-5 w-full" />
-        <Block className="mt-5 h-[42px] w-32" />
-      </div>
-      <div className="border-t border-primary-grey/70 py-6">
-        <h2 className="text-lg font-semibold">Connect an agent</h2>
-        <Block className="mt-3 h-5 w-full" />
-        <Block className="mt-5 h-5 w-12" />
-        <Block className="mt-2 h-10 w-52" />
-        <Block className="mt-4 h-14 w-full" />
-      </div>
+      <Block className="mt-4 h-11 w-full" />
     </Surface>
   );
 }

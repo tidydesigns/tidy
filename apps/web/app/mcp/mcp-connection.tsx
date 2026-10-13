@@ -1,47 +1,50 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { checkAuthorizedAgents, revokeAgent } from "./actions";
+import { agentOptions, setupFor, type Agent, type SetupValue } from "./agent-setup";
 
 type AuthorizedClient = { clientId: string; name: string };
 type EndpointStatus = "checking" | "ready" | "unavailable" | "misconfigured";
-type Agent = "codex" | "claude" | "opencode" | "pi" | "gemini" | "other";
+function CopyableValue({ value, copyLabel }: SetupValue) {
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState("");
 
-function setupFor(agent: Agent, name: string, resourceUrl: string) {
-  switch (agent) {
-    case "codex":
-      return {
-        command: `codex mcp add ${name} --url ${resourceUrl}`,
-        next: `Run codex mcp login ${name}, then check the connection with codex mcp list. If sign-in times out, close that tab and run the login command again.`,
-      };
-    case "claude":
-      return {
-        command: `claude mcp add --transport http --scope user ${name} ${resourceUrl}`,
-        next: "Open /mcp in Claude Code, select this server, and complete sign-in.",
-      };
-    case "opencode":
-      return {
-        command: `opencode mcp add ${name} --url ${resourceUrl}`,
-        next: `Run opencode mcp auth ${name}, then check the connection with opencode mcp list.`,
-      };
-    case "pi":
-      return {
-        command: `pi mcp add ${name} --url ${resourceUrl}`,
-        next: `Run pi mcp login ${name}, then check the connection with pi mcp list.`,
-      };
-    case "gemini":
-      return {
-        command: `gemini mcp add --transport http --scope user ${name} ${resourceUrl}`,
-        next: `Run /mcp auth ${name} in Gemini CLI, then check the connection with /mcp list.`,
-      };
-    case "other":
-      return {
-        command: resourceUrl,
-        next: "Add this URL as a remote Streamable HTTP MCP server. Enable browser-based OAuth discovery and sign in when your client asks. Your client must support OAuth for protected MCP servers.",
-      };
+  async function copy() {
+    setError("");
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+      setError("Could not copy. Select and copy the text above.");
+    }
   }
+
+  return (
+    <div>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-5 gap-y-2 rounded-lg border border-primary-grey/70 bg-surface/40 px-4 py-3">
+        <code className="min-w-0 select-text break-all font-mono text-xs leading-5">{value}</code>
+        <Button
+          type="button"
+          variant="text"
+          onClick={() => void copy()}
+          aria-label={copyLabel}
+          className="shrink-0 rounded px-1 py-1 text-xs font-medium transition-transform duration-150 ease-out hover:text-primary-black active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
+        >
+          <span role="status">{copied ? "Copied" : copyLabel}</span>
+        </Button>
+      </div>
+      {error && (
+        <p role="alert" className="mt-2 text-xs text-danger">
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 async function probeEndpoint(resourceUrl: string): Promise<EndpointStatus> {
@@ -86,9 +89,8 @@ export function McpConnection({
   const [error, setError] = useState("");
   const [endpoint, setEndpoint] = useState<EndpointStatus>("checking");
   const [checking, setChecking] = useState(false);
-  const [copied, setCopied] = useState("");
   const [agent, setAgent] = useState<Agent>("codex");
-  const name = ["localhost", "127.0.0.1", "::1"].includes(new URL(resourceUrl).hostname)
+  const name = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(resourceUrl).hostname)
     ? "tidy-local"
     : "tidy";
   const setup = setupFor(agent, name, resourceUrl);
@@ -119,15 +121,6 @@ export function McpConnection({
     };
   }, [resourceUrl]);
 
-  async function copySetup() {
-    try {
-      await navigator.clipboard.writeText(setup.command);
-      setCopied(setup.command);
-    } catch {
-      setCopied("");
-    }
-  }
-
   const endpointLabel =
     endpoint === "checking"
       ? "Checking…"
@@ -139,61 +132,62 @@ export function McpConnection({
 
   return (
     <section className="min-w-0">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <h1 className="text-3xl font-semibold tracking-tight">MCP</h1>
-        <button
-          type="button"
-          onClick={() => void check()}
-          disabled={checking}
-          className="rounded-lg border border-primary-grey px-4 py-2.5 text-sm font-medium hover:bg-primary-grey/20 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
-        >
-          {checking ? "Checking…" : "Check connection"}
-        </button>
-      </div>
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-danger">
-          {error}
-        </p>
-      )}
-      <p className="mt-4 text-sm text-secondary-ink">
-        Connect a coding agent to create and read Tidy design files.
+      <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
+      <p className="mt-2 text-sm text-secondary-ink">
+        Let your coding agent read, create, and edit your Tidy designs.
       </p>
 
-      <div className="mt-10 border-t border-primary-grey/70 py-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-3">
-          <h2 className="text-lg font-semibold">Endpoint</h2>
-          <p role="status" className="text-sm text-secondary-ink">
-            {endpointLabel}
-          </p>
-        </div>
-        <p className="mt-2 break-all font-mono text-xs text-secondary-ink">{resourceUrl}</p>
-        {endpoint === "misconfigured" && (
-          <p className="mt-3 text-sm text-secondary-ink">
-            This page and the MCP endpoint report different addresses. Check the Tidy public URL
-            configuration.
-          </p>
-        )}
-        {endpoint === "unavailable" && (
-          <p className="mt-3 text-sm text-secondary-ink">
-            The MCP endpoint is not responding. Check that Tidy is running, then try again.
-          </p>
-        )}
+      <div className="mt-6">
+        <span id="mcp-agent-label" className="block text-xs font-medium text-secondary-ink">
+          Agent
+        </span>
+        <SelectMenu
+          label="Agent"
+          labelledBy="mcp-agent-label"
+          value={agent}
+          onChange={(value) => setAgent(value as Agent)}
+          options={[...agentOptions]}
+          className="mt-2 w-[210px] max-w-full"
+        />
       </div>
 
-      <div className="border-t border-primary-grey/70 py-6">
-        <h2 className="text-lg font-semibold">Authorized agents</h2>
-        {currentClients.length ? (
-          <ul className="mt-3 space-y-3">
+      <ol key={agent} className="mt-6 space-y-6">
+        {setup.steps.map((step, index) => (
+          <li key={step.title} className="flex min-w-0 items-start gap-4">
+            <span
+              aria-hidden="true"
+              className="flex size-[26px] shrink-0 items-center justify-center rounded-full border border-primary-grey text-xs text-secondary-ink"
+            >
+              {index + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-[15px] font-semibold leading-[26px]">{step.title}</h2>
+              <p className="mt-1 text-[13px] leading-5 text-secondary-ink">{step.description}</p>
+              {step.values.map((item) => (
+                <div key={item.value} className="mt-2">
+                  <CopyableValue {...item} />
+                </div>
+              ))}
+            </div>
+          </li>
+        ))}
+      </ol>
+
+      {currentClients.length > 0 && (
+        <div className="mt-6 border-t border-primary-grey/70 pt-4">
+          <h2 className="text-xs font-medium text-secondary-ink">Authorized agents</h2>
+          <ul className="mt-2 space-y-2">
             {currentClients.map((client) => (
               <li
                 key={client.clientId}
-                className="flex flex-wrap items-baseline justify-between gap-3 text-sm"
+                className="flex flex-wrap items-center justify-between gap-3 text-sm"
               >
                 <span>{client.name}</span>
                 <ConfirmAction
                   label="Revoke access"
                   title={`Revoke ${client.name} access?`}
                   disabled={checking}
+                  className="rounded px-1 py-1 text-xs text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-50"
                   onConfirm={async () => {
                     const result = await revokeAgent(client.clientId);
                     if (result.error) throw new Error(result.error);
@@ -207,62 +201,83 @@ export function McpConnection({
               </li>
             ))}
           </ul>
-        ) : (
-          <p className="mt-3 text-sm text-secondary-ink">
-            No coding agent is authorized for this account yet.
-          </p>
-        )}
-        {!currentClients.length && (
-          <a
-            href="#mcp-setup"
-            className="mt-5 inline-flex rounded-lg bg-strong-action px-4 py-2.5 text-sm font-medium text-on-strong-action hover:bg-strong-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
-          >
-            Get started
-          </a>
-        )}
-      </div>
-
-      <div id="mcp-setup" className="border-t border-primary-grey/70 py-6">
-        <h2 className="text-lg font-semibold">Connect an agent</h2>
-        <p className="mt-3 text-sm text-secondary-ink">
-          Use a remote Streamable HTTP MCP client with OAuth. Sign in to Tidy when your agent
-          prompts you.
-        </p>
-        <span id="mcp-agent-label" className="mt-5 block text-sm font-medium">
-          Agent
-        </span>
-        <SelectMenu
-          label="Agent"
-          labelledBy="mcp-agent-label"
-          value={agent}
-          onChange={(value) => setAgent(value as Agent)}
-          options={[
-            { value: "codex", label: "Codex" },
-            { value: "claude", label: "Claude Code" },
-            { value: "opencode", label: "OpenCode" },
-            { value: "pi", label: "Pi" },
-            { value: "gemini", label: "Gemini CLI" },
-            { value: "other", label: "Other MCP client" },
-          ]}
-          className="mt-2 w-52 max-w-full"
-        />
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-primary-grey/70 px-4 py-3">
-          <code className="min-w-0 break-all text-xs">{setup.command}</code>
-          <button
-            type="button"
-            onClick={() => void copySetup()}
-            className="shrink-0 text-sm font-medium underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
-          >
-            {copied === setup.command ? "Copied" : agent === "other" ? "Copy URL" : "Copy command"}
-          </button>
         </div>
-        <p className="mt-4 text-sm text-secondary-ink">{setup.next}</p>
-        {name === "tidy-local" && (
-          <p className="mt-2 text-sm text-secondary-ink">
-            Keep Tidy running on this computer while your agent connects.
+      )}
+
+      <details className="group mt-4 border-t border-primary-grey/70">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded py-3 text-[13px] text-secondary-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange [&::-webkit-details-marker]:hidden">
+          Connection help &amp; server details
+          <svg
+            aria-hidden="true"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+            className="shrink-0 group-open:rotate-180"
+          >
+            <path
+              d="m3.5 6 4.5 4 4.5-4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </summary>
+        <div className="max-h-80 space-y-4 overflow-y-auto pb-4 text-[13px] leading-5 text-secondary-ink">
+          {setup.connectionCheck && (
+            <div>
+              <p className="mb-2">Check the connection from your terminal:</p>
+              <CopyableValue
+                key={`${agent}-check`}
+                value={setup.connectionCheck}
+                copyLabel="Copy command"
+              />
+            </div>
+          )}
+          <p>If sign-in times out, close the sign-in tab and repeat the authorization step.</p>
+          {agent === "other" && <p>Your client must support OAuth for protected MCP servers.</p>}
+          {name === "tidy-local" && (
+            <p>Keep Tidy running on this computer while your agent connects.</p>
+          )}
+          <div>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="font-medium text-primary-black">Server</h2>
+              <p role="status">{endpointLabel}</p>
+            </div>
+            <p className="mt-2 break-all font-mono text-xs">{resourceUrl}</p>
+            {endpoint === "misconfigured" && (
+              <p className="mt-2">
+                This page and the MCP endpoint report different addresses. Check the Tidy public URL
+                configuration.
+              </p>
+            )}
+            {endpoint === "unavailable" && (
+              <p className="mt-2">
+                The MCP endpoint is not responding. Check that Tidy is running, then try again.
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="text"
+            disabled={checking}
+            onClick={() => void check()}
+            className="rounded border border-primary-grey px-3 py-2 text-xs font-medium text-primary-black hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
+          >
+            {checking ? "Checking…" : "Check server & authorizations"}
+          </Button>
+          <p className="text-xs">
+            This checks server availability and account authorizations. Use the test prompt above to
+            verify your agent can use Tidy.
           </p>
-        )}
-      </div>
+          {error && (
+            <p role="alert" className="text-danger">
+              {error}
+            </p>
+          )}
+        </div>
+      </details>
     </section>
   );
 }
