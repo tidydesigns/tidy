@@ -16,16 +16,17 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors: string[] = [];
 page.on("pageerror", (error) => errors.push(error.message));
 const temporary = await mkdtemp(join(tmpdir(), "tidy-vector-"));
-const sourcePath = async (id = "editable-path") =>
-  page.locator(`[data-node-id="${id}"] img[data-vector-path]`).evaluate((element) =>
-    new DOMParser()
-      .parseFromString(
-        decodeURIComponent((element as HTMLImageElement).src.split(",")[1]),
-        "image/svg+xml",
-      )
-      .querySelector("path")!
-      .getAttribute("d")!,
-  );
+const sourcePath = async (id = "editable-path") => {
+  const source = await page
+    .locator(`[data-node-id="${id}"] img[data-vector-path]`)
+    .getAttribute("src");
+  assert.ok(source !== null && source.startsWith("data:image/svg+xml,"));
+  // Inspect our serializer's path attribute as text, without creating a DOM document.
+  const svg = decodeURIComponent(source.slice(source.indexOf(",") + 1));
+  const path = svg.match(/<path\b[^>]*\sd="([^"]*)"/);
+  assert.ok(path, "Generated SVG contains a path");
+  return path[1];
+};
 const countAnchors = () => page.locator('[data-vector-control="anchor"]').count();
 const drag = async (locator: Locator, dx: number, dy: number) => {
   const box = await locator.boundingBox();
@@ -44,6 +45,9 @@ try {
   await page.waitForSelector("[data-vector-editor]");
   assert.equal(await countAnchors(), 4);
   const original = await sourcePath();
+  const originalSource = await page
+    .locator('[data-node-id="editable-path"] img[data-vector-path]')
+    .getAttribute("src");
   const delta = await page.locator('[data-node-id="editable-path"]').evaluate((element) => {
     let matrix = new DOMMatrix();
     for (
@@ -70,17 +74,12 @@ try {
   );
   assert.notEqual(await sourcePath(), original);
   await page.keyboard.press("Meta+z");
-  await page.waitForFunction((original) => {
+  await page.waitForFunction((originalSource) => {
     const image = document.querySelector<HTMLImageElement>(
       '[data-node-id="editable-path"] img[data-vector-path]',
     );
-    return (
-      new DOMParser()
-        .parseFromString(decodeURIComponent(image!.src.split(",")[1]), "image/svg+xml")
-        .querySelector("path")!
-        .getAttribute("d") === original
-    );
-  }, original);
+    return image?.getAttribute("src") === originalSource;
+  }, originalSource);
   assert.equal(await page.getByLabel("Point X", { exact: true }).inputValue(), "20");
   await drag(page.getByRole("button", { name: "Outgoing handle p1", exact: true }), -15, 12);
   assert.notEqual(await sourcePath(), original);

@@ -115,14 +115,10 @@ try {
       await page.getByRole("button", { name: "Select Landscape", exact: true }).click();
     }
     if (fixture.id === "thin-cutout") {
-      const contours = await vectors.first().evaluate((element) => {
-        const svg = new DOMParser().parseFromString(
-          decodeURIComponent((element as HTMLImageElement).src.split(",").slice(1).join(",")),
-          "image/svg+xml",
-        );
-        return svg.querySelector("path")!.getAttribute("d")!;
-      });
-      assert.equal(parsePathContours(contours).length, 3, "Preserves both intentional holes");
+      // Read the generated path as text rather than reparsing page data into a DOM document.
+      const path = geometry[0].svg.match(/<path\b[^>]*\sd="([^"]*)"/);
+      assert.ok(path, "Generated SVG contains a path");
+      assert.equal(parsePathContours(path[1]).length, 3, "Preserves both intentional holes");
     }
     await page.screenshot({ path: join(output, `${id}-after.png`) });
     const downloading = page.waitForEvent("download");
