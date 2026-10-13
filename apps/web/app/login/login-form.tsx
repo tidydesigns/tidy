@@ -18,11 +18,13 @@ export function LoginForm({
   providers = [],
   emailConfigured = false,
   initialError = "",
+  accountDeleted = false,
 }: {
   next?: string;
   providers?: ("google" | "github")[];
   emailConfigured?: boolean;
   initialError?: string;
+  accountDeleted?: boolean;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(initialError);
@@ -84,6 +86,7 @@ export function LoginForm({
   return (
     <AuthShell title="Welcome back." description="Sign in to your Tidy account.">
       <form onSubmit={handleSubmit} className="mt-10 space-y-5">
+        {accountDeleted && <FormMessage role="status">Account deleted successfully.</FormMessage>}
         <SocialSignIn providers={providers} next={next} page="/login" disabled={pending} />
         <TextField
           id="email"

@@ -26,6 +26,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       providers={enabledSocialProviders()}
       emailConfigured={authEmailConfigured()}
       initialError={socialSignInError(params.error)}
+      accountDeleted={params.deleted === "1"}
     />
   );
 }
