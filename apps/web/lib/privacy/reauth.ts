@@ -6,7 +6,23 @@ import { verifyProviderIdToken } from "@better-auth/core/oauth2";
 import { decodeJwt } from "jose";
 import type { PoolClient } from "pg";
 import { db } from "@/lib/db";
-import { PrivacyError } from "./access";
+import { lockPrivacyAccount, PrivacyError } from "./access";
+
+export async function checkPrivacyAuthentication(userId: string, sessionId: string) {
+  const client = await db.connect();
+  try {
+    await client.query("begin");
+    // Check the same persisted authentication required by deletion, without
+    // deleting anything or renewing the five-minute verification window.
+    await lockPrivacyAccount(client, userId, sessionId);
+    await client.query("commit");
+  } catch (error) {
+    await client.query("rollback");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 // Persist failures outside the verification transaction, including on Node hosts.
 export async function reserveReauthAttempts(userId: string) {

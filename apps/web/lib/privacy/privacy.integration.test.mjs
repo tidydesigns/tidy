@@ -63,6 +63,52 @@ integration(
     );
   },
 );
+integration(
+  "deletion authentication check is read-only and rejects stale or revoked sessions",
+  async () => {
+    const { checkPrivacyAuthentication } = await import("./reauth");
+    await checkPrivacyAuthentication("alice", "alice-session");
+    expect(
+      (
+        await admin.query(
+          `select id from verification where identifier='privacy-reauth:alice-session'`,
+        )
+      ).rowCount,
+    ).toBe(0);
+    await admin.query(
+      `update session set "createdAt"=now()-interval '6 minutes' where id='alice-session'`,
+    );
+    await expect(checkPrivacyAuthentication("alice", "alice-session")).rejects.toThrow(
+      "Authenticate again",
+    );
+    await admin.query(`insert into verification (id,identifier,value,"expiresAt")
+    values ('privacy-reauth:alice-session','privacy-reauth:alice-session','alice',now()+interval '2 minutes')`);
+    const expiry = (
+      await admin.query(
+        `select "expiresAt" from verification where id='privacy-reauth:alice-session'`,
+      )
+    ).rows[0].expiresAt;
+    await checkPrivacyAuthentication("alice", "alice-session");
+    expect(
+      (
+        await admin.query(
+          `select "expiresAt" from verification where id='privacy-reauth:alice-session'`,
+        )
+      ).rows[0].expiresAt,
+    ).toEqual(expiry);
+    await admin.query(`delete from session where id='alice-session'`);
+    await expect(checkPrivacyAuthentication("alice", "alice-session")).rejects.toThrow(
+      "Authenticate again",
+    );
+    expect((await admin.query(`select id from "user" where id='alice'`)).rowCount).toBe(1);
+    expect(
+      (await admin.query(`select id from "designCommentMessage" where "authorId"='alice'`))
+        .rowCount,
+    ).toBe(1);
+    expect((await admin.query(`select id from "privacyCleanup"`)).rowCount).toBe(0);
+  },
+);
+
 integration("export rejects expired, other-user and old sessions", async () => {
   await expect(exportAccount("alice", "bob-session")).rejects.toThrow("Authenticate again");
   await admin.query(

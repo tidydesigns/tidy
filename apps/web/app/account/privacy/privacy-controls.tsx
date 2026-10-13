@@ -17,12 +17,17 @@ export function PrivacyControls({ email }: { email: string }) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
-  async function request(operation: "delete" | "export") {
-    const response = await fetch(`/api/privacy/${operation}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Tidy-Privacy": "1" },
-      body: JSON.stringify(operation === "delete" ? { confirmation } : {}),
-    });
+  async function request(operation: "delete" | "export", checkOnly = false) {
+    const response = await fetch(
+      checkOnly ? "/api/privacy/reauth?check=1" : `/api/privacy/${operation}`,
+      checkOnly
+        ? { cache: "no-store" }
+        : {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-Tidy-Privacy": "1" },
+            body: JSON.stringify(operation === "delete" ? { confirmation } : {}),
+          },
+    );
     if (!response.ok) {
       const result = (await response.json().catch(() => null)) as {
         error?: string;
@@ -37,6 +42,27 @@ export function PrivacyControls({ email }: { email: string }) {
       throw new Error(result?.error ?? "Could not complete your request. Please try again.");
     }
     return response;
+  }
+  function confirmDeletion() {
+    setConfirmation("");
+    setDialogOpen(true);
+    dialog.current?.showModal();
+  }
+  async function beginDeletion() {
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      await request("delete", true);
+      confirmDeletion();
+    } catch (error) {
+      if (!(error instanceof ReauthRequired))
+        setError(
+          error instanceof Error ? error.message : "Could not check authentication. Try again.",
+        );
+    } finally {
+      setPending(false);
+    }
   }
   async function download() {
     if (pending) return;
@@ -87,9 +113,7 @@ export function PrivacyControls({ email }: { email: string }) {
     if (operation === "export") void download();
     else {
       // Reauthentication never submits a destructive action automatically.
-      setConfirmation("");
-      setDialogOpen(true);
-      dialog.current?.showModal();
+      confirmDeletion();
     }
   }
   const cancelAuth = useCallback(() => setAuthOperation(null), []);
@@ -142,12 +166,7 @@ export function PrivacyControls({ email }: { email: string }) {
           variant="text"
           className="min-h-11 rounded-md text-sm font-medium text-danger hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4"
           disabled={pending}
-          onClick={() => {
-            setError("");
-            setConfirmation("");
-            setDialogOpen(true);
-            dialog.current?.showModal();
-          }}
+          onClick={() => void beginDeletion()}
         >
           Delete my account
         </Button>

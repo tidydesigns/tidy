@@ -2,22 +2,27 @@ import { auth } from "@/lib/auth";
 import { boundedRequest } from "@/lib/http/request-body";
 import { privacyAccount, privacyFailure, privateHeaders, PrivacyError } from "@/lib/privacy/access";
 import {
+  checkPrivacyAuthentication,
   reserveReauthAttempts,
   reauthMethods,
   reauthenticatePassword,
   startGoogleReauth,
 } from "@/lib/privacy/reauth";
 export async function GET(request: Request) {
-  const account = await auth.api.getSession({
-    headers: request.headers,
-    query: { disableCookieCache: true },
-  });
-  if (!account)
-    return Response.json(
-      { error: "Sign in to continue." },
-      { status: 401, headers: privateHeaders },
-    );
-  return Response.json(await reauthMethods(account.user.id), { headers: privateHeaders });
+  try {
+    const account = await auth.api.getSession({
+      headers: request.headers,
+      query: { disableCookieCache: true },
+    });
+    if (!account) throw new PrivacyError("Sign in to continue.", 401, "SESSION_REQUIRED");
+    if (new URL(request.url).searchParams.get("check") === "1") {
+      await checkPrivacyAuthentication(account.user.id, account.session.id);
+      return Response.json({ verified: true }, { headers: privateHeaders });
+    }
+    return Response.json(await reauthMethods(account.user.id), { headers: privateHeaders });
+  } catch (error) {
+    return privacyFailure(error);
+  }
 }
 export async function POST(request: Request) {
   try {
