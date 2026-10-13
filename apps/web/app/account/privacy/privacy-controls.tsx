@@ -47,6 +47,7 @@ function OwnershipAlert({
           <li key={organization.id}>
             <NavigationLink
               href={`/settings?tab=organization&organization=${encodeURIComponent(organization.id)}&returnTo=account`}
+              onNavigate={() => dialog.current?.close()}
               className="inline-flex min-h-9 items-center underline underline-offset-4"
             >
               Open {organization.name} settings
