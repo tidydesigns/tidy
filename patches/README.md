@@ -12,8 +12,8 @@ instance does not reset this dependency-level state. See
 
 `bun run test:auth-worker` includes a workerd regression that injects a pending
 dynamic runtime import and exercises session reads through both auth entry
-points, password verification and session cookies, concurrent endpoint context
-isolation, and Google/GitHub authorization state.
+points, password verification and session cookies, concurrent endpoint,
+request-state and adapter context isolation, and Google/GitHub authorization state.
 It fails with the original dependency and passes with this patch. This models
 the pending-import failure deterministically; it does not depend on the timing
 of a real client disconnect.

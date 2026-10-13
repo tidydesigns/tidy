@@ -1,11 +1,16 @@
 import { betterAuth } from "better-auth";
 import { memoryAdapter } from "better-auth/adapters/memory";
 import { createAuthMiddleware } from "better-auth/api";
-import { getCurrentAuthEndpointContext } from "@better-auth/core/context";
+import {
+  getCurrentAdapter,
+  getCurrentAuthEndpointContext,
+  getCurrentRequestState,
+} from "@better-auth/core/context";
 import { handleAuthRequest } from "../../lib/auth/request-boundary";
 import { traceAuthOperation } from "../../lib/auth/request-lifecycle";
 
 const records = { user: [], session: [], account: [], verification: [] };
+const requestStateKey = {};
 
 function createAuth() {
   return betterAuth({
@@ -21,9 +26,16 @@ function createAuth() {
     hooks: {
       before: createAuthMiddleware(async () => {
         const context = getCurrentAuthEndpointContext();
+        const state = await getCurrentRequestState();
+        const adapter = await getCurrentAdapter(context.context.adapter);
+        state.set(requestStateKey, context);
         await new Promise((resolve) => setTimeout(resolve, 5));
         if (getCurrentAuthEndpointContext() !== context)
           throw new Error("Concurrent authentication requests shared endpoint context.");
+        if ((await getCurrentRequestState()).get(requestStateKey) !== context)
+          throw new Error("Concurrent authentication requests shared request state.");
+        if ((await getCurrentAdapter(context.context.adapter)) !== adapter)
+          throw new Error("Concurrent authentication requests shared database adapter context.");
       }),
     },
   });
