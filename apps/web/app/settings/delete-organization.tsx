@@ -7,6 +7,7 @@ import { useId, useRef, useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
 import { organizationConfirmationHeader } from "@/lib/organizations/constants";
 import { TextField } from "@/components/ui/text-field";
+import { NavigationLink } from "@/components/ui/navigation-link";
 
 export function DeleteOrganization({
   organization,
@@ -20,12 +21,14 @@ export function DeleteOrganization({
   const [confirmation, setConfirmation] = useState("");
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [billingRequired, setBillingRequired] = useState(false);
 
   async function remove(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending || confirmation !== organization.name) return;
     setPending(true);
     setError("");
+    setBillingRequired(false);
     try {
       const result = await authClient.organization.delete({
         organizationId: organization.id,
@@ -33,8 +36,11 @@ export function DeleteOrganization({
           headers: { [organizationConfirmationHeader]: encodeURIComponent(confirmation) },
         },
       });
-      if (result.error) throw new Error(result.error.message || "Unable to delete organization.");
-      // Workspace pages resolve another membership, or send the user to creation.
+      if (result.error) {
+        setBillingRequired(result.error.code === "ORGANIZATION_BILLING_REQUIRED");
+        throw new Error(result.error.message || "Unable to delete organization.");
+      }
+      // Workspace pages resolve another membership, or show the account options.
       await navigateWithFreshSession(returnToAccount ? "/account/privacy" : "/files");
     } catch (error) {
       unstable_rethrow(error);
@@ -50,6 +56,7 @@ export function DeleteOrganization({
         onClick={() => {
           setConfirmation("");
           setError("");
+          setBillingRequired(false);
           dialog.current?.showModal();
         }}
         className="rounded-lg border border-danger/25 px-4 py-2.5 text-sm font-medium text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger"
@@ -86,6 +93,15 @@ export function DeleteOrganization({
             <p role="alert" className="text-sm text-danger">
               {error}
             </p>
+          )}
+          {billingRequired && (
+            <NavigationLink
+              href={`/settings?tab=billing&organization=${encodeURIComponent(organization.id)}${returnToAccount ? "&returnTo=account" : ""}`}
+              onNavigate={() => dialog.current?.close()}
+              className="inline-flex min-h-9 items-center text-sm underline underline-offset-4"
+            >
+              Open Billing
+            </NavigationLink>
           )}
           <div className="flex justify-end gap-3">
             <button

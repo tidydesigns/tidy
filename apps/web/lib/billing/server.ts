@@ -11,6 +11,7 @@ import {
 } from "./plan-server";
 import type { PlanLimits, PlanUsage } from "./plans";
 const BLOCKED = new Set(["active", "trialing", "past_due", "unpaid", "incomplete", "paused"]);
+export class OrganizationBillingDeletionError extends Error {}
 export type BillingStatus = {
   ready: boolean;
   tier: "free" | "pro" | "self_hosted";
@@ -259,11 +260,13 @@ export async function assertNoActiveBilling(organizationId: string) {
       )
     ).rows[0];
     if (row?.stripeStatus && BLOCKED.has(row.stripeStatus))
-      throw new Error("Cancel the Pro subscription in Billing before deleting this organization.");
+      throw new OrganizationBillingDeletionError(
+        "Cancel the Pro subscription in Billing and wait for it to end before deleting this organization.",
+      );
     if (row?.stripeCheckoutSessionId) {
       const checkout = await stripe().checkout.sessions.retrieve(row.stripeCheckoutSessionId);
       if (checkout.status === "open" || checkout.status === "complete")
-        throw new Error(
+        throw new OrganizationBillingDeletionError(
           "Finish or expire the open Pro checkout before deleting this organization.",
         );
     }

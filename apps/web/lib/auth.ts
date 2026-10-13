@@ -8,7 +8,10 @@ import {
 } from "@/lib/organizations/invitation-admission";
 import { organizationRoles } from "@/lib/organizations/access-control";
 import { canAssignRole } from "@/lib/organizations/roles";
-import { requireOrganizationPermission } from "@/lib/organizations/authorization";
+import {
+  OrganizationAccessError,
+  requireOrganizationPermission,
+} from "@/lib/organizations/authorization";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { jwt, organization } from "better-auth/plugins";
@@ -25,7 +28,7 @@ import { socialProviderConfiguration } from "@/lib/auth-social";
 import { checkInvitationPlan } from "@/lib/billing/plan-server";
 import { planErrorsPlugin } from "@/lib/billing/auth-plugin";
 import { planLimitMessage } from "@/lib/billing/plans";
-import { assertNoActiveBilling } from "@/lib/billing/server";
+import { assertNoActiveBilling, OrganizationBillingDeletionError } from "@/lib/billing/server";
 import { authorizationVersion } from "@/lib/mcp/authorizations";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { consumeAuthRateLimit } from "@/lib/auth/guard-client";
@@ -200,6 +203,19 @@ function createAuth() {
           ctx.body.name = parsed.data;
         }
         if (ctx.path !== "/organization/delete") return;
+        // Authorize before checking names or billing: those details belong only
+        // to this workspace, even when a caller already knows its ID.
+        const session = await getSessionFromCtx(ctx, { disableCookieCache: true });
+        if (!session) throw new APIError("UNAUTHORIZED", { message: "Sign in to continue." });
+        if (typeof ctx.body?.organizationId !== "string" || !ctx.body.organizationId)
+          throw new APIError("BAD_REQUEST", { message: "Choose an organization." });
+        try {
+          await requireOrganizationPermission(session.user.id, ctx.body.organizationId, "own");
+        } catch (error) {
+          if (error instanceof OrganizationAccessError)
+            throw new APIError("FORBIDDEN", { message: "Workspace access denied." });
+          throw error;
+        }
         const organization = await ctx.context.adapter.findOne<{ name: string }>({
           model: "organization",
           where: [{ field: "id", value: ctx.body?.organizationId }],
@@ -208,7 +224,16 @@ function createAuth() {
           organization?.name,
           ctx.headers?.get(organizationConfirmationHeader) ?? null,
         );
-        await assertNoActiveBilling(ctx.body?.organizationId);
+        try {
+          await assertNoActiveBilling(ctx.body.organizationId);
+        } catch (error) {
+          if (error instanceof OrganizationBillingDeletionError)
+            throw new APIError("CONFLICT", {
+              code: "ORGANIZATION_BILLING_REQUIRED",
+              message: error.message,
+            });
+          throw error;
+        }
       }),
       after: createAuthMiddleware(async (ctx) => {
         if (

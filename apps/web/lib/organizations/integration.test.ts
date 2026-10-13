@@ -684,6 +684,118 @@ integration(
 );
 
 integration(
+  "organization deletion authorizes before revealing confirmation or billing blockers",
+  async () => {
+    await db.query(
+      'insert into "organization_billing" ("organizationId","stripeStatus") values ($1,\'active\')',
+      [orgId],
+    );
+    const request = (headers: Headers, organizationId = orgId) => {
+      const requestHeaders = new Headers(headers);
+      requestHeaders.set("Origin", "http://localhost:3000");
+      requestHeaders.set("Content-Type", "application/json");
+      return auth.handler(
+        new Request("http://localhost:3000/api/auth/organization/delete", {
+          method: "POST",
+          headers: requestHeaders,
+          body: JSON.stringify({ organizationId }),
+        }),
+      );
+    };
+    const anonymous = await request(confirmation(new Headers()));
+    expect(anonymous.status).toBe(401);
+    for (const headers of [outsider, confirmation(outsider), confirmation(invited)]) {
+      const rejected = await request(headers);
+      expect(rejected.status).toBe(403);
+      expect(await rejected.json()).toMatchObject({ message: "Workspace access denied." });
+    }
+    expect((await request(confirmation(outsider), "nonexistent-org")).status).toBe(403);
+    const blocked = await request(confirmation(owner));
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({
+      code: "ORGANIZATION_BILLING_REQUIRED",
+      message:
+        "Cancel the Pro subscription in Billing and wait for it to end before deleting this organization.",
+    });
+    expect((await auth.api.listOrganizations({ headers: owner })).map(({ id }) => id)).toContain(
+      orgId,
+    );
+    await db.query(
+      'update "organization_billing" set "stripeStatus"=\'canceled\' where "organizationId"=$1',
+      [orgId],
+    );
+    expect((await request(confirmation(owner))).status).toBe(200);
+  },
+);
+
+integration(
+  "deletion preflight scopes organization details to the authenticated account",
+  async () => {
+    const { GET } = await import("../../app/api/privacy/reauth/route");
+    const request = (headers: Headers) =>
+      GET(
+        new Request(`http://localhost:3000/api/privacy/reauth?check=1&userId=${outsiderId}`, {
+          headers,
+        }),
+      );
+    const response = await request(owner);
+    expect(response.status).toBe(409);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(await response.json()).toMatchObject({ organizations: [{ id: orgId, name: orgName }] });
+    const other = await request(outsider);
+    expect(await other.json()).toMatchObject({
+      organizations: [{ id: otherId, name: "Other team" }],
+    });
+    expect((await request(invited)).status).toBe(200);
+    await auth.api.signOut({ headers: owner });
+    const revoked = await request(owner);
+    expect(revoked.status).toBe(401);
+    expect(await revoked.json()).not.toHaveProperty("organizations");
+  },
+);
+
+integration(
+  "the no-organization account page offers creation and only current invitations for its user",
+  async () => {
+    await (await import("./membership")).leaveOrganization(invitedId, orgId);
+    const active = await auth.api.createInvitation({
+      headers: owner,
+      body: { email: "member@example.com", role: "viewer", organizationId: orgId },
+    });
+    const foreign = await auth.api.createInvitation({
+      headers: owner,
+      body: { email: "someone-else@example.com", role: "viewer", organizationId: orgId },
+    });
+    const expired = await auth.api.createInvitation({
+      headers: outsider,
+      body: { email: "member@example.com", role: "viewer", organizationId: otherId },
+    });
+    await db.query("update invitation set \"expiresAt\"=now()-interval '1 hour' where id=$1", [
+      expired.id,
+    ]);
+    const nextHeaders = await import("next/headers");
+    const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(invited);
+    try {
+      const { default: AccountPrivacyPage } = await import("../../app/account/privacy/page");
+      const { renderToStaticMarkup } = await import("react-dom/server");
+      const html = renderToStaticMarkup(await AccountPrivacyPage());
+      expect(html).toContain("Create an organization");
+      expect(html).toContain("Delete my account");
+      expect(html).toContain(`/accept-invitation/${active.id}`);
+      expect(html).not.toContain(`/accept-invitation/${foreign.id}`);
+      expect(html).not.toContain(`/accept-invitation/${expired.id}`);
+      expect(html).not.toContain("someone-else@example.com");
+      requestHeaders.mockResolvedValue(owner);
+      await expect(AccountPrivacyPage()).rejects.toThrow("NEXT_REDIRECT");
+      requestHeaders.mockResolvedValue(new Headers());
+      await expect(AccountPrivacyPage()).rejects.toThrow("NEXT_REDIRECT");
+    } finally {
+      requestHeaders.mockRestore();
+    }
+  },
+);
+
+integration(
   "confirmed owner deletion cascades org data, clears all active sessions and preserves other orgs and accounts",
   async () => {
     await db.query(
