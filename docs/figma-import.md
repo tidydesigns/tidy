@@ -55,4 +55,3 @@ Node 22.18+ is required for the TypeScript publication runner. Run
 Optionally set `FIGMA_TEST_FILE` to a private multi-page design-system fixture
 with over 5,000 layers to exercise the large-file checks in these suites. Keep it
 outside the repository; browser screenshots and logs default to `/tmp`.
-
