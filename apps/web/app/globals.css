@@ -231,3 +231,34 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+/* Fit auth forms on shorter screens by reducing whitespace, not control sizes. */
+@media (max-height: 900px) {
+  .auth-shell .auth-shell-heading {
+    margin-top: 24px;
+  }
+
+  .auth-shell > div > form {
+    margin-top: 24px;
+  }
+
+  .auth-shell > div > form > :not(:last-child) {
+    margin-block-end: 8px;
+  }
+
+  .auth-shell > div > form > .space-y-2 > :not(:last-child) {
+    margin-block-end: 4px;
+  }
+
+  .auth-shell > div > form > .space-y-3 > :not(:last-child) {
+    margin-block-end: 8px;
+  }
+
+  .auth-shell > div > form > .space-y-3 > p {
+    padding-top: 4px;
+  }
+
+  .auth-shell > div > p {
+    margin-top: 16px;
+  }
+}
