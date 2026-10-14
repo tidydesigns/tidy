@@ -109,7 +109,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">
               GitHub
             </a>
-            .
+            . Google also provides the Gmail inbox used for privacy and support correspondence.
           </li>
           <li>
             <strong>Stripe:</strong> when you use paid features, Stripe processes payment details
@@ -143,8 +143,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
       <section id="retention" aria-labelledby="retention-title">
         <h2 id="retention-title">Retention and deletion</h2>
         <p>
-          Account and workspace records remain until deleted through the relevant account/workspace
-          controls or an applicable request. There is currently no automatic expiry for inactive
+          We retain account and workspace records while needed to provide or administer your account
+          or retain shared work. They can be deleted through the relevant account/workspace controls
+          or an applicable request, and must be removed when no remaining purpose or lawful
+          retention ground requires them. There is currently no automatic expiry for inactive
           accounts or completed uploads. Feedback and support records are retained while needed to
           handle the enquiry or related issue; there is no fixed automatic expiry. Necessary
           billing, legal and security records may be retained for applicable legal duties or claims.
