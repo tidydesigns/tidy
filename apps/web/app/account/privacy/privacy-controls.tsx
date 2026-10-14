@@ -6,6 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { TextField } from "@/components/ui/text-field";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { ReauthDialog } from "./reauth-dialog";
+import { privacyPolicyUrl } from "@/lib/privacy-notice";
 
 class ReauthRequired extends Error {}
 class OwnershipRequired extends Error {}
@@ -195,6 +196,12 @@ export function PrivacyControls({ email }: { email: string }) {
   );
   return (
     <div id="account-data" className="scroll-mt-8 space-y-10">
+      <NavigationLink
+        href={privacyPolicyUrl}
+        className="inline-flex min-h-11 items-center text-sm text-secondary-ink underline underline-offset-4"
+      >
+        Privacy policy
+      </NavigationLink>
       <section
         aria-labelledby={`${id}-export`}
         className="space-y-4 border-t border-primary-grey pt-6"

@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { NavigationLink } from "@/components/ui/navigation-link";
+import { privacyPolicyUrl } from "@/lib/privacy-notice";
 
 type AuthShellProps = {
   title: string;
@@ -19,7 +20,7 @@ export function AuthShell({ title, description, children }: AuthShellProps) {
         </div>
         {children}
         <NavigationLink
-          href="/privacy"
+          href={privacyPolicyUrl}
           className="mt-6 inline-flex min-h-11 items-center text-sm text-secondary-ink underline underline-offset-4"
         >
           Privacy policy
