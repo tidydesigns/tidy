@@ -22,8 +22,7 @@
 - **Design on the canvas.** Create interfaces with editable layers.
 - **Bring your agent.** Read, create and edit designs through MCP.
 - **Work together.** Collaborate with teammates in the same workspace.
-- **Bring existing designs.** Import Figma files or capture webpages with the
-  browser extension.
+- **Capture webpages.** Bring webpages into Tidy with the browser extension.
 - **Keep control.** Open source. Self-host on your own infrastructure.
 
 ## Watch Tidy in action
@@ -77,16 +76,6 @@ provider accounts. Do not use a production database URL for local commands.
 
 Stop the database with `docker compose down`. Adding `-v` also deletes its data.
 See [self-hosting](#self-hosting) before making a deployment public.
-
-## Importing Figma designs
-
-Choose **New file → Import from Figma…** or drop a Figma Design `.fig` file.
-Select the pages to import, then continue editing in Tidy. You can also copy
-selected elements in Figma and paste them into an open Tidy file.
-
-No Figma plugin or account token is required. See the
-[Figma import guide](docs/figma-import.md) for supported features, compatibility
-limits and local development checks.
 
 ## Browser extension
 
