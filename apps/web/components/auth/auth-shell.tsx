@@ -21,7 +21,7 @@ export function AuthShell({ title, description, children }: AuthShellProps) {
         {children}
         <NavigationLink
           href={privacyPolicyUrl}
-          className="mt-6 inline-flex min-h-11 items-center text-sm text-secondary-ink underline underline-offset-4"
+          className="mt-6 flex min-h-11 w-full items-center justify-center text-sm text-secondary-ink underline underline-offset-4"
         >
           Privacy policy
         </NavigationLink>
