@@ -13,6 +13,7 @@
     "./design-text": "./design-text.tsx",
     "./image-display": "./image-display.ts",
     "./image-loading": "./image-loading.ts",
+    "./use-loaded-image": "./use-loaded-image.ts",
     "./image-viewport": "./image-viewport.tsx",
     "./image-context": "./image-context.tsx",
     "./design-image": "./design-image.tsx",

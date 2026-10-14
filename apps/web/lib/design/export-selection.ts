@@ -10,7 +10,6 @@ import {
   exportFilename,
   exportNames,
   type ExportRequest,
-  type ExportBounds,
 } from "./export-plan";
 import { selectionBounds, exportClone, foreignObjectSvg } from "./export-dom";
 import { nativeSvg } from "./export-native-svg";
@@ -32,23 +31,29 @@ export async function rasterizeExport(
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Image export is unavailable in this browser.");
-  context.drawImage(image, 0, 0, width, height);
-  const blob = await new Promise<Blob>((resolve, reject) =>
-    canvas.toBlob(
-      (value) =>
-        value ? resolve(value) : reject(new Error("The browser could not create this image.")),
-      mime,
-    ),
-  );
-  canvas.width = 0;
-  canvas.height = 0;
-  if (blob.type !== mime)
-    throw new Error(
-      `${mime === "image/webp" ? "WebP" : "PNG"} output is unavailable in this browser.`,
+  try {
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Image export is unavailable in this browser.");
+    context.drawImage(image, 0, 0, width, height);
+    const blob = await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (value) =>
+          value ? resolve(value) : reject(new Error("The browser could not create this image.")),
+        mime,
+      ),
     );
-  return blob;
+    if (blob.type !== mime)
+      throw new Error(
+        `${mime === "image/webp" ? "WebP" : "PNG"} output is unavailable in this browser.`,
+      );
+    return blob;
+  } finally {
+    canvas.width = 0;
+    canvas.height = 0;
+    image.onload = null;
+    image.onerror = null;
+    image.src = "";
+  }
 }
 export async function createSelectionExport(
   content: DesignDocument,
@@ -78,14 +83,24 @@ export async function createSelectionExport(
     ),
   );
   await window.document.fonts.ready;
-  const warnings: string[] = [],
-    prepared: {
-      bounds: ExportBounds;
-      width: number;
-      height: number;
-      html: string;
-      native: string;
-    }[] = [];
+  const warnings: string[] = [];
+  const names =
+    request.mode === "batch"
+      ? exportNames(roots, request.scale, request.format)
+      : [
+          exportFilename(
+            roots.length === 1 ? roots[0].name : "Selection",
+            request.scale,
+            request.format,
+          ),
+        ];
+  const pdf =
+    request.format === "pdf" ? await (await import("pdf-lib")).PDFDocument.create() : undefined;
+  if (pdf) {
+    pdf.setProducer("Tidy");
+    pdf.setTitle(roots.length === 1 ? roots[0].name : "Selected layers");
+  }
+  const files: ExportFile[] = [];
   // One clone already deduplicates its sources; avoid retaining an extra cache
   // for a single selected root.
   const images = roots.length > 1 ? createExportImageSession() : undefined;
@@ -113,33 +128,36 @@ export async function createSelectionExport(
           );
         else native = result.svg;
       }
-      prepared.push({ bounds, width, height, html, native });
+      // Encode each page before preparing the next: do not retain a batch of
+      // HTML/SVG strings containing full-quality base64 images in memory.
+      if (pdf) {
+        const png = await rasterizeExport(html, width, height),
+          image = await pdf.embedPng(await png.arrayBuffer()),
+          pageWidth = width * 0.75,
+          pageHeight = height * 0.75;
+        pdf.addPage([pageWidth, pageHeight]).drawImage(image, {
+          x: 0,
+          y: 0,
+          width: pageWidth,
+          height: pageHeight,
+        });
+      } else {
+        const blob =
+          request.format === "svg"
+            ? new Blob([native], { type: "image/svg+xml" })
+            : await rasterizeExport(
+                html,
+                width,
+                height,
+                request.format === "webp" ? "image/webp" : "image/png",
+              );
+        files.push({ name: names[index], blob });
+      }
     }
   } finally {
     images?.dispose();
   }
-  const names =
-    request.mode === "batch"
-      ? exportNames(roots, request.scale, request.format)
-      : [
-          exportFilename(
-            roots.length === 1 ? roots[0].name : "Selection",
-            request.scale,
-            request.format,
-          ),
-        ];
-  if (request.format === "pdf") {
-    const { PDFDocument } = await import("pdf-lib"),
-      pdf = await PDFDocument.create();
-    pdf.setProducer("Tidy");
-    pdf.setTitle(roots.length === 1 ? roots[0].name : "Selected layers");
-    for (const page of prepared) {
-      const png = await rasterizeExport(page.html, page.width, page.height),
-        image = await pdf.embedPng(await png.arrayBuffer()),
-        width = page.width * 0.75,
-        height = page.height * 0.75;
-      pdf.addPage([width, height]).drawImage(image, { x: 0, y: 0, width, height });
-    }
+  if (pdf) {
     const bytes = await pdf.save();
     return {
       files: [
@@ -153,20 +171,6 @@ export async function createSelectionExport(
       ],
       warnings,
     };
-  }
-  const files: ExportFile[] = [];
-  for (let i = 0; i < prepared.length; i++) {
-    const page = prepared[i],
-      blob =
-        request.format === "svg"
-          ? new Blob([page.native], { type: "image/svg+xml" })
-          : await rasterizeExport(
-              page.html,
-              page.width,
-              page.height,
-              request.format === "webp" ? "image/webp" : "image/png",
-            );
-    files.push({ name: names[i], blob });
   }
   if (request.mode === "batch" && files.length > 1) {
     const { zipSync } = await import("fflate"),

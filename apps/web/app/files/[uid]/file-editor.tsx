@@ -1277,12 +1277,14 @@ export function FileEditor({
   }
 
   const [exportPending, setExportPending] = useState(false);
+  const [exportError, setExportError] = useState("");
   const [exportWarnings, setExportWarnings] = useState<string[]>([]);
   const exportRunning = useRef(false);
   async function exportSelection(request: ExportRequest) {
     if (exportRunning.current) return;
     exportRunning.current = true;
     setExportPending(true);
+    setExportError("");
     setExportWarnings([]);
     try {
       const { createSelectionExport } = await import("@/lib/design/export-selection");
@@ -1294,7 +1296,7 @@ export function FileEditor({
       for (const file of result.files) downloadBlob(file.blob, file.name);
       setExportWarnings(result.warnings);
     } catch (cause) {
-      setError(editorErrorMessage(cause, "Could not export selection."));
+      setExportError(editorErrorMessage(cause, "Could not export selection."));
     } finally {
       exportRunning.current = false;
       setExportPending(false);
@@ -4347,12 +4349,12 @@ export function FileEditor({
               />
             </div>
           )}
-          {error && (
+          {(error || exportError) && (
             <div
               role="alert"
               className="absolute bottom-4 left-4 z-30 max-w-xs rounded-lg bg-surface p-3 text-xs shadow-sm"
             >
-              {error}
+              {error || exportError}
             </div>
           )}
         </div>

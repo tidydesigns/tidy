@@ -1,6 +1,29 @@
 "use client";
+import { useEffect, useState } from "react";
+import { displayImageUrl } from "@tidy/design-renderer/image-display";
+import { createImagePool, type ImagePool } from "@tidy/design-renderer/image-loading";
+import { useLoadedImage } from "@tidy/design-renderer/use-loaded-image";
 import type { DesignDocument } from "@/lib/design/document";
 export type BrowserAsset = { assetId: string; mimeType: string; byteSize: number };
+
+function AssetThumbnail({ asset, pool }: { asset: BrowserAsset; pool: ImagePool }) {
+  const original = `/api/assets/${asset.assetId}`;
+  // Small display variants never replace the original used for placement/export.
+  const source = displayImageUrl(original, 256, asset.mimeType);
+  const image = useLoadedImage(source, original, true, pool);
+  return (
+    <div className="flex h-12 w-full items-center justify-center" data-asset-thumbnail>
+      {image.status === "ready" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={image.url} alt="" className="h-full w-full object-contain" draggable={false} />
+      ) : image.status === "failed" ? (
+        <span className="text-secondary-ink" role="img" aria-label="Preview unavailable">
+          ×
+        </span>
+      ) : null}
+    </div>
+  );
+}
 
 export function AssetBrowser({
   assets,
@@ -21,6 +44,8 @@ export function AssetBrowser({
   loading: boolean;
   error: string;
 }) {
+  const [images] = useState(() => createImagePool());
+  useEffect(() => () => images.clear(), [images]);
   if (!assets.length && !error) return null;
   const names = new Map<string, string>();
   for (const node of document.nodes) {
@@ -52,14 +77,7 @@ export function AssetBrowser({
                 onClick={() => onPlace(asset)}
                 className="rounded border border-primary-grey/60 bg-surface p-1 hover:bg-primary-grey/15 disabled:opacity-40"
               >
-                {/* Original bytes preserve SVGs and avoid displaying a cropped/derived variant. */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`/api/assets/${asset.assetId}`}
-                  alt=""
-                  className="h-12 w-full object-contain"
-                  draggable={false}
-                />
+                <AssetThumbnail asset={asset} pool={images} />
                 <span className="mt-1 block truncate text-[10px]">{name}</span>
               </button>
             );
