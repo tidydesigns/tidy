@@ -139,6 +139,7 @@ p {
 
 .footer {
   display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: 20px;
   margin-top: auto;
@@ -150,6 +151,27 @@ p {
 .changelog-content {
   width: min(100%, 900px);
   margin: clamp(64px, 12svh, 120px) auto 48px;
+}
+
+.footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 20px;
+}
+
+.footer-links a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  color: inherit;
+  text-underline-offset: 4px;
+}
+
+.footer-links a:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 4px;
 }
 
 .changelog-intro {
