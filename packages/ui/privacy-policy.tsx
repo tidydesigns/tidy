@@ -72,12 +72,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
       <section id="posthog" aria-labelledby="posthog-title">
         <h2 id="posthog-title">Cookies and PostHog</h2>
         <p>
-          PostHog collection is currently disabled. Tidy does not currently send new usage events,
-          identities, errors, session recordings or traces to PostHog, or evaluate its feature
-          flags. The website does not load the PostHog browser SDK. Contact us about any records
-          from earlier use; pausing collection does not itself erase previously collected
-          information. We will update this notice and obtain any required consent before introducing
-          optional tracking.
+          We do not currently use PostHog for analytics, error tracking, session replay, tracing or
+          feature flags. We will update this notice and obtain any required consent before
+          introducing optional tracking.
         </p>
         <p>
           The app uses authentication and security cookies, temporary sign-in state and browser
