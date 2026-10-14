@@ -123,3 +123,50 @@ test("responsive width, sibling order, visibility, editing and prototype changes
     expect(build(current)).toEqual(createArtworkBranches()(current));
   }
 });
+
+test("image masks refresh restored asset URLs even when the document is unchanged", () => {
+  const group = buildDrawnNode("mask", "container", null, { x: 0, y: 0, width: 100, height: 100 });
+  group.mask = { sourceId: "source", mode: "alpha", enabled: true };
+  const source = buildDrawnNode("source", "container", "mask", {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  source.style.paints = [
+    {
+      id: "image",
+      type: "image",
+      assetId: "asset",
+      intrinsicSize: { width: 200, height: 100 },
+      fit: "cover",
+      positionX: 50,
+      positionY: 50,
+      visible: true,
+      opacity: 1,
+    },
+  ];
+  const unrelated = buildDrawnNode("other", "artboard", null, {
+    x: 200,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  const build = createArtworkBranches();
+  const current = props([group, source, unrelated]);
+  const before = build({ ...current, previewAssetUrls: { asset: "blob:old" } });
+  const next = { ...current, previewAssetUrls: { asset: "blob:restored" } };
+  const after = build(next);
+  expect(after[0].composite.maskImage).toContain("blob:restored");
+  expect(after).toEqual(createArtworkBranches()(next));
+  expect(after[1]).toBe(before[1]);
+  const hidden = {
+    ...next,
+    visibleRootIds: new Set(["other"]),
+    previewAssetUrls: { asset: "blob:offscreen" },
+  };
+  build(hidden);
+  expect(
+    build({ ...hidden, visibleRootIds: current.visibleRootIds })[0].composite.maskImage,
+  ).toContain("blob:offscreen");
+});

@@ -83,3 +83,25 @@ test("cached nodes still undergo graph checks when dependencies or metadata chan
   });
   expect(() => parseImmutableDesignDocument({ ...typed, designTokens: {} })).toThrow();
 });
+
+test("immutable editor snapshots use the shared layer ceiling", () => {
+  const source = {
+    ...blankDesignDocument(),
+    nodes: Array.from({ length: 10_000 }, (_, index) =>
+      buildDrawnNode(`import-${index}`, "container", null, { x: 0, y: 0, width: 10, height: 10 }),
+    ),
+  };
+  expect(parseDesignDocument(source).nodes).toHaveLength(10_000);
+  const parsed = parseImmutableDesignDocument(source);
+  expect(parsed.nodes).toHaveLength(10_000);
+  expect(parseImmutableDesignDocument(parsed)).toBe(parsed);
+  const oversized = {
+    ...source,
+    nodes: [
+      ...source.nodes,
+      buildDrawnNode("extra", "container", null, { x: 0, y: 0, width: 10, height: 10 }),
+    ],
+  };
+  expect(() => parseDesignDocument(oversized)).toThrow();
+  expect(() => parseImmutableDesignDocument(oversized)).toThrow();
+});

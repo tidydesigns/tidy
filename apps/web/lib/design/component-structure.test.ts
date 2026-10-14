@@ -349,3 +349,21 @@ test("indexed refresh canonicalizes interleaved children without losing unrelate
   expect(normalized.filter((node) => node.id === "unrelated")).toEqual([unrelated]);
   expect(new Set(normalized.map((node) => node.id)).size).toBe(scattered.length);
 });
+
+test("master structure edits remain usable in imported documents over 5000 layers", () => {
+  const base = fixture();
+  const before = parseDesignDocument({
+    ...base,
+    nodes: [
+      ...base.nodes,
+      ...Array.from({ length: 6000 - base.nodes.length }, (_, index) => layer(`filler-${index}`)),
+    ],
+  });
+  const after = commit(before, {
+    ...before,
+    nodes: [...before.nodes, layer("imported-child", "master")],
+  });
+  expect(after.nodes).toHaveLength(6002);
+  expect(copyOf(after, "imported-child").parentId).toBe("copy-0");
+  expect(applyDocumentPatch(after, invertPatch(diffDocument(before, after)), true)).toEqual(before);
+});

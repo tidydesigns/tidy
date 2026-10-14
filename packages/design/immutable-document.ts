@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { DESIGN_DOCUMENT_LIMITS } from "./document-limits";
 import type { designDocumentSchema, DesignDocument, DesignNode, DocumentParser } from "./document";
 
 /** Own cache state separately from schemas; each parser instance validates all new graph states. */
@@ -51,7 +52,7 @@ export function createImmutableDocumentParser(
     if (recentImmutableNodes.get(node.id)?.deref() !== node) {
       recentImmutableNodes.delete(node.id);
       recentImmutableNodes.set(node.id, new WeakRef(node));
-      if (recentImmutableNodes.size > 5000)
+      if (recentImmutableNodes.size > DESIGN_DOCUMENT_LIMITS.nodes)
         recentImmutableNodes.delete(recentImmutableNodes.keys().next().value!);
     }
     return node;
@@ -70,7 +71,7 @@ export function createImmutableDocumentParser(
           return rememberImmutableNode(immutableNodeSchema.parse(input));
         }),
       )
-      .max(5000),
+      .max(DESIGN_DOCUMENT_LIMITS.nodes),
   });
 
   function sameParsedValue(a: unknown, b: unknown): boolean {

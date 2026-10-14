@@ -19,6 +19,10 @@ const context = await browser.newContext({
 });
 const page = await context.newPage(),
   errors: string[] = [];
+const consoleErrors: string[] = [];
+page.on("console", (message) => {
+  if (message.type() === "error" && consoleErrors.length < 100) consoleErrors.push(message.text());
+});
 page.on("pageerror", (error) => errors.push(error.message));
 await page.addInitScript(() => {
   window.addEventListener("tidy:figma-imported", (event) => {
@@ -392,6 +396,17 @@ try {
     );
   }
   assert.deepEqual(errors, [], "Browser must have no runtime errors");
+} catch (cause) {
+  console.error(
+    JSON.stringify({
+      url: page.url(),
+      errors,
+      consoleErrors,
+      alerts: await page.getByRole("alert").allTextContents(),
+    }),
+  );
+  await page.screenshot({ path: join(output, "failure.png"), fullPage: true }).catch(() => {});
+  throw cause;
 } finally {
   await browser.close();
 }

@@ -1,3 +1,4 @@
+import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
 import { remapInteractions } from "@bella/design/prototype";
 import type { DesignNode } from "./document";
 import { resolveVariantNodes } from "./component-variants";
@@ -318,7 +319,10 @@ export function reconcileComponentStructure(
     const first = nodes.slice(0, position).filter((node) => !subtree.has(node.id));
     const rest = nodes.slice(position + 1).filter((node) => !subtree.has(node.id));
     nodes = [...first, ...replacement, ...rest];
-    if (nodes.length > 5000) throw new Error("Component update exceeds the 5000-layer limit.");
+    if (nodes.length > DESIGN_DOCUMENT_LIMITS.nodes)
+      throw new Error(
+        `Component update exceeds the ${DESIGN_DOCUMENT_LIMITS.nodes.toLocaleString()}-layer limit.`,
+      );
     byId = new Map(nodes.map((node) => [node.id, node]));
     visiting.delete(rootId);
     complete.add(rootId);
