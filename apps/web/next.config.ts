@@ -1,4 +1,3 @@
-import { posthogCollectionEnabled } from "./lib/posthog-policy";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { withPostHogConfig } from "@posthog/nextjs-config";
@@ -19,7 +18,9 @@ const release =
     }
   })();
 const uploadSourceMaps =
-  posthogCollectionEnabled() && process.env.POSTHOG_UPLOAD_SOURCEMAPS === "1";
+  (process.env.NEXT_PUBLIC_POSTHOG_ENABLED === "1" ||
+    process.env.POSTHOG_SERVER_ERRORS_ENABLED === "1") &&
+  process.env.POSTHOG_UPLOAD_SOURCEMAPS === "1";
 if (uploadSourceMaps && (!process.env.POSTHOG_API_KEY || !process.env.POSTHOG_PROJECT_ID)) {
   throw new Error("POSTHOG_API_KEY and POSTHOG_PROJECT_ID are required to upload source maps");
 }

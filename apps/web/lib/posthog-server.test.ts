@@ -1,132 +1,314 @@
-import * as posthogPolicy from "./posthog-policy";
-import { beforeEach, afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
-import {
-  analyticsIdentity,
-  createErrorReporter,
-  safeServerError,
-  serverErrorCategory,
-} from "./posthog-server";
+import { createErrorReporter, safeServerError, serverErrorCategory } from "./posthog-server";
+import { posthogCollectionEnabled, posthogServerErrorsEnabled } from "./posthog-policy";
+import { consentCookie, ESSENTIAL_ONLY } from "./privacy/consent";
+import { observeRequest } from "./request-observability";
 
-// Exercise the dormant transport with fake credentials and mocked fetch only.
-let policyOverride: ReturnType<typeof spyOn>;
-beforeEach(() => {
-  policyOverride = spyOn(posthogPolicy, "posthogCollectionEnabled").mockReturnValue(true);
+const original = { ...process.env };
+afterEach(() => {
+  for (const key of ["POSTHOG_SERVER_ERRORS_ENABLED", "NEXT_PUBLIC_POSTHOG_ENABLED"]) {
+    if (original[key] === undefined) delete process.env[key];
+    else process.env[key] = original[key];
+  }
 });
-afterEach(() => policyOverride.mockRestore());
-
-test("analytics correlation reads only this project's cookie and handles malformed values", () => {
-  const headers = new Headers({
-    cookie: `auth=secret; ph_other_posthog=${encodeURIComponent('{"distinct_id":"wrong"}')}; ph_test_posthog=${encodeURIComponent('{"distinct_id":"person-id","private":"secret"}')}`,
-  });
-  expect(analyticsIdentity(headers, "test")).toBe("person-id");
-  expect(
-    analyticsIdentity(new Headers({ cookie: "ph_test_posthog=%garbage" }), "test"),
-  ).toBeUndefined();
-  expect(
-    analyticsIdentity(new Headers({ cookie: "ph_test_posthog=null" }), "test"),
-  ).toBeUndefined();
-});
-
-test("server reports remove sensitive error messages and properties while retaining code locations", () => {
-  const original = new TypeError("SQL contains secret@example.test");
-  original.stack =
-    "TypeError: SQL contains secret@example.test\n    at query (https://app.test/chunk.js?token=secret:2:3)\n    at render (/app/page.tsx:12:3)";
-  const safe = safeServerError(original, "server_request_failed");
-  expect(safe.name).toBe("TypeError");
-  expect(safe.stack).toContain("/app/page.tsx:12:3");
-  expect(safe.stack).not.toMatch(/secret|token|SQL/);
-  expect(original.message).toContain("secret@example.test");
-});
-
-test("Worker reports reach the SDK transport under waitUntil without blocking responses", async () => {
-  const payloads: string[] = [];
-  let finishFetch!: () => void;
-  const transport = spyOn(globalThis, "fetch").mockImplementation((async (_url, init) => {
+const runtime = { serverErrorsEnabled: "1", key: "test-key", host: "https://posthog.invalid" };
+function collector() {
+  const bodies: string[] = [];
+  const transport = spyOn(globalThis, "fetch").mockImplementation((async (
+    _url: Parameters<typeof fetch>[0],
+    init?: RequestInit,
+  ) => {
     const body = init?.body;
-    payloads.push(body instanceof Uint8Array ? gunzipSync(body).toString() : String(body));
-    await new Promise<void>((resolve) => {
-      finishFetch = resolve;
-    });
-    return new Response('{"status":1}', { status: 200 });
-  }) as typeof fetch);
-  const tasks: Promise<unknown>[] = [];
+    bodies.push(body instanceof Uint8Array ? gunzipSync(body).toString() : String(body));
+    return Response.json({ status: 1 });
+  }) as unknown as typeof fetch);
+  return {
+    bodies,
+    transport,
+    events: () =>
+      bodies.flatMap((body) => {
+        const data = JSON.parse(body);
+        return data.batch ?? [data];
+      }),
+  };
+}
+
+test("independent server switch defaults off and explicit runtime off overrides environment", async () => {
+  const c = collector();
   try {
-    const report = createErrorReporter(
-      new Headers({ "cf-ray": "test-ray", authorization: "secret-auth", cookie: "auth=private" }),
-      {
-        key: "test-key",
-        host: "https://posthog.invalid",
-        release: "test-release",
-        deploymentId: "test-deployment",
-        waitUntil: (task) => {
-          tasks.push(task);
-        },
-      },
+    delete process.env.POSTHOG_SERVER_ERRORS_ENABLED;
+    process.env.NEXT_PUBLIC_POSTHOG_ENABLED = "1";
+    expect(posthogServerErrorsEnabled()).toBe(false);
+    await createErrorReporter({ ...runtime, serverErrorsEnabled: undefined })(
+      new Error("private"),
+      { source: "next", event: "server_request_failed" },
     );
-    await report(new Error("private database parameters"), {
-      source: "worker",
-      event: "request_stalled",
-      route: "/files",
-      phase: "handler",
-      elapsedMs: 10000,
+    process.env.POSTHOG_SERVER_ERRORS_ENABLED = "1";
+    expect(posthogServerErrorsEnabled()).toBe(true);
+    expect(posthogServerErrorsEnabled("0")).toBe(false);
+    await createErrorReporter({ ...runtime, serverErrorsEnabled: "0" })(new Error("private"), {
+      source: "next",
+      event: "server_request_failed",
     });
+    expect(c.bodies).toHaveLength(0);
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test.each(["missing", "rejected", "expired", "accepted"])(
+  "server failure delivery is independent of %s optional consent",
+  async (state) => {
+    process.env.NEXT_PUBLIC_POSTHOG_ENABLED = "0";
+    const c = collector();
+    const tasks: Promise<unknown>[] = [];
+    const consent =
+      state === "missing"
+        ? ""
+        : consentCookie(
+            state === "accepted"
+              ? { analytics: true, replay: true, diagnostics: true }
+              : ESSENTIAL_ONLY,
+            state === "expired" ? 0 : Date.now(),
+          );
+    const headers = new Headers({
+      cookie: `${consent}; ph_test-key_posthog=${encodeURIComponent(JSON.stringify({ distinct_id: "private-account", $user_state: "identified", $session_id: "private-session", email: "private@example.test" }))}`,
+      "cf-ray": "private-ray",
+      authorization: "private-token",
+    });
+    try {
+      expect(posthogCollectionEnabled(headers.get("cookie"), "diagnostics")).toBe(false);
+      const report = createErrorReporter({ ...runtime, waitUntil: (task) => tasks.push(task) });
+      await expect(
+        observeRequest(
+          new Request("https://app.test/files/private-design?secret=private-value", { headers }),
+          async () => {
+            throw new Error("private-error");
+          },
+          report,
+        ),
+      ).rejects.toThrow("private-error");
+      await Promise.all(tasks);
+      const event = c.events()[0];
+      expect(c.events()).toHaveLength(1);
+      expect(event.event).toBe("$exception");
+      expect(event.distinct_id ?? event.properties.distinct_id).toBe("tidy-server");
+      expect(event.properties).toMatchObject({
+        route: "/files/:id",
+        telemetry_scope: "server_reliability",
+        $process_person_profile: false,
+        $geoip_disable: true,
+      });
+      expect(c.bodies.join("")).not.toMatch(
+        /private-|private@|ph_test|authorization|\$session_id|trace_id/,
+      );
+    } finally {
+      c.transport.mockRestore();
+    }
+  },
+);
+
+test("server reports allowlist details, strip sensitive stack context and preserve useful diagnostics", async () => {
+  const c = collector();
+  try {
+    const failure = Object.assign(new TypeError("private SQL query"), {
+      code: "ETIMEDOUT",
+      cause: new Error("private cause"),
+    });
+    failure.stack =
+      "TypeError: private SQL query\n    at privateFunction (/Users/private-user/app/page.tsx:12:3)\n    at call (https://private-host/chunk.js?token=private-secret:2:3)\n    at privateInline (private-code)";
+    await createErrorReporter({
+      ...runtime,
+      release: "release-123",
+      deploymentId: "deployment-456",
+    })(failure, {
+      source: "next",
+      event: "server_request_failed",
+      route: "/files/private-file?token=private-token",
+      method: "GET",
+      phase: "render,private-phase",
+      elapsedMs: 12,
+      digest: "private-digest",
+      // Simulate structurally wider caller data and future accidental additions.
+      ...{
+        email: "private-email",
+        ray: "private-ray",
+        trace_id: "private-trace",
+        userId: "private-user",
+      },
+    });
+    const event = c.events()[0];
+    expect(event.properties).toMatchObject({
+      error_category: "connection_timeout",
+      $app_version: "release-123",
+      deployment_id: "deployment-456",
+      phase: "render",
+      route: "/files/:id",
+    });
+    expect(c.bodies.join("")).toContain("page.tsx");
+    expect(c.bodies.join("")).not.toMatch(
+      /private|Users|SQL|cause|context_line|pre_context|post_context|\"vars\"/,
+    );
+    expect(event.properties.$exception_list[0].stacktrace.frames[0].lineno).toBe(12);
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test("SDK context cannot attach a person, session, tags or custom properties", async () => {
+  const { PostHog } = await import("posthog-node");
+  const c = collector();
+  const capture = PostHog.prototype.captureExceptionImmediate;
+  const enrich = spyOn(PostHog.prototype, "captureExceptionImmediate").mockImplementation(function (
+    this: InstanceType<typeof PostHog>,
+    ...args: Parameters<typeof capture>
+  ) {
+    return this.withContext(
+      {
+        distinctId: "private-person",
+        sessionId: "private-session",
+        properties: { email: "private@example.test", custom: "private-custom" },
+      },
+      () => capture.apply(this, args),
+    );
+  });
+  try {
+    await createErrorReporter(runtime)(new Error("private"), {
+      source: "next",
+      event: "server_request_failed",
+    });
+    expect(c.bodies).toHaveLength(1);
+    expect(c.bodies.join("")).not.toContain("private");
+    const event = c.events()[0];
+    expect(event.distinct_id ?? event.properties.distinct_id).toBe("tidy-server");
+  } finally {
+    enrich.mockRestore();
+    c.transport.mockRestore();
+  }
+});
+
+test("request-scoped correlation is reused within a reporter and changes between requests", async () => {
+  const c = collector();
+  try {
+    const report = createErrorReporter(runtime);
+    for (const event of ["request_stalled", "request_failed"])
+      await report(new Error("private"), { source: "worker", event, route: "/files" });
+    await createErrorReporter(runtime)(new Error("private"), {
+      source: "worker",
+      event: "request_failed",
+      route: "/files",
+    });
+    const ids = c.events().map((event) => event.properties.server_report_id);
+    expect(ids[0]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(ids[1]).toBe(ids[0]);
+    expect(ids[2]).not.toBe(ids[0]);
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test("unknown event names are replaced and telemetry endpoints cannot report recursively", async () => {
+  const c = collector();
+  try {
+    const report = createErrorReporter(runtime);
+    await report(new Error("private"), {
+      source: "next",
+      event: "private-event",
+      operation: "private-operation",
+      route: "/files",
+      phase: "private-phase",
+    });
+    await report(new Error("private"), {
+      source: "next",
+      event: "request_failed",
+      route: "/api/telemetry/e",
+    });
+    await report(new Error("private"), {
+      source: "next",
+      event: "request_failed",
+      route: "/api/telemetry",
+    });
+    expect(c.events()).toHaveLength(1);
+    expect(c.bodies.join("")).not.toContain("private");
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test("Worker delivery uses waitUntil without delaying the response", async () => {
+  let finish!: () => void;
+  const tasks: Promise<unknown>[] = [];
+  const transport = spyOn(globalThis, "fetch").mockImplementation((async () => {
+    await new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    return Response.json({ status: 1 });
+  }) as unknown as typeof fetch);
+  try {
+    await createErrorReporter({ ...runtime, waitUntil: (task) => tasks.push(task) })(
+      new Error("private"),
+      { source: "worker", event: "request_stalled" },
+    );
     expect(tasks).toHaveLength(1);
-    // Delivery may start on the next microtask, but the request path has returned.
-    for (let i = 0; i < 20 && !payloads.length; i++)
-      await new Promise((resolve) => setTimeout(resolve, 1));
-    expect(payloads).toHaveLength(1);
-    const data = payloads.join("\n");
-    expect(data).toContain("$exception");
-    expect(data).toContain("test-ray");
-    expect(data).toContain("test-release");
-    expect(data).toContain("test-deployment");
-    expect(data).toContain("tidy:request_stalled:/files:handler");
-    expect(data).not.toMatch(/private database|secret-auth|auth=private/);
-    finishFetch();
+    for (let i = 0; i < 20 && !finish; i++) await new Promise((resolve) => setTimeout(resolve, 1));
+    expect(finish).toBeDefined();
+    finish();
     await Promise.all(tasks);
   } finally {
-    finishFetch?.();
+    finish?.();
     transport.mockRestore();
   }
 });
 
-test("telemetry transport failures are contained", async () => {
-  const transport = spyOn(globalThis, "fetch").mockRejectedValue(
-    new Error("private transport failure"),
-  );
+test("transport failures are contained without exposing private messages", async () => {
+  const transport = spyOn(globalThis, "fetch").mockRejectedValue(new Error("private transport"));
   const warnings: string[] = [];
   const warn = spyOn(console, "warn").mockImplementation((value) => {
     warnings.push(String(value));
   });
   try {
-    await createErrorReporter(new Headers(), { key: "test-key", host: "https://posthog.invalid" })(
-      new Error("original"),
-      {
-        source: "next",
-        event: "server_request_failed",
-      },
-    );
-    expect(warnings.join("\n")).toContain("error_reporting_failed");
-    expect(warnings.join("\n")).not.toContain("private");
+    await createErrorReporter(runtime)(new Error("private error"), {
+      source: "next",
+      event: "server_request_failed",
+    });
+    expect(warnings.join(" ")).toContain("error_reporting_failed");
+    expect(warnings.join(" ")).not.toContain("private");
   } finally {
     transport.mockRestore();
     warn.mockRestore();
   }
 });
 
-test("safe categories distinguish actionable server failures without exposing provider details", () => {
-  const timeout = Object.assign(new Error("private connection details"), { code: "ETIMEDOUT" });
-  expect(serverErrorCategory(timeout)).toBe("connection_timeout");
-  expect(safeServerError(timeout, "server_request_failed").message).toBe(
-    "server_request_failed: connection_timeout",
+test("safe categories preserve actionable diagnostics without arbitrary codes or messages", () => {
+  expect(serverErrorCategory(Object.assign(new Error("private"), { code: "ETIMEDOUT" }))).toBe(
+    "connection_timeout",
   );
   expect(
     serverErrorCategory(new Error("Cannot perform I/O on behalf of a different request")),
   ).toBe("cross_request_io");
-  const privateCode = Object.assign(new Error("secret"), { code: "private-value" });
-  expect(serverErrorCategory(privateCode)).toBe("unknown");
-  expect(safeServerError(privateCode, "server_request_failed").stack).not.toMatch(
-    /secret|private-value/,
-  );
+  expect(
+    safeServerError(Object.assign(new Error("private"), { code: "private" }), "private-event")
+      .message,
+  ).toBe("server_request_failed");
+});
+
+test("non-Error and stackless errors cannot expose the wrapper's machine paths", async () => {
+  const c = collector();
+  try {
+    const stackless = new Error("private-stackless");
+    stackless.stack = undefined;
+    for (const failure of ["private-value", { message: "private-object" }, stackless]) {
+      await createErrorReporter(runtime)(failure, {
+        source: "next",
+        event: "server_request_failed",
+      });
+    }
+    expect(c.events()).toHaveLength(3);
+    expect(c.bodies.join("")).not.toMatch(/private|Users|posthog-server|tidy-public|\.codex/);
+    for (const event of c.events())
+      expect(event.properties.$exception_list[0].stacktrace.frames).toEqual([]);
+  } finally {
+    c.transport.mockRestore();
+  }
 });

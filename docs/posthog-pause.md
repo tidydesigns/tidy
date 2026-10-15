@@ -1,4 +1,10 @@
-# PostHog collection pause
+# Historical PostHog collection pause
+
+This records the original pause in PR #45. For the current off-by-default,
+consent-gated implementation and deployment requirements, use
+[the restart runbook](posthog-restart.md). Feedback now uses first-party storage;
+Vault has an independent functional switch. The implementation below describes
+the earlier release, not the current consent controls.
 
 The app does not initialize the PostHog browser SDK. Browser event, identity,
 exception and reset calls use an inert local facade; nothing is queued for later

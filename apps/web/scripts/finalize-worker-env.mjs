@@ -11,7 +11,11 @@ const credentials = new Set([process.env.POSTHOG_API_KEY].filter(Boolean));
 const lines = ["production", "development", "test"].map((mode) => {
   const runtime = {};
   for (const [name, value] of Object.entries(generated[mode])) {
-    if (name.startsWith("NEXT_PUBLIC_") || name === "POSTHOG_TRACING_ENABLED")
+    if (
+      name.startsWith("NEXT_PUBLIC_") ||
+      name === "POSTHOG_TRACING_ENABLED" ||
+      name === "POSTHOG_SERVER_ERRORS_ENABLED"
+    )
       runtime[name] = value;
     else if (
       value &&
@@ -27,6 +31,7 @@ const lines = ["production", "development", "test"].map((mode) => {
       "NEXT_PUBLIC_POSTHOG_HOST",
       "NEXT_PUBLIC_POSTHOG_SURVEY_ID",
       "POSTHOG_TRACING_ENABLED",
+      "POSTHOG_SERVER_ERRORS_ENABLED",
     ]) {
       if (process.env[name]) runtime[name] = process.env[name];
     }

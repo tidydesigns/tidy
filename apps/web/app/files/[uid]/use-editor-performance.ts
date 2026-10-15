@@ -1,6 +1,9 @@
 "use client";
-import { useEffect, type RefObject } from "react";
-import posthog from "@/lib/posthog-client";
+import { useEffect, useSyncExternalStore, type RefObject } from "react";
+import posthog, { browserCollectionEnabled } from "@/lib/posthog-client";
+import { browserConsent, subscribeConsent } from "@/lib/privacy/consent";
+const diagnosticsAllowed = () =>
+  browserCollectionEnabled() && browserConsent()?.diagnostics === true;
 import { FrameStats, nodeBucket } from "@/lib/performance/frame-stats";
 import { useEditorEvent } from "./use-editor-event";
 
@@ -11,13 +14,14 @@ export function useEditorPerformance(
   panels: boolean,
   selection: boolean,
 ) {
+  const consent = useSyncExternalStore(subscribeConsent, diagnosticsAllowed, () => false);
   const context = useEditorEvent(() => ({
     node_bucket: nodeBucket(count),
     panels_open: panels,
     has_selection: selection,
   }));
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || Math.random() >= 0.05) return;
+    if (!consent || process.env.NODE_ENV !== "production" || Math.random() >= 0.05) return;
     const canvas = viewport.current;
     if (!canvas) return;
     const groups = new Map<
@@ -138,5 +142,5 @@ export function useEditorPerformance(
       window.removeEventListener("blur", stop);
       document.removeEventListener("visibilitychange", visibility);
     };
-  }, [viewport, context]);
+  }, [viewport, context, consent]);
 }

@@ -11,7 +11,7 @@ type AuthShellProps = {
 
 export function AuthShell({ title, description, children }: AuthShellProps) {
   return (
-    <main className="auth-shell flex min-h-screen items-center justify-center px-6 pt-4 pb-9">
+    <main className="ph-no-capture auth-shell flex min-h-screen items-center justify-center px-6 pt-4 pb-9">
       <div className="relative w-full max-w-sm">
         <TidyLogo />
         <div className="auth-shell-heading mt-14">

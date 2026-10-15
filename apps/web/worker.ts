@@ -28,6 +28,7 @@ export default {
     const monitoringEnv = buildEnv as Record<string, string>;
     const tracingEnv = env as CloudflareEnv & {
       POSTHOG_TRACING_ENABLED?: string;
+      POSTHOG_SERVER_ERRORS_ENABLED?: string;
       NEXTJS_ENV?: string;
     };
     const runtime = {
@@ -35,12 +36,14 @@ export default {
       key: monitoringEnv.NEXT_PUBLIC_POSTHOG_KEY,
       host: monitoringEnv.NEXT_PUBLIC_POSTHOG_HOST,
       release: monitoringEnv.NEXT_PUBLIC_APP_VERSION,
+      serverErrorsEnabled:
+        tracingEnv.POSTHOG_SERVER_ERRORS_ENABLED ?? monitoringEnv.POSTHOG_SERVER_ERRORS_ENABLED,
       deploymentId: env.CF_VERSION_METADATA.id,
       enabled: tracingEnv.POSTHOG_TRACING_ENABLED ?? monitoringEnv.POSTHOG_TRACING_ENABLED,
       environment: tracingEnv.NEXTJS_ENV ?? "production",
       waitUntil: (task: Promise<unknown>) => ctx.waitUntil(task),
     };
-    const report = createErrorReporter(request.headers, runtime);
+    const report = createErrorReporter(runtime);
     if (isAuthRequest(new URL(request.url).pathname)) {
       return observeRequest(
         request,

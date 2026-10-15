@@ -1,13 +1,281 @@
-import type { PostHog } from "posthog-js";
+import type { PostHog, PostHogConfig } from "posthog-js";
+import {
+  browserConsent,
+  consentRevision,
+  CONSENT_MAX_AGE,
+  ESSENTIAL_ONLY,
+  hasOptionalConsent,
+  subscribeConsent,
+  type Consent,
+} from "./privacy/consent";
+import { clearAnalyticsStorage } from "./privacy/browser-storage";
+import { invalidateConsentReceipt, recordBrowserConsent } from "./privacy/receipt-client";
+import {
+  redactTelemetry,
+  safeTelemetryUrl,
+  telemetryAccount,
+  type TelemetryAccount,
+} from "./privacy/telemetry";
 
-// Keep existing call sites inert without loading the SDK, buffering events,
-// reading analytics storage or transmitting identities. Re-enabling collection
-// requires replacing this facade with a reviewed consent-aware implementation.
+let client: PostHog | undefined;
+let revision = 0;
+let activeChoice = "";
+let started = false;
+let expiry: ReturnType<typeof setTimeout> | undefined;
+let account: TelemetryAccount | undefined;
+let retry: ReturnType<typeof setTimeout> | undefined;
+const AUTH_EVENT = "tidy-telemetry-auth-change";
+
+export function browserCollectionEnabled() {
+  return (
+    process.env.NEXT_PUBLIC_POSTHOG_ENABLED === "1" &&
+    Boolean(process.env.NEXT_PUBLIC_POSTHOG_KEY && process.env.NEXT_PUBLIC_POSTHOG_HOST)
+  );
+}
+
+function current(purpose: "analytics" | "replay" | "diagnostics") {
+  return browserCollectionEnabled() && browserConsent()?.[purpose] === true;
+}
+
+export function consentConfig(consent: Consent): Partial<PostHogConfig> {
+  return {
+    api_host: `${location.origin}/api/telemetry`,
+    request_headers: { "x-tidy-consent": consentRevision(consent) },
+    persistence: "cookie",
+    cookie_expiration: 180,
+    cross_subdomain_cookie: false,
+    person_profiles: "identified_only",
+    ip: false,
+    save_referrer: false,
+    save_campaign_params: false,
+    mask_personal_data_properties: true,
+    disable_capture_url_hashes: true,
+    autocapture: consent.analytics ? { capture_copied_text: false } : false,
+    mask_all_text: true,
+    mask_all_element_attributes: true,
+    rageclick: consent.analytics,
+    capture_pageview: consent.analytics ? "history_change" : false,
+    capture_pageleave: consent.analytics,
+    capture_dead_clicks: false,
+    capture_heatmaps: false,
+    logs: { captureConsoleLogs: false, beforeSend: () => null },
+    capture_performance: consent.diagnostics
+      ? {
+          web_vitals: true,
+          web_vitals_allowed_metrics: ["LCP", "INP", "CLS", "FCP"],
+          web_vitals_attribution: false,
+          network_timing: false,
+        }
+      : false,
+    capture_exceptions: consent.diagnostics
+      ? {
+          capture_unhandled_errors: true,
+          capture_unhandled_rejections: true,
+          capture_console_errors: true,
+        }
+      : false,
+    disable_session_recording: !consent.replay,
+    enable_recording_console_log: false,
+    session_recording: {
+      maskAllInputs: true,
+      maskTextSelector: "*",
+      maskTextFn: () => "[hidden]",
+      maskAllElementAttributes: true,
+      blockSelector:
+        ".ph-no-capture, form, input, textarea, select, [contenteditable], canvas, svg, img, picture, video, audio, iframe, object, embed, script, style, link",
+      captureCanvas: { recordCanvas: false },
+      recordCrossOriginIframes: false,
+      captureJsonLd: false,
+      collectFonts: false,
+      inlineStylesheet: false,
+      recordHeaders: false,
+      recordBody: false,
+      maskCapturedNetworkRequestFn: (request) =>
+        request.method
+          ? null
+          : {
+              name: safeTelemetryUrl(request.name),
+              startTime: 0,
+              duration: 0,
+              entryType: "navigation",
+            },
+    },
+    disable_surveys: !consent.analytics,
+    disable_surveys_automatic_display: !consent.analytics,
+    advanced_disable_feature_flags: !consent.analytics,
+    disable_conversations: true,
+    disable_product_tours: true,
+    disable_web_experiments: true,
+    disable_external_dependency_loading: true,
+    opt_in_site_apps: false,
+    request_batching: false,
+    api_transport: "fetch",
+    disable_beacon: true,
+
+    get_current_url: safeTelemetryUrl,
+    before_send: (event) =>
+      event
+        ? redactTelemetry(event, browserConsent() ?? ESSENTIAL_ONLY, location.href, account)
+        : null,
+  };
+}
+
+function stop(clearStorage = true) {
+  const previous = client;
+  client = undefined;
+  if (previous) {
+    // Async recorder/config callbacks must not recreate storage after withdrawal.
+    for (const action of [
+      () => previous.set_config({ disable_persistence: true }),
+      () => previous.opt_out_capturing(),
+      () => previous.stopSessionRecording(),
+    ]) {
+      try {
+        action();
+      } catch {
+        /* A broken optional SDK must not prevent withdrawal. */
+      }
+    }
+    // The same-origin transport rejects the old consent revision, including retries.
+    try {
+      void previous.shutdown().catch(() => {});
+    } catch {
+      /* Optional SDK cleanup. */
+    }
+  }
+  if (clearStorage) clearAnalyticsStorage();
+}
+
+function scheduleExpiry(consent: Consent) {
+  expiry = setTimeout(
+    () => {
+      const latest = browserConsent();
+      if (latest && JSON.stringify(latest) === activeChoice) {
+        scheduleExpiry(latest);
+        return;
+      }
+      activeChoice = "";
+      void refresh();
+      window.dispatchEvent(new Event("tidy-consent-change"));
+    },
+    Math.min(2147483647, Math.max(1, consent.at + CONSENT_MAX_AGE * 1000 - Date.now())),
+  );
+}
+
+async function refresh() {
+  const consent = browserConsent();
+  const choice = JSON.stringify(consent);
+  if (choice === activeChoice) return;
+  activeChoice = choice;
+  const generation = ++revision;
+  clearTimeout(expiry);
+  clearTimeout(retry);
+  // Resolve identity afresh on SDK initialization; never inherit profile traits
+  // from a previous account's persisted cookie on a new document.
+  stop();
+  if (consent) scheduleExpiry(consent);
+  if (!consent) return;
+  try {
+    // Record rejections/withdrawals as well as grants, before starting any SDK.
+    const receipt = await recordBrowserConsent();
+    if (generation !== revision || JSON.stringify(browserConsent()) !== choice) return;
+    if (!browserCollectionEnabled() || !hasOptionalConsent(consent)) return;
+    account = telemetryAccount(receipt.user?.id, receipt.user?.email);
+    // No SDK, remote config, anonymous cookie, event buffer or identity request before consent.
+    const { PostHog: Client } = await import("posthog-js/full/no-external");
+    if (generation !== revision || JSON.stringify(browserConsent()) !== choice) return;
+    const instance = new Client();
+    client = instance;
+    instance.init(process.env.NEXT_PUBLIC_POSTHOG_KEY!, {
+      ...consentConfig(consent),
+      request_headers: { "x-tidy-consent": consentRevision(consent), "x-tidy-receipt": receipt.id },
+      // Never reuse another account's persisted identity before session resolution.
+      bootstrap: { distinctID: receipt.browserId, isIdentifiedID: false },
+      before_send: (event) =>
+        generation === revision && event
+          ? redactTelemetry(
+              { ...event, properties: { ...event.properties, tidy_consent_receipt: receipt.id } },
+              browserConsent() ?? ESSENTIAL_ONLY,
+              location.href,
+              account,
+            )
+          : null,
+      loaded: (sdk) => {
+        if (generation === revision && account && hasOptionalConsent(browserConsent()))
+          sdk.identify(account.id, { email: account.email });
+      },
+    });
+    instance.register({
+      $app_version: process.env.NEXT_PUBLIC_APP_VERSION,
+      tidy_consent_receipt: receipt.id,
+    });
+  } catch {
+    // Retry failed essential receipt delivery. Capture stays stopped in the meantime.
+    if (generation === revision)
+      retry = setTimeout(() => {
+        activeChoice = "";
+        void refresh();
+      }, 5000);
+  }
+}
+
+export function startPostHogConsent() {
+  if (started || typeof window === "undefined") return;
+  started = true;
+  subscribeConsent(() => void refresh());
+  // OAuth, another tab or session expiry can change authentication without the
+  // password-login callback. Recheck on return before sending further events.
+  window.addEventListener("focus", () => void checkSessionIdentity());
+  window.addEventListener("storage", (event) => {
+    if (event.key !== AUTH_EVENT) return;
+    // No identifiers or email are put in localStorage. Other tabs resolve the
+    // current auth session after stopping the previous account's collection.
+    account = undefined;
+    invalidateConsentReceipt();
+    activeChoice = "";
+    void refresh();
+  });
+  void refresh();
+}
+
+function checkSessionIdentity() {
+  if (!client || !hasOptionalConsent(browserConsent())) return;
+  // Stop synchronously and resolve a fresh server receipt. A cached successful
+  // receipt must never restore an old identity after session revalidation fails.
+  invalidateConsentReceipt();
+  activeChoice = "";
+  void refresh();
+}
+
+function notifyAuthChange() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(AUTH_EVENT, crypto.randomUUID());
+  } catch {
+    /* Optional sync. */
+  }
+}
+
 const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "reset"> = {
-  capture: () => undefined,
-  captureException: () => undefined,
-  identify: () => {},
-  reset: () => {},
+  capture: (event, properties) => {
+    if (hasOptionalConsent(browserConsent())) return client?.capture(event, properties);
+  },
+  captureException: (error, properties) => {
+    if (current("diagnostics")) return client?.captureException(error, properties);
+  },
+  identify: (id, properties) => {
+    account = telemetryAccount(id, properties?.email);
+    invalidateConsentReceipt();
+    activeChoice = "";
+    void refresh();
+    notifyAuthChange();
+  },
+  reset: () => {
+    account = undefined;
+    invalidateConsentReceipt();
+    activeChoice = "";
+    void refresh();
+    notifyAuthChange();
+  },
 };
-
 export default posthog;

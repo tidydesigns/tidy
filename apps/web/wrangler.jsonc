@@ -37,6 +37,7 @@
   "previews": {},
   "triggers": { "crons": ["*/5 * * * *"] },
   "observability": {
+    "redact_query_string": true,
     "logs": {
       "enabled": true,
       "head_sampling_rate": 1,

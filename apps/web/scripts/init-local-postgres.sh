@@ -36,7 +36,8 @@ for migration in \
   20261005-agent-threads.sql \
   20261007-file-version-history.sql \
   20261010-document-event-performance.sql \
-  20261011-account-privacy.sql
+  20261011-account-privacy.sql \
+  20261015-analytics-consent.sql
 do
   set -- "$@" -f "$migrations_dir/$migration"
 done

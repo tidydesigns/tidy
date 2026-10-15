@@ -44,6 +44,7 @@ function collector() {
     return new Response('{"status":1}', { status: 200 });
   }) as typeof fetch);
   const runtime = {
+    enabled: "1",
     key: "test-key",
     host: "https://posthog.invalid",
     release: "test-release",
@@ -322,25 +323,28 @@ test("HTML body completion is traced without buffering and MCP SSE finishes at r
   }
 });
 
-test("disabled tracing does no network I/O and captures operation names for diagnostics", async () => {
-  const c = collector();
-  try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), {
-      ...c.runtime,
-      enabled: "0",
-    });
-    trace.run(() => {
-      const operation = startOperation("auth.api");
-      expect(traceDetails().operations).toEqual(["auth.api"]);
-      operation.end();
-    });
-    trace.snapshot();
-    trace.finish("request_completed", 200);
-    expect(c.transport).not.toHaveBeenCalled();
-  } finally {
-    c.transport.mockRestore();
-  }
-});
+test.each([undefined, "0", "true"])(
+  "tracing without explicit enablement (%s) does no network I/O",
+  async (enabled) => {
+    const c = collector();
+    try {
+      const trace = createRequestTrace(new Request("https://app.test/files"), {
+        ...c.runtime,
+        enabled,
+      });
+      trace.run(() => {
+        const operation = startOperation("auth.api");
+        expect(traceDetails().operations).toEqual(["auth.api"]);
+        operation.end();
+      });
+      trace.snapshot();
+      trace.finish("request_completed", 200);
+      expect(c.transport).not.toHaveBeenCalled();
+    } finally {
+      c.transport.mockRestore();
+    }
+  },
+);
 
 test("a failed HTML stream marks the root and body spans without changing the error", async () => {
   const c = collector();

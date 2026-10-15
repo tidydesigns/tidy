@@ -7,6 +7,7 @@ export const PERSONAL_ATTEMPTS = {
   "privacy-reauth": { minute: 5, hour: 20 },
   "privacy-export": { minute: 2, hour: 10 },
   "privacy-delete": { minute: 3, hour: 10 },
+  "privacy-consent": { minute: 120, hour: 3600 },
   "account-sessions": { minute: 120, hour: 3600 },
   "session-revoke": { minute: 20, hour: 100 },
   "oauth-authorizations": { minute: 120, hour: 3600 },

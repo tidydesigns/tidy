@@ -37,11 +37,12 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
     "app.version": runtime.release ?? "",
   };
   const configured =
-    posthogCollectionEnabled() &&
+    posthogCollectionEnabled(request.headers.get("cookie"), "diagnostics") &&
     runtime.key &&
     runtime.host &&
-    runtime.enabled !== "0" &&
-    !new URL(request.url).pathname.startsWith("/_next/");
+    runtime.enabled === "1" &&
+    !new URL(request.url).pathname.startsWith("/_next/") &&
+    !new URL(request.url).pathname.startsWith("/api/telemetry/");
   const makeClient = () =>
     new PostHog(runtime.key!, {
       host: runtime.host,

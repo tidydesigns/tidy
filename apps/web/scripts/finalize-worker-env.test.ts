@@ -15,7 +15,7 @@ async function fixture(leak = false, leakRuntime = false, leakApi = false) {
     ["production", "development", "test"]
       .map(
         (mode) =>
-          `export const ${mode} = ${JSON.stringify({ POSTHOG_API_KEY: credential, BETTER_AUTH_SECRET: runtimeSecret, RESEND_API_KEY: apiKey, DATABASE_URL: "postgres://fixture:fixture@localhost/fixture", KEEP_RUNTIME: "yes" })};`,
+          `export const ${mode} = ${JSON.stringify({ POSTHOG_SERVER_ERRORS_ENABLED: "0", POSTHOG_API_KEY: credential, BETTER_AUTH_SECRET: runtimeSecret, RESEND_API_KEY: apiKey, DATABASE_URL: "postgres://fixture:fixture@localhost/fixture", KEEP_RUNTIME: "yes" })};`,
       )
       .join("\n"),
   );
@@ -35,6 +35,7 @@ async function fixture(leak = false, leakRuntime = false, leakApi = false) {
         POSTHOG_API_KEY: credential,
         NEXT_PUBLIC_POSTHOG_KEY: "phc_TEST",
         NEXT_PUBLIC_POSTHOG_HOST: "https://posthog.invalid",
+        POSTHOG_SERVER_ERRORS_ENABLED: "1",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -56,6 +57,18 @@ test("Worker build removes local runtime and management credentials and retains 
     expect(compiled).not.toContain("KEEP_RUNTIME");
     expect(compiled).not.toContain("BETTER_AUTH_SECRET");
     expect(compiled).not.toContain("DATABASE_URL");
+    const modes = Object.fromEntries(
+      compiled
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const match = line.match(/^export const (\w+) = (.+);$/)!;
+          return [match[1], JSON.parse(match[2])];
+        }),
+    );
+    expect(modes.production.POSTHOG_SERVER_ERRORS_ENABLED).toBe("1");
+    expect(modes.development.POSTHOG_SERVER_ERRORS_ENABLED).toBe("0");
+    expect(modes.test.POSTHOG_SERVER_ERRORS_ENABLED).toBe("0");
   } finally {
     await rm(root, { recursive: true, force: true });
   }

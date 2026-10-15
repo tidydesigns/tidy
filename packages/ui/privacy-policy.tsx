@@ -1,13 +1,25 @@
+import type { ReactNode } from "react";
+
+function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section id={id}>
+      <h2>{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
   return (
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 14 October 2026</p>
+        <p className="policy-date">Last updated: 15 October 2026</p>
         <p>
           This notice covers tidydesign.co, the hosted Tidy app, registration, login and connected
           features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
-          controller for account administration, security and support. Contact{" "}
+          controller for account administration, security, support and the PostHog processing
+          described below. Contact{" "}
           <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a> about privacy.
         </p>
         <p>
@@ -58,9 +70,11 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           We rely on performance of a contract (GDPR Article 6(1)(b)) for the service you request;
           legitimate interests (Article 6(1)(f)) for security, reliability, support and
           administering access to an organisation’s service; and legal obligations (Article 6(1)(c))
-          for applicable accounting, tax and data-protection duties. Our legitimate interests are
-          protecting users and operating a reliable service; processing must be necessary and
-          proportionate. You can object as explained below.
+          for applicable accounting, tax and data-protection duties. Optional browser analytics,
+          replay and diagnostics rely on consent (Article 6(1)(a)); refusing or withdrawing consent
+          does not prevent account access. Our legitimate interests are protecting users and
+          operating a reliable service; processing must be necessary and proportionate. You can
+          object as explained below.
         </p>
         <p>
           Account details and authentication are needed to provide account access. Payment and
@@ -69,23 +83,146 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
       </section>
 
-      <section id="posthog" aria-labelledby="posthog-title">
-        <h2 id="posthog-title">Cookies and PostHog</h2>
+      <Section id="posthog" title="PostHog: server monitoring and optional browser features">
         <p>
-          We do not currently use PostHog for analytics, error tracking, session replay, tracing or
-          feature flags. We will update this notice and obtain any required consent before
-          introducing optional tracking.
+          Tidy supports PostHog, Inc. for server fault monitoring and optional analytics, feature
+          flags, browser diagnostics and session replay in the app when these features are enabled.
+          The marketing website does not load the PostHog browser SDK. Core server monitoring and
+          optional browser collection have different purposes and controls.
         </p>
         <p>
-          The app uses authentication and security cookies, temporary sign-in state and browser
-          storage for settings such as theme, editor layout, recent colours and draft text. Login
-          sessions normally expire after seven days and can be renewed while you use the app.
-          Preference cookies last up to one year; local preferences remain until changed or cleared,
-          and tab-based drafts use session storage. Your browser lets you clear this storage;
-          blocking authentication cookies can prevent login. Operational logging by Cloudflare
-          remains separate from PostHog.
+          <strong>Core server fault monitoring — legitimate interests.</strong> When enabled, we
+          report failed or stalled server requests and operations to find faults and restore a
+          reliable service. Reports contain a limited error category, code file names and
+          line/column locations, route templates, operation type, timing/status information, release
+          details and a random server-generated correlation identifier. This reporting does not read
+          or set browser cookies, and does not include your account ID, email, browser/session
+          identifiers, replay links, client IP address, request bodies, raw error messages or
+          credentials. It does not create a person profile. PostHog necessarily receives connection
+          information from our server. Core server reporting operates independently of optional
+          browser consent. You can object to any processing of your personal data on this basis by
+          emailing <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>; we assess
+          objections under the rights described below.
         </p>
-      </section>
+        <p>
+          <strong>Optional browser features — consent.</strong> In the app, including login and
+          sign-up, optional collection starts only for the purposes you turn on in{" "}
+          <strong>Privacy choices</strong>. Rejecting, closing the dialog or doing nothing leaves
+          unselected purposes off. You can accept all, reject all or change each purpose separately.
+        </p>
+        <dl>
+          <dt>Usage analytics</dt>
+          <dd>
+            Page visits, selected interactions, feature-use events and counts help us understand
+            adoption and improve the product. PostHog may evaluate feature flags and show optional
+            surveys. Survey answers are sent only when you submit them; please do not include
+            secrets or sensitive information. Automatically captured interactions exclude element
+            text, field values and DOM attributes.
+          </dd>
+          <dt>Session replay</dt>
+          <dd>
+            A reconstruction of page structure, navigation, clicks, pointer movements and scrolling
+            helps us investigate usability problems. This is not access to your camera or
+            microphone. We mask text, input values and element attributes before transmission and
+            block forms, images, media, embedded pages and design canvases. Raw network
+            request/response bodies, headers and console messages are not recorded. These
+            protections intentionally limit what we can see.
+          </dd>
+          <dt>Browser performance and errors</dt>
+          <dd>
+            Page-loading and interaction measurements, redacted browser errors, console-error
+            categories and operation timings help us diagnose faults. Browser error messages and
+            contents are removed. PostHog request tracing is not enabled.
+          </dd>
+        </dl>
+        <p>
+          For optional browser features, events contain a random browser/device identifier, session
+          identifiers, timestamps, browser/operating-system type and version, screen/viewport
+          dimensions and app version. When you are signed in and allow any optional purpose, we
+          create or update a PostHog person profile using your Tidy account ID and email. This links
+          the activity you allow, including session recordings if you allow replay, to your account
+          so we can understand usage and investigate reported problems. We do not send your name as
+          a profile property. Identification does not turn on any purpose you have declined. Before
+          sign-in, consented activity uses a browser identifier and can be associated with your
+          account when you subsequently sign in in the same session. Page URLs are reduced to route
+          templates; query strings, fragments and individual file identifiers are removed. The
+          receiving infrastructure necessarily processes connection information to deliver requests;
+          IP storage/geolocation is disabled in the app and the reviewed project settings enable IP
+          anonymisation.
+        </p>
+        <p>
+          PostHog also receives configuration requests needed for the optional features you enable.
+          We restrict collection in the application as well as through project settings. Source
+          maps, when uploaded for diagnostics, describe application code rather than being a
+          separate user-tracking feature.
+        </p>
+        <p>
+          Our production project is on PostHog EU Cloud, whose core storage is in Frankfurt,
+          Germany. This does not mean all support, transit or subprocessor processing takes place in
+          the EU. PostHog’s <a href="https://posthog.com/dpa">data processing agreement</a> and{" "}
+          <a href="https://posthog.com/subprocessors">subprocessor register</a> describe its
+          processing and transfer arrangements. We have signed PostHog’s data processing agreement.
+        </p>
+        <p>
+          Open <strong>Privacy choices</strong> in the app to withdraw one or all purposes.
+          Withdrawal stops new collection for that choice and resets the optional client; rejecting
+          all also removes accessible PostHog storage. Provider erasure is a separate process and is
+          not instantaneous. Where you withdraw consent and we have no other lawful basis or
+          applicable exception for keeping the affected personal data, we must erase it without
+          undue delay. You can also contact us to request erasure of identifiable history without
+          deleting your Tidy account. Clearing browser storage or using another browser/device
+          requires a new choice. Changes are recorded with Tidy so withdrawals can be reviewed for
+          applicable provider erasure. If confirmation fails, optional collection stays off and the
+          app offers a retry.
+        </p>
+      </Section>
+      <Section id="cookies" title="Cookies and similar storage">
+        <p>
+          Cookies and local/session storage can remember information in your browser. The same
+          privacy choices apply to optional collection whether or not a particular request uses a
+          cookie.
+        </p>
+        <dl>
+          <dt>Sign-in and security — necessary</dt>
+          <dd>
+            Better Auth session and short-lived authentication-flow cookies maintain your login and
+            protect verification and connected sign-in. They are not used as permission for
+            analytics. Login sessions normally expire after seven days and can be renewed while you
+            use the app. Temporary authentication cookies expire when their flow ends or times out.
+            Blocking essential cookies may prevent sign-in.
+          </dd>
+          <dt>Privacy choices — necessary</dt>
+          <dd>
+            The host-only <code>tidy_consent</code> cookie records this notice’s consent version,
+            the time and each choice for 180 days. A separate HttpOnly receipt cookie, lasting up to
+            one year, links your browser to the server record of your choice; it does not authorise
+            tracking by itself. A local-storage change marker synchronises open tabs. Existing or
+            older consent versions do not silently opt you into new purposes.
+          </dd>
+          <dt>Preferences — functional</dt>
+          <dd>
+            Theme, editor layout, recent colours and local preferences remember choices you make.
+            Tab-based draft text uses session storage. The theme cookie is limited to the extension
+            endpoint and can last one year; local preferences remain until changed or cleared. These
+            are not advertising identifiers.
+          </dd>
+          <dt>PostHog identifiers — optional</dt>
+          <dd>
+            Only after an optional choice, a host-only <code>ph_…_posthog</code> cookie stores the
+            identifier and SDK state used for the selected purposes, including the email profile
+            property when signed in, with a maximum configured lifetime of 180 days, refreshed by
+            the SDK. Session storage may hold session/window state until the tab closes. The consent
+            expiry still stops collection even if SDK storage remains. Browser storage lifetime is
+            separate from retention of data already received by PostHog.
+          </dd>
+        </dl>
+        <p>
+          The marketing website has no optional analytics or advertising cookies. Hosting/security
+          providers may use storage needed to deliver or protect a requested service. You can also
+          remove or block storage in your browser settings; doing so does not itself erase
+          provider-held records.
+        </p>
+      </Section>
 
       <section id="providers" aria-labelledby="providers-title">
         <h2 id="providers-title">Providers and sharing</h2>
@@ -94,6 +231,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             <strong>Cloudflare:</strong> website/app hosting, request handling, database transit,
             image and file storage, collaboration/authentication state, service email delivery and
             operational logging.
+          </li>
+          <li>
+            <strong>PostHog:</strong> limited server fault monitoring and the optional browser
+            analytics, diagnostics, replay, feature flags and survey responses described above.
           </li>
           <li>
             <strong>PlanetScale:</strong> the database holding account, workspace and application
@@ -167,6 +308,75 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
       </section>
 
+      <Section id="posthog-retention" title="PostHog retention and deletion">
+        <p>
+          We record consent choices, notice version and timestamps with a random browser identifier
+          and, when signed in, your account ID. This first-party record helps demonstrate consent
+          and handle withdrawal; recording a rejection does not send data to PostHog. Records are
+          removed after one year or through account deletion. Withdrawal and expiry create a
+          restricted review task for applicable erasure. Completed cleanup evidence is kept for up
+          to one year with a hashed subject and a reference to the restricted completion record. We
+          rely on our data-protection obligations for these records.
+        </p>
+        <dl>
+          <dt>PostHog session recordings</dt>
+          <dd>
+            Our replay retention setting is 30 days. Recordings may be erased earlier following
+            account deletion, applicable consent withdrawal or an erasure request. Provider deletion
+            can take additional processing time; older recordings can follow the setting in force
+            when created.
+          </dd>
+          <dt>PostHog usage events, feature-flag activity and survey responses</dt>
+          <dd>
+            We use PostHog’s current event-storage defaults. Our paid plan provides seven years of
+            event availability; this is a query window, not an automatic deletion deadline or a
+            decision to keep every identifiable event for seven years. We have not configured a
+            shorter automatic event-deletion period. We assess whether identifiable records are
+            still needed to evaluate feature adoption, compare product changes or act on survey
+            feedback. When those purposes no longer require identifiable records, we arrange their
+            deletion. Account deletion, applicable consent withdrawal and erasure requests can
+            require earlier removal. We carry out this retention review and provider deletion
+            manually.
+          </dd>
+          <dt>PostHog browser errors and performance information</dt>
+          <dd>
+            Exception and performance events use the provider’s event-storage defaults. Error-issue
+            records are separate from individual events. Our retention criterion for identifiable
+            diagnostic information is whether it is still needed to investigate a fault, verify a
+            fix or investigate recurrence. We arrange deletion when that need ends or earlier where
+            required by account deletion, consent withdrawal or an erasure request. We do not apply
+            the seven-year event query window as a deletion deadline for separate issue records.
+          </dd>
+          <dt>PostHog core server fault reports</dt>
+          <dd>
+            We keep these limited reports while needed to investigate a fault, verify a fix or
+            investigate recurrence, then arrange deletion when that need ends. We use the provider’s
+            existing storage defaults and manually review retention; the seven-year event query
+            window does not determine how long a report is necessary. Separate error-issue records
+            are reviewed too. Server reports are not linked to your account, so deleting a person
+            profile does not remove them. We assess any personal data we can identify in these
+            records under applicable erasure, restriction and objection rights. Withdrawing optional
+            browser consent does not by itself stop this distinct legitimate-interest processing.
+          </dd>
+          <dt>PostHog person profiles</dt>
+          <dd>
+            The account ID and email link the optional activity you allow to your account. We keep
+            that identifiable profile only while needed for the consented purposes. We include it in
+            account-deletion and applicable erasure requests, and remove it when no remaining
+            consented purpose or other lawful ground supports keeping it. A profile disappearing
+            from the interface does not itself establish that all associated events and recordings
+            have finished deleting.
+          </dd>
+        </dl>
+        <p>
+          PostHog deletion is handled manually by Sean using PostHog’s controls, with provider
+          assistance where needed. Account deletion includes this follow-up; you do not need a
+          second request. We check the profile, associated events and recordings and review other
+          relevant provider records separately. Provider deletion may complete asynchronously; an
+          accepted request alone does not establish completed erasure.
+        </p>
+      </Section>
+
       <section id="rights" aria-labelledby="rights-title">
         <h2 id="rights-title">Your rights and contact</h2>
         <p>
@@ -195,9 +405,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           We use access controls, authentication and transport encryption to protect information. No
           service can guarantee absolute security. Automated checks can limit abusive requests;
-          contact us if they prevent access. We do not use profiling or solely automated decisions
-          with legal or similarly significant effects. We update the date above when this notice
-          changes and provide further information before materially changing processing purposes.
+          contact us if they prevent access. We do not make solely automated decisions with legal or
+          similarly significant effects about you. We update the date above when this notice changes
+          and provide further information before materially changing processing purposes.
         </p>
       </section>
     </article>

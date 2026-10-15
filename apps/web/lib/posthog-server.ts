@@ -1,7 +1,7 @@
-import { posthogCollectionEnabled } from "./posthog-policy";
+import { posthogServerErrorsEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { safeErrorCode, traceDetails } from "./trace-context";
+import { normalizedRoute } from "./route-normalization";
 
 export type ErrorDetails = {
   source: "worker" | "next" | "operation";
@@ -18,8 +18,8 @@ export type ErrorDetails = {
   digest?: string;
 };
 
-type HeaderReader = Pick<Headers, "get">;
 type ReportingRuntime = {
+  serverErrorsEnabled?: string;
   key?: string;
   host?: string;
   release?: string;
@@ -27,23 +27,87 @@ type ReportingRuntime = {
   waitUntil?: (task: Promise<unknown>) => void;
 };
 
-// Extract only analytics identity from this project's cookie, never auth data.
-export function analyticsIdentity(headers: HeaderReader, key: string) {
-  const prefix = `ph_${key}_posthog=`;
-  const cookie = headers
-    .get("cookie")
-    ?.split(";")
-    .map((value) => value.trim())
-    .find((value) => value.startsWith(prefix));
-  if (!cookie || cookie.length > 16_384) return undefined;
+const failureEvents = new Set([
+  "server_request_failed",
+  "request_failed",
+  "request_stalled",
+  "request_timed_out",
+  "auth_request_timed_out",
+  "response_body_failed",
+  "operation_stalled",
+  "operation_failed",
+]);
+const operations = new Set([
+  "workspace.session",
+  "workspace.organizations",
+  "workspace.role",
+  "files.session",
+  "files.organizations",
+  "files.role",
+  "files.folders",
+  "files.schema",
+  "files.list",
+  "asset.session",
+  "asset.query",
+]);
+const phases = new Set([
+  "handler",
+  "body",
+  "routing",
+  "response_body",
+  "initialize",
+  "api",
+  "endpoint",
+  "render",
+  "route",
+  "action",
+  "middleware",
+  "proxy",
+]);
+function safeFailureEvent(event: string) {
+  return failureEvents.has(event) ? event : "server_request_failed";
+}
+function safeRoute(route: string | undefined) {
+  if (!route) return undefined;
   try {
-    const value = JSON.parse(decodeURIComponent(cookie.slice(prefix.length)));
-    return typeof value.distinct_id === "string" && value.distinct_id.length <= 200
-      ? value.distinct_id
-      : undefined;
+    return normalizedRoute(new URL(route, "https://tidy.invalid").href).slice(0, 300);
   } catch {
     return undefined;
   }
+}
+function safeDetails(details: ErrorDetails) {
+  const result: Record<string, string | number | boolean> = {
+    source: ["worker", "next", "operation"].includes(details.source) ? details.source : "next",
+    event: safeFailureEvent(details.event),
+  };
+  const route = safeRoute(details.route);
+  if (route) result.route = route;
+  if (details.operation && operations.has(details.operation)) result.operation = details.operation;
+  if (
+    details.method &&
+    ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"].includes(details.method)
+  )
+    result.method = details.method;
+  if (details.phase) {
+    const selected = details.phase
+      .split(",")
+      .filter((phase) => phases.has(phase))
+      .slice(0, 8);
+    if (selected.length) result.phase = selected.join(",");
+  }
+  for (const key of ["status", "elapsedMs", "bytes"] as const) {
+    const value = details[key];
+    if (typeof value === "number" && Number.isFinite(value))
+      result[key] = Math.max(0, Math.min(value, 1e9));
+  }
+  if (details.kind && ["rsc", "document", "other"].includes(details.kind))
+    result.kind = details.kind;
+  if (typeof details.prefetch === "boolean") result.prefetch = details.prefetch;
+  // No spreading caller data: digest, ray, URLs, headers, identities and custom fields are excluded.
+  return result;
+}
+function safeBuildLabel(value: string | undefined) {
+  return value && /^[a-zA-Z0-9._-]{1,100}$/.test(value) ? value : undefined;
 }
 
 export function serverErrorCategory(value: unknown) {
@@ -79,50 +143,89 @@ export function safeServerError(value: unknown, event: string) {
   // Messages can contain SQL parameters or user data. Preserve code locations
   // while reporting a bounded diagnostic message, without causes/properties.
   const category = serverErrorCategory(value);
-  const message = category === "unknown" ? event : `${event}: ${category}`;
+  const label = safeFailureEvent(event);
+  const message = category === "unknown" ? label : `${label}: ${category}`;
   const error = new Error(message);
   error.name =
     value instanceof Error &&
     ["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError"].includes(value.name)
       ? value.name
       : "Error";
+  // A non-Error (or an Error without a stack) must not fall back to the new
+  // wrapper's own stack, which includes this machine's absolute paths.
+  error.stack = `${error.name}: ${message}`;
   if (value instanceof Error && value.stack) {
     const frames = value.stack
       .split("\n")
+      .slice(0, 40)
       .filter((line) => /^\s+at /.test(line))
-      .map((line) => line.replace(/(https?:\/\/[^\s?#)]+)[?#][^\s)]*/g, "$1"));
+      .flatMap((line) => {
+        // Only a code file basename and numeric location. Drop function names,
+        // machine paths, hosts, query/fragment values and non-code frames.
+        const clean = line.replace(/[?#][^\s)]*/g, "");
+        const match = clean.match(
+          /(?:^|[\s/\\(])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?)):(\d{1,8}):(\d{1,8})\)?$/,
+        );
+        return match ? [`    at ${match[1]}:${match[2]}:${match[3]}`] : [];
+      });
     error.stack = `${error.name}: ${message}\n${frames.join("\n")}`;
   }
   return error;
 }
 
-export function createErrorReporter(headers: HeaderReader, runtime?: ReportingRuntime) {
-  if (!posthogCollectionEnabled()) return async () => {};
-  // Tests exercise delivery only with explicit test credentials/transport.
+export function createErrorReporter(runtime?: ReportingRuntime) {
+  // This path never reads request headers, browser storage or optional consent.
+  // The independent switch keeps the production pause until explicitly enabled.
   if (process.env.NODE_ENV === "test" && !runtime?.key) return async () => {};
   if (!runtime) {
     try {
       const { ctx, env } = getCloudflareContext();
       runtime = {
+        serverErrorsEnabled: (env as CloudflareEnv & { POSTHOG_SERVER_ERRORS_ENABLED?: string })
+          .POSTHOG_SERVER_ERRORS_ENABLED,
         deploymentId: env.CF_VERSION_METADATA?.id,
-        waitUntil: (task) => ctx.waitUntil(task),
+        waitUntil: (task: Promise<unknown>) => ctx.waitUntil(task),
       };
     } catch {
       runtime = {};
-    } // Plain Next.js development/test runtime.
+    }
   }
+  if (!posthogServerErrorsEnabled(runtime?.serverErrorsEnabled)) return async () => {};
   const key = runtime.key ?? process.env.NEXT_PUBLIC_POSTHOG_KEY;
   const host = runtime.host ?? process.env.NEXT_PUBLIC_POSTHOG_HOST;
-  const release = runtime.release ?? process.env.NEXT_PUBLIC_APP_VERSION;
+  const release = safeBuildLabel(runtime.release ?? process.env.NEXT_PUBLIC_APP_VERSION);
+  const deploymentId = safeBuildLabel(runtime.deploymentId);
   const waitUntil = runtime.waitUntil;
-  const deploymentId = runtime.deploymentId;
-  const distinctId = key ? analyticsIdentity(headers, key) : undefined;
-  const ray = headers.get("cf-ray");
+  // Server-generated correlation within this reporter only; never a person/session ID.
+  const reportId = crypto.randomUUID();
 
   return (value: unknown, details: ErrorDetails): Promise<void> => {
-    if (!key || !host) return Promise.resolve();
+    const diagnostic = safeDetails(details);
+    if (
+      !key ||
+      !host ||
+      diagnostic.route === "/api/telemetry" ||
+      String(diagnostic.route).startsWith("/api/telemetry/")
+    )
+      return Promise.resolve();
+    const safeError = safeServerError(value, String(diagnostic.event));
+    const properties = {
+      ...diagnostic,
+      error_category: serverErrorCategory(value),
+      server_report_id: reportId,
+      telemetry_scope: "server_reliability",
+      deployment_id: deploymentId,
+      $app_version: release,
+      $process_person_profile: false,
+      $geoip_disable: true,
+      ...(String(diagnostic.event).endsWith("stalled") ||
+      String(diagnostic.event).endsWith("timed_out")
+        ? {
+            $exception_fingerprint: `tidy:${diagnostic.event}:${diagnostic.operation ?? diagnostic.route ?? "server"}:${diagnostic.phase ?? "handler"}`,
+          }
+        : {}),
+    };
     const task = (async () => {
-      // Never share pending SDK I/O between Worker invocations.
       const client = new PostHog(key, {
         host,
         flushAt: 1,
@@ -130,54 +233,58 @@ export function createErrorReporter(headers: HeaderReader, runtime?: ReportingRu
         fetchRetryCount: 0,
         requestTimeout: 2000,
         disableGeoip: true,
-        // Use Next/Worker hooks instead of process-global Node listeners.
         enableExceptionAutocapture: false,
         before_send: (event) => {
-          // The Node SDK can read source snippets from disk. Source maps supply
-          // code context separately; raw telemetry only needs frame locations.
-          for (const exception of event?.properties?.$exception_list ?? []) {
-            for (const frame of exception.stacktrace?.frames ?? []) {
-              delete frame.pre_context;
-              delete frame.context_line;
-              delete frame.post_context;
-              delete frame.vars;
-            }
-          }
+          if (!event || event.event !== "$exception") return null;
+          // Rebuild the payload after SDK enrichment as well. Context tags,
+          // identity/session metadata and source snippets cannot bypass the boundary.
+          const frames = event.properties?.$exception_list?.[0]?.stacktrace?.frames;
+          event.properties = {
+            ...properties,
+            $exception_list: [
+              {
+                type: safeError.name,
+                value: safeError.message,
+                stacktrace: {
+                  frames: Array.isArray(frames)
+                    ? frames
+                        .slice(0, 40)
+                        .filter(
+                          (frame) =>
+                            typeof frame.filename === "string" &&
+                            /^[a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?)$/.test(frame.filename) &&
+                            Number.isSafeInteger(frame.lineno) &&
+                            Number.isSafeInteger(frame.colno),
+                        )
+                        .map((frame) => ({
+                          filename: frame.filename,
+                          lineno: frame.lineno,
+                          colno: frame.colno,
+                          platform: "javascript",
+                        }))
+                    : [],
+                },
+              },
+            ],
+            $exception_level: "error",
+            $lib: "posthog-node",
+          };
+          event.distinctId = "tidy-server";
           return event;
         },
       });
       client.on("error", () => {
         console.warn(
-          JSON.stringify({ event: "error_reporting_failed", source: details.source, ray }),
+          JSON.stringify({ event: "error_reporting_failed", source: diagnostic.source }),
         );
       });
       try {
-        await client.captureExceptionImmediate(
-          safeServerError(value, details.event),
-          distinctId ?? "tidy-server",
-          {
-            ...details,
-            error_category: serverErrorCategory(value),
-            cf_ray: ray,
-            deployment_id: deploymentId,
-            $app_version: release,
-            $process_person_profile: false,
-            ...traceDetails(),
-            error_code: safeErrorCode(value),
-            ...(details.event.endsWith("stalled") || details.event.endsWith("timed_out")
-              ? {
-                  $exception_fingerprint: `tidy:${details.event}:${details.operation ?? details.route}:${details.phase ?? "handler"}`,
-                }
-              : {}),
-          },
-        );
+        await client.captureExceptionImmediate(safeError, "tidy-server", properties);
       } finally {
         await client.shutdown(2500);
       }
     })().catch(() => {
-      console.warn(
-        JSON.stringify({ event: "error_reporting_failed", source: details.source, ray }),
-      );
+      console.warn(JSON.stringify({ event: "error_reporting_failed", source: diagnostic.source }));
     });
     if (waitUntil) {
       waitUntil(task);

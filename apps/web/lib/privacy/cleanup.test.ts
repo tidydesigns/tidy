@@ -27,6 +27,20 @@ test("PostHog erasure requires explicit configuration and requests event and rec
       delete_events: true,
       delete_recordings: true,
     });
+    // PostHog can accept the HTTP request without finding a person. This is
+    // the observed response for events captured with person_profiles: "never".
+    transport.mockResolvedValue(
+      Response.json({
+        persons_found: 0,
+        persons_deleted: 0,
+        events_queued_for_deletion: false,
+        recordings_queued_for_deletion: false,
+        deletion_errors: [],
+      }),
+    );
+    await expect(eraseExternalData({ kind: "posthog", subject: "fixture-user" })).rejects.toThrow(
+      "not accepted",
+    );
     transport.mockResolvedValue(
       Response.json({
         events_queued_for_deletion: true,
@@ -69,6 +83,27 @@ test("avatar erasure includes old replacements across listing pages and propagat
   list.mockResolvedValue({ objects: [{ key: `${prefix}old` }], truncated: false });
   remove.mockRejectedValue(new Error("Storage unavailable"));
   await expect(eraseAvatarPrefix(bucket, prefix)).rejects.toThrow("Storage unavailable");
+});
+
+test("the never-used escape hatch cannot silently discard cleanup while collection is enabled", async () => {
+  const previous = { ...process.env };
+  try {
+    process.env.PRIVACY_POSTHOG_DISABLED = "1";
+    process.env.NEXT_PUBLIC_POSTHOG_ENABLED = "1";
+    delete process.env.PRIVACY_POSTHOG_MODE;
+    await expect(eraseExternalData({ kind: "posthog", subject: "synthetic-user" })).rejects.toThrow(
+      "cannot be disabled",
+    );
+  } finally {
+    for (const key of [
+      "PRIVACY_POSTHOG_DISABLED",
+      "NEXT_PUBLIC_POSTHOG_ENABLED",
+      "PRIVACY_POSTHOG_MODE",
+    ]) {
+      if (previous[key] === undefined) delete process.env[key];
+      else process.env[key] = previous[key];
+    }
+  }
 });
 
 test("avatar erasure fails instead of silently completing an incomplete listing", async () => {

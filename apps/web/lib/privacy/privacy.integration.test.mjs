@@ -6,6 +6,10 @@ const { exportAccount } = await import("./export");
 const { deleteAccount, DELETED_USER } = await import("./delete");
 const { privacyAccount } = await import("./access");
 const { processPrivacyCleanup } = await import("./cleanup");
+const { recordConsent, recordedConsent, maintainConsentRecords, RECEIPT_COOKIE } =
+  await import("./consent-store");
+const { CONSENT_VERSION, consentCookie } = await import("./consent");
+const { completePostHogReview } = await import("./cleanup-operations");
 const url = process.env.PRIVACY_TEST_DATABASE_URL;
 const setup = process.env.PRIVACY_SETUP_DATABASE_URL;
 const enabled =
@@ -27,7 +31,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (!enabled) return;
   await admin.query('update "billingDeployment" set "selfHosted"=true');
-  await admin.query('truncate "user",organization,verification,"privacyCleanup" cascade');
+  await admin.query(
+    'truncate "user",organization,verification,"privacyCleanup","privacyConsent","privacyCleanupReceipt" cascade',
+  );
   await admin.query(
     `insert into "user" (id,name,email,"emailVerified") values
  ('alice','Alice','alice@example.test',true),('bob','Bob','bob@example.test',true),($1,'Deleted user','deleted@tidy.invalid',false)`,
@@ -50,6 +56,257 @@ afterAll(async () => {
     await db.end();
   }
 });
+
+integration(
+  "consent is durable, idempotent, scoped to a secret receipt and linked only to the current account",
+  async () => {
+    const choices = {
+      version: CONSENT_VERSION,
+      at: Date.now(),
+      analytics: false,
+      replay: true,
+      diagnostics: false,
+    };
+    const anonymous = await recordConsent(choices, null);
+    const signedIn = await recordConsent(choices, "alice", anonymous.token);
+    expect(signedIn.decision.browserId).toBe(anonymous.decision.browserId);
+    expect((await recordConsent(choices, "alice", anonymous.token)).decision.id).toBe(
+      signedIn.decision.id,
+    );
+    const other = await recordConsent(choices, "bob", anonymous.token);
+    expect(other.decision.browserId).not.toBe(signedIn.decision.browserId);
+    expect(
+      await recordedConsent(
+        `${consentCookie(choices)}; ${RECEIPT_COOKIE}=${anonymous.token}`,
+        choices,
+        other.decision.id,
+        "bob",
+      ),
+    ).toBe(true);
+    expect(await recordedConsent(consentCookie(choices), choices, other.decision.id, "bob")).toBe(
+      false,
+    );
+    expect(
+      await recordedConsent(
+        `${RECEIPT_COOKIE}=${"0".repeat(64)}`,
+        choices,
+        other.decision.id,
+        "bob",
+      ),
+    ).toBe(false);
+    expect(
+      await recordedConsent(
+        `${RECEIPT_COOKIE}=${anonymous.token}`,
+        choices,
+        signedIn.decision.id,
+        "alice",
+      ),
+    ).toBe(false);
+    expect(
+      await recordedConsent(
+        `${RECEIPT_COOKIE}=${anonymous.token}`,
+        choices,
+        other.decision.id,
+        "alice",
+      ),
+    ).toBe(false);
+    const exported = await exportAccount("alice", "alice-session");
+    expect(exported.privacyChoices).toHaveLength(1);
+    expect(JSON.stringify(exported.privacyChoices)).not.toMatch(/tokenHash|browserId/);
+    expect(
+      (await admin.query('select "tokenHash" from "privacyConsent"')).rows.every(
+        (r) => r.tokenHash !== anonymous.token,
+      ),
+    ).toBe(true);
+  },
+);
+
+integration(
+  "consent endpoint rejects forged origins and bodies, and returns a private receipt without disclosing its secret",
+  async () => {
+    const { auth } = await import("../auth");
+    const { POST } = await import("../../app/api/privacy/consent/route");
+    const session = spyOn(auth.api, "getSession").mockResolvedValue(null);
+    const original = process.env.BETTER_AUTH_URL;
+    process.env.BETTER_AUTH_URL = "https://app.example.test";
+    const choice = { analytics: true, replay: false, diagnostics: false };
+    const headers = {
+      origin: "https://app.example.test",
+      "x-tidy-privacy": "1",
+      cookie: consentCookie(choice),
+    };
+    try {
+      expect(
+        (
+          await POST(
+            new Request("http://internal/api/privacy/consent", {
+              method: "POST",
+              headers: { ...headers, origin: "https://attacker.example" },
+            }),
+          )
+        ).status,
+      ).toBe(403);
+      expect(session).not.toHaveBeenCalled();
+      expect(
+        (
+          await POST(
+            new Request("http://internal/api/privacy/consent", {
+              method: "POST",
+              headers,
+              body: "x".repeat(1025),
+            }),
+          )
+        ).status,
+      ).toBe(413);
+      const response = await POST(
+        new Request("http://internal/api/privacy/consent", { method: "POST", headers }),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+      expect(response.headers.get("set-cookie")).toContain("; Secure");
+      expect(response.headers.get("set-cookie")).not.toContain("tidy_consent=");
+      const body = await response.json();
+      expect(body.user).toBeNull();
+      expect(Object.keys(body).sort()).toEqual(["browserId", "id", "user"]);
+      const consent = {
+        ...choice,
+        version: CONSENT_VERSION,
+        at: Number(
+          (await admin.query('select at from "privacyConsent" where id=$1', [body.id])).rows[0].at,
+        ),
+      };
+      const { authorizeTelemetry } = await import("./consent-store");
+      const tokenCookie = response.headers.get("set-cookie").split(";")[0];
+      const request = new Request("https://app.example.test/api/telemetry/e", {
+        headers: { cookie: `${headers.cookie}; ${tokenCookie}`, "x-tidy-receipt": body.id },
+      });
+      expect(await authorizeTelemetry(request, consent)).toBe(true);
+      session.mockResolvedValueOnce({ user: { id: "bob" } });
+      expect(await authorizeTelemetry(request, consent)).toBe(false);
+      const revoked = await POST(
+        new Request("http://internal/api/privacy/consent", {
+          method: "POST",
+          headers: {
+            ...headers,
+            cookie: `${headers.cookie}; ${tokenCookie}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ revoke: true }),
+        }),
+      );
+      expect(revoked.status).toBe(200);
+      expect(revoked.headers.get("set-cookie")).toContain("tidy_consent=");
+      expect(await authorizeTelemetry(request, consent)).toBe(false);
+      expect((await admin.query('select kind from "privacyCleanup"')).rows).toEqual([
+        { kind: "posthog-review" },
+      ]);
+    } finally {
+      session.mockRestore();
+      if (original === undefined) delete process.env.BETTER_AUTH_URL;
+      else process.env.BETTER_AUTH_URL = original;
+    }
+  },
+);
+
+integration(
+  "withdrawal commits a selective manual review; stale grants are rejected and completion needs explicit evidence",
+  async () => {
+    const granted = {
+      version: CONSENT_VERSION,
+      at: Date.now() - 100,
+      analytics: true,
+      replay: true,
+      diagnostics: true,
+    };
+    const receipt = await recordConsent(granted, "alice");
+    const withdrawn = { ...granted, at: Date.now(), replay: false };
+    await recordConsent(withdrawn, "alice", receipt.token);
+    await expect(recordConsent(granted, "alice", receipt.token)).rejects.toThrow("superseded");
+    await expect(
+      recordConsent({ ...withdrawn, replay: true }, "alice", receipt.token),
+    ).rejects.toThrow("superseded");
+    const jobs = (await admin.query('select * from "privacyCleanup"')).rows;
+    expect(jobs).toHaveLength(1);
+    const scope = JSON.parse(jobs[0].subject);
+    expect(scope.withdrawn).toEqual(["replay"]);
+    expect(scope.remaining.analytics).toBe(true);
+    expect(scope.distinctIds).toContain("alice");
+    expect(scope.distinctIds).toContain(receipt.decision.browserId);
+    await processPrivacyCleanup();
+    expect(
+      (await admin.query('select "nextAttemptAt"::text from "privacyCleanup"')).rows[0]
+        .nextAttemptAt,
+    ).toBe("infinity");
+    await expect(completePostHogReview(db, jobs[0].id, "")).rejects.toThrow("evidence");
+    const client = await db.connect();
+    try {
+      await completePostHogReview(client, jobs[0].id, "restricted-register/synthetic-completion");
+    } finally {
+      client.release();
+    }
+    expect((await admin.query('select id from "privacyCleanup"')).rowCount).toBe(0);
+    expect(
+      (await admin.query('select reference,"subjectHash" from "privacyCleanupReceipt"')).rows[0],
+    ).toMatchObject({ reference: "restricted-register/synthetic-completion" });
+  },
+);
+
+integration(
+  "withdrawal after an authentication change queues identity verification instead of erasing another account automatically",
+  async () => {
+    const granted = {
+      version: CONSENT_VERSION,
+      at: Date.now() - 1000,
+      analytics: true,
+      replay: true,
+      diagnostics: false,
+    };
+    const original = await recordConsent(granted, "alice");
+    const changed = await recordConsent(
+      { ...granted, at: Date.now(), analytics: false, replay: false },
+      null,
+      original.token,
+    );
+    expect(changed.decision.browserId).not.toBe(original.decision.browserId);
+    const subject = JSON.parse(
+      (await admin.query('select subject from "privacyCleanup"')).rows[0].subject,
+    );
+    expect(subject.identityVerificationRequired).toBe(true);
+    expect(subject.distinctIds).toContain("alice");
+    expect((await admin.query("select id from \"user\" where id='alice'")).rowCount).toBe(1);
+  },
+);
+
+integration(
+  "consent expiry queues review without another visit and account deletion includes anonymous browser history",
+  async () => {
+    const grant = {
+      version: CONSENT_VERSION,
+      at: Date.now(),
+      analytics: true,
+      replay: false,
+      diagnostics: false,
+    };
+    const anonymous = await recordConsent(grant, null);
+    await recordConsent(grant, "alice", anonymous.token);
+    await admin.query('update "privacyConsent" set "expiresAt"=now()-interval \'1 minute\'');
+    await maintainConsentRecords();
+    await maintainConsentRecords();
+    expect((await admin.query('select kind from "privacyCleanup"')).rowCount).toBe(1);
+    expect(
+      JSON.parse((await admin.query('select subject from "privacyCleanup"')).rows[0].subject)
+        .reason,
+    ).toBe("expiry");
+    await deleteAccount("alice", "alice-session", "alice@example.test");
+    expect((await admin.query('select id from "privacyConsent"')).rowCount).toBe(0);
+    expect(
+      (
+        await admin.query("select subject from \"privacyCleanup\" where kind='posthog-review'")
+      ).rows.some((r) => JSON.parse(r.subject).reason === "account-deletion"),
+    ).toBe(true);
+  },
+);
 integration(
   "export includes personal contributions and excludes secrets and other members",
   async () => {
@@ -228,11 +485,11 @@ integration("external cleanup retains failed jobs and erases successful job subj
   await deleteAccount("alice", "alice-session", "alice@example.test");
   const original = process.env.PRIVACY_POSTHOG_DISABLED;
   delete process.env.PRIVACY_POSTHOG_DISABLED;
-  expect(await processPrivacyCleanup()).toEqual({ completed: 0, failed: 1 });
+  expect(await processPrivacyCleanup()).toMatchObject({ completed: 0, failed: 1 });
   expect((await admin.query('select attempts from "privacyCleanup"')).rows[0].attempts).toBe(1);
   await admin.query('update "privacyCleanup" set "nextAttemptAt"=now()');
   process.env.PRIVACY_POSTHOG_DISABLED = "1";
-  expect(await processPrivacyCleanup()).toEqual({ completed: 1, failed: 0 });
+  expect(await processPrivacyCleanup()).toMatchObject({ completed: 1, failed: 0 });
   expect((await admin.query('select * from "privacyCleanup"')).rows).toHaveLength(0);
   if (original === undefined) delete process.env.PRIVACY_POSTHOG_DISABLED;
   else process.env.PRIVACY_POSTHOG_DISABLED = original;

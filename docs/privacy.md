@@ -12,6 +12,11 @@ Settings provides personal-data JSON export and confirmed account deletion. This
 
 ## Required rollout (not performed by this change)
 
+For the optional PostHog restart, follow the additional migration, consent,
+manual-review and release checks in [the restart runbook](posthog-restart.md).
+`PRIVACY_POSTHOG_MODE=manual` uses its operator workflow instead of requiring a
+management API key; requests remain pending until completion is verified.
+
 1. Approve an explicit database target, then apply `migrations/20261011-account-privacy.sql` after existing migrations and reapply the reviewed runtime grants manifest. Local setup scripts include it. Do not deploy application code before this migration.
 2. Configure these server-side Worker secrets/variables in the operator's private deployment config:
    - `PRIVACY_CLEANUP_SECRET`: at least 32 random characters.

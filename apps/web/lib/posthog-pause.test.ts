@@ -19,12 +19,12 @@ test("the pause prevents all browser and server delivery even with configured cr
     expect(posthog.capture("test-event")).toBeUndefined();
     expect(posthog.captureException(new Error("test error"))).toBeUndefined();
     posthog.reset();
-    await createErrorReporter(headers, runtime)(new Error("test error"), {
+    await createErrorReporter({ ...runtime, serverErrorsEnabled: "0" })(new Error("test error"), {
       source: "worker",
       event: "request_failed",
     });
     expect(headers.get).not.toHaveBeenCalled();
-    expect(await vaultEnabled("test-person", runtime)).toBe(false);
+    expect(await vaultEnabled("test-person")).toBe(false);
 
     const trace = createRequestTrace(new Request("https://app.test/api/mcp"), runtime);
     const operation = trace.run(() => startOperation("database.query"));
@@ -41,13 +41,15 @@ test("the pause prevents all browser and server delivery even with configured cr
   }
 });
 
-test("source-map uploads stay off even when the old release flag is enabled", () => {
+test("source-map uploads stay off when both collection switches are disabled", () => {
   // Isolate environment changes and config module caching from other tests.
   const result = Bun.spawnSync([process.execPath, "--eval", 'await import("./next.config.ts")'], {
     cwd: import.meta.dir + "/..",
     env: {
       ...process.env,
       POSTHOG_UPLOAD_SOURCEMAPS: "1",
+      POSTHOG_SERVER_ERRORS_ENABLED: "0",
+      NEXT_PUBLIC_POSTHOG_ENABLED: "0",
       POSTHOG_API_KEY: "",
       POSTHOG_PROJECT_ID: "",
     },

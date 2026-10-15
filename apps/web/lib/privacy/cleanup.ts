@@ -3,10 +3,11 @@ import { db } from "@/lib/db";
 import { designBucket } from "@/lib/storage/design-objects";
 import { feedbackBucket } from "@/lib/feedback/storage";
 import { runnerRequest } from "@/lib/agents/runner-client";
+import { maintainConsentRecords } from "./consent-store";
 
 type CleanupJob = {
   id: string;
-  kind: "avatar" | "feedback" | "runner" | "posthog";
+  kind: "avatar" | "feedback" | "runner" | "posthog" | "posthog-review";
   subject: string;
   attempts: number;
 };
@@ -22,7 +23,11 @@ export async function eraseAvatarPrefix(bucket: R2Bucket, prefix: string) {
 }
 
 export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject">) {
-  if (job.kind === "avatar") {
+  if (job.kind === "posthog-review") {
+    // Selective withdrawal, expired consent and anonymous records require review.
+    // Never use a person API's empty result as evidence of erasure.
+    return "awaiting-verification";
+  } else if (job.kind === "avatar") {
     const bucket = designBucket();
     if (!bucket) throw new Error("Avatar storage unavailable");
     if (job.subject.endsWith("/")) await eraseAvatarPrefix(bucket, job.subject);
@@ -32,11 +37,19 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
   } else if (job.kind === "runner") {
     await runnerRequest(job.subject, "erase");
   } else {
+    if (process.env.PRIVACY_POSTHOG_MODE === "manual") return "awaiting-verification";
     const host = process.env.PRIVACY_POSTHOG_HOST;
     const project = process.env.PRIVACY_POSTHOG_PROJECT_ID;
     const token = process.env.PRIVACY_POSTHOG_API_KEY;
     // Operators can explicitly attest that this installation never used PostHog.
-    if (process.env.PRIVACY_POSTHOG_DISABLED === "1") return "complete";
+    if (process.env.PRIVACY_POSTHOG_DISABLED === "1") {
+      if (
+        process.env.NEXT_PUBLIC_POSTHOG_ENABLED === "1" ||
+        process.env.POSTHOG_SERVER_ERRORS_ENABLED === "1"
+      )
+        throw new Error("PostHog cleanup cannot be disabled while collection is enabled");
+      return "complete";
+    }
     if (!host || !project || !token) throw new Error("PostHog erasure is not configured");
     const url = new URL(`/api/projects/${encodeURIComponent(project)}/persons/bulk_delete/`, host);
     if (url.protocol !== "https:") throw new Error("PostHog erasure requires HTTPS");
@@ -72,6 +85,7 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
 }
 
 export async function processPrivacyCleanup(limit = 1) {
+  await maintainConsentRecords();
   let completed = 0,
     failed = 0;
   for (let index = 0; index < limit; index++) {
@@ -111,5 +125,12 @@ export async function processPrivacyCleanup(limit = 1) {
       );
     }
   }
+  const pending = (
+    await db.query<{ pending: number; overdue: number }>(`select count(*)::int as pending,
+    count(*) filter (where "createdAt"<now()-interval '1 day')::int as overdue
+    from "privacyCleanup" where kind in ('posthog','posthog-review')`)
+  ).rows[0];
+  if (pending.pending)
+    console.warn(JSON.stringify({ event: "privacy_review_pending", ...pending }));
   return { completed, failed };
 }

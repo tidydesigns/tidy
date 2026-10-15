@@ -70,6 +70,8 @@ DECLARE
     'organizationMcpUsage',
     'organization_billing',
     'privacyCleanup',
+    'privacyCleanupReceipt',
+    'privacyConsent',
     'session',
     'user',
     'vaultLogin',

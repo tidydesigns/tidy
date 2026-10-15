@@ -20,10 +20,7 @@ export const passwordAuthClient = createAuthClient({
 });
 
 export function identifyPostHogUser(user: { id: string; email: string; name: string }) {
-  posthog.identify(user.id, {
-    email: user.email,
-    name: user.name,
-  });
+  posthog.identify(user.id, { email: user.email });
 }
 
 export function resetPostHogUser() {

@@ -1,54 +1,22 @@
-import * as posthogPolicy from "../posthog-policy";
-import { beforeEach, afterEach, expect, mock, spyOn, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { resolve } from "node:path";
 
 mock.module("server-only", () => ({}));
 const { vaultEnabled } = await import("./feature-flag");
-const runtime = { key: "test-key", host: "https://posthog.invalid" };
 
-// Exercise the dormant transport with fake credentials and mocked fetch only.
-let policyOverride: ReturnType<typeof spyOn>;
-beforeEach(() => {
-  policyOverride = spyOn(posthogPolicy, "posthogCollectionEnabled").mockReturnValue(true);
-});
-afterEach(() => policyOverride.mockRestore());
-
-test("Vault requires an explicit boolean true for the authenticated user", async () => {
-  let response: Record<string, boolean | string> = {};
-  const requests: Record<string, unknown>[] = [];
-  const transport = spyOn(globalThis, "fetch").mockImplementation((async (url, init) => {
-    if (String(url).includes("/flags")) {
-      requests.push(JSON.parse(String(init?.body)));
-      return Response.json({ featureFlags: response });
-    }
-    return Response.json({ status: 1 });
-  }) as typeof fetch);
+test("Vault access is independent of optional analytics and sends no user data", async () => {
+  const previous = process.env.VAULT_ENABLED;
+  const transport = spyOn(globalThis, "fetch");
   try {
-    for (const value of [undefined, false, "enabled", true]) {
-      response = value === undefined ? {} : { vault: value };
-      expect(await vaultEnabled("signed-in-user", runtime)).toBe(value === true);
+    for (const value of [undefined, "0", "true", "1"]) {
+      if (value === undefined) delete process.env.VAULT_ENABLED;
+      else process.env.VAULT_ENABLED = value;
+      expect(await vaultEnabled("signed-in-user")).toBe(value === "1");
     }
-    expect(requests).toHaveLength(4);
-    for (const request of requests) {
-      expect(request.distinct_id).toBe("signed-in-user");
-      expect(request.flag_keys_to_evaluate).toEqual(["vault"]);
-    }
-  } finally {
-    transport.mockRestore();
-  }
-});
-
-test("Vault stays off when PostHog is unavailable or unconfigured", async () => {
-  const transport = spyOn(globalThis, "fetch").mockImplementation((async (url) => {
-    if (String(url).includes("/flags")) throw new Error("network unavailable");
-    return Response.json({ status: 1 });
-  }) as typeof fetch);
-  try {
-    expect(await vaultEnabled("signed-in-user", runtime)).toBe(false);
-    transport.mockClear();
-    expect(await vaultEnabled("signed-in-user", { key: "" })).toBe(false);
     expect(transport).not.toHaveBeenCalled();
   } finally {
+    if (previous === undefined) delete process.env.VAULT_ENABLED;
+    else process.env.VAULT_ENABLED = previous;
     transport.mockRestore();
   }
 });

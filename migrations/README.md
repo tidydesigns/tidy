@@ -54,3 +54,12 @@ shared-work attribution, the durable external-erasure outbox, and consent-indepe
 feedback submissions. Reapply the runtime grant manifest after applying it to an
 explicitly approved target. See [privacy rollout](../docs/privacy.md) for required
 processor credentials, the cleanup schedule and retention/access operations.
+
+## Analytics consent
+
+`20261015-analytics-consent.sql` follows `20261011-account-privacy.sql`. It adds
+versioned consent decisions, an external-erasure review job type and minimal
+operator completion receipts. Apply it before deploying the PostHog restart code,
+then reapply the runtime grants manifest. Local initialization includes it; no
+production migration is automatic. See [the restart runbook](../docs/posthog-restart.md)
+for consent, retention, manual erasure and release acceptance.

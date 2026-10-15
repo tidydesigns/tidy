@@ -21,7 +21,7 @@ export async function observeOperation<T>(
   run: () => Promise<T>,
 ): Promise<T> {
   const started = performance.now();
-  const report = createErrorReporter(headers);
+  const report = createErrorReporter();
   const details = { operation, ray: headers.get("cf-ray") };
   const elapsed = () => Math.round(performance.now() - started);
   console.info(JSON.stringify({ event: "operation_started", ...details }));

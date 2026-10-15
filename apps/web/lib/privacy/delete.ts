@@ -60,6 +60,22 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
     if (agent.rowCount || runnerConfigured()) await enqueue("runner", userId);
     // Queue even if analytics is currently off: older consent may have created a profile.
     await enqueue("posthog", userId);
+    const browserIds = (
+      await client.query<{ browserId: string }>(
+        'select distinct "browserId" from "privacyConsent" where "userId"=$1',
+        [userId],
+      )
+    ).rows.map((row) => row.browserId);
+    if (browserIds.length) {
+      await enqueue(
+        "posthog-review",
+        JSON.stringify({ reason: "account-deletion", distinctIds: browserIds }),
+      );
+      // Also remove anonymous decisions that were linked by a later login.
+      await client.query('delete from "privacyConsent" where "browserId"=any($1::uuid[])', [
+        browserIds,
+      ]);
+    }
     for (const table of ["designFile", "designFolder", "designCommentThread", "githubReview"]) {
       await client.query(`update "${table}" set "createdBy"=$2 where "createdBy"=$1`, [
         userId,

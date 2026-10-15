@@ -3,6 +3,7 @@ import { Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
+import { CookieConsent } from "@/components/privacy/cookie-consent";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-instrument-sans",
@@ -34,7 +35,10 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           }}
         />
       </head>
-      <body className="min-h-full bg-primary-white font-sans text-primary-black">{children}</body>
+      <body className="min-h-full bg-primary-white font-sans text-primary-black">
+        {children}
+        <CookieConsent />
+      </body>
     </html>
   );
 }
