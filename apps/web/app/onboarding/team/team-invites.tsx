@@ -58,6 +58,7 @@ export function TeamInvites({
     event.preventDefault();
     setError("");
 
+    const submittedAddresses = addresses;
     const emails = [
       ...new Set(
         addresses
@@ -102,7 +103,7 @@ export function TeamInvites({
     setInvites((current) => [...current, ...created]);
     if (created.length)
       posthog.capture("team_invitations_created", { invitation_count: created.length });
-    setAddresses(failed.join("\n"));
+    setAddresses((current) => (current === submittedAddresses ? failed.join("\n") : current));
     if (failed.length)
       setError(failureReason || `Could not invite ${failed.join(", ")}. Please try again.`);
     setPending(false);
