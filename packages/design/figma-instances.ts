@@ -6,6 +6,7 @@ export function expandFigmaInstances(input: FigDocument, rootIds?: readonly stri
   const nodes = [...input.nodes],
     nodeMap = new Map(input.nodeMap),
     childrenMap = new Map(input.childrenMap);
+  const nodeIndexes = new Map(nodes.map((node, index) => [rawId(node)!, index]));
   const links = new Map<string, FigmaInstanceLink>(),
     unsupported = new Set<string>(),
     done = new Set<string>();
@@ -75,7 +76,7 @@ export function expandFigmaInstances(input: FigDocument, rootIds?: readonly stri
       name: original.name,
     };
     nodeMap.set(rootKey, root);
-    nodes[nodes.findIndex((node) => key(node) === rootKey)] = root;
+    nodes[nodeIndexes.get(rootKey)!] = root;
     links.set(rootKey, { master: masterKey, source: masterKey });
     const guids = new Map(
       base.map((node) => [key(node), { sessionID: session, localID: ++local }]),
@@ -97,6 +98,7 @@ export function expandFigmaInstances(input: FigDocument, rootIds?: readonly stri
         },
       };
       const copyKey = key(copy);
+      nodeIndexes.set(copyKey, nodes.length);
       nodes.push(copy);
       nodeMap.set(copyKey, copy);
       copies.push(copy);

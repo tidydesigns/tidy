@@ -48,8 +48,11 @@ function diagnoseResolvedLayout(document: DesignDocument): LayoutIssue[] {
   const byId = new Map(document.nodes.map((node) => [node.id, node]));
   const children = new Map<string, DesignNode[]>();
   for (const node of document.nodes)
-    if (node.parentId && node.visible)
-      children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
+    if (node.parentId && node.visible) {
+      const siblings = children.get(node.parentId) ?? [];
+      siblings.push(node);
+      children.set(node.parentId, siblings);
+    }
   function accessibleText(node: DesignNode): string {
     if (node.semantics?.hidden || !node.visible) return "";
     return (
