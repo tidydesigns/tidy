@@ -160,7 +160,10 @@ export function ReviewControl({
   return (
     <>
       <button type="button" className={button} aria-haspopup="dialog" onClick={show}>
-        Pull requests{list.reviews.length ? ` · ${list.reviews.length}` : ""}
+        <span data-ph-public style={{ display: "contents" }}>
+          Pull requests
+        </span>
+        {list.reviews.length ? ` · ${list.reviews.length}` : ""}
       </button>
       <Dialog
         ref={dialog}
@@ -173,6 +176,7 @@ export function ReviewControl({
       >
         <div className="mb-5 flex items-center justify-between gap-3">
           <SelectMenu
+            replayLabel
             label="Linked pull request"
             disabled={busy}
             value={reviewId ?? ""}
@@ -185,12 +189,14 @@ export function ReviewControl({
               })),
             ]}
           />
-          <button type="button" className={button} onClick={() => setOpen(false)}>
+          <button data-ph-public type="button" className={button} onClick={() => setOpen(false)}>
             Close
           </button>
         </div>
         {!list.ready ? (
-          <p className="text-sm">GitHub integration is awaiting its database migration.</p>
+          <p data-ph-public className="text-sm">
+            GitHub integration is awaiting its database migration.
+          </p>
         ) : !reviewId ? (
           canEdit && (
             <form
@@ -212,7 +218,9 @@ export function ReviewControl({
               }}
             >
               <label className="block text-xs">
-                Pull request URL
+                <span data-ph-public style={{ display: "contents" }}>
+                  Pull request URL
+                </span>
                 <input
                   required
                   type="url"
@@ -224,7 +232,10 @@ export function ReviewControl({
               </label>
               <fieldset className="space-y-2">
                 <legend className="mb-2 text-xs">
-                  Frames to review · Design revision {revision}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Frames to review · Design revision{" "}
+                  </span>
+                  {revision}
                 </legend>
                 {document.nodes
                   .filter((node) => node.type === "artboard")
@@ -247,6 +258,7 @@ export function ReviewControl({
               </fieldset>
               <div className="flex items-center gap-4">
                 <button
+                  data-ph-public
                   className={button}
                   disabled={!canEdit || busy || disabled || !frames.length}
                 >
@@ -257,7 +269,9 @@ export function ReviewControl({
                   href="/settings?tab=connectors&connector=github"
                   className="text-xs underline"
                 >
-                  GitHub connection settings
+                  <span data-ph-public style={{ display: "contents" }}>
+                    GitHub connection settings
+                  </span>
                 </Link>
               </div>
             </form>
@@ -271,35 +285,65 @@ export function ReviewControl({
                 rel="noreferrer"
                 className="font-medium underline"
               >
-                #{review.number} {review.title}
+                <span data-ph-public style={{ display: "contents" }}>
+                  #
+                </span>
+                {review.number} {review.title}
               </a>
               <span>{review.state}</span>
               <code className="text-xs">
-                {review.branch} · {review.headSha.slice(0, 7)}
+                {review.branch}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  ·{" "}
+                </span>
+                {review.headSha.slice(0, 7)}
               </code>
               {context.previewUrl && (
-                <a className="underline" href={context.previewUrl} target="_blank" rel="noreferrer">
+                <a
+                  data-ph-public
+                  className="underline"
+                  href={context.previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   Open preview
                 </a>
               )}
-              <button className={button} disabled={busy} onClick={() => void load(review.id)}>
+              <button
+                data-ph-public
+                className={button}
+                disabled={busy}
+                onClick={() => void load(review.id)}
+              >
                 Refresh PR
               </button>
             </div>
             <div className="flex flex-wrap gap-3 text-xs">
               {context.checks === null ? (
-                <span>Checks unavailable</span>
+                <span data-ph-public>Checks unavailable</span>
               ) : (
                 context.checks.map((check, index) => (
                   <span key={`${check.name}-${index}`}>
-                    {check.name}: {check.conclusion ?? check.status}
+                    {check.name}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      :{" "}
+                    </span>
+                    {check.conclusion ?? check.status}
                   </span>
                 ))
               )}
-              {context.commitStatus && <span>Commit status: {context.commitStatus}</span>}
+              {context.commitStatus && (
+                <span>
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Commit status:{" "}
+                  </span>
+                  {context.commitStatus}
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-3">
               <SelectMenu
+                replayLabel
                 label="Design frame"
                 className="w-full"
                 value={activeFrame}
@@ -317,6 +361,7 @@ export function ReviewControl({
               />
               {availableCaptures.length > 0 && (
                 <SelectMenu
+                  replayLabel
                   label="Implementation capture"
                   className="w-full"
                   value={capture?.id ?? ""}
@@ -335,7 +380,10 @@ export function ReviewControl({
             <div className="grid items-start gap-5 md:grid-cols-2">
               <div>
                 <p className="mb-2 text-xs text-secondary-ink">
-                  Design · pinned revision {review.revision}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Design · pinned revision{" "}
+                  </span>
+                  {review.revision}
                 </p>
                 <DesignSnapshot
                   reviewId={review.id}
@@ -347,13 +395,16 @@ export function ReviewControl({
               </div>
               <div>
                 <p className="mb-2 text-xs text-secondary-ink">
-                  Implementation
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Implementation
+                  </span>
                   {capture
                     ? ` · ${capture.sha.slice(0, 7)}${capture.sha !== review.headSha ? " · newer commit awaiting capture" : ""}`
                     : " · awaiting capture"}
                 </p>
                 {capture && (
                   <button
+                    data-ph-public-label
                     type="button"
                     aria-label="Mark a point on the implementation"
                     className="relative block w-full cursor-crosshair overflow-hidden rounded-md border border-primary-grey/70 bg-canvas"
@@ -423,8 +474,9 @@ export function ReviewControl({
               }}
             >
               <div className="text-xs">
-                <span>Design layer</span>
+                <span data-ph-public>Design layer</span>
                 <SelectMenu
+                  replayLabel
                   label="Feedback design layer"
                   className="mt-1"
                   value={nodeId ?? ""}
@@ -439,6 +491,7 @@ export function ReviewControl({
                 />
               </div>
               <textarea
+                data-ph-public-label
                 aria-label="Visual feedback"
                 required
                 maxLength={2000}
@@ -448,7 +501,7 @@ export function ReviewControl({
                 disabled={busy}
                 onChange={(event) => setFeedback(event.target.value)}
               />
-              <button className={button} disabled={busy || !feedback.trim()}>
+              <button data-ph-public className={button} disabled={busy || !feedback.trim()}>
                 Add feedback
               </button>
             </form>
@@ -480,13 +533,18 @@ export function ReviewControl({
                       <p className="mt-2 whitespace-pre-wrap">{item.body}</p>
                       {item.response && (
                         <p className="mt-2 whitespace-pre-wrap text-secondary-ink">
-                          {item.response} · Fix {item.fixSha?.slice(0, 7)}
+                          {item.response}{" "}
+                          <span data-ph-public style={{ display: "contents" }}>
+                            · Fix{" "}
+                          </span>
+                          {item.fixSha?.slice(0, 7)}
                         </p>
                       )}
                       {item.authorId === viewerId && canEdit && (
                         <div className="mt-3 flex gap-2">
                           {item.githubCommentId ? (
                             <a
+                              data-ph-public
                               className="text-xs underline"
                               href={`${review.url}#issuecomment-${item.githubCommentId}`}
                               target="_blank"
@@ -496,6 +554,7 @@ export function ReviewControl({
                             </a>
                           ) : (
                             <button
+                              data-ph-public
                               className={button}
                               disabled={busy}
                               onClick={() =>
@@ -513,6 +572,7 @@ export function ReviewControl({
                           )}
                           {item.status === "proposed" && fixCapture && (
                             <button
+                              data-ph-public
                               className={button}
                               disabled={busy}
                               onClick={() => {
@@ -528,6 +588,7 @@ export function ReviewControl({
                             fixCapture &&
                             capture?.id === fixCapture.id && (
                               <button
+                                data-ph-public
                                 className={button}
                                 disabled={busy}
                                 onClick={() =>
@@ -560,7 +621,10 @@ export function ReviewControl({
             {context.comments && context.comments.length > 0 && (
               <details>
                 <summary className="cursor-pointer text-xs">
-                  GitHub discussion · {context.comments.length}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    GitHub discussion ·{" "}
+                  </span>
+                  {context.comments.length}
                 </summary>
                 <ul className="mt-3 space-y-3">
                   {context.comments.map((comment) => (
@@ -581,7 +645,7 @@ export function ReviewControl({
             )}
           </div>
         ) : !error ? (
-          <p role="status" className="text-sm text-secondary-ink">
+          <p data-ph-public role="status" className="text-sm text-secondary-ink">
             Loading review…
           </p>
         ) : null}

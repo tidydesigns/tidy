@@ -30,6 +30,7 @@ export function ColorTokens({
           <div className="flex items-end gap-2">
             <div className="min-w-0 flex-1">
               <PropertyField
+                replayLabel
                 label="Token name"
                 value={name}
                 onCommit={(next) =>
@@ -38,6 +39,7 @@ export function ColorTokens({
               />
             </div>
             <button
+              data-ph-public
               type="button"
               aria-label={`Remove token ${name}`}
               onClick={() => onChange((content) => removeColorToken(content, name))}
@@ -62,6 +64,7 @@ export function ColorTokens({
             />
             <div className="min-w-0 flex-1">
               <PropertyField
+                replayLabel
                 label="Color"
                 value={value}
                 validate={(color) => Boolean(normalizeColor(color))}

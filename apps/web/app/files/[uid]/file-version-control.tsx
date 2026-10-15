@@ -69,10 +69,20 @@ function VersionFonts({ document }: { document: DesignDocument }) {
   if (!failed.length) return null;
   return (
     <details className="text-xs text-secondary-ink">
-      <summary>Unavailable fonts · {failed.length}</summary>
+      <summary>
+        <span data-ph-public style={{ display: "contents" }}>
+          Unavailable fonts ·{" "}
+        </span>
+        {failed.length}
+      </summary>
       <div className="max-h-24 overflow-auto">
         {failed.map((family) => (
-          <p key={family}>{family} · Using a fallback on this device</p>
+          <p key={family}>
+            {family}{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              · Using a fallback on this device
+            </span>
+          </p>
         ))}
       </div>
     </details>
@@ -222,6 +232,8 @@ export function FileVersionControl({
   return (
     <>
       <SelectMenu
+        replayOptions
+        replayLabel
         actionMenu
         label="File actions"
         value=""
@@ -259,8 +271,10 @@ export function FileVersionControl({
       >
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <p className="text-sm font-medium">Version history</p>
-            <button type="button" className={button} onClick={() => setOpen(false)}>
+            <p data-ph-public className="text-sm font-medium">
+              Version history
+            </p>
+            <button data-ph-public type="button" className={button} onClick={() => setOpen(false)}>
               Close history
             </button>
           </div>
@@ -268,6 +282,7 @@ export function FileVersionControl({
             <div className="flex items-end gap-2">
               <div className="min-w-0 flex-1">
                 <TextField
+                  replayLabel
                   id={`version-name-${fileId}`}
                   label="Version name"
                   maxLength={120}
@@ -276,6 +291,7 @@ export function FileVersionControl({
                 />
               </div>
               <button
+                data-ph-public
                 type="button"
                 className={button}
                 disabled={disabled || pending || !name.trim()}
@@ -286,12 +302,13 @@ export function FileVersionControl({
             </div>
           )}
           {!list && !error && (
-            <p role="status" className="text-xs text-secondary-ink">
+            <p data-ph-public role="status" className="text-xs text-secondary-ink">
               Loading history…
             </p>
           )}
           {!!list?.versions.length && (
             <SelectMenu
+              replayLabel
               label="Version"
               value={versionId}
               onChange={(id) => {
@@ -308,6 +325,7 @@ export function FileVersionControl({
           )}
           {list?.nextCursor && (
             <button
+              data-ph-public
               type="button"
               className={button}
               disabled={pending}
@@ -325,11 +343,19 @@ export function FileVersionControl({
           {preview && preview.version.id === versionId && (
             <>
               <p className="text-xs text-secondary-ink">
-                {preview.version.author ?? "Automatic checkpoint"} · Preview r
-                {preview.version.revision} · Current r{preview.currentRevision}
+                {preview.version.author ?? "Automatic checkpoint"}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  · Preview r
+                </span>
+                {preview.version.revision}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  · Current r
+                </span>
+                {preview.currentRevision}
               </p>
               {roots.length > 1 && (
                 <SelectMenu
+                  replayLabel
                   label="Version frame"
                   value={frameId}
                   onChange={(id) => {
@@ -340,6 +366,7 @@ export function FileVersionControl({
                 />
               )}
               <div
+                data-ph-public-label
                 className="max-h-[50dvh] overflow-auto overscroll-contain"
                 aria-label="Version preview"
                 onErrorCapture={() => setImageFailed(true)}
@@ -355,13 +382,14 @@ export function FileVersionControl({
               </div>
               <VersionFonts document={preview.content} />
               {imageFailed && (
-                <p role="alert" className="text-xs text-danger">
+                <p data-ph-public role="alert" className="text-xs text-danger">
                   One or more images in this version could not be loaded.
                 </p>
               )}
               {canEdit && (
                 <div className="flex items-center gap-3">
                   <button
+                    data-ph-public
                     type="button"
                     className={button}
                     disabled={disabled || pending}
@@ -369,7 +397,7 @@ export function FileVersionControl({
                   >
                     Restore version
                   </button>
-                  <p className="text-xs text-secondary-ink">
+                  <p data-ph-public className="text-xs text-secondary-ink">
                     The current file will be recorded before restore.
                   </p>
                 </div>
@@ -377,7 +405,7 @@ export function FileVersionControl({
             </>
           )}
           {pending && (
-            <p role="status" className="text-xs">
+            <p data-ph-public role="status" className="text-xs">
               Updating history…
             </p>
           )}

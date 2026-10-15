@@ -26,10 +26,11 @@ export function ReusableStylesInspector({
     ids = selected.map((n) => n.id),
     styles = Object.entries(document.reusableStyles ?? {});
   return (
-    <Section title="Style">
+    <Section replayTitle title="Style">
       <div className="space-y-2">
         {styles.length > 0 && (
           <SelectMenu
+            replayLabel
             label="Reusable style"
             value={selected.every((n) => n.styleId === node.styleId) ? (node.styleId ?? "") : ""}
             options={[
@@ -46,6 +47,7 @@ export function ReusableStylesInspector({
         {node.styleId && (
           <div className="flex flex-wrap gap-2">
             <button
+              data-ph-public
               className={button}
               onClick={() =>
                 onDocument((doc) =>
@@ -60,12 +62,14 @@ export function ReusableStylesInspector({
               Update style from layer
             </button>
             <button
+              data-ph-public
               className={button}
               onClick={() => onDocument((doc) => applyReusableStyle(doc, ids, node.styleId!))}
             >
               Reset style overrides
             </button>
             <button
+              data-ph-public
               className={button}
               onClick={() => onDocument((doc) => removeReusableStyle(doc, node.styleId!))}
             >
@@ -75,12 +79,13 @@ export function ReusableStylesInspector({
         )}{" "}
         {!node.styleId && selected.length === 1 && (
           <details>
-            <summary className="cursor-pointer text-xs text-secondary-ink">
+            <summary data-ph-public className="cursor-pointer text-xs text-secondary-ink">
               Create reusable style
             </summary>
             <div className="mt-2 space-y-2">
-              <PropertyField label="Style name" value={name} onCommit={setName} />
+              <PropertyField replayLabel label="Style name" value={name} onCommit={setName} />
               <button
+                data-ph-public
                 className={button}
                 disabled={!name.trim()}
                 onClick={() => {

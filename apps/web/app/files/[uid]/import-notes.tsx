@@ -35,6 +35,7 @@ export const ImportNotes = memo(function ImportNotes({
         <div className="flex items-start gap-2">
           {(!note.status || note.status === "unread") && (
             <span
+              data-ph-public-label
               className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary-orange"
               aria-label="Unread"
             />
@@ -54,13 +55,19 @@ export const ImportNotes = memo(function ImportNotes({
         {!readOnly && (
           <div className="flex gap-2">
             {note.status === "dismissed" ? (
-              <button type="button" className={actionClass} onClick={() => onStatus(key, "read")}>
+              <button
+                data-ph-public
+                type="button"
+                className={actionClass}
+                onClick={() => onStatus(key, "read")}
+              >
                 Restore
               </button>
             ) : (
               <>
                 {(!note.status || note.status === "unread") && (
                   <button
+                    data-ph-public
                     type="button"
                     className={actionClass}
                     onClick={() => onStatus(key, "read")}
@@ -69,6 +76,7 @@ export const ImportNotes = memo(function ImportNotes({
                   </button>
                 )}
                 <button
+                  data-ph-public
                   type="button"
                   className={actionClass}
                   onClick={() => onStatus(key, "dismissed")}
@@ -85,15 +93,28 @@ export const ImportNotes = memo(function ImportNotes({
   return (
     <details className="shrink-0 border-t border-primary-grey/70 text-xs text-secondary-ink">
       <summary className="cursor-pointer px-3 py-3 font-medium hover:bg-primary-grey/15 focus-visible:outline-2 focus-visible:outline-primary-orange">
-        Import notes · {visible.length}
-        {unread > 0 && <span className="ml-2 text-primary-orange">{unread} unread</span>}
+        <span data-ph-public style={{ display: "contents" }}>
+          Import notes ·{" "}
+        </span>
+        {visible.length}
+        {unread > 0 && (
+          <span className="ml-2 text-primary-orange">
+            {unread}{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              unread
+            </span>
+          </span>
+        )}
       </summary>
       <div className="max-h-[30dvh] space-y-3 overflow-y-auto overscroll-contain px-3 pb-3 [overflow-wrap:anywhere]">
         {visible.length > 0 && <ul className="space-y-3">{visible.map(renderNote)}</ul>}
         {dismissed.length > 0 && (
           <details>
             <summary className="cursor-pointer py-1 focus-visible:outline-2 focus-visible:outline-primary-orange">
-              Dismissed · {dismissed.length}
+              <span data-ph-public style={{ display: "contents" }}>
+                Dismissed ·{" "}
+              </span>
+              {dismissed.length}
             </summary>
             <ul className="mt-2 space-y-3">{dismissed.map(renderNote)}</ul>
           </details>

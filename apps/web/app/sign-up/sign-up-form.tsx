@@ -79,8 +79,9 @@ export function SignUpForm({
     <AuthShell title="Create your account." description="Get started with Tidy.">
       <form method="post" onSubmit={handleSubmit} className="mt-10 space-y-5">
         <SocialSignIn providers={providers} next={next} page="/sign-up" disabled={pending} />
-        <TextField id="name" label="Name" name="name" autoComplete="name" required />
+        <TextField replayLabel id="name" label="Name" name="name" autoComplete="name" required />
         <TextField
+          replayLabel
           id="email"
           label="Email"
           name="email"
@@ -90,6 +91,7 @@ export function SignUpForm({
           required
         />
         <TextField
+          replayLabel
           id="password"
           label="Password"
           name="password"
@@ -100,6 +102,7 @@ export function SignUpForm({
           required
         />
         <TextField
+          replayLabel
           id="confirm-password"
           label="Confirm password"
           name="confirmPassword"
@@ -112,15 +115,21 @@ export function SignUpForm({
         {error && <FormMessage>{error}</FormMessage>}
         {!emailConfigured && (
           <FormMessage>
-            Email sign-up is temporarily unavailable. Please try again later.
+            <span data-ph-public style={{ display: "contents" }}>
+              Email sign-up is temporarily unavailable. Please try again later.
+            </span>
           </FormMessage>
         )}
         <Button type="submit" disabled={pending || !emailConfigured}>
-          {pending ? "Creating account…" : "Create account"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {pending ? "Creating account…" : "Create account"}
+          </span>
         </Button>
       </form>
       <p className="mt-8 text-center text-sm text-primary-black/70">
-        Already have an account?{" "}
+        <span data-ph-public style={{ display: "contents" }}>
+          Already have an account?
+        </span>{" "}
         <Link
           href={
             next === "/onboarding/organization"
@@ -129,7 +138,9 @@ export function SignUpForm({
           }
           className="font-medium text-primary-black underline decoration-primary-orange underline-offset-4"
         >
-          Sign in
+          <span data-ph-public style={{ display: "contents" }}>
+            Sign in
+          </span>
         </Link>
       </p>
     </AuthShell>

@@ -129,7 +129,7 @@ export function TeamInvites({
     <div className="mt-10">
       <form onSubmit={handleSubmit} className="space-y-5">
         <div className="space-y-2">
-          <label htmlFor="emails" className="block text-sm font-medium">
+          <label data-ph-public htmlFor="emails" className="block text-sm font-medium">
             Email addresses
           </label>
           <textarea
@@ -140,32 +140,38 @@ export function TeamInvites({
             rows={3}
             className="w-full resize-y rounded-lg border border-primary-grey bg-transparent px-4 py-3 text-sm outline-none placeholder:text-secondary-ink focus-visible:border-primary-black focus-visible:ring-2 focus-visible:ring-primary-orange"
           />
-          <p className="text-xs text-secondary-ink">
+          <p data-ph-public className="text-xs text-secondary-ink">
             Add one or several, separated by commas or new lines.
           </p>
         </div>
         <div className="space-y-2">
           <SelectMenu
+            replayOptions
+            replayLabel
             label="Invite role"
             value={role}
             disabled={pending}
             options={inviteRoleOptions.filter((option) => canAssignRole(actorRole, option.value))}
             onChange={(value) => setRole(value as OrganizationRole)}
           />
-          <p className="text-xs text-secondary-ink">
+          <p data-ph-public className="text-xs text-secondary-ink">
             Access applies to every file in this workspace.
           </p>
         </div>
         {error && <FormMessage>{error}</FormMessage>}
         <Button type="submit" disabled={pending || !addresses.trim()}>
-          {pending ? "Creating links…" : "Create invite links"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {pending ? "Creating links…" : "Create invite links"}
+          </span>
         </Button>
       </form>
 
       {invites.length > 0 && (
         <div className="mt-10">
-          <h2 className="text-sm font-semibold">Invite links</h2>
-          <p className="mt-1 text-xs text-secondary-ink">
+          <h2 data-ph-public className="text-sm font-semibold">
+            Invite links
+          </h2>
+          <p data-ph-public className="mt-1 text-xs text-secondary-ink">
             Share each link with its matching email address. Links expire after 48 hours.
           </p>
           <ul className="mt-4 divide-y divide-primary-grey/60 border-y border-primary-grey/60">
@@ -178,6 +184,7 @@ export function TeamInvites({
                 <div className="flex shrink-0 flex-wrap items-center gap-4">
                   {canAssignRole(actorRole, invite.role ?? "") ? (
                     <SelectMenu
+                      replayOptions
                       label={`Invite role for ${invite.email}`}
                       value={invite.role === "member" ? "editor" : (invite.role ?? "")}
                       disabled={Boolean(cancellingId)}
@@ -215,9 +222,12 @@ export function TeamInvites({
                     className="inline-flex shrink-0 items-center gap-2 font-medium text-primary-black underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
                   >
                     <Icon name={copiedId === invite.id ? "check" : "copy"} size={18} />
-                    {copiedId === invite.id ? "Copied" : "Copy link"}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      {copiedId === invite.id ? "Copied" : "Copy link"}
+                    </span>
                   </button>
                   <button
+                    data-ph-public
                     type="button"
                     disabled={Boolean(cancellingId) || !canAssignRole(actorRole, invite.role ?? "")}
                     onClick={() => void cancelInvite(invite)}
@@ -238,7 +248,9 @@ export function TeamInvites({
           onClick={finish}
           className="mt-8 inline-flex items-center gap-2 text-sm font-medium underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
         >
-          {invites.length ? "Continue to Tidy" : "Continue on my own"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {invites.length ? "Continue to Tidy" : "Continue on my own"}
+          </span>
           <Icon name="arrowRight" size={18} />
         </button>
       )}

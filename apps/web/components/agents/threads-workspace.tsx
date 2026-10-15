@@ -343,15 +343,20 @@ export function ThreadsWorkspace({
   }
   return (
     <section
+      data-ph-public-label
       data-page-content={onClose ? undefined : "threads"}
       className={onClose ? "flex min-h-0 flex-col h-full" : threadsPage}
       aria-label="Agent threads"
     >
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-primary-grey pb-4">
-        <h1 className="text-lg font-semibold">Threads</h1>
+        <h1 data-ph-public className="text-lg font-semibold">
+          Threads
+        </h1>
         <div className="flex items-center gap-2">
           {fileId && (
             <SelectMenu
+              replayOptions
+              replayLabel
               value={scope}
               onChange={(value) => {
                 scopeRef.current = value;
@@ -368,12 +373,18 @@ export function ThreadsWorkspace({
             />
           )}
           {canEdit && (
-            <button className={control} onClick={() => openThread(null)}>
+            <button data-ph-public className={control} onClick={() => openThread(null)}>
               New thread
             </button>
           )}
           {onClose && (
-            <button className={control} aria-label="Close threads" onClick={onClose}>
+            <button
+              data-ph-public
+              data-ph-public-label
+              className={control}
+              aria-label="Close threads"
+              onClick={onClose}
+            >
               ×
             </button>
           )}
@@ -384,6 +395,7 @@ export function ThreadsWorkspace({
       >
         {allThreads.length > 0 && (
           <nav
+            data-ph-public-label
             aria-label="Threads"
             className={`overflow-auto ${onClose ? "max-h-36 border-b" : "max-md:max-h-36 md:border-r"} border-primary-grey py-2`}
           >
@@ -404,6 +416,7 @@ export function ThreadsWorkspace({
             ))}
             {hasMoreThreads && threads.length >= 50 && (
               <button
+                data-ph-public
                 className="px-3 py-2 text-xs underline"
                 disabled={loadingOlder}
                 onClick={() => void moreThreads()}
@@ -421,6 +434,7 @@ export function ThreadsWorkspace({
               <div className="min-w-0">
                 {renaming ? (
                   <input
+                    data-ph-public-label
                     aria-label="Thread title"
                     autoFocus
                     className="w-full rounded border border-primary-grey bg-surface px-2 py-1 text-sm"
@@ -463,15 +477,28 @@ export function ThreadsWorkspace({
                 </div>
               </div>
               {active && (ownsRun || canManage) && (
-                <button disabled={busy} className={control} onClick={() => void stop()}>
+                <button
+                  data-ph-public
+                  disabled={busy}
+                  className={control}
+                  onClick={() => void stop()}
+                >
                   Stop
                 </button>
               )}
             </div>
           )}
-          <div className="min-h-0 flex-1 overflow-y-auto py-3" aria-label="Conversation">
+          <div
+            data-ph-public-label
+            className="min-h-0 flex-1 overflow-y-auto py-3"
+            aria-label="Conversation"
+          >
             {snapshot?.hasOlder && (
-              <button onClick={() => void older()} className="mb-4 text-xs underline">
+              <button
+                data-ph-public
+                onClick={() => void older()}
+                className="mb-4 text-xs underline"
+              >
                 Earlier messages
               </button>
             )}
@@ -481,11 +508,13 @@ export function ThreadsWorkspace({
                 <article key={message.id} className="mb-6">
                   <p className="mb-2 text-xs font-medium text-secondary-ink">
                     {message.authorName}
-                    {message.delivery === "pending"
-                      ? " · Pending"
-                      : message.delivery === "interrupted"
-                        ? " · Interrupted"
-                        : ""}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      {message.delivery === "pending"
+                        ? " · Pending"
+                        : message.delivery === "interrupted"
+                          ? " · Interrupted"
+                          : ""}
+                    </span>
                   </p>
                   <p className="whitespace-pre-wrap break-words text-sm leading-6">
                     {message.content}
@@ -496,18 +525,32 @@ export function ThreadsWorkspace({
           {snapshot && snapshot.workers.length > 0 && (
             <details className="shrink-0 border-t border-primary-grey py-3">
               <summary className="cursor-pointer text-xs text-secondary-ink">
-                {snapshot.workers.length} {snapshot.workers.length === 1 ? "agent" : "agents"} ·{" "}
+                {snapshot.workers.length}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  {snapshot.workers.length === 1 ? "agent" : "agents"}
+                </span>{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  ·
+                </span>{" "}
                 {run ? runLabels[run.status] : ""}
               </summary>
               <ul className="mt-3 max-h-44 space-y-3 overflow-auto">
                 {snapshot.workers.map((worker) => (
                   <li key={worker.id} className="text-xs">
                     <span className="font-medium">{worker.name}</span>
-                    <span className="text-secondary-ink"> · {worker.status}</span>
+                    <span className="text-secondary-ink">
+                      {" "}
+                      <span data-ph-public style={{ display: "contents" }}>
+                        ·{" "}
+                      </span>
+                      {worker.status}
+                    </span>
                     <p className="mt-1 text-secondary-ink">{worker.task}</p>
                     {worker.parentId && (
                       <details className="mt-2">
-                        <summary className="cursor-pointer">Activity</summary>
+                        <summary data-ph-public className="cursor-pointer">
+                          Activity
+                        </summary>
                         {snapshot.messages
                           .filter((message) => message.agentId === worker.id)
                           .map((message) => (
@@ -523,7 +566,7 @@ export function ThreadsWorkspace({
             </details>
           )}
           {run?.reason && ["failed", "limited"].includes(run.status) && (
-            <p role="status" className="py-2 text-xs text-secondary-ink">
+            <p data-ph-public role="status" className="py-2 text-xs text-secondary-ink">
               {run.reason === "runner_disconnected"
                 ? "The runner disconnected. Completed edits remain. Send a new prompt to continue."
                 : run.reason === "connection_required"
@@ -549,6 +592,7 @@ export function ThreadsWorkspace({
               {!selected && (
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <SelectMenu
+                    replayLabel
                     value={target}
                     onChange={setTarget}
                     label="Target file"
@@ -567,11 +611,15 @@ export function ThreadsWorkspace({
                           setAttachments((current) => current.filter((value) => value !== id))
                         }
                       >
-                        {files.find((file) => file.id === id)?.name} ×
+                        {files.find((file) => file.id === id)?.name}{" "}
+                        <span data-ph-public style={{ display: "contents" }}>
+                          ×
+                        </span>
                       </button>
                     ))}
                   {files.length > 1 && attachments.length < 9 && (
                     <SelectMenu
+                      replayLabel
                       value=""
                       label="Attach another file"
                       size="sm"
@@ -588,7 +636,10 @@ export function ThreadsWorkspace({
                   )}
                   {fileId === target && selectedNodeIds.length > 0 && (
                     <span className="text-xs text-secondary-ink">
-                      {selectedNodeIds.length} selected layers
+                      {selectedNodeIds.length}{" "}
+                      <span data-ph-public style={{ display: "contents" }}>
+                        selected layers
+                      </span>
                     </span>
                   )}
                 </div>
@@ -599,28 +650,38 @@ export function ThreadsWorkspace({
                   href="/settings?tab=agents"
                   className="inline-flex py-2 text-sm underline underline-offset-4"
                 >
-                  Connect Codex to start a thread
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Connect Codex to start a thread
+                  </span>
                 </Link>
               ) : active && !ownsRun ? (
                 <p className="py-2 text-xs text-secondary-ink">
-                  {run?.ownerName} is directing this run.
+                  {run?.ownerName}{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    is directing this run.
+                  </span>
                 </p>
               ) : (
                 <>
                   {!active && (
                     <details className="mb-2 text-xs text-secondary-ink">
-                      <summary className="cursor-pointer">Tool access</summary>
+                      <summary data-ph-public className="cursor-pointer">
+                        Tool access
+                      </summary>
                       <label className="mt-2 flex items-center gap-2">
                         <input
                           type="checkbox"
                           checked={allowOrganizationChanges}
                           onChange={(event) => setAllowOrganizationChanges(event.target.checked)}
                         />
-                        Allow new files and folder changes in this organisation
+                        <span data-ph-public style={{ display: "contents" }}>
+                          Allow new files and folder changes in this organisation
+                        </span>
                       </label>
                     </details>
                   )}
                   <textarea
+                    data-ph-public-label
                     aria-label={active ? "Direct your agents" : "Describe the design work"}
                     placeholder={active ? "Direct your agents…" : "What would you like to work on?"}
                     value={prompt}
@@ -632,6 +693,8 @@ export function ThreadsWorkspace({
                   <div className="mt-2 flex items-center justify-between gap-3">
                     {!active && (
                       <SelectMenu
+                        replayOptions
+                        replayLabel
                         value={agentLimit}
                         onChange={setAgentLimit}
                         label="Maximum agents"
@@ -643,6 +706,7 @@ export function ThreadsWorkspace({
                       />
                     )}
                     <button
+                      data-ph-public
                       type="submit"
                       className={control}
                       disabled={
@@ -656,7 +720,7 @@ export function ThreadsWorkspace({
                       {busy ? "Sending…" : "Send"}
                     </button>
                   </div>
-                  <p className="mt-2 text-[11px] text-secondary-ink">
+                  <p data-ph-public className="mt-2 text-[11px] text-secondary-ink">
                     Your subscription · Shared with your team
                   </p>
                 </>

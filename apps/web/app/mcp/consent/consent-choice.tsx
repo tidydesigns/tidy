@@ -33,9 +33,12 @@ export function ConsentChoice({ oauthQuery, approval }: { oauthQuery: string; ap
       {error && <FormMessage>{error}</FormMessage>}
       <div className="flex gap-3">
         <Button type="button" disabled={pending} onClick={() => void decide(true)}>
-          {pending ? "Connecting…" : "Allow access"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {pending ? "Connecting…" : "Allow access"}
+          </span>
         </Button>
         <button
+          data-ph-public
           type="button"
           disabled={pending}
           onClick={() => void decide(false)}

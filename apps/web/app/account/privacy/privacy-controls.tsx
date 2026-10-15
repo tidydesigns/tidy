@@ -34,10 +34,10 @@ function OwnershipAlert({
       aria-describedby={`${id}-description`}
       onClose={onClose}
     >
-      <h2 id={`${id}-title`} className="text-lg font-semibold">
+      <h2 data-ph-public id={`${id}-title`} className="text-lg font-semibold">
         Resolve organization ownership first
       </h2>
-      <p id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
+      <p data-ph-public id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
         You’re the last owner of{" "}
         {organizations.length === 1 ? "this organization" : "these organizations"}. Before you can
         delete your account, delete {organizations.length === 1 ? "it" : "each one"} or transfer
@@ -51,13 +51,21 @@ function OwnershipAlert({
               onNavigate={() => dialog.current?.close()}
               className="inline-flex min-h-9 items-center underline underline-offset-4"
             >
-              Open {organization.name} settings
+              <span data-ph-public style={{ display: "contents" }}>
+                Open{" "}
+              </span>
+              {organization.name}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                settings
+              </span>
             </NavigationLink>
           </li>
         ))}
       </ul>
       <Button id={`${id}-cancel`} className="mt-6" onClick={() => dialog.current?.close()}>
-        Cancel
+        <span data-ph-public style={{ display: "contents" }}>
+          Cancel
+        </span>
       </Button>
     </Dialog>
   );
@@ -200,16 +208,18 @@ export function PrivacyControls({ email }: { email: string }) {
         href={privacyPolicyUrl}
         className="inline-flex min-h-11 items-center text-sm text-secondary-ink underline underline-offset-4"
       >
-        Privacy policy
+        <span data-ph-public style={{ display: "contents" }}>
+          Privacy policy
+        </span>
       </NavigationLink>
       <section
         aria-labelledby={`${id}-export`}
         className="space-y-4 border-t border-primary-grey pt-6"
       >
-        <h2 id={`${id}-export`} className="text-lg font-semibold">
+        <h2 data-ph-public id={`${id}-export`} className="text-lg font-semibold">
           Export personal data
         </h2>
-        <p className="text-sm text-secondary-ink">
+        <p data-ph-public className="text-sm text-secondary-ink">
           Download your profile, memberships, comments, connections, agent conversations and designs
           you created, plus feedback stored in Tidy, as JSON. Passwords and access tokens are
           excluded. Export complete design files with images from the editor. For historical
@@ -217,7 +227,9 @@ export function PrivacyControls({ email }: { email: string }) {
           ask you to authenticate again when needed.
         </p>
         <Button disabled={pending} onClick={() => void download()}>
-          {operation === "export" ? "Working…" : "Download my data"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {operation === "export" ? "Working…" : "Download my data"}
+          </span>
         </Button>
         <p role="status" className="text-sm">
           {message}
@@ -227,10 +239,10 @@ export function PrivacyControls({ email }: { email: string }) {
         aria-labelledby={`${id}-delete`}
         className="space-y-4 border-t border-primary-grey pt-6"
       >
-        <h2 id={`${id}-delete`} className="text-lg font-semibold">
+        <h2 data-ph-public id={`${id}-delete`} className="text-lg font-semibold">
           Delete account
         </h2>
-        <p className="text-sm text-secondary-ink">
+        <p data-ph-public className="text-sm text-secondary-ink">
           Permanently delete your account, personal credentials and comments, and revoke all
           sessions and agent access. Shared designs remain with the organization under “Deleted
           user”. Transfer ownership or delete organizations where you are the last owner first.
@@ -243,7 +255,9 @@ export function PrivacyControls({ email }: { email: string }) {
           disabled={pending}
           onClick={() => void beginDeletion()}
         >
-          {operation === "check-delete" ? "Checking…" : "Delete my account"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {operation === "check-delete" ? "Checking…" : "Delete my account"}
+          </span>
         </Button>
       </section>
       {!dialogOpen && status}
@@ -266,10 +280,10 @@ export function PrivacyControls({ email }: { email: string }) {
           if (pending) event.preventDefault();
         }}
       >
-        <h2 id={`${id}-title`} className="text-lg font-semibold">
+        <h2 data-ph-public id={`${id}-title`} className="text-lg font-semibold">
           Permanently delete your account?
         </h2>
-        <p id={`${id}-description`} className="my-4 text-sm">
+        <p data-ph-public id={`${id}-description`} className="my-4 text-sm">
           This cannot be undone. Download any data you need before continuing.
         </p>
         <form onSubmit={remove} className="space-y-4">
@@ -291,14 +305,18 @@ export function PrivacyControls({ email }: { email: string }) {
               disabled={pending}
               onClick={() => dialog.current?.close()}
             >
-              Cancel
+              <span data-ph-public style={{ display: "contents" }}>
+                Cancel
+              </span>
             </Button>
             <Button
               type="submit"
               disabled={pending || confirmation !== email}
               className="min-h-12 rounded-lg bg-danger-fill px-4 text-sm font-semibold text-on-danger focus-visible:outline-2 focus-visible:outline-offset-2"
             >
-              {pending ? "Deleting…" : "Permanently delete account"}
+              <span data-ph-public style={{ display: "contents" }}>
+                {pending ? "Deleting…" : "Permanently delete account"}
+              </span>
             </Button>
           </div>
         </form>

@@ -19,11 +19,15 @@ export function shared<T>(nodes: DesignNode[], get: (node: DesignNode) => T): T 
 
 export function Choice({
   label,
+  replayLabel = false,
+  replayOptions = false,
   value,
   choices,
   onChange,
 }: {
   label: string;
+  replayLabel?: boolean;
+  replayOptions?: boolean;
   value: Value;
   choices: [string, string][];
   onChange: (value: string) => void;
@@ -31,8 +35,12 @@ export function Choice({
   const labelId = useId();
   return (
     <div className="min-w-0 text-[10px] text-secondary-ink">
-      <span id={labelId}>{label}</span>
+      <span id={labelId} data-ph-public={replayLabel || undefined}>
+        {label}
+      </span>
       <SelectMenu
+        replayLabel={replayLabel}
+        replayOptions={replayOptions}
         label={label}
         labelledBy={labelId}
         size="sm"
@@ -50,17 +58,21 @@ export function Choice({
 
 export function Section({
   title,
+  replayTitle = false,
   action,
   children,
 }: {
   title: string;
+  replayTitle?: boolean;
   action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="space-y-2 border-b border-primary-grey/60 px-4 py-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-medium">{title}</h3>
+        <h3 data-ph-public={replayTitle || undefined} className="text-xs font-medium">
+          {title}
+        </h3>
         {action}
       </div>
       {children}
@@ -106,12 +118,14 @@ function readRecentColors(snapshot: string): string[] {
 
 export function ColorField({
   label,
+  replayLabel = false,
   nodes,
   get,
   onChange,
   tokens = {},
 }: {
   label: string;
+  replayLabel?: boolean;
   nodes: DesignNode[];
   get: (node: DesignNode) => string;
   onChange: (color: ColorUpdate) => void;
@@ -157,6 +171,7 @@ export function ColorField({
     <div className="flex flex-wrap gap-1">
       {colors.map((value) => (
         <button
+          data-ph-private
           key={value}
           type="button"
           aria-label={`Use ${group} color ${value}`}
@@ -175,6 +190,7 @@ export function ColorField({
     <div className="space-y-1.5">
       <div className="grid grid-cols-[32px_1fr_64px] items-end gap-1.5">
         <button
+          data-ph-private
           type="button"
           aria-label={`Open ${label.toLowerCase()} palette`}
           aria-expanded={open}
@@ -183,12 +199,14 @@ export function ColorField({
           style={{ backgroundColor: color ?? "#ffffff" }}
         />
         <PropertyField
+          replayLabel={replayLabel}
           label={label}
           value={color}
           validate={(value) => Boolean(normalizeColor(value))}
           onCommit={change}
         />
         <PropertyField
+          replayLabel={replayLabel}
           label={`${label} alpha %`}
           value={alpha}
           numeric
@@ -210,7 +228,9 @@ export function ColorField({
         <div className="space-y-2 rounded-md border border-primary-grey/70 bg-surface p-2 text-[10px]">
           <div className="flex items-center gap-2">
             <label className="flex items-center gap-1">
-              Color picker
+              <span data-ph-public style={{ display: "contents" }}>
+                Color picker
+              </span>
               <input
                 aria-label={`Choose ${label.toLowerCase()}`}
                 type="color"
@@ -224,6 +244,7 @@ export function ColorField({
             </label>
             {canSample && (
               <button
+                data-ph-public
                 type="button"
                 onClick={sample}
                 className="rounded border border-primary-grey/70 px-2 py-1 hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
@@ -234,13 +255,17 @@ export function ColorField({
           </div>
           {palette.length > 0 && (
             <div className="space-y-1">
-              <span className="text-secondary-ink">Selection</span>
+              <span data-ph-public className="text-secondary-ink">
+                Selection
+              </span>
               {swatches(palette, "selection")}
             </div>
           )}
           {recent.length > 0 && (
             <div className="space-y-1">
-              <span className="text-secondary-ink">Recent</span>
+              <span data-ph-public className="text-secondary-ink">
+                Recent
+              </span>
               {swatches(recent, "recent")}
             </div>
           )}

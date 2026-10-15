@@ -118,6 +118,7 @@ export function ImageEditor({
   }
   return (
     <section
+      data-ph-public-label
       role="dialog"
       aria-label="Image editor"
       className="image-editor absolute top-16 z-40 w-[304px] max-w-[calc(100vw-32px)] overflow-y-auto rounded-xl border border-primary-grey/70 bg-surface text-primary-black"
@@ -136,8 +137,11 @@ export function ImageEditor({
       }}
     >
       <div className="flex items-center justify-between px-4 pt-3 pb-3">
-        <span className="text-xs font-medium">Image</span>
+        <span data-ph-public className="text-xs font-medium">
+          Image
+        </span>
         <button
+          data-ph-public-label
           ref={close}
           type="button"
           aria-label="Close image editor"
@@ -150,6 +154,8 @@ export function ImageEditor({
       <div className="px-4 pb-4">
         <div className="mb-3 flex items-center gap-2">
           <SelectMenu
+            replayOptions
+            replayLabel
             label="Image placement"
             size="sm"
             className="flex-1"
@@ -163,6 +169,7 @@ export function ImageEditor({
           />
           {onCrop && (
             <button
+              data-ph-public
               type="button"
               className={button}
               onClick={() => {
@@ -213,6 +220,7 @@ export function ImageEditor({
         </div>
         <div className="mt-2 flex justify-end pt-2">
           <button
+            data-ph-public
             type="button"
             className={button}
             disabled={!hasImageAdjustments(values)}
@@ -249,7 +257,7 @@ function AdjustmentControl({
   const cancelled = useRef(false);
   return (
     <div className="grid h-9 grid-cols-[88px_1fr_36px] items-center gap-2">
-      <label htmlFor={`image-${name}`} className="text-xs text-secondary-ink">
+      <label data-ph-public htmlFor={`image-${name}`} className="text-xs text-secondary-ink">
         {label}
       </label>
       <input

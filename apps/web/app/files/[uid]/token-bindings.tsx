@@ -29,10 +29,13 @@ export function TokenBindings({
   if (!fields.length) return null;
   return (
     <details className="border-b border-primary-grey/60 px-4 py-3">
-      <summary className="cursor-pointer text-xs font-medium">Token bindings</summary>
+      <summary data-ph-public className="cursor-pointer text-xs font-medium">
+        Token bindings
+      </summary>
       <div className="mt-2 max-h-64 space-y-2 overflow-y-auto overscroll-contain">
         {fields.map((key) => (
           <Choice
+            replayLabel
             key={key}
             label={`${key.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase())} token`}
             value={shared(selected, (node) => node.tokenBindings?.[key] ?? "")}

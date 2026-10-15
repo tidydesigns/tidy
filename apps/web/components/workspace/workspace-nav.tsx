@@ -22,6 +22,7 @@ export function WorkspaceNav({
       : pathname?.split("/")[1];
   return (
     <nav
+      data-ph-public-label
       data-ph-public
       aria-label="Workspace"
       className="-mx-3 mt-10 flex w-[calc(100%+1.5rem)] shrink-0 flex-wrap items-start gap-x-3 gap-y-1 lg:mt-13 lg:flex-col"

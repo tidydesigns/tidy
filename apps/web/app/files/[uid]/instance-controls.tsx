@@ -25,6 +25,7 @@ export function InstanceControls({
   return (
     <div className="space-y-2" onKeyDown={(event) => event.stopPropagation()}>
       <SelectMenu
+        replayLabel
         label="Swap component"
         value={node.instanceOf!}
         disabled={readOnly}
@@ -34,6 +35,7 @@ export function InstanceControls({
       />
       <div className="flex flex-wrap gap-1.5">
         <button
+          data-ph-public
           type="button"
           className={buttonClass}
           disabled={readOnly}
@@ -42,6 +44,7 @@ export function InstanceControls({
           Reset overrides
         </button>
         <button
+          data-ph-public
           type="button"
           className={buttonClass}
           disabled={readOnly}
@@ -51,6 +54,7 @@ export function InstanceControls({
         </button>
         {onGoToMaster && (
           <button
+            data-ph-public
             type="button"
             className={buttonClass}
             onClick={() => onGoToMaster(node.instanceOf!)}

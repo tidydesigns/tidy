@@ -92,6 +92,7 @@ export function AgentCursors({
   if (!markers.length) return null;
   const cursor = (activity: AgentActivity) => (
     <svg
+      data-ph-public
       aria-hidden="true"
       viewBox="0 0 24 24"
       className="size-5 shrink-0"
@@ -136,7 +137,10 @@ export function AgentCursors({
                 aria-label={`${marker.activities.length} agents working here`}
               >
                 {cursor(marker.activities[0])}
-                {marker.activities.length} agents
+                {marker.activities.length}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  agents
+                </span>
               </summary>
               <ul className="max-h-48 max-w-64 overflow-auto p-1">
                 {marker.activities.map((activity) => (

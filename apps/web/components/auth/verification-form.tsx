@@ -53,12 +53,13 @@ export function VerificationForm({
   return (
     <form method="post" onSubmit={resend} className="mt-10 space-y-5">
       {delivered && (
-        <p role="status" className="text-sm text-primary-black/70">
+        <p data-ph-public role="status" className="text-sm text-primary-black/70">
           If this address has an account awaiting verification, a link has been sent. Check your
           inbox and spam folder. The link expires in one hour.
         </p>
       )}
       <TextField
+        replayLabel
         id="verification-email"
         name="email"
         type="email"
@@ -71,17 +72,27 @@ export function VerificationForm({
       {error && <FormMessage>{error}</FormMessage>}
       {!emailConfigured && (
         <FormMessage>
-          Email verification is temporarily unavailable. Please try again later.
+          <span data-ph-public style={{ display: "contents" }}>
+            Email verification is temporarily unavailable. Please try again later.
+          </span>
         </FormMessage>
       )}
       <Button type="submit" disabled={pending || !emailConfigured}>
-        {pending ? "Sending…" : delivered ? "Resend verification email" : "Send verification email"}
+        <span data-ph-public style={{ display: "contents" }}>
+          {pending
+            ? "Sending…"
+            : delivered
+              ? "Resend verification email"
+              : "Send verification email"}
+        </span>
       </Button>
       <Link
         href={`/login?next=${encodeURIComponent(next)}`}
         className="block text-center text-sm underline decoration-primary-orange underline-offset-4"
       >
-        Back to sign in
+        <span data-ph-public style={{ display: "contents" }}>
+          Back to sign in
+        </span>
       </Link>
     </form>
   );

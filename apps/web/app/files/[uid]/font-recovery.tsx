@@ -69,7 +69,10 @@ export const FontRecovery = memo(function FontRecovery({
   return (
     <details className="border-t border-primary-grey/70 text-xs text-secondary-ink">
       <summary className="cursor-pointer px-3 py-3 font-medium hover:bg-primary-grey/15">
-        Unavailable fonts · {failed.size}
+        <span data-ph-public style={{ display: "contents" }}>
+          Unavailable fonts ·{" "}
+        </span>
+        {failed.size}
       </summary>
       <div className="max-h-64 space-y-3 overflow-y-auto px-3 pb-3">
         {[...failed].map(([key, refs]) => {
@@ -85,11 +88,18 @@ export const FontRecovery = memo(function FontRecovery({
             <div key={key} className="space-y-1">
               <p className="truncate text-primary-black" title={identity.family}>
                 {identity.family}
-                {identity.source === "local" ? " · Local" : ""}
+                <span data-ph-public style={{ display: "contents" }}>
+                  {identity.source === "local" ? " · Local" : ""}
+                </span>
               </p>
               <p>
-                {count} {count === 1 ? "layer" : "layers"} across this file. Using a fallback on
-                this device.
+                {count}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  {count === 1 ? "layer" : "layers"}
+                </span>{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  across this file. Using a fallback on this device.
+                </span>
               </p>
               <FontPicker
                 selected={[node]}

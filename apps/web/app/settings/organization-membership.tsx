@@ -33,11 +33,12 @@ export function OrganizationMembership({
     <div className="mt-10 space-y-6 border-t border-primary-grey pt-6">
       {owner && successors.length > 0 && (
         <div>
-          <span id={id} className="block text-sm font-medium">
+          <span data-ph-public id={id} className="block text-sm font-medium">
             Transfer ownership to
           </span>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <SelectMenu
+              replayLabel
               label="Transfer ownership to"
               labelledBy={id}
               value={successorId}
@@ -52,6 +53,7 @@ export function OrganizationMembership({
               className="w-72 max-w-full"
             />
             <ConfirmAction
+              replayLabel
               label="Transfer ownership"
               title={`Make ${successor?.name ?? "this member"} an owner?`}
               disabled={!successor}
@@ -63,18 +65,28 @@ export function OrganizationMembership({
                 setSuccessorId("");
               }}
             >
-              You will become an admin of {organization.name}. {successor?.name} will have owner
-              access, including the ability to delete the organization.
+              <span data-ph-public style={{ display: "contents" }}>
+                You will become an admin of{" "}
+              </span>
+              {organization.name}
+              <span data-ph-public style={{ display: "contents" }}>
+                .{" "}
+              </span>
+              {successor?.name}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                will have owner access, including the ability to delete the organization.
+              </span>
             </ConfirmAction>
           </div>
         </div>
       )}
       {lastOwner ? (
-        <p className="text-sm text-secondary-ink">
+        <p data-ph-public className="text-sm text-secondary-ink">
           Transfer ownership before leaving this organization.
         </p>
       ) : (
         <ConfirmAction
+          replayLabel
           label="Leave organization"
           title={`Leave ${organization.name}?`}
           onConfirm={async () => {
@@ -83,7 +95,9 @@ export function OrganizationMembership({
             await navigateWithFreshSession("/files");
           }}
         >
-          You will lose access to its files. An owner or admin will need to invite you to return.
+          <span data-ph-public style={{ display: "contents" }}>
+            You will lose access to its files. An owner or admin will need to invite you to return.
+          </span>
         </ConfirmAction>
       )}
     </div>

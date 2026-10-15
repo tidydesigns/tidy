@@ -44,34 +44,45 @@ export default async function McpConsentPage({ searchParams }: PageProps<"/mcp/c
       title="Connect a coding agent"
       description={`${client.client_name ?? "This agent"} is requesting access to your Tidy account.`}
     >
-      <p className="mt-8 text-sm text-primary-black/70">This agent can:</p>
+      <p data-ph-public className="mt-8 text-sm text-primary-black/70">
+        This agent can:
+      </p>
       <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-primary-black/80">
         {scopes.includes("mcp:read") && (
-          <li>Read organizations and design files you can access.</li>
+          <li data-ph-public>Read organizations and design files you can access.</li>
         )}
         {scopes.includes("mcp:write") && (
-          <li>
+          <li data-ph-public>
             Create and edit design files, import editable UI screens, and upload design assets.
           </li>
         )}
         {scopes.includes("linear:read") && (
-          <li>Read issues, comments and teams through your connected Linear accounts.</li>
+          <li data-ph-public>
+            Read issues, comments and teams through your connected Linear accounts.
+          </li>
         )}
         {scopes.includes("linear:write") && (
-          <li>Create and update Linear issues and publish comments as you.</li>
+          <li data-ph-public>Create and update Linear issues and publish comments as you.</li>
         )}
-        {scopes.includes("openid") && <li>Identify your Tidy account.</li>}
-        {scopes.includes("profile") && <li>Read your name and profile image.</li>}
+        {scopes.includes("openid") && <li data-ph-public>Identify your Tidy account.</li>}
+        {scopes.includes("profile") && <li data-ph-public>Read your name and profile image.</li>}
         {scopes.includes("offline_access") && (
-          <li>Keep access using refresh tokens until you revoke the connection or they expire.</li>
+          <li data-ph-public>
+            Keep access using refresh tokens until you revoke the connection or they expire.
+          </li>
         )}
       </ul>
       <p className="mt-5 break-words text-sm text-primary-black/70">
-        After authorization, return to{" "}
-        <span className="font-medium text-primary-black">{callback.host}</span>.
+        <span data-ph-public style={{ display: "contents" }}>
+          After authorization, return to
+        </span>{" "}
+        <span className="font-medium text-primary-black">{callback.host}</span>
+        <span data-ph-public style={{ display: "contents" }}>
+          .
+        </span>
       </p>
       {localCallback && (
-        <p className="mt-2 text-sm text-primary-black/70">
+        <p data-ph-public className="mt-2 text-sm text-primary-black/70">
           This callback connects to an app on your computer. Continue only if you started this
           connection.
         </p>

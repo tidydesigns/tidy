@@ -37,6 +37,7 @@ function StackActions({
   return (
     <div className="flex gap-1">
       <button
+        data-ph-public
         type="button"
         className={button}
         aria-label={`Toggle ${label}`}
@@ -46,6 +47,7 @@ function StackActions({
         {visible ? "◉" : "○"}
       </button>
       <button
+        data-ph-public
         type="button"
         className={button}
         aria-label={`Move ${label} up`}
@@ -55,6 +57,7 @@ function StackActions({
         ↑
       </button>
       <button
+        data-ph-public
         type="button"
         className={button}
         aria-label={`Move ${label} down`}
@@ -63,7 +66,13 @@ function StackActions({
       >
         ↓
       </button>
-      <button type="button" className={button} aria-label={`Remove ${label}`} onClick={onRemove}>
+      <button
+        data-ph-public
+        type="button"
+        className={button}
+        aria-label={`Remove ${label}`}
+        onClick={onRemove}
+      >
         −
       </button>
     </div>
@@ -111,9 +120,12 @@ export function EffectsInspector({
   return (
     <>
       <Section
+        replayTitle
         title="Shadows"
         action={
           <button
+            data-ph-public
+            data-ph-public-label
             type="button"
             aria-label="Add shadow"
             className={button}
@@ -157,8 +169,13 @@ export function EffectsInspector({
                   className="rounded-md border border-primary-grey/60 p-2"
                 >
                   <summary className="cursor-pointer text-xs">
-                    Shadow {index + 1}
-                    {visible === false ? " · Hidden" : ""}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      Shadow{" "}
+                    </span>
+                    {index + 1}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      {visible === false ? " · Hidden" : ""}
+                    </span>
                   </summary>
                   <div className="mt-2 space-y-2">
                     <StackActions
@@ -175,6 +192,8 @@ export function EffectsInspector({
                       }
                     />
                     <Choice
+                      replayOptions
+                      replayLabel
                       label={`Shadow ${index + 1}`}
                       value={shared(selected, (node) => (get(node).inset ? "inner" : "outer"))}
                       choices={[
@@ -188,6 +207,7 @@ export function EffectsInspector({
                     <div className="grid grid-cols-2 gap-1.5">
                       {(["x", "y", "blur", "spread"] as const).map((key) => (
                         <PropertyField
+                          replayLabel
                           key={key}
                           label={`Shadow ${index + 1} ${key}`}
                           value={shared(selected, (node) => get(node)[key])}
@@ -203,6 +223,7 @@ export function EffectsInspector({
                       ))}
                     </div>
                     <ColorField
+                      replayLabel
                       label={`Shadow ${index + 1} color`}
                       nodes={selected}
                       tokens={tokens}
@@ -221,6 +242,7 @@ export function EffectsInspector({
           (key) =>
             selected.some((node) => Boolean(shadowStyle(node.style, [])[key])) && (
               <PropertyField
+                replayLabel
                 key={key}
                 label={key === "shadow" ? "Imported shadow CSS" : "Imported inner shadow CSS"}
                 value={shared(selected, (node) => node.style[key] ?? "")}
@@ -229,10 +251,12 @@ export function EffectsInspector({
             ),
         )}
       </Section>
-      <Section title="Effects">
+      <Section replayTitle title="Effects">
         <div className="flex items-end gap-1.5">
           <div className="min-w-0 flex-1">
             <Choice
+              replayOptions
+              replayLabel
               label="New effect"
               value={adding}
               choices={Object.entries(effectControls).map(([type, control]) => [
@@ -243,6 +267,8 @@ export function EffectsInspector({
             />
           </div>
           <button
+            data-ph-public
+            data-ph-public-label
             type="button"
             className={button}
             aria-label="Add effect"
@@ -277,7 +303,9 @@ export function EffectsInspector({
                 >
                   <summary className="cursor-pointer text-xs">
                     {type ? effectControls[type].label : "Mixed effect"}
-                    {visible === false ? " · Hidden" : ""}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      {visible === false ? " · Hidden" : ""}
+                    </span>
                   </summary>
                   <div className="mt-2 space-y-2">
                     <StackActions
@@ -294,6 +322,8 @@ export function EffectsInspector({
                       }
                     />
                     <Choice
+                      replayOptions
+                      replayLabel
                       label={`Effect ${index + 1} type`}
                       value={type}
                       choices={Object.entries(effectControls).map(([kind, control]) => [
@@ -310,6 +340,7 @@ export function EffectsInspector({
                     />
                     {type && (
                       <PropertyField
+                        replayLabel
                         label={`${effectControls[type].label} ${effectControls[type].unit}`}
                         value={shared(selected, (node) => nodeEffects(node.style)[index].amount)}
                         numeric
@@ -329,6 +360,7 @@ export function EffectsInspector({
           </div>
         )}
         <PropertyField
+          replayLabel
           label="Backdrop blur"
           value={shared(selected, (node) => node.style.backdropBlur ?? 0)}
           numeric

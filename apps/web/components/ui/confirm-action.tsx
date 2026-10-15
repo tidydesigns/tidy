@@ -7,6 +7,8 @@ import { useId, useRef, useState, type ReactNode } from "react";
 export function ConfirmAction({
   label,
   title,
+  replayLabel = false,
+  replayTitle = false,
   children,
   onConfirm,
   disabled,
@@ -14,6 +16,8 @@ export function ConfirmAction({
 }: {
   label: string;
   title: string;
+  replayLabel?: boolean;
+  replayTitle?: boolean;
   children: ReactNode;
   onConfirm: () => Promise<void>;
   disabled?: boolean;
@@ -55,7 +59,7 @@ export function ConfirmAction({
           "rounded-lg px-3 py-2 text-sm text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
         }
       >
-        {label}
+        <span data-ph-public={replayLabel || undefined}>{label}</span>
       </button>
       <Dialog
         ref={dialog}
@@ -65,7 +69,11 @@ export function ConfirmAction({
           if (pending) event.preventDefault();
         }}
       >
-        <h2 id={`${id}-title`} className="text-lg font-semibold">
+        <h2
+          data-ph-public={replayTitle || undefined}
+          id={`${id}-title`}
+          className="text-lg font-semibold"
+        >
           {title}
         </h2>
         <div id={`${id}-description`} className="mt-3 text-sm text-secondary-ink">
@@ -78,6 +86,7 @@ export function ConfirmAction({
         )}
         <div className="mt-6 flex justify-end gap-3">
           <button
+            data-ph-public
             type="button"
             autoFocus
             disabled={pending}
@@ -92,7 +101,7 @@ export function ConfirmAction({
             onClick={() => void confirm()}
             className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
           >
-            {pending ? "Working…" : label}
+            <span data-ph-public={replayLabel || undefined}>{pending ? "Working…" : label}</span>
           </button>
         </div>
       </Dialog>

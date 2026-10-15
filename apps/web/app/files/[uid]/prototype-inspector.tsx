@@ -60,21 +60,23 @@ export function PrototypeInspector({
   return (
     <>
       <Section
+        replayTitle
         title="Prototype"
         action={
-          <button className={button} onClick={onPreview} disabled={!frames.length}>
+          <button data-ph-public className={button} onClick={onPreview} disabled={!frames.length}>
             Preview
           </button>
         }
       >
         <fieldset disabled={readOnly} className="space-y-3">
           {node.linkTo && (
-            <button className={button} onClick={() => add(node.linkTo)}>
+            <button data-ph-public className={button} onClick={() => add(node.linkTo)}>
               Edit existing click link
             </button>
           )}
           {!!interactions.length && (
             <SelectMenu
+              replayLabel
               label="Interaction"
               size="sm"
               value={active?.id ?? ""}
@@ -88,6 +90,8 @@ export function PrototypeInspector({
           {active && (
             <div className="space-y-3">
               <SelectMenu
+                replayOptions
+                replayLabel
                 label="Trigger"
                 size="sm"
                 value={active.trigger.type}
@@ -106,6 +110,7 @@ export function PrototypeInspector({
               />
               {active.trigger.type === "key" && (
                 <SelectMenu
+                  replayLabel
                   label="Trigger key"
                   size="sm"
                   value={active.trigger.key}
@@ -131,6 +136,7 @@ export function PrototypeInspector({
               )}
               {active.trigger.type === "afterDelay" && (
                 <PropertyField
+                  replayLabel
                   label="Delay (ms)"
                   min={100}
                   max={60000}
@@ -148,6 +154,8 @@ export function PrototypeInspector({
                 />
               )}
               <SelectMenu
+                replayOptions
+                replayLabel
                 label="Action"
                 size="sm"
                 value={action!.type}
@@ -181,6 +189,7 @@ export function PrototypeInspector({
               />
               {action && "target" in action && (
                 <SelectMenu
+                  replayLabel
                   label="Destination"
                   size="sm"
                   value={action.target}
@@ -217,6 +226,8 @@ export function PrototypeInspector({
               )}
               {action?.type === "setState" && (
                 <SelectMenu
+                  replayOptions
+                  replayLabel
                   label="Destination state"
                   size="sm"
                   value={action.state}
@@ -234,6 +245,7 @@ export function PrototypeInspector({
               )}
               {action?.type === "setVariant" && (
                 <SelectMenu
+                  replayLabel
                   label="Destination variant"
                   size="sm"
                   value={action.variant}
@@ -259,6 +271,8 @@ export function PrototypeInspector({
               {action?.type === "openOverlay" && (
                 <>
                   <SelectMenu
+                    replayOptions
+                    replayLabel
                     label="Overlay position"
                     size="sm"
                     value={action.position}
@@ -277,6 +291,8 @@ export function PrototypeInspector({
                     options={options(["center", "top", "bottom"])}
                   />
                   <SelectMenu
+                    replayOptions
+                    replayLabel
                     label="Outside click"
                     size="sm"
                     value={action.dismissOutside ? "dismiss" : "keep"}
@@ -298,6 +314,8 @@ export function PrototypeInspector({
               )}
               {action?.type !== "setState" && action?.type !== "setVariant" && (
                 <SelectMenu
+                  replayOptions
+                  replayLabel
                   label="Transition"
                   size="sm"
                   value={active.transition.type}
@@ -317,6 +335,7 @@ export function PrototypeInspector({
                 action?.type !== "setState" &&
                 action?.type !== "setVariant" && (
                   <PropertyField
+                    replayLabel
                     label="Duration (ms)"
                     min={0}
                     max={2000}
@@ -334,6 +353,7 @@ export function PrototypeInspector({
                   />
                 )}
               <button
+                data-ph-public
                 className={button}
                 onClick={() =>
                   onPatch((current) => ({
@@ -346,14 +366,18 @@ export function PrototypeInspector({
             </div>
           )}
           {interactions.length < 20 && (
-            <button className={button} onClick={() => add()}>
+            <button data-ph-public className={button} onClick={() => add()}>
               Add interaction
             </button>
           )}
           <details>
-            <summary className="cursor-pointer text-xs">Paint states</summary>
+            <summary data-ph-public className="cursor-pointer text-xs">
+              Paint states
+            </summary>
             <div className="mt-3 space-y-3">
               <SelectMenu
+                replayOptions
+                replayLabel
                 label="Paint state"
                 size="sm"
                 value={state}
@@ -362,6 +386,7 @@ export function PrototypeInspector({
               />
               {(["fill", "color", "borderColor"] as const).map((property) => (
                 <ColorField
+                  replayLabel
                   key={property}
                   label={`${state} ${property}`}
                   nodes={[node]}
@@ -387,6 +412,7 @@ export function PrototypeInspector({
                 />
               ))}
               <PropertyField
+                replayLabel
                 label={`${state} opacity`}
                 min={0}
                 max={1}
@@ -410,7 +436,13 @@ export function PrototypeInspector({
                     onPatch((current) => ({ states: { ...current.states, [state]: undefined } }))
                   }
                 >
-                  Reset {state} paint
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Reset{" "}
+                  </span>
+                  {state}{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    paint
+                  </span>
                 </button>
               )}
             </div>

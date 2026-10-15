@@ -6,6 +6,7 @@ const inputClass =
 /** Keep the draft focused while other fields and network responses update. */
 export function PropertyField({
   label,
+  replayLabel = false,
   value,
   onCommit,
   numeric = false,
@@ -20,6 +21,7 @@ export function PropertyField({
   validate,
 }: {
   label: string;
+  replayLabel?: boolean;
   value: Value;
   onCommit: (value: string) => void;
   numeric?: boolean;
@@ -84,7 +86,7 @@ export function PropertyField({
   };
   return (
     <label className="block min-w-0 text-[10px] text-secondary-ink">
-      {label}
+      <span data-ph-public={replayLabel || undefined}>{label}</span>
       {multiline ? (
         <textarea
           {...control}

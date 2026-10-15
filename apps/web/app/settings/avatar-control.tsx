@@ -72,6 +72,7 @@ export function AvatarControl({
           />
         ) : image ? (
           <SelectMenu
+            replayOptions
             value=""
             label={label}
             actionMenu
@@ -103,7 +104,14 @@ export function AvatarControl({
             disabled={pending}
             onClick={() => input.current?.click()}
           >
-            <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <svg
+              data-ph-public
+              aria-hidden="true"
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+            >
               <path
                 d="M12 15V3m-4 4 4-4 4 4M4 15v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"
                 stroke="currentColor"
@@ -115,9 +123,11 @@ export function AvatarControl({
           </button>
         )}
         <div>
-          <p className="text-sm font-medium">{label}</p>
+          <p data-ph-public className="text-sm font-medium">
+            {label}
+          </p>
           {pending && (
-            <p role="status" className="mt-1 text-xs text-secondary-ink">
+            <p data-ph-public role="status" className="mt-1 text-xs text-secondary-ink">
               Updating…
             </p>
           )}

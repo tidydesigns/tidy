@@ -84,16 +84,23 @@ function ActivityDetails({
       )}
       {Boolean(activity.warningCount || activity.issueCount) && (
         <p className="mt-1 text-secondary-ink">
-          {activity.issueCount ?? 0} layout issues · {activity.warningCount ?? 0} warnings
+          {activity.issueCount ?? 0}{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            layout issues ·{" "}
+          </span>
+          {activity.warningCount ?? 0}{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            warnings
+          </span>
         </p>
       )}
       {activity.phase === "staged" && (
-        <p className="mt-1 text-secondary-ink">
+        <p data-ph-public className="mt-1 text-secondary-ink">
           Layers are prepared. They’ll appear on the canvas when the agent places them.
         </p>
       )}
       {activity.phase === "failed" && (
-        <p className="mt-1 text-secondary-ink">
+        <p data-ph-public className="mt-1 text-secondary-ink">
           The call failed. The agent can correct it and retry.
         </p>
       )}
@@ -106,6 +113,7 @@ function PresenceMark({ activity }: { activity: AgentActivity }) {
   const attention = ["failed", "unavailable"].includes(activity.phase);
   return done || attention || activity.phase === "aborted" ? (
     <svg
+      data-ph-public
       viewBox="0 0 16 16"
       className={styles.result}
       fill="none"
@@ -512,7 +520,12 @@ function VisibleAgentPresence({
                   <PresenceMark activity={region.activity} />
                   {attention && <span className={styles.status}>{status}</span>}
                   {unanchored && fallback.length > 1 && (
-                    <span className={styles.count}>+{fallback.length - 1}</span>
+                    <span className={styles.count}>
+                      <span data-ph-public style={{ display: "contents" }}>
+                        +
+                      </span>
+                      {fallback.length - 1}
+                    </span>
                   )}
                 </summary>
                 <div className={styles.details} data-above={above} style={detailsStyle}>
@@ -526,7 +539,13 @@ function VisibleAgentPresence({
                   ))}
                 </div>
               </details>
-              <svg className={styles.cursor} viewBox="0 0 28 32" fill="none" aria-hidden="true">
+              <svg
+                data-ph-public
+                className={styles.cursor}
+                viewBox="0 0 28 32"
+                fill="none"
+                aria-hidden="true"
+              >
                 <path
                   d="M4 3 23 17l-9 1-4 9L4 3Z"
                   fill="currentColor"

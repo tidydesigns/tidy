@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 
 export type LayerMenuItem = {
   label: string;
+  replayLabel?: boolean;
   shortcut?: string;
   disabled?: boolean;
   danger?: boolean;
@@ -93,9 +94,14 @@ export function LayerContextMenu({
           }}
           className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left outline-none hover:bg-primary-grey/25 focus-visible:bg-primary-grey/25 disabled:cursor-not-allowed disabled:opacity-40 ${item.danger ? "text-danger" : ""}`}
         >
-          <span>{item.label}</span>
+          <span
+            data-ph-public={item.replayLabel || undefined}
+            data-ph-private={!item.replayLabel || undefined}
+          >
+            {item.label}
+          </span>
           {item.shortcut && (
-            <span aria-hidden="true" className="ml-3 text-xs text-secondary-ink">
+            <span data-ph-public aria-hidden="true" className="ml-3 text-xs text-secondary-ink">
               {item.shortcut}
             </span>
           )}

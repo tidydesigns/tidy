@@ -39,7 +39,9 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
     <div className="mt-10 space-y-5">
       {error && <FormMessage>{error}</FormMessage>}
       <Button type="button" onClick={accept} disabled={pending}>
-        {pending ? "Joining…" : "Accept invitation"}
+        <span data-ph-public style={{ display: "contents" }}>
+          {pending ? "Joining…" : "Accept invitation"}
+        </span>
       </Button>
     </div>
   );
@@ -72,6 +74,7 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
   return (
     <div>
       <button
+        data-ph-public
         type="button"
         onClick={switchAccount}
         disabled={pending}

@@ -132,13 +132,17 @@ export function McpConnection({
 
   return (
     <section className="min-w-0">
-      <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
-      <p className="mt-2 text-sm text-secondary-ink">
+      <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
+        Connect your agent
+      </h1>
+      <p data-ph-public className="mt-2 text-sm text-secondary-ink">
         Read, create, and edit Tidy designs from your agent.
       </p>
 
       <div className="mt-6">
         <SelectMenu
+          replayOptions
+          replayLabel
           label="Agent"
           value={agent}
           onChange={(value) => setAgent(value as Agent)}
@@ -171,7 +175,9 @@ export function McpConnection({
 
       {currentClients.length > 0 && (
         <div className="mt-6 border-t border-primary-grey/70 pt-4">
-          <h2 className="text-sm font-medium">Authorized agents</h2>
+          <h2 data-ph-public className="text-sm font-medium">
+            Authorized agents
+          </h2>
           <ul className="mt-2 space-y-2">
             {currentClients.map((client) => (
               <li
@@ -180,6 +186,7 @@ export function McpConnection({
               >
                 <span>{client.name}</span>
                 <ConfirmAction
+                  replayLabel
                   label="Revoke access"
                   title={`Revoke ${client.name} access?`}
                   disabled={checking}
@@ -192,7 +199,9 @@ export function McpConnection({
                     );
                   }}
                 >
-                  This agent will lose access to Tidy until you reconnect it.
+                  <span data-ph-public style={{ display: "contents" }}>
+                    This agent will lose access to Tidy until you reconnect it.
+                  </span>
                 </ConfirmAction>
               </li>
             ))}
@@ -202,8 +211,11 @@ export function McpConnection({
 
       <details className="group mt-4 border-t border-primary-grey/70">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded py-3 text-[13px] text-secondary-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange [&::-webkit-details-marker]:hidden">
-          Connection help
+          <span data-ph-public style={{ display: "contents" }}>
+            Connection help
+          </span>
           <svg
+            data-ph-public
             aria-hidden="true"
             width="16"
             height="16"
@@ -223,7 +235,9 @@ export function McpConnection({
         <div className="max-h-80 space-y-4 overflow-y-auto pb-4 text-[13px] leading-5 text-secondary-ink">
           {setup.connectionCheck && (
             <div>
-              <p className="mb-2">Check from your terminal:</p>
+              <p data-ph-public className="mb-2">
+                Check from your terminal:
+              </p>
               <CopyableValue
                 key={`${agent}-check`}
                 value={setup.connectionCheck}
@@ -231,31 +245,35 @@ export function McpConnection({
               />
             </div>
           )}
-          <p>Sign-in timed out? Close the browser tab and try step 2 again.</p>
+          <p data-ph-public>Sign-in timed out? Close the browser tab and try step 2 again.</p>
           {agent === "opencode" && (
             <div>
-              <p className="mb-2">
+              <p data-ph-public className="mb-2">
                 Can read but cannot edit? Clear the old sign-in, then repeat step 2 and approve
                 design read and write access.
               </p>
               <CopyableValue value={`opencode mcp logout ${name}`} copyLabel="Copy command" />
             </div>
           )}
-          {agent === "other" && <p>Your agent must support OAuth.</p>}
-          {name === "tidy-local" && <p>Keep Tidy running while you connect.</p>}
+          {agent === "other" && <p data-ph-public>Your agent must support OAuth.</p>}
+          {name === "tidy-local" && <p data-ph-public>Keep Tidy running while you connect.</p>}
           <div>
             <div className="flex items-center justify-between gap-3">
-              <h2 className="font-medium text-primary-black">Server</h2>
+              <h2 data-ph-public className="font-medium text-primary-black">
+                Server
+              </h2>
               <p role="status">{endpointLabel}</p>
             </div>
             <p className="mt-2 break-all font-mono text-xs">{resourceUrl}</p>
             {endpoint === "misconfigured" && (
-              <p className="mt-2">
+              <p data-ph-public className="mt-2">
                 Server addresses do not match. Check Tidy’s public URL configuration.
               </p>
             )}
             {endpoint === "unavailable" && (
-              <p className="mt-2">Server unavailable. Check that Tidy is running, then retry.</p>
+              <p data-ph-public className="mt-2">
+                Server unavailable. Check that Tidy is running, then retry.
+              </p>
             )}
           </div>
           <Button
@@ -265,9 +283,13 @@ export function McpConnection({
             onClick={() => void check()}
             className="rounded border border-primary-grey px-3 py-2 text-xs font-medium text-primary-black hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
           >
-            {checking ? "Checking…" : "Check server access"}
+            <span data-ph-public style={{ display: "contents" }}>
+              {checking ? "Checking…" : "Check server access"}
+            </span>
           </Button>
-          <p className="text-xs">This checks server access. Use step 3 to test your agent.</p>
+          <p data-ph-public className="text-xs">
+            This checks server access. Use step 3 to test your agent.
+          </p>
           {error && (
             <p role="alert" className="text-danger">
               {error}

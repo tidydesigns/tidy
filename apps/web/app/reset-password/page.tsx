@@ -25,14 +25,20 @@ export default async function ResetPasswordPage({
         <ResetPasswordForm token={token} />
       ) : (
         <p role="alert" className="mt-8 text-sm">
-          This reset link is invalid or expired.{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            This reset link is invalid or expired.
+          </span>{" "}
           <Link
             href="/forgot-password"
             className="underline decoration-primary-orange underline-offset-4"
           >
-            Request a new link
+            <span data-ph-public style={{ display: "contents" }}>
+              Request a new link
+            </span>
           </Link>
-          .
+          <span data-ph-public style={{ display: "contents" }}>
+            .
+          </span>
         </p>
       )}
     </AuthShell>

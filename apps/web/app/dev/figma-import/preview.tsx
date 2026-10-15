@@ -91,7 +91,12 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
     window.dispatchEvent(new CustomEvent("tidy:figma-imported", { detail: result.document }));
     router.push("/dev/figma-import?editor=1");
   }
-  if (!ready) return <div className="p-6 text-sm text-secondary-ink">Opening local draft…</div>;
+  if (!ready)
+    return (
+      <div data-ph-public className="p-6 text-sm text-secondary-ink">
+        Opening local draft…
+      </div>
+    );
   const empty = parseDesignDocument({
     schemaVersion: 1,
     legacyConverted: true,
@@ -114,8 +119,10 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
       <main className="mx-auto max-w-5xl px-6 py-10 sm:px-10">
         <div className="mb-8 flex items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-semibold tracking-tight">Files</h1>
-            <p className="mt-1 text-xs text-secondary-ink">
+            <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
+              Files
+            </h1>
+            <p data-ph-public className="mt-1 text-xs text-secondary-ink">
               Local prototype · kept in this browser
             </p>
           </div>
@@ -138,8 +145,14 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{draft.name}</span>
               <span className="mt-1 block text-xs text-secondary-ink">
-                {draft.document.pages?.length ?? 1} pages ·{" "}
-                {draft.document.nodes.length.toLocaleString()} layers
+                {draft.document.pages?.length ?? 1}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  pages ·
+                </span>{" "}
+                {draft.document.nodes.length.toLocaleString()}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  layers
+                </span>
               </span>
             </span>
             <Icon name="arrowRight" size={18} />

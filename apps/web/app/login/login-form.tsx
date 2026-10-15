@@ -86,9 +86,16 @@ export function LoginForm({
   return (
     <AuthShell title="Welcome back." description="Sign in to your Tidy account.">
       <form method="post" onSubmit={handleSubmit} className="mt-10 space-y-5">
-        {accountDeleted && <FormMessage role="status">Account deleted successfully.</FormMessage>}
+        {accountDeleted && (
+          <FormMessage role="status">
+            <span data-ph-public style={{ display: "contents" }}>
+              Account deleted successfully.
+            </span>
+          </FormMessage>
+        )}
         <SocialSignIn providers={providers} next={next} page="/login" disabled={pending} />
         <TextField
+          replayLabel
           id="email"
           label="Email"
           name="email"
@@ -98,6 +105,7 @@ export function LoginForm({
           required
         />
         <TextField
+          replayLabel
           id="password"
           label="Password"
           name="password"
@@ -110,25 +118,35 @@ export function LoginForm({
           href="/forgot-password"
           className="block text-sm underline decoration-primary-orange underline-offset-4"
         >
-          Forgot password?
+          <span data-ph-public style={{ display: "contents" }}>
+            Forgot password?
+          </span>
         </Link>
         <Link
           href={verificationCallbackPath(next)}
           className="block text-sm underline decoration-primary-orange underline-offset-4"
         >
-          Verify your email
+          <span data-ph-public style={{ display: "contents" }}>
+            Verify your email
+          </span>
         </Link>
         <Button type="submit" disabled={pending}>
-          {pending ? "Signing in…" : "Sign in"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {pending ? "Signing in…" : "Sign in"}
+          </span>
         </Button>
       </form>
       <p className="mt-8 text-center text-sm text-primary-black/70">
-        New to Tidy?{" "}
+        <span data-ph-public style={{ display: "contents" }}>
+          New to Tidy?
+        </span>{" "}
         <Link
           href={next === "/" ? "/sign-up" : `/sign-up?next=${encodeURIComponent(next)}`}
           className="font-medium text-primary-black underline decoration-primary-orange underline-offset-4"
         >
-          Create an account
+          <span data-ph-public style={{ display: "contents" }}>
+            Create an account
+          </span>
         </Link>
       </p>
     </AuthShell>

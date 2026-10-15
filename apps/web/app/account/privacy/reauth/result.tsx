@@ -9,7 +9,7 @@ export function ReauthResult({ success }: { success: boolean }) {
   }, [success]);
   return (
     <main className="mx-auto max-w-md p-8">
-      <p role="status">
+      <p data-ph-public role="status">
         {success
           ? "Authentication complete. Return to Tidy to continue."
           : "Authentication was not completed. Return to Tidy and try again with an account linked to Tidy."}

@@ -52,7 +52,7 @@ export function UpgradeDialog({
         className={`${triggerClassName} cursor-pointer text-left`}
       >
         {showIcon && <Icon name="upgrade" size={18} />}
-        <span>Upgrade to Pro</span>
+        <span data-ph-public>Upgrade to Pro</span>
       </button>
       <Dialog
         ref={dialog}
@@ -65,10 +65,12 @@ export function UpgradeDialog({
         }}
       >
         <div className="flex items-start justify-between gap-4">
-          <h2 id="upgrade-title" className="text-2xl font-semibold tracking-tight">
+          <h2 data-ph-public id="upgrade-title" className="text-2xl font-semibold tracking-tight">
             Upgrade to Pro
           </h2>
           <button
+            data-ph-public
+            data-ph-public-label
             type="button"
             disabled={busy}
             onClick={() => dialog.current?.close()}
@@ -78,7 +80,7 @@ export function UpgradeDialog({
             ×
           </button>
         </div>
-        <p id="upgrade-description" className="mt-3 text-sm text-primary-black/65">
+        <p data-ph-public id="upgrade-description" className="mt-3 text-sm text-primary-black/65">
           {limits.files === null ? "Unlimited design files" : `${limits.files} design files`},{" "}
           {limits.editors === null
             ? "all team members included"
@@ -93,21 +95,31 @@ export function UpgradeDialog({
           {limits.mcpCalls === null
             ? "Unlimited MCP calls"
             : `${limits.mcpCalls.toLocaleString()} MCP calls per month`}
-          . Bring your own inference. Your provider’s limits apply.
+          <span data-ph-public style={{ display: "contents" }}>
+            . Bring your own inference. Your provider’s limits apply.
+          </span>
         </p>
 
         <div className="mt-8 border-y border-primary-grey/70 py-6">
           <p className="text-3xl font-semibold tracking-tight">
-            $10<span className="ml-1 text-sm font-normal text-primary-black/55">/ month</span>
+            <span data-ph-public style={{ display: "contents" }}>
+              $10
+            </span>
+            <span data-ph-public className="ml-1 text-sm font-normal text-primary-black/55">
+              / month
+            </span>
           </p>
-          <p className="mt-1 text-sm text-primary-black/60">$10 billed monthly</p>
-          <p className="mt-4 text-sm text-primary-black/60">
+          <p data-ph-public className="mt-1 text-sm text-primary-black/60">
+            $10 billed monthly
+          </p>
+          <p data-ph-public className="mt-4 text-sm text-primary-black/60">
             {firstMonthUsed ? "Billed monthly." : "$5 for your first month, then $10 monthly."}
           </p>
         </div>
 
         {owner ? (
           <button
+            data-ph-public
             type="button"
             disabled={busy}
             onClick={() => void checkout()}
@@ -116,7 +128,7 @@ export function UpgradeDialog({
             {busy ? "Opening checkout…" : "Continue with monthly Pro"}
           </button>
         ) : (
-          <p className="mt-7 text-sm text-primary-black/65">
+          <p data-ph-public className="mt-7 text-sm text-primary-black/65">
             Ask an organization owner to upgrade.
           </p>
         )}

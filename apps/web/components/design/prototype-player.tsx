@@ -168,6 +168,7 @@ export function PrototypePlayer({
   }
   return (
     <section
+      data-ph-public-label
       aria-label="Prototype player"
       className="flex h-full min-h-0 flex-col bg-canvas text-primary-black"
       onKeyDown={(event) => {
@@ -212,18 +213,24 @@ export function PrototypePlayer({
         className="flex shrink-0 flex-wrap items-center gap-2 border-b border-primary-grey/70 bg-surface p-3"
       >
         {onExit && (
-          <button className={button} onClick={onExit}>
+          <button data-ph-public className={button} onClick={onExit}>
             Exit preview
           </button>
         )}
-        <button className={button} disabled={!session.history.length && !overlay} onClick={back}>
+        <button
+          data-ph-public
+          className={button}
+          disabled={!session.history.length && !overlay}
+          onClick={back}
+        >
           Back
         </button>
-        <button className={button} onClick={restart}>
+        <button data-ph-public className={button} onClick={restart}>
           Restart
         </button>
         {!!frames.length && (
           <SelectMenu
+            replayLabel
             label="Presentation frame"
             size="sm"
             value={current?.id ?? ""}
@@ -235,10 +242,15 @@ export function PrototypePlayer({
           />
         )}
         <span className="min-w-0 truncate text-xs text-secondary-ink">
-          {fileName} · r{revision}
+          {fileName}{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            · r
+          </span>
+          {revision}
         </span>
         {presentationHref && (
           <button
+            data-ph-public
             className={button}
             onClick={() =>
               void navigator.clipboard
@@ -274,7 +286,9 @@ export function PrototypePlayer({
             {render(current)}
           </div>
         ) : (
-          <p className="text-sm">This prototype has no visible frames.</p>
+          <p data-ph-public className="text-sm">
+            This prototype has no visible frames.
+          </p>
         )}
         {overlayFrame && overlay && (
           <div
@@ -292,7 +306,7 @@ export function PrototypePlayer({
               aria-label={overlayFrame.name}
               className="max-h-full overflow-auto outline-none"
             >
-              <button className={`${button} mb-2 bg-surface`} onClick={back}>
+              <button data-ph-public className={`${button} mb-2 bg-surface`} onClick={back}>
                 Close overlay
               </button>
               {render(overlayFrame)}

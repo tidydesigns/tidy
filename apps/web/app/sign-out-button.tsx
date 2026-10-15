@@ -18,7 +18,9 @@ export function SignOutButton() {
 
   return (
     <Button type="button" variant="text" onClick={signOut}>
-      Sign out
+      <span data-ph-public style={{ display: "contents" }}>
+        Sign out
+      </span>
     </Button>
   );
 }

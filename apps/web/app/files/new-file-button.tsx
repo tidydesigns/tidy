@@ -58,6 +58,8 @@ export function NewFileButton({
           <span data-ph-public>{pending ? "Creating…" : "+ New file"}</span>
         </button>
         <SelectMenu
+          replayOptions
+          replayLabel
           value=""
           actionMenu
           label="New file options"
@@ -69,7 +71,14 @@ export function NewFileButton({
           onChange={() => setImportOpen(true)}
           triggerClassName="flex h-full items-center justify-center rounded-r-lg border-l border-white/20 px-2.5 hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 active:scale-[0.98]"
           triggerContent={
-            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <svg
+              data-ph-public
+              aria-hidden="true"
+              width="16"
+              height="16"
+              viewBox="0 0 16 16"
+              fill="none"
+            >
               <path
                 d="m4 6 4 4 4-4"
                 stroke="currentColor"

@@ -31,8 +31,12 @@ export function EditorPanelPreferenceControl({ initialOpen = false }: { initialO
 
   return (
     <div className="text-sm font-medium">
-      <span id={labelId}>Editor panels</span>
+      <span data-ph-public id={labelId}>
+        Editor panels
+      </span>
       <SelectMenu
+        replayOptions
+        replayLabel
         value={open ? "open" : "closed"}
         options={choices}
         label="Editor panels"

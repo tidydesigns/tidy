@@ -274,6 +274,7 @@ export function VectorEditor({
         >
           <div className="grid grid-cols-2 gap-2">
             <PropertyField
+              replayLabel
               label="Point X"
               numeric
               min={-100000}
@@ -286,6 +287,7 @@ export function VectorEditor({
               }
             />
             <PropertyField
+              replayLabel
               label="Point Y"
               numeric
               min={-100000}
@@ -299,6 +301,8 @@ export function VectorEditor({
             />
           </div>
           <Choice
+            replayOptions
+            replayLabel
             label="Point type"
             value={selected.mode ?? "corner"}
             choices={[
@@ -318,6 +322,7 @@ export function VectorEditor({
           />
           <div className="mt-2 flex gap-3 text-xs">
             <button
+              data-ph-public
               type="button"
               disabled={selectedContour!.points.length <= 2}
               onClick={remove}
@@ -326,6 +331,7 @@ export function VectorEditor({
               Delete point
             </button>
             <button
+              data-ph-public
               type="button"
               onClick={() =>
                 commit(

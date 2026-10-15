@@ -254,6 +254,7 @@ function CanvasToolButton({
   return (
     <button
       data-ph-public
+      data-ph-public-label
       type="button"
       aria-label={label}
       aria-describedby={tipId}
@@ -1353,11 +1354,14 @@ export function FileEditor({
     <span className="block max-w-full truncate font-medium">
       {name}
       {archived && (
-        <span className="block text-xs font-normal text-secondary-ink">Archived · Read only</span>
+        <span data-ph-public className="block text-xs font-normal text-secondary-ink">
+          Archived · Read only
+        </span>
       )}
     </span>
   ) : editingName ? (
     <input
+      data-ph-public-label
       aria-label="File name"
       autoFocus
       maxLength={120}
@@ -3105,6 +3109,7 @@ export function FileEditor({
 
   const toolRail = (horizontal = false) => (
     <div
+      data-ph-public-label
       role="toolbar"
       aria-label="Canvas tools"
       aria-orientation={horizontal ? "horizontal" : "vertical"}
@@ -3134,6 +3139,7 @@ export function FileEditor({
           }}
         >
           <svg
+            data-ph-public
             aria-hidden="true"
             width="20"
             height="20"
@@ -3176,6 +3182,8 @@ export function FileEditor({
       )}
       {!readOnly && (
         <SelectMenu
+          replayOptions
+          replayLabel
           label="Shape tool"
           placement={horizontal ? "top" : "bottom"}
           value={isShapeKind(tool) ? tool : ""}
@@ -3188,6 +3196,7 @@ export function FileEditor({
           }}
           triggerContent={
             <svg
+              data-ph-public
               aria-hidden="true"
               width="20"
               height="20"
@@ -3226,7 +3235,9 @@ export function FileEditor({
           pressed={tool === "text"}
           onClick={() => setTool("text")}
         >
-          <span className="text-sm font-semibold">T</span>
+          <span data-ph-public className="text-sm font-semibold">
+            T
+          </span>
         </CanvasToolButton>
       )}
       {!readOnly && (
@@ -3237,7 +3248,14 @@ export function FileEditor({
             if (!uploading) imageInput.current?.click();
           }}
         >
-          <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="none">
+          <svg
+            data-ph-public
+            aria-hidden="true"
+            width="20"
+            height="20"
+            viewBox="0 0 20 20"
+            fill="none"
+          >
             <rect
               x="2.5"
               y="3"
@@ -3277,9 +3295,15 @@ export function FileEditor({
           label: `Select behind ${index + 1}: ${nodes.find((node) => node.id === id)?.name ?? "Layer"}`,
           onSelect: () => selectNode(id),
         })),
-        { label: "Copy properties", shortcut: "⌥⌘C", onSelect: () => void copyAppearance() },
+        {
+          label: "Copy properties",
+          replayLabel: true,
+          shortcut: "⌥⌘C",
+          onSelect: () => void copyAppearance(),
+        },
         {
           label: "Paste properties",
+          replayLabel: true,
           shortcut: "⌥⌘V",
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () => void pasteFromSystem(false, true),
@@ -3288,6 +3312,7 @@ export function FileEditor({
           ? [
               {
                 label: "Wrap in frame",
+                replayLabel: true,
                 shortcut: "⌥⌘G",
                 disabled: isLayerLocked(nodes, contextNode.id),
                 onSelect: () => wrapSelection("frame"),
@@ -3296,34 +3321,40 @@ export function FileEditor({
           : []),
         {
           label: "Add auto layout",
+          replayLabel: true,
           shortcut: "⇧A",
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () => wrapSelection("auto"),
         },
         {
           label: "Duplicate",
+          replayLabel: true,
           shortcut: "⌘D",
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () => void duplicate(contextNode.id),
         },
         {
           label: "Flip horizontally",
+          replayLabel: true,
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () => void edit(contextNode.id, { style: { flipX: !contextNode.style.flipX } }),
         },
         {
           label: "Flip vertically",
+          replayLabel: true,
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () => void edit(contextNode.id, { style: { flipY: !contextNode.style.flipY } }),
         },
         {
           label: "Bring forward",
+          replayLabel: true,
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () =>
             void changeDocument((content) => moveLayer(content, contextNode.id, 1), contextNode.id),
         },
         {
           label: "Send backward",
+          replayLabel: true,
           disabled: isLayerLocked(nodes, contextNode.id),
           onSelect: () =>
             void changeDocument(
@@ -3335,6 +3366,7 @@ export function FileEditor({
           ? [
               {
                 label: "Ungroup",
+                replayLabel: true,
                 disabled:
                   isLayerLocked(nodes, contextNode.id) ||
                   Boolean(contextNode.isComponent || contextNode.instanceOf),
@@ -3352,6 +3384,7 @@ export function FileEditor({
           ? [
               {
                 label: "Fit to content",
+                replayLabel: true,
                 disabled: isLayerLocked(nodes, contextNode.id),
                 onSelect: () =>
                   void changeDocument((content) =>
@@ -3364,6 +3397,7 @@ export function FileEditor({
           ? [
               {
                 label: "Make component",
+                replayLabel: true,
                 disabled: isLayerLocked(nodes, contextNode.id),
                 onSelect: () =>
                   void changeDocument(
@@ -3377,6 +3411,7 @@ export function FileEditor({
           ? [
               {
                 label: "Create instance",
+                replayLabel: true,
                 disabled: false,
                 onSelect: () =>
                   void changeDocument(
@@ -3390,6 +3425,7 @@ export function FileEditor({
           : []),
         {
           label: "Delete",
+          replayLabel: true,
           shortcut: "⌫",
           danger: true,
           disabled: selectedIds.some((id) => isLayerLocked(nodes, id)),
@@ -3403,6 +3439,7 @@ export function FileEditor({
       ? [
           {
             label: "Rename",
+            replayLabel: true,
             disabled: false,
             onSelect: () => {
               const page = pages[pageMenuIndex];
@@ -3412,19 +3449,27 @@ export function FileEditor({
               }
             },
           },
-          { label: "Duplicate", disabled: false, onSelect: () => void copyPage(pageMenu.pageId) },
+          {
+            label: "Duplicate",
+            replayLabel: true,
+            disabled: false,
+            onSelect: () => void copyPage(pageMenu.pageId),
+          },
           {
             label: "Move up",
+            replayLabel: true,
             disabled: pageMenuIndex <= 0,
             onSelect: () => movePage(pageMenu.pageId, -1),
           },
           {
             label: "Move down",
+            replayLabel: true,
             disabled: pageMenuIndex >= pages.length - 1,
             onSelect: () => movePage(pageMenu.pageId, 1),
           },
           {
             label: "Delete page",
+            replayLabel: true,
             danger: true,
             disabled: pages.length <= 1,
             onSelect: () => void removePage(pageMenu.pageId),
@@ -3433,6 +3478,7 @@ export function FileEditor({
       : [];
   const pageIcon = (
     <svg
+      data-ph-public
       aria-hidden="true"
       width="14"
       height="16"
@@ -3463,6 +3509,7 @@ export function FileEditor({
   );
   const threadControl = agents && (
     <button
+      data-ph-public
       ref={threadButton}
       type="button"
       aria-expanded={threadsOpen}
@@ -3663,6 +3710,7 @@ export function FileEditor({
             <PanelToggle expanded onClick={togglePanels} />
           </div>
           <div
+            data-ph-public-label
             data-ph-public
             role="tablist"
             aria-label="File tools"
@@ -3698,6 +3746,8 @@ export function FileEditor({
                   </h2>
                   {!readOnly && (
                     <button
+                      data-ph-public
+                      data-ph-public-label
                       type="button"
                       aria-label="Add page"
                       title="Add page"
@@ -3718,6 +3768,7 @@ export function FileEditor({
                         <div className="flex min-w-0 flex-1 items-center gap-2 px-3 text-sm">
                           {pageIcon}
                           <input
+                            data-ph-public-label
                             autoFocus
                             aria-label="Page name"
                             maxLength={120}
@@ -3789,6 +3840,7 @@ export function FileEditor({
                 </div>
                 {(nodes.length > 12 || layerQuery) && (
                   <input
+                    data-ph-public-label
                     aria-label="Search layers"
                     placeholder="Search layers"
                     value={layerQuery}
@@ -3847,6 +3899,7 @@ export function FileEditor({
         </aside>
       </EditorPanel>
       <div
+        data-ph-public-label
         ref={attachViewport}
         tabIndex={0}
         aria-label="Design canvas"
@@ -4537,6 +4590,7 @@ export function FileEditor({
       )}
       <EditorPanel open={inspectorOpen} width={296} side="right">
         <aside
+          data-ph-public-label
           ref={inspectorRef}
           onFocusCapture={(event) => {
             if (
@@ -4566,6 +4620,7 @@ export function FileEditor({
           )}
           {selected && (
             <div
+              data-ph-public-label
               data-ph-public
               role="group"
               aria-label="Selection controls"
@@ -4651,6 +4706,7 @@ export function FileEditor({
       )}
       {agents && threadsOpen && (
         <aside
+          data-ph-public-label
           id="file-threads"
           aria-label="Threads"
           className="absolute inset-y-0 right-0 z-40 w-full border-l border-primary-grey bg-surface p-4 shadow-sm sm:w-[420px]"

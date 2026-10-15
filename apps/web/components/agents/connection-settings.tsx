@@ -78,10 +78,10 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
   return (
     <section className="max-w-lg space-y-5" aria-labelledby="codex-connection-title">
       <div>
-        <h2 id="codex-connection-title" className="text-lg font-semibold">
+        <h2 data-ph-public id="codex-connection-title" className="text-lg font-semibold">
           Codex
         </h2>
-        <p className="mt-2 text-sm leading-6 text-secondary-ink">
+        <p data-ph-public className="mt-2 text-sm leading-6 text-secondary-ink">
           Use your Codex subscription for shared design threads. Your connection stays personal.
         </p>
       </div>
@@ -89,10 +89,13 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
         <>
           <div>
             <p className="text-sm font-medium">{connection.accountLabel}</p>
-            <p className="mt-1 text-xs text-secondary-ink">Connected</p>
+            <p data-ph-public className="mt-1 text-xs text-secondary-ink">
+              Connected
+            </p>
           </div>
           <div className="flex items-center gap-5">
             <a
+              data-ph-public
               href={connection.usageUrl}
               target="_blank"
               rel="noreferrer"
@@ -101,19 +104,24 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
               Manage usage
             </a>
             <Button variant="text" disabled={busy} onClick={() => void disconnect()}>
-              Disconnect
+              <span data-ph-public style={{ display: "contents" }}>
+                Disconnect
+              </span>
             </Button>
           </div>
-          <p className="text-xs leading-5 text-secondary-ink">
+          <p data-ph-public className="text-xs leading-5 text-secondary-ink">
             Runs continue when you close Tidy. Disconnecting stops your runs. Shared threads remain
             available to your team.
           </p>
         </>
       ) : login ? (
         <div className="space-y-3">
-          <p className="text-sm">Enter this code on the Codex sign-in page:</p>
+          <p data-ph-public className="text-sm">
+            Enter this code on the Codex sign-in page:
+          </p>
           <p className="select-all font-mono text-xl tracking-wider">{login.userCode}</p>
           <a
+            data-ph-public
             href={login.verificationUrl}
             target="_blank"
             rel="noreferrer"
@@ -121,25 +129,31 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
           >
             Open Codex sign-in
           </a>
-          <p role="status" className="text-xs text-secondary-ink">
+          <p data-ph-public role="status" className="text-xs text-secondary-ink">
             Waiting for you to finish signing in…
           </p>
           <Button variant="text" disabled={busy} onClick={() => void disconnect()}>
-            Cancel
+            <span data-ph-public style={{ display: "contents" }}>
+              Cancel
+            </span>
           </Button>
         </div>
       ) : (
         <>
           <Button disabled={busy || !connection.configured} onClick={() => void connect()}>
-            {busy ? "Connecting…" : "Connect Codex"}
+            <span data-ph-public style={{ display: "contents" }}>
+              {busy ? "Connecting…" : "Connect Codex"}
+            </span>
           </Button>
           {!connection.configured && (
-            <p className="text-sm text-secondary-ink">
+            <p data-ph-public className="text-sm text-secondary-ink">
               Codex connections are not available in this workspace yet.
             </p>
           )}
           {connection.status === "reconnect" && (
-            <p className="text-sm text-secondary-ink">Your Codex connection needs to be renewed.</p>
+            <p data-ph-public className="text-sm text-secondary-ink">
+              Your Codex connection needs to be renewed.
+            </p>
           )}
         </>
       )}

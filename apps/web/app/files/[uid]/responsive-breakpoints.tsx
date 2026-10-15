@@ -78,6 +78,7 @@ export function ResponsiveBreakpoints({
     max: number,
   ) => (
     <PropertyField
+      replayLabel
       label={label}
       value={breakpoint[key] ?? ""}
       numeric
@@ -113,11 +114,22 @@ export function ResponsiveBreakpoints({
 
   return (
     <details className="rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs">
-      <summary className="cursor-pointer">Responsive breakpoints</summary>
+      <summary data-ph-public className="cursor-pointer">
+        Responsive breakpoints
+      </summary>
       <div className="mt-2 max-h-96 space-y-2 overflow-y-auto">
         <div className="flex items-center justify-between gap-2 text-[10px] text-secondary-ink">
-          <span>Frame width {Math.round(frameWidth)}px</span>
+          <span>
+            <span data-ph-public style={{ display: "contents" }}>
+              Frame width{" "}
+            </span>
+            {Math.round(frameWidth)}
+            <span data-ph-public style={{ display: "contents" }}>
+              px
+            </span>
+          </span>
           <button
+            data-ph-public
             type="button"
             className={buttonClass}
             disabled={breakpoints.length >= 8}
@@ -143,6 +155,7 @@ export function ResponsiveBreakpoints({
               <div className="flex items-end gap-1.5">
                 <div className="min-w-0 flex-1">
                   <PropertyField
+                    replayLabel
                     label="Frame width up to"
                     value={breakpoint.frameMaxWidth}
                     numeric
@@ -156,6 +169,7 @@ export function ResponsiveBreakpoints({
                   />
                 </div>
                 <button
+                  data-ph-public
                   type="button"
                   aria-label={`Remove breakpoint ${breakpoint.frameMaxWidth}`}
                   className={buttonClass}
@@ -171,11 +185,15 @@ export function ResponsiveBreakpoints({
                 </button>
               </div>
               {frameWidth <= breakpoint.frameMaxWidth && (
-                <span className="text-[10px] text-accent-ink">Active at this frame width</span>
+                <span data-ph-public className="text-[10px] text-accent-ink">
+                  Active at this frame width
+                </span>
               )}
               {container && (
                 <>
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Breakpoint flow"
                     value={breakpoint.layout ?? ""}
                     choices={[
@@ -210,7 +228,9 @@ export function ResponsiveBreakpoints({
                   )}
                   {numeric(breakpoint, "Breakpoint padding", "padding", 0, 1000)}
                   <details className="rounded-md border border-primary-grey/70 px-2 py-1.5">
-                    <summary className="cursor-pointer">Padding by side</summary>
+                    <summary data-ph-public className="cursor-pointer">
+                      Padding by side
+                    </summary>
                     <div className="mt-2 grid grid-cols-2 gap-1.5">
                       {(
                         ["paddingTop", "paddingRight", "paddingBottom", "paddingLeft"] as const
@@ -231,7 +251,9 @@ export function ResponsiveBreakpoints({
                     <>
                       {numeric(breakpoint, "Breakpoint columns", "gridColumns", 1, 12)}
                       <details className="rounded-md border border-primary-grey/70 px-2 py-1.5">
-                        <summary className="cursor-pointer">Breakpoint grid tracks</summary>
+                        <summary data-ph-public className="cursor-pointer">
+                          Breakpoint grid tracks
+                        </summary>
                         <div className="mt-2 space-y-2">
                           {columns.map((track, index) => (
                             <div
@@ -239,6 +261,8 @@ export function ResponsiveBreakpoints({
                               className="grid grid-cols-2 items-end gap-1.5"
                             >
                               <Choice
+                                replayOptions
+                                replayLabel
                                 label={`Breakpoint column ${index + 1} unit`}
                                 value={track.unit}
                                 choices={[
@@ -262,6 +286,7 @@ export function ResponsiveBreakpoints({
                               />
                               {track.unit !== "auto" && (
                                 <PropertyField
+                                  replayLabel
                                   label={`Breakpoint column ${index + 1} size`}
                                   value={track.value}
                                   numeric
@@ -281,6 +306,7 @@ export function ResponsiveBreakpoints({
                           ))}
                           {breakpoint.gridColumnTracks && (
                             <button
+                              data-ph-public
                               type="button"
                               className={buttonClass}
                               onClick={() => update(breakpoint.id, { gridColumnTracks: undefined })}
@@ -294,6 +320,8 @@ export function ResponsiveBreakpoints({
                               className="grid grid-cols-[1fr_1fr_28px] items-end gap-1.5"
                             >
                               <Choice
+                                replayOptions
+                                replayLabel
                                 label={`Breakpoint row ${index + 1} unit`}
                                 value={track.unit}
                                 choices={[
@@ -317,6 +345,7 @@ export function ResponsiveBreakpoints({
                               />
                               {track.unit !== "auto" && (
                                 <PropertyField
+                                  replayLabel
                                   label={`Breakpoint row ${index + 1} size`}
                                   value={track.value}
                                   numeric
@@ -333,6 +362,7 @@ export function ResponsiveBreakpoints({
                                 />
                               )}
                               <button
+                                data-ph-public
                                 type="button"
                                 aria-label={`Remove breakpoint row ${index + 1} track`}
                                 className={buttonClass}
@@ -347,6 +377,7 @@ export function ResponsiveBreakpoints({
                             </div>
                           ))}
                           <button
+                            data-ph-public
                             type="button"
                             className={buttonClass}
                             disabled={rows.length >= 12}
@@ -365,6 +396,8 @@ export function ResponsiveBreakpoints({
                   ) && (
                     <div className="grid grid-cols-2 gap-1.5">
                       <Choice
+                        replayOptions
+                        replayLabel
                         label="Breakpoint align"
                         value={breakpoint.align ?? ""}
                         choices={[
@@ -382,6 +415,8 @@ export function ResponsiveBreakpoints({
                         }
                       />
                       <Choice
+                        replayOptions
+                        replayLabel
                         label="Breakpoint justify"
                         value={breakpoint.justify ?? ""}
                         choices={[
@@ -404,6 +439,8 @@ export function ResponsiveBreakpoints({
                     rendered.layout as "flex-row" | "flex-column",
                   ) && (
                     <Choice
+                      replayOptions
+                      replayLabel
                       label="Breakpoint wrap"
                       value={breakpoint.wrap === undefined ? "" : String(breakpoint.wrap)}
                       choices={[
@@ -421,6 +458,8 @@ export function ResponsiveBreakpoints({
               {node.type !== "artboard" && (
                 <div className="grid grid-cols-2 gap-1.5">
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Breakpoint width"
                     value={breakpoint.widthMode ?? ""}
                     choices={[
@@ -436,6 +475,8 @@ export function ResponsiveBreakpoints({
                     }
                   />
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Breakpoint height"
                     value={breakpoint.heightMode ?? ""}
                     choices={[
@@ -456,6 +497,7 @@ export function ResponsiveBreakpoints({
                 <div className="grid grid-cols-2 gap-1.5">
                   {(["minWidth", "maxWidth", "minHeight", "maxHeight"] as const).map((key) => (
                     <PropertyField
+                      replayLabel
                       key={key}
                       label={`Breakpoint ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`}
                       value={breakpoint[key] ?? ""}

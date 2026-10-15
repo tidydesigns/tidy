@@ -35,20 +35,23 @@ export function ResetPasswordForm({ token }: { token: string }) {
   if (complete)
     return (
       <div className="mt-8 space-y-4">
-        <p role="status" className="text-sm">
+        <p data-ph-public role="status" className="text-sm">
           Password changed. Your previous sessions have ended.
         </p>
         <Link
           href="/login"
           className="text-sm underline decoration-primary-orange underline-offset-4"
         >
-          Sign in
+          <span data-ph-public style={{ display: "contents" }}>
+            Sign in
+          </span>
         </Link>
       </div>
     );
   return (
     <form method="post" onSubmit={submit} className="mt-8 space-y-5">
       <TextField
+        replayLabel
         id="reset-password"
         label="New password"
         name="password"
@@ -60,6 +63,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
         disabled={pending}
       />
       <TextField
+        replayLabel
         id="reset-confirmation"
         label="Confirm new password"
         name="confirmation"
@@ -74,13 +78,19 @@ export function ResetPasswordForm({ token }: { token: string }) {
         <p role="alert" className="text-sm text-danger">
           {error}{" "}
           <Link href="/forgot-password" className="underline">
-            Request a new link
+            <span data-ph-public style={{ display: "contents" }}>
+              Request a new link
+            </span>
           </Link>
-          .
+          <span data-ph-public style={{ display: "contents" }}>
+            .
+          </span>
         </p>
       )}
       <Button type="submit" disabled={pending}>
-        {pending ? "Resetting…" : "Reset password"}
+        <span data-ph-public style={{ display: "contents" }}>
+          {pending ? "Resetting…" : "Reset password"}
+        </span>
       </Button>
     </form>
   );

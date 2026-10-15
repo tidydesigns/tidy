@@ -167,7 +167,10 @@ export function ComponentLibraryPanel({
   return (
     <details className="border-t border-primary-grey/70 text-xs text-secondary-ink">
       <summary className="cursor-pointer px-3 py-3 font-medium hover:bg-primary-grey/15 focus-visible:outline-2 focus-visible:outline-primary-orange">
-        Components · {components.length}
+        <span data-ph-public style={{ display: "contents" }}>
+          Components ·{" "}
+        </span>
+        {components.length}
       </summary>
       <div className="max-h-72 space-y-3 overflow-y-auto px-3 pb-3 text-primary-black">
         {components.map((component) => (
@@ -177,6 +180,7 @@ export function ComponentLibraryPanel({
                 {component.name}
               </span>
               <button
+                data-ph-public
                 className={button}
                 aria-label={`Create instance of ${component.name}`}
                 onClick={() =>
@@ -193,7 +197,13 @@ export function ComponentLibraryPanel({
             {component.librarySource && (
               <>
                 <p className="text-[10px] text-secondary-ink">
-                  Revision {component.librarySource.revision} ·{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    Revision{" "}
+                  </span>
+                  {component.librarySource.revision}{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    ·
+                  </span>{" "}
                   {component.librarySource.status === "unavailable"
                     ? "Source unavailable; using cached component"
                     : component.librarySource.status === "update-available"
@@ -202,6 +212,7 @@ export function ComponentLibraryPanel({
                 </p>
                 <div className="flex flex-wrap gap-1">
                   <button
+                    data-ph-public
                     className={button}
                     disabled={busy === component.id}
                     onClick={() => void check(component, false)}
@@ -210,6 +221,7 @@ export function ComponentLibraryPanel({
                   </button>
                   {component.librarySource.status === "update-available" && (
                     <button
+                      data-ph-public
                       className={button}
                       disabled={busy === component.id}
                       onClick={() => void check(component, true)}
@@ -218,6 +230,7 @@ export function ComponentLibraryPanel({
                     </button>
                   )}
                   <button
+                    data-ph-public
                     className={button}
                     onClick={() => {
                       setReplaceId(component.id);
@@ -229,6 +242,7 @@ export function ComponentLibraryPanel({
                     Replace source
                   </button>
                   <button
+                    data-ph-public
                     className={button}
                     onClick={() =>
                       void onDocument((doc) => ({
@@ -249,6 +263,7 @@ export function ComponentLibraryPanel({
           </div>
         ))}
         <button
+          data-ph-public
           className={button}
           onClick={() => {
             setReplaceId(undefined);
@@ -260,6 +275,7 @@ export function ComponentLibraryPanel({
         {expanded && (
           <div className="space-y-2">
             <PropertyField
+              replayLabel
               label="Source file URL or ID"
               value={input}
               onCommit={(value) => {
@@ -269,6 +285,7 @@ export function ComponentLibraryPanel({
               }}
             />
             <button
+              data-ph-public
               className={button}
               disabled={busy === "lookup" || !input}
               onClick={() => void lookup()}
@@ -278,6 +295,7 @@ export function ComponentLibraryPanel({
             {source && (
               <>
                 <SelectMenu
+                  replayLabel
                   label="Library component"
                   value={selected}
                   options={source.content.nodes
@@ -286,6 +304,7 @@ export function ComponentLibraryPanel({
                   onChange={setSelected}
                 />
                 <button
+                  data-ph-public
                   className={button}
                   disabled={busy === "link" || !selected}
                   onClick={() => void link()}

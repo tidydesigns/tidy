@@ -197,12 +197,21 @@ export function FigmaFileImport({
     >
       <div className="flex items-start justify-between gap-4 px-6 pt-6">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">Import from Figma</h2>
+          <h2 data-ph-public className="text-lg font-semibold tracking-tight">
+            Import from Figma
+          </h2>
           <p className="mt-1 text-sm text-secondary-ink">
-            Create an editable file in {folderName}.
+            <span data-ph-public style={{ display: "contents" }}>
+              Create an editable file in{" "}
+            </span>
+            {folderName}
+            <span data-ph-public style={{ display: "contents" }}>
+              .
+            </span>
           </p>
         </div>
         <button
+          data-ph-public-label
           type="button"
           aria-label="Close import"
           disabled={committing}
@@ -213,6 +222,7 @@ export function FigmaFileImport({
         </button>
       </div>
       <input
+        data-ph-public-label
         ref={picker}
         type="file"
         accept=".fig"
@@ -234,10 +244,14 @@ export function FigmaFileImport({
                   {choice.file.name}
                 </p>
                 <p className="text-xs text-secondary-ink">
-                  {(choice.file.size / 1048576).toFixed(1)} MB
+                  {(choice.file.size / 1048576).toFixed(1)}{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    MB
+                  </span>
                 </p>
               </div>
               <button
+                data-ph-public
                 type="button"
                 disabled={pending}
                 onClick={() => picker.current?.click()}
@@ -274,7 +288,10 @@ export function FigmaFileImport({
                     {page.name}
                   </span>
                   <span className="shrink-0 text-xs tabular-nums text-secondary-ink">
-                    {page.nodeCount.toLocaleString()} layers
+                    {page.nodeCount.toLocaleString()}{" "}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      layers
+                    </span>
                   </span>
                 </button>
               ))}
@@ -282,8 +299,13 @@ export function FigmaFileImport({
             <p
               className={`mt-3 text-xs tabular-nums ${count > FIGMA_LIMITS.nodes ? "text-danger" : "text-secondary-ink"}`}
             >
-              {count.toLocaleString()} layers selected
-              {count > FIGMA_LIMITS.nodes ? " · choose fewer pages" : ""}
+              {count.toLocaleString()}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                layers selected
+              </span>
+              <span data-ph-public style={{ display: "contents" }}>
+                {count > FIGMA_LIMITS.nodes ? " · choose fewer pages" : ""}
+              </span>
             </p>
           </>
         ) : (
@@ -301,8 +323,10 @@ export function FigmaFileImport({
             className={`flex min-h-48 w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed px-6 py-8 text-sm focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-60 ${dragging ? "border-primary-orange bg-primary-grey/15" : "border-primary-grey bg-surface/30 hover:bg-primary-grey/10"}`}
           >
             <Icon name="frame" size={28} />
-            <span className="font-medium">Choose a Figma file</span>
-            <span className="text-xs text-secondary-ink">
+            <span data-ph-public className="font-medium">
+              Choose a Figma file
+            </span>
+            <span data-ph-public className="text-xs text-secondary-ink">
               Or drop a .fig file here · up to 32 MB
             </span>
           </button>
@@ -322,6 +346,7 @@ export function FigmaFileImport({
         </p>
         <div className="flex items-center gap-2">
           <button
+            data-ph-public
             type="button"
             disabled={committing}
             onClick={dismiss}
@@ -331,6 +356,7 @@ export function FigmaFileImport({
           </button>
           {choice && (
             <button
+              data-ph-public
               type="button"
               disabled={!count || count > FIGMA_LIMITS.nodes || pending}
               onClick={() => void publish(choice.file, choice.selected)}

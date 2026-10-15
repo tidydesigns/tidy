@@ -121,6 +121,7 @@ export function FillInspector({
     max: number,
   ) => (
     <PropertyField
+      replayLabel
       label={label}
       value={read(get)}
       numeric
@@ -135,6 +136,7 @@ export function FillInspector({
   const token = (label: string, name: string | undefined, onChange: (name: string) => void) =>
     Object.keys(tokens).length ? (
       <Choice
+        replayLabel
         label={label}
         value={name}
         choices={[
@@ -204,9 +206,11 @@ export function FillInspector({
   }
   return (
     <Section
+      replayTitle
       title={noun}
       action={
         <button
+          data-ph-public
           type="button"
           aria-label={`Add ${lower}`}
           disabled={lists.some((paints) => paints.length >= 20)}
@@ -237,6 +241,7 @@ export function FillInspector({
             className={`flex items-center gap-1 rounded-md p-1 ${index === i ? "bg-primary-grey/25" : ""}`}
           >
             <button
+              data-ph-private
               type="button"
               aria-label={`Edit ${lower} ${i + 1}`}
               aria-pressed={index === i}
@@ -255,6 +260,8 @@ export function FillInspector({
               }}
             />
             <SelectMenu
+              replayOptions
+              replayLabel
               label={i === 0 ? `${noun} type` : `${noun} ${i + 1} type`}
               value={kind ?? "mixed"}
               size="sm"
@@ -284,6 +291,7 @@ export function FillInspector({
               }}
             />
             <button
+              data-ph-public
               type="button"
               aria-label={`${current.visible ? "Hide" : "Show"} ${lower} ${i + 1}`}
               aria-pressed={current.visible}
@@ -302,6 +310,7 @@ export function FillInspector({
               {current.visible ? "◉" : "○"}
             </button>
             <button
+              data-ph-public
               type="button"
               aria-label={`Move ${lower} ${i + 1} up`}
               disabled={i === 0}
@@ -319,6 +328,7 @@ export function FillInspector({
               ↑
             </button>
             <button
+              data-ph-public
               type="button"
               aria-label={`Move ${lower} ${i + 1} down`}
               disabled={i === count - 1}
@@ -336,6 +346,7 @@ export function FillInspector({
               ↓
             </button>
             <button
+              data-ph-public
               type="button"
               aria-label={i === 0 ? `Remove ${lower}` : `Remove ${lower} ${i + 1}`}
               className={button}
@@ -360,6 +371,8 @@ export function FillInspector({
             100,
           )}
           <Choice
+            replayOptions
+            replayLabel
             label={`${prefix} blend mode`}
             value={read((paint) => paint.blendMode ?? "normal")}
             choices={["normal", "multiply", "screen", "overlay", "darken", "lighten"].map(
@@ -372,6 +385,7 @@ export function FillInspector({
           {type === "solid" && (
             <>
               <ColorField
+                replayLabel
                 label={`${prefix} color`}
                 nodes={selected}
                 tokens={tokens}
@@ -413,6 +427,7 @@ export function FillInspector({
               <>
                 {selected.length === 1 && paint.visible && onGradientEdit && (
                   <button
+                    data-ph-public
                     type="button"
                     aria-pressed={editingGradientId === paint.id}
                     className={button}
@@ -495,6 +510,7 @@ export function FillInspector({
                       >
                         <div className="flex items-end gap-2">
                           <PropertyField
+                            replayLabel
                             label={`Stop ${stopIndex + 1} position %`}
                             value={shared(selected, (node) => get(node)!.position * 100)}
                             numeric
@@ -507,6 +523,7 @@ export function FillInspector({
                             }}
                           />
                           <button
+                            data-ph-public
                             type="button"
                             aria-label={`Remove stop ${stopIndex + 1}`}
                             disabled={lists.some((paints) => {
@@ -532,6 +549,7 @@ export function FillInspector({
                           </button>
                         </div>
                         <ColorField
+                          replayLabel
                           label={`Stop ${stopIndex + 1} color`}
                           nodes={selected}
                           tokens={tokens}
@@ -560,6 +578,8 @@ export function FillInspector({
                   },
                 )}
                 <button
+                  data-ph-public
+                  data-ph-public-label
                   type="button"
                   aria-label="Add gradient stop"
                   disabled={lists.some((paints) => {
@@ -597,6 +617,8 @@ export function FillInspector({
                 ) && (
                   <>
                     <Choice
+                      replayOptions
+                      replayLabel
                       label="Fill image fit"
                       value={read((paint) => (paint.type === "image" ? paint.fit : "cover"))}
                       choices={[
@@ -651,6 +673,7 @@ export function FillInspector({
                       ))}
                     </div>
                     <button
+                      data-ph-public
                       type="button"
                       className={button}
                       onClick={() =>
@@ -663,7 +686,7 @@ export function FillInspector({
                     </button>
                   </>
                 ) : (
-                  <button type="button" className={button} onClick={enableCrop}>
+                  <button data-ph-public type="button" className={button} onClick={enableCrop}>
                     Crop fill image
                   </button>
                 ))}
@@ -674,12 +697,15 @@ export function FillInspector({
               )}
               {onUpload && (
                 <label className={`${button} inline-block cursor-pointer`}>
-                  {uploading
-                    ? "Uploading…"
-                    : paint.type === "image" && paint.assetId
-                      ? "Replace fill image"
-                      : "Choose fill image"}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    {uploading
+                      ? "Uploading…"
+                      : paint.type === "image" && paint.assetId
+                        ? "Replace fill image"
+                        : "Choose fill image"}
+                  </span>
                   <input
+                    data-ph-public-label
                     aria-label="Fill image"
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/svg+xml"
@@ -705,7 +731,15 @@ export function FillInspector({
         </div>
       )}
       {lists.some((paints) => paints.length !== count) && (
-        <p className="text-[10px] text-secondary-ink">Mixed {lower} counts</p>
+        <p className="text-[10px] text-secondary-ink">
+          <span data-ph-public style={{ display: "contents" }}>
+            Mixed{" "}
+          </span>
+          {lower}{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            counts
+          </span>
+        </p>
       )}
     </Section>
   );

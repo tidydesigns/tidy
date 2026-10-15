@@ -1,7 +1,14 @@
 export function PageLoading() {
   return (
-    <div role="status" aria-label="Loading page" className="max-w-4xl motion-safe:animate-pulse">
-      <span className="sr-only">Loading…</span>
+    <div
+      data-ph-public-label
+      role="status"
+      aria-label="Loading page"
+      className="max-w-4xl motion-safe:animate-pulse"
+    >
+      <span data-ph-public className="sr-only">
+        Loading…
+      </span>
       <div aria-hidden="true" className="space-y-8">
         <div className="h-9 w-48 rounded-lg bg-primary-grey/20" />
         <div className="h-10 w-full rounded-lg bg-primary-grey/15" />

@@ -22,7 +22,9 @@ export default async function ForgotPasswordPage() {
       <ForgotPasswordForm emailConfigured={authEmailConfigured()} />
       <p className="mt-8 text-center text-sm">
         <Link href="/login" className="underline decoration-primary-orange underline-offset-4">
-          Back to sign in
+          <span data-ph-public style={{ display: "contents" }}>
+            Back to sign in
+          </span>
         </Link>
       </p>
     </AuthShell>

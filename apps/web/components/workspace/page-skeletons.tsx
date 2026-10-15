@@ -50,7 +50,15 @@ function Surface({
       data-page-skeleton={name}
       className={className}
     >
-      <span className="sr-only">Loading {name}…</span>
+      <span className="sr-only">
+        <span data-ph-public style={{ display: "contents" }}>
+          Loading{" "}
+        </span>
+        {name}
+        <span data-ph-public style={{ display: "contents" }}>
+          …
+        </span>
+      </span>
       <div
         aria-hidden="true"
         className={name === "threads" ? "flex min-h-0 flex-1 flex-col" : undefined}
@@ -88,7 +96,7 @@ function FilesLayoutSkeleton({ archived, folder }: { archived: boolean; folder: 
         {folder ? (
           <Block className="h-9 w-48" />
         ) : (
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
             {archived ? "Archive" : "Files"}
           </h1>
         )}
@@ -141,8 +149,15 @@ function FieldSkeleton() {
 
 export function ConnectorDetailsSkeleton() {
   return (
-    <div role="status" aria-label="Loading connection" className="max-w-xl space-y-5">
-      <span className="sr-only">Loading connection…</span>
+    <div
+      data-ph-public-label
+      role="status"
+      aria-label="Loading connection"
+      className="max-w-xl space-y-5"
+    >
+      <span data-ph-public className="sr-only">
+        Loading connection…
+      </span>
       <div aria-hidden="true">
         <Block className="h-10 w-40" />
         <Block className="mt-5 h-4 w-3/4" />
@@ -208,23 +223,29 @@ function SettingsPanelSkeleton({
     return (
       <div className="max-w-xl space-y-10">
         <div className="space-y-6">
-          <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
+          <h2 data-ph-public className="text-xl font-semibold tracking-tight">
+            Profile
+          </h2>
           <div className="flex items-center gap-4">
             <Block className="size-16 shrink-0 rounded-full" />
             <div>
-              <p className="text-sm font-medium">Profile picture</p>
+              <p data-ph-public className="text-sm font-medium">
+                Profile picture
+              </p>
             </div>
           </div>
           <FieldSkeleton />
           <FieldSkeleton />
           {!emailConfigured && (
-            <p className="text-sm text-secondary-ink">
+            <p data-ph-public className="text-sm text-secondary-ink">
               Email changes are unavailable until email delivery is configured.
             </p>
           )}
         </div>
         <div className="space-y-5 border-t border-primary-grey pt-6">
-          <h2 className="text-lg font-semibold">Password</h2>
+          <h2 data-ph-public className="text-lg font-semibold">
+            Password
+          </h2>
           <FieldSkeleton />
           <FieldSkeleton />
           <FieldSkeleton />
@@ -236,20 +257,24 @@ function SettingsPanelSkeleton({
     return (
       <div className="max-w-xl space-y-8">
         <section className="space-y-5">
-          <h2 className="text-xl font-semibold tracking-tight">Appearance</h2>
+          <h2 data-ph-public className="text-xl font-semibold tracking-tight">
+            Appearance
+          </h2>
           <div className="text-sm font-medium">
-            <span>Theme</span>
+            <span data-ph-public>Theme</span>
             <Block className="mt-2 h-10 w-full max-w-xs" />
           </div>
         </section>
         <section className="space-y-5 border-t border-primary-grey pt-8">
-          <h2 className="text-xl font-semibold tracking-tight">File editor</h2>
+          <h2 data-ph-public className="text-xl font-semibold tracking-tight">
+            File editor
+          </h2>
           <div className="text-sm font-medium">
-            <span>Editor panels</span>
+            <span data-ph-public>Editor panels</span>
             <Block className="mt-2 h-10 w-full max-w-xs" />
           </div>
           <div className="text-sm font-medium">
-            <span>Minimised toolbar</span>
+            <span data-ph-public>Minimised toolbar</span>
             <Block className="mt-2 h-10 w-full max-w-xs" />
           </div>
         </section>
@@ -278,7 +303,9 @@ function SettingsPanelSkeleton({
     return (
       <div className="max-w-lg space-y-5">
         <div>
-          <h2 className="text-lg font-semibold">Codex</h2>
+          <h2 data-ph-public className="text-lg font-semibold">
+            Codex
+          </h2>
           <Block className="mt-2 h-12 w-full" />
         </div>
         <Block className="h-12 w-36" />
@@ -286,7 +313,9 @@ function SettingsPanelSkeleton({
     );
   return (
     <div className="max-w-xl">
-      <h2 className="text-xl font-semibold tracking-tight">Organization</h2>
+      <h2 data-ph-public className="text-xl font-semibold tracking-tight">
+        Organization
+      </h2>
       <div className="mt-8 space-y-6">
         <Block className="size-16 rounded-xl" />
         <FieldSkeleton />
@@ -326,7 +355,9 @@ function SettingsLayoutSkeleton({
 }: { tab: string } & SkeletonOptions) {
   return (
     <Surface name="settings" className={settingsPage}>
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Settings</h1>
+      <h1 data-ph-public className="text-3xl font-semibold tracking-tight sm:text-4xl">
+        Settings
+      </h1>
       <div className={settingsTabList}>
         {settingsTabs(true, showThreads).map((item) => (
           <span
@@ -347,7 +378,9 @@ function SettingsLayoutSkeleton({
 export function McpSkeleton() {
   return (
     <Surface name="mcp" className={mcpPage}>
-      <h1 className="text-3xl font-semibold tracking-tight">Connect your agent</h1>
+      <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
+        Connect your agent
+      </h1>
       <Block className="mt-2 h-5 w-full max-w-md" />
       <Block className="mt-6 h-10 w-[210px]" />
       <div className="mt-6 space-y-6">
@@ -375,7 +408,9 @@ export function ThreadsSkeleton() {
   return (
     <Surface name="threads" className={threadsPage}>
       <div className="flex items-center justify-between gap-3 border-b border-primary-grey/65 pb-4">
-        <h1 className="text-lg font-semibold tracking-tight">Threads</h1>
+        <h1 data-ph-public className="text-lg font-semibold tracking-tight">
+          Threads
+        </h1>
         <Block className="h-8 w-28" />
       </div>
       <div className="grid min-h-0 flex-1 md:grid-cols-[220px_minmax(0,1fr)]">
@@ -396,7 +431,9 @@ export function VaultSkeleton() {
   return (
     <Surface name="vault" className={filesPage}>
       <div className={filesHeader}>
-        <h1 className="text-3xl font-semibold tracking-tight">Vault</h1>
+        <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
+          Vault
+        </h1>
         <Block className="h-[42px] w-28" />
       </div>
       <div className="mt-9 divide-y divide-primary-grey/70">
@@ -433,7 +470,7 @@ export function WorkspaceSkeleton({ showThreads = true, emailConfigured }: Skele
             .map(({ id, label, icon }) => (
               <div key={id} className={`${workspaceNavClass} max-lg:w-auto`}>
                 <Icon name={icon} size={18} />
-                <span>{label}</span>
+                <span data-ph-public>{label}</span>
               </div>
             ))}
         </div>
@@ -441,7 +478,7 @@ export function WorkspaceSkeleton({ showThreads = true, emailConfigured }: Skele
           <div className="flex w-full flex-col gap-1">
             <div className={workspaceNavClass}>
               <Icon name="feedback" size={18} />
-              <span>Send feedback</span>
+              <span data-ph-public>Send feedback</span>
             </div>
           </div>
           <div className="flex min-h-12 w-full items-center gap-3 rounded-lg px-3 py-2">

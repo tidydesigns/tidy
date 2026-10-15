@@ -85,7 +85,7 @@ export function CornerRadiusHandles({
       className="group/radius pointer-events-none"
       data-dragging={active !== null || undefined}
     >
-      <span id={`radius-help-${node.id}`} className="sr-only">
+      <span data-ph-public id={`radius-help-${node.id}`} className="sr-only">
         Drag to round all corners. Hold Alt or Option before dragging to adjust just this corner.
         Arrow keys adjust by one; Shift adjusts by ten.
       </span>
@@ -213,7 +213,10 @@ export function CornerRadiusHandles({
               className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-primary-orange px-1.5 py-0.5 text-[10px] leading-4 text-on-brand shadow-sm"
               style={{ left: matrix.a * x + matrix.c * y, top: matrix.b * x + matrix.d * y - 18 }}
             >
-              Radius {Math.round(value * 100) / 100}
+              <span data-ph-public style={{ display: "contents" }}>
+                Radius{" "}
+              </span>
+              {Math.round(value * 100) / 100}
             </output>
           );
         })()}

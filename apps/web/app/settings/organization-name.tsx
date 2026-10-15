@@ -9,6 +9,7 @@ export function OrganizationName({ organization }: { organization: { id: string;
   const { updateName } = useOrganizationNames();
   return (
     <ImmediateField
+      replayLabel
       label="Organization name"
       value={organization.name}
       maxLength={100}

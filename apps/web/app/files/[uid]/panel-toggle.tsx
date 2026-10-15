@@ -2,6 +2,7 @@ export function PanelToggle({ expanded, onClick }: { expanded: boolean; onClick:
   const label = expanded ? "Minimize editor panels" : "Expand editor panels";
   return (
     <button
+      data-ph-public-label
       type="button"
       onClick={onClick}
       aria-label={label}
@@ -10,6 +11,7 @@ export function PanelToggle({ expanded, onClick }: { expanded: boolean; onClick:
       className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-primary-black/70 hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
     >
       <svg
+        data-ph-public
         aria-hidden="true"
         width="20"
         height="20"

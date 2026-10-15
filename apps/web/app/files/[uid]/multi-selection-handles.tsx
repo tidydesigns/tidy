@@ -187,11 +187,16 @@ export function MultiSelectionHandles({
       style={{ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}
     >
       <output
+        data-ph-public-label
         data-selection-measurement
         aria-label="Selection size"
         className="pointer-events-none absolute left-1/2 top-[calc(100%+8px)] -translate-x-1/2 whitespace-nowrap rounded bg-primary-orange px-1.5 py-0.5 text-[10px] leading-4 text-on-brand shadow-sm"
       >
-        {Math.round(bounds.measuredWidth * 10) / 10} × {Math.round(bounds.measuredHeight * 10) / 10}
+        {Math.round(bounds.measuredWidth * 10) / 10}{" "}
+        <span data-ph-public style={{ display: "contents" }}>
+          ×{" "}
+        </span>
+        {Math.round(bounds.measuredHeight * 10) / 10}
       </output>
       {resizeHandles.map((handle) => (
         <button

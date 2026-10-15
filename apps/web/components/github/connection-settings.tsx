@@ -60,7 +60,7 @@ export function GitHubSettings({
   }
   if (!status.ready || !status.configured)
     return (
-      <p className="text-sm text-secondary-ink">
+      <p data-ph-public className="text-sm text-secondary-ink">
         {!status.ready
           ? "GitHub integration is awaiting its database migration."
           : "GitHub integration is awaiting its server credentials."}
@@ -69,13 +69,27 @@ export function GitHubSettings({
   return (
     <div className="max-w-xl space-y-5">
       <div className="flex flex-wrap items-center gap-3">
-        {status.login && <span className="text-sm">Connected as {status.login}</span>}
+        {status.login && (
+          <span className="text-sm">
+            <span data-ph-public style={{ display: "contents" }}>
+              Connected as{" "}
+            </span>
+            {status.login}
+          </span>
+        )}
         <form action="/api/github/connect" method="post">
           <input type="hidden" name="organizationId" value={organizationId} />
-          <button className={button}>{status.login ? "Reconnect GitHub" : "Connect GitHub"}</button>
+          <button data-ph-public className={button}>
+            {status.login ? "Reconnect GitHub" : "Connect GitHub"}
+          </button>
         </form>
         {status.login && (
-          <button className={button} disabled={busy} onClick={() => void disconnect()}>
+          <button
+            data-ph-public
+            className={button}
+            disabled={busy}
+            onClick={() => void disconnect()}
+          >
             Disconnect account
           </button>
         )}
@@ -85,7 +99,7 @@ export function GitHubSettings({
           {status.connections.map((item) => (
             <li key={item.installationId} className="text-sm">
               {item.account}{" "}
-              <span className="text-secondary-ink">
+              <span data-ph-public className="text-secondary-ink">
                 {item.active ? "Linked" : "Access suspended or removed"}
               </span>
             </li>
@@ -95,6 +109,7 @@ export function GitHubSettings({
       {canManage && status.login && (
         <>
           <a
+            data-ph-public
             href={status.installUrl}
             target="_blank"
             rel="noreferrer"
@@ -102,10 +117,11 @@ export function GitHubSettings({
           >
             Install on a GitHub account
           </a>
-          <p className="text-xs text-secondary-ink">
+          <p data-ph-public className="text-xs text-secondary-ink">
             After installing, return here to refresh the available installations.
           </p>
           <button
+            data-ph-public
             className={button}
             disabled={busy}
             onClick={async () => {
@@ -143,7 +159,12 @@ export function GitHubSettings({
                 className="flex items-center justify-between gap-3 rounded-lg border border-primary-grey/70 p-3"
               >
                 <span className="text-sm">{item.account.login}</span>
-                <button disabled={busy} className={button} onClick={() => void attach(item.id)}>
+                <button
+                  data-ph-public
+                  disabled={busy}
+                  className={button}
+                  onClick={() => void attach(item.id)}
+                >
                   Link organisation
                 </button>
               </div>

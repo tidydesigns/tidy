@@ -73,10 +73,13 @@ function FontOption({
       <span className="truncate">
         {font.family}
         {font.source === "local" && (
-          <span className="ml-2 text-[10px] text-secondary-ink">Local</span>
+          <span data-ph-public className="ml-2 text-[10px] text-secondary-ink">
+            Local
+          </span>
         )}
       </span>
       <span
+        data-ph-private
         aria-hidden="true"
         style={{
           fontFamily: JSON.stringify(closestFontStyle(font, 400, false).face ?? font.family),
@@ -95,12 +98,14 @@ export function FontPicker({
   onChoose,
   familyOnly = false,
   label = "Font family",
+  replayLabel = false,
 }: {
   selected: DesignNode[];
   onPatch: (patch: Patch) => void;
   onChoose?: (font: FontFamily) => void;
   familyOnly?: boolean;
   label?: string;
+  replayLabel?: boolean;
 }) {
   const registry = useFontRegistry(),
     id = useId();
@@ -293,7 +298,9 @@ export function FontPicker({
   return (
     <div className="space-y-2">
       <label className="block text-[10px] text-secondary-ink">
-        {familyOnly ? "Replace throughout file" : label}
+        <span data-ph-public={replayLabel || undefined}>
+          {familyOnly ? "Replace throughout file" : label}
+        </span>
         <button
           ref={trigger}
           type="button"
@@ -314,15 +321,20 @@ export function FontPicker({
           <span className="truncate">
             {familyOnly ? "Choose replacement…" : (family ?? "Mixed")}
           </span>
-          <span aria-hidden="true">⌄</span>
+          <span data-ph-public aria-hidden="true">
+            ⌄
+          </span>
         </button>
       </label>
       {!familyOnly && (
         <>
           {styleOptions.length > 0 && (
             <div className="text-[10px] text-secondary-ink">
-              <span id={`${id}-style-label`}>Font style</span>
+              <span data-ph-public id={`${id}-style-label`}>
+                Font style
+              </span>
               <SelectMenu
+                replayLabel
                 label="Font style"
                 labelledBy={`${id}-style-label`}
                 size="sm"
@@ -376,6 +388,7 @@ export function FontPicker({
           )}
           {font?.weightRange && (
             <PropertyField
+              replayLabel
               label="Font weight"
               value={weight}
               numeric
@@ -388,7 +401,7 @@ export function FontPicker({
             />
           )}
           {status === "loading" && (
-            <p role="status" className="text-[10px] text-secondary-ink">
+            <p data-ph-public role="status" className="text-[10px] text-secondary-ink">
               Loading font…
             </p>
           )}
@@ -404,6 +417,7 @@ export function FontPicker({
               </span>
               {retryable.length > 0 && (
                 <button
+                  data-ph-public
                   type="button"
                   onClick={() => {
                     for (const node of retryable)
@@ -424,7 +438,7 @@ export function FontPicker({
             </div>
           )}
           {font && (font.source !== "local" || font.metadataReady) && !validStyle && styleValue && (
-            <p role="status" className="text-[10px] text-secondary-ink">
+            <p data-ph-public role="status" className="text-[10px] text-secondary-ink">
               Choose an available style for this font.
             </p>
           )}
@@ -445,6 +459,7 @@ export function FontPicker({
             }}
           >
             <input
+              data-ph-public-label
               ref={search}
               aria-label="Search fonts"
               aria-controls={`${id}-list`}
@@ -474,6 +489,7 @@ export function FontPicker({
               className="h-9 w-full shrink-0 border-b border-primary-grey/60 px-2 text-xs outline-none"
             />
             <div
+              data-ph-public-label
               id={`${id}-list`}
               role="listbox"
               aria-label="Fonts"
@@ -501,6 +517,7 @@ export function FontPicker({
             </div>
             {registry.supportsLocal() && (
               <button
+                data-ph-public
                 type="button"
                 disabled={localBusy}
                 onClick={async () => {
@@ -520,7 +537,7 @@ export function FontPicker({
               </button>
             )}
             {!registry.supportsLocal() && (
-              <p className="px-2 py-2 text-[10px] text-secondary-ink">
+              <p data-ph-public className="px-2 py-2 text-[10px] text-secondary-ink">
                 This browser cannot list local fonts. Choose a web font, or open this file in a
                 browser with local font access.
               </p>

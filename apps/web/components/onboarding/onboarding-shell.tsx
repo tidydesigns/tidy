@@ -4,12 +4,16 @@ import { TidyLogo } from "@/components/ui/tidy-logo";
 export function OnboardingShell({
   step,
   title,
+  replayTitle = false,
   description,
+  replayDescription = false,
   children,
 }: {
   step?: 1 | 2;
   title: string;
+  replayTitle?: boolean;
   description: string;
+  replayDescription?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -19,11 +23,27 @@ export function OnboardingShell({
         <div className="w-full max-w-md">
           {step && (
             <p className="text-xs font-semibold uppercase tracking-widest text-secondary-ink">
-              Step {step} of 2
+              <span data-ph-public style={{ display: "contents" }}>
+                Step{" "}
+              </span>
+              {step}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                of 2
+              </span>
             </p>
           )}
-          <h1 className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl">{title}</h1>
-          <p className="mt-3 text-sm leading-6 text-secondary-ink">{description}</p>
+          <h1
+            data-ph-public={replayTitle || undefined}
+            className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl"
+          >
+            {title}
+          </h1>
+          <p
+            data-ph-public={replayDescription || undefined}
+            className="mt-3 text-sm leading-6 text-secondary-ink"
+          >
+            {description}
+          </p>
           {children}
         </div>
       </div>

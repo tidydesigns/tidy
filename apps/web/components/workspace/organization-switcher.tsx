@@ -88,6 +88,7 @@ export function OrganizationSwitcher({
           </span>
         </span>
         <svg
+          data-ph-public
           aria-hidden="true"
           className="shrink-0 text-secondary-ink"
           width="14"
@@ -105,6 +106,7 @@ export function OrganizationSwitcher({
         </svg>
       </button>
       <div
+        data-ph-public-label
         ref={dropdown}
         id={id}
         popover="auto"
@@ -113,6 +115,7 @@ export function OrganizationSwitcher({
       >
         <div className="flex items-center gap-2 px-3 py-2">
           <SelectMenu
+            replayLabel
             label="Organization"
             value={organizationId}
             options={currentOrganizations.map((org) => ({ value: org.id, label: org.name }))}
@@ -123,6 +126,7 @@ export function OrganizationSwitcher({
           />
           {canCreateOrganization && (
             <button
+              data-ph-public-label
               type="button"
               aria-label="Create organization"
               title="Create organization"
@@ -134,7 +138,14 @@ export function OrganizationSwitcher({
               }}
               className="flex size-10 shrink-0 items-center justify-center rounded-lg text-secondary-ink hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
             >
-              <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <svg
+                data-ph-public
+                aria-hidden="true"
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+              >
                 <path
                   d="M8 3v10M3 8h10"
                   stroke="currentColor"
@@ -168,10 +179,12 @@ export function OrganizationSwitcher({
           size="sm"
         >
           <div className="flex items-center justify-between gap-4">
-            <h2 id={`${id}-create-title`} className="text-lg font-semibold">
+            <h2 data-ph-public id={`${id}-create-title`} className="text-lg font-semibold">
               Create organization
             </h2>
             <button
+              data-ph-public
+              data-ph-public-label
               type="button"
               aria-label="Close"
               disabled={createPending}

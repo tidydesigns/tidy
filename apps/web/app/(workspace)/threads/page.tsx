@@ -49,6 +49,8 @@ export default async function ThreadsPage({
       fileId={query.file}
     />
   ) : (
-    <p className="text-sm text-secondary-ink">Threads are not available yet.</p>
+    <p data-ph-public className="text-sm text-secondary-ink">
+      Threads are not available yet.
+    </p>
   );
 }

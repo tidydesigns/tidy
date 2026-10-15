@@ -133,10 +133,10 @@ export function ReauthDialog({
       aria-describedby={`${id}-description`}
       onClose={onCancel}
     >
-      <h2 id={`${id}-title`} className="text-lg font-semibold">
+      <h2 data-ph-public id={`${id}-title`} className="text-lg font-semibold">
         Authenticate again
       </h2>
-      <p id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
+      <p data-ph-public id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
         Confirm it’s you to access your data or delete your account. You’ll stay signed in.
       </p>
       <p className="mb-5 break-all text-sm font-medium">{email}</p>
@@ -155,6 +155,7 @@ export function ReauthDialog({
       {methods?.password && (
         <form method="post" onSubmit={submit} className="space-y-4 mt-4">
           <TextField
+            replayLabel
             id={`${id}-password`}
             label="Password"
             type="password"
@@ -167,17 +168,19 @@ export function ReauthDialog({
             disabled={pending}
           />
           <Button type="submit" disabled={pending || !password}>
-            {pending ? "Authenticating…" : "Authenticate"}
+            <span data-ph-public style={{ display: "contents" }}>
+              {pending ? "Authenticating…" : "Authenticate"}
+            </span>
           </Button>
         </form>
       )}
       {!methods && !error && (
-        <p role="status" className="text-sm">
+        <p data-ph-public role="status" className="text-sm">
           Loading sign-in methods…
         </p>
       )}
       {methods && !methods.password && !methods.google && !methods.github && (
-        <p className="text-sm text-secondary-ink">
+        <p data-ph-public className="text-sm text-secondary-ink">
           No linked sign-in method is currently available. Sign in again to continue.
         </p>
       )}
@@ -192,7 +195,9 @@ export function ReauthDialog({
         className="mt-5 min-h-11 text-sm font-medium text-secondary-ink hover:text-ink"
         onClick={() => dialog.current?.close()}
       >
-        Cancel
+        <span data-ph-public style={{ display: "contents" }}>
+          Cancel
+        </span>
       </Button>
     </Dialog>
   );

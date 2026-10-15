@@ -60,6 +60,7 @@ export function MemberControls({
               <div className="flex items-center gap-3">
                 {canManage && !memberIsOwner ? (
                   <SelectMenu
+                    replayOptions
                     label={`Role for ${member.name}`}
                     value={member.role === "member" ? "editor" : member.role}
                     disabled={Boolean(pendingId)}
@@ -78,6 +79,7 @@ export function MemberControls({
                 )}
                 {canManage && (
                   <ConfirmAction
+                    replayLabel
                     label="Remove member"
                     title={`Remove ${member.name}?`}
                     disabled={Boolean(pendingId)}
@@ -87,7 +89,9 @@ export function MemberControls({
                       onChange((current) => current.filter((item) => item.id !== member.id));
                     }}
                   >
-                    They will lose access to this organization and its files.
+                    <span data-ph-public style={{ display: "contents" }}>
+                      They will lose access to this organization and its files.
+                    </span>
                   </ConfirmAction>
                 )}
               </div>

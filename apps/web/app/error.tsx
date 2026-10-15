@@ -15,8 +15,9 @@ export default function ErrorPage({
   }, [error]);
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
-      <p>Could not load this page. Please try again.</p>
+      <p data-ph-public>Could not load this page. Please try again.</p>
       <button
+        data-ph-public
         type="button"
         onClick={retry}
         className="rounded-md border border-primary-grey px-4 py-2"

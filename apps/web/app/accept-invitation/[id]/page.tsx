@@ -22,15 +22,21 @@ export default async function InvitationPage({ params }: PageProps<"/accept-invi
             href={`/login?next=${encodeURIComponent(next)}`}
             className="flex h-12 w-full items-center justify-center rounded-lg bg-primary-orange px-4 text-sm font-semibold text-on-brand hover:bg-primary-orange/90"
           >
-            Sign in to accept
+            <span data-ph-public style={{ display: "contents" }}>
+              Sign in to accept
+            </span>
           </Link>
           <p className="text-center text-sm text-primary-black/70">
-            New to Tidy?{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              New to Tidy?
+            </span>{" "}
             <Link
               href={`/sign-up?next=${encodeURIComponent(next)}`}
               className="font-medium text-primary-black underline decoration-primary-orange underline-offset-4"
             >
-              Create an account
+              <span data-ph-public style={{ display: "contents" }}>
+                Create an account
+              </span>
             </Link>
           </p>
         </div>
@@ -57,7 +63,9 @@ export default async function InvitationPage({ params }: PageProps<"/accept-invi
             href="/"
             className="text-sm font-medium underline decoration-primary-orange underline-offset-4"
           >
-            Go to Tidy
+            <span data-ph-public style={{ display: "contents" }}>
+              Go to Tidy
+            </span>
           </Link>
         </div>
       </AuthShell>

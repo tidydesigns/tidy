@@ -22,6 +22,8 @@ export function SelectMenu({
   options,
   onChange,
   label,
+  replayLabel = false,
+  replayOptions = false,
   labelledBy,
   disabled = false,
   className = "",
@@ -38,6 +40,9 @@ export function SelectMenu({
   options: SelectMenuOption[];
   onChange: (value: string) => void;
   label: string;
+  /** Only labels/options authored by the application may opt in. Values stay private. */
+  replayLabel?: boolean;
+  replayOptions?: boolean;
   labelledBy?: string;
   disabled?: boolean;
   className?: string;
@@ -141,6 +146,7 @@ export function SelectMenu({
       onKeyDown={(event) => event.stopPropagation()}
     >
       <button
+        data-ph-control-label={replayLabel ? label : undefined}
         ref={trigger}
         type="button"
         disabled={unavailable}
@@ -165,10 +171,11 @@ export function SelectMenu({
       >
         {triggerContent ?? (
           <>
-            <span id={valueId} className="truncate">
+            <span data-ph-private id={valueId} className="truncate">
               {selected?.label ?? value}
             </span>
             <svg
+              data-ph-public
               aria-hidden="true"
               width="16"
               height="16"
@@ -193,6 +200,7 @@ export function SelectMenu({
           id={menuId}
           role="menu"
           popover="manual"
+          data-ph-public-label={replayLabel || undefined}
           aria-label={label}
           onKeyDown={onMenuKeyDown}
           className="fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl"
@@ -213,7 +221,13 @@ export function SelectMenu({
             >
               <span className="flex min-w-0 items-center gap-2">
                 {option.icon}
-                <span className="truncate">{option.label}</span>
+                <span
+                  data-ph-public={replayOptions || undefined}
+                  data-ph-private={!replayOptions || undefined}
+                  className="truncate"
+                >
+                  {option.label}
+                </span>
               </span>
               <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
                 {!actionMenu && value === option.value ? "✓" : ""}

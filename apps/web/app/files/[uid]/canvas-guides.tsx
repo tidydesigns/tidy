@@ -186,6 +186,7 @@ export function CanvasGuides({
         );
       })}
       <button
+        data-ph-public-label
         type="button"
         aria-label="Add vertical guide"
         title="Click or drag to add a vertical guide"
@@ -210,6 +211,7 @@ export function CanvasGuides({
         ))}
       </button>
       <button
+        data-ph-public-label
         type="button"
         aria-label="Add horizontal guide"
         title="Click or drag to add a horizontal guide"

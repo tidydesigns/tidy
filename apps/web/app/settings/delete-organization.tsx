@@ -52,6 +52,7 @@ export function DeleteOrganization({
   return (
     <div className="mt-10 border-t border-primary-grey pt-6">
       <button
+        data-ph-public
         type="button"
         onClick={() => {
           setConfirmation("");
@@ -72,9 +73,15 @@ export function DeleteOrganization({
         }}
       >
         <h2 id={`${id}-title`} className="text-lg font-semibold">
-          Delete {organization.name}?
+          <span data-ph-public style={{ display: "contents" }}>
+            Delete{" "}
+          </span>
+          {organization.name}
+          <span data-ph-public style={{ display: "contents" }}>
+            ?
+          </span>
         </h2>
-        <p id={`${id}-description`} className="mt-3 text-sm text-secondary-ink">
+        <p data-ph-public id={`${id}-description`} className="mt-3 text-sm text-secondary-ink">
           This permanently deletes the organization, its files, folders and team access for
           everyone. This cannot be undone.
         </p>
@@ -100,11 +107,14 @@ export function DeleteOrganization({
               onNavigate={() => dialog.current?.close()}
               className="inline-flex min-h-9 items-center text-sm underline underline-offset-4"
             >
-              Open Billing
+              <span data-ph-public style={{ display: "contents" }}>
+                Open Billing
+              </span>
             </NavigationLink>
           )}
           <div className="flex justify-end gap-3">
             <button
+              data-ph-public
               type="button"
               disabled={pending}
               onClick={() => dialog.current?.close()}
@@ -113,6 +123,7 @@ export function DeleteOrganization({
               Cancel
             </button>
             <button
+              data-ph-public
               type="submit"
               disabled={pending || confirmation !== organization.name}
               className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:cursor-not-allowed disabled:opacity-50"

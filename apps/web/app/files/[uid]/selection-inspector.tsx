@@ -242,6 +242,7 @@ export const SelectionInspector = memo(function SelectionInspector({
     step: number | "any" = "any",
   ) => (
     <PropertyField
+      replayLabel
       key={label}
       label={label}
       value={common(get)}
@@ -294,6 +295,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   const tokenChoice = (label: string, key: "fillToken" | "colorToken" | "borderColorToken") =>
     Object.keys(tokens).length > 0 ? (
       <Choice
+        replayLabel
         label={label}
         value={common((item) => item.style[key] ?? "")}
         choices={[
@@ -306,7 +308,7 @@ export const SelectionInspector = memo(function SelectionInspector({
 
   if (!inspect && richSelection && selected.some((item) => item.id === richSelection.nodeId))
     return (
-      <Section title="Text selection">
+      <Section replayTitle title="Text selection">
         <RichTextSelectionControls key={richSelection.nodeId} selection={richSelection} />
       </Section>
     );
@@ -316,11 +318,17 @@ export const SelectionInspector = memo(function SelectionInspector({
       <div className="flex items-center gap-2 border-b border-primary-grey/60 px-4 py-3">
         <div className="min-w-0 flex-1">
           {multi ? (
-            <p className="text-xs font-medium">{selected.length} layers</p>
+            <p className="text-xs font-medium">
+              {selected.length}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                layers
+              </span>
+            </p>
           ) : inspect ? (
             <p className="truncate text-xs font-medium">{node.name}</p>
           ) : (
             <PropertyField
+              replayLabel
               disabled={readOnly}
               label="Layer name"
               value={node.name}
@@ -343,10 +351,11 @@ export const SelectionInspector = memo(function SelectionInspector({
   );
 
   const componentControls = (family || instance) && (
-    <Section title="Component">
+    <Section replayTitle title="Component">
       {family && !inspect && (
         <div onKeyDown={(event) => event.stopPropagation()}>
           <SelectMenu
+            replayLabel
             label="Variant"
             value={node.variant ?? family.variants.default}
             disabled={readOnly}
@@ -387,7 +396,7 @@ export const SelectionInspector = memo(function SelectionInspector({
         {!multi &&
           node.vectorPath?.shape &&
           (node.vectorPath.shape.kind === "polygon" || node.vectorPath.shape.kind === "star") && (
-            <Section title={node.vectorPath.shape.kind === "star" ? "Star" : "Polygon"}>
+            <Section replayTitle title={node.vectorPath.shape.kind === "star" ? "Star" : "Polygon"}>
               {numberField(
                 "Points",
                 (item) =>
@@ -421,14 +430,14 @@ export const SelectionInspector = memo(function SelectionInspector({
           )}
         <TokenBindings selected={selected} document={document} onPatch={onPatch} />
         {!multi && vector && onEditVector && !readOnly && (
-          <Section title="Path">
-            <button type="button" className={buttonClass} onClick={onEditVector}>
+          <Section replayTitle title="Path">
+            <button data-ph-public type="button" className={buttonClass} onClick={onEditVector}>
               {editingVector ? "Finish editing points" : "Edit points"}
             </button>
           </Section>
         )}
         {multi && selected.every(vectorOperand) && !readOnly && (
-          <Section title="Combine paths">
+          <Section replayTitle title="Combine paths">
             <div className="grid grid-cols-2 gap-1.5">
               {(["union", "subtract", "intersect", "exclude"] as const).map((operation) => (
                 <button
@@ -444,21 +453,29 @@ export const SelectionInspector = memo(function SelectionInspector({
           </Section>
         )}
         {multi && chosenMaskSource && !readOnly && (
-          <Section title="Mask">
+          <Section replayTitle title="Mask">
             <SelectMenu
+              replayLabel
               label="Mask source"
               value={chosenMaskSource.id}
               options={maskSources.map((n) => ({ value: n.id, label: n.name }))}
               onChange={setMaskSourceId}
             />
-            <button type="button" className={`${buttonClass} mt-2`} onClick={maskLayers}>
+            <button
+              data-ph-public
+              type="button"
+              className={`${buttonClass} mt-2`}
+              onClick={maskLayers}
+            >
               Create mask
             </button>
           </Section>
         )}
         {!multi && node.vectorBoolean && (
-          <Section title="Boolean">
+          <Section replayTitle title="Boolean">
             <Choice
+              replayOptions
+              replayLabel
               label="Operation"
               value={node.vectorBoolean}
               choices={[
@@ -470,6 +487,7 @@ export const SelectionInspector = memo(function SelectionInspector({
               onChange={(value) => onPatch({ vectorBoolean: value as VectorBoolean })}
             />
             <button
+              data-ph-public
               type="button"
               className={`${buttonClass} mt-2`}
               onClick={() => onDocument((content) => releaseVectorComposite(content, node.id))}
@@ -479,8 +497,9 @@ export const SelectionInspector = memo(function SelectionInspector({
           </Section>
         )}
         {!multi && node.mask && (
-          <Section title="Mask">
+          <Section replayTitle title="Mask">
             <SelectMenu
+              replayLabel
               label="Mask source"
               value={node.mask.sourceId}
               options={document.nodes
@@ -489,6 +508,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               onChange={(sourceId) => onPatch({ mask: { ...node.mask!, sourceId } })}
             />
             <Choice
+              replayOptions
+              replayLabel
               label="Mask mode"
               value={node.mask.mode}
               choices={[
@@ -501,6 +522,7 @@ export const SelectionInspector = memo(function SelectionInspector({
             />
             <div className="mt-2 flex gap-2">
               <button
+                data-ph-public
                 type="button"
                 className={buttonClass}
                 onClick={() => onPatch({ mask: { ...node.mask!, enabled: !node.mask!.enabled } })}
@@ -508,6 +530,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                 {node.mask.enabled ? "Disable mask" : "Enable mask"}
               </button>
               <button
+                data-ph-public
                 type="button"
                 className={buttonClass}
                 onClick={() => onDocument((content) => releaseVectorComposite(content, node.id))}
@@ -531,9 +554,11 @@ export const SelectionInspector = memo(function SelectionInspector({
           document={document}
           onDocument={onDocument}
         />
-        <Section title="Position">
+        <Section replayTitle title="Position">
           {selected.every((item) => item.type === "artboard") && (
             <Choice
+              replayOptions
+              replayLabel
               label="Frame preset"
               value={common(
                 (item) =>
@@ -593,6 +618,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               ),
             )}
             <button
+              data-ph-public
+              data-ph-public-label
               type="button"
               aria-label="Lock aspect ratio"
               aria-pressed={common((item) => item.aspectRatioLocked ?? false) ?? false}
@@ -608,6 +635,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             <div className="grid grid-cols-2 gap-1.5">
               {(["widthMode", "heightMode"] as const).map((key) => (
                 <Choice
+                  replayOptions
+                  replayLabel
                   key={key}
                   label={key === "widthMode" ? "Width sizing" : "Height sizing"}
                   value={common((item) => item[key] ?? "fixed")}
@@ -627,6 +656,7 @@ export const SelectionInspector = memo(function SelectionInspector({
           )}
           {onScale && selected.every((item) => item.parentId === node.parentId) && (
             <PropertyField
+              replayLabel
               label="Scale by %"
               value={100}
               numeric
@@ -645,6 +675,8 @@ export const SelectionInspector = memo(function SelectionInspector({
           ) && (
             <div className="grid grid-cols-2 gap-1.5">
               <Choice
+                replayOptions
+                replayLabel
                 label="Horizontal constraint"
                 value={common((item) => item.horizontalConstraint ?? "start")}
                 choices={[
@@ -662,6 +694,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                 }
               />
               <Choice
+                replayOptions
+                replayLabel
                 label="Vertical constraint"
                 value={common((item) => item.verticalConstraint ?? "start")}
                 choices={[
@@ -722,6 +756,7 @@ export const SelectionInspector = memo(function SelectionInspector({
           )}
           {multi && (
             <Choice
+              replayLabel
               label="Align to"
               value={keyObjectId}
               choices={[
@@ -749,6 +784,7 @@ export const SelectionInspector = memo(function SelectionInspector({
           {selected.length > 2 && (
             <div className="flex gap-1.5">
               <button
+                data-ph-public
                 type="button"
                 className={buttonClass}
                 onClick={() => onDistribute("horizontal")}
@@ -756,6 +792,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                 Distribute H
               </button>
               <button
+                data-ph-public
                 type="button"
                 className={buttonClass}
                 onClick={() => onDistribute("vertical")}
@@ -766,8 +803,10 @@ export const SelectionInspector = memo(function SelectionInspector({
           )}
         </Section>
         {containers && (
-          <Section title="Layout">
+          <Section replayTitle title="Layout">
             <Choice
+              replayOptions
+              replayLabel
               label="Flow"
               value={common((item) => item.layout)}
               choices={[
@@ -794,6 +833,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                 )}
                 <div className="grid grid-cols-2 gap-1.5">
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Align"
                     value={common((item) => item.align ?? "start")}
                     choices={[
@@ -806,6 +847,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                     onChange={(value) => onPatch({ align: value as DesignNode["align"] })}
                   />
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Distribute"
                     value={common((item) => item.justify ?? "start")}
                     choices={[
@@ -867,16 +910,22 @@ export const SelectionInspector = memo(function SelectionInspector({
                         }));
                       }}
                     />
-                    Wrap
+                    <span data-ph-public style={{ display: "contents" }}>
+                      Wrap
+                    </span>
                   </label>
                 )}
                 {!multi && node.layout === "grid" && (
                   <details className="rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs">
-                    <summary className="cursor-pointer">Grid tracks</summary>
+                    <summary data-ph-public className="cursor-pointer">
+                      Grid tracks
+                    </summary>
                     <div className="mt-2 space-y-2">
                       {columnTracks(node).map((track, index) => (
                         <div key={`column-${index}`} className="grid grid-cols-2 items-end gap-1.5">
                           <Choice
+                            replayOptions
+                            replayLabel
                             label={`Column ${index + 1} unit`}
                             value={track.unit}
                             choices={[
@@ -899,6 +948,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                           />
                           {track.unit !== "auto" && (
                             <PropertyField
+                              replayLabel
                               label={`Column ${index + 1} size`}
                               value={track.value}
                               numeric
@@ -924,6 +974,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                           className="grid grid-cols-[1fr_1fr_28px] items-end gap-1.5"
                         >
                           <Choice
+                            replayOptions
+                            replayLabel
                             label={`Row ${index + 1} unit`}
                             value={track.unit}
                             choices={[
@@ -946,6 +998,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                           />
                           {track.unit !== "auto" && (
                             <PropertyField
+                              replayLabel
                               label={`Row ${index + 1} size`}
                               value={track.value}
                               numeric
@@ -964,6 +1017,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                             />
                           )}
                           <button
+                            data-ph-public
                             type="button"
                             aria-label={`Remove row ${index + 1} track`}
                             className={buttonClass}
@@ -981,6 +1035,7 @@ export const SelectionInspector = memo(function SelectionInspector({
                         </div>
                       ))}
                       <button
+                        data-ph-public
                         type="button"
                         className={buttonClass}
                         disabled={(node.gridRowTracks?.length ?? 0) >= 12}
@@ -996,8 +1051,12 @@ export const SelectionInspector = memo(function SelectionInspector({
                   </details>
                 )}
                 <div className="flex items-center justify-between">
-                  <span className="text-[10px] text-secondary-ink">Padding</span>
+                  <span data-ph-public className="text-[10px] text-secondary-ink">
+                    Padding
+                  </span>
                   <button
+                    data-ph-public
+                    data-ph-public-label
                     type="button"
                     aria-label="Independent padding"
                     aria-pressed={separatePadding}
@@ -1048,6 +1107,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               </>
             )}
             <Choice
+              replayOptions
+              replayLabel
               label="Overflow"
               value={common(
                 (item) => item.style.overflow ?? (item.type === "artboard" ? "hidden" : "visible"),
@@ -1070,9 +1131,12 @@ export const SelectionInspector = memo(function SelectionInspector({
         )}
         {!hasVector && (
           <Section
+            replayTitle
             title="Corners"
             action={
               <button
+                data-ph-public
+                data-ph-public-label
                 type="button"
                 aria-label="Independent corner radii"
                 aria-pressed={separateRadius}
@@ -1135,19 +1199,22 @@ export const SelectionInspector = memo(function SelectionInspector({
           </Section>
         )}
         {text && (
-          <Section title="Text">
+          <Section replayTitle title="Text">
             {!multi && (
               <PropertyField
+                replayLabel
                 label="Content"
                 value={node.text ?? ""}
                 multiline
                 onCommit={(value) => onPatch({ text: value })}
               />
             )}
-            <FontPicker selected={selected} onPatch={onPatch} />
+            <FontPicker replayLabel selected={selected} onPatch={onPatch} />
             <div className="grid grid-cols-2 gap-1.5">
               {(["widthMode", "heightMode"] as const).map((key) => (
                 <Choice
+                  replayOptions
+                  replayLabel
                   key={key}
                   label={key === "widthMode" ? "Text width" : "Text height"}
                   value={common((item) => item[key] ?? "fixed")}
@@ -1166,6 +1233,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <Choice
+                replayOptions
+                replayLabel
                 label="Line height mode"
                 value={common(lineHeightMode)}
                 choices={[
@@ -1231,6 +1300,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             )}
             {selected.some((item) => item.heightMode !== "hug") && (
               <Choice
+                replayOptions
+                replayLabel
                 label="Vertical align"
                 value={common((item) => item.style.textVerticalAlign ?? "top")}
                 choices={[
@@ -1248,6 +1319,7 @@ export const SelectionInspector = memo(function SelectionInspector({
             <div className="flex gap-1.5">
               {["underline", "line-through"].map((decoration) => (
                 <button
+                  data-ph-public
                   key={decoration}
                   type="button"
                   aria-pressed={common((item) => item.style.textDecoration === decoration) ?? false}
@@ -1268,6 +1340,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             </div>
             <div className="grid grid-cols-2 gap-1.5">
               <Choice
+                replayOptions
+                replayLabel
                 label="Text align"
                 value={common((item) => item.style.textAlign ?? "left")}
                 choices={[
@@ -1280,6 +1354,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                 }
               />
               <Choice
+                replayOptions
+                replayLabel
                 label="Text case"
                 value={common((item) => item.style.textCase ?? "none")}
                 choices={[
@@ -1294,6 +1370,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               />
             </div>
             <Choice
+              replayOptions
+              replayLabel
               label="Text wrapping"
               value={common((item) => item.style.textWrap ?? "wrap")}
               choices={[
@@ -1306,6 +1384,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             />
             {selected.every((item) => item.style.textWrap === "nowrap") && (
               <Choice
+                replayOptions
+                replayLabel
                 label="Truncation"
                 value={common((item) => item.style.textOverflow ?? "clip")}
                 choices={[
@@ -1326,6 +1406,7 @@ export const SelectionInspector = memo(function SelectionInspector({
               true,
             )}
             <ColorField
+              replayLabel
               label="Text color"
               nodes={selected}
               tokens={tokens}
@@ -1352,15 +1433,22 @@ export const SelectionInspector = memo(function SelectionInspector({
           </Section>
         )}
         {image && (
-          <Section title="Image">
+          <Section replayTitle title="Image">
             {!multi && onEditImage && (
-              <button type="button" className={buttonClass} onClick={() => onEditImage()}>
+              <button
+                data-ph-public
+                type="button"
+                className={buttonClass}
+                onClick={() => onEditImage()}
+              >
                 Edit image
               </button>
             )}
             {(multi || !onEditImage) && (
               <>
                 <Choice
+                  replayOptions
+                  replayLabel
                   label="Image fit"
                   value={common((item) => item.style.objectFit ?? "contain")}
                   choices={[
@@ -1388,12 +1476,18 @@ export const SelectionInspector = memo(function SelectionInspector({
               onFitImageBounds &&
               (node.style.objectFit ?? "contain") === "contain" &&
               (node.style.imageCrop || (node.style.objectScale ?? 1) === 1) && (
-                <button type="button" onClick={onFitImageBounds} className={buttonClass}>
+                <button
+                  data-ph-public
+                  type="button"
+                  onClick={onFitImageBounds}
+                  className={buttonClass}
+                >
                   Fit bounds to image
                 </button>
               )}
             {!multi && onCropImage && (cropping || !onEditImage) && (
               <button
+                data-ph-public
                 type="button"
                 aria-pressed={cropping}
                 onClick={onCropImage}
@@ -1418,13 +1512,14 @@ export const SelectionInspector = memo(function SelectionInspector({
                       }))
                     }
                   >
-                    {label}
+                    <span data-ph-public>{label}</span>
                   </button>
                 ))}
               </div>
             )}
             {selected.some((item) => item.style.imageCrop) && (
               <button
+                data-ph-public
                 type="button"
                 onClick={() =>
                   onPatch({
@@ -1442,7 +1537,7 @@ export const SelectionInspector = memo(function SelectionInspector({
               </button>
             )}
             {!multi && (
-              <button type="button" onClick={onReplaceImage} className={buttonClass}>
+              <button data-ph-public type="button" onClick={onReplaceImage} className={buttonClass}>
                 Replace image
               </button>
             )}
@@ -1467,6 +1562,8 @@ export const SelectionInspector = memo(function SelectionInspector({
         >
           {!hasVector && (
             <button
+              data-ph-public
+              data-ph-public-label
               type="button"
               aria-label="Independent border widths"
               aria-pressed={separateBorder}
@@ -1522,6 +1619,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             <>
               {!hasVector && (
                 <Choice
+                  replayOptions
+                  replayLabel
                   label="Stroke position"
                   value={common((item) => item.style.strokePosition ?? "inside")}
                   choices={[
@@ -1539,6 +1638,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               {vector && (
                 <>
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Line cap"
                     value={common((item) => item.style.strokeCap ?? "butt")}
                     choices={[
@@ -1551,6 +1652,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                     }
                   />
                   <Choice
+                    replayOptions
+                    replayLabel
                     label="Line join"
                     value={common((item) => item.style.strokeJoin ?? "miter")}
                     choices={[
@@ -1567,6 +1670,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                   ) &&
                     (["strokeStart", "strokeEnd"] as const).map((key) => (
                       <Choice
+                        replayOptions
+                        replayLabel
                         key={key}
                         label={key === "strokeStart" ? "Start marker" : "End marker"}
                         value={common((item) => item.style[key] ?? "none")}
@@ -1582,6 +1687,8 @@ export const SelectionInspector = memo(function SelectionInspector({
                 </>
               )}
               <Choice
+                replayOptions
+                replayLabel
                 label="Border style"
                 value={common((item) => item.style.borderStyle ?? "solid")}
                 choices={[
@@ -1596,7 +1703,7 @@ export const SelectionInspector = memo(function SelectionInspector({
             </>
           )}
         </FillInspector>
-        <Section title="Appearance">
+        <Section replayTitle title="Appearance">
           {numberField(
             "Opacity %",
             (item) => Math.round((item.style.opacity ?? 1) * 100),
@@ -1605,6 +1712,8 @@ export const SelectionInspector = memo(function SelectionInspector({
             100,
           )}
           <Choice
+            replayOptions
+            replayLabel
             label="Blend mode"
             value={common((item) => item.style.blendMode ?? "normal")}
             choices={["normal", "multiply", "screen", "overlay", "darken", "lighten"].map(
@@ -1617,10 +1726,13 @@ export const SelectionInspector = memo(function SelectionInspector({
         </Section>
         <EffectsInspector selected={selected} tokens={tokens} onPatch={onPatch} />
         <details className="border-b border-primary-grey/60">
-          <summary className="cursor-pointer px-4 py-3 text-xs font-medium">Outline</summary>
+          <summary data-ph-public className="cursor-pointer px-4 py-3 text-xs font-medium">
+            Outline
+          </summary>
           <div className="space-y-2 px-4 pb-3">
             {styleNumber("Outline width", "outlineWidth", 0, 0, 40)}
             <ColorField
+              replayLabel
               label="Outline color"
               nodes={selected}
               tokens={tokens}
@@ -1634,7 +1746,9 @@ export const SelectionInspector = memo(function SelectionInspector({
           </div>
         </details>
         <details className="border-b border-primary-grey/60">
-          <summary className="cursor-pointer px-4 py-3 text-xs font-medium">Sizing limits</summary>
+          <summary data-ph-public className="cursor-pointer px-4 py-3 text-xs font-medium">
+            Sizing limits
+          </summary>
           <div className="grid grid-cols-2 gap-1.5 px-4 pb-3">
             {(["minWidth", "maxWidth", "minHeight", "maxHeight"] as const).map((key) =>
               numberField(
@@ -1649,8 +1763,9 @@ export const SelectionInspector = memo(function SelectionInspector({
           </div>
         </details>
         {!multi && node.type !== "artboard" && (
-          <Section title="Structure">
+          <Section replayTitle title="Structure">
             <Choice
+              replayLabel
               label="Parent"
               value={node.parentId ?? ""}
               choices={[
@@ -1681,6 +1796,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               }
             />
             <Choice
+              replayOptions
+              replayLabel
               label="Position in layout"
               value={node.positionMode ?? "auto"}
               choices={[
@@ -1690,6 +1807,8 @@ export const SelectionInspector = memo(function SelectionInspector({
               onChange={(value) => onPatch({ positionMode: value as DesignNode["positionMode"] })}
             />
             <Choice
+              replayOptions
+              replayLabel
               label="Self alignment"
               value={node.alignSelf ?? "auto"}
               choices={[
@@ -1706,7 +1825,7 @@ export const SelectionInspector = memo(function SelectionInspector({
         )}
         {multi && (
           <div className="p-4">
-            <button type="button" className={buttonClass} onClick={onGroup}>
+            <button data-ph-public type="button" className={buttonClass} onClick={onGroup}>
               Group selection
             </button>
           </div>

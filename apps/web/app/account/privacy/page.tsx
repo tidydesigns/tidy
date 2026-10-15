@@ -42,9 +42,17 @@ export default async function AccountPrivacyPage() {
         <SignOutButton />
       </div>
       <div className="space-y-3">
-        <h1 className="text-3xl font-semibold">Your account</h1>
+        <h1 data-ph-public className="text-3xl font-semibold">
+          Your account
+        </h1>
         <p className="text-sm text-secondary-ink">
-          You’re signed in as {account.user.email}. You don’t belong to an organization.
+          <span data-ph-public style={{ display: "contents" }}>
+            You’re signed in as{" "}
+          </span>
+          {account.user.email}
+          <span data-ph-public style={{ display: "contents" }}>
+            . You don’t belong to an organization.
+          </span>
         </p>
       </div>
       <AccountOrganizationOptions

@@ -100,15 +100,17 @@ export function ProfileControls({
   }
 
   return (
-    <section aria-label="Your account" className="max-w-xl space-y-10">
+    <section data-ph-public-label aria-label="Your account" className="max-w-xl space-y-10">
       {verificationError && (
-        <p role="alert" className="text-sm text-danger">
+        <p data-ph-public role="alert" className="text-sm text-danger">
           That verification link is invalid or expired. Request the verification or email change
           again.
         </p>
       )}
       <div className="space-y-6">
-        <h2 className="text-xl font-semibold tracking-tight">Profile</h2>
+        <h2 data-ph-public className="text-xl font-semibold tracking-tight">
+          Profile
+        </h2>
         <AvatarControl
           kind="user"
           id={user.id}
@@ -116,6 +118,7 @@ export function ProfileControls({
           image={user.image}
         />
         <ImmediateField
+          replayLabel
           label="Name"
           value={profileName ?? user.name}
           autoComplete="name"
@@ -132,6 +135,7 @@ export function ProfileControls({
           }}
         />
         <ImmediateField
+          replayLabel
           label="Email"
           value={user.email}
           type="email"
@@ -158,12 +162,13 @@ export function ProfileControls({
           }}
         />
         {!emailConfigured && (
-          <p className="text-sm text-secondary-ink">
+          <p data-ph-public className="text-sm text-secondary-ink">
             Email changes are unavailable until email delivery is configured.
           </p>
         )}
         {!user.emailVerified && emailConfigured && (
           <button
+            data-ph-public
             type="button"
             onClick={() => void verifyEmail()}
             disabled={verifying}
@@ -188,8 +193,11 @@ export function ProfileControls({
         onSubmit={changePassword}
         className="space-y-5 border-t border-primary-grey pt-6"
       >
-        <h2 className="text-lg font-semibold">Password</h2>
+        <h2 data-ph-public className="text-lg font-semibold">
+          Password
+        </h2>
         <TextField
+          replayLabel
           id="current-password"
           label="Current password"
           name="currentPassword"
@@ -199,6 +207,7 @@ export function ProfileControls({
           disabled={passwordPending}
         />
         <TextField
+          replayLabel
           id="new-password"
           label="New password"
           name="newPassword"
@@ -210,6 +219,7 @@ export function ProfileControls({
           disabled={passwordPending}
         />
         <TextField
+          replayLabel
           id="confirm-password"
           label="Confirm new password"
           name="confirmation"
@@ -231,12 +241,16 @@ export function ProfileControls({
           </p>
         )}
         <Button type="submit" disabled={passwordPending}>
-          {passwordPending ? "Changing…" : "Change password"}
+          <span data-ph-public style={{ display: "contents" }}>
+            {passwordPending ? "Changing…" : "Change password"}
+          </span>
         </Button>
       </form>
       {sessions.some((session) => session.id !== currentSessionId) && (
         <div className="border-t border-primary-grey pt-6">
-          <h2 className="text-lg font-semibold">Sessions</h2>
+          <h2 data-ph-public className="text-lg font-semibold">
+            Sessions
+          </h2>
           <ul className="mt-4 space-y-4">
             {sessions.map((session) => (
               <li
@@ -250,12 +264,20 @@ export function ProfileControls({
                       : sessionBrowser(session.userAgent)}
                   </p>
                   <p className="mt-1 text-secondary-ink">
-                    {session.ipAddress || "Unknown address"} · Signed in{" "}
-                    {session.createdAt.slice(0, 16).replace("T", " ")} UTC
+                    {session.ipAddress || "Unknown address"}{" "}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      · Signed in
+                    </span>{" "}
+                    {session.createdAt.slice(0, 16).replace("T", " ")}{" "}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      UTC
+                    </span>
                   </p>
                 </div>
                 {session.id !== currentSessionId && (
                   <ConfirmAction
+                    replayTitle
+                    replayLabel
                     label="End session"
                     title="End this session?"
                     onConfirm={async () => {
@@ -266,7 +288,9 @@ export function ProfileControls({
                       );
                     }}
                   >
-                    This device will need to sign in again.
+                    <span data-ph-public style={{ display: "contents" }}>
+                      This device will need to sign in again.
+                    </span>
                   </ConfirmAction>
                 )}
               </li>

@@ -213,10 +213,12 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         }}
       >
         <div className="flex items-start justify-between gap-4">
-          <h2 id="send-feedback-title" className="text-xl font-semibold">
+          <h2 data-ph-public id="send-feedback-title" className="text-xl font-semibold">
             Send feedback
           </h2>
           <button
+            data-ph-public
+            data-ph-public-label
             type="button"
             aria-label="Close"
             disabled={busy}
@@ -228,7 +230,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         </div>
         <form onSubmit={submit} className="mt-6 space-y-5">
           <fieldset disabled={busy} className="space-y-3">
-            <legend className="mb-3 text-sm font-medium">What is this about?</legend>
+            <legend data-ph-public className="mb-3 text-sm font-medium">
+              What is this about?
+            </legend>
             <label className="flex items-center gap-3 text-sm">
               <input
                 type="radio"
@@ -237,7 +241,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                 required
                 className="accent-primary-orange"
               />
-              Something’s broken
+              <span data-ph-public style={{ display: "contents" }}>
+                Something’s broken
+              </span>
             </label>
             <label className="flex items-center gap-3 text-sm">
               <input
@@ -247,11 +253,13 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                 required
                 className="accent-primary-orange"
               />
-              General feedback
+              <span data-ph-public style={{ display: "contents" }}>
+                General feedback
+              </span>
             </label>
           </fieldset>
           <div className="space-y-2">
-            <label htmlFor="feedback-message" className="block text-sm font-medium">
+            <label data-ph-public htmlFor="feedback-message" className="block text-sm font-medium">
               Feedback
             </label>
             <textarea
@@ -288,6 +296,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               }}
             />
             <button
+              data-ph-public
               type="button"
               disabled={busy || images.length >= 3}
               onClick={() => picker.current?.click()}
@@ -296,7 +305,11 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               Attach images
             </button>
             {images.length > 0 && (
-              <ul className="flex flex-wrap gap-3" aria-label="Attached images">
+              <ul
+                data-ph-public-label
+                className="flex flex-wrap gap-3"
+                aria-label="Attached images"
+              >
                 {images.map((image) => (
                   <li key={image.id} className="relative rounded-lg border border-primary-grey p-1">
                     {/* Local object URLs are already available; no image optimisation is needed. */}
@@ -307,6 +320,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
                       className="h-20 w-24 rounded object-cover"
                     />
                     <button
+                      data-ph-public
                       type="button"
                       disabled={busy}
                       aria-label={`Remove ${image.file.name}`}
@@ -327,6 +341,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           )}
           <div className="flex justify-end">
             <button
+              data-ph-public
               type="submit"
               disabled={busy}
               className="rounded-lg bg-primary-orange px-5 py-2.5 text-sm font-semibold text-on-brand hover:bg-primary-orange/90"
@@ -345,7 +360,9 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         {toast && (
           <div className="flex items-center gap-3 rounded-lg border border-primary-grey bg-primary-white px-4 py-3 text-sm text-primary-black shadow-lg">
             <Icon name="check" size={18} />
-            Thanks for your feedback.
+            <span data-ph-public style={{ display: "contents" }}>
+              Thanks for your feedback.
+            </span>
           </div>
         )}
       </div>

@@ -75,8 +75,12 @@ export function ThemePreferenceControl({ compact = false }: { compact?: boolean 
           : "text-sm font-medium"
       }
     >
-      <span id={labelId}>Theme</span>
+      <span data-ph-public id={labelId}>
+        Theme
+      </span>
       <SelectMenu
+        replayLabel
+        replayOptions
         value={theme}
         options={choices}
         label="Theme"

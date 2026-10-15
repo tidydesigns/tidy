@@ -153,8 +153,11 @@ export function SettingsTabs({
 
   return (
     <main className={settingsPage} data-page-content="settings">
-      <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Settings</h1>
+      <h1 data-ph-public className="text-3xl font-semibold tracking-tight sm:text-4xl">
+        Settings
+      </h1>
       <div
+        data-ph-public-label
         role="tablist"
         aria-label="Settings sections"
         aria-orientation="horizontal"
@@ -173,7 +176,7 @@ export function SettingsTabs({
             onKeyDown={(event) => onTabKeyDown(event, item)}
             className={`${settingsTabButton} cursor-pointer ${tab === item ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink hover:text-primary-black"}`}
           >
-            {settingsLabels[item]}
+            <span data-ph-public>{settingsLabels[item]}</span>
           </button>
         ))}
       </div>
@@ -208,7 +211,10 @@ export function SettingsTabs({
           <section aria-labelledby="members-heading">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <h2 id="members-heading" className="text-xl font-semibold tracking-tight">
-                {currentMembers.length} {currentMembers.length === 1 ? "member" : "members"}
+                {currentMembers.length}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  {currentMembers.length === 1 ? "member" : "members"}
+                </span>
               </h2>
             </div>
             <MemberControls
@@ -256,7 +262,11 @@ export function SettingsTabs({
 
         <SettingsPanel item="organization" selected={tab}>
           <section aria-labelledby="organization-heading" className="max-w-xl">
-            <h2 id="organization-heading" className="text-xl font-semibold tracking-tight">
+            <h2
+              data-ph-public
+              id="organization-heading"
+              className="text-xl font-semibold tracking-tight"
+            >
               Organization
             </h2>
             <div className="mt-8 space-y-6">
@@ -271,14 +281,18 @@ export function SettingsTabs({
                 <OrganizationName organization={currentOrganization} />
               ) : (
                 <dl>
-                  <dt className="text-sm text-secondary-ink">Name</dt>
+                  <dt data-ph-public className="text-sm text-secondary-ink">
+                    Name
+                  </dt>
                   <dd className="mt-1 font-medium">{currentOrganization.name}</dd>
                 </dl>
               )}
             </div>
             <dl className="mt-6 space-y-6">
               <div>
-                <dt className="text-sm text-secondary-ink">Your role</dt>
+                <dt data-ph-public className="text-sm text-secondary-ink">
+                  Your role
+                </dt>
                 <dd className="mt-1 font-medium">{roleLabel(currentRole)}</dd>
               </div>
             </dl>

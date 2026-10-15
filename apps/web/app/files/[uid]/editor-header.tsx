@@ -104,6 +104,7 @@ export function EditorHeader({
           </button>
           {shareOpen && (
             <div
+              data-ph-public-label
               role="dialog"
               aria-label="Share file"
               className="absolute right-0 top-10 z-50 w-64 rounded-xl border border-primary-grey/70 bg-primary-white p-3 shadow-xl"
@@ -117,7 +118,13 @@ export function EditorHeader({
               }}
             >
               <p className="mb-3 text-xs leading-relaxed text-secondary-ink">
-                Members of {organizationName} can open this file.
+                <span data-ph-public style={{ display: "contents" }}>
+                  Members of{" "}
+                </span>
+                {organizationName}{" "}
+                <span data-ph-public style={{ display: "contents" }}>
+                  can open this file.
+                </span>
               </p>
               <button
                 data-ph-public
@@ -134,7 +141,7 @@ export function EditorHeader({
                 </p>
               )}
               {copied && (
-                <span role="status" className="sr-only">
+                <span data-ph-public role="status" className="sr-only">
                   File link copied to clipboard.
                 </span>
               )}

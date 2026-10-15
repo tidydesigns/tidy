@@ -154,6 +154,7 @@ function ThreadMessage({
           </p>
           {viewerId === message.authorId && !editing && (
             <button
+              data-ph-public
               type="button"
               onClick={() => {
                 setEditText(message.body);
@@ -169,6 +170,7 @@ function ThreadMessage({
         {editing ? (
           <div className="mt-1">
             <textarea
+              data-ph-public-label
               ref={editRef}
               aria-label="Edit your comment"
               maxLength={2000}
@@ -190,7 +192,7 @@ function ThreadMessage({
               }}
               className="min-h-16 w-full resize-y rounded-md border border-primary-grey p-2 text-sm outline-none focus:border-primary-orange"
             />
-            <p className="text-[11px] text-secondary-ink">
+            <p data-ph-public className="text-[11px] text-secondary-ink">
               Changes save when you leave the field · Esc cancels
             </p>
           </div>
@@ -213,6 +215,8 @@ function ThreadMessage({
               </button>
             ))}
             <button
+              data-ph-public
+              data-ph-public-label
               type="button"
               aria-label="Add emoji reaction"
               aria-expanded={pickerOpen}
@@ -225,6 +229,7 @@ function ThreadMessage({
         )}
         {pickerOpen && (
           <div
+            data-ph-public-label
             role="group"
             aria-label="Choose emoji reaction"
             className="mt-1 flex flex-wrap gap-1 rounded-lg border border-primary-grey/70 bg-surface p-1 shadow-sm"
@@ -536,18 +541,28 @@ export const CanvasComments = forwardRef<
               onClick={() => setListOpen((open) => !open)}
               className="pointer-events-auto flex h-8 shrink-0 items-center rounded-md border border-primary-grey/80 bg-surface px-2.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
             >
-              Comments ({pageThreads.length}
-              {nextCursor ? "+" : ""})
+              <span data-ph-public style={{ display: "contents" }}>
+                Comments (
+              </span>
+              {pageThreads.length}
+              <span data-ph-public style={{ display: "contents" }}>
+                {nextCursor ? "+" : ""}
+              </span>
+              <span data-ph-public style={{ display: "contents" }}>
+                )
+              </span>
             </button>
           )}
           {toolbarControls && <div className="pointer-events-auto shrink-0">{toolbarControls}</div>}
           {(pageThreads.length > 0 || nextCursor) && listOpen && (
             <section
+              data-ph-public-label
               id="comment-list"
               aria-label="Comments"
               className="pointer-events-auto absolute right-0 top-full mt-2 w-64 max-w-full rounded-lg border border-primary-grey/70 bg-surface p-2 shadow-lg"
             >
               <SelectMenu
+                replayLabel
                 label="Comment status"
                 value={filter}
                 onChange={(value) => setFilter(value as "open" | "resolved")}
@@ -590,6 +605,7 @@ export const CanvasComments = forwardRef<
               )}
               {nextCursor && (
                 <button
+                  data-ph-public
                   type="button"
                   disabled={loadingMore}
                   onClick={() => void loadMore()}
@@ -609,14 +625,19 @@ export const CanvasComments = forwardRef<
         size="sm"
         className="pointer-events-auto"
       >
-        <h2 id="delete-comment-title" className="text-lg font-semibold">
+        <h2 data-ph-public id="delete-comment-title" className="text-lg font-semibold">
           Delete thread?
         </h2>
-        <p id="delete-comment-description" className="mt-3 text-sm text-secondary-ink">
+        <p
+          data-ph-public
+          id="delete-comment-description"
+          className="mt-3 text-sm text-secondary-ink"
+        >
           This permanently deletes the comment and all replies.
         </p>
         <div className="mt-6 flex justify-end gap-3">
           <button
+            data-ph-public
             type="button"
             autoFocus
             onClick={() => deleteDialog.current?.close()}
@@ -625,6 +646,7 @@ export const CanvasComments = forwardRef<
             Cancel
           </button>
           <button
+            data-ph-public
             type="button"
             onClick={() => {
               deleteDialog.current?.close();
@@ -646,6 +668,7 @@ export const CanvasComments = forwardRef<
       )}
       {point && (
         <section
+          data-ph-public-label
           aria-label="Comment thread"
           onPointerDown={(event) => event.stopPropagation()}
           onWheel={(event) => event.stopPropagation()}
@@ -653,13 +676,14 @@ export const CanvasComments = forwardRef<
           style={{ left: popupX, top: popupY }}
         >
           <div className="relative flex items-center justify-between gap-2 border-b border-primary-grey/70 px-3 py-2">
-            <h2 className="text-sm font-semibold">
+            <h2 data-ph-public className="text-sm font-semibold">
               {draft ? "New comment" : active?.resolved ? "Resolved comment" : "Comment thread"}
             </h2>
             <div className="flex items-center gap-2">
               {active && canManageActive && (
                 <>
                   <button
+                    data-ph-public
                     type="button"
                     disabled={changing || posting}
                     onClick={() => void changeThread(active, !active.resolved)}
@@ -668,6 +692,8 @@ export const CanvasComments = forwardRef<
                     {active?.resolved ? "Reopen" : "Resolve"}
                   </button>
                   <button
+                    data-ph-public
+                    data-ph-public-label
                     type="button"
                     aria-label="Thread options"
                     aria-expanded={optionsOpen}
@@ -680,6 +706,8 @@ export const CanvasComments = forwardRef<
                 </>
               )}
               <button
+                data-ph-public
+                data-ph-public-label
                 type="button"
                 aria-label="Close comments"
                 onClick={() => {
@@ -697,6 +725,7 @@ export const CanvasComments = forwardRef<
             {optionsOpen && active && canManageActive && (
               <div className="absolute right-3 top-full z-10 rounded-lg border border-primary-grey/70 bg-surface p-1 shadow-lg">
                 <button
+                  data-ph-public
                   type="button"
                   onClick={() => {
                     setDeleteTarget(active);
@@ -727,6 +756,7 @@ export const CanvasComments = forwardRef<
           {!readOnly && (
             <div className="border-t border-primary-grey/70 p-3">
               <textarea
+                data-ph-public-label
                 ref={editor}
                 aria-label={draft ? "Write a comment" : "Write a reply"}
                 placeholder={draft ? "Write a comment…" : "Reply…"}
@@ -742,10 +772,11 @@ export const CanvasComments = forwardRef<
                 className="min-h-18 w-full resize-y rounded-md border border-primary-grey p-2 text-sm outline-none focus:border-primary-orange"
               />
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-xs text-secondary-ink">
+                <span data-ph-public className="text-xs text-secondary-ink">
                   Enter to post · Shift+Enter for newline
                 </span>
                 <button
+                  data-ph-public
                   type="button"
                   disabled={!body.trim() || posting}
                   onClick={() => void post()}

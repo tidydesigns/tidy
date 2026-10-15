@@ -53,6 +53,7 @@ export function OrganizationForm({
   return (
     <form onSubmit={handleSubmit} className="mt-10 space-y-5">
       <TextField
+        replayLabel
         id="name"
         name="name"
         label="Organisation name"
@@ -63,7 +64,9 @@ export function OrganizationForm({
       />
       {error && <FormMessage>{error}</FormMessage>}
       <Button type="submit" disabled={pending}>
-        {pending ? "Creating organisation…" : inviteTeam ? "Continue" : "Create organization"}
+        <span data-ph-public style={{ display: "contents" }}>
+          {pending ? "Creating organisation…" : inviteTeam ? "Continue" : "Create organization"}
+        </span>
       </Button>
     </form>
   );

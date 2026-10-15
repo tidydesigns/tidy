@@ -9,6 +9,17 @@ export function replayText(text: string, element?: HTMLElement | null) {
 
 export function replayAttribute(name: string, value: string, element?: Element) {
   // Preserve layout without leaking labels, hrefs, IDs, data attributes or values.
+  const privateContent = element?.closest(
+    ".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable], [data-node-id]",
+  );
+  if (!privateContent && name === "aria-label" && element?.hasAttribute("data-ph-control-label"))
+    return element.getAttribute("data-ph-control-label") ?? "";
+  if (
+    !privateContent &&
+    /^(aria-label|title)$/.test(name) &&
+    element?.hasAttribute("data-ph-public-label")
+  )
+    return value;
   if (name === "class") return value;
   if (
     element?.namespaceURI === "http://www.w3.org/2000/svg" &&
@@ -27,7 +38,7 @@ export function replayAttribute(name: string, value: string, element?: Element) 
   if (name === "data-canvas-control") return "";
   if (name === "_cssText" && element?.matches("style, link[rel='stylesheet']")) return value;
   if (name === "style") {
-    if (!element || element.closest(".ph-no-capture, [data-ph-private], [data-node-id]")) return "";
+    if (!element || privateContent) return "";
     return value.replace(/url\(([^)]*)\)/gi, (match, raw: string) => {
       try {
         const url = new URL(raw.trim().replace(/^["']|["']$/g, ""), location.origin);

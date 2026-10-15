@@ -125,9 +125,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             helps us investigate usability problems. This is not access to your camera or
             microphone. Application styling and reviewed interface labels remain visible. Other
             text, input values, identifying attributes, private links and content are masked before
-            transmission. We block forms, images, media, embedded pages, design previews and design
-            canvases. Raw network request/response bodies, headers and console messages are not
-            recorded. These protections intentionally limit what we can see.
+            transmission. Form labels and buttons remain visible, while input controls, editable
+            content, images, media, embedded pages, design previews and design canvases are blocked.
+            Raw network request/response bodies, headers and console messages are not recorded.
+            These protections intentionally limit what we can see.
           </dd>
           <dt>Browser performance and errors</dt>
           <dd>

@@ -8,6 +8,7 @@ type Props = Omit<
   "value" | "onChange" | "onBlur" | "onKeyDown" | "id"
 > & {
   label: string;
+  replayLabel?: boolean;
   value: string;
   onCommit: (draft: string) => Promise<string>;
 };

@@ -16,7 +16,9 @@ function Values({ rows }: { rows: [string, string][] }) {
     <dl className="space-y-2 text-xs">
       {rows.map(([label, value]) => (
         <div key={label} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] gap-3">
-          <dt className="break-words text-secondary-ink">{label}</dt>
+          <dt data-ph-public className="break-words text-secondary-ink">
+            {label}
+          </dt>
           <dd className="break-words font-mono text-[11px]">{value}</dd>
         </div>
       ))}
@@ -111,6 +113,7 @@ export function HandoffInspector({
       {selected.length > 1 && (
         <div className="px-4 py-3">
           <SelectMenu
+            replayLabel
             label="Inspect layer"
             value={id}
             options={selected.map((node) => ({ value: node.id, label: node.name }))}
@@ -119,17 +122,31 @@ export function HandoffInspector({
           />
         </div>
       )}
-      <Section title="Rendered values">
+      <Section replayTitle title="Rendered values">
         <Values rows={current.facts} />
         <p className="text-[10px] text-secondary-ink">
-          {current.measured
-            ? "Size measured on canvas."
-            : "Stored size; layer is not currently rendered."}{" "}
-          Frame: {model.frameWidth}px.
+          <span data-ph-public style={{ display: "contents" }}>
+            {current.measured
+              ? "Size measured on canvas."
+              : "Stored size; layer is not currently rendered."}
+          </span>{" "}
+          <span data-ph-public style={{ display: "contents" }}>
+            Frame:{" "}
+          </span>
+          {model.frameWidth}
+          <span data-ph-public style={{ display: "contents" }}>
+            px.
+          </span>
         </p>
         {model.breakpoints.length > 0 && (
           <p className="text-[10px] text-secondary-ink">
-            Active responsive rules: {model.breakpoints.map((width) => `≤ ${width}px`).join(", ")}.
+            <span data-ph-public style={{ display: "contents" }}>
+              Active responsive rules:{" "}
+            </span>
+            {model.breakpoints.map((width) => `≤ ${width}px`).join(", ")}
+            <span data-ph-public style={{ display: "contents" }}>
+              .
+            </span>
           </p>
         )}
         {model.component && (
@@ -144,18 +161,20 @@ export function HandoffInspector({
         )}
       </Section>
       <Section
+        replayTitle
         title="Generated CSS"
         action={
-          <button type="button" className={buttonClass} onClick={() => void copy()}>
+          <button data-ph-public type="button" className={buttonClass} onClick={() => void copy()}>
             Copy CSS
           </button>
         }
       >
-        <p className="text-[10px] text-secondary-ink">
+        <p data-ph-public className="text-[10px] text-secondary-ink">
           Current renderer values, not original source CSS. Child selectors require the matching
           text, paint, or crop markup.
         </p>
         <pre
+          data-ph-public-label
           tabIndex={0}
           aria-label="Generated layer CSS"
           className="max-h-64 overflow-auto whitespace-pre rounded-md bg-primary-grey/10 p-2 text-[10px] leading-relaxed select-text"
@@ -169,7 +188,7 @@ export function HandoffInspector({
         )}
       </Section>
       {model.bindings.length > 0 && (
-        <Section title="Color tokens">
+        <Section replayTitle title="Color tokens">
           <Values
             rows={model.bindings.map((binding) => [
               binding.property,
@@ -181,7 +200,13 @@ export function HandoffInspector({
       {model.assets.length > 0 && (
         <details className="border-b border-primary-grey/60 px-4 py-3">
           <summary className="cursor-pointer text-xs font-medium">
-            Assets ({model.assets.length})
+            <span data-ph-public style={{ display: "contents" }}>
+              Assets (
+            </span>
+            {model.assets.length}
+            <span data-ph-public style={{ display: "contents" }}>
+              )
+            </span>
           </summary>
           <ul className="mt-2 max-h-40 space-y-2 overflow-auto">
             {model.assets.map((asset) => (
@@ -200,7 +225,7 @@ export function HandoffInspector({
         </details>
       )}
       {model.node.type === "text" && (
-        <Section title="Font">
+        <Section replayTitle title="Font">
           <Values
             rows={[
               ["Source", model.node.style.fontSource ?? "automatic"],
@@ -213,7 +238,9 @@ export function HandoffInspector({
       )}
       {model.source.length > 0 && (
         <details className="border-b border-primary-grey/60 px-4 py-3">
-          <summary className="cursor-pointer text-xs font-medium">Imported source</summary>
+          <summary data-ph-public className="cursor-pointer text-xs font-medium">
+            Imported source
+          </summary>
           <div className="mt-3 max-h-48 overflow-auto">
             <Values rows={model.source} />
           </div>

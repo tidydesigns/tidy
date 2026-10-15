@@ -46,8 +46,12 @@ export function EditorToolbarPreferenceControl({
 
   return (
     <div className="text-sm font-medium">
-      <span id={labelId}>Minimised toolbar</span>
+      <span data-ph-public id={labelId}>
+        Minimised toolbar
+      </span>
       <SelectMenu
+        replayOptions
+        replayLabel
         value={placement}
         options={choices}
         label="Minimised toolbar"

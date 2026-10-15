@@ -89,7 +89,7 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
       maskAllElementAttributes: false,
       maskAttributeFn: replayAttribute,
       blockSelector:
-        ".ph-no-capture, [data-node-id], [data-design-font], form, input, textarea, select, [contenteditable], canvas, svg:not([data-ph-public] svg), img, picture, video, audio, iframe, object, embed, script, link:not([rel='stylesheet'])",
+        ".ph-no-capture, [data-node-id], [data-design-font], input, textarea, select, [contenteditable], canvas, svg:not([data-ph-public], [data-ph-public] svg), img, picture, video, audio, iframe, object, embed, script, link:not([rel='stylesheet'])",
       captureCanvas: { recordCanvas: false },
       recordCrossOriginIframes: false,
       captureJsonLd: false,

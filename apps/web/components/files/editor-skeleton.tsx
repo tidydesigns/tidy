@@ -39,12 +39,15 @@ export function EditorSkeleton({
   const placement = useEditorToolbarPlacement(initialToolbarPlacement);
   return (
     <main
+      data-ph-public-label
       role="status"
       aria-label="Loading file"
       data-page-skeleton="editor"
       className="relative flex h-dvh w-full overflow-hidden bg-canvas"
     >
-      <span className="sr-only">Loading file…</span>
+      <span data-ph-public className="sr-only">
+        Loading file…
+      </span>
       {panelsOpen && (
         <div aria-hidden="true" className="flex shrink-0">
           <div className="flex w-64 flex-col border-r border-primary-grey/70 bg-primary-white">

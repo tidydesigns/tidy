@@ -56,7 +56,9 @@ export function SocialSignIn({
         />
       ))}
       {error && <FormMessage>{error}</FormMessage>}
-      <p className="pt-2 text-center text-sm text-primary-black/60">or use your email</p>
+      <p data-ph-public className="pt-2 text-center text-sm text-primary-black/60">
+        or use your email
+      </p>
     </div>
   );
 }

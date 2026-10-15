@@ -278,6 +278,7 @@ export function SelectionHandles({
         />
       )}
       <output
+        data-ph-public-label
         data-selection-measurement
         aria-label="Selection size"
         className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded bg-primary-orange px-1.5 py-0.5 text-[10px] leading-4 text-on-brand shadow-sm"
@@ -288,7 +289,11 @@ export function SelectionHandles({
             8,
         }}
       >
-        {Math.round(bounds.box.width * 10) / 10} × {Math.round(bounds.box.height * 10) / 10}
+        {Math.round(bounds.box.width * 10) / 10}{" "}
+        <span data-ph-public style={{ display: "contents" }}>
+          ×{" "}
+        </span>
+        {Math.round(bounds.box.height * 10) / 10}
       </output>
       <div
         style={{

@@ -21,7 +21,9 @@ export default async function OrganizationPage({
       href="/account/privacy"
       className="mt-6 inline-flex min-h-9 items-center text-sm font-medium underline underline-offset-4"
     >
-      Back to account
+      <span data-ph-public style={{ display: "contents" }}>
+        Back to account
+      </span>
     </NavigationLink>
   ) : null;
   if (!creation.canCreateOrganization) {
@@ -31,6 +33,8 @@ export default async function OrganizationPage({
     // Don't redirect through /files and loop back to this page.
     return (
       <OnboardingShell
+        replayDescription
+        replayTitle
         step={returnToAccount ? undefined : 1}
         title="You already created an organisation."
         description="Ask an organisation owner to invite you to their workspace."
@@ -43,6 +47,8 @@ export default async function OrganizationPage({
 
   return (
     <OnboardingShell
+      replayDescription
+      replayTitle
       step={returnToAccount ? undefined : 1}
       title="Create your organisation."
       description={

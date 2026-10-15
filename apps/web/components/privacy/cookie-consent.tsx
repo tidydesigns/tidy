@@ -96,7 +96,7 @@ export function CookieConsent() {
     }
   }
   return (
-    <aside className="ph-no-capture" aria-label="Privacy choices">
+    <aside data-ph-public-label className="ph-no-capture" aria-label="Privacy choices">
       <Dialog
         ref={dialog}
         id="privacy-choices-dialog"
@@ -109,6 +109,7 @@ export function CookieConsent() {
       >
         <div className="flex items-start justify-between gap-4">
           <h2
+            data-ph-public
             ref={heading}
             id="privacy-choice-title"
             tabIndex={-1}
@@ -122,21 +123,28 @@ export function CookieConsent() {
             className="-mt-2 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-md text-xl text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             onClick={() => dialog.current?.close()}
           >
-            <span aria-hidden="true">×</span>
+            <span data-ph-public aria-hidden="true">
+              ×
+            </span>
           </Button>
         </div>
-        <p id="privacy-choice-description" className="mt-3 text-sm leading-6 text-secondary-ink">
+        <p
+          data-ph-public
+          id="privacy-choice-description"
+          className="mt-3 text-sm leading-6 text-secondary-ink"
+        >
           {collectionEnabled
             ? "Optional PostHog analytics, masked replay and browser diagnostics stay off until you choose."
             : "Only essential storage for sign-in and preferences is active. Optional PostHog collection is off."}
         </p>
         {collectionEnabled && (
-          <p className="mt-3 text-sm leading-6 text-secondary-ink">
+          <p data-ph-public className="mt-3 text-sm leading-6 text-secondary-ink">
             When signed in, optional activity is linked to your account ID and email.
           </p>
         )}
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
           <a
+            data-ph-public
             href={privacyPolicyUrl}
             className="rounded-sm text-ink underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
           >
@@ -152,6 +160,7 @@ export function CookieConsent() {
                     {title}
                   </span>
                   <SelectMenu
+                    replayOptions
                     label={title}
                     value={choices[key] ? "on" : "off"}
                     options={[
@@ -173,7 +182,9 @@ export function CookieConsent() {
         )}
         {needsRetry && (
           <Button type="button" variant="text" onClick={() => choose(choices)}>
-            Retry recording choice
+            <span data-ph-public style={{ display: "contents" }}>
+              Retry recording choice
+            </span>
           </Button>
         )}
         <div className="mt-5 flex flex-wrap gap-3">
@@ -182,7 +193,9 @@ export function CookieConsent() {
             className={actionClass}
             onClick={() => choose(ESSENTIAL_ONLY, true)}
           >
-            {collectionEnabled ? "Reject optional" : "Use essential storage"}
+            <span data-ph-public style={{ display: "contents" }}>
+              {collectionEnabled ? "Reject optional" : "Use essential storage"}
+            </span>
           </Button>
           {collectionEnabled && (
             <Button
@@ -190,7 +203,9 @@ export function CookieConsent() {
               className={actionClass}
               onClick={() => choose({ analytics: true, replay: true, diagnostics: true }, true)}
             >
-              Accept all optional
+              <span data-ph-public style={{ display: "contents" }}>
+                Accept all optional
+              </span>
             </Button>
           )}
         </div>
@@ -200,7 +215,9 @@ export function CookieConsent() {
             className="mt-3 flex min-h-11 w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-medium text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
             onClick={() => setCustomize(true)}
           >
-            Choose individually
+            <span data-ph-public style={{ display: "contents" }}>
+              Choose individually
+            </span>
           </Button>
         )}
       </Dialog>

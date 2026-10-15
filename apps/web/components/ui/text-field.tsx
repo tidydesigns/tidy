@@ -2,13 +2,18 @@ import type { InputHTMLAttributes } from "react";
 
 type TextFieldProps = InputHTMLAttributes<HTMLInputElement> & {
   label: string;
+  replayLabel?: boolean;
   id: string;
 };
 
-export function TextField({ label, id, ...props }: TextFieldProps) {
+export function TextField({ label, replayLabel = false, id, ...props }: TextFieldProps) {
   return (
     <div className="space-y-2">
-      <label htmlFor={id} className="block text-sm font-medium">
+      <label
+        data-ph-public={replayLabel || undefined}
+        htmlFor={id}
+        className="block text-sm font-medium"
+      >
         {label}
       </label>
       <input

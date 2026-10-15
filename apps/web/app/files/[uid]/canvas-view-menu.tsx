@@ -69,13 +69,24 @@ export function CanvasViewMenu({
         onClick={() => setOpen(!open)}
         className="flex h-8 items-center gap-2 rounded-md border border-primary-grey/80 bg-surface px-2.5 text-xs tabular-nums hover:bg-primary-grey/20"
       >
-        {percent}%
-        <svg aria-hidden="true" width="10" height="10" viewBox="0 0 10 10" fill="none">
+        {percent}
+        <span data-ph-public style={{ display: "contents" }}>
+          %
+        </span>
+        <svg
+          data-ph-public
+          aria-hidden="true"
+          width="10"
+          height="10"
+          viewBox="0 0 10 10"
+          fill="none"
+        >
           <path d="m2 4 3 3 3-3" stroke="currentColor" strokeWidth="1.2" />
         </svg>
       </button>
       {open && (
         <div
+          data-ph-public-label
           role="menu"
           aria-label="Canvas view"
           className="absolute right-0 top-10 z-50 max-h-[calc(100dvh-72px)] w-64 overflow-y-auto rounded-xl border border-primary-grey/70 bg-primary-white p-1.5 shadow-xl"
@@ -125,8 +136,12 @@ export function CanvasViewMenu({
                 trigger.current?.focus();
               }}
             >
-              <span className="pl-4">{label}</span>
-              <span className="text-secondary-ink">{shortcut}</span>
+              <span data-ph-public className="pl-4">
+                {label}
+              </span>
+              <span data-ph-public className="text-secondary-ink">
+                {shortcut}
+              </span>
             </button>
           ))}
           {toggles.map(({ key, label, shortcut }, index) => (
@@ -143,20 +158,27 @@ export function CanvasViewMenu({
                 title={key === "pixelGrid" ? "Visible at 200% zoom and above" : undefined}
               >
                 <span className="flex items-center gap-1">
-                  <span aria-hidden="true" className="w-3">
+                  <span data-ph-public aria-hidden="true" className="w-3">
                     {preferences[key] ? "✓" : ""}
                   </span>
-                  {label}
+                  <span data-ph-public>{label}</span>
                 </span>
-                {shortcut && <span className="text-secondary-ink">{shortcut}</span>}
+                {shortcut && (
+                  <span data-ph-public className="text-secondary-ink">
+                    {shortcut}
+                  </span>
+                )}
               </button>
             </div>
           ))}
           <div role="separator" className="mx-3 my-1.5 border-t border-primary-grey/70" />
           <label className="flex items-center justify-between gap-3 px-3 py-2 text-xs">
-            Nudge step{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              Nudge step
+            </span>{" "}
             <span className="flex items-center gap-1">
               <input
+                data-ph-public-label
                 aria-label="Nudge step"
                 type="number"
                 min="1"
@@ -166,7 +188,9 @@ export function CanvasViewMenu({
                 onChange={(event) => onNudgeStep(Number(event.target.value))}
                 className="w-14 rounded-md border border-primary-grey/80 bg-surface px-1.5 py-1 text-right tabular-nums focus-visible:outline-2 focus-visible:outline-primary-orange"
               />
-              px
+              <span data-ph-public style={{ display: "contents" }}>
+                px
+              </span>
             </span>
           </label>
         </div>

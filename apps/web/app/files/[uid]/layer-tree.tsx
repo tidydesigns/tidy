@@ -101,6 +101,7 @@ export const LayerTree = memo(function LayerTree({
 
   return (
     <div
+      data-ph-public-label
       ref={tree}
       role="tree"
       aria-label="Layers"
@@ -257,6 +258,7 @@ const LayerRow = memo(function LayerRow({
         )}
         {nested.length ? (
           <button
+            data-ph-public
             type="button"
             aria-label={`${expanded ? "Collapse" : "Expand"} ${node.name}`}
             onClick={() =>
@@ -296,6 +298,7 @@ const LayerRow = memo(function LayerRow({
           className={`h-6 w-5 shrink-0 rounded text-secondary-ink hover:bg-primary-grey/25 focus:opacity-100 ${node.visible ? "opacity-0 group-hover:opacity-100" : ""}`}
         >
           <svg
+            data-ph-public
             aria-hidden="true"
             viewBox="0 0 20 20"
             width="14"
@@ -318,6 +321,7 @@ const LayerRow = memo(function LayerRow({
           className={`h-6 w-5 shrink-0 rounded text-secondary-ink hover:bg-primary-grey/25 focus:opacity-100 ${node.locked ? "" : "opacity-0 group-hover:opacity-100"}`}
         >
           <svg
+            data-ph-public
             aria-hidden="true"
             viewBox="0 0 20 20"
             width="14"

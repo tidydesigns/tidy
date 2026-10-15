@@ -244,6 +244,7 @@ export function PenEditor({
           onPointerDown={(e) => e.stopPropagation()}
         >
           <button
+            data-ph-public
             type="button"
             disabled={points.length < 2}
             onClick={() => finish(false)}
@@ -251,7 +252,7 @@ export function PenEditor({
           >
             Finish path
           </button>
-          <button type="button" onClick={onCancel}>
+          <button data-ph-public type="button" onClick={onCancel}>
             Cancel
           </button>
         </div>

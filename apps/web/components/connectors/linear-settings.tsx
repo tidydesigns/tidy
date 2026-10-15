@@ -51,7 +51,11 @@ export function LinearSettings({
   return (
     <div className="space-y-4">
       {connections.length > 0 && (
-        <ul className="max-h-72 space-y-3 overflow-y-auto" aria-label="Your Linear connections">
+        <ul
+          data-ph-public-label
+          className="max-h-72 space-y-3 overflow-y-auto"
+          aria-label="Your Linear connections"
+        >
           {connections.map((connection) => (
             <li
               key={connection.id}
@@ -60,8 +64,13 @@ export function LinearSettings({
               <div className="min-w-0">
                 <p className="break-words text-sm font-medium">{connection.workspaceName}</p>
                 <p className="mt-1 break-words text-xs text-secondary-ink">
-                  {connection.accountName} ·{" "}
-                  {connection.state === "connected" ? "Connected" : "Reconnect to restore access"}
+                  {connection.accountName}{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    ·
+                  </span>{" "}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    {connection.state === "connected" ? "Connected" : "Reconnect to restore access"}
+                  </span>
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -70,7 +79,9 @@ export function LinearSettings({
                     <input type="hidden" name="organizationId" value={organizationId} />
                     <input type="hidden" name="accountId" value={connection.accountId} />
                     <Button className={button} disabled={busy !== null}>
-                      Reconnect
+                      <span data-ph-public style={{ display: "contents" }}>
+                        Reconnect
+                      </span>
                     </Button>
                   </form>
                 )}
@@ -79,7 +90,9 @@ export function LinearSettings({
                   disabled={busy !== null}
                   onClick={() => void disconnect(connection.id)}
                 >
-                  {busy === connection.id ? "Disconnecting…" : "Disconnect"}
+                  <span data-ph-public style={{ display: "contents" }}>
+                    {busy === connection.id ? "Disconnecting…" : "Disconnect"}
+                  </span>
                 </Button>
               </div>
             </li>
@@ -91,15 +104,17 @@ export function LinearSettings({
           <form action="/api/linear/connect" method="post">
             <input type="hidden" name="organizationId" value={organizationId} />
             <Button className={button} disabled={busy !== null}>
-              {connections.length ? "Add Linear workspace" : "Connect Linear"}
+              <span data-ph-public style={{ display: "contents" }}>
+                {connections.length ? "Add Linear workspace" : "Connect Linear"}
+              </span>
             </Button>
           </form>
-          <p className="text-xs text-secondary-ink">
+          <p data-ph-public className="text-xs text-secondary-ink">
             Read and update issues with your Linear permissions.
           </p>
         </div>
       ) : (
-        <p className="text-sm text-secondary-ink">
+        <p data-ph-public className="text-sm text-secondary-ink">
           Linear is not available yet. Contact your Tidy administrator.
         </p>
       )}
@@ -109,7 +124,7 @@ export function LinearSettings({
         </p>
       )}
       {callbackStatus === "connected" && !error && (
-        <p role="status" className="text-sm text-secondary-ink">
+        <p data-ph-public role="status" className="text-sm text-secondary-ink">
           Linear connected.
         </p>
       )}

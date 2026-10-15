@@ -55,8 +55,11 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
   return (
     <section className="min-w-0 flex-1">
       <div className="flex items-center justify-between gap-6">
-        <h1 className="text-3xl font-semibold tracking-tight">Vault</h1>
+        <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
+          Vault
+        </h1>
         <button
+          data-ph-public
           type="button"
           onClick={() => dialog.current?.showModal()}
           className="rounded-lg bg-strong-action px-4 py-2.5 text-sm font-medium text-on-strong-action hover:bg-strong-action-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
@@ -65,7 +68,9 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
         </button>
       </div>
       {currentLogins.length === 0 ? (
-        <p className="pt-9 text-sm text-secondary-ink">No logins saved.</p>
+        <p data-ph-public className="pt-9 text-sm text-secondary-ink">
+          No logins saved.
+        </p>
       ) : (
         <ul className="mt-9 divide-y divide-primary-grey/70">
           {currentLogins.map((login) => (
@@ -84,6 +89,8 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
                   }
                 />
                 <ConfirmAction
+                  replayTitle
+                  replayLabel
                   label="Delete login"
                   title="Delete login?"
                   onConfirm={async () => {
@@ -92,7 +99,9 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
                     setLogins((current) => current.filter((item) => item.id !== login.id));
                   }}
                 >
-                  This permanently deletes the stored credentials.
+                  <span data-ph-public style={{ display: "contents" }}>
+                    This permanently deletes the stored credentials.
+                  </span>
                 </ConfirmAction>
               </div>
             </li>
@@ -111,10 +120,11 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
         padded={false}
       >
         <div className="relative border-b border-primary-grey/50 px-6 py-7 text-center sm:px-10">
-          <h2 id="add-login-title" className="text-2xl font-semibold tracking-tight">
+          <h2 data-ph-public id="add-login-title" className="text-2xl font-semibold tracking-tight">
             Add login
           </h2>
           <button
+            data-ph-public-label
             type="button"
             onClick={close}
             disabled={pending}
@@ -127,7 +137,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
         <form method="post" onSubmit={save}>
           <div className="space-y-5 px-6 py-8 sm:px-10">
             <div className="space-y-2">
-              <label htmlFor="vault-name" className="block text-sm font-medium">
+              <label data-ph-public htmlFor="vault-name" className="block text-sm font-medium">
                 Name
               </label>
               <input
@@ -141,7 +151,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="vault-username" className="block text-sm font-medium">
+              <label data-ph-public htmlFor="vault-username" className="block text-sm font-medium">
                 Username or email
               </label>
               <input
@@ -154,7 +164,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
               />
             </div>
             <div className="space-y-2">
-              <label htmlFor="vault-password" className="block text-sm font-medium">
+              <label data-ph-public htmlFor="vault-password" className="block text-sm font-medium">
                 Password
               </label>
               <div className="relative">
@@ -168,6 +178,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
                   className="h-12 w-full rounded-lg border border-primary-grey bg-transparent px-4 pr-12 text-sm outline-none focus-visible:border-primary-black focus-visible:ring-2 focus-visible:ring-primary-orange"
                 />
                 <button
+                  data-ph-public-label
                   type="button"
                   onClick={() => setShowPassword((value) => !value)}
                   aria-label={showPassword ? "Hide password" : "Show password"}
@@ -185,6 +196,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
           </div>
           <div className="flex justify-end gap-3 border-t border-primary-grey/50 px-6 py-5 sm:px-10">
             <button
+              data-ph-public
               type="button"
               onClick={close}
               disabled={pending}
@@ -193,6 +205,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
               Cancel
             </button>
             <button
+              data-ph-public
               type="submit"
               disabled={pending}
               className="rounded-lg bg-primary-orange px-5 py-2.5 text-sm font-semibold text-on-brand hover:bg-primary-orange/90 disabled:opacity-60"

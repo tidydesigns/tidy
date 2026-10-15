@@ -18,7 +18,9 @@ export function PrivacyChoicesButton({ className }: { className?: string }) {
         window.dispatchEvent(new CustomEvent(OPEN_PRIVACY_CHOICES, { detail: event.currentTarget }))
       }
     >
-      Privacy choices
+      <span data-ph-public style={{ display: "contents" }}>
+        Privacy choices
+      </span>
     </Button>
   );
 }

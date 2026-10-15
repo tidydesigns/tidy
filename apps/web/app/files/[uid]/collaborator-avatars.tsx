@@ -18,7 +18,7 @@ export function CollaboratorAvatars({
   );
   const users = [...new Map(peers.map((peer) => [peer.userId, peer])).values()];
   return (
-    <div className="flex items-center gap-1" aria-label="People in this file">
+    <div data-ph-public-label className="flex items-center gap-1" aria-label="People in this file">
       {users.slice(0, 5).map((peer) => (
         <span
           key={peer.userId}
@@ -55,11 +55,14 @@ export function CollaboratorAvatars({
             .join(", ")}
           className="text-[10px] text-secondary-ink"
         >
-          +{users.length - 5}
+          <span data-ph-public style={{ display: "contents" }}>
+            +
+          </span>
+          {users.length - 5}
         </span>
       )}
       {connection !== "live" && (
-        <span role="status" className="text-[10px] text-secondary-ink">
+        <span data-ph-public role="status" className="text-[10px] text-secondary-ink">
           {connection === "connecting"
             ? "Connecting…"
             : connection === "reconnecting"

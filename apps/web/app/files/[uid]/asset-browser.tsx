@@ -17,7 +17,13 @@ function AssetThumbnail({ asset, pool }: { asset: BrowserAsset; pool: ImagePool 
         // eslint-disable-next-line @next/next/no-img-element
         <img src={image.url} alt="" className="h-full w-full object-contain" draggable={false} />
       ) : image.status === "failed" ? (
-        <span className="text-secondary-ink" role="img" aria-label="Preview unavailable">
+        <span
+          data-ph-public
+          data-ph-public-label
+          className="text-secondary-ink"
+          role="img"
+          aria-label="Preview unavailable"
+        >
           ×
         </span>
       ) : null}
@@ -56,7 +62,10 @@ export function AssetBrowser({
   return (
     <details className="border-t border-primary-grey/60">
       <summary className="cursor-pointer px-4 py-3 text-xs font-medium">
-        Assets <span className="text-secondary-ink">{assets.length}</span>
+        <span data-ph-public style={{ display: "contents" }}>
+          Assets{" "}
+        </span>
+        <span className="text-secondary-ink">{assets.length}</span>
       </summary>
       <div className="max-h-56 overflow-y-auto overscroll-contain px-3 pb-3">
         {error && (
@@ -85,6 +94,7 @@ export function AssetBrowser({
         </div>
         {more && (
           <button
+            data-ph-public
             type="button"
             disabled={loading}
             onClick={onMore}

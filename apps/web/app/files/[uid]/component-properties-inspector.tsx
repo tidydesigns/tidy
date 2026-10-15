@@ -48,19 +48,27 @@ export function ComponentPropertiesInspector({
   return (
     <>
       {master.librarySource && (
-        <Section title="Library">
+        <Section replayTitle title="Library">
           <p className="text-xs text-secondary-ink">
-            Library revision {master.librarySource.revision} ·{" "}
-            {master.librarySource.status === "unavailable"
-              ? "Source unavailable; cached instance"
-              : master.librarySource.status === "update-available"
-                ? "Update available in Components"
-                : "Linked instance"}
+            <span data-ph-public style={{ display: "contents" }}>
+              Library revision{" "}
+            </span>
+            {master.librarySource.revision}{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              ·
+            </span>{" "}
+            <span data-ph-public style={{ display: "contents" }}>
+              {master.librarySource.status === "unavailable"
+                ? "Source unavailable; cached instance"
+                : master.librarySource.status === "update-available"
+                  ? "Update available in Components"
+                  : "Linked instance"}
+            </span>
           </p>
         </Section>
       )}
       {bindings.length > 0 && (
-        <Section title="Properties">
+        <Section replayTitle title="Properties">
           <div className="space-y-2">
             {bindings.map(([key, binding]) => {
               const bound = propertyTarget(document, node, binding);
@@ -76,6 +84,7 @@ export function ComponentPropertiesInspector({
                 <div key={key}>
                   {binding.property === "visible" ? (
                     <Choice
+                      replayOptions
                       label={binding.name}
                       value={String(value)}
                       choices={[
@@ -103,6 +112,7 @@ export function ComponentPropertiesInspector({
                   )}
                   {author && (
                     <button
+                      data-ph-public
                       className={`${button} mt-1`}
                       aria-label={`Remove property ${binding.name}`}
                       onClick={() =>
@@ -127,15 +137,18 @@ export function ComponentPropertiesInspector({
         </Section>
       )}
       {author && (
-        <Section title="Expose property">
+        <Section replayTitle title="Expose property">
           <div className="space-y-2">
             <SelectMenu
+              replayLabel
               label="Property layer"
               value={target.id}
               options={targets.map((n) => ({ value: n.id, label: n.name }))}
               onChange={setTargetId}
             />
             <SelectMenu
+              replayOptions
+              replayLabel
               label="Property"
               value={property}
               options={properties
@@ -143,8 +156,9 @@ export function ComponentPropertiesInspector({
                 .map((p) => ({ value: p, label: p }))}
               onChange={(v) => setProperty(v as Binding["property"])}
             />
-            <PropertyField label="Property name" value={name} onCommit={setName} />
+            <PropertyField replayLabel label="Property name" value={name} onCommit={setName} />
             <button
+              data-ph-public
               className={button}
               disabled={!name.trim() || (property === "text" && target.type !== "text")}
               onClick={() => {

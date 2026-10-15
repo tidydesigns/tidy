@@ -2,12 +2,14 @@ import { useId } from "react";
 
 export function UsageBar({
   label,
+  replayLabel = false,
   used,
   limit,
   format = (value) => value.toLocaleString(),
   detail,
 }: {
   label: string;
+  replayLabel?: boolean;
   used: number;
   limit: number | null;
   format?: (value: number) => string;
@@ -24,10 +26,10 @@ export function UsageBar({
         : `${format(Math.max(0, limit - used))} remaining`;
   return (
     <div className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-2 py-4">
-      <dt id={id} className="font-medium">
+      <dt data-ph-public={replayLabel || undefined} id={id} className="font-medium">
         {label}
       </dt>
-      <dd className="tabular-nums text-primary-black/70">
+      <dd data-ph-private className="tabular-nums text-primary-black/70">
         {format(used)} / {limit === null ? "Unlimited" : format(limit)}
       </dd>
       <dd className="col-span-2 space-y-2">

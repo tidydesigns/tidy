@@ -38,6 +38,8 @@ export function AddToken({ onChange }: { onChange: Change }) {
   return (
     <div className="space-y-2">
       <Choice
+        replayOptions
+        replayLabel
         label="Token type"
         value={type}
         choices={tokenTypeSchema.options.map((type) => [type, label(type)])}
@@ -62,7 +64,13 @@ export function AddToken({ onChange }: { onChange: Change }) {
           })
         }
       >
-        + {label(type)} token
+        <span data-ph-public style={{ display: "contents" }}>
+          +{" "}
+        </span>
+        {label(type)}{" "}
+        <span data-ph-public style={{ display: "contents" }}>
+          token
+        </span>
       </button>
     </div>
   );
@@ -119,12 +127,19 @@ export function DesignTokenEditor({
   return (
     <details className="rounded-md border border-primary-grey/60 p-2">
       <summary className="cursor-pointer truncate text-xs">
-        {name} <span className="text-secondary-ink">· {label(token.type)}</span>
+        {name}{" "}
+        <span className="text-secondary-ink">
+          <span data-ph-public style={{ display: "contents" }}>
+            ·{" "}
+          </span>
+          {label(token.type)}
+        </span>
       </summary>
       <div className="mt-2 space-y-2">
         <div className="flex items-end gap-2">
           <div className="min-w-0 flex-1">
             <PropertyField
+              replayLabel
               label="Token name"
               value={name}
               onCommit={(next) =>
@@ -133,6 +148,7 @@ export function DesignTokenEditor({
             />
           </div>
           <button
+            data-ph-public
             type="button"
             aria-label={`Remove token ${name}`}
             className="h-8 w-7 rounded text-secondary-ink hover:bg-primary-grey/25"
@@ -142,6 +158,8 @@ export function DesignTokenEditor({
           </button>
         </div>
         <Choice
+          replayOptions
+          replayLabel
           label="Token source"
           value={"alias" in token ? "alias" : "value"}
           choices={[
@@ -156,6 +174,7 @@ export function DesignTokenEditor({
         />
         {"alias" in token ? (
           <Choice
+            replayLabel
             label="Alias target"
             value={token.alias}
             choices={aliases.map((name) => [name, name])}
@@ -164,6 +183,7 @@ export function DesignTokenEditor({
         ) : text ? (
           <>
             <FontPicker
+              replayLabel
               familyOnly
               selected={[textNode]}
               onPatch={(patch) => {
@@ -195,6 +215,7 @@ export function DesignTokenEditor({
                 ] as const
               ).map(([label, key, fallback, min, max]) => (
                 <PropertyField
+                  replayLabel
                   key={key}
                   label={label}
                   numeric
@@ -206,6 +227,8 @@ export function DesignTokenEditor({
               ))}
             </div>
             <Choice
+              replayOptions
+              replayLabel
               label="Line height unit"
               value={text.lineHeightMode ?? "percent"}
               choices={[
@@ -217,6 +240,7 @@ export function DesignTokenEditor({
             />
             {text.lineHeightMode !== "auto" && (
               <PropertyField
+                replayLabel
                 label="Line height"
                 numeric
                 min={text.lineHeightMode === "px" ? 0.1 : 0.01}
@@ -235,6 +259,8 @@ export function DesignTokenEditor({
               />
             )}
             <Choice
+              replayOptions
+              replayLabel
               label="Font style"
               value={text.fontStyle ?? "normal"}
               choices={[
@@ -246,6 +272,7 @@ export function DesignTokenEditor({
           </>
         ) : (
           <PropertyField
+            replayLabel
             label={token.type === "color" ? "Color" : "Value"}
             value={resolved.value as string | number}
             numeric={token.type !== "color"}

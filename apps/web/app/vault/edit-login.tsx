@@ -38,6 +38,7 @@ export function EditLogin({
   return (
     <>
       <button
+        data-ph-public
         type="button"
         onClick={() => {
           setNotice("");
@@ -56,10 +57,11 @@ export function EditLogin({
         size="lg"
         className="space-y-6"
       >
-        <h2 id={titleId} className="text-xl font-semibold">
+        <h2 data-ph-public id={titleId} className="text-xl font-semibold">
           Edit login
         </h2>
         <ImmediateField
+          replayLabel
           label="Name"
           value={login.name}
           maxLength={100}
@@ -67,6 +69,7 @@ export function EditLogin({
           onCommit={(draft) => update("name", draft)}
         />
         <ImmediateField
+          replayLabel
           label="New username or email"
           value=""
           placeholder="Leave blank to keep existing"
@@ -76,6 +79,7 @@ export function EditLogin({
           onCommit={(draft) => update("username", draft)}
         />
         <ImmediateField
+          replayLabel
           label="New password"
           value=""
           type="password"
@@ -91,6 +95,7 @@ export function EditLogin({
           </p>
         )}
         <button
+          data-ph-public
           type="button"
           disabled={Boolean(pendingCount)}
           onClick={() => dialog.current?.close()}

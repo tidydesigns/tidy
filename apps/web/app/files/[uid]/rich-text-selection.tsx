@@ -130,13 +130,16 @@ export function RichTextSelectionControls({ selection }: { selection: Snapshot }
             onPointerDown={(event) => event.preventDefault()}
             onClick={() => applyTextCommand(command)}
           >
-            {label}
+            <span data-ph-public>{label}</span>
           </button>
         ))}
       </div>
       <label className="block text-xs">
-        Link URL
+        <span data-ph-public style={{ display: "contents" }}>
+          Link URL
+        </span>
         <input
+          data-ph-public-label
           aria-label="Text selection link"
           aria-invalid={invalid}
           value={href}
@@ -150,12 +153,13 @@ export function RichTextSelectionControls({ selection }: { selection: Snapshot }
         />
       </label>
       {invalid && (
-        <p role="status" className="text-xs">
+        <p data-ph-public role="status" className="text-xs">
           Use an http(s), mailto, tel, root-relative or fragment URL.
         </p>
       )}
       {selection.href && (
         <button
+          data-ph-public
           type="button"
           className="text-xs underline"
           onPointerDown={(event) => event.preventDefault()}

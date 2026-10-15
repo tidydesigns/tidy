@@ -20,10 +20,12 @@ export function ExportControls({
   const [scale, setScale] = useState(2),
     [mode, setMode] = useState<ExportRequest["mode"]>("selection");
   return (
-    <Section title="Export">
+    <Section replayTitle title="Export">
       <div className="space-y-2">
         {selected.length > 1 && (
           <Choice
+            replayOptions
+            replayLabel
             label="Export mode"
             value={mode}
             choices={[
@@ -34,6 +36,7 @@ export function ExportControls({
           />
         )}
         <PropertyField
+          replayLabel
           label="Export scale"
           value={scale}
           numeric
@@ -58,18 +61,23 @@ export function ExportControls({
                 })
               }
             >
-              {format}
+              <span data-ph-public>{format}</span>
             </button>
           ))}
         </div>
         {pending && (
-          <p role="status" className="text-xs text-secondary-ink">
+          <p data-ph-public role="status" className="text-xs text-secondary-ink">
             Preparing export…
           </p>
         )}
         {warnings.length > 0 && (
           <details className="text-xs text-secondary-ink">
-            <summary className="cursor-pointer">SVG rendering details · {warnings.length}</summary>
+            <summary className="cursor-pointer">
+              <span data-ph-public style={{ display: "contents" }}>
+                SVG rendering details ·{" "}
+              </span>
+              {warnings.length}
+            </summary>
             <ul className="mt-1 max-h-24 overflow-auto">
               {warnings.map((message) => (
                 <li key={message}>{message}</li>

@@ -28,19 +28,20 @@ export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boole
   }
   if (!emailConfigured)
     return (
-      <p role="status" className="mt-8 text-sm">
+      <p data-ph-public role="status" className="mt-8 text-sm">
         Password recovery is unavailable until email delivery is configured.
       </p>
     );
   if (sent)
     return (
-      <p role="status" className="mt-8 text-sm">
+      <p data-ph-public role="status" className="mt-8 text-sm">
         If that address has a Tidy account, a reset link is on its way. Check your inbox.
       </p>
     );
   return (
     <form method="post" onSubmit={submit} className="mt-8 space-y-5">
       <TextField
+        replayLabel
         id="reset-email"
         label="Email"
         name="email"
@@ -56,7 +57,9 @@ export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boole
         </p>
       )}
       <Button type="submit" disabled={pending}>
-        {pending ? "Sending…" : "Send reset link"}
+        <span data-ph-public style={{ display: "contents" }}>
+          {pending ? "Sending…" : "Send reset link"}
+        </span>
       </Button>
     </form>
   );
