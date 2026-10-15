@@ -28,8 +28,7 @@ const area = (points: VectorPoint[]) =>
       return sum + p.x * next.y - next.x * p.y;
     }, 0),
   ) / 2;
-const paintKey = (r: number, g: number, b: number) =>
-  `#${[r, g, b].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+const paintKey = (r: number, g: number, b: number) => (r << 16) | (g << 8) | b;
 
 /** Recover only convex geometric shapes whose missing interior is demonstrably
  * occupied by smaller opaque paints. Never invent pixels through transparency
@@ -39,12 +38,23 @@ export function recoverRasterOcclusion(
   paths: Path[],
   image: { width: number; height: number; data: Uint8ClampedArray },
 ): Path[] {
-  const paints = new Map<string, number>();
+  const paints = new Map<number, number>();
   for (let i = 0; i < image.data.length; i += 4) {
     if (image.data[i + 3] !== 255) continue;
     const key = paintKey(image.data[i], image.data[i + 1], image.data[i + 2]);
     paints.set(key, (paints.get(key) ?? 0) + 1);
   }
+  const geometry = new Map<Path, { samples: VectorPoint[]; hull: VectorPoint[]; area: number }>();
+  const measure = (path: Path) => {
+    let cached = geometry.get(path);
+    if (!cached) {
+      const samples = sampleRasterContour(path.vectorPath.contours![0]);
+      const boundary = hull(samples);
+      cached = { samples, hull: boundary, area: area(boundary) };
+      geometry.set(path, cached);
+    }
+    return cached;
+  };
   const removed = new Set<Path>();
   const output: Path[] = [];
   for (const path of paths) {
@@ -59,7 +69,7 @@ export function recoverRasterOcclusion(
     const siblings = paths.filter(
       (p) => p.opacity === 1 && p.color === path.color && !removed.has(p),
     );
-    const all = hull(siblings.flatMap((p) => sampleRasterContour(p.vectorPath.contours![0])));
+    const all = hull(siblings.flatMap((p) => measure(p).samples));
     // Collapse near-collinear raster artefacts before testing a triangle hypothesis.
     const triangle = [...all];
     let changed = true;
@@ -90,7 +100,7 @@ export function recoverRasterOcclusion(
       boundary = triangle;
       merge = true;
     } else {
-      const own = hull(sampleRasterContour(path.vectorPath.contours![0]));
+      const own = measure(path).hull;
       candidate = fitRasterShape(makeContour(own));
       boundary = own;
       if (!["Ellipse", "Rectangle", "Rounded rectangle"].includes(candidate.name ?? "")) {
@@ -107,6 +117,7 @@ export function recoverRasterOcclusion(
       right = Math.min(image.width - 1, Math.ceil(Math.max(...boundary.map((p) => p.x))));
     const top = Math.max(0, Math.floor(Math.min(...boundary.map((p) => p.y)))),
       bottom = Math.min(image.height - 1, Math.ceil(Math.max(...boundary.map((p) => p.y))));
+    const pathColor = Number.parseInt(path.color.slice(1), 16);
     let allowed = true,
       uncertain = 0;
     for (let y = top; y <= bottom && allowed; y++)
@@ -120,7 +131,7 @@ export function recoverRasterOcclusion(
         if (!inside) continue;
         const offset = (y * image.width + x) * 4;
         const color = paintKey(image.data[offset], image.data[offset + 1], image.data[offset + 2]);
-        if (color !== path.color) {
+        if (color !== pathColor) {
           if (image.data[offset + 3] !== 255) {
             allowed = false;
             break;
@@ -153,7 +164,6 @@ export function recoverRasterOcclusion(
     .filter((p) => !removed.has(p))
     .sort((a, b) => {
       if (a.opacity !== 1 || b.opacity !== 1) return 0;
-      const size = (p: Path) => area(hull(sampleRasterContour(p.vectorPath.contours![0])));
-      return size(b) - size(a);
+      return measure(b).area - measure(a).area;
     });
 }

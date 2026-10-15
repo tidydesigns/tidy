@@ -57,32 +57,40 @@ export function traceCandidateIsFaithful(candidate: TraceQuality, baseline: Trac
 
 /** Reject an optimisation rather than publishing a cleaner but less faithful image.
  * These are measured errors, not an invented percentage confidence score. */
-export function verifyRasterTrace(original: RasterPixels, proposed: RasterTrace): RasterTrace {
-  const canvas = document.createElement("canvas");
-  canvas.width = original.width;
-  canvas.height = original.height;
-  const context = canvas.getContext("2d", { willReadFrequently: true });
+export function verifyRasterTrace(
+  original: RasterPixels,
+  proposed: RasterTrace,
+  context?: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D | null,
+): RasterTrace {
+  if (!context) {
+    const canvas = document.createElement("canvas");
+    canvas.width = original.width;
+    canvas.height = original.height;
+    context = canvas.getContext("2d", { willReadFrequently: true });
+  }
   if (!context) throw new Error("Canvas trace verification is unavailable.");
+  const drawing = context;
+  const canvas = drawing.canvas;
   const render = (trace: RasterTrace) => {
-    context.clearRect(0, 0, canvas.width, canvas.height);
+    drawing.clearRect(0, 0, canvas.width, canvas.height);
     for (const path of trace.paths) {
-      context.globalAlpha = path.opacity;
+      drawing.globalAlpha = path.opacity;
       if (path.fill) {
         const { start, end, stops } = path.fill;
-        const fill = context.createLinearGradient(
+        const fill = drawing.createLinearGradient(
           start!.x * trace.width,
           start!.y * trace.height,
           end!.x * trace.width,
           end!.y * trace.height,
         );
         for (const stop of stops) fill.addColorStop(stop.position, stop.color);
-        context.fillStyle = fill;
-      } else context.fillStyle = path.color;
-      context.fill(new Path2D(path.vectorPath.d), path.vectorPath.fillRule);
+        drawing.fillStyle = fill;
+      } else drawing.fillStyle = path.color;
+      drawing.fill(new Path2D(path.vectorPath.d), path.vectorPath.fillRule);
     }
     return measureRasterTrace(
       original,
-      context.getImageData(0, 0, canvas.width, canvas.height).data,
+      drawing.getImageData(0, 0, canvas.width, canvas.height).data,
     );
   };
   const { fallback, ...trace } = proposed;

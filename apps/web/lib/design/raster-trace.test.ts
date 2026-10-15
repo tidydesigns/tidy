@@ -90,3 +90,20 @@ describe("raster tracing", () => {
     expect(() => traceSize(Infinity, 32)).toThrow();
   });
 });
+
+test("retains tiny intentional lossless accents alongside large shapes", () => {
+  const result = traceRaster(
+    pixels(128, 128, (x, y) =>
+      x >= 4 && x < 100 && y >= 4 && y < 100
+        ? [255, 0, 0, 255]
+        : x === 110 && y >= 32 && y < 34
+          ? [255, 0, 0, 255]
+          : x >= 110 && x < 112 && y >= 40 && y < 42
+            ? [0, 0, 255, 255]
+            : [0, 0, 0, 0],
+    ),
+    "auto",
+  );
+  expect(result.paths.map((path) => path.color).sort()).toEqual(["#0000ff", "#ff0000", "#ff0000"]);
+  expect(result.fallback?.paths.length).toBe(3);
+});

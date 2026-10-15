@@ -132,7 +132,9 @@ function palette(
                 : 48),
         ) ||
         isEdgeBlend(remaining[i]) ||
+        // Repeated opaque samples can be deliberate small lossless accents.
         (!remaining[i].stable &&
+          (lossy || remaining[i].color.a !== 255 || remaining[i].peak < 4) &&
           remaining[i].core < 2 &&
           remaining[i].count < visiblePixels * 0.003)
       )
@@ -211,15 +213,28 @@ function separateRegions(
     for (let k = 0; k < 4; k++) if (Math.abs(data[a * 4 + k] - data[b * 4 + k]) > 8) return false;
     return true;
   };
+  // Flat artwork repeats exact RGBA values. Bound the cache for photographic inputs.
+  const nearestColors = new Map<number, { best: number; error: number }>();
   for (let pixel = 0; pixel < count; pixel++) {
-    let best = 0,
-      error = Infinity;
-    for (let i = 0; i < palette.length; i++) {
-      const value = distance(pixel, palette[i]);
-      if (value < error) {
-        best = i;
-        error = value;
+    const offset = pixel * 4;
+    const key =
+      ((data[offset] << 24) |
+        (data[offset + 1] << 16) |
+        (data[offset + 2] << 8) |
+        data[offset + 3]) >>>
+      0;
+    const cached = nearestColors.get(key);
+    let best = cached?.best ?? 0,
+      error = cached?.error ?? Infinity;
+    if (!cached) {
+      for (let i = 0; i < palette.length; i++) {
+        const value = distance(pixel, palette[i]);
+        if (value < error) {
+          best = i;
+          error = value;
+        }
       }
+      if (nearestColors.size < 4096) nearestColors.set(key, { best, error });
     }
     nearest[pixel] = best;
     const x = pixel % width,
@@ -339,7 +354,11 @@ function separateRegions(
   }
   for (let pixel = 0; pixel < count; pixel++) {
     const color = palette[labels[pixel]];
-    data.set([color.r, color.g, color.b, color.a], pixel * 4);
+    const i = pixel * 4;
+    data[i] = color.r;
+    data[i + 1] = color.g;
+    data[i + 2] = color.b;
+    data[i + 3] = color.a;
   }
 }
 

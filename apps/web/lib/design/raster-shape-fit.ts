@@ -7,10 +7,17 @@ import {
 /** Propose clean geometry in its own orientation. The caller still verifies the
  * final image; a fit is a candidate, not evidence of object identity. */
 export function fitRasterShape(contour: VectorContour): { contour: VectorContour; name?: string } {
-  const aligned = fitAxisAligned(contour);
-  if (aligned.name) return aligned;
   const samples = sampleRasterContour(contour);
+  const aligned = fitAxisAligned(contour, 0.8, samples);
+  if (aligned.name) return aligned;
   if (samples.length < 3) return aligned;
+  // Tiny contours stay editable, but cannot support a reliable primitive fit.
+  // Avoid the orientation searches for small accents and raster fragments.
+  if (
+    Math.max(...samples.map((p) => p.x)) - Math.min(...samples.map((p) => p.x)) < 6 &&
+    Math.max(...samples.map((p) => p.y)) - Math.min(...samples.map((p) => p.y)) < 6
+  )
+    return aligned;
   const center = {
     x: samples.reduce((sum, p) => sum + p.x, 0) / samples.length,
     y: samples.reduce((sum, p) => sum + p.y, 0) / samples.length,
@@ -189,11 +196,11 @@ function fitPolygon(
 function fitAxisAligned(
   contour: VectorContour,
   tolerance = 0.8,
+  samples = sampleRasterContour(contour),
 ): {
   contour: VectorContour;
   name?: string;
 } {
-  const samples = sampleRasterContour(contour);
   if (!samples.length) return { contour };
   const x = Math.min(...samples.map((p) => p.x)),
     y = Math.min(...samples.map((p) => p.y));

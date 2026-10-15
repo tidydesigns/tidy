@@ -680,6 +680,12 @@ export function FileEditor({
       ),
     }));
   }
+  const [figmaPreviewAssets, setFigmaPreviewAssets] = useState<Record<string, string>>({});
+  const figmaObjectUrls = useRef<string[]>([]);
+  const previewAssetUrls = useMemo(
+    () => ({ ...suppliedPreviewAssetUrls, ...figmaPreviewAssets }),
+    [suppliedPreviewAssetUrls, figmaPreviewAssets],
+  );
   const canVectoriseImage =
     editedImage &&
     !imageTarget?.paintId &&
@@ -1899,12 +1905,6 @@ export function FileEditor({
     await changeDocument(() => copy.document, copy.ids);
   }
 
-  const [figmaPreviewAssets, setFigmaPreviewAssets] = useState<Record<string, string>>({});
-  const figmaObjectUrls = useRef<string[]>([]);
-  const previewAssetUrls = useMemo(
-    () => ({ ...suppliedPreviewAssetUrls, ...figmaPreviewAssets }),
-    [suppliedPreviewAssetUrls, figmaPreviewAssets],
-  );
   useEffect(() => {
     if (local) onLocalDocumentChange?.(snapshot.content, previewAssetUrls);
   }, [local, onLocalDocumentChange, snapshot.content, previewAssetUrls]);

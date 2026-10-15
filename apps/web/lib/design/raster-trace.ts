@@ -95,7 +95,8 @@ export function traceRaster(
     layering: 0,
     ltres: 1,
     qtres: 1,
-    pathomit: 8,
+    // Lossless artwork may contain deliberate one-pixel-wide accents.
+    pathomit: options.lossy ? 8 : 0,
     rightangleenhance: true,
     blurradius: 0,
     strokewidth: 0,
@@ -130,8 +131,7 @@ export function traceRaster(
           "This trace exceeds the editable path limits. Try fewer colours or a simpler image.",
         );
       fallbackPaths.push(fallbackPath);
-      const fitted = [path, ...path.holechildren.map((index) => layer[index])].map((p, index) => {
-        const raw = contour(p, `trace-${paths.length}-${index}`);
+      const fitted = rawContours.map((raw) => {
         const primitive = fitRasterShape(raw);
         return primitive.name
           ? primitive

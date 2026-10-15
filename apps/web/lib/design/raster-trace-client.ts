@@ -149,43 +149,48 @@ export async function traceImage(
     const pixels = context.getImageData(0, 0, size.width, size.height);
     const original = { width: size.width, height: size.height, data: pixels.data.slice() };
     onProgress?.("tracing");
-    const trace = await new Promise<RasterTrace>((resolve, reject) => {
-      const worker = new Worker(new URL("./raster-trace.worker.ts", import.meta.url), {
-        type: "module",
-      });
-      const finish = (error?: Error, trace?: RasterTrace) => {
-        clearTimeout(timeout);
-        signal.removeEventListener("abort", cancel);
-        worker.terminate();
-        if (error) reject(error);
-        else resolve(trace!);
-      };
-      const cancel = () => finish(aborted());
-      const timeout = setTimeout(
-        () => finish(new Error("Vectorisation took too long. Try a simpler image.")),
-        traceLimits.timeout,
-      );
-      signal.addEventListener("abort", cancel, { once: true });
-      worker.onmessage = ({ data }: MessageEvent<{ trace?: RasterTrace; error?: string }>) => {
-        if (data.error || !data.trace) finish(new Error(data.error ?? "No trace returned."));
-        else finish(undefined, data.trace);
-      };
-      worker.onerror = () => finish(new Error("The image tracing worker failed."));
-      worker.onmessageerror = () => finish(new Error("Could not read the trace result."));
-      if (signal.aborted) cancel();
-      else
-        worker.postMessage(
-          {
-            width: size.width,
-            height: size.height,
-            buffer: pixels.data.buffer,
-            colors,
-            lossy: mime === "image/jpeg",
-          },
-          [pixels.data.buffer],
+    const result = await new Promise<{ trace: RasterTrace; verified: boolean }>(
+      (resolve, reject) => {
+        const worker = new Worker(new URL("./raster-trace.worker.ts", import.meta.url), {
+          type: "module",
+        });
+        const finish = (error?: Error, trace?: RasterTrace, verified = false) => {
+          clearTimeout(timeout);
+          signal.removeEventListener("abort", cancel);
+          worker.terminate();
+          if (error) reject(error);
+          else resolve({ trace: trace!, verified });
+        };
+        const cancel = () => finish(aborted());
+        const timeout = setTimeout(
+          () => finish(new Error("Vectorisation took too long. Try a simpler image.")),
+          traceLimits.timeout,
         );
-    });
+        signal.addEventListener("abort", cancel, { once: true });
+        worker.onmessage = ({
+          data,
+        }: MessageEvent<{ trace?: RasterTrace; error?: string; verified?: boolean }>) => {
+          if (data.error || !data.trace) finish(new Error(data.error ?? "No trace returned."));
+          else finish(undefined, data.trace, data.verified);
+        };
+        worker.onerror = () => finish(new Error("The image tracing worker failed."));
+        worker.onmessageerror = () => finish(new Error("Could not read the trace result."));
+        if (signal.aborted) cancel();
+        else
+          worker.postMessage(
+            {
+              width: size.width,
+              height: size.height,
+              buffer: pixels.data.buffer,
+              colors,
+              lossy: mime === "image/jpeg",
+            },
+            [pixels.data.buffer],
+          );
+      },
+    );
     check(signal);
+    if (result.verified) return result.trace;
     onProgress?.("checking");
     // Yield so cancellation and progress can paint before image-space verification.
     await new Promise<void>((resolve, reject) => {
@@ -202,7 +207,7 @@ export async function traceImage(
       if (signal.aborted) cancel();
     });
     check(signal);
-    const verified = verifyRasterTrace(original, trace);
+    const verified = verifyRasterTrace(original, result.trace);
     check(signal);
     return verified;
   } finally {

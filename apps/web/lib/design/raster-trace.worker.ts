@@ -1,3 +1,4 @@
+import { verifyRasterTrace } from "./raster-trace-quality";
 import { traceRaster } from "./raster-trace";
 import type { TraceColors } from "./raster-trace-contract";
 
@@ -17,12 +18,23 @@ const worker = self as unknown as {
 };
 worker.onmessage = ({ data }) => {
   try {
+    const image = {
+      width: data.width,
+      height: data.height,
+      data: new Uint8ClampedArray(data.buffer),
+    };
+    // Keep rendering and pixel comparisons cancellable alongside the CPU trace.
+    const context =
+      typeof OffscreenCanvas !== "undefined" && typeof Path2D !== "undefined"
+        ? new OffscreenCanvas(data.width, data.height).getContext("2d", {
+            willReadFrequently: true,
+          })
+        : null;
+    const original = context ? { ...image, data: image.data.slice() } : undefined;
+    const trace = traceRaster(image, data.colors, { lossy: data.lossy });
     worker.postMessage({
-      trace: traceRaster(
-        { width: data.width, height: data.height, data: new Uint8ClampedArray(data.buffer) },
-        data.colors,
-        { lossy: data.lossy },
-      ),
+      trace: original ? verifyRasterTrace(original, trace, context) : trace,
+      verified: !!original,
     });
   } catch (error) {
     worker.postMessage({
