@@ -16,7 +16,9 @@
     "dev:realtime": "wrangler dev --config wrangler.realtime.jsonc --port 8788",
     "test:multiplayer": "bun test lib/design lib/realtime",
     "test:multiplayer:browser": "node scripts/test-multiplayer-browser.mjs",
-    "types:worker": "wrangler types cloudflare-env.d.ts --env-interface CloudflareEnv --env-file /dev/null --strict-vars=false"
+    "types:worker": "wrangler types cloudflare-env.d.ts --env-interface CloudflareEnv --env-file /dev/null --strict-vars=false",
+    "test:browser": "playwright test",
+    "browser:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
     "@bella/design": "workspace:*",

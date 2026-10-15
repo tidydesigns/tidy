@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
-import { chooseSelectMenu } from "./select-menu-controls.mjs";
 
-const browser = await chromium.launch({ headless: true });
-const base = process.env.EDITOR_TEST_URL || "http://localhost:3113";
-try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+import { chooseSelectMenu } from "../../scripts/select-menu-controls.mjs";
+import { test, required } from "./fixtures";
+import type { Locator } from "playwright";
+
+test("component overrides, propagation, detach and viewer restrictions", async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL!;
+
   page.setDefaultTimeout(15000);
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
+
   await page.goto(`${base}/dev/import-preview?edit=1&components=1`);
   await page.waitForFunction(() =>
     [...document.querySelectorAll("button")].some(
@@ -20,7 +23,7 @@ try {
   const canvas = page.getByLabel("Design canvas", { exact: true });
   const source = page.locator('[data-node-id="master"]');
   const instance = page.locator('[data-node-id="instance-0"]');
-  const select = async (name) =>
+  const select = async (name: string) =>
     page
       .getByRole("button", { name: `Select ${name}`, exact: true })
       .first()
@@ -30,7 +33,7 @@ try {
     await canvas.focus();
     await page.keyboard.press("ControlOrMeta+z");
   };
-  const setWidth = async (value) => {
+  const setWidth = async (value: number) => {
     await width.fill(String(value));
     await width.press("Enter");
   };
@@ -38,16 +41,16 @@ try {
   await setWidth(260);
   await select("Card");
   await setWidth(240);
-  assert.equal(await instance.evaluate((node) => node.style.width), "260px");
+  assert.equal(await instance.evaluate((node: HTMLElement) => node.style.width), "260px");
   await page.locator('[data-node-id="label"]').click({ button: "right" });
   await page.getByRole("menuitem", { name: /^Duplicate/ }).click();
   await page.waitForFunction(
     () =>
       document
-        .querySelector('[data-node-id="instance-0"]')
+        .querySelector('[data-node-id="instance-0"]')!
         .querySelectorAll(":scope > [data-node-id]").length === 3,
   );
-  const children = (node) => node.locator(":scope > [data-node-id]");
+  const children = (node: Locator) => node.locator(":scope > [data-node-id]");
   assert.equal(await children(source).count(), 3);
   await page
     .getByRole("button", { name: "Select Label copy", exact: true })
@@ -69,24 +72,24 @@ try {
   await page.waitForFunction(
     () =>
       document
-        .querySelector('[data-node-id="instance-0"]')
+        .querySelector('[data-node-id="instance-0"]')!
         .querySelectorAll(":scope > [data-node-id]").length === 2,
   );
   await undo();
   await page.waitForFunction(
     () =>
       document
-        .querySelector('[data-node-id="instance-0"]')
+        .querySelector('[data-node-id="instance-0"]')!
         .querySelectorAll(":scope > [data-node-id]").length === 3,
   );
   await select("Card instance");
   await page.getByRole("button", { name: "Reset overrides", exact: true }).click();
-  assert.equal(await instance.evaluate((node) => node.style.width), "240px");
+  assert.equal(await instance.evaluate((node: HTMLElement) => node.style.width), "240px");
   await undo();
-  assert.equal(await instance.evaluate((node) => node.style.width), "260px");
+  assert.equal(await instance.evaluate((node: HTMLElement) => node.style.width), "260px");
   await chooseSelectMenu(page, "Swap component", "Alternate card");
-  assert.equal(await instance.evaluate((node) => node.style.width), "260px");
-  assert.ok((await instance.textContent()).includes("Target"));
+  assert.equal(await instance.evaluate((node: HTMLElement) => node.style.width), "260px");
+  assert.ok(required(await instance.textContent()).includes("Target"));
   const appearance = await instance.getAttribute("style");
   await page.getByRole("button", { name: "Detach instance", exact: true }).click();
   assert.equal(await instance.getAttribute("style"), appearance);
@@ -98,7 +101,7 @@ try {
     await page.getByRole("textbox", { name: "Layer name", exact: true }).inputValue(),
     "Alternate card",
   );
-  assert.deepEqual(errors, []);
+
   console.log(
     "PASS: master add/reorder/delete, override preservation, reset/swap/detach, one-step undo, and cross-page go-to-master",
   );
@@ -115,6 +118,4 @@ try {
   await page.getByRole("button", { name: "Go to master", exact: true }).click();
   await page.locator('[data-node-id="master"][data-selected="true"]').waitFor();
   console.log("PASS: viewer can navigate to master but cannot mutate instances");
-} finally {
-  await browser.close();
-}
+});

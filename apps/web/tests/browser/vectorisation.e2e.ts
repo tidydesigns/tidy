@@ -1,50 +1,37 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { measureRasterTrace } from "../lib/design/vectorisation/quality";
+import { readFile } from "node:fs/promises";
+import sharp from "sharp";
+import type { Page } from "playwright";
+import { test, required } from "./fixtures";
+import { measureRasterTrace } from "../../lib/design/vectorisation/quality";
 import { parsePathContours } from "@bella/design/vector-geometry";
 import {
   generalRasterFixtures,
   rasterShapeFixtures,
   rasterShapeSvg,
-} from "../lib/design/vectorisation/fixtures";
-import { chromium } from "playwright";
-import sharp from "sharp";
-
-const base = process.env.RASTER_TRACE_TEST_URL ?? "http://localhost:3000";
-if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))
-  throw new Error("Local fixture only.");
-const output = process.env.RASTER_TRACE_ARTIFACTS ?? join(tmpdir(), "tidy-vectorisation-browser");
-await mkdir(output, { recursive: true });
+} from "../../lib/design/vectorisation/fixtures";
 const artwork =
   '<svg xmlns="http://www.w3.org/2000/svg" width="624" height="380"><path fill="#e43d30" fill-rule="evenodd" d="M60 40H340V330H60ZM140 120V250H260V120Z"/><circle fill="#286ccf" cx="450" cy="190" r="100"/></svg>';
-const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-const errors: string[] = [];
-page.on("pageerror", (error) => errors.push(error.message));
-await page.route("**/__analytics/**", (route) =>
-  route.fulfill({ body: "{}", contentType: "application/json" }),
-);
-await page.route("https://fonts.googleapis.com/**", (route) =>
-  route.fulfill({ body: "", contentType: "text/css" }),
-);
-await page.route("**/api/auth/get-session", (route) =>
-  route.fulfill({ body: "null", contentType: "application/json" }),
-);
-const panel = page.getByRole("dialog", { name: "Image editor" });
-const root = page.locator('[data-node-id="landscape"]:visible').first();
-async function openImage() {
-  await page.getByRole("button", { name: "Select Landscape", exact: true }).click();
-  await root.locator("[data-adjustable-image]").dblclick({ position: { x: 30, y: 30 } });
-  await panel.waitFor();
+function imageEditor(page: Page) {
+  const panel = page.getByRole("dialog", { name: "Image editor" });
+  const root = page.locator('[data-node-id="landscape"]:visible').first();
+  async function openImage() {
+    await page.getByRole("button", { name: "Select Landscape", exact: true }).click();
+    await root.locator("[data-adjustable-image]").dblclick({ position: { x: 30, y: 30 } });
+    await panel.waitFor();
+  }
+  return { root, panel, openImage };
 }
-try {
-  for (const format of ["png", "jpeg", "webp"] as const) {
+for (const format of ["png", "jpeg", "webp"] as const) {
+  test(`raster ${format}: conversion, adjustments, history and export`, async ({
+    page,
+    baseURL,
+  }) => {
+    const base = baseURL!;
+    const { root, panel, openImage } = imageEditor(page);
     const pipeline = sharp(Buffer.from(artwork));
     if (format === "jpeg") pipeline.flatten({ background: "#ffffff" });
     const image = await pipeline[format]().toBuffer();
-    // The existing local fixture URL is intercepted; no stored user assets or database are used.
     await page.route("**/image-editor-test.svg*", (route) =>
       route.fulfill({ body: image, contentType: `image/${format}` }),
     );
@@ -61,7 +48,6 @@ try {
     });
     assert.ok((await vectors.count()) >= 2, `${format}: separate coloured vector shapes`);
     const after = await root.screenshot();
-
     const a = await sharp(before).raw().toBuffer(),
       b = await sharp(after).raw().toBuffer();
     assert.equal(a.length, b.length);
@@ -70,7 +56,6 @@ try {
     const source = await vectors.first().getAttribute("src");
     assert.ok(source && source.startsWith("data:image/svg+xml,"));
     assert.ok(decodeURIComponent(source.split(",").slice(1).join(",")).includes("<path"));
-
     await page.keyboard.press("ControlOrMeta+z");
     await root.locator("[data-adjustable-image]").waitFor();
     await page.keyboard.press("ControlOrMeta+Shift+z");
@@ -127,8 +112,11 @@ try {
       console.log(`PASS crop, zoom and image adjustments (MAE ${difference.toFixed(3)})`);
     }
     await page.unroute("**/image-editor-test.svg*");
-  }
-  // Closing the panel during delayed asset loading cancels the operation and leaves the image intact.
+  });
+}
+test("closing and cancelling vectorisation preserves the image", async ({ page, baseURL }) => {
+  const base = baseURL!;
+  const { root, panel, openImage } = imageEditor(page);
   const image = await sharp(Buffer.from(artwork)).png().toBuffer();
   let fetches = 0;
   await page.route("**/image-editor-test.svg*", async (route) => {
@@ -151,10 +139,13 @@ try {
     await panel.getByRole("button", { name: "Vectorise image", exact: true }).count(),
     1,
   );
-  assert.deepEqual(errors, []);
   console.log("PASS cancellation on close/button and no browser errors");
   await page.unroute("**/image-editor-test.svg*");
-  for (const fixture of rasterShapeFixtures) {
+});
+for (const fixture of rasterShapeFixtures) {
+  test(`independent editing: ${fixture.id}`, async ({ page, baseURL }) => {
+    const base = baseURL!;
+    const { root, panel } = imageEditor(page);
     const bytes = await sharp(Buffer.from(rasterShapeSvg(fixture.body)))
       .png()
       .toBuffer();
@@ -166,7 +157,6 @@ try {
     await root.locator("[data-adjustable-image]").evaluate(async (element) => {
       if (element instanceof HTMLImageElement) await element.decode();
     });
-
     await root.locator("[data-adjustable-image]").dblclick({ position: { x: 30, y: 30 } });
     await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
     await panel.waitFor({ state: "hidden" });
@@ -177,11 +167,13 @@ try {
     });
     const shapes = await vectors.count();
     assert.ok(shapes <= fixture.maxShapes);
-
     const layers = [];
     for (let i = 0; i < shapes; i++) {
       const vector = vectors.nth(i);
-      layers.push({ name: await vector.getAttribute("alt"), box: await vector.boundingBox() });
+      layers.push({
+        name: await vector.getAttribute("alt"),
+        box: required(await vector.boundingBox()),
+      });
     }
     if (fixture.id === "app-icon") {
       assert.deepEqual(
@@ -194,9 +186,9 @@ try {
       );
       const leaf = vectors.nth(1);
       await page.getByRole("button", { name: "Select Shape 2", exact: true }).click();
-      const before = await leaf.boundingBox();
+      const before = required(await leaf.boundingBox());
       await page.keyboard.press("ArrowRight");
-      const after = await leaf.boundingBox();
+      const after = required(await leaf.boundingBox());
       assert.ok(after!.x > before!.x, "Leaf moves independently");
       for (let i = 0; i < 19; i++) await page.keyboard.press("ArrowRight");
 
@@ -224,21 +216,24 @@ try {
     }
     await page.unroute("**/image-editor-test.svg*");
     console.log(`PASS ${fixture.id}: ${shapes} independently inspected layers`);
-  }
-  const cases = generalRasterFixtures.flatMap((fixture) => [
-    { fixture, format: "png" as const },
-    ...(["rotated-shapes", "concave-shapes", "close-colours"].includes(fixture.id)
-      ? [{ fixture, format: "jpeg" as const }]
-      : []),
-  ]);
-  for (const { fixture, format } of cases) {
+  });
+}
+const cases = generalRasterFixtures.flatMap((fixture) => [
+  { fixture, format: "png" as const },
+  ...(["rotated-shapes", "concave-shapes", "close-colours"].includes(fixture.id)
+    ? [{ fixture, format: "jpeg" as const }]
+    : []),
+]);
+for (const { fixture, format } of cases) {
+  test(`quality and native export: ${fixture.id} (${format})`, async ({ page, baseURL }) => {
+    const base = baseURL!;
+    const { root, panel } = imageEditor(page);
     const id = format === "png" ? fixture.id : `${fixture.id}-jpeg`;
     const pipeline = sharp(Buffer.from(rasterShapeSvg(fixture.body)));
     const png =
       format === "png"
         ? await pipeline.png().toBuffer()
         : await pipeline.flatten({ background: "#fff" }).jpeg().toBuffer();
-
     await page.route("**/image-editor-test.svg*", (route) =>
       route.fulfill({ body: png, contentType: `image/${format}` }),
     );
@@ -247,7 +242,6 @@ try {
     await root.locator("[data-adjustable-image]").evaluate(async (element) => {
       if (element instanceof HTMLImageElement) await element.decode();
     });
-
     await root.locator("[data-adjustable-image]").dblclick({ position: { x: 30, y: 30 } });
     await panel.waitFor();
     assert.ok(
@@ -311,13 +305,11 @@ try {
       assert.ok(path, "Generated SVG contains a path");
       assert.equal(parsePathContours(path[1]).length, 3, "Preserves both intentional holes");
     }
-
     const downloading = page.waitForEvent("download");
     await page.getByRole("button", { name: "svg", exact: true }).click();
     const downloaded = await downloading,
       svg = await readFile((await downloaded.path())!, "utf8");
     assert.ok(!svg.includes("<image") && !svg.includes("foreignObject"));
-
     await page.keyboard.press("ControlOrMeta+z");
     await root.locator("[data-adjustable-image]").waitFor();
     await page.keyboard.press("ControlOrMeta+Shift+z");
@@ -331,17 +323,5 @@ try {
     assert.ok(quality.meanError < 4, `${id}: verified appearance`);
     await page.unroute("**/image-editor-test.svg*");
     console.log(`PASS ${id}: ${geometry.length} shapes, ${geometry.map((p) => p.name).join(", ")}`);
-  }
-  assert.deepEqual(errors, []);
-} catch (error) {
-  await page.screenshot({ path: join(output, "failure.png") });
-  console.error(
-    "Browser errors:",
-    errors,
-    "Alerts:",
-    await page.getByRole("alert").allTextContents(),
-  );
-  throw error;
-} finally {
-  await browser.close();
+  });
 }

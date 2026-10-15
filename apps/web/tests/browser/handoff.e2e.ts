@@ -1,21 +1,25 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
-
-const browser = await chromium.launch({ headless: true });
-const base = process.env.EDITOR_TEST_URL || "http://localhost:3112";
-try {
-  for (const viewer of [false, true]) {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+import { test, required } from "./fixtures";
+declare global {
+  interface Window {
+    handoffCopies: string[];
+    rejectCopy: boolean;
+  }
+}
+for (const viewer of [false, true]) {
+  test(`handoff inspection and clipboard behaviour (${viewer ? "viewer" : "editor"})`, async ({
+    page,
+    baseURL,
+  }) => {
+    const base = baseURL!;
     page.setDefaultTimeout(15000);
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.message));
     await page.addInitScript(() => {
       window.handoffCopies = [];
       window.rejectCopy = false;
       Object.defineProperty(navigator, "clipboard", {
         configurable: true,
         value: {
-          writeText: async (text) => {
+          writeText: async (text: string) => {
             if (window.rejectCopy) throw new Error("Clipboard denied");
             window.handoffCopies.push(text);
           },
@@ -35,23 +39,27 @@ try {
     const inspector = page.getByLabel("Inspector", { exact: true });
     await inspector.getByRole("button", { name: "Copy CSS", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "CSS copied" }).waitFor();
-    const css = await page.evaluate(() => window.handoffCopies.at(-1));
+    const css = required(await page.evaluate(() => window.handoffCopies.at(-1)));
     assert.equal(css, await page.getByLabel("Generated layer CSS").textContent());
     assert.ok(!css.includes("primary-orange"));
     assert.ok(css.includes("font-size:"));
     assert.ok(css.includes(":nth-child("), "text renderer markup CSS is included");
-    assert.equal(await inspector.locator("input").count(), 0);
+    assert.equal(
+      await inspector.locator("input").count(),
+      await inspector.getByRole("spinbutton", { name: "Export scale", exact: true }).count(),
+      "Inspection exposes only export configuration, with no layer editing controls",
+    );
     if (viewer) assert.equal(await inspector.getByRole("tab").count(), 0);
     const parity = await page.evaluate((css) => {
-      const source = document.querySelector('[data-node-id="desktop-heading"]');
-      const clone = source.cloneNode(true);
+      const source = document.querySelector<HTMLElement>('[data-node-id="desktop-heading"]')!;
+      const clone = source.cloneNode(true) as HTMLElement;
       clone.removeAttribute("style");
       clone.removeAttribute("data-node-id");
       clone.classList.add("tidy-layer");
       const stylesheet = document.createElement("style");
       stylesheet.textContent = css;
       document.head.appendChild(stylesheet);
-      source.parentElement.appendChild(clone);
+      source.parentElement!.appendChild(clone);
       const expected = getComputedStyle(source),
         actual = getComputedStyle(clone);
       const differences = [
@@ -90,11 +98,11 @@ try {
       before,
       "inspection blocks nudging and deletion",
     );
-    const panelCss = await page.evaluate(() => window.handoffCopies.at(-1));
+    const panelCss = required(await page.evaluate(() => window.handoffCopies.at(-1)));
     assert.notEqual(panelCss, css, "Inspect mode stays active on later selections");
     assert.ok(!panelCss.includes("data-node-id"));
     await inspector.getByText("Imported source", { exact: true }).click();
-    assert.ok((await inspector.textContent()).includes("apps/web/"));
+    assert.ok(required(await inspector.textContent()).includes("apps/web/"));
     await page.evaluate(() => {
       window.rejectCopy = true;
     });
@@ -105,12 +113,9 @@ try {
       await page.getByRole("button", { name: "Inspect mode", exact: true }).click();
       await page.getByRole("button", { name: "Rectangle tool", exact: true }).waitFor();
     }
-    assert.deepEqual(errors, []);
+
     console.log(
       `PASS ${viewer ? "viewer" : "editor"}: CSS parity, read-only inspection, selection changes, source details and clipboard failure`,
     );
-    await page.close();
-  }
-} finally {
-  await browser.close();
+  });
 }

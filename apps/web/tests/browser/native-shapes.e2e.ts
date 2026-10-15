@@ -1,15 +1,13 @@
 import assert from "node:assert/strict";
-import { chromium } from "playwright";
 
-const browser = await chromium.launch({ headless: true });
-try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+import { test, required } from "./fixtures";
+
+test("shape creation, resize, rotation and undo", async ({ page, baseURL }) => {
+  const base = baseURL!;
+
   page.setDefaultTimeout(15000);
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(
-    `${process.env.EDITOR_TEST_URL || "http://localhost:3111"}/dev/import-preview?edit=1`,
-  );
+
+  await page.goto(`${base}/dev/import-preview?edit=1`);
   const canvas = page.getByLabel("Design canvas", { exact: true });
   await canvas.waitFor();
   await page.waitForFunction(() =>
@@ -26,7 +24,7 @@ try {
       .getByRole("menu", { name: "Shape tool", exact: true })
       .getByRole("menuitemradio", { name, exact: true })
       .click();
-    const bounds = await canvas.boundingBox();
+    const bounds = required(await canvas.boundingBox());
     const x = bounds.x + bounds.width * 0.55,
       y = bounds.y + bounds.height * 0.7;
     await page.mouse.move(x, y);
@@ -37,10 +35,10 @@ try {
     const node = page.locator(`[data-node-id]:has(> img[alt="${name}"])`).first();
     await node.waitFor();
     const src = await node.locator("img").getAttribute("src");
-    assert.ok(src.startsWith("data:image/svg+xml,"));
+    assert.ok(required(src).startsWith("data:image/svg+xml,"));
     const before = await node.getAttribute("style");
     const resize = page.getByRole("button", { name: `Resize ${name} bottom right`, exact: true });
-    const handle = await resize.boundingBox();
+    const handle = required(await resize.boundingBox());
     assert.ok(handle, `${name} has resize handles`);
     await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
     await page.mouse.down();
@@ -57,7 +55,7 @@ try {
     const rotation = page.getByRole("spinbutton", { name: "Rotation", exact: true });
     await rotation.fill("37");
     await rotation.press("Enter");
-    assert.ok((await node.getAttribute("style")).includes("37deg"));
+    assert.ok(required(await node.getAttribute("style")).includes("37deg"));
     await canvas.focus();
     await page.keyboard.press("ControlOrMeta+z");
     if (name === "Polygon" || name === "Star") {
@@ -71,7 +69,9 @@ try {
     if (name === "Star") {
       const original = await node.locator("img").getAttribute("src");
       await page.getByRole("button", { name: "Edit points", exact: true }).click();
-      const anchor = await page.locator('[data-vector-control="anchor"]').first().boundingBox();
+      const anchor = required(
+        await page.locator('[data-vector-control="anchor"]').first().boundingBox(),
+      );
       await page.mouse.move(anchor.x + anchor.width / 2, anchor.y + anchor.height / 2);
       await page.mouse.down();
       await page.mouse.move(anchor.x + anchor.width / 2 + 15, anchor.y + anchor.height / 2 + 10, {
@@ -93,7 +93,4 @@ try {
       `PASS ${name}: drag creation, SVG preview, resize, rotation, contextual controls, one-step undo`,
     );
   }
-  assert.deepEqual(errors, []);
-} finally {
-  await browser.close();
-}
+});

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
-const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
-const browser = await chromium.launch({ headless: true, args: ["--no-proxy-server"] });
-try {
-  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(
-    `${process.env.EDITOR_TEST_URL || "http://localhost:3114"}/dev/import-preview?edit=1`,
-  );
+import { test } from "./fixtures";
+
+test("rich text paste sanitisation, formatting and persisted editing", async ({
+  page,
+  baseURL,
+}) => {
+  const base = baseURL!;
+
+  await page.goto(`${base}/dev/import-preview?edit=1`);
   await page.waitForFunction(() =>
     [...document.querySelectorAll("[data-node-id]")].some((node) =>
       Object.keys(node).some((key) => key.startsWith("__reactProps")),
@@ -23,13 +23,18 @@ try {
     const data = new DataTransfer();
     data.setData(
       "text/html",
-      '<p>Hello <b>bold</b> <em>italic</em> <a href="https://example.com">link</a></p><ol><li>First</li><li><u>Second</u></li></ol><p><br></p><script>window.richPasteExecuted=true</script><img src="https://invalid.test/leak">',
+      '<p>Hello <b>bold</b> <em>italic</em> <a href="https://example.com">link</a></p><ol><li>First</li><li><u>Second</u></li></ol><p><br></p><script>(window as Window & { richPasteExecuted?: boolean }).richPasteExecuted=true</script><img src="https://invalid.test/leak">',
     );
     element.dispatchEvent(
       new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data }),
     );
   });
-  assert.equal(await page.evaluate(() => window.richPasteExecuted), undefined);
+  assert.equal(
+    await page.evaluate(
+      () => (window as Window & { richPasteExecuted?: boolean }).richPasteExecuted,
+    ),
+    undefined,
+  );
   assert.equal(await editor.locator("img,script").count(), 0);
   assert.equal(await editor.locator("ol li").count(), 2);
   assert.equal(await editor.locator('a[href="https://example.com"]').innerText(), "link");
@@ -38,19 +43,19 @@ try {
     0,
     "whole-layer controls should collapse during range editing",
   );
-  const select = async (value) => {
+  const select = async (value: string) => {
     await editor.evaluate((root, text) => {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       let node;
       while ((node = walker.nextNode()))
-        if (node.textContent.includes(text)) {
+        if (node.textContent!.includes(text)) {
           const range = document.createRange();
-          const offset = node.textContent.indexOf(text);
+          const offset = node.textContent!.indexOf(text);
           range.setStart(node, offset);
           range.setEnd(node, offset + text.length);
           const selection = window.getSelection();
-          selection.removeAllRanges();
-          selection.addRange(range);
+          selection!.removeAllRanges();
+          selection!.addRange(range);
           document.dispatchEvent(new Event("selectionchange"));
           return;
         }
@@ -117,10 +122,8 @@ try {
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await text.locator("ol").waitFor();
   assert.equal(await text.innerHTML(), committed);
-  assert.deepEqual(errors, []);
+
   console.log(
     "PASS: rich paste sanitization, emphasis keyboard/selection controls, safe links, lists, contextual inspector, reopen and one-step undo/redo",
   );
-} finally {
-  await browser.close();
-}
+});
