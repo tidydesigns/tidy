@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { consentCookie, consentRevision, CONSENT_VERSION } from "../lib/privacy/consent.ts";
+import { featureFlagKeys, FLAGS_OFF } from "../lib/feature-flags.ts";
 
 const require = createRequire(import.meta.url);
 const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
@@ -21,6 +22,10 @@ const build = await Bun.build({
     {
       name: "synthetic-consent-receipt",
       setup(builder) {
+        builder.onResolve({ filter: /^server-only$/ }, () => ({
+          path: "server-marker",
+          namespace: "synthetic-receipt",
+        }));
         // Database receipt enforcement has separate integration coverage. This
         // fixture exercises the actual route and workerd's outbound fetch API.
         builder.onResolve({ filter: /^@\/lib\/privacy\/consent-store$/ }, () => ({
@@ -38,6 +43,10 @@ const build = await Bun.build({
 if (!build.success) throw new AggregateError(build.logs, "Telemetry Worker fixture build failed");
 const calls = [];
 let upstreamStatus = 200;
+let functionalResponse = {
+  errorsWhileComputingFlags: false,
+  flags: Object.fromEntries(featureFlagKeys.map((key) => [key, { enabled: true, variant: null }])),
+};
 const worker = new Miniflare(
   convertV4MiniflareOptions({
     modules: true,
@@ -50,6 +59,8 @@ const worker = new Miniflare(
         headers: Object.fromEntries(request.headers),
         body: await request.text(),
       });
+      if (new URL(request.url).pathname === "/flags/" && upstreamStatus === 200)
+        return Response.json(functionalResponse);
       return upstreamStatus === 200
         ? Response.json({ status: 1 }, { headers: { "Set-Cookie": "provider=untrusted" } })
         : new Response("redirect body", {
@@ -82,14 +93,17 @@ const send = (path, method = "POST") =>
   });
 try {
   await worker.ready;
-  for (const path of ["e", "s", "flags"]) {
+  for (const path of ["e", "s"]) {
     const result = await send(path);
     assert.equal(result.status, 200, `${path} must work with the deployed Worker runtime`);
     assert.equal(result.headers.get("set-cookie"), null);
   }
   assert.equal((await send("array/synthetic-worker-project/config", "GET")).status, 200);
-  assert.equal(calls.length, 4);
-  assert.equal(new URL(calls[3].url).hostname, "t.tidydesign.co");
+  assert.equal(calls.length, 3);
+  assert.equal(new URL(calls[2].url).hostname, "t.tidydesign.co");
+  for (const path of ["flags", "decide"])
+    assert.equal((await send(path)).status, 404, "Browser flag requests must not reach PostHog");
+  assert.equal(calls.length, 3);
   for (const call of calls) {
     assert.equal(new URL(call.url).hostname, "t.tidydesign.co");
     assert.equal(call.headers.cookie, undefined);
@@ -117,8 +131,47 @@ try {
     200,
   );
   assert.equal(calls.length, before, "No consent must still prevent upstream traffic");
+  upstreamStatus = 200;
+  const enabled = Object.fromEntries(featureFlagKeys.map((key) => [key, true]));
+  const evaluate = async () =>
+    (
+      await worker.dispatchFetch("https://telemetry.test/functional-flags", {
+        headers: {
+          cookie: "tidy_consent=declined; authentication=synthetic-secret",
+          authorization: "Bearer synthetic-secret",
+          "x-forwarded-for": "192.0.2.1",
+          referer: "https://telemetry.test/files/private",
+        },
+      })
+    ).json();
+  assert.deepEqual(
+    await evaluate(),
+    enabled,
+    "Functional evaluation needs no browser consent or receipt",
+  );
+  assert.deepEqual(JSON.parse(calls.at(-1).body), {
+    api_key: "synthetic-worker-project",
+    distinct_id: "tidy-functional-rollout",
+    flag_keys_to_evaluate: [...featureFlagKeys],
+  });
+  for (const header of ["cookie", "authorization", "x-forwarded-for", "referer", "x-tidy-receipt"])
+    assert.equal(calls.at(-1).headers[header], undefined);
+  assert.deepEqual(
+    await Promise.all([evaluate(), evaluate()]),
+    [enabled, enabled],
+    "Concurrent Worker requests must not reuse another request's pending I/O",
+  );
+  for (const status of [307, 429, 503]) {
+    upstreamStatus = status;
+    const count = calls.length;
+    assert.deepEqual(await evaluate(), FLAGS_OFF);
+    assert.equal(calls.length, count + 1, "Evaluation neither follows redirects nor retries");
+  }
+  upstreamStatus = 200;
+  functionalResponse = { ...functionalResponse, errorsWhileComputingFlags: true };
+  assert.deepEqual(await evaluate(), FLAGS_OFF, "Provider errors cannot reuse enabled flags");
   console.log(
-    "PASS: workerd forwards consented telemetry and rejects redirects without forwarding credentials",
+    "PASS: workerd preserves consented telemetry, rejects browser flags, and evaluates functional flags without visitor data or consent",
   );
 } finally {
   await worker.dispose();
