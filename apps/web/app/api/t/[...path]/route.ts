@@ -1,4 +1,9 @@
-import { boundedRequest } from "@/lib/http/request-body";
+import {
+  reserveTelemetryAttempt,
+  reserveTelemetryBytes,
+  PublicBudgetError,
+} from "@/lib/security/public-budget";
+import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 import { consentRevision, hasOptionalConsent, readConsent } from "@/lib/privacy/consent";
 import { authorizeTelemetry } from "@/lib/privacy/consent-store";
 
@@ -34,7 +39,9 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
   )
     return Response.json({ status: 1 }, { headers: noStore });
   try {
-    if (!(await authorizeTelemetry(request, consent)))
+    await reserveTelemetryAttempt(request);
+    const receipt = request.headers.get("x-tidy-receipt");
+    if (!receipt || receipt.length > 64 || !(await authorizeTelemetry(request, consent)))
       return new Response(null, { status: 403, headers: noStore });
     const upstream = new URL(
       process.env.POSTHOG_PREVIEW_HOST && process.env.NODE_ENV !== "production"
@@ -68,6 +75,7 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
       request.method === "POST"
         ? await (await boundedRequest(request, 5_000_000)).arrayBuffer()
         : undefined;
+    await reserveTelemetryBytes(receipt, body?.byteLength ?? 0);
     const response = await fetch(upstream, {
       method: request.method,
       headers: { "Content-Type": request.headers.get("content-type") || "application/json" },
@@ -85,7 +93,14 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
       status: response.status,
       headers: { ...noStore, "Content-Type": "application/json" },
     });
-  } catch {
+  } catch (error) {
+    if (error instanceof PublicBudgetError)
+      return new Response(null, {
+        status: 429,
+        headers: { ...noStore, "Retry-After": String(error.retryAfter) },
+      });
+    if (error instanceof RequestBodyError)
+      return new Response(null, { status: error.status, headers: noStore });
     return new Response(null, { status: 503, headers: noStore });
   }
 }

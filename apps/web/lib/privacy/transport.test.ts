@@ -39,6 +39,7 @@ function request(path: string, headers: Record<string, string> = {}, method = "P
     headers: {
       cookie: consentCookie(choices, choices.at),
       "x-tidy-consent": consentRevision(choices),
+      "x-tidy-receipt": "00000000-0000-4000-8000-000000000001",
       origin: "https://app.example",
       "content-type": "application/json",
       ...headers,
@@ -214,3 +215,35 @@ for (const status of [301, 302, 303, 307, 308]) {
     }
   });
 }
+
+test("telemetry admission denies before consent lookup and byte exhaustion denies before upstream", async () => {
+  setup();
+  const budgets = await import("../security/public-budget");
+  const attempt = spyOn(budgets, "reserveTelemetryAttempt").mockRejectedValue(
+    new budgets.PublicBudgetError(17),
+  );
+  const bytes = spyOn(budgets, "reserveTelemetryBytes").mockResolvedValue();
+  const transport = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({}));
+  try {
+    const blocked = await POST(request("e"), context("e"));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("retry-after")).toBe("17");
+    expect(verify).not.toHaveBeenCalled();
+    expect(transport).not.toHaveBeenCalled();
+    attempt.mockResolvedValue();
+    bytes.mockRejectedValue(new budgets.PublicBudgetError(31));
+    expect((await POST(request("e"), context("e"))).status).toBe(429);
+    expect(verify).toHaveBeenCalledTimes(1);
+    expect(bytes.mock.calls[0]?.[1]).toBe(
+      new TextEncoder().encode(JSON.stringify({ event: "$pageview" })).length,
+    );
+    expect(transport).not.toHaveBeenCalled();
+    bytes.mockResolvedValue();
+    expect((await POST(request("e"), context("e"))).status).toBe(200);
+    expect(transport).toHaveBeenCalledTimes(1);
+  } finally {
+    attempt.mockRestore();
+    bytes.mockRestore();
+    transport.mockRestore();
+  }
+});

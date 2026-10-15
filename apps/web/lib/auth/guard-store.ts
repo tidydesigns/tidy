@@ -8,7 +8,7 @@ type CacheRow = {
   expires_at: number;
 };
 type Counter = { count: number };
-export type RateRule = { window: number; max: number };
+export type RateRule = { window: number; max: number; cost?: number };
 export type RateCheck = { key: string; rule: RateRule };
 export type RateDecision = { allowed: boolean; retryAfter: number | null };
 export class AuthGuardLimit extends Error {}
@@ -29,9 +29,13 @@ export class AuthGuardStore {
   }
 
   consume(key: string, rule: RateRule, now = Date.now()): RateDecision {
+    const cost = rule.cost ?? 1;
     if (
+      !Number.isSafeInteger(cost) ||
+      cost < 1 ||
+      cost > rule.max ||
       key.length > 256 ||
-      !Number.isInteger(rule.max) ||
+      !Number.isSafeInteger(rule.max) ||
       rule.max < 1 ||
       !Number.isFinite(rule.window) ||
       rule.window <= 0 ||
@@ -45,7 +49,7 @@ export class AuthGuardStore {
         key,
       )
       .toArray()[0];
-    if (row && now - row.last_request < rule.window * 1000 && row.count >= rule.max) {
+    if (row && now - row.last_request < rule.window * 1000 && row.count + cost > rule.max) {
       return {
         allowed: false,
         retryAfter: Math.max(1, Math.ceil((row.last_request + rule.window * 1000 - now) / 1000)),
@@ -57,7 +61,7 @@ export class AuthGuardStore {
         10_000
     )
       return { allowed: false, retryAfter: 60 };
-    const count = row && now - row.last_request < rule.window * 1000 ? row.count + 1 : 1;
+    const count = row && now - row.last_request < rule.window * 1000 ? row.count + cost : cost;
     this.sql.exec(
       "INSERT INTO auth_bucket (key, count, last_request, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET count = excluded.count, last_request = excluded.last_request, expires_at = excluded.expires_at",
       key,

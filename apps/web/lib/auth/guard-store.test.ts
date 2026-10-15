@@ -165,3 +165,26 @@ test("shared metadata budgets block fan-out and expired invocations release capa
     database.close();
   }
 });
+
+test("weighted budgets reject overshoot atomically, retain counts and recover after expiry", async () => {
+  const { database, guard } = store();
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 10 }, async () =>
+        guard.consume("bytes", { window: 60, max: 20_000_000, cost: 5_000_000 }, 1000),
+      ),
+    );
+    expect(results.filter((r) => r.allowed)).toHaveLength(4);
+    expect(guard.consume("bytes", { window: 60, max: 20_000_000, cost: 1 }, 1001).allowed).toBe(
+      false,
+    );
+    expect(
+      guard.consume("bytes", { window: 60, max: 20_000_000, cost: 5_000_000 }, 61_000).allowed,
+    ).toBe(true);
+    for (const cost of [0, -1, 0.5, NaN, Infinity, 21_000_000])
+      expect(() => guard.consume("invalid", { window: 60, max: 20_000_000, cost })).toThrow();
+    expect(database.query("select * from auth_bucket where key='invalid'").all()).toHaveLength(0);
+  } finally {
+    database.close();
+  }
+});
