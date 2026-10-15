@@ -25,13 +25,13 @@ export function settingsTab(value: unknown): SettingsTab | undefined {
     : undefined;
 }
 
-export function settingsTabs(billing: boolean, agents: boolean): SettingsTab[] {
+export function settingsTabs(billing: boolean, agents: boolean, connectors = false): SettingsTab[] {
   return [
     "profile",
     "preferences",
     "organization",
     "members",
-    "connectors",
+    ...(connectors ? ["connectors" as const] : []),
     ...(billing ? ["billing" as const] : []),
     ...(agents ? ["agents" as const] : []),
   ];

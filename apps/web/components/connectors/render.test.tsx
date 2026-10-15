@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ConnectorSettings } from "./connector-settings";
 import { LinearSettings } from "./linear-settings";
 
-test("one connector catalog offers GitHub and Linear without setup internals or save buttons", () => {
+test("connector settings fail closed in server markup, including direct connector selection", () => {
   const html = renderToStaticMarkup(
     <ConnectorSettings
       organizationId="org"
@@ -21,12 +21,7 @@ test("one connector catalog offers GitHub and Linear without setup internals or 
       linear={{ ready: true, configured: true, connections: [], error: null }}
     />,
   );
-  expect(html).toContain("Connect GitHub");
-  expect(html).toContain("Connect Linear");
-  expect(html).toContain('action="/api/linear/connect"');
-  expect(html).not.toContain("<select");
-  expect(html).not.toContain(">Save<");
-  expect(html).not.toContain("client_secret");
+  expect(html).toBe("");
 });
 test("multiple workspaces can be managed independently and missing setup fails gracefully", () => {
   const html = renderToStaticMarkup(

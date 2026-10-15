@@ -11,6 +11,7 @@ import { ConnectorIcon } from "@/components/connectors/connector-icon";
 import { connectorProviders } from "@/lib/connectors/catalog";
 import { settingsTabs, settingsLabels, settingsTab } from "@/lib/settings-navigation";
 import { PageLoading } from "@/components/ui/page-loading";
+import { useFeatureFlag } from "@/lib/use-feature-flag";
 import {
   filesPage,
   settingsPage,
@@ -175,6 +176,7 @@ function SettingsPanelSkeleton({
   tab: string;
   emailConfigured?: boolean;
 }) {
+  const showGitHub = useFeatureFlag("github-connector");
   if (tab === "members")
     return (
       <>
@@ -204,19 +206,21 @@ function SettingsPanelSkeleton({
   if (tab === "connectors")
     return (
       <div className={connectorList}>
-        {connectorProviders.map((provider) => (
-          <div key={provider.id} className="rounded-xl border border-border bg-surface">
-            <div className={connectorSummary}>
-              <span className="ml-1 inline-flex items-center gap-2 align-middle text-sm font-semibold">
-                <ConnectorIcon src={provider.icon} />
-                {provider.name}
-              </span>
-              <span className="mt-1 block pl-5 text-sm text-secondary-ink">
-                {provider.description}
-              </span>
+        {connectorProviders
+          .filter((provider) => provider.id !== "github" || showGitHub)
+          .map((provider) => (
+            <div key={provider.id} className="rounded-xl border border-border bg-surface">
+              <div className={connectorSummary}>
+                <span className="ml-1 inline-flex items-center gap-2 align-middle text-sm font-semibold">
+                  <ConnectorIcon src={provider.icon} />
+                  {provider.name}
+                </span>
+                <span className="mt-1 block pl-5 text-sm text-secondary-ink">
+                  {provider.description}
+                </span>
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
       </div>
     );
   if (tab === "profile")
@@ -353,23 +357,25 @@ function SettingsLayoutSkeleton({
   showThreads = true,
   emailConfigured,
 }: { tab: string } & SkeletonOptions) {
+  const showConnectors = useFeatureFlag("settings-connectors");
+  const selectedTab = tab === "connectors" && !showConnectors ? "profile" : tab;
   return (
     <Surface name="settings" className={settingsPage}>
       <h1 data-ph-public className="text-3xl font-semibold tracking-tight sm:text-4xl">
         Settings
       </h1>
       <div className={settingsTabList}>
-        {settingsTabs(true, showThreads).map((item) => (
+        {settingsTabs(true, showThreads, showConnectors).map((item) => (
           <span
             key={item}
-            className={`${settingsTabButton} ${item === tab ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink"}`}
+            className={`${settingsTabButton} ${item === selectedTab ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink"}`}
           >
             {settingsLabels[item]}
           </span>
         ))}
       </div>
       <div className={settingsPanel} data-settings-panel-skeleton>
-        <SettingsPanelSkeleton tab={tab} emailConfigured={emailConfigured} />
+        <SettingsPanelSkeleton tab={selectedTab} emailConfigured={emailConfigured} />
       </div>
     </Surface>
   );

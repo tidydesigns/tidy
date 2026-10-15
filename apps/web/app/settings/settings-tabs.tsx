@@ -24,6 +24,7 @@ import type { ConnectionStatus } from "@/lib/github/connections";
 import type { BillingStatus } from "@/lib/billing/server";
 import { BillingSettings } from "./billing-settings";
 import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
+import { useFeatureFlag } from "@/lib/use-feature-flag";
 
 import { AgentConnectionSettings } from "@/components/agents/connection-settings";
 import type { ConnectionStatus as AgentConnection } from "@/lib/agents/protocol";
@@ -109,9 +110,10 @@ export function SettingsTabs({
   const [currentMembers, setMembers] = useState(members);
   const [currentRole, setRole] = useState(role);
   const [currentSessions, setSessions] = useState(sessions);
+  const showConnectors = useFeatureFlag("settings-connectors");
   const visibleTabs = useMemo(
-    () => settingsTabs(Boolean(billing.proLimits), Boolean(agents)),
-    [billing.proLimits, agents],
+    () => settingsTabs(Boolean(billing.proLimits), Boolean(agents), showConnectors),
+    [billing.proLimits, agents, showConnectors],
   );
   const { names } = useOrganizationNames();
   const currentOrganization = {
@@ -195,18 +197,20 @@ export function SettingsTabs({
             />
           </SettingsPanel>
         )}
-        <SettingsPanel item="connectors" selected={tab}>
-          <ConnectorSettings
-            key={organization.id}
-            organizationId={organization.id}
-            canManage={canInvite}
-            github={github}
-            linear={linear}
-            selected={selectedConnector}
-            githubCallbackStatus={githubCallbackStatus}
-            linearCallbackStatus={linearCallbackStatus}
-          />
-        </SettingsPanel>
+        {showConnectors && (
+          <SettingsPanel item="connectors" selected={tab}>
+            <ConnectorSettings
+              key={organization.id}
+              organizationId={organization.id}
+              canManage={canInvite}
+              github={github}
+              linear={linear}
+              selected={selectedConnector}
+              githubCallbackStatus={githubCallbackStatus}
+              linearCallbackStatus={linearCallbackStatus}
+            />
+          </SettingsPanel>
+        )}
         <SettingsPanel item="members" selected={tab}>
           <section aria-labelledby="members-heading">
             <div className="flex flex-wrap items-center justify-between gap-4">

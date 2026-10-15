@@ -6,6 +6,7 @@ import { ConfirmAction } from "@/components/ui/confirm-action";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { checkAuthorizedAgents, revokeAgent } from "./actions";
 import { agentOptions, setupFor, type Agent, type SetupValue } from "./agent-setup";
+import { useFeatureFlag } from "@/lib/use-feature-flag";
 
 type AuthorizedClient = { clientId: string; name: string };
 type EndpointStatus = "checking" | "ready" | "unavailable" | "misconfigured";
@@ -89,7 +90,12 @@ export function McpConnection({
   const [error, setError] = useState("");
   const [endpoint, setEndpoint] = useState<EndpointStatus>("checking");
   const [checking, setChecking] = useState(false);
-  const [agent, setAgent] = useState<Agent>("codex");
+  const [selectedAgent, setAgent] = useState<Agent>("codex");
+  const showAdditionalClients = useFeatureFlag("mcp-pi-gemini");
+  const options = agentOptions.filter(
+    (option) => showAdditionalClients || !["pi", "gemini", "other"].includes(option.value),
+  );
+  const agent = options.some((option) => option.value === selectedAgent) ? selectedAgent : "codex";
   const name = ["localhost", "127.0.0.1", "[::1]"].includes(new URL(resourceUrl).hostname)
     ? "tidy-local"
     : "tidy";
@@ -146,7 +152,7 @@ export function McpConnection({
           label="Agent"
           value={agent}
           onChange={(value) => setAgent(value as Agent)}
-          options={[...agentOptions]}
+          options={options}
           className="w-[210px] max-w-full"
         />
       </div>

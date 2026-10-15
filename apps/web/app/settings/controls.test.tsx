@@ -168,6 +168,9 @@ test("profile renders editable identity, password and other session controls wit
   expect(html.indexOf("Change password")).toBeLessThan(html.indexOf("Download my data"));
   expect(html).toContain('id="settings-tab-preferences"');
   expect(html).toContain('id="settings-tab-organization"');
+  expect(html).not.toContain('id="settings-tab-connectors"');
+  expect(html).not.toContain("Connect GitHub");
+  expect(html).not.toContain("Connect Linear");
   expect(html).not.toContain('id="settings-tab-settings"');
   expect(html).not.toContain("Editor panels");
   expect(html).not.toContain("Minimised toolbar");

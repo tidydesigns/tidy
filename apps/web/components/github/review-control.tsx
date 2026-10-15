@@ -9,6 +9,7 @@ import type { DesignDocument } from "@/lib/design/document";
 import type { Review, ReviewContext } from "@/lib/github/reviews";
 import { DesignSnapshot } from "./design-snapshot";
 import { SelectMenu } from "@/components/ui/select-menu";
+import { useFeatureFlag } from "@/lib/use-feature-flag";
 
 type ReviewList = { ready: boolean; reviews: Omit<Review, "content">[] };
 const button =
@@ -47,6 +48,7 @@ export function ReviewControl({
   canEdit?: boolean;
   initialReviewId?: string;
 }) {
+  const showConnectors = useFeatureFlag("settings-connectors");
   const dialog = useRef<HTMLDialogElement>(null);
   const linkedInitialId = initial.reviews.some((item) => item.id === initialReviewId)
     ? (initialReviewId ?? null)
@@ -264,15 +266,17 @@ export function ReviewControl({
                 >
                   Link PR
                 </button>
-                <Link
-                  prefetchOnIntent
-                  href="/settings?tab=connectors&connector=github"
-                  className="text-xs underline"
-                >
-                  <span data-ph-public style={{ display: "contents" }}>
-                    GitHub connection settings
-                  </span>
-                </Link>
+                {showConnectors && (
+                  <Link
+                    prefetchOnIntent
+                    href="/settings?tab=connectors&connector=github"
+                    className="text-xs underline"
+                  >
+                    <span data-ph-public style={{ display: "contents" }}>
+                      GitHub connection settings
+                    </span>
+                  </Link>
+                )}
               </div>
             </form>
           )

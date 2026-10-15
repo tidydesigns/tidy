@@ -11,6 +11,7 @@ import {
 import { clearAnalyticsStorage } from "./privacy/browser-storage";
 import { invalidateConsentReceipt, recordBrowserConsent } from "./privacy/receipt-client";
 import { replayAttribute, replayText } from "./privacy/replay";
+import { bindFeatureFlags, clearFeatureFlags } from "./feature-flags";
 import {
   redactTelemetry,
   safeTelemetryUrl,
@@ -130,6 +131,7 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
 function stop(clearStorage = true) {
   const previous = client;
   client = undefined;
+  clearFeatureFlags();
   if (previous) {
     // Async recorder/config callbacks must not recreate storage after withdrawal.
     for (const action of [
@@ -222,6 +224,15 @@ async function initializeClient() {
       $app_version: process.env.NEXT_PUBLIC_APP_VERSION,
       tidy_consent_receipt: receipt.id,
     });
+    if (consent.analytics)
+      bindFeatureFlags(
+        instance,
+        () =>
+          generation === revision &&
+          client === instance &&
+          current("analytics") &&
+          JSON.stringify(browserConsent()) === choice,
+      );
   } catch {
     // Retry failed essential receipt delivery. Capture stays stopped in the meantime.
     if (generation === revision)

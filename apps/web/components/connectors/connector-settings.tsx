@@ -9,6 +9,7 @@ import type { ConnectionStatus } from "@/lib/github/connections";
 import { connectorProviders, type ConnectorStatus } from "@/lib/connectors/catalog";
 import { LinearSettings } from "./linear-settings";
 import { ConnectorIcon } from "./connector-icon";
+import { useFeatureFlag } from "@/lib/use-feature-flag";
 
 export function ConnectorSettings({
   organizationId,
@@ -27,46 +28,51 @@ export function ConnectorSettings({
   linearCallbackStatus?: string;
   selected?: string;
 }) {
+  const showConnectors = useFeatureFlag("settings-connectors");
+  const showGitHub = useFeatureFlag("github-connector");
+  if (!showConnectors) return null;
   return (
     <div className={connectorList}>
-      {connectorProviders.map((provider) => (
-        <details
-          key={provider.id}
-          open={
-            selected === provider.id ||
-            Boolean(provider.id === "github" ? githubCallbackStatus : linearCallbackStatus)
-          }
-          className="group rounded-xl border border-border bg-surface"
-        >
-          <summary className={connectorSummary}>
-            <span className="ml-1 inline-flex items-center gap-2 align-middle text-sm font-semibold">
-              <ConnectorIcon src={provider.icon} />
-              {provider.name}
-            </span>
-            <span className="mt-1 block pl-5 text-sm text-secondary-ink">
-              {provider.description}
-            </span>
-          </summary>
-          <div className="border-t border-border px-5 py-5">
-            <Suspense fallback={<ConnectorDetailsSkeleton />}>
-              {provider.id === "github" ? (
-                <LoadedGitHub
-                  initial={github}
-                  organizationId={organizationId}
-                  canManage={canManage}
-                  callbackStatus={githubCallbackStatus}
-                />
-              ) : (
-                <LoadedLinear
-                  initial={linear}
-                  organizationId={organizationId}
-                  callbackStatus={linearCallbackStatus}
-                />
-              )}
-            </Suspense>
-          </div>
-        </details>
-      ))}
+      {connectorProviders
+        .filter((provider) => provider.id !== "github" || showGitHub)
+        .map((provider) => (
+          <details
+            key={provider.id}
+            open={
+              selected === provider.id ||
+              Boolean(provider.id === "github" ? githubCallbackStatus : linearCallbackStatus)
+            }
+            className="group rounded-xl border border-border bg-surface"
+          >
+            <summary className={connectorSummary}>
+              <span className="ml-1 inline-flex items-center gap-2 align-middle text-sm font-semibold">
+                <ConnectorIcon src={provider.icon} />
+                {provider.name}
+              </span>
+              <span className="mt-1 block pl-5 text-sm text-secondary-ink">
+                {provider.description}
+              </span>
+            </summary>
+            <div className="border-t border-border px-5 py-5">
+              <Suspense fallback={<ConnectorDetailsSkeleton />}>
+                {provider.id === "github" ? (
+                  <LoadedGitHub
+                    initial={github}
+                    organizationId={organizationId}
+                    canManage={canManage}
+                    callbackStatus={githubCallbackStatus}
+                  />
+                ) : (
+                  <LoadedLinear
+                    initial={linear}
+                    organizationId={organizationId}
+                    callbackStatus={linearCallbackStatus}
+                  />
+                )}
+              </Suspense>
+            </div>
+          </details>
+        ))}
     </div>
   );
 }
