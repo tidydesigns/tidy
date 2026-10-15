@@ -37,6 +37,39 @@ test("only explicit, current, unexpired, unambiguous choices grant consent", () 
   expect(consentRevision(valid)).not.toBe(consentRevision({ ...valid, replay: false }));
 });
 
+test("editing remembered choices creates a fresh consent revision for every change", () => {
+  let saved = readConsent(consentCookie(ESSENTIAL_ONLY, now), now)!;
+  const purposes = [
+    "analytics",
+    "replay",
+    "diagnostics",
+    "replay",
+    "analytics",
+    "diagnostics",
+  ] as const;
+  for (const [index, purpose] of purposes.entries()) {
+    const at = now + (index + 1) * 1000;
+    const next = { ...saved, [purpose]: !saved[purpose] };
+    const updated = readConsent(consentCookie(next, at), at);
+    expect(updated).toEqual({ ...next, version: CONSENT_VERSION, at });
+    expect(consentRevision(updated!)).not.toBe(consentRevision(saved));
+    saved = updated!;
+  }
+  expect(saved).toMatchObject(ESSENTIAL_ONLY);
+});
+
+test("cookie writes own their version and timestamp instead of copying caller metadata", () => {
+  const choices = {
+    ...all,
+    version: CONSENT_VERSION - 1,
+    at: now - 1000,
+    metadata: "not a purpose",
+  };
+  const stored = consentCookie(choices, now);
+  expect(readConsent(stored, now)).toEqual({ ...all, version: CONSENT_VERSION, at: now });
+  expect(decodeURIComponent(stored)).not.toContain("metadata");
+});
+
 function event(name: string, properties: Record<string, unknown> = {}): CaptureResult {
   return {
     event: name,

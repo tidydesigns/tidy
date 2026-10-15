@@ -50,7 +50,14 @@ export function readConsent(cookie: string | null | undefined, now = Date.now())
 }
 
 export function consentCookie(choices: ConsentChoices, now = Date.now(), secure = true) {
-  const value: Consent = { version: CONSENT_VERSION, at: now, ...choices };
+  // Remembered choices may carry old revision metadata; copy only the purposes.
+  const value: Consent = {
+    version: CONSENT_VERSION,
+    at: now,
+    analytics: choices.analytics,
+    replay: choices.replay,
+    diagnostics: choices.diagnostics,
+  };
   return `${CONSENT_COOKIE}=${encodeURIComponent(JSON.stringify(value))}; Path=/; Max-Age=${CONSENT_MAX_AGE}; SameSite=Lax${secure ? "; Secure" : ""}`;
 }
 
