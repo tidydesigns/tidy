@@ -97,15 +97,19 @@ Monitor `privacy_consent_unavailable`, `privacy_cleanup_failed`,
 count). Jobs more than one day old require investigation. Missing configuration
 and failed delivery retain jobs; manual reviews remain pending until confirmed.
 
-Keep 30-day replay retention. Review retained identifiable events, surveys,
-profiles and diagnostic records at least monthly against the notice's purpose
-criteria, and arrange earlier erasure when required. Provider event availability
-is not a deletion schedule. Review unlinked server fault reports and separate
-error-issue records independently of person deletion. Consent evidence and cleanup
-receipts expire after one year through the cron; account deletion also removes
-linked consent records. Keep the restricted erasure register needed to reapply
-deletions before restored backups are reopened. Assess any legal retention
-exception individually rather than treating all historical data as indefinite.
+Use PostHog's standard event-storage settings and the configured 30-day replay
+retention. The paid plan's seven-year event query window is not an automatic
+deletion deadline and does not cover separate issue records or profiles. Resolving
+an error changes its status, not its retention; preserve useful history for fault
+investigation, fix verification and monitoring recurrence and reliability.
+Periodically check that identifiable records remain necessary for the stated
+purposes, and handle applicable earlier erasure through the workflow above. There
+is no custom monthly purge or deletion triggered by resolving an issue.
+
+Consent records and completed cleanup receipts are scheduled for removal after
+one year through the cron; account deletion also removes linked consent records.
+Keep the restricted erasure register needed to reapply deletions before restored
+backups are reopened. Assess any legal retention exception individually.
 
 ## Server monitoring assessment and replay screening
 
@@ -140,4 +144,7 @@ process; a working request and erasure workflow cannot be deferred.
 References: [DPC cookies](https://www.dataprotection.ie/en/dpc-guidance/guidance-cookies-and-other-tracking-technologies),
 [GDPR](https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng),
 [PostHog data controls](https://posthog.com/docs/privacy/data-storage),
+[event retention](https://posthog.com/docs/data/events-retention),
+[recording retention](https://posthog.com/docs/session-replay/recording-retention),
+[error lifecycle](https://posthog.com/docs/error-tracking/managing-issues),
 [replay privacy](https://posthog.com/docs/session-replay/privacy).

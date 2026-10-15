@@ -253,6 +253,12 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             . Google also provides the Gmail inbox used for privacy and support correspondence.
           </li>
           <li>
+            <strong>Linear:</strong> if you connect its integration, we exchange authorised account,
+            workspace, issue and comment information to carry out your requests. Tidy stores the
+            connection credentials and related application records. See{" "}
+            <a href="https://linear.app/privacy">Linear’s privacy notice</a>.
+          </li>
+          <li>
             <strong>Stripe:</strong> when you use paid features, Stripe processes payment details
             directly. Tidy sends the billing email and organisation identifier and stores customer,
             subscription and checkout references and status, rather than full card details. See{" "}
@@ -310,70 +316,50 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
 
       <Section id="posthog-retention" title="PostHog retention and deletion">
         <p>
-          We record consent choices, notice version and timestamps with a random browser identifier
-          and, when signed in, your account ID. This first-party record helps demonstrate consent
-          and handle withdrawal; recording a rejection does not send data to PostHog. Records are
-          removed after one year or through account deletion. Withdrawal and expiry create a
-          restricted review task for applicable erasure. Completed cleanup evidence is kept for up
-          to one year with a hashed subject and a reference to the restricted completion record. We
-          rely on our data-protection obligations for these records.
+          Tidy records your privacy choices, notice version and timestamps with a random browser
+          identifier and, when signed in, your account ID. These first-party consent records and
+          completed cleanup receipts are scheduled for removal after one year. Account deletion also
+          removes linked consent records. Recording a rejection does not send data to PostHog.
+          Withdrawal and expiry create a task for applicable provider deletion. We keep these
+          records to meet our data-protection obligations.
         </p>
         <dl>
-          <dt>PostHog session recordings</dt>
+          <dt>Session recordings</dt>
           <dd>
-            Our replay retention setting is 30 days. Recordings may be erased earlier following
-            account deletion, applicable consent withdrawal or an erasure request. Provider deletion
-            can take additional processing time; older recordings can follow the setting in force
-            when created.
+            Our configured replay retention is 30 days, subject to earlier applicable deletion.
+            PostHog can take additional time to complete removal. Changes to this setting apply to
+            new recordings; existing recordings keep their original retention period.
           </dd>
-          <dt>PostHog usage events, feature-flag activity and survey responses</dt>
+          <dt>Usage events, feature-flag activity and survey responses</dt>
           <dd>
-            We use PostHog’s current event-storage defaults. Our paid plan provides seven years of
-            event availability; this is a query window, not an automatic deletion deadline or a
-            decision to keep every identifiable event for seven years. We have not configured a
-            shorter automatic event-deletion period. We assess whether identifiable records are
-            still needed to evaluate feature adoption, compare product changes or act on survey
-            feedback. When those purposes no longer require identifiable records, we arrange their
-            deletion. Account deletion, applicable consent withdrawal and erasure requests can
-            require earlier removal. We carry out this retention review and provider deletion
-            manually.
+            We use PostHog’s standard event-storage settings. Our paid plan makes events available
+            for seven years. This is a query window, not a guaranteed deletion deadline; we have not
+            configured a shorter automatic event-deletion period. We use this history to understand
+            feature adoption, compare product changes and follow up on survey feedback.
           </dd>
-          <dt>PostHog browser errors and performance information</dt>
+          <dt>Errors and performance information</dt>
           <dd>
-            Exception and performance events use the provider’s event-storage defaults. Error-issue
-            records are separate from individual events. Our retention criterion for identifiable
-            diagnostic information is whether it is still needed to investigate a fault, verify a
-            fix or investigate recurrence. We arrange deletion when that need ends or earlier where
-            required by account deletion, consent withdrawal or an erasure request. We do not apply
-            the seven-year event query window as a deletion deadline for separate issue records.
+            Exception and performance events use the same event-storage settings. We use their
+            history to investigate faults, verify fixes and monitor recurrence and reliability over
+            time. Marking an issue resolved does not delete its history; recurring errors can reopen
+            it. Separate error-issue records are not covered by the event query window. Core server
+            reports are not linked to your account, so deleting a person profile does not remove
+            them.
           </dd>
-          <dt>PostHog core server fault reports</dt>
+          <dt>Person profiles</dt>
           <dd>
-            We keep these limited reports while needed to investigate a fault, verify a fix or
-            investigate recurrence, then arrange deletion when that need ends. We use the provider’s
-            existing storage defaults and manually review retention; the seven-year event query
-            window does not determine how long a report is necessary. Separate error-issue records
-            are reviewed too. Server reports are not linked to your account, so deleting a person
-            profile does not remove them. We assess any personal data we can identify in these
-            records under applicable erasure, restriction and objection rights. Withdrawing optional
-            browser consent does not by itself stop this distinct legitimate-interest processing.
-          </dd>
-          <dt>PostHog person profiles</dt>
-          <dd>
-            The account ID and email link the optional activity you allow to your account. We keep
-            that identifiable profile only while needed for the consented purposes. We include it in
-            account-deletion and applicable erasure requests, and remove it when no remaining
-            consented purpose or other lawful ground supports keeping it. A profile disappearing
-            from the interface does not itself establish that all associated events and recordings
-            have finished deleting.
+            Profiles link your account ID and email to the optional activity you allow. Tidy does
+            not set a separate automatic expiry for profiles or error-issue records. We retain
+            identifiable information only while needed for the purposes described in this notice.
           </dd>
         </dl>
         <p>
-          PostHog deletion is handled manually by Sean using PostHog’s controls, with provider
-          assistance where needed. Account deletion includes this follow-up; you do not need a
-          second request. We check the profile, associated events and recordings and review other
-          relevant provider records separately. Provider deletion may complete asynchronously; an
-          accepted request alone does not establish completed erasure.
+          We remove personal data when it is no longer needed or earlier where required by account
+          deletion, consent withdrawal or another applicable request. Sean handles PostHog deletion
+          manually using its controls, with provider assistance where needed. Account deletion
+          includes this follow-up; you do not need a second request. We check associated profiles,
+          events, recordings and other relevant records. Deletion can complete asynchronously;
+          accepting a request does not mean removal has finished.
         </p>
       </Section>
 
