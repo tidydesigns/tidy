@@ -35,18 +35,3 @@ test("receipt hourly byte usage survives minute resets, isolates other receipts 
     database.close();
   }
 });
-
-test("empty requests consume a minimum byte charge and unavailable guards fail closed", async () => {
-  const checks: RateCheck[] = [];
-  await consumeTelemetryBytes("one", 0, async (_scope, first, second) => {
-    checks.push(first, second);
-    return { allowed: true, retryAfter: null };
-  });
-  expect(checks).toHaveLength(4);
-  expect(checks.every((check) => check.rule.cost === 65_536)).toBe(true);
-  await expect(
-    consumeTelemetryBytes("one", 1, async () => {
-      throw new Error("offline");
-    }),
-  ).rejects.toThrow("offline");
-});

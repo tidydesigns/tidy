@@ -34,21 +34,7 @@ configuration; keep untrusted repository configuration out of privileged CI.
 The audit blocks other advisories and changes to that consumer chain. Reassess
 the exception when updating dependencies.
 
-Hosted public endpoints use separate Durable Object budget shards so telemetry
-cannot consume login, email or privacy-choice budgets. Telemetry attempts are
-limited before session/consent database reads (600/minute and 10,000/hour per
-edge-provided IP; 12,000/minute and 500,000/hour globally). Valid consent receipts
-also share a 20 MB/minute and 200 MB/hour payload allowance, with a minimum 64 KiB
-charge per request. Across receipts, forwarding is capped at 500 MB/minute and
-5 GB/hour. These are safety ceilings, not usage targets or billing guarantees;
-monitor provider usage independently. Over-budget telemetry returns 429 with
-`Retry-After`; it does not block editing or consent withdrawal. Guard outages
-fail closed with 503. Node development does not have these hosted controls.
-
-`/api/health` continues to report database readiness. Hosted results, including
-failures, are cached internally for five seconds per deployment and cache
-location; callers still receive `Cache-Control: no-store`. Cache misses share a
-120/minute query budget globally. A denied check returns 429 with `Retry-After`,
-and a failed database check returns 503. Cache failures cannot bypass admission.
-Edge request filtering is still needed for volumetric traffic, and public-source
-checks do not certify the live deployment's configuration.
+Hosted telemetry has [request and byte budgets](apps/web/lib/security/public-budget.ts)
+separate from login and privacy choices; exhausted budgets return 429 with
+`Retry-After`. Health checks cache database readiness for five seconds and limit
+cache-miss queries. These controls require Workers; local Node has no shared limits.
