@@ -21,20 +21,18 @@ const purposes: { key: ConsentPurpose; title: string; description: string }[] = 
   {
     key: "analytics",
     title: "Usage analytics",
-    description:
-      "Page visits, interactions, feature usage and optional surveys help us improve Tidy. Uses PostHog.",
+    description: "Page visits, interactions, feature usage and optional surveys.",
   },
   {
     key: "replay",
     title: "Session replay",
     description:
-      "A masked reconstruction of navigation, clicks and scrolling helps us understand usability problems. Inputs, text, images and design canvases are hidden.",
+      "Navigation, clicks and scrolling. Inputs, text, images and design canvases are hidden.",
   },
   {
     key: "diagnostics",
     title: "Browser performance and errors",
-    description:
-      "Browser loading and interaction timings and redacted browser errors help us find and fix technical problems.",
+    description: "Loading and interaction timings, plus redacted browser errors.",
   },
 ];
 const actionClass =
@@ -135,23 +133,21 @@ export function CookieConsent() {
         </div>
         <p id="privacy-choice-description" className="mt-3 text-sm leading-6 text-secondary-ink">
           {collectionEnabled
-            ? "Tidy uses essential storage for sign-in and preferences. Choose whether to allow PostHog analytics, masked replay or browser diagnostics. Optional tracking stays off until you choose."
-            : "Tidy uses essential storage for sign-in and your preferences. Optional PostHog browser collection is paused. Only essential storage is available."}
+            ? "Optional PostHog analytics, masked replay and browser diagnostics stay off until you choose."
+            : "Only essential storage for sign-in and preferences is active. Optional PostHog collection is off."}
         </p>
+        {collectionEnabled && (
+          <p className="mt-3 text-sm leading-6 text-secondary-ink">
+            When signed in, optional activity is linked to your account ID and email.
+          </p>
+        )}
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
-          Our{" "}
           <a
             href={privacyPolicyUrl}
             className="rounded-sm text-ink underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
           >
-            privacy and cookie policy
-          </a>{" "}
-          covers server fault monitoring separately and explains how to object.
-        </p>
-        <p className="mt-3 text-sm leading-6 text-secondary-ink">
-          {collectionEnabled
-            ? "When signed in, selected activity, including replay, is linked to your account ID and email. You can use Tidy without accepting. Change or withdraw choices anytime in Settings → Preferences → Privacy, or using Privacy choices on the sign-in screen. Choices last 180 days."
-            : "Your essential-only preference lasts 180 days in this browser. Any future optional collection will require a separate choice."}
+            Privacy and cookie policy
+          </a>
         </p>
         {collectionEnabled && customize && (
           <div className="mt-5 mb-5 space-y-5 border-y border-border py-5">
