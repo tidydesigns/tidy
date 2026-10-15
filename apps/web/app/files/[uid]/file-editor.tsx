@@ -281,6 +281,8 @@ function downloadBlob(blob: Blob, name: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const PENDING_NAVIGATION_MESSAGE = "Your changes are still syncing. Wait before leaving this file.";
+
 export function FileEditor({
   fileId,
   fileName,
@@ -595,9 +597,16 @@ export function FileEditor({
     onSnapshot: receiveSnapshot,
     onName: receiveName,
     onPermission: receivePermission,
+    onNavigationBlocked: () => setError(PENDING_NAVIGATION_MESSAGE),
     local,
   });
   const { restore: restoreSharedSnapshot } = room;
+  const guardNavigation = (event: { preventDefault: () => void }) => {
+    if (!room.hasPendingEdits()) return;
+    event.preventDefault();
+    setError(PENDING_NAVIGATION_MESSAGE);
+  };
+  const visibleError = error === PENDING_NAVIGATION_MESSAGE && !room.hasPendingEdits() ? "" : error;
   const pages = useMemo(() => documentPages(snapshot.content), [snapshot.content]);
   const currentPageId = pages.some((page) => page.id === activePageId) ? activePageId : pages[0].id;
   const selectionVersion = useRef(0);
@@ -3642,6 +3651,7 @@ export function FileEditor({
           <div className="editor-panel-heading flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
             <Link
               href={backHref}
+              onNavigate={guardNavigation}
               prefetch={true}
               aria-label="Back to files"
               className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg hover:bg-primary-grey/20"
@@ -4448,6 +4458,7 @@ export function FileEditor({
             <div data-canvas-control className={minimisedFileBarClass}>
               <Link
                 href={backHref}
+                onNavigate={guardNavigation}
                 prefetch={true}
                 aria-label="Back to files"
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg hover:bg-primary-grey/20"
@@ -4482,12 +4493,12 @@ export function FileEditor({
               />
             </div>
           )}
-          {(error || exportError) && (
+          {(visibleError || exportError) && (
             <div
               role="alert"
               className="absolute bottom-4 left-4 z-30 max-w-xs rounded-lg bg-surface p-3 text-xs shadow-sm"
             >
-              {error || exportError}
+              {visibleError || exportError}
             </div>
           )}
         </div>

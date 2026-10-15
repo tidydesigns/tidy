@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { applyDocumentPatch, diffDocument, type DocumentPatch } from "@/lib/design/document-patch";
 import { applyRevisionChanges, type RevisionChanges } from "@/lib/design/revision-sync";
 import { parseImmutableDesignDocument, type DesignDocument } from "@/lib/design/document";
@@ -22,6 +22,7 @@ export function useFileRoom({
   onSnapshot,
   onName,
   onPermission,
+  onNavigationBlocked,
   local = false,
 }: {
   fileId: string;
@@ -30,24 +31,50 @@ export function useFileRoom({
   onSnapshot: (snapshot: Snapshot) => void;
   onName: (name: string) => void;
   onPermission?: (canEdit: boolean) => void;
+  onNavigationBlocked?: () => void;
   local?: boolean;
 }) {
   const [store] = useState(() => new PresenceStore());
   const [activities] = useState(() => new AgentActivityStore());
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [commentsVersion, setCommentsVersion] = useState(0);
-  const callbacks = useRef({ onSnapshot, onName, onPermission });
+  const callbacks = useRef({ onSnapshot, onName, onPermission, onNavigationBlocked });
   const socket = useRef<WebSocket | null>(null);
   const presence = useRef<Presence>({ ...EMPTY_PRESENCE });
   const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycle = useRef<AbortController | null>(null);
   useEffect(() => {
-    callbacks.current = { onSnapshot, onName, onPermission };
-  }, [onSnapshot, onName, onPermission]);
+    callbacks.current = { onSnapshot, onName, onPermission, onNavigationBlocked };
+  }, [onSnapshot, onName, onPermission, onNavigationBlocked]);
   const [edits] = useState(
     () => new RoomEditQueue(initialSnapshot, onSnapshot, parseImmutableDesignDocument),
   );
   useEffect(() => edits.setNotify(onSnapshot), [edits, onSnapshot]);
+  const hasPendingEdits = useCallback(() => edits.hasPendingEdits, [edits]);
+  const pendingEdits = edits.hasPendingEdits;
+  useLayoutEffect(() => {
+    if (!enabled || !pendingEdits) return;
+    function beforeUnload(event: BeforeUnloadEvent) {
+      if (!edits.hasPendingEdits) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    // The Navigation API can cancel same-document Back/Forward before Next's
+    // popstate handler unmounts the editor. Older browsers retain Link and unload guards.
+    const navigation = (window as Window & { navigation?: EventTarget }).navigation;
+    function navigate(event: Event & { navigationType?: string }) {
+      if (event.navigationType !== "traverse" || !event.cancelable || !edits.hasPendingEdits)
+        return;
+      event.preventDefault();
+      callbacks.current.onNavigationBlocked?.();
+    }
+    window.addEventListener("beforeunload", beforeUnload);
+    navigation?.addEventListener("navigate", navigate);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      navigation?.removeEventListener("navigate", navigate);
+    };
+  }, [enabled, edits, pendingEdits]);
   const getSnapshot = useCallback(() => edits.getSnapshot(), [edits]);
   const reconcile = useCallback(() => edits.restore(), [edits]);
   const receive = useCallback((snapshot: Snapshot) => edits.receive(snapshot), [edits]);
@@ -379,6 +406,7 @@ export function useFileRoom({
     getPreview,
     clearPreview,
     getSnapshot,
+    hasPendingEdits,
     restore: reconcile,
     receive,
   };

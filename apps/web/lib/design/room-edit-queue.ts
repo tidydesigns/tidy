@@ -30,6 +30,10 @@ export class RoomEditQueue {
   setNotify(notify: (snapshot: RoomSnapshot) => void) {
     this.notify = notify;
   }
+  get hasPendingEdits() {
+    return this.pending.length > 0;
+  }
+
   get saved() {
     return this.authoritative;
   }
