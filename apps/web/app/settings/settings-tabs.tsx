@@ -8,6 +8,7 @@ import { DeleteOrganization } from "./delete-organization";
 import { AvatarControl } from "./avatar-control";
 import { OrganizationName } from "./organization-name";
 import { ProfileControls, type AccountSession } from "./profile-controls";
+import { PrivacyChoices } from "@/components/privacy/privacy-choices";
 import { PreferenceControls } from "./preference-controls";
 import {
   settingsTabs,
@@ -252,6 +253,10 @@ export function SettingsTabs({
             initialEditorPanelsOpen={initialEditorPanelsOpen}
             initialEditorToolbarPlacement={initialEditorToolbarPlacement}
           />
+        </SettingsPanel>
+
+        <SettingsPanel item="privacy" selected={tab}>
+          <PrivacyChoices />
         </SettingsPanel>
 
         <SettingsPanel item="organization" selected={tab}>

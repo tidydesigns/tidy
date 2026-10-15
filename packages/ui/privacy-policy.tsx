@@ -164,16 +164,17 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           processing and transfer arrangements. We have signed PostHog’s data processing agreement.
         </p>
         <p>
-          Open <strong>Privacy choices</strong> in the app to withdraw one or all purposes.
-          Withdrawal stops new collection for that choice and resets the optional client; rejecting
-          all also removes accessible PostHog storage. Provider erasure is a separate process and is
-          not instantaneous. Where you withdraw consent and we have no other lawful basis or
-          applicable exception for keeping the affected personal data, we must erase it without
-          undue delay. You can also contact us to request erasure of identifiable history without
-          deleting your Tidy account. Clearing browser storage or using another browser/device
-          requires a new choice. Changes are recorded with Tidy so withdrawals can be reviewed for
-          applicable provider erasure. If confirmation fails, optional collection stays off and the
-          app offers a retry.
+          Open <strong>Settings → Privacy</strong> in the app to withdraw one or all purposes.
+          Before signing in, use <strong>Privacy choices</strong> below the sign-in form. Withdrawal
+          stops new collection for that choice and resets the optional client; rejecting all also
+          removes accessible PostHog storage. Provider erasure is a separate process and is not
+          instantaneous. Where you withdraw consent and we have no other lawful basis or applicable
+          exception for keeping the affected personal data, we must erase it without undue delay.
+          You can also contact us to request erasure of identifiable history without deleting your
+          Tidy account. Clearing browser storage or using another browser/device requires a new
+          choice. Changes are recorded with Tidy so withdrawals can be reviewed for applicable
+          provider erasure. If confirmation fails, optional collection stays off and the app offers
+          a retry.
         </p>
       </Section>
       <Section id="cookies" title="Cookies and similar storage">

@@ -1,4 +1,5 @@
 export const metadata = { title: "Your account · Tidy" };
+import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -52,6 +53,9 @@ export default async function AccountPrivacyPage() {
         invitations={activeInvitations(invitations)}
       />
       <PrivacyControls email={account.user.email} />
+      <Link href="/privacy/choices" className="inline-block text-sm underline underline-offset-4">
+        Privacy choices
+      </Link>
     </main>
   );
 }

@@ -19,12 +19,14 @@ export function AuthShell({ title, description, children }: AuthShellProps) {
           <p className="mt-2 text-sm text-primary-black/70">{description}</p>
         </div>
         {children}
-        <NavigationLink
-          href={privacyPolicyUrl}
-          className="absolute inset-x-0 top-full mt-2 flex min-h-6 items-center justify-center text-sm text-secondary-ink underline underline-offset-4"
-        >
-          Privacy policy
-        </NavigationLink>
+        <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-secondary-ink">
+          <NavigationLink href={privacyPolicyUrl} className="underline underline-offset-4">
+            Privacy policy
+          </NavigationLink>
+          <NavigationLink href="/privacy/choices" className="underline underline-offset-4">
+            Privacy choices
+          </NavigationLink>
+        </div>
       </div>
     </main>
   );
