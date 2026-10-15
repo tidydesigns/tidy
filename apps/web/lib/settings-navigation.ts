@@ -1,7 +1,6 @@
 export type SettingsTab =
   | "profile"
   | "preferences"
-  | "privacy"
   | "organization"
   | "members"
   | "connectors"
@@ -11,7 +10,6 @@ export type SettingsTab =
 export const settingsLabels: Record<SettingsTab, string> = {
   profile: "Profile",
   preferences: "Preferences",
-  privacy: "Privacy",
   organization: "Organization",
   members: "Members",
   connectors: "Connectors",
@@ -31,7 +29,6 @@ export function settingsTabs(billing: boolean, agents: boolean): SettingsTab[] {
   return [
     "profile",
     "preferences",
-    "privacy",
     "organization",
     "members",
     "connectors",

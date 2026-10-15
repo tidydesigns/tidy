@@ -1,5 +1,6 @@
 "use client";
 
+import { PrivacyChoicesButton } from "@/components/privacy/privacy-choices-button";
 import { ThemePreferenceControl } from "@/components/ui/theme-preference";
 import { EditorPanelPreferenceControl } from "@/components/ui/editor-panel-preference";
 import { EditorToolbarPreferenceControl } from "@/components/ui/editor-toolbar-preference";
@@ -29,6 +30,15 @@ export function PreferenceControls({
         </h2>
         <EditorPanelPreferenceControl initialOpen={initialEditorPanelsOpen} />
         <EditorToolbarPreferenceControl initialPlacement={initialEditorToolbarPlacement} />
+      </section>
+      <section
+        aria-labelledby="privacy-preferences-heading"
+        className="space-y-5 border-t border-primary-grey pt-8"
+      >
+        <h2 id="privacy-preferences-heading" className="text-xl font-semibold tracking-tight">
+          Privacy
+        </h2>
+        <PrivacyChoicesButton />
       </section>
     </div>
   );

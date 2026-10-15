@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { NavigationLink } from "@/components/ui/navigation-link";
+import { PrivacyChoicesButton } from "@/components/privacy/privacy-choices-button";
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 
 type AuthShellProps = {
@@ -19,15 +20,14 @@ export function AuthShell({ title, description, children }: AuthShellProps) {
           <p className="mt-2 text-sm text-primary-black/70">{description}</p>
         </div>
         {children}
-        <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-2 text-sm text-secondary-ink">
-          <NavigationLink href={privacyPolicyUrl} className="underline underline-offset-4">
-            Privacy policy
-          </NavigationLink>
-          <NavigationLink href="/privacy/choices" className="underline underline-offset-4">
-            Privacy choices
-          </NavigationLink>
-        </div>
+        <NavigationLink
+          href={privacyPolicyUrl}
+          className="absolute inset-x-0 top-full mt-2 flex min-h-6 items-center justify-center text-sm text-secondary-ink underline underline-offset-4"
+        >
+          Privacy policy
+        </NavigationLink>
       </div>
+      <PrivacyChoicesButton className="fixed bottom-3 right-3 z-50 min-h-11 rounded-lg border border-border bg-panel px-3 text-xs text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink" />
     </main>
   );
 }
