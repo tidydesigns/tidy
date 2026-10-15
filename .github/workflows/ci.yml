@@ -32,6 +32,7 @@ jobs:
       - run: bun run test:release
       - run: bun run test:auth-worker
       - run: bun run test:request-worker
+      - run: bun run test:telemetry-worker
       - run: bun run build:worker
       - run: bun run build
   database:

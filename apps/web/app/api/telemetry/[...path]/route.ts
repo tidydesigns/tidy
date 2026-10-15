@@ -72,10 +72,15 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
       method: request.method,
       headers: { "Content-Type": request.headers.get("content-type") || "application/json" },
       body,
-      redirect: "error",
+      redirect: "manual",
       cache: "no-store",
       signal: AbortSignal.timeout(5000),
     });
+    // Workers reject redirect: "error". Never follow or expose an upstream redirect.
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel();
+      return new Response(null, { status: 503, headers: noStore });
+    }
     return new Response(response.body, {
       status: response.status,
       headers: { ...noStore, "Content-Type": "application/json" },

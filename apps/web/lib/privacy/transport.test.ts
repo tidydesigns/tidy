@@ -89,6 +89,7 @@ test("proxy strips identifying headers and arbitrary URL parameters", async () =
     const [url, options] = transport.mock.calls[0]!;
     expect(String(url)).toBe("https://eu.i.posthog.com/i/v0/e/?v=3&ip=0");
     expect(options?.headers).toEqual({ "Content-Type": "application/json" });
+    expect(options?.redirect).toBe("manual");
   } finally {
     transport.mockRestore();
   }
@@ -142,3 +143,22 @@ test("unrecorded or superseded server consent cannot reach PostHog", async () =>
     transport.mockRestore();
   }
 });
+
+for (const status of [301, 302, 303, 307, 308]) {
+  test(`proxy rejects an upstream ${status} without exposing its redirect`, async () => {
+    setup();
+    const transport = spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("redirect body", { status, headers: { Location: "https://attacker.example" } }),
+    );
+    try {
+      const result = await POST(request("e"), context("e"));
+      expect(result.status).toBe(503);
+      expect(result.headers.get("location")).toBeNull();
+      expect(await result.text()).toBe("");
+      expect(transport).toHaveBeenCalledTimes(1);
+      expect(transport.mock.calls[0]![1]?.redirect).toBe("manual");
+    } finally {
+      transport.mockRestore();
+    }
+  });
+}
