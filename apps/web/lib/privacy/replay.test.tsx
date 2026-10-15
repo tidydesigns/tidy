@@ -72,4 +72,6 @@ test("private boundaries override public descendants and hide visual values", ()
   expect(replayAttribute("aria-label", "private-property-name", element)).toBe("");
   expect(replayAttribute("title", "private-property-name", element)).toBe("");
   expect(replayText("unreviewed text")).toBe("[hidden]");
+  expect(replayText(" \n\t")).toBe(" \n\t");
+  expect(replayText("")).toBe("");
 });

@@ -283,6 +283,7 @@ const LayerRow = memo(function LayerRow({
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-2 focus-visible:outline-primary-orange"
         >
           <span
+            data-ph-public
             aria-hidden="true"
             className={`w-3 shrink-0 text-center ${node.isComponent || node.instanceOf ? "text-component-accent" : "text-secondary-ink"}`}
           >

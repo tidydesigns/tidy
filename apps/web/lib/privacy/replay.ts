@@ -1,6 +1,7 @@
 // Replay defaults to private text. Only reviewed application chrome opts in;
 // user content must never inherit that opt-in from a surrounding control.
 export function replayText(text: string, element?: HTMLElement | null) {
+  if (!text.trim()) return text;
   return element?.closest("[data-ph-public]") &&
     !element.closest(".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable]")
     ? text
