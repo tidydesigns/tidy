@@ -284,6 +284,22 @@ function afterInitialization(deliver: (sdk: PostHog) => unknown) {
     .catch(() => {});
 }
 
+/** Bind an async operation's optional capture to its starting session and consent. */
+export function captureForCurrentSession(): PostHog["capture"] {
+  const generation = revision;
+  const identity = account?.id;
+  const choice = JSON.stringify(browserConsent());
+  return (event, properties) => {
+    if (
+      generation !== revision ||
+      identity !== account?.id ||
+      choice !== JSON.stringify(browserConsent())
+    )
+      return;
+    return posthog.capture(event, properties);
+  };
+}
+
 const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "reset"> = {
   capture: (event, properties) => {
     if (!hasOptionalConsent(browserConsent())) return;

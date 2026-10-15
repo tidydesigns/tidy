@@ -40,7 +40,7 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     };
     globalThis.fetch=backend;
     const {chooseConsent,ESSENTIAL_ONLY}=await import("./lib/privacy/consent");
-    const {default:posthog,startPostHogConsent}=await import("./lib/posthog-client");
+    const {default:posthog,startPostHogConsent,captureForCurrentSession}=await import("./lib/posthog-client");
     const settle=()=>new Promise(resolve=>setTimeout(resolve,10));
     startPostHogConsent();await settle();
     assert.equal(instances.length,0);assert.equal(sessionRequests,0);
@@ -96,13 +96,52 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     globalThis.fetch=backend;
     resolveSession(Response.json({id:crypto.randomUUID(),browserId:crypto.randomUUID(),user:session.user}));await settle();
     assert.deepEqual(sent.slice(-2).map(event=>event.event),["survey shown","$exception"]);
+    // Model support completing after a delayed POST, just as the feedback form does.
+    let completeSupport, supportDeliveries=0;
+    const beginFeedback=()=>{
+      const capture=captureForCurrentSession();
+      return new Promise(resolve=>{completeSupport=resolve}).then(response=>{
+        if(response.ok){
+          supportDeliveries++;
+          capture("survey sent",{$survey_id:"synthetic-survey",$survey_response:"private feedback"});
+        }
+      });
+    };
+    const surveyCount=()=>sent.filter(event=>event.event==="survey sent").length;
+    let beforeSurvey=surveyCount();
+    let feedback=beginFeedback();
+    completeSupport({ok:true});await feedback;
+    assert.equal(surveyCount(),beforeSurvey+1);
+    assert.equal(sent.at(-1).properties.distinct_id,"account-d");
+    beforeSurvey=surveyCount();
+    feedback=beginFeedback();
+    session={user:{id:"account-e",email:"e@example.test"}};
+    posthog.identify("account-e",{email:"e@example.test"});await settle();
+    completeSupport({ok:true});await feedback;
+    assert.equal(surveyCount(),beforeSurvey);
+    feedback=beginFeedback();
+    chooseConsent(ESSENTIAL_ONLY);await settle();
+    chooseConsent({analytics:true,replay:true,diagnostics:true});await settle();
+    completeSupport({ok:true});await feedback;
+    assert.equal(surveyCount(),beforeSurvey);
+    feedback=beginFeedback();
+    session=null;
+    window.dispatchEvent(change);await settle();
+    completeSupport({ok:true});await feedback;
+    assert.equal(surveyCount(),beforeSurvey);
+    chooseConsent(ESSENTIAL_ONLY);await settle();
+    feedback=beginFeedback();
+    chooseConsent({analytics:true,replay:true,diagnostics:true});await settle();
+    completeSupport({ok:true});await feedback;
+    assert.equal(surveyCount(),beforeSurvey);
+    assert.equal(supportDeliveries,5);
     globalThis.fetch=()=>new Promise(resolve=>{resolveSession=resolve});
     window.dispatchEvent(new Event("focus"));await settle();
     posthog.capture("survey sent",{$survey_id:"synthetic-survey",$survey_response:"withdrawn feedback"});
     const beforeWithdrawal=sent.length;
     chooseConsent(ESSENTIAL_ONLY);
     globalThis.fetch=backend;
-    resolveSession(Response.json({id:crypto.randomUUID(),browserId:crypto.randomUUID(),user:session.user}));await settle();
+    resolveSession(Response.json({id:crypto.randomUUID(),browserId:crypto.randomUUID(),user:session?.user??null}));await settle();
     assert.equal(sent.length,beforeWithdrawal);
     chooseConsent(ESSENTIAL_ONLY);await settle();
     const beforeFailure=instances.length;

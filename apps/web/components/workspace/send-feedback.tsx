@@ -10,7 +10,7 @@ import {
   openFeedback,
 } from "@/lib/feedback/commands";
 import { IMAGE_TYPES, validateImages } from "@/lib/feedback/validation";
-import posthog from "@/lib/posthog-client";
+import posthog, { captureForCurrentSession } from "@/lib/posthog-client";
 
 const surveyId = process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID;
 const categoryQuestionId = "4d4c2893-65dc-42dd-ae8c-177a25bfa385";
@@ -146,6 +146,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const captureSurvey = captureForCurrentSession();
     uploading.current = true;
     setBusy(true);
     setError("");
@@ -175,7 +176,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       // Support delivery succeeds independently of optional analytics consent.
       // Attachments and their access URLs stay in Tidy's support storage.
       if (surveyId)
-        posthog.capture("survey sent", {
+        captureSurvey("survey sent", {
           $survey_id: surveyId,
           $survey_submission_id: uploadId.current,
           $survey_completed: true,
