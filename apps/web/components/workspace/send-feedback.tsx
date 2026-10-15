@@ -322,7 +322,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        className="pointer-events-none fixed bottom-5 left-5 z-[100] max-w-[calc(100vw-2.5rem)]"
+        className="pointer-events-none fixed bottom-5 right-5 z-[100] max-w-[calc(100vw-2.5rem)]"
       >
         {toast && (
           <div className="flex items-center gap-3 rounded-lg border border-primary-grey bg-primary-white px-4 py-3 text-sm text-primary-black shadow-lg">

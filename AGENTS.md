@@ -38,6 +38,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Give each action or destination one UI home; do not duplicate it across menus, panels, or buttons.
 - Implement only requested interactions; do not infer extra behavior from the presence of a UI element.
 - No save buttons anywhere.
+- Show all toast notifications in the bottom-right corner.
 - Apply each interaction immediately; avoid delayed cleanup or refreshes that undo the user's next action, and update only the affected UI.
 - Keep file and folder hover states subtle, using light surfaces and grey borders instead of dark outlines.
 - For in-page disclosures such as folder expansion, preload the contents and toggle them instantly; avoid click-time loading states and flashes.
