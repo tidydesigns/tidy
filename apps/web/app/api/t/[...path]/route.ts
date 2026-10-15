@@ -10,8 +10,8 @@ import { authorizeTelemetry } from "@/lib/privacy/consent-store";
 const noStore = { "Cache-Control": "no-store" };
 const allowedHosts = new Set(["eu.i.posthog.com", "us.i.posthog.com", "t.tidydesign.co"]);
 
-// The only browser transport. No forwarding of cookies, IP, authorization or
-// referrer headers. This is not a general-purpose URL proxy.
+/** Forward consented telemetry within budget, stripping identifying headers and
+ * restricting the upstream destination. */
 async function forward(request: Request, context: { params: Promise<{ path: string[] }> }) {
   const consent = readConsent(request.headers.get("cookie"));
   if (

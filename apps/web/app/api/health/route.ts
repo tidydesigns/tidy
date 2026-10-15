@@ -5,6 +5,7 @@ import { reserveHealthCheck } from "@/lib/security/public-budget";
 
 export const dynamic = "force-dynamic";
 
+/** Return release-scoped readiness while bounding database probes on cache misses. */
 export async function GET(request: Request) {
   const hosted = typeof navigator !== "undefined" && navigator.userAgent === "Cloudflare-Workers";
   // Scope by canonical deployment origin and release, never attacker query strings.

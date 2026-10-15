@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
 import { createRequire } from "node:module";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // Use the installed Wrangler's matching workerd, with no production bindings.
 const require = createRequire(import.meta.url);
@@ -14,8 +17,10 @@ test("workerd shares weighted budgets across callers and caches true readiness s
     external: ["cloudflare:workers", "node:*"],
   });
   if (!build.success) throw new AggregateError(build.logs, "Fixture build failed");
+  const directory = await mkdtemp(join(tmpdir(), "tidy-public-budget-"));
   const worker = new Miniflare(
     convertV4MiniflareOptions({
+      resourcePersistencePath: directory,
       modules: true,
       script: await build.outputs[0]!.text(),
       compatibilityDate: "2026-09-26",
@@ -39,8 +44,25 @@ test("workerd shares weighted budgets across callers and caches true readiness s
         worker.dispatchFetch(`https://public.test/bytes?bytes=5000000&receipt=other-${i}`),
       ),
     );
-    expect(global.filter((r: Response) => r.status === 204)).toHaveLength(96);
-    expect(global.filter((r: Response) => r.status === 429)).toHaveLength(4);
+    expect(global.filter((r: Response) => r.status === 204)).toHaveLength(92);
+    expect(global.filter((r: Response) => r.status === 429)).toHaveLength(8);
+    // A denied global budget must not allocate objects for new receipts.
+    const before = (await worker.listDurableObjectIds("AuthGuard")).length;
+    expect(before).toBeGreaterThan(1);
+    for (let i = 0; i < 10; i++)
+      expect(
+        (await worker.dispatchFetch(`https://public.test/bytes?bytes=5000000&receipt=denied-${i}`))
+          .status,
+      ).toBe(429);
+    expect((await worker.listDurableObjectIds("AuthGuard")).length).toBe(before);
+    const identities = await Promise.all(
+      Array.from({ length: 256 }, (_, i) =>
+        worker.dispatchFetch("https://public.test/attempt", {
+          headers: { "cf-connecting-ip": `198.51.100.${i}` },
+        }),
+      ),
+    );
+    expect(identities.every((r: Response) => r.status === 204)).toBe(true);
     const flood = await Promise.all(
       Array.from({ length: 605 }, () =>
         worker.dispatchFetch("https://public.test/attempt", {
@@ -70,9 +92,12 @@ test("workerd shares weighted budgets across callers and caches true readiness s
         expect(response.headers.get("cache-control")).toBe("no-store");
       }
     }
+    // 64 IP shards + 64 receipt shards + three fixed shared guards.
+    expect((await worker.listDurableObjectIds("AuthGuard")).length).toBeLessThanOrEqual(131);
     // Health admission has its own shard and is unaffected by telemetry exhaustion.
     expect((await worker.dispatchFetch("https://public.test/health?noise=last")).status).toBe(200);
   } finally {
     await worker.dispose();
+    await rm(directory, { recursive: true, force: true });
   }
 }, 60_000);

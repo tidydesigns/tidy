@@ -28,6 +28,7 @@ export class AuthGuardStore {
     );
   }
 
+  /** Atomically charge a positive integer cost, defaulting to one request. */
   consume(key: string, rule: RateRule, now = Date.now()): RateDecision {
     const cost = rule.cost ?? 1;
     if (

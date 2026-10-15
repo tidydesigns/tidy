@@ -13,7 +13,7 @@ import {
   consumeInvitationBudget,
   MutationBudgetError,
 } from "./mutation-budget";
-import { consumeTelemetryBytes, PublicBudgetError } from "./public-budget";
+import { consumeTelemetryAttempt, consumeTelemetryBytes, PublicBudgetError } from "./public-budget";
 const databases: Database[] = [];
 test("GitHub OAuth hourly budgets share account and workspace counters across minute resets", async () => {
   const actor = limiter();
@@ -345,4 +345,28 @@ test("telemetry hourly byte limits survive minute resets and isolate receipts", 
   await consumeTelemetryBytes("another", 5_000_000, consume);
   guard.advance(3_600_001);
   await consumeTelemetryBytes("one", 5_000_000, consume);
+});
+
+test("global telemetry denial creates no identity counters", async () => {
+  for (const [operation, expectedScope] of [
+    [
+      (consume: Parameters<typeof consumeTelemetryAttempt>[1]) =>
+        consumeTelemetryAttempt("192.0.2.1", consume),
+      "telemetry-attempts",
+    ],
+    [
+      (consume: Parameters<typeof consumeTelemetryAttempt>[1]) =>
+        consumeTelemetryBytes("receipt", 1, consume),
+      "telemetry-bytes",
+    ],
+  ] as const) {
+    const scopes: string[] = [];
+    await expect(
+      operation(async (scope) => {
+        scopes.push(scope);
+        return { allowed: false, retryAfter: 23 };
+      }),
+    ).rejects.toMatchObject({ retryAfter: 23 });
+    expect(scopes).toEqual([expectedScope]);
+  }
 });
