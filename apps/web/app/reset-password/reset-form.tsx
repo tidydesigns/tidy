@@ -47,7 +47,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       </div>
     );
   return (
-    <form onSubmit={submit} className="mt-8 space-y-5">
+    <form method="post" onSubmit={submit} className="mt-8 space-y-5">
       <TextField
         id="reset-password"
         label="New password"

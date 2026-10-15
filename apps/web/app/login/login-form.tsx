@@ -85,7 +85,7 @@ export function LoginForm({
 
   return (
     <AuthShell title="Welcome back." description="Sign in to your Tidy account.">
-      <form onSubmit={handleSubmit} className="mt-10 space-y-5">
+      <form method="post" onSubmit={handleSubmit} className="mt-10 space-y-5">
         {accountDeleted && <FormMessage role="status">Account deleted successfully.</FormMessage>}
         <SocialSignIn providers={providers} next={next} page="/login" disabled={pending} />
         <TextField

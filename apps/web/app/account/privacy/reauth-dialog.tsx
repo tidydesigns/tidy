@@ -153,7 +153,7 @@ export function ReauthDialog({
           ))}
       </div>
       {methods?.password && (
-        <form onSubmit={submit} className="space-y-4 mt-4">
+        <form method="post" onSubmit={submit} className="space-y-4 mt-4">
           <TextField
             id={`${id}-password`}
             label="Password"

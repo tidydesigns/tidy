@@ -77,7 +77,7 @@ export function SignUpForm({
 
   return (
     <AuthShell title="Create your account." description="Get started with Tidy.">
-      <form onSubmit={handleSubmit} className="mt-10 space-y-5">
+      <form method="post" onSubmit={handleSubmit} className="mt-10 space-y-5">
         <SocialSignIn providers={providers} next={next} page="/sign-up" disabled={pending} />
         <TextField id="name" label="Name" name="name" autoComplete="name" required />
         <TextField

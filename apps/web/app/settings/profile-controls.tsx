@@ -183,7 +183,11 @@ export function ProfileControls({
           </p>
         )}
       </div>
-      <form onSubmit={changePassword} className="space-y-5 border-t border-primary-grey pt-6">
+      <form
+        method="post"
+        onSubmit={changePassword}
+        className="space-y-5 border-t border-primary-grey pt-6"
+      >
         <h2 className="text-lg font-semibold">Password</h2>
         <TextField
           id="current-password"

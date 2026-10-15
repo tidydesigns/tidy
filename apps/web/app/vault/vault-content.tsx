@@ -124,7 +124,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
             <Icon name="xmark" />
           </button>
         </div>
-        <form onSubmit={save}>
+        <form method="post" onSubmit={save}>
           <div className="space-y-5 px-6 py-8 sm:px-10">
             <div className="space-y-2">
               <label htmlFor="vault-name" className="block text-sm font-medium">

@@ -51,7 +51,7 @@ export function VerificationForm({
   }
 
   return (
-    <form onSubmit={resend} className="mt-10 space-y-5">
+    <form method="post" onSubmit={resend} className="mt-10 space-y-5">
       {delivered && (
         <p role="status" className="text-sm text-primary-black/70">
           If this address has an account awaiting verification, a link has been sent. Check your

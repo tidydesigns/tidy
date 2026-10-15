@@ -39,7 +39,7 @@ export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boole
       </p>
     );
   return (
-    <form onSubmit={submit} className="mt-8 space-y-5">
+    <form method="post" onSubmit={submit} className="mt-8 space-y-5">
       <TextField
         id="reset-email"
         label="Email"
