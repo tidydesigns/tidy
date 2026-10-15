@@ -17,7 +17,7 @@ export function ExportControls({
   pending?: boolean;
   warnings?: string[];
 }) {
-  const [scale, setScale] = useState(1),
+  const [scale, setScale] = useState(2),
     [mode, setMode] = useState<ExportRequest["mode"]>("selection");
   return (
     <Section title="Export">

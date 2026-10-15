@@ -31,10 +31,32 @@ export async function rasterizeExport(
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
+  let sampled: HTMLCanvasElement | undefined;
   try {
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Image export is unavailable in this browser.");
-    context.drawImage(image, 0, 0, width, height);
+    // Paint vectors and text at higher resolution before reducing them. Merely
+    // increasing an SVG image's intrinsic size still paints at the draw target's
+    // resolution. Bound the extra surface and process one export at a time.
+    const sampling = Math.min(
+      2,
+      8192 / width,
+      8192 / height,
+      Math.sqrt(32_000_000 / (width * height)),
+    );
+    if (sampling >= 1.25) {
+      sampled = document.createElement("canvas");
+      sampled.width = Math.floor(width * sampling);
+      sampled.height = Math.floor(height * sampling);
+      const highResolution = sampled.getContext("2d");
+      if (!highResolution) throw new Error("Image export is unavailable in this browser.");
+      highResolution.drawImage(image, 0, 0, sampled.width, sampled.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(sampled, 0, 0, width, height);
+      sampled.width = 0;
+      sampled.height = 0;
+    } else context.drawImage(image, 0, 0, width, height);
     const blob = await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (value) =>
@@ -48,6 +70,10 @@ export async function rasterizeExport(
       );
     return blob;
   } finally {
+    if (sampled) {
+      sampled.width = 0;
+      sampled.height = 0;
+    }
     canvas.width = 0;
     canvas.height = 0;
     image.onload = null;
