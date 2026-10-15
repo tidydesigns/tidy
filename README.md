@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/readme/tidy-wordmark.svg" width="150" alt="Tidy" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/readme/tidy-wordmark-dark.svg" />
+    <img src="docs/readme/tidy-wordmark.svg" width="150" alt="Tidy" />
+  </picture>
 </p>
 
 <p align="center">
