@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 import { recordBrowserConsent, recordBrowserWithdrawal } from "@/lib/privacy/receipt-client";
 import { browserCollectionEnabled } from "@/lib/posthog-client";
@@ -57,9 +58,11 @@ export function CookieConsent() {
     }
     const open = (event: Event) => {
       trigger.current = (event as CustomEvent<HTMLButtonElement>).detail;
-      ++choiceGeneration.current;
-      setCustomize(true);
-      setMessage("");
+      // Finish rendering the controls before showModal measures and displays them.
+      flushSync(() => {
+        setCustomize(true);
+        setChoices(browserConsent() ?? ESSENTIAL_ONLY);
+      });
       dialog.current?.showModal();
       heading.current?.focus({ preventScroll: true });
     };
@@ -77,22 +80,13 @@ export function CookieConsent() {
     setChoices(remembered ? next : ESSENTIAL_ONLY);
     setMessage(
       remembered
-        ? "Recording your choice…"
+        ? ""
         : "Your browser could not remember the choice. Optional collection stays off in this tab.",
     );
+    if (close) dialog.current?.close();
     try {
-      if (!remembered) {
-        await recordBrowserWithdrawal();
-        if (generation !== choiceGeneration.current) return;
-        setMessage(
-          "Your browser could not store the choice. All optional collection has been stopped and withdrawal recorded.",
-        );
-        return;
-      }
-      await recordBrowserConsent();
-      if (generation !== choiceGeneration.current) return;
-      setMessage("Your choice applies immediately.");
-      if (close) dialog.current?.close();
+      if (remembered) await recordBrowserConsent();
+      else await recordBrowserWithdrawal();
     } catch {
       if (generation !== choiceGeneration.current) return;
       setNeedsRetry(true);
