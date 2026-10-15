@@ -14,7 +14,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 15 October 2026</p>
+        <p className="policy-date">Last updated: 16 October 2026</p>
         <p>
           This notice covers tidydesign.co, the hosted Tidy app, registration, login and connected
           features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
