@@ -5,9 +5,6 @@ and assets retain their original licenses and copyright notices.
 
 - **Paper.js** and **Zod**: MIT. Full upstream license texts are retained at
   `licenses/bundled/Paper.js.txt` and `licenses/bundled/Zod.txt`.
-- **ImageTracer.js 1.2.6**: Unlicense (public domain dedication), used for local
-  raster tracing in a browser worker. Its upstream license is retained at
-  `licenses/bundled/ImageTracer.txt`; the installed package also includes it.
 - **React**, **React DOM** and **Scheduler**: MIT, copyright Meta Platforms, Inc.
   and affiliates. Their shared upstream license is retained at
   `licenses/bundled/React.txt`.
