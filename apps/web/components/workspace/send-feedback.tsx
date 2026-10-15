@@ -10,6 +10,11 @@ import {
   openFeedback,
 } from "@/lib/feedback/commands";
 import { IMAGE_TYPES, validateImages } from "@/lib/feedback/validation";
+import posthog from "@/lib/posthog-client";
+
+const surveyId = process.env.NEXT_PUBLIC_POSTHOG_SURVEY_ID;
+const categoryQuestionId = "4d4c2893-65dc-42dd-ae8c-177a25bfa385";
+const messageQuestionId = "e2a09982-e1fc-4333-bb1a-cb87853cedbd";
 
 export function SendFeedback({
   className,
@@ -24,6 +29,7 @@ export function SendFeedback({
 }) {
   return (
     <button
+      data-ph-public
       type="button"
       className={className}
       aria-label="Send feedback"
@@ -98,6 +104,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       if (!dialog.current || document.querySelector("dialog[open]")) return;
       setError("");
       dialog.current.showModal();
+      if (surveyId) posthog.capture("survey shown", { $survey_id: surveyId });
     }
     function shortcut(event: KeyboardEvent) {
       if (!isFeedbackShortcut(event) || document.querySelector("dialog[open]")) return;
@@ -165,6 +172,17 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ id: uploadId.current, category: type, message }),
       });
       if (!saved.ok) throw new Error("Could not send feedback. Please try again.");
+      // Support delivery succeeds independently of optional analytics consent.
+      // Attachments and their access URLs stay in Tidy's support storage.
+      if (surveyId)
+        posthog.capture("survey sent", {
+          $survey_id: surveyId,
+          $survey_submission_id: uploadId.current,
+          $survey_completed: true,
+          [`$survey_response_${categoryQuestionId}`]:
+            type === "broken" ? "Something’s broken" : "General feedback",
+          [`$survey_response_${messageQuestionId}`]: message,
+        });
       form.reset();
       for (const image of images) {
         URL.revokeObjectURL(image.url);

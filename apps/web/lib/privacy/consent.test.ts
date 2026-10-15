@@ -180,8 +180,94 @@ test("exceptions cannot forward messages, stacks, console arguments or arbitrary
   )!;
   expect(JSON.stringify(result)).not.toMatch(/private|secret|password/);
   expect(result.properties.$exception_list).toEqual([
-    { type: "Error", value: "Application error (message removed for privacy)" },
+    {
+      type: "Error",
+      value: "Application error (message removed for privacy)",
+      mechanism: { type: "generic", handled: true, synthetic: false, exception_id: 0 },
+      stacktrace: { type: "raw", frames: [] },
+    },
   ]);
+});
+
+test("exceptions retain only shipped code locations and the required ingestion schema", () => {
+  const input = event("$exception", {
+    $release_id: "tidy-release-123",
+    $exception_fingerprint: "private fingerprint",
+    $exception_list: [
+      {
+        type: "TypeError",
+        value: "private message",
+        mechanism: { type: "onerror", handled: false, data: { secret: "private" } },
+        stacktrace: {
+          type: "raw",
+          frames: [
+            {
+              filename: "https://app.example/_next/static/chunks/app-123.js?token=secret#private",
+              lineno: 5,
+              colno: 12,
+              function: "private",
+              vars: { password: "secret" },
+              context_line: "private",
+              chunk_id: "00000000-0000-4000-8000-000000000001",
+            },
+            {
+              filename: "https://other.example/_next/static/chunks/app-123.js",
+              lineno: 5,
+              colno: 12,
+            },
+            { filename: url, lineno: 5, colno: 12 },
+            { filename: "/Users/private/code.tsx", lineno: 5, colno: 12 },
+          ],
+        },
+      },
+    ],
+  });
+  const result = redactTelemetry(input, all, url)!;
+  expect(JSON.stringify(result)).not.toMatch(/private|secret|password|context_line|other.example/);
+  expect(result.properties.$exception_level).toBe("error");
+  expect(result.properties.$release_id).toBe("tidy-release-123");
+  expect(result.properties.$exception_fingerprint).toBeUndefined();
+  expect(result.properties.$exception_list).toMatchObject([
+    {
+      type: "TypeError",
+      mechanism: { type: "onerror", handled: false },
+      stacktrace: {
+        type: "raw",
+        frames: [
+          {
+            filename: "https://app.example/_next/static/chunks/app-123.js",
+            lineno: 5,
+            colno: 12,
+            platform: "web:javascript",
+            in_app: true,
+          },
+        ],
+      },
+    },
+  ]);
+  expect(
+    (result.properties.$exception_list as { stacktrace: { frames: unknown[] } }[])[0].stacktrace
+      .frames,
+  ).toHaveLength(1);
+  expect(redactTelemetry(input, { ...all, diagnostics: false }, url)).toBeNull();
+});
+
+test("survey completion metadata and question answers survive only analytics consent", () => {
+  const input = event("survey sent", {
+    $survey_id: "synthetic-survey",
+    $survey_submission_id: "synthetic-submission",
+    $survey_completed: true,
+    "$survey_response_question-uuid": "Deliberate feedback",
+    feedback_attachment_urls: ["https://app.example/private-screenshot"],
+  });
+  expect(redactTelemetry(input, all, url)!.properties).toMatchObject({
+    $survey_id: "synthetic-survey",
+    $survey_submission_id: "synthetic-submission",
+    $survey_completed: true,
+    "$survey_response_question-uuid": "Deliberate feedback",
+  });
+  expect(JSON.stringify(redactTelemetry(input, all, url))).not.toContain("screenshot");
+  expect(redactTelemetry(input, { ...all, analytics: false }, url)).toBeNull();
 });
 test("numeric performance metrics and explicitly submitted survey answers survive", () => {
   expect(

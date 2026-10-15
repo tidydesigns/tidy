@@ -1,6 +1,7 @@
 import type { CaptureResult } from "posthog-js";
 import { hasOptionalConsent, type ConsentChoices, type ConsentPurpose } from "./consent";
 import { normalizedRoute } from "../route-normalization";
+import { browserExceptions } from "./browser-exceptions";
 
 const customEvents = new Set([
   "vault_login_created",
@@ -162,19 +163,12 @@ export function redactTelemetry(
       properties.$event_type = source.$event_type;
   }
   if (event.event === "$exception") {
-    properties.$exception_list = Array.isArray(source.$exception_list)
-      ? source.$exception_list.slice(0, 3).map((item: { type?: unknown }) => ({
-          type:
-            typeof item.type === "string" &&
-            ["Error", "TypeError", "RangeError", "ReferenceError", "SyntaxError"].includes(
-              item.type,
-            )
-              ? item.type
-              : "Error",
-          value: "Application error (message removed for privacy)",
-        }))
-      : [{ type: "Error", value: "Application error (message removed for privacy)" }];
-    properties.$exception_fingerprint = "tidy-browser-error";
+    properties.$exception_list = browserExceptions(source.$exception_list, pageUrl);
+    properties.$exception_level = "error";
+    // Let PostHog group by sanitized code location rather than merging every
+    // browser fault under a single fingerprint. Release IDs link source maps.
+    if (typeof source.$release_id === "string" && /^[\w.-]{1,100}$/.test(source.$release_id))
+      properties.$release_id = source.$release_id;
   }
   if (event.event === "$snapshot") {
     // rrweb masks text/attributes/inputs before capture. These fields are the recorder protocol.
@@ -197,7 +191,7 @@ export function redactTelemetry(
     // Answers are deliberately supplied by the user in an optional survey.
     for (const [key, value] of Object.entries(source))
       if (
-        /^\$survey_(id|response(?:_[\w-]+)?)$/.test(key) &&
+        /^\$survey_(id|submission_id|completed|response(?:_[\w-]+)?)$/.test(key) &&
         ((typeof value === "string" && value.length <= 10000) ||
           typeof value === "number" ||
           typeof value === "boolean")

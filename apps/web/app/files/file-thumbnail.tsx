@@ -327,7 +327,10 @@ export function FileThumbnail({
     };
   }, [visible, canGenerate, rendered, fileId, cacheScope]);
   return (
-    <div ref={container} className="relative h-full w-full overflow-hidden bg-primary-white">
+    <div
+      ref={container}
+      className="ph-no-capture relative h-full w-full overflow-hidden bg-primary-white"
+    >
       {source && visible && !prewarm ? (
         <Image
           src={source}

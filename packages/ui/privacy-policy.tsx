@@ -123,16 +123,18 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           <dd>
             A reconstruction of page structure, navigation, clicks, pointer movements and scrolling
             helps us investigate usability problems. This is not access to your camera or
-            microphone. We mask text, input values and element attributes before transmission and
-            block forms, images, media, embedded pages and design canvases. Raw network
-            request/response bodies, headers and console messages are not recorded. These
-            protections intentionally limit what we can see.
+            microphone. Application styling and reviewed interface labels remain visible. Other
+            text, input values, identifying attributes, private links and content are masked before
+            transmission. We block forms, images, media, embedded pages, design previews and design
+            canvases. Raw network request/response bodies, headers and console messages are not
+            recorded. These protections intentionally limit what we can see.
           </dd>
           <dt>Browser performance and errors</dt>
           <dd>
             Page-loading and interaction measurements, redacted browser errors, console-error
             categories and operation timings help us diagnose faults. Browser error messages and
-            contents are removed. PostHog request tracing is not enabled.
+            contents are removed; sanitized application code locations are retained to help identify
+            and group faults. PostHog request tracing is not enabled.
           </dd>
         </dl>
         <p>

@@ -10,6 +10,7 @@ import {
 } from "./privacy/consent";
 import { clearAnalyticsStorage } from "./privacy/browser-storage";
 import { invalidateConsentReceipt, recordBrowserConsent } from "./privacy/receipt-client";
+import { replayAttribute, replayText } from "./privacy/replay";
 import {
   redactTelemetry,
   safeTelemetryUrl,
@@ -24,6 +25,8 @@ let started = false;
 let expiry: ReturnType<typeof setTimeout> | undefined;
 let account: TelemetryAccount | undefined;
 let retry: ReturnType<typeof setTimeout> | undefined;
+let initialization = Promise.resolve();
+let pendingCaptures = 0;
 const AUTH_EVENT = "tidy-telemetry-auth-change";
 
 export function browserCollectionEnabled() {
@@ -82,15 +85,16 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
     session_recording: {
       maskAllInputs: true,
       maskTextSelector: "*",
-      maskTextFn: () => "[hidden]",
-      maskAllElementAttributes: true,
+      maskTextFn: replayText,
+      maskAllElementAttributes: false,
+      maskAttributeFn: replayAttribute,
       blockSelector:
-        ".ph-no-capture, form, input, textarea, select, [contenteditable], canvas, svg, img, picture, video, audio, iframe, object, embed, script, style, link",
+        ".ph-no-capture, [data-node-id], [data-design-font], form, input, textarea, select, [contenteditable], canvas, svg:not([data-ph-public] svg), img, picture, video, audio, iframe, object, embed, script, link:not([rel='stylesheet'])",
       captureCanvas: { recordCanvas: false },
       recordCrossOriginIframes: false,
       captureJsonLd: false,
       collectFonts: false,
-      inlineStylesheet: false,
+      inlineStylesheet: true,
       recordHeaders: false,
       recordBody: false,
       maskCapturedNetworkRequestFn: (request) =>
@@ -165,7 +169,13 @@ function scheduleExpiry(consent: Consent) {
   );
 }
 
-async function refresh() {
+function refresh() {
+  if (JSON.stringify(browserConsent()) === activeChoice) return initialization;
+  initialization = initializeClient();
+  return initialization;
+}
+
+async function initializeClient() {
   const consent = browserConsent();
   const choice = JSON.stringify(consent);
   if (choice === activeChoice) return;
@@ -259,12 +269,31 @@ function notifyAuthChange() {
   }
 }
 
+function afterInitialization(deliver: (sdk: PostHog) => unknown) {
+  // Focus/session revalidation briefly stops the client. Do not lose a feedback
+  // click or boundary error during that window, or carry it to another account.
+  if (!started || !browserCollectionEnabled() || pendingCaptures >= 20) return;
+  const generation = revision;
+  const identity = account?.id;
+  pendingCaptures++;
+  void initialization
+    .then(() => {
+      pendingCaptures--;
+      if (generation === revision && identity === account?.id && client) deliver(client);
+    })
+    .catch(() => {});
+}
+
 const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "reset"> = {
   capture: (event, properties) => {
-    if (hasOptionalConsent(browserConsent())) return client?.capture(event, properties);
+    if (!hasOptionalConsent(browserConsent())) return;
+    if (client) return client.capture(event, properties);
+    afterInitialization((sdk) => sdk.capture(event, properties));
   },
   captureException: (error, properties) => {
-    if (current("diagnostics")) return client?.captureException(error, properties);
+    if (!current("diagnostics")) return;
+    if (client) return client.captureException(error, properties);
+    afterInitialization((sdk) => sdk.captureException(error, properties));
   },
   identify: (id, properties) => {
     account = telemetryAccount(id, properties?.email);

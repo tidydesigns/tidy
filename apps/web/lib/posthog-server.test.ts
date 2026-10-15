@@ -151,6 +151,14 @@ test("server reports allowlist details, strip sensitive stack context and preser
       /private|Users|SQL|cause|context_line|pre_context|post_context|\"vars\"/,
     );
     expect(event.properties.$exception_list[0].stacktrace.frames[0].lineno).toBe(12);
+    expect(event.properties.$exception_list[0].stacktrace.type).toBe("raw");
+    expect(event.properties.$exception_list[0].stacktrace.frames[0].platform).toBe(
+      "node:javascript",
+    );
+    expect(event.properties.$exception_list[0].mechanism).toMatchObject({
+      type: "generic",
+      handled: true,
+    });
   } finally {
     c.transport.mockRestore();
   }

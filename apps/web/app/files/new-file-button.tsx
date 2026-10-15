@@ -55,7 +55,7 @@ export function NewFileButton({
           disabled={pending}
           className="rounded-l-lg px-4 py-2.5 text-sm font-medium hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 active:scale-[0.98]"
         >
-          {pending ? "Creating…" : "+ New file"}
+          <span data-ph-public>{pending ? "Creating…" : "+ New file"}</span>
         </button>
         <SelectMenu
           value=""

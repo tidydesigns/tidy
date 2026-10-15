@@ -245,7 +245,9 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
               {
                 type: safeError.name,
                 value: safeError.message,
+                mechanism: { type: "generic", handled: true, synthetic: false, exception_id: 0 },
                 stacktrace: {
+                  type: "raw",
                   frames: Array.isArray(frames)
                     ? frames
                         .slice(0, 40)
@@ -260,13 +262,18 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
                           filename: frame.filename,
                           lineno: frame.lineno,
                           colno: frame.colno,
-                          platform: "javascript",
+                          platform: "node:javascript",
+                          in_app: true,
                         }))
                     : [],
                 },
               },
             ],
             $exception_level: "error",
+            ...(typeof event.properties?.$release_id === "string" &&
+            /^[\w.-]{1,100}$/.test(event.properties.$release_id)
+              ? { $release_id: event.properties.$release_id }
+              : {}),
             $lib: "posthog-node",
           };
           event.distinctId = "tidy-server";

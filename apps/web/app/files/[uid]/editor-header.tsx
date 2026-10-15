@@ -88,6 +88,7 @@ export function EditorHeader({
       {canShare && (
         <div ref={shareRef} className="relative">
           <button
+            data-ph-public
             ref={shareButton}
             type="button"
             aria-expanded={shareOpen}
@@ -119,6 +120,7 @@ export function EditorHeader({
                 Members of {organizationName} can open this file.
               </p>
               <button
+                data-ph-public
                 data-copy-link
                 type="button"
                 onClick={() => void copyLink()}

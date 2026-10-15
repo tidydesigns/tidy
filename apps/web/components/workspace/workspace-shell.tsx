@@ -46,6 +46,7 @@ export async function WorkspaceShell({
         <div className={workspaceFrame}>
           <aside className={workspaceSidebar}>
             <Link
+              data-ph-public
               href="/files"
               prefetch={true}
               aria-label="Tidy files"

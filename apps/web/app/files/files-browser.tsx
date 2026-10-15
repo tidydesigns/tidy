@@ -533,8 +533,14 @@ export function FilesBrowser({
         </Link>
       )}
       <div className={filesHeader}>
-        <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
-          {archived ? "Archive" : (currentFolder?.name ?? "Files")}
+        <h1 data-ph-public className="min-w-0 truncate text-3xl font-semibold tracking-tight">
+          {archived ? (
+            "Archive"
+          ) : currentFolder ? (
+            <span data-ph-private>{currentFolder.name}</span>
+          ) : (
+            "Files"
+          )}
         </h1>
         <div className="flex items-center gap-2">
           {canEdit && !archived && (
@@ -550,12 +556,13 @@ export function FilesBrowser({
                   disabled={busy || creatingFolder}
                   className="rounded-lg border border-primary-grey px-4 py-2.5 text-sm font-medium hover:bg-surface/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
                 >
-                  + New folder
+                  <span data-ph-public>+ New folder</span>
                 </button>
               )}
             </>
           )}
           <div
+            data-ph-public
             role="group"
             aria-label="File view"
             className="flex rounded-lg border border-primary-grey/70 p-1"
@@ -700,6 +707,7 @@ export function FilesBrowser({
       {view === "list" && (
         <div className="pt-9">
           <div
+            data-ph-public
             className={`${listColumns} border-b border-primary-grey/60 px-3 pb-3 text-xs font-medium text-secondary-ink`}
           >
             <span>Name</span>
@@ -943,6 +951,7 @@ export function FilesBrowser({
 
       {menu && (
         <div
+          data-ph-public
           ref={menuRef}
           role="menu"
           aria-label={`Actions for ${menu.kind === "file" ? menu.file.name : menu.folder.name}`}
@@ -1056,6 +1065,7 @@ export function FilesBrowser({
               {visibleFolders.map((folder) => (
                 <button
                   key={folder.id}
+                  data-ph-private
                   type="button"
                   role="menuitem"
                   className={menuItem}

@@ -253,6 +253,7 @@ function CanvasToolButton({
   const tipId = `canvas-tip-${label.toLowerCase().replaceAll(" ", "-")}`;
   return (
     <button
+      data-ph-public
       type="button"
       aria-label={label}
       aria-describedby={tipId}
@@ -3662,6 +3663,7 @@ export function FileEditor({
             <PanelToggle expanded onClick={togglePanels} />
           </div>
           <div
+            data-ph-public
             role="tablist"
             aria-label="File tools"
             className="flex shrink-0 gap-1 border-b border-primary-grey/60 px-3 py-2"
@@ -3691,7 +3693,9 @@ export function FileEditor({
             ) : (
               <>
                 <div className="flex items-center justify-between px-4 pb-2 pt-5">
-                  <h2 className="text-xs font-medium text-secondary-ink">Pages</h2>
+                  <h2 data-ph-public className="text-xs font-medium text-secondary-ink">
+                    Pages
+                  </h2>
                   {!readOnly && (
                     <button
                       type="button"
@@ -3778,7 +3782,9 @@ export function FileEditor({
                 </div>
                 <div className="mx-4 mt-5 border-t border-primary-grey/70" />
                 <div className="flex items-center justify-between px-4 pb-2 pt-5">
-                  <h2 className="text-xs font-medium text-secondary-ink">Layers</h2>
+                  <h2 data-ph-public className="text-xs font-medium text-secondary-ink">
+                    Layers
+                  </h2>
                   <span className="text-[11px] text-secondary-ink">{nodes.length || ""}</span>
                 </div>
                 {(nodes.length > 12 || layerQuery) && (
@@ -4560,6 +4566,7 @@ export function FileEditor({
           )}
           {selected && (
             <div
+              data-ph-public
               role="group"
               aria-label="Selection controls"
               className="flex shrink-0 gap-1 border-b border-primary-grey/60 px-3 py-2"
