@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { AuthGuardStore, type RateRule } from "../auth/guard-store";
+import { AuthGuardStore, type RateRule, type RateCheck } from "../auth/guard-store";
 import { consumePersonalAttempts, PERSONAL_ATTEMPTS } from "./personal-budget";
 import { consumeLinearAttempts } from "../linear/attempt-budget";
 import { consumeGitHubOAuthAttempts, GitHubOAuthBudgetError } from "../github/oauth-budget";
@@ -13,6 +13,7 @@ import {
   consumeInvitationBudget,
   MutationBudgetError,
 } from "./mutation-budget";
+import { consumeTelemetryBytes, PublicBudgetError } from "./public-budget";
 const databases: Database[] = [];
 test("GitHub OAuth hourly budgets share account and workspace counters across minute resets", async () => {
   const actor = limiter();
@@ -329,3 +330,19 @@ for (const kind of Object.keys(PERSONAL_ATTEMPTS) as (keyof typeof PERSONAL_ATTE
     guard.advance(3_600_001);
     await consumePersonalAttempts(kind, "actor", consume);
   });
+
+test("telemetry hourly byte limits survive minute resets and isolate receipts", async () => {
+  const guard = limiter();
+  const consume = async (scope: string, first: RateCheck, second: RateCheck) => {
+    const result = await guard.consume(`${scope}:${first.key}`, first.rule);
+    return result.allowed ? guard.consume(`${scope}:${second.key}`, second.rule) : result;
+  };
+  for (let minute = 0; minute < 10; minute++) {
+    for (let i = 0; i < 4; i++) await consumeTelemetryBytes("one", 5_000_000, consume);
+    guard.advance(60_001);
+  }
+  await expect(consumeTelemetryBytes("one", 1, consume)).rejects.toBeInstanceOf(PublicBudgetError);
+  await consumeTelemetryBytes("another", 5_000_000, consume);
+  guard.advance(3_600_001);
+  await consumeTelemetryBytes("one", 5_000_000, consume);
+});

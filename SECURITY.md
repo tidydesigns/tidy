@@ -33,8 +33,3 @@ in the web and site workspaces. This tooling exposure concerns malicious glob
 configuration; keep untrusted repository configuration out of privileged CI.
 The audit blocks other advisories and changes to that consumer chain. Reassess
 the exception when updating dependencies.
-
-Hosted telemetry has [request and byte budgets](apps/web/lib/security/public-budget.ts)
-separate from login and privacy choices; exhausted budgets return 429 with
-`Retry-After`. Health checks cache database readiness for five seconds and limit
-cache-miss queries. These controls require Workers; local Node has no shared limits.
