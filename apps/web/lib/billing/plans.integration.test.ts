@@ -511,7 +511,10 @@ integration("new-file imports are gated and existing-file imports remain availab
     "allows 3 files",
   );
   const update = await documents.createImport(owner.id, org, "Updated", first.id);
-  await documents.putImportChunk(owner.id, update.importId, "1", []);
+  await documents.putImportChunk(owner.id, update.importId, "1", [], {
+    project: "plan-fixture",
+    route: "/updated",
+  });
   await documents.commitImport(owner.id, update.importId);
   expect((await usage()).usage.files).toBe(3);
 });
