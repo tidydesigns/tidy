@@ -7,8 +7,8 @@ import {
   applyRasterTrace,
   vectorisationSource,
   vectorisationUnavailable,
-} from "@/lib/design/raster-vectorisation";
-import type { TraceColors, TraceStage } from "@/lib/design/raster-trace-contract";
+} from "@/lib/design/vectorisation/apply";
+import type { TraceColors, TraceStage } from "@/lib/design/vectorisation/contract";
 import {
   imageEditNode,
   imageEditChanges,
@@ -698,7 +698,7 @@ export function FileEditor({
     if (!editedImage || !canVectoriseImage) return;
     const node = editedImage;
     const expected = vectorisationSource(node);
-    const { traceImage } = await import("@/lib/design/raster-trace-client");
+    const { traceImage } = await import("@/lib/design/vectorisation/client");
     const trace = await traceImage(
       node,
       previewAssetUrls?.[node.assetId!] ?? `/api/assets/${node.assetId}`,

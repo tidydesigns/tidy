@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import sharp from "sharp";
-import { traceRaster } from "./raster-trace";
-import { rasterShapeFixtures, rasterShapeSvg } from "../../scripts/raster-shape-fixtures";
+import { traceRaster } from "./trace";
+import { rasterShapeFixtures, rasterShapeSvg } from "./fixtures";
 
 for (const fixture of rasterShapeFixtures) {
   test(`${fixture.name}: coherent regions, faithful paint and geometry`, async () => {

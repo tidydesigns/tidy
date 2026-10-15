@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { measureRasterTrace, traceCandidateIsFaithful } from "./raster-trace-quality";
+import { measureRasterTrace, traceCandidateIsFaithful } from "./quality";
 
 const image = (width: number, height: number, rgba: number[]) => ({
   width,
@@ -38,7 +38,7 @@ test("faithful simpler candidates pass; bad dimensions cannot enter verification
 });
 
 test("a rejected simplification returns the original contour geometry and never persists alternatives", async () => {
-  const { selectVerifiedRasterTrace } = await import("./raster-trace-quality");
+  const { selectVerifiedRasterTrace } = await import("./quality");
   const fallback = { width: 16, height: 16, paths: [], pointCount: 0 };
   const proposed = { ...fallback, pointCount: 4, fallback };
   const exact = { meanError: 0, alphaError: 0, changedFraction: 0, worstTileError: 0 };

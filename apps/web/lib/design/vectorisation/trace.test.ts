@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { traceRaster } from "./raster-trace";
-import { traceLimits, traceSize } from "./raster-trace-contract";
+import { traceRaster } from "./trace";
+import { traceLimits, traceSize } from "./contract";
 import { serializeContours } from "@bella/design/vector-geometry";
 
 function pixels(

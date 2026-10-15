@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import sharp from "sharp";
-import { traceRaster } from "./raster-trace";
-import { fitRasterLinearGradient } from "./raster-gradient";
-import { generalRasterFixtures, rasterShapeSvg } from "../../scripts/raster-shape-fixtures";
+import { traceRaster } from "./trace";
+import { fitRasterLinearGradient } from "./gradient";
+import { generalRasterFixtures, rasterShapeSvg } from "./fixtures";
 
 async function pixels(body: string, jpeg = false) {
   let pipeline = sharp(Buffer.from(rasterShapeSvg(body)));

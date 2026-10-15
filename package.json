@@ -60,7 +60,9 @@
     "test:privacy:db": "node apps/web/scripts/test-account-controls.mjs --privacy",
     "test:figma:browser": "bun apps/web/scripts/test-figma-browser.ts",
     "test:figma:publication:browser": "node apps/web/scripts/test-figma-publication-browser.ts",
-    "test:telemetry-worker": "bun apps/web/scripts/test-telemetry-worker.mjs"
+    "test:telemetry-worker": "bun apps/web/scripts/test-telemetry-worker.mjs",
+    "test:vectorisation:browser": "bun apps/web/scripts/test-vectorisation-browser.ts",
+    "test:vector:browser": "bun apps/web/scripts/test-vector-browser.ts"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

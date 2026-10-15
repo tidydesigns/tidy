@@ -12,7 +12,7 @@ import type { ImageEdit } from "@/lib/design/image-edit-target";
 import { DesignImage } from "@/components/design/design-image";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
-import type { TraceColors, TraceStage } from "@/lib/design/raster-trace-contract";
+import type { TraceColors, TraceStage } from "@/lib/design/vectorisation/contract";
 
 const keys = Object.keys(imageAdjustmentLabels) as ImageAdjustment[];
 const reset = Object.fromEntries(keys.map((key) => [key, 0])) as ImageAdjustments;

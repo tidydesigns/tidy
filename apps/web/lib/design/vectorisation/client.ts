@@ -1,14 +1,14 @@
-import { verifyRasterTrace } from "./raster-trace-quality";
+import { verifyRasterTrace } from "./quality";
 import { imageAdjustmentFilter, hasImageAdjustments } from "@bella/design/image-adjustments";
-import type { DesignNode } from "./document";
-import { imageViewport } from "./image-viewport";
+import type { DesignNode } from "../document";
+import { imageViewport } from "../image-viewport";
 import {
   traceLimits,
   traceSize,
   type RasterTrace,
   type TraceColors,
   type TraceStage,
-} from "./raster-trace-contract";
+} from "./contract";
 
 const aborted = () => new DOMException("Vectorisation cancelled.", "AbortError");
 function check(signal: AbortSignal) {
@@ -151,7 +151,7 @@ export async function traceImage(
     onProgress?.("tracing");
     const result = await new Promise<{ trace: RasterTrace; verified: boolean }>(
       (resolve, reject) => {
-        const worker = new Worker(new URL("./raster-trace.worker.ts", import.meta.url), {
+        const worker = new Worker(new URL("./trace.worker.ts", import.meta.url), {
           type: "module",
         });
         const finish = (error?: Error, trace?: RasterTrace, verified = false) => {

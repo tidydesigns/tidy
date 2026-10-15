@@ -1,12 +1,8 @@
 import { expect, test } from "bun:test";
-import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
-import {
-  applyRasterTrace,
-  vectorisationSource,
-  vectorisationUnavailable,
-} from "./raster-vectorisation";
-import { traceRaster } from "./raster-trace";
-import { diffDocument, applyDocumentPatch } from "./document-patch";
+import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../document";
+import { applyRasterTrace, vectorisationSource, vectorisationUnavailable } from "./apply";
+import { traceRaster } from "./trace";
+import { diffDocument, applyDocumentPatch } from "../document-patch";
 
 const assetId = "00000000-0000-4000-8000-000000000071";
 const document = () =>

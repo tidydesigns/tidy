@@ -1,5 +1,5 @@
-import type { DesignPaint } from "./document";
-import type { RasterPixels } from "./raster-trace-contract";
+import type { DesignPaint } from "../document";
+import type { RasterPixels } from "./contract";
 
 type LinearPaint = Extract<DesignPaint, { type: "linear" }>;
 /** Conservative single-region, two-stop gradient model. Fit colour planes, require

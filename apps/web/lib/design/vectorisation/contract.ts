@@ -1,4 +1,4 @@
-import type { DesignNode, DesignPaint } from "./document";
+import type { DesignNode, DesignPaint } from "../document";
 
 export const traceLimits = {
   pixels: 262144,

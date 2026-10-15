@@ -3,8 +3,8 @@ import {
   type VectorContour,
   type VectorPoint,
 } from "@bella/design/vector-geometry";
-import { fitRasterShape, sampleRasterContour } from "./raster-shape-fit";
-import type { RasterTrace } from "./raster-trace-contract";
+import { fitRasterShape, sampleRasterContour } from "./shape-fit";
+import type { RasterTrace } from "./contract";
 
 type Path = RasterTrace["paths"][number];
 const cross = (a: VectorPoint, b: VectorPoint, c: VectorPoint) =>

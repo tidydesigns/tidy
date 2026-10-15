@@ -1,4 +1,4 @@
-import type { RasterPixels, RasterTrace } from "./raster-trace-contract";
+import type { RasterPixels, RasterTrace } from "./contract";
 
 export type TraceQuality = {
   meanError: number;

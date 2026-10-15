@@ -4,13 +4,13 @@ import {
   type VectorAnchor,
   type VectorContour,
 } from "@bella/design/vector-geometry";
-import { recoverRasterOcclusion } from "./raster-occlusion";
-import { refineRasterCoverage } from "./raster-coverage";
-import { fitRasterShape } from "./raster-shape-fit";
-import { fitRasterLinearGradient } from "./raster-gradient";
-import { prepareRasterRegions } from "./raster-regions";
-import { designNodeSchema } from "./document";
-import { traceLimits, type TraceColors, type RasterTrace } from "./raster-trace-contract";
+import { recoverRasterOcclusion } from "./occlusion";
+import { refineRasterCoverage } from "./coverage";
+import { fitRasterShape } from "./shape-fit";
+import { fitRasterLinearGradient } from "./gradient";
+import { prepareRasterRegions } from "./regions";
+import { designNodeSchema } from "../document";
+import { traceLimits, type TraceColors, type RasterTrace } from "./contract";
 
 function contour(path: TracePath, id: string): VectorContour {
   if (!path.segments.length || path.segments.length > 1000)

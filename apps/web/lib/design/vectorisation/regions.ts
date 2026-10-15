@@ -1,5 +1,5 @@
 import type { TraceColor } from "imagetracerjs";
-import type { TraceColors, RasterPixels } from "./raster-trace-contract";
+import type { TraceColors, RasterPixels } from "./contract";
 
 /** Deterministic, frequency-weighted diverse seeds; no random sampling, hidden RGB or white removal. */
 function palette(

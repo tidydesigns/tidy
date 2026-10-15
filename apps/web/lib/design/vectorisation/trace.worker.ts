@@ -1,6 +1,6 @@
-import { verifyRasterTrace } from "./raster-trace-quality";
-import { traceRaster } from "./raster-trace";
-import type { TraceColors } from "./raster-trace-contract";
+import { verifyRasterTrace } from "./quality";
+import { traceRaster } from "./trace";
+import type { TraceColors } from "./contract";
 
 const worker = self as unknown as {
   onmessage:

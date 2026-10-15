@@ -1,7 +1,7 @@
-import { parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
-import { isLayerLocked, isLayerVisible } from "./edit-document";
-import { imageViewport } from "./image-viewport";
-import { traceLimits, type RasterTrace } from "./raster-trace-contract";
+import { parseDesignDocument, type DesignDocument, type DesignNode } from "../document";
+import { isLayerLocked, isLayerVisible } from "../edit-document";
+import { imageViewport } from "../image-viewport";
+import { traceLimits, type RasterTrace } from "./contract";
 
 export function vectorisationUnavailable(document: DesignDocument, node: DesignNode) {
   if (node.type !== "image" || !node.assetId || node.vectorPath || node.vectorBoolean)
