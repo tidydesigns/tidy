@@ -13,11 +13,18 @@ async function record(request: Request) {
     return new Response(null, { status: 403, headers: privateHeaders });
   try {
     let consent = readConsent(request.headers.get("cookie"));
-    const revoking = Boolean(request.body);
+    // Next.js may expose an empty POST as a non-null stream. Inspect its bytes.
+    const bodyText = await request.text();
+    const revoking = bodyText.length > 0;
     // A refusal must still reach the operator when a browser rejects JS cookie writes.
     // This body can only revoke every optional purpose; it cannot grant tracking.
-    if (request.body) {
-      const body = await request.json().catch(() => null);
+    if (revoking) {
+      let body: unknown;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        return new Response(null, { status: 400, headers: privateHeaders });
+      }
       if (
         !body ||
         typeof body !== "object" ||

@@ -162,6 +162,28 @@ integration(
         new Request("http://internal/api/privacy/consent", { method: "POST", headers }),
       );
       expect(response.status).toBe(200);
+      // Next.js represents some bodyless POSTs with a non-null, zero-byte stream.
+      const emptyStream = await POST(
+        new Request("http://internal/api/privacy/consent", {
+          method: "POST",
+          headers,
+          body: new Uint8Array(0),
+        }),
+      );
+      expect(emptyStream.status).toBe(200);
+      for (const invalid of [" ", "{", JSON.stringify({ revoke: false })]) {
+        expect(
+          (
+            await POST(
+              new Request("http://internal/api/privacy/consent", {
+                method: "POST",
+                headers,
+                body: invalid,
+              }),
+            )
+          ).status,
+        ).toBe(400);
+      }
       expect(response.headers.get("cache-control")).toBe("private, no-store");
       expect(response.headers.get("set-cookie")).toContain("HttpOnly");
       expect(response.headers.get("set-cookie")).toContain("; Secure");
