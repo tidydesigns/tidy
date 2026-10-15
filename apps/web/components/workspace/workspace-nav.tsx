@@ -35,7 +35,7 @@ export function WorkspaceNav({
           <Link
             key={id}
             href={href}
-            prefetch={true}
+            prefetch={id !== "mcp" && id !== "settings"}
             aria-current={current === id ? "page" : undefined}
             className={`${workspaceNavClass} max-lg:w-auto`}
           >

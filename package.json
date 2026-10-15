@@ -29,6 +29,7 @@
     "test:account-controls": "node apps/web/scripts/test-account-controls.mjs",
     "test:auth": "node apps/web/scripts/test-account-controls.mjs --auth",
     "test:auth:browser": "node apps/web/scripts/test-auth-browser.mjs",
+    "test:navigation:browser": "bun apps/web/scripts/test-workspace-navigation-browser.ts",
     "test:agents:browser": "node apps/web/scripts/test-agents-browser.mjs",
     "test:agents": "node apps/web/scripts/test-account-controls.mjs --agents",
     "agents:runner": "bun --env-file=apps/web/agent-runner/.env.local apps/web/agent-runner/main.ts",

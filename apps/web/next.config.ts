@@ -26,8 +26,6 @@ if (uploadSourceMaps && (!process.env.POSTHOG_API_KEY || !process.env.POSTHOG_PR
 }
 
 const nextConfig: NextConfig = {
-  // Reload stale clients when navigation crosses a release.
-  deploymentId: release,
   env: { NEXT_PUBLIC_APP_VERSION: release },
   output: "standalone",
   // PostHog sends trailing-slash API requests; forward them without a redirect.
