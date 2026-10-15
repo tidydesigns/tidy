@@ -204,8 +204,8 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
     if (
       !key ||
       !host ||
-      diagnostic.route === "/api/telemetry" ||
-      String(diagnostic.route).startsWith("/api/telemetry/")
+      diagnostic.route === "/api/t" ||
+      String(diagnostic.route).startsWith("/api/t/")
     )
       return Promise.resolve();
     const safeError = safeServerError(value, String(diagnostic.event));

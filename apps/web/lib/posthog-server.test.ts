@@ -222,12 +222,12 @@ test("unknown event names are replaced and telemetry endpoints cannot report rec
     await report(new Error("private"), {
       source: "next",
       event: "request_failed",
-      route: "/api/telemetry/e",
+      route: "/api/t/e",
     });
     await report(new Error("private"), {
       source: "next",
       event: "request_failed",
-      route: "/api/telemetry",
+      route: "/api/t",
     });
     expect(c.events()).toHaveLength(1);
     expect(c.bodies.join("")).not.toContain("private");

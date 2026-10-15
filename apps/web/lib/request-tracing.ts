@@ -42,7 +42,8 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
     runtime.host &&
     runtime.enabled === "1" &&
     !new URL(request.url).pathname.startsWith("/_next/") &&
-    !new URL(request.url).pathname.startsWith("/api/telemetry/");
+    new URL(request.url).pathname !== "/api/t" &&
+    !new URL(request.url).pathname.startsWith("/api/t/");
   const makeClient = () =>
     new PostHog(runtime.key!, {
       host: runtime.host,

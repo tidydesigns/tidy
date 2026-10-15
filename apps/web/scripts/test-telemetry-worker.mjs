@@ -13,7 +13,7 @@ const build = await Bun.build({
   define: {
     "process.env.NODE_ENV": JSON.stringify("production"),
     "process.env.NEXT_PUBLIC_POSTHOG_ENABLED": JSON.stringify("1"),
-    "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify("https://eu.i.posthog.com"),
+    "process.env.NEXT_PUBLIC_POSTHOG_HOST": JSON.stringify("https://t.tidydesign.co"),
     "process.env.NEXT_PUBLIC_POSTHOG_KEY": JSON.stringify("synthetic-worker-project"),
     "process.env.BETTER_AUTH_URL": JSON.stringify("https://telemetry.test"),
   },
@@ -75,7 +75,7 @@ const headers = {
   "content-type": "application/json",
 };
 const send = (path, method = "POST") =>
-  worker.dispatchFetch(`https://telemetry.test/api/telemetry/${path}?private=secret&v=2`, {
+  worker.dispatchFetch(`https://telemetry.test/api/t/${path}?private=secret&v=2`, {
     method,
     headers,
     ...(method === "POST" ? { body: JSON.stringify({ event: "$pageview" }) } : {}),
@@ -89,8 +89,9 @@ try {
   }
   assert.equal((await send("array/synthetic-worker-project/config", "GET")).status, 200);
   assert.equal(calls.length, 4);
-  assert.equal(new URL(calls[3].url).hostname, "eu-assets.i.posthog.com");
+  assert.equal(new URL(calls[3].url).hostname, "t.tidydesign.co");
   for (const call of calls) {
+    assert.equal(new URL(call.url).hostname, "t.tidydesign.co");
     assert.equal(call.headers.cookie, undefined);
     assert.equal(call.headers.authorization, undefined);
     assert.equal(call.headers["x-tidy-receipt"], undefined);
@@ -108,12 +109,11 @@ try {
       before + 1,
       "A redirect must never trigger another upstream request",
     );
-    assert.equal(new URL(calls.at(-1).url).hostname, "eu.i.posthog.com");
+    assert.equal(new URL(calls.at(-1).url).hostname, "t.tidydesign.co");
   }
   const before = calls.length;
   assert.equal(
-    (await worker.dispatchFetch("https://telemetry.test/api/telemetry/e", { method: "POST" }))
-      .status,
+    (await worker.dispatchFetch("https://telemetry.test/api/t/e", { method: "POST" })).status,
     200,
   );
   assert.equal(calls.length, before, "No consent must still prevent upstream traffic");

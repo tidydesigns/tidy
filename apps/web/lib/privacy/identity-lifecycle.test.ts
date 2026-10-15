@@ -46,6 +46,8 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     assert.equal(instances.length,0);assert.equal(sessionRequests,0);
     chooseConsent({analytics:false,replay:true,diagnostics:false});await settle();
     assert.equal(instances.length,1);assert.equal(sent.length,0);
+    assert.equal(instances[0].config.api_host,"https://app.example/api/t");
+    assert.equal(instances[0].config.ui_host,"https://eu.posthog.com");
     const anonymous=instances[0].id;
     session={user:{id:"account-a",email:"a@example.test"}};
     posthog.identify("account-a",{email:"a@example.test",name:"do not send"});await settle();
@@ -106,7 +108,7 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
         ...process.env,
         NEXT_PUBLIC_POSTHOG_ENABLED: "1",
         NEXT_PUBLIC_POSTHOG_KEY: "synthetic-key",
-        NEXT_PUBLIC_POSTHOG_HOST: "https://posthog.invalid",
+        NEXT_PUBLIC_POSTHOG_HOST: "https://t.tidydesign.co",
       },
       stdout: "pipe",
       stderr: "pipe",

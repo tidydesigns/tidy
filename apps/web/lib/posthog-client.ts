@@ -38,8 +38,11 @@ function current(purpose: "analytics" | "replay" | "diagnostics") {
 }
 
 export function consentConfig(consent: Consent): Partial<PostHogConfig> {
+  const host = new URL(process.env.NEXT_PUBLIC_POSTHOG_HOST || "https://eu.i.posthog.com");
   return {
-    api_host: `${location.origin}/api/telemetry`,
+    api_host: `${location.origin}/api/t`,
+    ui_host:
+      host.hostname === "us.i.posthog.com" ? "https://us.posthog.com" : "https://eu.posthog.com",
     request_headers: { "x-tidy-consent": consentRevision(consent) },
     persistence: "cookie",
     cookie_expiration: 180,

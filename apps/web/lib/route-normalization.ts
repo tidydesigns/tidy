@@ -18,7 +18,7 @@ const staticSegments = new Set([
   "vault",
   "settings",
   "privacy",
-  "telemetry",
+  "t",
   "account",
   "export",
   "delete",

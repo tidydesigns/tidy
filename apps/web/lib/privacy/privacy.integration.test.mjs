@@ -200,7 +200,7 @@ integration(
       };
       const { authorizeTelemetry } = await import("./consent-store");
       const tokenCookie = response.headers.get("set-cookie").split(";")[0];
-      const request = new Request("https://app.example.test/api/telemetry/e", {
+      const request = new Request("https://app.example.test/api/t/e", {
         headers: { cookie: `${headers.cookie}; ${tokenCookie}`, "x-tidy-receipt": body.id },
       });
       expect(await authorizeTelemetry(request, consent)).toBe(true);

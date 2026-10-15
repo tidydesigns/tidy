@@ -73,6 +73,22 @@ function attr(span: ExportSpan, key: string) {
   return span.attributes.find((item) => item.key === key)?.value;
 }
 
+test("proxy requests never trace their own telemetry transport", async () => {
+  const c = collector();
+  try {
+    for (const path of ["/api/t", "/api/t/e/", "/api/t/array/synthetic-key/config"]) {
+      const trace = createRequestTrace(new Request(`https://app.test${path}`), c.runtime);
+      expect(trace.traceId()).toBeUndefined();
+      trace.snapshot();
+      trace.finish("request_failed", 503, new Error("synthetic proxy failure"));
+    }
+    expect(c.tasks).toHaveLength(0);
+    expect(c.transport).not.toHaveBeenCalled();
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
 test("image failures distinguish capacity, quota and unavailable guards without private error details", async () => {
   const c = collector();
   const logs = spyOn(console, "warn").mockImplementation(() => {});

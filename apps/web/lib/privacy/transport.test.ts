@@ -1,7 +1,7 @@
 import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { consentCookie, consentRevision, CONSENT_VERSION } from "./consent";
 mock.module("server-only", () => ({}));
-const { GET, POST } = await import("../../app/api/telemetry/[...path]/route");
+const { GET, POST } = await import("../../app/api/t/[...path]/route");
 const consentStore = await import("./consent-store");
 let verify: ReturnType<typeof spyOn>;
 const old = { ...process.env };
@@ -34,7 +34,7 @@ const choices = {
   diagnostics: true,
 };
 function request(path: string, headers: Record<string, string> = {}, method = "POST") {
-  return new Request(`https://app.example/api/telemetry/${path}?secret=private&v=3`, {
+  return new Request(`https://app.example/api/t/${path}?secret=private&v=3`, {
     method,
     headers: {
       cookie: consentCookie(choices, choices.at),
@@ -110,6 +110,58 @@ test("config uses the regional assets host and unsafe paths/origins fail closed"
     expect((await POST(request("unknown"), context("unknown"))).status).toBe(404);
     process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://attacker.example";
     expect((await POST(request("e"), context("e"))).status).toBe(503);
+    expect(transport).not.toHaveBeenCalled();
+  } finally {
+    transport.mockRestore();
+  }
+});
+test("managed proxy requires consent and forwards events and config without identifying headers", async () => {
+  setup();
+  process.env.NEXT_PUBLIC_POSTHOG_HOST = "https://t.tidydesign.co";
+  const transport = spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(Response.json({}))
+    .mockResolvedValueOnce(Response.json({}));
+  try {
+    expect((await POST(request("e", { cookie: "" }), context("e"))).status).toBe(200);
+    verify.mockResolvedValueOnce(false);
+    expect((await POST(request("e"), context("e"))).status).toBe(403);
+    expect(transport).not.toHaveBeenCalled();
+    const event = await POST(
+      request("i/v0/e", {
+        authorization: "private",
+        referer: "https://app.example/?secret=private",
+        "x-forwarded-for": "192.0.2.1",
+      }),
+      context("i/v0/e"),
+    );
+    expect(event.status).toBe(200);
+    expect(String(transport.mock.calls[0]![0])).toBe("https://t.tidydesign.co/i/v0/e/?v=3&ip=0");
+    expect(transport.mock.calls[0]![1]?.headers).toEqual({
+      "Content-Type": "application/json",
+    });
+    const route = "array/synthetic-key/config";
+    expect((await GET(request(route, {}, "GET"), context(route))).status).toBe(200);
+    expect(String(transport.mock.calls[1]![0])).toBe(
+      "https://t.tidydesign.co/array/synthetic-key/config?v=3&ip=0",
+    );
+  } finally {
+    transport.mockRestore();
+  }
+});
+test("managed proxy allowlist rejects lookalike hosts and unsafe URLs", async () => {
+  setup();
+  const transport = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({}));
+  try {
+    for (const host of [
+      "https://t.tidydesign.co.attacker.example",
+      "https://other.tidydesign.co",
+      "http://t.tidydesign.co",
+      "https://t.tidydesign.co:8443",
+      "https://user:password@t.tidydesign.co",
+    ]) {
+      process.env.NEXT_PUBLIC_POSTHOG_HOST = host;
+      expect((await POST(request("e"), context("e"))).status).toBe(503);
+    }
     expect(transport).not.toHaveBeenCalled();
   } finally {
     transport.mockRestore();
