@@ -111,37 +111,46 @@ export function CookieConsent() {
         aria-describedby="privacy-choice-description"
         onClose={() => trigger.current?.focus()}
       >
-        <h2
-          ref={heading}
-          id="privacy-choice-title"
-          tabIndex={-1}
-          className="text-xl font-semibold outline-none"
-        >
-          Your privacy choices
-        </h2>
+        <div className="flex items-start justify-between gap-4">
+          <h2
+            ref={heading}
+            id="privacy-choice-title"
+            tabIndex={-1}
+            className="text-xl font-semibold outline-none"
+          >
+            Your privacy choices
+          </h2>
+          <Button
+            type="button"
+            aria-label="Close privacy choices"
+            className="-mt-2 -mr-2 flex size-11 shrink-0 items-center justify-center rounded-md text-xl text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            onClick={() => dialog.current?.close()}
+          >
+            <span aria-hidden="true">×</span>
+          </Button>
+        </div>
         <p id="privacy-choice-description" className="mt-3 text-sm leading-6 text-secondary-ink">
           {collectionEnabled
             ? "Tidy uses essential storage for sign-in and preferences. Choose whether to allow PostHog analytics, masked replay or browser diagnostics. Optional tracking stays off until you choose."
             : "Tidy uses essential storage for sign-in and your preferences. Optional PostHog browser collection is paused. Only essential storage is available."}
         </p>
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
-          Our privacy policy covers server fault monitoring separately and explains how to object.
+          Our{" "}
+          <a
+            href={privacyPolicyUrl}
+            className="rounded-sm text-ink underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          >
+            privacy and cookie policy
+          </a>{" "}
+          covers server fault monitoring separately and explains how to object.
         </p>
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
           {collectionEnabled
             ? "When signed in, selected activity, including replay, is linked to your account ID and email. You can use Tidy without accepting. Change or withdraw choices here anytime. Choices last 180 days."
             : "Your essential-only preference lasts 180 days in this browser. Any future optional collection will require a separate choice."}
         </p>
-        <div className="mt-3 mb-4">
-          <a
-            href={privacyPolicyUrl}
-            className="inline-block min-h-11 max-w-full rounded-sm py-3 text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-          >
-            Read the privacy and cookie policy
-          </a>
-        </div>
         {collectionEnabled && customize && (
-          <div className="mb-5 space-y-5 border-y border-border py-5">
+          <div className="mt-5 mb-5 space-y-5 border-y border-border py-5">
             {purposes.map(({ key, title, description }) => (
               <div key={key}>
                 <div className="flex items-center justify-between gap-4">
@@ -164,7 +173,7 @@ export function CookieConsent() {
           </div>
         )}
         {message && (
-          <p role="status" className="mb-4 text-sm text-secondary-ink">
+          <p role="status" className="mt-4 mb-4 text-sm text-secondary-ink">
             {message}
           </p>
         )}
@@ -173,7 +182,7 @@ export function CookieConsent() {
             Retry recording choice
           </Button>
         )}
-        <div className="flex flex-wrap gap-3">
+        <div className="mt-5 flex flex-wrap gap-3">
           <Button
             type="button"
             className={actionClass}
@@ -191,16 +200,15 @@ export function CookieConsent() {
             </Button>
           )}
         </div>
-        <div className="mt-4 flex justify-between gap-4">
-          {collectionEnabled && !customize && (
-            <Button variant="text" type="button" onClick={() => setCustomize(true)}>
-              Choose individually
-            </Button>
-          )}
-          <Button variant="text" type="button" onClick={() => dialog.current?.close()}>
-            Close
+        {collectionEnabled && !customize && (
+          <Button
+            type="button"
+            className="mt-3 flex min-h-11 w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-medium text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            onClick={() => setCustomize(true)}
+          >
+            Choose individually
           </Button>
-        </div>
+        )}
       </Dialog>
     </aside>
   );
