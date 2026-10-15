@@ -137,6 +137,25 @@ p {
   outline-offset: 6px;
 }
 
+.product-hunt-badge {
+  display: block;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 28px;
+  border-radius: 10px;
+}
+
+.product-hunt-badge img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.product-hunt-badge:focus-visible {
+  outline: 2px solid var(--orange);
+  outline-offset: 4px;
+}
+
 .footer {
   display: flex;
   align-items: center;
