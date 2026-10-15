@@ -101,7 +101,7 @@ export const LayerTree = memo(function LayerTree({
 
   return (
     <div
-      data-ph-public-label
+      data-ph-control-label="Layers"
       ref={tree}
       role="tree"
       aria-label="Layers"

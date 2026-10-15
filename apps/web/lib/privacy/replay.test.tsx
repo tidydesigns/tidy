@@ -5,6 +5,7 @@ import { Choice, ColorField, Section } from "../../app/files/[uid]/inspector-con
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { replayAttribute, replayText } from "./replay";
 import { buildDrawnNode } from "../design/document";
+import { LayerTree } from "../../app/files/[uid]/layer-tree";
 
 test("public inspector labels do not opt field values or custom labels into replay", () => {
   const html = renderToStaticMarkup(
@@ -74,4 +75,47 @@ test("private boundaries override public descendants and hide visual values", ()
   expect(replayText("unreviewed text")).toBe("[hidden]");
   expect(replayText(" \n\t")).toBe(" \n\t");
   expect(replayText("")).toBe("");
+});
+
+test("layer controls retain only the static tree label in replay", () => {
+  const node = {
+    ...buildDrawnNode("fixture", "container", null, { x: 0, y: 0, width: 100, height: 100 }),
+    name: "private-layer-name",
+  };
+  const html = renderToStaticMarkup(
+    <LayerTree
+      nodes={[node]}
+      selectedIds={[]}
+      query=""
+      onSelect={() => {}}
+      onMenu={() => {}}
+      onMove={() => {}}
+      onVisibility={() => {}}
+      onLock={() => {}}
+    />,
+  );
+  expect(html).toMatch(/data-ph-control-label="Layers"[^>]*role="tree"/);
+  const buttons = [
+    ...html.matchAll(/<button\b[^>]*aria-label="[^"]*private-layer-name[^"]*"[^>]*>/g),
+  ];
+  expect(buttons).toHaveLength(3);
+  for (const [button] of buttons)
+    expect(button).not.toMatch(/data-ph-(public-label|control-label)/);
+
+  const tree = {
+    closest: () => null,
+    hasAttribute: (name: string) => name === "data-ph-control-label",
+    getAttribute: () => "Layers",
+  } as unknown as Element;
+  expect(replayAttribute("aria-label", "Layers", tree)).toBe("Layers");
+  const rowButton = {
+    // An ancestor match must not authorize a descendant's attributes.
+    closest: (selector: string) =>
+      /^\[data-ph-(public-label|control-label)\]$/.test(selector) ? tree : null,
+    hasAttribute: () => false,
+  } as unknown as Element;
+  for (const action of ["Select", "Hide", "Show", "Lock", "Unlock"]) {
+    expect(replayAttribute("aria-label", `${action} ${node.name}`, rowButton)).toBe("");
+    expect(replayAttribute("title", `${action} ${node.name}`, rowButton)).toBe("");
+  }
 });
