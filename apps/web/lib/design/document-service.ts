@@ -704,6 +704,7 @@ export async function commitImport(
         [fileId, staging.organizationId, staging.name, userId, folderId ?? null],
       );
     }
+    if (staging.fileId) requireImportSource(incoming);
     const document = mergeImport(currentDocument, incoming, importId, resolution);
     await verifyAssets(client, staging.organizationId, document);
     await client.query(
