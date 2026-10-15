@@ -197,6 +197,18 @@ test("unrecorded or superseded server consent cannot reach PostHog", async () =>
   }
 });
 
+test("even analytics consent cannot send browser flag or decide requests", async () => {
+  setup();
+  const transport = spyOn(globalThis, "fetch");
+  try {
+    for (const route of ["flags", "decide"])
+      expect((await POST(request(route), context(route))).status).toBe(404);
+    expect(transport).not.toHaveBeenCalled();
+  } finally {
+    transport.mockRestore();
+  }
+});
+
 for (const status of [301, 302, 303, 307, 308]) {
   test(`proxy rejects an upstream ${status} without exposing its redirect`, async () => {
     setup();

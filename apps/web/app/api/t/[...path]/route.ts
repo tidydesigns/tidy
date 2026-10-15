@@ -31,12 +31,9 @@ async function forward(request: Request, context: { params: Promise<{ path: stri
   const route = path.join("/");
   const token = process.env.NEXT_PUBLIC_POSTHOG_KEY;
   const configRoute = `array/${token}/config`;
-  if (!["i/v0/e", "e", "s", "flags", "decide", "api/surveys", configRoute].includes(route))
+  if (!["i/v0/e", "e", "s", "api/surveys", configRoute].includes(route))
     return new Response(null, { status: 404, headers: noStore });
-  if (
-    (route === "s" && !consent.replay) ||
-    (["api/surveys", "flags", "decide"].includes(route) && !consent.analytics)
-  )
+  if ((route === "s" && !consent.replay) || (route === "api/surveys" && !consent.analytics))
     return Response.json({ status: 1 }, { headers: noStore });
   try {
     await reserveTelemetryAttempt(request);

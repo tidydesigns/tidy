@@ -83,12 +83,29 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
       </section>
 
-      <Section id="posthog" title="PostHog: server monitoring and optional browser features">
+      <Section
+        id="posthog"
+        title="PostHog: functional settings, server monitoring and optional browser features"
+      >
         <p>
-          Tidy supports PostHog, Inc. for server fault monitoring and optional analytics, feature
-          flags, browser diagnostics and session replay in the app when these features are enabled.
-          The marketing website does not load the PostHog browser SDK. Core server monitoring and
-          optional browser collection have different purposes and controls.
+          Tidy supports PostHog, Inc. for functional rollout settings, server fault monitoring and
+          optional analytics, browser diagnostics and session replay in the app when these features
+          are enabled. The marketing website does not load the PostHog browser SDK. Functional
+          settings, core server monitoring and optional browser collection have separate purposes
+          and controls.
+        </p>
+        <p>
+          <strong>Functional rollout settings — independent of optional consent.</strong> Tidy's
+          server checks global on/off settings to control which interface features are available.
+          These checks use our project token, the requested setting names and one fixed service
+          identifier shared across all users. They do not send your account ID, email, browser or
+          session identifiers, cookies, IP address, page URL or workspace content to PostHog.
+          PostHog receives connection information from our server. Tidy sends no analytics or
+          feature-exposure events for these checks and creates no person profile for them. Your
+          browser receives only the on/off results; these settings use no additional browser storage
+          and work when you reject optional collection. A missing or failed evaluation leaves the
+          affected features off. Optional analytics, replay and browser diagnostics still depend on
+          the purposes you allow below.
         </p>
         <p>
           <strong>Core server fault monitoring — legitimate interests.</strong> When enabled, we
@@ -115,10 +132,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           <dt>Usage analytics</dt>
           <dd>
             Page visits, selected interactions, feature-use events and counts help us understand
-            adoption and improve the product. PostHog may evaluate feature flags and show optional
-            surveys. Survey answers are sent only when you submit them; please do not include
-            secrets or sensitive information. Automatically captured interactions exclude element
-            text, field values and DOM attributes.
+            adoption and improve the product. PostHog may show optional surveys. Survey answers are
+            sent only when you submit them; please do not include secrets or sensitive information.
+            Automatically captured interactions exclude element text, field values and DOM
+            attributes.
           </dd>
           <dt>Session replay</dt>
           <dd>
@@ -242,8 +259,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             operational logging.
           </li>
           <li>
-            <strong>PostHog:</strong> limited server fault monitoring and the optional browser
-            analytics, diagnostics, replay, feature flags and survey responses described above.
+            <strong>PostHog:</strong> global functional rollout settings, limited server fault
+            monitoring and the optional browser analytics, diagnostics, replay and survey responses
+            described above.
           </li>
           <li>
             <strong>PlanetScale:</strong> the database holding account, workspace and application
@@ -339,12 +357,14 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             PostHog can take additional time to complete removal. Changes to this setting apply to
             new recordings; existing recordings keep their original retention period.
           </dd>
-          <dt>Usage events, feature-flag activity and survey responses</dt>
+          <dt>Usage events, historical feature-flag activity and survey responses</dt>
           <dd>
             We use PostHog’s standard event-storage settings. Our paid plan makes events available
             for seven years. This is a query window, not a guaranteed deletion deadline; we have not
             configured a shorter automatic event-deletion period. We use this history to understand
-            feature adoption, compare product changes and follow up on survey feedback.
+            feature adoption, compare product changes and follow up on survey feedback. Current
+            functional rollout checks do not create user event history; historical feature-flag
+            events remain subject to these retention and deletion arrangements.
           </dd>
           <dt>Errors and performance information</dt>
           <dd>

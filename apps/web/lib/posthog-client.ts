@@ -11,7 +11,6 @@ import {
 import { clearAnalyticsStorage } from "./privacy/browser-storage";
 import { invalidateConsentReceipt, recordBrowserConsent } from "./privacy/receipt-client";
 import { replayAttribute, replayText } from "./privacy/replay";
-import { bindFeatureFlags, clearFeatureFlags } from "./feature-flags";
 import type { AppErrorOperation } from "./privacy/error-diagnostics";
 import {
   redactTelemetry,
@@ -111,7 +110,8 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
     },
     disable_surveys: !consent.analytics,
     disable_surveys_automatic_display: !consent.analytics,
-    advanced_disable_feature_flags: !consent.analytics,
+    // Functional rollouts are evaluated on Tidy's server without browser identity.
+    advanced_disable_feature_flags: true,
     disable_conversations: true,
     disable_product_tours: true,
     disable_web_experiments: true,
@@ -132,7 +132,6 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
 function stop(clearStorage = true) {
   const previous = client;
   client = undefined;
-  clearFeatureFlags();
   if (previous) {
     // Async recorder/config callbacks must not recreate storage after withdrawal.
     for (const action of [
@@ -225,15 +224,6 @@ async function initializeClient() {
       $app_version: process.env.NEXT_PUBLIC_APP_VERSION,
       tidy_consent_receipt: receipt.id,
     });
-    if (consent.analytics)
-      bindFeatureFlags(
-        instance,
-        () =>
-          generation === revision &&
-          client === instance &&
-          current("analytics") &&
-          JSON.stringify(browserConsent()) === choice,
-      );
   } catch {
     // Retry failed essential receipt delivery. Capture stays stopped in the meantime.
     if (generation === revision)

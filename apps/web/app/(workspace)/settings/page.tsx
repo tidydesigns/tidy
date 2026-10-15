@@ -13,6 +13,8 @@ import { SettingsTabs, type Tab } from "@/app/settings/settings-tabs";
 import { connectionStatus } from "@/lib/github/connections";
 import { billingStatus } from "@/lib/billing/server";
 import { linearStatus } from "@/lib/linear/connections";
+import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
+import { FeatureFlagsProvider } from "@/lib/use-feature-flag";
 
 import { agentsEnabled } from "@/lib/agents/config";
 import { agentsSchemaReady } from "@/lib/agents/store";
@@ -34,7 +36,8 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     agentsEnabled() && (await agentsSchemaReady())
       ? agentConnectionStatus(session.user.id)
       : undefined;
-  const github = connectionStatus(session.user.id, organization.id).catch(() => ({
+  const flagsPromise = functionalFeatureFlags();
+  const githubUnavailable = {
     configured: false,
     ready: false,
     login: null,
@@ -42,65 +45,79 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     installations: [],
     error: "GitHub is temporarily unavailable.",
     installUrl: "",
-  }));
-  const linear = linearStatus(session.user.id, organization.id).catch(() => ({
+  };
+  const linearUnavailable = {
     configured: false,
     ready: false,
     connections: [],
     error: "Linear is temporarily unavailable.",
-  }));
-  const [members, sessions, billing, invitations, agents] = await Promise.all([
+  };
+  const github = flagsPromise.then((flags) =>
+    flags["settings-connectors"] && flags["github-connector"]
+      ? connectionStatus(session.user.id, organization.id).catch(() => githubUnavailable)
+      : githubUnavailable,
+  );
+  const linear = flagsPromise.then((flags) =>
+    flags["settings-connectors"]
+      ? linearStatus(session.user.id, organization.id).catch(() => linearUnavailable)
+      : linearUnavailable,
+  );
+  const [members, sessions, billing, invitations, agents, flags] = await Promise.all([
     listWorkspaceMembers(session.user.id, organization.id),
     listAccountSessions(session.user.id),
     billingStatus(session.user.id, organization.id, true),
     listPendingInvitations(session.user.id, organization.id),
     agentStatus(),
+    flagsPromise,
   ]);
   const initialTab: Tab =
     requestedTab &&
     (requestedTab !== "billing" || billing.proLimits) &&
-    (requestedTab !== "agents" || agents)
+    (requestedTab !== "agents" || agents) &&
+    (requestedTab !== "connectors" || flags["settings-connectors"])
       ? (requestedTab as Tab)
       : "profile";
   const callbackStatus = (await searchParams).github;
   const cookieStore = await cookies();
   return (
-    <SettingsTabs
-      key={organization.id}
-      sessions={sessions}
-      currentSessionId={session.session.id}
-      emailConfigured={authEmailConfigured()}
-      verificationError={typeof (await searchParams).error === "string"}
-      initialTab={initialTab}
-      initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
-      initialEditorToolbarPlacement={editorToolbarPlacement(
-        cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
-      )}
-      organization={{ id: organization.id, name: organization.name, logo: organization.logo }}
-      user={{
-        id: session.user.id,
-        name: session.user.name,
-        email: session.user.email,
-        emailVerified: session.user.emailVerified,
-        image: session.user.image,
-      }}
-      invitations={invitations}
-      role={role}
-      canInvite={canInvite}
-      members={members}
-      github={github}
-      linear={linear}
-      selectedConnector={
-        params.tab === "github"
-          ? "github"
-          : typeof params.connector === "string"
-            ? params.connector
-            : undefined
-      }
-      linearCallbackStatus={typeof params.linear === "string" ? params.linear : undefined}
-      agents={agents}
-      billing={billing}
-      githubCallbackStatus={typeof callbackStatus === "string" ? callbackStatus : undefined}
-    />
+    <FeatureFlagsProvider flags={flags}>
+      <SettingsTabs
+        key={organization.id}
+        sessions={sessions}
+        currentSessionId={session.session.id}
+        emailConfigured={authEmailConfigured()}
+        verificationError={typeof (await searchParams).error === "string"}
+        initialTab={initialTab}
+        initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
+        initialEditorToolbarPlacement={editorToolbarPlacement(
+          cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
+        )}
+        organization={{ id: organization.id, name: organization.name, logo: organization.logo }}
+        user={{
+          id: session.user.id,
+          name: session.user.name,
+          email: session.user.email,
+          emailVerified: session.user.emailVerified,
+          image: session.user.image,
+        }}
+        invitations={invitations}
+        role={role}
+        canInvite={canInvite}
+        members={members}
+        github={github}
+        linear={linear}
+        selectedConnector={
+          params.tab === "github"
+            ? "github"
+            : typeof params.connector === "string"
+              ? params.connector
+              : undefined
+        }
+        linearCallbackStatus={typeof params.linear === "string" ? params.linear : undefined}
+        agents={agents}
+        billing={billing}
+        githubCallbackStatus={typeof callbackStatus === "string" ? callbackStatus : undefined}
+      />
+    </FeatureFlagsProvider>
   );
 }

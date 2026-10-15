@@ -16,6 +16,8 @@ import { agentsSchemaReady, listAgentThreads } from "@/lib/agents/store";
 import { connectionStatus as agentConnection } from "@/lib/agents/connections";
 import { listDesignFiles } from "@/lib/design/service";
 import { listReviews } from "@/lib/github/reviews";
+import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
+import { FeatureFlagsProvider } from "@/lib/use-feature-flag";
 
 export default async function DesignFilePage({ params, searchParams }: PageProps<"/files/[uid]">) {
   const { uid } = await params;
@@ -25,12 +27,17 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
   const file = await getDesignFile(session.user.id, uid, false, true);
   if (!file) notFound();
   const archived = file.archivedAt !== null;
+  const flagsPromise = functionalFeatureFlags();
   const githubReviews = archived
     ? undefined
-    : listReviews(session.user.id, uid).catch((error) => {
-        console.error("Could not preload file reviews.", error);
-        return { ready: false, reviews: [] };
-      });
+    : flagsPromise.then((flags) =>
+        flags["github-connector"]
+          ? listReviews(session.user.id, uid).catch((error) => {
+              console.error("Could not preload file reviews.", error);
+              return { ready: false, reviews: [] };
+            })
+          : { ready: false, reviews: [] },
+      );
   const documentPromise = archived
     ? getArchivedEditorDocument(session.user.id, uid)
     : ensureEditorDocument(session.user.id, uid);
@@ -57,42 +64,45 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
   });
   // The canvas needs the document, not the optional agent panel's queries.
   // Stream those separately so delayed integrations cannot block editing.
-  const [document, query, cookieStore] = await Promise.all([
+  const [document, query, cookieStore, flags] = await Promise.all([
     documentPromise,
     searchParams,
     cookies(),
+    flagsPromise,
   ]);
   if (!document) notFound();
   const requestedReview = query.review;
   const initialPanelsOpen = cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open";
   return (
-    <FeedbackProvider>
-      <FileEditor
-        canEdit={!archived && can(file.role, "edit")}
-        archived={archived}
-        key={uid}
-        fileId={uid}
-        fileName={file.name}
-        organizationName={file.organizationName}
-        backHref={
-          archived
-            ? "/files?view=archive"
-            : file.folderId
-              ? `/files?folder=${encodeURIComponent(file.folderId)}`
-              : "/files"
-        }
-        initialDocument={document}
-        initialPanelsOpen={initialPanelsOpen}
-        initialToolbarPlacement={editorToolbarPlacement(
-          cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
-        )}
-        agents={agentsPromise}
-        user={{ name: session.user.name, image: session.user.image }}
-        githubReviews={githubReviews}
-        viewerId={session.user.id}
-        initialReviewId={typeof requestedReview === "string" ? requestedReview : undefined}
-        initialFocusNodeId={typeof query.node === "string" ? query.node : undefined}
-      />
-    </FeedbackProvider>
+    <FeatureFlagsProvider flags={flags}>
+      <FeedbackProvider>
+        <FileEditor
+          canEdit={!archived && can(file.role, "edit")}
+          archived={archived}
+          key={uid}
+          fileId={uid}
+          fileName={file.name}
+          organizationName={file.organizationName}
+          backHref={
+            archived
+              ? "/files?view=archive"
+              : file.folderId
+                ? `/files?folder=${encodeURIComponent(file.folderId)}`
+                : "/files"
+          }
+          initialDocument={document}
+          initialPanelsOpen={initialPanelsOpen}
+          initialToolbarPlacement={editorToolbarPlacement(
+            cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,
+          )}
+          agents={agentsPromise}
+          user={{ name: session.user.name, image: session.user.image }}
+          githubReviews={flags["github-connector"] ? githubReviews : undefined}
+          viewerId={session.user.id}
+          initialReviewId={typeof requestedReview === "string" ? requestedReview : undefined}
+          initialFocusNodeId={typeof query.node === "string" ? query.node : undefined}
+        />
+      </FeedbackProvider>
+    </FeatureFlagsProvider>
   );
 }

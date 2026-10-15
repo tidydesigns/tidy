@@ -75,7 +75,6 @@ export function telemetryPurpose(event: string): ConsentPurpose | null {
       "$pageleave",
       "$autocapture",
       "$rageclick",
-      "$feature_flag_called",
       "survey shown",
       "survey dismissed",
       "survey sent",
@@ -186,12 +185,6 @@ export function redactTelemetry(
       "$lib_version",
     ])
       if (source[name] !== undefined) properties[name] = source[name];
-  }
-  if (event.event === "$feature_flag_called") {
-    if (typeof source.$feature_flag === "string" && /^[\w-]{1,100}$/.test(source.$feature_flag))
-      properties.$feature_flag = source.$feature_flag;
-    if (typeof source.$feature_flag_response === "boolean")
-      properties.$feature_flag_response = source.$feature_flag_response;
   }
   if (event.event.startsWith("survey ")) {
     // Answers are deliberately supplied by the user in an optional survey.
