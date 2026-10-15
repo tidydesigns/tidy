@@ -6,6 +6,7 @@ import type { FigmaImport, FigmaPage } from "@bella/design/figma";
 import { inspectFigma, readFigma } from "@/lib/design/figma-client";
 import { Dialog } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
+import { appErrorReporter } from "@/lib/posthog-client";
 
 export function FigmaFileImport({
   onImported,
@@ -46,6 +47,7 @@ export function FigmaFileImport({
     setError("");
     controller.current = new AbortController();
     const signal = controller.current.signal;
+    const reportError = appErrorReporter("figma_import");
     try {
       const result = await readFigma(
         {
@@ -74,8 +76,10 @@ export function FigmaFileImport({
         assets,
         folderId,
       });
-      if (new TextEncoder().encode(body).byteLength > 16_000_000)
-        throw new Error("This import exceeds 16 MB. Select fewer pages or reduce image sizes.");
+      if (new TextEncoder().encode(body).byteLength > 16_000_000) {
+        setError("This import exceeds 16 MB. Select fewer pages or reduce image sizes.");
+        return;
+      }
       setPhase("Creating file…");
       const response = await fetch("/api/figma/import", {
         method: "POST",
@@ -84,13 +88,19 @@ export function FigmaFileImport({
         body,
       });
       const value: { fileId?: string; error?: string } = await response.json();
+      if (response.status >= 400 && response.status < 500) {
+        setError(value.error ?? "Could not import this Figma file.");
+        return;
+      }
       if (!response.ok || !value.fileId)
         throw new Error(value.error ?? "Could not import this Figma file.");
       router.push(`/files/${encodeURIComponent(value.fileId)}`);
       onOpenChange(false);
     } catch (cause) {
-      if (!signal.aborted)
+      if (!signal.aborted) {
+        reportError(cause);
         setError(cause instanceof Error ? cause.message : "Could not import this Figma file.");
+      }
     } finally {
       busy.current = false;
       setPhase("");

@@ -12,6 +12,7 @@ import { clearAnalyticsStorage } from "./privacy/browser-storage";
 import { invalidateConsentReceipt, recordBrowserConsent } from "./privacy/receipt-client";
 import { replayAttribute, replayText } from "./privacy/replay";
 import { bindFeatureFlags, clearFeatureFlags } from "./feature-flags";
+import type { AppErrorOperation } from "./privacy/error-diagnostics";
 import {
   redactTelemetry,
   safeTelemetryUrl,
@@ -78,7 +79,7 @@ export function consentConfig(consent: Consent): Partial<PostHogConfig> {
       ? {
           capture_unhandled_errors: true,
           capture_unhandled_rejections: true,
-          capture_console_errors: true,
+          capture_console_errors: false,
         }
       : false,
     disable_session_recording: !consent.replay,
@@ -337,4 +338,22 @@ const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "rese
     notifyAuthChange();
   },
 };
+/** Bind diagnostics before starting an async operation, so account/consent
+ * changes cannot attribute its eventual failure to somebody else. */
+export function appErrorReporter(operation: AppErrorOperation) {
+  const generation = revision;
+  const identity = account?.id;
+  const choice = JSON.stringify(browserConsent());
+  return (error: unknown) => {
+    if (
+      generation !== revision ||
+      identity !== account?.id ||
+      choice !== JSON.stringify(browserConsent()) ||
+      (error instanceof Error && error.name === "AbortError")
+    )
+      return;
+    posthog.captureException(error, { app_error_operation: operation });
+  };
+}
+
 export default posthog;

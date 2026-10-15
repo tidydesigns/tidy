@@ -11,7 +11,7 @@ export default function ErrorPage({
   retry: () => void;
 }) {
   useEffect(() => {
-    posthog.captureException(error, { source: "next_error_boundary", digest: error.digest });
+    posthog.captureException(error, { app_error_operation: "page_render" });
   }, [error]);
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">

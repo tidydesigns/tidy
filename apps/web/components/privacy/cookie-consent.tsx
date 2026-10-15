@@ -33,7 +33,8 @@ const purposes: { key: ConsentPurpose; title: string; description: string }[] = 
   {
     key: "diagnostics",
     title: "Browser performance and errors",
-    description: "Loading and interaction timings, plus redacted browser errors.",
+    description:
+      "Timings, technical error messages and app stack traces to fix bugs. Links to replay only if you also enable it.",
   },
 ];
 const actionClass =

@@ -2,6 +2,7 @@ import type { CaptureResult } from "posthog-js";
 import { hasOptionalConsent, type ConsentChoices, type ConsentPurpose } from "./consent";
 import { normalizedRoute } from "../route-normalization";
 import { browserExceptions } from "./browser-exceptions";
+import { appErrorOperation } from "./error-diagnostics";
 
 const customEvents = new Set([
   "vault_login_created",
@@ -163,7 +164,12 @@ export function redactTelemetry(
       properties.$event_type = source.$event_type;
   }
   if (event.event === "$exception") {
-    properties.$exception_list = browserExceptions(source.$exception_list, pageUrl);
+    const operation = appErrorOperation(source.app_error_operation);
+    const exceptions = browserExceptions(source.$exception_list, pageUrl, operation);
+    if (!exceptions.length) return null;
+    properties.$exception_list = exceptions;
+    if (operation) properties.app_error_operation = operation;
+    properties.telemetry_scope = "app_errors";
     properties.$exception_level = "error";
     // Let PostHog group by sanitized code location rather than merging every
     // browser fault under a single fingerprint. Release IDs link source maps.

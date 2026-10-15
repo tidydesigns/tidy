@@ -12,6 +12,7 @@ import {
 import { EMPTY_PRESENCE, type Presence, type RoomMessage } from "@/lib/realtime/protocol";
 import { PresenceStore } from "@/lib/realtime/presence-store";
 import { AgentActivityStore } from "@/lib/realtime/agent-activity";
+import { appErrorReporter } from "@/lib/posthog-client";
 
 type Snapshot = { revision: number; content: DesignDocument };
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "unavailable";
@@ -110,8 +111,10 @@ export function useFileRoom({
     let reading = false;
     let requireSnapshot = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+    let refreshFailureReported = false;
     async function refresh() {
       if (reading || controller.signal.aborted) return;
+      const reportSyncError = appErrorReporter("file_sync");
       reading = true;
       try {
         do {
@@ -147,9 +150,14 @@ export function useFileRoom({
           if (!result.canEdit) edits.restore();
           callbacks.current.onName(result.name);
           seenSequence = Math.max(seenSequence, result.sequence);
+          refreshFailureReported = false;
         } while (wantedSequence > seenSequence && !controller.signal.aborted);
-      } catch {
+      } catch (error) {
         requireSnapshot = true;
+        if (!controller.signal.aborted && !refreshFailureReported) {
+          reportSyncError(error);
+          refreshFailureReported = true;
+        }
         if (!controller.signal.aborted) refreshTimer = setTimeout(() => void refresh(), 1500);
       } finally {
         reading = false;
@@ -298,6 +306,7 @@ export function useFileRoom({
             throw new Error("File connection is unavailable.");
           const base = edits.saved;
           let result: { patch: DocumentPatch; snapshot: Snapshot; sequence: number } | undefined;
+          const reportSaveError = appErrorReporter("file_save");
           for (let attempt = 0; !controller.signal.aborted; attempt++) {
             try {
               const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/changes`, {
@@ -369,6 +378,7 @@ export function useFileRoom({
               break;
             } catch (error) {
               if (error instanceof RejectedEdit || controller.signal.aborted) throw error;
+              if (attempt === 0) reportSaveError(error);
               await new Promise<void>((resolve) => {
                 const finish = () => {
                   clearTimeout(timer);

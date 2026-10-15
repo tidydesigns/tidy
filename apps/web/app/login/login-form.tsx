@@ -12,6 +12,7 @@ import { verificationCallbackPath } from "@/lib/auth-return-path";
 import { SocialSignIn } from "@/components/auth/social-sign-in";
 import { VerificationForm } from "@/components/auth/verification-form";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { appErrorReporter } from "@/lib/posthog-client";
 
 export function LoginForm({
   next = "/",
@@ -34,6 +35,7 @@ export function LoginForm({
     event.preventDefault();
     setPending(true);
     setError("");
+    const reportError = appErrorReporter("sign_in");
 
     try {
       const form = new FormData(event.currentTarget);
@@ -44,6 +46,8 @@ export function LoginForm({
       });
 
       if (result.error || !result.data) {
+        if (result.error && result.error.status >= 500)
+          reportError(new Error("Server unavailable"));
         if (result.error?.code === "EMAIL_NOT_VERIFIED") {
           setVerificationEmail(String(form.get("email")));
           return;
@@ -62,6 +66,7 @@ export function LoginForm({
       await navigateWithFreshSession(next);
     } catch (cause) {
       unstable_rethrow(cause);
+      reportError(cause);
       setError("Unable to sign in. Please try again.");
     } finally {
       setPending(false);

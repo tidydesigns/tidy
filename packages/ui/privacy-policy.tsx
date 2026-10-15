@@ -93,16 +93,17 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           <strong>Core server fault monitoring — legitimate interests.</strong> When enabled, we
           report failed or stalled server requests and operations to find faults and restore a
-          reliable service. Reports contain a limited error category, code file names and
-          line/column locations, route templates, operation type, timing/status information, release
-          details and a random server-generated correlation identifier. This reporting does not read
-          or set browser cookies, and does not include your account ID, email, browser/session
-          identifiers, replay links, client IP address, request bodies, raw error messages or
-          credentials. It does not create a person profile. PostHog necessarily receives connection
-          information from our server. Core server reporting operates independently of optional
-          browser consent. You can object to any processing of your personal data on this basis by
-          emailing <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>; we assess
-          objections under the rights described below.
+          reliable service. Reports contain reviewed technical messages or error categories, code
+          file names and line/column locations, route templates, operation type, timing/status
+          information, release details and a random server-generated correlation identifier. This
+          reporting does not read or set browser cookies, and does not include your account ID,
+          email, browser/session identifiers, replay links, client IP address, request bodies, raw
+          error messages or credentials. It does not create a person profile. PostHog necessarily
+          receives connection information from our server. Core server reporting operates
+          independently of optional browser consent. You can object to any processing of your
+          personal data on this basis by emailing{" "}
+          <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>; we assess objections
+          under the rights described below.
         </p>
         <p>
           <strong>Optional browser features — consent.</strong> In the app, including login and
@@ -132,10 +133,13 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           </dd>
           <dt>Browser performance and errors</dt>
           <dd>
-            Page-loading and interaction measurements, redacted browser errors, console-error
-            categories and operation timings help us diagnose faults. Browser error messages and
-            contents are removed; sanitized application code locations are retained to help identify
-            and group faults. PostHog request tracing is not enabled.
+            Loading and interaction timings and reports of failures affecting Tidy help us find and
+            fix bugs. Error reports retain error types, reviewed technical messages or operation
+            labels, application stack traces and app version. Unknown messages are replaced with
+            their error type; dynamic values, design content, credentials and request bodies are
+            excluded. We do not collect console messages or unrelated extension errors. Errors can
+            link to a session replay only when you also enable replay. PostHog request tracing is
+            not enabled.
           </dd>
         </dl>
         <p>
@@ -144,13 +148,14 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           dimensions and app version. When you are signed in and allow any optional purpose, we
           create or update a PostHog person profile using your Tidy account ID and email. This links
           the activity you allow, including session recordings if you allow replay, to your account
-          so we can understand usage and investigate reported problems. We do not send your name as
-          a profile property. Identification does not turn on any purpose you have declined. Before
-          sign-in, consented activity uses a browser identifier and can be associated with your
-          account when you subsequently sign in in the same session. Page URLs are reduced to route
-          templates; query strings, fragments and individual file identifiers are removed. The
-          receiving infrastructure necessarily processes connection information to deliver requests;
-          IP storage/geolocation is disabled in the app and the reviewed project settings enable IP
+          so we can understand usage, investigate faults affecting you and contact you about
+          significant faults or their resolution. We do not send your name as a profile property.
+          Identification does not turn on any purpose you have declined. Before sign-in, consented
+          activity uses a browser identifier and can be associated with your account when you
+          subsequently sign in in the same session. Page URLs are reduced to route templates; query
+          strings, fragments and individual file identifiers are removed. The receiving
+          infrastructure necessarily processes connection information to deliver requests; IP
+          storage/geolocation is disabled in the app and the reviewed project settings enable IP
           anonymisation.
         </p>
         <p>

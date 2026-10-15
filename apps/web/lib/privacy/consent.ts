@@ -1,7 +1,8 @@
 export const CONSENT_COOKIE = "tidy_consent";
-// Fresh consent is required for the recorded, account-linked restart scope.
-export const CONSENT_VERSION = 4;
-export const CONSENT_NOTICE_VERSION = "2026-10-15.analytics-1";
+// The previous notice promised to remove every browser error message. Obtain a
+// fresh choice before collecting reviewed technical messages under this notice.
+export const CONSENT_VERSION = 5;
+export const CONSENT_NOTICE_VERSION = "2026-10-15.app-errors-1";
 export const CONSENT_DAYS = 180;
 export const CONSENT_EVENT = "tidy-consent-change";
 export const CONSENT_MAX_AGE = CONSENT_DAYS * 24 * 60 * 60;

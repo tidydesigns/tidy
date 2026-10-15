@@ -87,7 +87,15 @@ test("all eight combinations enforce independent purpose boundaries", () => {
       ["$exception", "diagnostics"],
       ["$web_vitals", "diagnostics"],
     ] as const)
-      expect(Boolean(redactTelemetry(event(name), choices, url))).toBe(choices[purpose]);
+      expect(
+        Boolean(
+          redactTelemetry(
+            event(name, name === "$exception" ? { app_error_operation: "page_render" } : {}),
+            choices,
+            url,
+          ),
+        ),
+      ).toBe(choices[purpose]);
     expect(redactTelemetry(event("unreviewed-event"), choices, url)).toBeNull();
   }
 });
@@ -163,7 +171,7 @@ test("identified replay does not permit analytics or email on ordinary events", 
     redactTelemetry(event("$snapshot"), replayOnly, url)!.properties.$process_person_profile,
   ).toBe(false);
 });
-test("exceptions cannot forward messages, stacks, console arguments or arbitrary types", () => {
+test("unattributed errors without shipped code locations are discarded", () => {
   const result = redactTelemetry(
     event("$exception", {
       $exception_list: [
@@ -178,15 +186,7 @@ test("exceptions cannot forward messages, stacks, console arguments or arbitrary
     all,
     url,
   )!;
-  expect(JSON.stringify(result)).not.toMatch(/private|secret|password/);
-  expect(result.properties.$exception_list).toEqual([
-    {
-      type: "Error",
-      value: "Application error (message removed for privacy)",
-      mechanism: { type: "generic", handled: true, synthetic: false, exception_id: 0 },
-      stacktrace: { type: "raw", frames: [] },
-    },
-  ]);
+  expect(result).toBeNull();
 });
 
 test("exceptions retain only shipped code locations and the required ingestion schema", () => {

@@ -16,7 +16,7 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
       identify(id, properties) { const previous=this.id;this.id=id; this.emit("$identify", {distinct_id:id,$anon_distinct_id:previous,$set:properties}); }
       emit(event, properties={}) { const data=this.config.before_send({event,properties:{distinct_id:this.id,...properties}});if(data)sent.push(data); }
       capture(event, properties) { this.emit(event,properties); }
-      captureException() { this.emit("$exception"); }
+      captureException(error, properties) { this.emit("$exception", {app_error_operation:"page_render",...properties}); }
       set_config() { if(this.throwsOnStop)throw new Error("Synthetic SDK shutdown failure"); }
       opt_out_capturing() { this.stopped=true; }
       stopSessionRecording() {}
@@ -40,7 +40,7 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     };
     globalThis.fetch=backend;
     const {chooseConsent,ESSENTIAL_ONLY}=await import("./lib/privacy/consent");
-    const {default:posthog,startPostHogConsent,captureForCurrentSession}=await import("./lib/posthog-client");
+    const {default:posthog,startPostHogConsent,captureForCurrentSession,appErrorReporter}=await import("./lib/posthog-client");
     const settle=()=>new Promise(resolve=>setTimeout(resolve,10));
     startPostHogConsent();await settle();
     assert.equal(instances.length,0);assert.equal(sessionRequests,0);
@@ -96,6 +96,19 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     globalThis.fetch=backend;
     resolveSession(Response.json({id:crypto.randomUUID(),browserId:crypto.randomUUID(),user:session.user}));await settle();
     assert.deepEqual(sent.slice(-2).map(event=>event.event),["survey shown","$exception"]);
+    const exceptionCount=()=>sent.filter(event=>event.event==="$exception").length;
+    const operation=appErrorReporter("file_save");
+    const beforeOperation=exceptionCount();
+    operation(new Error("private failure"));
+    assert.equal(exceptionCount(),beforeOperation+1);
+    assert.equal(sent.at(-1).properties.app_error_operation,"file_save");
+    operation(new DOMException("canceled","AbortError"));
+    assert.equal(exceptionCount(),beforeOperation+1);
+    const staleOperation=appErrorReporter("file_save");
+    chooseConsent(ESSENTIAL_ONLY);await settle();
+    chooseConsent({analytics:true,replay:true,diagnostics:true});await settle();
+    staleOperation(new Error("failure after withdrawal/regrant"));
+    assert.equal(exceptionCount(),beforeOperation+1);
     // Model support completing after a delayed POST, just as the feedback form does.
     let completeSupport, supportDeliveries=0;
     const beginFeedback=()=>{
@@ -115,8 +128,12 @@ test("consent, login, account switching, withdrawal and cross-tab logout isolate
     assert.equal(sent.at(-1).properties.distinct_id,"account-d");
     beforeSurvey=surveyCount();
     feedback=beginFeedback();
+    const oldAccountOperation=appErrorReporter("file_save");
+    const beforeSwitchErrors=exceptionCount();
     session={user:{id:"account-e",email:"e@example.test"}};
     posthog.identify("account-e",{email:"e@example.test"});await settle();
+    oldAccountOperation(new Error("failure from old account"));
+    assert.equal(exceptionCount(),beforeSwitchErrors);
     completeSupport({ok:true});await feedback;
     assert.equal(surveyCount(),beforeSurvey);
     feedback=beginFeedback();

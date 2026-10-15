@@ -320,3 +320,25 @@ test("non-Error and stackless errors cannot expose the wrapper's machine paths",
     c.transport.mockRestore();
   }
 });
+
+test("reviewed server runtime messages retain diagnosis without customer expressions", async () => {
+  const c = collector();
+  try {
+    const failure = new TypeError("Cannot read properties of undefined (reading 'private-token')");
+    failure.stack =
+      "TypeError: private-token\n    at privateFunction (/private/server/chunk.js:12:3)";
+    await createErrorReporter(runtime)(failure, { source: "next", event: "server_request_failed" });
+    const exception = c.events()[0].properties.$exception_list[0];
+    expect(exception.value).toBe(
+      "server_request_failed: Cannot read a property of null or undefined",
+    );
+    expect(exception.stacktrace.frames[0]).toMatchObject({
+      filename: "chunk.js",
+      lineno: 12,
+      colno: 3,
+    });
+    expect(c.bodies.join("")).not.toContain("private");
+  } finally {
+    c.transport.mockRestore();
+  }
+});

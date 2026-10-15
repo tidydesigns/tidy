@@ -2,6 +2,7 @@ import { posthogServerErrorsEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { normalizedRoute } from "./route-normalization";
+import { diagnosticMessage } from "./privacy/error-diagnostics";
 
 export type ErrorDetails = {
   source: "worker" | "next" | "operation";
@@ -144,7 +145,15 @@ export function safeServerError(value: unknown, event: string) {
   // while reporting a bounded diagnostic message, without causes/properties.
   const category = serverErrorCategory(value);
   const label = safeFailureEvent(event);
-  const message = category === "unknown" ? label : `${label}: ${category}`;
+  const technical = value instanceof Error ? diagnosticMessage(value.message, value.name) : "";
+  const message =
+    category !== "unknown"
+      ? `${label}: ${category}`
+      : technical &&
+          technical !== (value instanceof Error ? value.name : "Error") &&
+          technical !== "Error"
+        ? `${label}: ${technical}`
+        : label;
   const error = new Error(message);
   error.name =
     value instanceof Error &&
@@ -209,6 +218,18 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
     )
       return Promise.resolve();
     const safeError = safeServerError(value, String(diagnostic.event));
+    // Preserve locations for SDK chunk-ID lookup without allowing Error.cause or
+    // arbitrary properties to change which exception's frames are reported.
+    const sdkError = new Error(safeError.message);
+    sdkError.name = safeError.name;
+    sdkError.stack =
+      value instanceof Error && value.stack
+        ? `${safeError.name}: ${safeError.message}\n${value.stack
+            .split("\n")
+            .filter((line) => /^\s+at /.test(line))
+            .slice(0, 40)
+            .join("\n")}`
+        : safeError.stack;
     const properties = {
       ...diagnostic,
       error_category: serverErrorCategory(value),
@@ -254,16 +275,22 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
                         .filter(
                           (frame) =>
                             typeof frame.filename === "string" &&
-                            /^[a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?)$/.test(frame.filename) &&
+                            /(?:^|[\/\\])([a-zA-Z0-9_.-]+\.(?:[cm]?js|tsx?))$/.test(
+                              frame.filename,
+                            ) &&
                             Number.isSafeInteger(frame.lineno) &&
                             Number.isSafeInteger(frame.colno),
                         )
                         .map((frame) => ({
-                          filename: frame.filename,
+                          filename: frame.filename!.split(/[\/\\]/).at(-1),
                           lineno: frame.lineno,
                           colno: frame.colno,
                           platform: "node:javascript",
                           in_app: true,
+                          ...(typeof frame.chunk_id === "string" &&
+                          /^[\da-f-]{36}$/i.test(frame.chunk_id)
+                            ? { chunk_id: frame.chunk_id }
+                            : {}),
                         }))
                     : [],
                 },
@@ -286,7 +313,9 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
         );
       });
       try {
-        await client.captureExceptionImmediate(safeError, "tidy-server", properties);
+        // Let the SDK resolve injected chunk IDs using the original code path.
+        // before_send rebuilds all outbound fields; raw messages/causes never leave.
+        await client.captureExceptionImmediate(sdkError, "tidy-server", properties);
       } finally {
         await client.shutdown(2500);
       }
