@@ -4757,20 +4757,24 @@ integration(
     );
     const staged = await docs.createImport(invitedId, orgId, "Existing file import", file.id);
     expect(staged.expectedRevision).toBe(replaced.revision);
-    await docs.putImportChunk(
-      invitedId,
-      staged.importId,
-      "one",
-      [
-        buildDrawnNode(crypto.randomUUID(), "artboard", null, {
-          x: 600,
-          y: 0,
-          width: 200,
-          height: 200,
-        }),
-      ],
-      { project: "fixture", route: "/editor" },
+    await docs.putImportChunk(invitedId, staged.importId, "one", [
+      buildDrawnNode(crypto.randomUUID(), "artboard", null, {
+        x: 600,
+        y: 0,
+        width: 200,
+        height: 200,
+      }),
+    ]);
+    await expect(docs.validateImport(invitedId, staged.importId)).rejects.toThrow(
+      "source.project and source.route",
     );
+    await expect(docs.commitImport(invitedId, staged.importId)).rejects.toThrow(
+      "source.project and source.route",
+    );
+    await docs.putImportChunk(invitedId, staged.importId, "metadata", [], {
+      project: "fixture",
+      route: "/editor",
+    });
     expect((await docs.validateImport(invitedId, staged.importId)).layout.valid).toBe(true);
     const committed = await docs.commitImport(invitedId, staged.importId);
     expect(committed.fileId).toBe(file.id);

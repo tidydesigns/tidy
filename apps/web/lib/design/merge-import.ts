@@ -5,6 +5,18 @@ import { reconcileImportNotes } from "./import-notes";
 import { remapComponentProperties, remapComponentVariants } from "./component-variants";
 import { importTokenDefinitions } from "./tokens";
 import { remapInteractions } from "@bella/design/prototype";
+import { PublicActionError } from "@/lib/security/public-error";
+
+export function requireImportSource(document: DesignDocument) {
+  const key = document.source
+    ? `${document.source.project}:${document.source.route}`
+    : document.nodes[0]?.importKey;
+  if (!key)
+    throw new PublicActionError(
+      "Updating an existing file requires source.project and source.route. Add source metadata with put_import_chunk (an empty nodes array is allowed), then validate again.",
+    );
+  return key;
+}
 
 export function mergeImport(
   current: DesignDocument | null,
@@ -29,7 +41,7 @@ export function mergeImport(
     designTokens: definitions.designTokens,
     nodes: incoming.nodes.map(definitions.node),
   };
-  if (!key) throw new Error("Updating a file requires source project and route metadata.");
+  requireImportSource(incoming);
   const prior = current.nodes.filter((node) => node.importKey === key);
   const targetPageId = prior.length ? nodePageId(prior[0]) : documentPages(current)[0].id;
   incoming = {
@@ -46,11 +58,11 @@ export function mergeImport(
     (node) => node.sourceKey && deletedKeys.has(node.sourceKey),
   );
   if ((conflicts.length || deletedConflicts.length) && !resolution)
-    throw new Error(
+    throw new PublicActionError(
       `Manually edited or deleted nodes need a resolution: ${[
         ...conflicts.map((node) => node.id),
         ...deletedConflicts.map((node) => node.sourceKey),
-      ].join(", ")}`,
+      ].join(", ")}. Retry commit_import with resolution keep_user, use_import, or duplicate.`,
     );
   if (resolution === "duplicate") {
     const ids = new Map(incoming.nodes.map((node) => [node.id, `${importId}-${node.id}`]));
@@ -91,6 +103,7 @@ export function mergeImport(
   const priorBySource = new Map(
     prior.filter((node) => node.sourceKey).map((node) => [node.sourceKey, node]),
   );
+  const priorById = new Map(prior.map((node) => [node.id, node]));
   // Source keys represent the same layer across reruns, even when the importer regenerates IDs.
   const stableIds = new Map(
     incoming.nodes.map((node) => [
@@ -103,7 +116,7 @@ export function mergeImport(
       (node) => resolution !== "keep_user" || !node.sourceKey || !deletedKeys.has(node.sourceKey),
     )
     .map((node) => {
-      const old = node.sourceKey ? priorBySource.get(node.sourceKey) : undefined;
+      const old = node.sourceKey ? priorBySource.get(node.sourceKey) : priorById.get(node.id);
       const stable = {
         ...node,
         id: stableIds.get(node.id)!,
@@ -137,7 +150,7 @@ export function mergeImport(
     (node) => node.parentId && !retainedIds.has(node.parentId) && !importedIds.has(node.parentId),
   );
   if (dangling)
-    throw new Error(
+    throw new PublicActionError(
       `Reimport would detach user layer ${dangling.id}. Keep its source parent or move the layer first.`,
     );
   return parseMerged({

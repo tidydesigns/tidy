@@ -22,7 +22,7 @@ import {
   type DesignDocument,
   type DesignNode,
 } from "@/lib/design/document";
-import { mergeImport } from "@/lib/design/merge-import";
+import { mergeImport, requireImportSource } from "@/lib/design/merge-import";
 import { duplicateNodeTree } from "@/lib/design/duplicate-node";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
 import { changedLayerBatch } from "@/lib/design/edit-document";
@@ -594,6 +594,7 @@ export async function validateImport(userId: string, importId: string) {
   const staging = await loadImport(userId, importId);
   if (staging.status !== "staging") throw new PublicActionError("Import is already committed.");
   const document = assemble(staging.chunks);
+  if (staging.fileId) requireImportSource(document);
   await verifyAssets(db, staging.organizationId, document);
   return {
     nodeCount: document.nodes.length,
