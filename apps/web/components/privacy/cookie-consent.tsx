@@ -43,6 +43,7 @@ export function CookieConsent() {
   const collectionEnabled = browserCollectionEnabled();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
   const choiceGeneration = useRef(0);
   const [choices, setChoices] = useState<ConsentChoices>(ESSENTIAL_ONLY);
   const [customize, setCustomize] = useState(false);
@@ -51,7 +52,10 @@ export function CookieConsent() {
   useEffect(() => {
     const refresh = () => setChoices(browserConsent() ?? ESSENTIAL_ONLY);
     refresh();
-    if (location.pathname !== "/privacy" && !browserConsent()) dialog.current?.showModal();
+    if (location.pathname !== "/privacy" && !browserConsent()) {
+      dialog.current?.showModal();
+      heading.current?.focus({ preventScroll: true });
+    }
     return subscribeConsent(refresh);
   }, []);
   async function choose(next: ConsentChoices, close = false) {
@@ -95,6 +99,7 @@ export function CookieConsent() {
           setCustomize(true);
           setMessage("");
           dialog.current?.showModal();
+          heading.current?.focus({ preventScroll: true });
         }}
       >
         Privacy choices
@@ -106,7 +111,12 @@ export function CookieConsent() {
         aria-describedby="privacy-choice-description"
         onClose={() => trigger.current?.focus()}
       >
-        <h2 id="privacy-choice-title" className="text-xl font-semibold">
+        <h2
+          ref={heading}
+          id="privacy-choice-title"
+          tabIndex={-1}
+          className="text-xl font-semibold outline-none"
+        >
           Your privacy choices
         </h2>
         <p id="privacy-choice-description" className="mt-3 text-sm leading-6 text-secondary-ink">
@@ -122,12 +132,14 @@ export function CookieConsent() {
             ? "When signed in, selected activity, including replay, is linked to your account ID and email. You can use Tidy without accepting. Change or withdraw choices here anytime. Choices last 180 days."
             : "Your essential-only preference lasts 180 days in this browser. Any future optional collection will require a separate choice."}
         </p>
-        <a
-          href={privacyPolicyUrl}
-          className="mt-3 inline-block min-h-11 py-3 text-sm underline underline-offset-4"
-        >
-          Read the privacy and cookie policy
-        </a>
+        <div className="mt-3 mb-4">
+          <a
+            href={privacyPolicyUrl}
+            className="inline-block min-h-11 max-w-full rounded-sm py-3 text-sm underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+          >
+            Read the privacy and cookie policy
+          </a>
+        </div>
         {collectionEnabled && customize && (
           <div className="mb-5 space-y-5 border-y border-border py-5">
             {purposes.map(({ key, title, description }) => (
