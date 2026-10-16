@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { resolve } from "node:path";
+import { createEmbeddedFontCache } from "./embedded-font-cache";
 
 test("font stylesheet eviction retains mounted families and reloads evicted faces", () => {
   const child = Bun.spawnSync(
@@ -31,6 +32,25 @@ test("font stylesheet eviction retains mounted families and reloads evicted face
     { cwd: resolve(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" },
   );
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
+});
+
+test("a failed embedded font read can be retried", async () => {
+  const read = mock(async () => "font").mockRejectedValueOnce(new Error("offline"));
+  const load = createEmbeddedFontCache(read);
+  await expect(load("font")).rejects.toThrow("offline");
+  expect(await load("font")).toBe("font");
+});
+
+test("embedded font reuse respects entry and aggregate byte limits", async () => {
+  for (const limits of [
+    { maxEntries: 2, maxBytes: 64 },
+    { maxEntries: 4, maxBytes: 8 },
+  ]) {
+    const read = mock(async (url: string) => url);
+    const load = createEmbeddedFontCache(read, limits);
+    for (const url of ["a", "b", "c", "b", "a"]) await load(url);
+    expect(read.mock.calls.map(([url]) => url)).toEqual(["a", "b", "c", "a"]);
+  }
 });
 
 test("font exports group glyph requests and reuse embedded public font bytes", () => {

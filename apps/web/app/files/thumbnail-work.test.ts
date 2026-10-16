@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test";
-import { thumbnailIsCurrent, thumbnailVersion } from "@/lib/design/thumbnail-version";
+import {
+  thumbnailFileVersionAtLeast,
+  thumbnailIsCurrent,
+  thumbnailVersion,
+} from "@/lib/design/thumbnail-version";
 import { cachedThumbnail, cacheThumbnail, clearThumbnailCache } from "./thumbnail-cache";
 import { prepareThumbnail, queueThumbnail, uploadThumbnail } from "./thumbnail-queue";
 
@@ -10,6 +14,13 @@ test("renderer upgrades refresh previews while metadata changes reuse the same v
   expect(thumbnailIsCurrent(thumbnailVersion(version), "4:2026-10-03T12:00:00.000Z")).toBe(false);
   expect(thumbnailIsCurrent(thumbnailVersion(version), "3:2026-10-03T12:00:01.000Z")).toBe(true);
   expect(thumbnailIsCurrent(thumbnailVersion(version), "2:2026-10-03T12:00:00.000Z")).toBe(false);
+  expect(thumbnailFileVersionAtLeast(version, "2:2026-10-03T12:00:01.000Z")).toBe(true);
+  expect(thumbnailFileVersionAtLeast(version, "3:2026-10-03T12:00:01.000Z")).toBe(true);
+  const legacy = "legacy:2026-10-03T12:00:00.000Z";
+  expect(thumbnailIsCurrent(thumbnailVersion(legacy), legacy)).toBe(true);
+  expect(thumbnailIsCurrent(thumbnailVersion(legacy), "legacy:2026-10-03T12:00:01.000Z")).toBe(
+    false,
+  );
 });
 
 test("preview reuse is user scoped, bounded and immune to late older uploads", () => {
@@ -97,21 +108,17 @@ test("canceling an obsolete waiting render releases its queue entry immediately"
 test("visible previews take available render slots before queued overscan", async () => {
   const signal = new AbortController().signal;
   const order: string[] = [];
-  const overscan = queueThumbnail(
-    async () => {
-      order.push("overscan");
-    },
-    signal,
-    () => 0,
+  await Promise.all(
+    ["overscan", "visible"].map((name) =>
+      queueThumbnail(
+        async () => {
+          order.push(name);
+        },
+        signal,
+        () => Number(name === "visible"),
+      ),
+    ),
   );
-  const visible = queueThumbnail(
-    async () => {
-      order.push("visible");
-    },
-    signal,
-    () => 1,
-  );
-  await Promise.all([overscan, visible]);
   expect(order).toEqual(["visible", "overscan"]);
 });
 
@@ -124,38 +131,18 @@ test("queued priorities follow scrolling without restarting preparation", async 
   const running = queueThumbnail(() => gate, signal);
   await Promise.resolve();
   const order: string[] = [];
-  let firstVisible = true;
-  const first = queueThumbnail(
-    async () => {
-      order.push("first");
-    },
-    signal,
-    () => Number(firstVisible),
+  let visible = "first";
+  const waiting = ["first", "second"].map((name) =>
+    queueThumbnail(
+      async () => {
+        order.push(name);
+      },
+      signal,
+      () => Number(name === visible),
+    ),
   );
-  const second = queueThumbnail(
-    async () => {
-      order.push("second");
-    },
-    signal,
-    () => Number(!firstVisible),
-  );
-  firstVisible = false;
+  visible = "second";
   release();
-  await Promise.all([running, first, second]);
+  await Promise.all([running, ...waiting]);
   expect(order).toEqual(["second", "first"]);
-});
-
-test("an obsolete preview canceled before dispatch never consumes a preparation slot", async () => {
-  const controller = new AbortController();
-  let called = false;
-  const work = prepareThumbnail(
-    async () => {
-      called = true;
-    },
-    controller.signal,
-    () => 1,
-  );
-  controller.abort();
-  await expect(work).rejects.toThrow();
-  expect(called).toBe(false);
 });

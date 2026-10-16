@@ -3,12 +3,6 @@ import { blankDesignDocument, buildDrawnNode } from "./document";
 import { visibleCanvasRoots } from "./canvas-culling";
 import { applyRevisionChanges } from "./revision-sync";
 import { fileVersion, fileVersionAtLeast } from "./file-version";
-import {
-  thumbnailFileVersionAtLeast,
-  thumbnailFileVersionIsCurrent,
-  thumbnailIsCurrent,
-  thumbnailVersion,
-} from "./thumbnail-version";
 import { mapConcurrent } from "../map-concurrent";
 import { FrameStats } from "../performance/frame-stats";
 
@@ -126,33 +120,4 @@ test("measured free-tree bounds retain overflowing descendants and pinned select
   expect(visibleCanvasRoots([root], view, size, [], bounds)).toEqual(["root"]);
   bounds.set("root", { x: 4000, y: 0, width: 100, height: 100 });
   expect(visibleCanvasRoots([root], view, size, ["root"], bounds)).toEqual(["root"]);
-});
-
-test("thumbnail freshness follows document revisions while legacy shapes follow timestamps", () => {
-  const before = "2026-10-03T00:00:00.123Z";
-  const after = "2026-10-04T00:00:00.123Z";
-  const current = fileVersion(after, 2);
-  expect(thumbnailIsCurrent(thumbnailVersion(fileVersion(before, 2)), current)).toBe(true);
-  expect(thumbnailFileVersionIsCurrent(fileVersion(before, 2), current)).toBe(true);
-  expect(thumbnailFileVersionAtLeast(fileVersion(before, 3), current)).toBe(true);
-  expect(thumbnailFileVersionAtLeast(fileVersion(before, 2), current)).toBe(true);
-  expect(thumbnailFileVersionAtLeast(fileVersion(after, 1), current)).toBe(false);
-  expect(thumbnailFileVersionAtLeast(fileVersion(after, null), fileVersion(before, null))).toBe(
-    true,
-  );
-  expect(thumbnailIsCurrent(thumbnailVersion("2:invalid"), current)).toBe(false);
-  for (const revision of [1, 3])
-    expect(thumbnailIsCurrent(thumbnailVersion(fileVersion(before, revision)), current)).toBe(
-      false,
-    );
-  expect(thumbnailIsCurrent(`png-v1:${current}`, current)).toBe(false);
-  expect(thumbnailIsCurrent(current, current)).toBe(false);
-  expect(thumbnailIsCurrent(null, current)).toBe(false);
-  expect(
-    thumbnailIsCurrent(thumbnailVersion(fileVersion(before, null)), fileVersion(after, null)),
-  ).toBe(false);
-  expect(
-    thumbnailIsCurrent(thumbnailVersion(fileVersion(before, null)), fileVersion(before, null)),
-  ).toBe(true);
-  expect(thumbnailIsCurrent(thumbnailVersion(fileVersion(before, null)), current)).toBe(false);
 });

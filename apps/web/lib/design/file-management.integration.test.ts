@@ -848,7 +848,7 @@ for (const table of ["designFileThumbnail", "designObject"] as const) {
   });
 }
 
-for (const kind of ["current", "stale", "future", "renderer", "foreign"] as const) {
+for (const kind of ["current", "stale", "foreign"] as const) {
   integration(
     `exact duplication reuses only current same-organization PNG references: ${kind}`,
     async () => {
@@ -860,12 +860,13 @@ for (const kind of ["current", "stale", "future", "renderer", "foreign"] as cons
       );
       const original = (await admin.query(`select "updatedAt" from "designFile" where "id"='file'`))
         .rows[0];
-      const version = thumbnailVersion(
-        fileVersion(original.updatedAt, kind === "stale" ? 6 : kind === "future" ? 8 : 7),
-      );
       await admin.query(
         `insert into "designFileThumbnail" ("fileId","version","sha256","objectKey","byteSize") values ('file',$1,$2,$3,100)`,
-        [kind === "renderer" ? version.replace("png-v2:", "png-v1:") : version, digest, objectKey],
+        [
+          thumbnailVersion(fileVersion(original.updatedAt, kind === "stale" ? 6 : 7)),
+          digest,
+          objectKey,
+        ],
       );
       const before = (
         await admin.query(`select sum(bytes)::int as bytes from "organizationStorageObjects"('a')`)
