@@ -298,3 +298,71 @@ test("billing reflects configured allowances and identifies retained usage above
   expect(html).toContain("Existing designs remain accessible");
   expect(html).not.toContain("Manage billing");
 });
+
+function deferredSettings(
+  tab: string,
+  overrides: Partial<React.ComponentProps<typeof SettingsTabs>> = {},
+) {
+  const pending = new Promise<never>(() => {});
+  return (
+    <SearchParamsContext.Provider value={new URLSearchParams(`tab=${tab}`)}>
+      <OrganizationNamesProvider>
+        <SettingsTabs
+          initialTab="profile"
+          organization={{ id: "org", name: "Team" }}
+          user={{ id: "owner", name: "Owner", email: "owner@example.test", emailVerified: true }}
+          role="owner"
+          canInvite
+          members={pending}
+          invitations={pending}
+          sessions={pending}
+          billing={pending}
+          agents={pending}
+          flags={pending}
+          github={pending}
+          linear={pending}
+          currentSessionId="current"
+          emailConfigured
+          verificationError={false}
+          {...overrides}
+        />
+      </OrganizationNamesProvider>
+    </SearchParamsContext.Provider>
+  );
+}
+
+test("profile renders identity and password controls while all secondary reads are pending", () => {
+  const html = renderToStaticMarkup(deferredSettings("profile"));
+  expect(html).toContain('value="Owner"');
+  expect(html).toContain("Change password");
+  expect(html).toContain("Loading sessions");
+  expect(html).toContain('role="tablist"');
+  expect(html).not.toContain("data-page-skeleton");
+});
+
+test("preferences and organization details do not wait for unrelated settings data", () => {
+  const preferences = renderToStaticMarkup(deferredSettings("preferences"));
+  expect(preferences).toContain("Theme");
+  expect(preferences).toContain("Editor panels");
+  expect(preferences).not.toContain("Loading sessions");
+  const organization = renderToStaticMarkup(deferredSettings("organization"));
+  expect(organization).toContain('value="Team"');
+  expect(organization).toContain("Delete organization");
+  expect(organization).toContain("Loading organization membership");
+});
+
+test("members render without waiting for invitations", () => {
+  const html = renderToStaticMarkup(deferredSettings("members", { members }));
+  expect(html).toContain("member@example.test");
+  expect(html).toContain("Loading invitations");
+});
+
+test("deep links stay on optional tabs while availability is pending", () => {
+  for (const tab of ["billing", "agents", "connectors"]) {
+    const html = renderToStaticMarkup(deferredSettings(tab));
+    expect(html).toContain(
+      `id="settings-tab-${tab}" type="button" role="tab" aria-selected="true"`,
+    );
+    expect(html).not.toContain("Change password");
+  }
+});

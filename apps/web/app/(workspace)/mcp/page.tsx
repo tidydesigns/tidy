@@ -3,25 +3,23 @@ import { getWorkspace } from "@/lib/workspace/server";
 import { authorizedClients } from "@/lib/mcp/authorizations";
 import { McpConnection } from "@/app/mcp/mcp-connection";
 import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
-import { FeatureFlagsProvider } from "@/lib/use-feature-flag";
+import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
 
-export default async function McpPage() {
-  const { session } = await getWorkspace();
-
+export default function McpPage() {
   const resourceUrl = new URL(
     "/api/mcp",
     process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
   ).toString();
-  const [clients, flags] = await Promise.all([
+  const clients = getWorkspace().then(({ session }) =>
     authorizedClients(session.user.id, resourceUrl),
-    functionalFeatureFlags(),
-  ]);
+  );
+  const flags = functionalFeatureFlags();
 
   return (
-    <FeatureFlagsProvider flags={flags}>
+    <DeferredFeatureFlagsProvider flags={flags}>
       <main className={mcpPage} data-page-content="mcp">
         <McpConnection clients={clients} resourceUrl={resourceUrl} />
       </main>
-    </FeatureFlagsProvider>
+    </DeferredFeatureFlagsProvider>
   );
 }

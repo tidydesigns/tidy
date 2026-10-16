@@ -31,6 +31,8 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## UX
 
+- Prioritise instant loading: render available content and navigation immediately, prefetch likely destinations, and keep existing content visible during background refreshes. Use skeletons only for genuinely unavailable content, scoped to the smallest dependent section; reserve full-page skeletons for pages whose primary content is unavailable.
+
 - Check for existing custom UI components and reuse them instead of native controls, including `SelectMenu` for dropdowns.
 - Build minimal interfaces for designers: use purposeful labels and functional controls; omit redundant headings and UI fluff.
 - Show panels only when they contain actionable content; collapse empty panels instead of reserving space for instructional messages.

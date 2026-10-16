@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DeferredSection } from "@/components/ui/deferred-section";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
 import { SelectMenu } from "@/components/ui/select-menu";
@@ -83,10 +84,10 @@ export function McpConnection({
   clients,
   resourceUrl,
 }: {
-  clients: AuthorizedClient[];
+  clients: AuthorizedClient[] | Promise<AuthorizedClient[]>;
   resourceUrl: string;
 }) {
-  const [currentClients, setClients] = useState(clients);
+  const [currentClients, setClients] = useState<AuthorizedClient[]>();
   const [error, setError] = useState("");
   const [endpoint, setEndpoint] = useState<EndpointStatus>("checking");
   const [checking, setChecking] = useState(false);
@@ -179,41 +180,49 @@ export function McpConnection({
         ))}
       </ol>
 
-      {currentClients.length > 0 && (
-        <div className="mt-6 border-t border-primary-grey/70 pt-4">
-          <h2 data-ph-public className="text-sm font-medium">
-            Authorized agents
-          </h2>
-          <ul className="mt-2 space-y-2">
-            {currentClients.map((client) => (
-              <li
-                key={client.clientId}
-                className="flex flex-wrap items-center justify-between gap-3 text-sm"
-              >
-                <span>{client.name}</span>
-                <ConfirmAction
-                  replayLabel
-                  label="Revoke access"
-                  title={`Revoke ${client.name} access?`}
-                  disabled={checking}
-                  className="rounded px-1 py-1 text-xs text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-50"
-                  onConfirm={async () => {
-                    const result = await revokeAgent(client.clientId);
-                    if (result.error) throw new Error(result.error);
-                    setClients((current) =>
-                      current.filter((item) => item.clientId !== client.clientId),
-                    );
-                  }}
-                >
-                  <span data-ph-public style={{ display: "contents" }}>
-                    This agent will lose access to Tidy until you reconnect it.
-                  </span>
-                </ConfirmAction>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <DeferredSection value={currentClients ?? clients} label="authorized agents">
+        {(loadedClients) => (
+          <>
+            {loadedClients.length > 0 && (
+              <div className="mt-6 border-t border-primary-grey/70 pt-4">
+                <h2 data-ph-public className="text-sm font-medium">
+                  Authorized agents
+                </h2>
+                <ul className="mt-2 space-y-2">
+                  {loadedClients.map((client) => (
+                    <li
+                      key={client.clientId}
+                      className="flex flex-wrap items-center justify-between gap-3 text-sm"
+                    >
+                      <span>{client.name}</span>
+                      <ConfirmAction
+                        replayLabel
+                        label="Revoke access"
+                        title={`Revoke ${client.name} access?`}
+                        disabled={checking}
+                        className="rounded px-1 py-1 text-xs text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-50"
+                        onConfirm={async () => {
+                          const result = await revokeAgent(client.clientId);
+                          if (result.error) throw new Error(result.error);
+                          setClients((current) =>
+                            (current ?? loadedClients).filter(
+                              (item) => item.clientId !== client.clientId,
+                            ),
+                          );
+                        }}
+                      >
+                        <span data-ph-public style={{ display: "contents" }}>
+                          This agent will lose access to Tidy until you reconnect it.
+                        </span>
+                      </ConfirmAction>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+        )}
+      </DeferredSection>
 
       <details className="group mt-4 border-t border-primary-grey/70">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded py-3 text-[13px] text-secondary-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange [&::-webkit-details-marker]:hidden">

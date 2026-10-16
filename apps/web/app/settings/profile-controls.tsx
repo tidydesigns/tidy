@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, type Dispatch, type FormEvent, type SetStateAction } from "react";
+import { useState, type FormEvent } from "react";
+import { DeferredSection } from "@/components/ui/deferred-section";
 import { authClient } from "@/lib/auth-client";
 import { profileNameSchema } from "@/lib/profile";
 import { useOrganizationNames } from "@/components/workspace/organization-names";
@@ -30,19 +31,15 @@ type User = {
 export function ProfileControls({
   user,
   sessions,
-  onSessionsChange,
-  onNameChange,
   currentSessionId,
   emailConfigured,
   verificationError,
 }: {
   user: User;
-  sessions: AccountSession[];
+  sessions: AccountSession[] | Promise<AccountSession[]>;
   currentSessionId: string;
   emailConfigured: boolean;
   verificationError: boolean;
-  onSessionsChange: Dispatch<SetStateAction<AccountSession[]>>;
-  onNameChange: (name: string) => void;
 }) {
   const { profileName, updateProfileName } = useOrganizationNames();
   const [emailMessage, setEmailMessage] = useState("");
@@ -130,7 +127,6 @@ export function ProfileControls({
             if (result.error)
               throw new Error(result.error.message ?? "Could not update your name.");
             updateProfileName(parsed.data);
-            onNameChange(parsed.data);
             return parsed.data;
           }}
         />
@@ -246,6 +242,24 @@ export function ProfileControls({
           </span>
         </Button>
       </form>
+      <DeferredSection value={sessions} label="sessions">
+        {(loaded) => <SessionControls initial={loaded} currentSessionId={currentSessionId} />}
+      </DeferredSection>
+      <PrivacyControls email={user.email} />
+    </section>
+  );
+}
+
+function SessionControls({
+  initial,
+  currentSessionId,
+}: {
+  initial: AccountSession[];
+  currentSessionId: string;
+}) {
+  const [sessions, onSessionsChange] = useState(initial);
+  return (
+    <>
       {sessions.some((session) => session.id !== currentSessionId) && (
         <div className="border-t border-primary-grey pt-6">
           <h2 data-ph-public className="text-lg font-semibold">
@@ -298,8 +312,7 @@ export function ProfileControls({
           </ul>
         </div>
       )}
-      <PrivacyControls email={user.email} />
-    </section>
+    </>
   );
 }
 
