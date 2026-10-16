@@ -3,7 +3,7 @@ import { PostHogMCP } from "@posthog/mcp";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { activeMcpConsent, mcpAnalyticsId, withMcpConsent } from "@/lib/privacy/mcp-consent";
-import { runWithRequestSignal } from "@/lib/request-lifecycle";
+import { requestSignal, runWithRequestSignal, waitForSignal } from "@/lib/request-lifecycle";
 
 type CallMetric = {
   tool: string;
@@ -122,7 +122,18 @@ export function instrumentMcpAnalytics(
   server.registerTool = ((tool: string, config: unknown, callback: Handler) =>
     register(tool, config, async (...args) => {
       // Registration supplies the name, never arbitrary client input.
-      const consent = await backend.consent(userId).catch(() => undefined);
+      // Optional analytics must not inherit the pool's 10-second connect/query
+      // deadlines. Abort the actual lookup (and release its socket), not just a
+      // timer race, while preserving cancellation from the MCP request.
+      const parentSignal = requestSignal();
+      const lookupSignal = AbortSignal.any([
+        AbortSignal.timeout(500),
+        ...(parentSignal ? [parentSignal] : []),
+      ]);
+      const consent = await waitForSignal(
+        runWithRequestSignal(lookupSignal, () => backend.consent(userId)),
+        lookupSignal,
+      ).catch(() => undefined);
       const started = performance.now();
       const timestamp = new Date();
       let failed = true;
@@ -151,8 +162,14 @@ export function instrumentMcpAnalytics(
             .catch(() => {
               /* Optional collection must never fail the tool. */
             });
-          if (runtime.waitUntil) runtime.waitUntil(task);
-          else await task;
+          if (runtime.waitUntil) {
+            try {
+              runtime.waitUntil(task);
+            } catch {
+              // A scheduler failure must not replace the original tool result.
+              await task;
+            }
+          } else await task;
         }
       }
     })) as McpServer["registerTool"];

@@ -33,7 +33,11 @@ An account must explicitly opt in; browser consent and OAuth access grants do no
 qualify. The original decision is checked before the tool and retained through
 bounded delivery after execution. Withdrawal/re-opt-in cannot authorise an older
 in-flight call. The Worker uses `waitUntil` with a request-local SDK client, no
-retries and bounded shutdown. A consent/transport failure cannot fail the tool.
+retries and bounded shutdown. The initial consent lookup has a 500 ms cancellation
+budget and fails closed; ordinary consent reads use the partial account index.
+With collection disabled, tools perform no analytics database queries. Worker
+responses do not wait for outbound delivery. A consent/transport or scheduling
+failure cannot fail the tool.
 
 ## Retention and erasure
 

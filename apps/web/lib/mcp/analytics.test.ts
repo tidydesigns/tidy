@@ -153,6 +153,68 @@ test("client cancellation does not release the background consent lock", async (
   expect(f.sent).toHaveLength(1);
 });
 
+test("a stalled consent lookup is canceled and cannot delay or enable collection", async () => {
+  const f = fixture();
+  let lookupSignal: AbortSignal | undefined;
+  f.backend.consent.mockImplementation(() => {
+    lookupSignal = requestSignal();
+    return new Promise(() => {});
+  });
+  instrumentMcpAnalytics(f.server, "account", runtime, f.backend);
+  f.server.registerTool("get_file", {}, async () => ({ content: [] }));
+  expect(await f.call()).toEqual({ content: [] });
+  expect(lookupSignal?.aborted).toBe(true);
+  expect(f.sent).toHaveLength(0);
+});
+
+test("Worker tool response does not wait for slow delivery", async () => {
+  const f = fixture();
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tasks: Promise<void>[] = [];
+  f.backend.send.mockImplementation(async () => {
+    await blocked;
+  });
+  instrumentMcpAnalytics(
+    f.server,
+    "account",
+    {
+      ...runtime,
+      waitUntil: (task) => {
+        tasks.push(task);
+      },
+    },
+    f.backend,
+  );
+  f.server.registerTool("get_file", {}, async () => ({ content: [] }));
+  try {
+    expect(await f.call()).toEqual({ content: [] });
+    expect(tasks).toHaveLength(1);
+  } finally {
+    release();
+    await Promise.all(tasks);
+  }
+});
+
+test("a failed background scheduler cannot replace the tool result", async () => {
+  const f = fixture();
+  instrumentMcpAnalytics(
+    f.server,
+    "account",
+    {
+      ...runtime,
+      waitUntil: () => {
+        throw new Error("scheduler unavailable");
+      },
+    },
+    f.backend,
+  );
+  f.server.registerTool("get_file", {}, async () => ({ content: [] }));
+  expect(await f.call()).toEqual({ content: [] });
+});
+
 test.each([false, true])(
   "SDK outbound payload is metadata-only (failed=%s), without exception fan-out",
   async (failed) => {
