@@ -13,6 +13,69 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-15",
+    fixes: [
+      {
+        title: "Sharper exports",
+        details:
+          "Exports now default to 2× resolution, with smoother text and vector edges in PNG, WebP and PDF output.",
+      },
+      {
+        title: "Faster Figma imports",
+        details:
+          "Figma component instances expand faster, and layout checks take less time in large documents.",
+      },
+      {
+        title: "Protect pending canvas edits",
+        details: "Navigation guards help prevent leaving a file before your edits finish syncing.",
+      },
+      {
+        title: "Preserve edits during agent reimports",
+        details:
+          "Fixed cases where agent reimports could overwrite browser edits. Import conflicts now give agents clearer instructions for keeping your changes, using the import or creating a duplicate.",
+      },
+      {
+        title: "Keep invitation drafts",
+        details:
+          "Email addresses typed while team invitations are sending are no longer cleared when the request completes.",
+      },
+      {
+        title: "Feedback notifications in the bottom-right",
+        details: "Feedback confirmation toasts now appear in the bottom-right corner.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-14",
+    features: [
+      {
+        title: "Import from Figma",
+        details:
+          "Import .fig files or paste copied Figma layers as editable designs, preserving masks, text formatting and layout.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More reliable image loading and exports",
+        details:
+          "Asset previews compete less with canvas images for loading capacity, and large exports use less memory.",
+      },
+      {
+        title: "OpenCode compatibility",
+        details: "Fixed agent authorization so OpenCode can request editing access.",
+      },
+      {
+        title: "More reliable sign-in",
+        details: "Fixed an issue that could cause authentication requests to stall.",
+      },
+      {
+        title: "Clearer account deletion",
+        details:
+          "Account deletion now explains organization ownership blockers and provides access to account options after leaving your last organization.",
+      },
+    ],
+  },
+  {
     date: "2026-10-13",
     features: [
       {
