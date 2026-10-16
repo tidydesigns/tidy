@@ -18,18 +18,21 @@ export function record(value: unknown): Record<string, unknown> {
 }
 /** Operates on already accepted chunks. Identical chunk retries cannot inflate counts. */
 export function summarizeImportChunks(chunks: Record<string, unknown>): ActivityDetails {
-  const nodes: Record<string, unknown>[] = [],
+  const nodeIds: string[] = [],
     paths = new Set<string>(),
     assets = new Set<string>();
   let source: Record<string, unknown> = {},
-    warningCount = 0;
+    warningCount = 0,
+    nodeCount = 0;
   for (const [, chunkValue] of Object.entries(chunks).sort(([a], [b]) => a.localeCompare(b))) {
     const chunk = record(chunkValue);
     if (!Object.keys(source).length && chunk.source) source = record(chunk.source);
     if (Array.isArray(chunk.warnings)) warningCount += chunk.warnings.length;
     for (const value of Array.isArray(chunk.nodes) ? chunk.nodes : []) {
       const node = record(value);
-      nodes.push(node);
+      nodeCount++;
+      if (nodeIds.length < 3 && node.parentId === null && typeof node.id === "string")
+        nodeIds.push(node.id);
       const path = activityPath(node.sourcePath);
       if (path && paths.size < 3) paths.add(path);
       if (typeof node.assetId === "string") assets.add(node.assetId);
@@ -39,7 +42,7 @@ export function summarizeImportChunks(chunks: Record<string, unknown>): Activity
     }
   }
   return {
-    nodeCount: nodes.length,
+    nodeCount,
     assetCount: assets.size,
     warningCount,
     sourcePaths: [...paths],
@@ -48,9 +51,6 @@ export function summarizeImportChunks(chunks: Record<string, unknown>): Activity
       typeof source.route === "string" ? source.route.split(/[?#]/)[0] : undefined,
       160,
     ),
-    nodeIds: nodes
-      .filter((node) => node.parentId === null && typeof node.id === "string")
-      .slice(0, 3)
-      .map((node) => node.id as string),
+    nodeIds,
   };
 }

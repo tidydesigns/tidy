@@ -2,7 +2,7 @@ import { strokeStyle } from "./strokes";
 import { effectCss, shadowCss } from "@bella/design/effects";
 import type { CSSProperties } from "react";
 import type { DesignNode } from "@bella/design/document";
-import { paintBackground } from "./paints";
+import { nodeBackgroundPaint, paintBackground } from "./paints";
 import { constraintStyle } from "./constraints";
 import { renderFontFamily } from "./font-family";
 
@@ -22,16 +22,8 @@ export function nodeStyle(
   parent?: DesignNode,
   flowIndex = 0,
 ): CSSProperties {
-  const solePaint = node.style.paints?.length === 1 ? node.style.paints[0] : undefined;
-  const simplePaint =
-    solePaint?.visible &&
-    solePaint.opacity === 1 &&
-    (!solePaint.blendMode || solePaint.blendMode === "normal") &&
-    solePaint.type !== "image" &&
-    !(solePaint.type === "linear" && solePaint.start) &&
-    !(solePaint.type === "radial" && solePaint.rotation)
-      ? paintBackground(solePaint, tokens)
-      : undefined;
+  const backgroundPaint = nodeBackgroundPaint(node.style.paints);
+  const simplePaint = backgroundPaint ? paintBackground(backgroundPaint, tokens) : undefined;
   const color = node.style.colorToken
     ? (tokens[node.style.colorToken] ?? node.style.color)
     : node.style.color;

@@ -140,3 +140,35 @@ test("accepted chunk summaries deduplicate paths/assets and reject private path 
   ])
     expect(activityPath(value)).toBeUndefined();
 });
+test("chunk summaries count every entry and retain the first three root IDs in chunk order", () => {
+  const chunks: Record<string, unknown> = {
+    z: {
+      nodes: [{ id: "last", parentId: null, assetId: "late-asset", sourcePath: "app/late.tsx" }],
+      warnings: ["late warning"],
+    },
+    a: {
+      nodes: [
+        null,
+        [],
+        "invalid",
+        { id: 123, parentId: null },
+        { id: "child", parentId: "duplicate" },
+        { id: "duplicate", parentId: null },
+        { id: "duplicate", parentId: null },
+      ],
+    },
+    m: {
+      nodes: [
+        { id: "third", parentId: null },
+        { id: "fourth", parentId: null },
+      ],
+    },
+  };
+  expect(summarizeImportChunks(chunks)).toMatchObject({
+    nodeCount: 10,
+    nodeIds: ["duplicate", "duplicate", "third"],
+    assetCount: 1,
+    warningCount: 1,
+    sourcePaths: ["app/late.tsx"],
+  });
+});

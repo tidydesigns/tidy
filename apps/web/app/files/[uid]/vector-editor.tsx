@@ -5,6 +5,7 @@ import type { DesignNode } from "@/lib/design/document";
 import { elementPlane } from "@/lib/design/canvas-geometry";
 import { canvasElements } from "./canvas-elements";
 import { useEditorEvent } from "./use-editor-event";
+import { isEditableTarget } from "./editable-target";
 import { useFrameEvent } from "./use-frame-event";
 import { PropertyField } from "./property-field";
 import { Choice } from "./inspector-controls";
@@ -102,8 +103,7 @@ export function VectorEditor({
       event.metaKey ||
       event.ctrlKey ||
       event.altKey ||
-      (event.target instanceof Element &&
-        event.target.closest("input, textarea, select, [contenteditable]"))
+      isEditableTarget(event.target)
     )
       return;
     if (event.key === "Escape" || event.key === "Enter") {

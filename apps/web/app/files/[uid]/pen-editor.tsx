@@ -11,6 +11,7 @@ import {
 import { canvasElements } from "./canvas-elements";
 import { elementPlane } from "@/lib/design/canvas-geometry";
 import { useEditorEvent } from "./use-editor-event";
+import { isEditableTarget } from "./editable-target";
 
 export function PenEditor({
   viewport,
@@ -53,8 +54,7 @@ export function PenEditor({
       event.metaKey ||
       event.ctrlKey ||
       event.altKey ||
-      (event.target instanceof Element &&
-        event.target.closest("input, textarea, select, [contenteditable]"))
+      isEditableTarget(event.target)
     )
       return;
     if (event.key === "Enter") {

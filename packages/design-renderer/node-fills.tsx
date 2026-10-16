@@ -1,7 +1,7 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { DesignNode } from "@bella/design/document";
-import { paintBackground } from "./paints";
+import { nodeBackgroundPaint, paintBackground } from "./paints";
 import { DesignImage } from "./design-image";
 export function NodeFills({
   node,
@@ -13,16 +13,7 @@ export function NodeFills({
   assetUrl?: (id: string) => string;
 }) {
   if (node.vectorPath || !node.style.paints?.length) return null;
-  const solePaint = node.style.paints.length === 1 ? node.style.paints[0] : undefined;
-  if (
-    solePaint?.visible &&
-    solePaint.opacity === 1 &&
-    (!solePaint.blendMode || solePaint.blendMode === "normal") &&
-    solePaint.type !== "image" &&
-    !(solePaint.type === "linear" && solePaint.start) &&
-    !(solePaint.type === "radial" && solePaint.rotation)
-  )
-    return null;
+  if (nodeBackgroundPaint(node.style.paints)) return null;
   return <MeasuredFills node={node} tokens={tokens} assetUrl={assetUrl} />;
 }
 function MeasuredFills({

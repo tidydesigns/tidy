@@ -9,6 +9,7 @@ import {
 } from "@/lib/design/editor-error";
 import { detachInstance, owningInstance } from "@/lib/design/component-instance";
 import { EditorNotification } from "./editor-notification";
+import { isEditableTarget } from "./editable-target";
 import { ImageEditor } from "./image-editor";
 import {
   applyRasterTrace,
@@ -1539,9 +1540,7 @@ export function FileEditor({
         event.key.toLowerCase() !== "z"
       )
         return;
-      const target = event.target;
-      if (target instanceof Element && target.closest("input, textarea, select, [contenteditable]"))
-        return;
+      if (isEditableTarget(event.target)) return;
       event.preventDefault();
       void travelHistory(event.shiftKey ? "redo" : "undo");
     }
@@ -1561,7 +1560,7 @@ export function FileEditor({
         setSpaceHeld(true);
         return;
       }
-      if (element?.closest("input, textarea, select, [contenteditable]")) return;
+      if (isEditableTarget(element)) return;
       if (event.repeat) return;
       if (event.shiftKey) return;
       const shortcut = event.key.toLowerCase();
@@ -2175,8 +2174,7 @@ export function FileEditor({
 
   useEffect(() => {
     if (readOnly) return;
-    const typing = () =>
-      document.activeElement?.closest("input, textarea, select, [contenteditable]");
+    const typing = () => isEditableTarget(document.activeElement);
     function copy(event: ClipboardEvent) {
       if (typing() || !selectedIds.length || !event.clipboardData) return;
       if (
@@ -2238,8 +2236,7 @@ export function FileEditor({
         event.isComposing ||
         event.repeat ||
         !(event.metaKey || event.ctrlKey) ||
-        (event.target instanceof Element &&
-          event.target.closest("input, textarea, select, [contenteditable]"))
+        isEditableTarget(event.target)
       )
         return;
       if (event.altKey && event.key.toLowerCase() === "c") {
@@ -2298,11 +2295,7 @@ export function FileEditor({
         event.isComposing
       )
         return;
-      if (
-        event.target instanceof Element &&
-        event.target.closest("input, textarea, select, [contenteditable]")
-      )
-        return;
+      if (isEditableTarget(event.target)) return;
       if (cropping && !event.metaKey && !event.ctrlKey) {
         if (event.key === "Escape" || event.key === "Enter") {
           event.preventDefault();
@@ -2352,11 +2345,6 @@ export function FileEditor({
         return;
       }
       if (event.altKey) return;
-      if (
-        event.target instanceof Element &&
-        event.target.closest("input, textarea, select, [contenteditable]")
-      )
-        return;
       const command = event.metaKey || event.ctrlKey;
       if (command && event.key.toLowerCase() === "a") {
         event.preventDefault();
@@ -2401,11 +2389,6 @@ export function FileEditor({
         return;
       }
 
-      if (
-        event.target instanceof Element &&
-        event.target.closest("input, textarea, select, [contenteditable]")
-      )
-        return;
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
         event.preventDefault();
         void duplicate();
@@ -2458,8 +2441,7 @@ export function FileEditor({
         event.isComposing ||
         event.repeat ||
         event.altKey ||
-        (event.target instanceof Element &&
-          event.target.closest("input, textarea, select, [contenteditable]"))
+        isEditableTarget(event.target)
       )
         return;
       const command = event.metaKey || event.ctrlKey;

@@ -20,13 +20,6 @@ type Pending = {
   reject: (error: Error) => void;
   timer: ReturnType<typeof setTimeout>;
 };
-export type ToolSpec = {
-  type: "function";
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-};
-
 /** One native Codex auth store per person, owned entirely by Codex. No auth file
  * is read or copied by Tidy. Browser clients never receive this RPC transport. */
 export class CodexAppServer extends EventEmitter {

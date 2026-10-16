@@ -39,6 +39,18 @@ export function paintStyle(paints: DesignPaint[]): Partial<DesignNode["style"]> 
     gradientAngle: undefined,
   };
 }
+/** A sole opaque CSS paint needs no separate measured fill layer. */
+export function nodeBackgroundPaint(paints: DesignPaint[] | undefined): DesignPaint | undefined {
+  const paint = paints?.length === 1 ? paints[0] : undefined;
+  return paint?.visible &&
+    paint.opacity === 1 &&
+    (!paint.blendMode || paint.blendMode === "normal") &&
+    paint.type !== "image" &&
+    !(paint.type === "linear" && paint.start) &&
+    !(paint.type === "radial" && paint.rotation)
+    ? paint
+    : undefined;
+}
 export function paintBackground(
   paint: DesignPaint,
   tokens: Record<string, string>,
