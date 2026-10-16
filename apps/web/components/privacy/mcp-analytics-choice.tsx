@@ -48,8 +48,9 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
         />
       </div>
       <p className="text-sm text-secondary-ink">
-        Tidy monitors tool counts, timings and failures to operate the MCP service. Turn this on to
-        let us associate those events with your account for troubleshooting for 90 days. Off stops
+        Tidy monitors tool counts, timings, failures and reported client application names and
+        versions to operate the MCP service and diagnose compatibility issues. Turn this on to let
+        us associate those events with your account for troubleshooting for 90 days. Off stops
         account linking; service monitoring continues. No prompts or tool content are sent. This is
         separate from browser choices and does not affect MCP access.
       </p>

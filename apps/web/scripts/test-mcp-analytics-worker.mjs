@@ -45,7 +45,13 @@ const bundle = await build({
     contents: `import { sendMcpMetric } from './lib/mcp/analytics.ts';
       export default { async fetch(request) {
         const id = new URL(request.url).pathname.slice(1);
-        await sendMcpMetric(id === 'unlinked' ? undefined : id, { tool: 'get_file', timestamp: new Date('2026-10-16T12:34:56.789Z'), durationMs: 42, failed: id === 'failed' }, {
+        const clients = {
+          success: { name: 'codex-mcp-client', version: 'v0.160.0' },
+          failed: { name: 'claude-code', version: '2.1.0' },
+          unlinked: { name: 'opencode', version: '1.2.3' },
+          custom: { name: 'PRIVATE CLIENT', version: 'PRIVATE VERSION' }
+        };
+        await sendMcpMetric(id === 'unlinked' ? undefined : id, { tool: 'get_file', timestamp: new Date('2026-10-16T12:34:56.789Z'), durationMs: 42, failed: id === 'failed', client: clients[id] }, {
           enabled: '1', key: 'synthetic-project', host: 'https://posthog.invalid', release: 'test-worker'
         });
         return new Response('ok');
@@ -72,11 +78,14 @@ const worker = new Miniflare(
 try {
   await worker.ready;
   const responses = await Promise.all(
-    ["success", "failed", "unlinked"].map((id) => worker.dispatchFetch(`https://mcp.test/${id}`)),
+    ["success", "failed", "unlinked", "custom"].map((id) =>
+      worker.dispatchFetch(`https://mcp.test/${id}`),
+    ),
   );
   for (const response of responses) assert.equal(await response.text(), "ok");
-  assert.equal(events.length, 3);
+  assert.equal(events.length, 4);
   assert.deepEqual(events.map((event) => event.distinct_id).sort(), [
+    "mcp:custom",
     "mcp:failed",
     "mcp:service:2026-10-16",
     "mcp:success",
@@ -91,9 +100,17 @@ try {
     );
     assert.equal(event.properties.$process_person_profile, false);
     assert.equal(event.properties.$geoip_disable, true);
+    const expected = {
+      "mcp:success": ["codex", "0.160.0"],
+      "mcp:failed": ["claude_code", "2.1.0"],
+      "mcp:service:2026-10-16": ["opencode", "1.2.3"],
+      "mcp:custom": ["other", undefined],
+    }[event.distinct_id];
+    assert.equal(event.properties.$mcp_client_name, expected[0]);
+    assert.equal(event.properties.$mcp_client_version, expected[1]);
     assert.doesNotMatch(
       JSON.stringify(event),
-      /\$exception|\$mcp_parameters|\$mcp_response|\$set|\$session_id/,
+      /\$exception|\$mcp_parameters|\$mcp_response|\$set|\$session_id|PRIVATE/,
     );
   }
   console.log("MCP metadata delivery passed in workerd with isolated concurrent requests.");

@@ -206,20 +206,26 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           We monitor external MCP tool calls to operate a reliable service, detect failures and
           latency, and verify fixes. When monitoring is enabled, PostHog receives tool names,
-          timestamps, durations, success/failure indicators and app/SDK version information for
-          calls regardless of your optional privacy choices. Successful calls provide the totals
-          needed to measure failure rates. We rely on legitimate interests for this limited
-          operational monitoring, not for advertising or behavioural profiling.
+          timestamps, durations, success/failure indicators, app/SDK versions and the reported MCP
+          client application name and version for compatibility debugging. Client names are limited
+          to recognised products such as Codex, Claude Code and OpenCode; unrecognised or missing
+          names become “other” or “unknown”. We accept only limited release-version formats and do
+          not send custom client names or version strings. Clients can still use Tidy without
+          reporting this information. This monitoring applies to calls regardless of your optional
+          privacy choices. Successful calls provide the totals needed to measure failure rates. We
+          rely on legitimate interests for this limited operational monitoring, not for advertising
+          or behavioural profiling.
         </p>
         <p>
           By default, events share a service identifier for the day and timestamps are rounded to
-          the minute. We do not attach an account, browser, client or conversation identifier, or
-          keep a mapping from these events to individual accounts. We send no prompts, tool
-          arguments or results, design content, credentials, client IP addresses or raw errors. This
-          monitoring uses no analytics cookies or extra tool parameters and creates no person
-          profile. PostHog receives connection information from our server. You can object to
-          processing based on legitimate interests using the contact details below; we assess
-          objections as described under your rights.
+          the minute. A client application name identifies the reported software product, not a
+          unique installation or device. We do not attach an account, browser, unique client or
+          conversation identifier, or keep a mapping from these events to individual accounts. We
+          send no prompts, tool arguments or results, design content, credentials, client IP
+          addresses or raw errors. This monitoring uses no analytics cookies or extra tool
+          parameters and creates no person profile. PostHog receives connection information from our
+          server. You can object to processing based on legitimate interests using the contact
+          details below; we assess objections as described under your rights.
         </p>
         <p>
           <strong>Optional account linking — consent.</strong> Turning on{" "}

@@ -1,7 +1,8 @@
 import { expect, mock, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
 import { requestSignal, runWithRequestSignal } from "@/lib/request-lifecycle";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
+import { z } from "zod";
 mock.module("server-only", () => ({}));
 const { instrumentMcpAnalytics, sendMcpMetric } = await import("./analytics");
 const runtime = {
@@ -240,7 +241,13 @@ test.each([false, true])(
     try {
       await sendMcpMetric(
         "decision-a",
-        { tool: "get_file", timestamp: new Date(), durationMs: 42, failed },
+        {
+          tool: "get_file",
+          timestamp: new Date(),
+          durationMs: 42,
+          failed,
+          client: { name: "claude-code", version: "2.1.0" },
+        },
         runtime,
       );
       const events = bodies.flatMap((body) => {
@@ -255,6 +262,8 @@ test.each([false, true])(
         $mcp_tool_name: "get_file",
         $mcp_duration_ms: 42,
         $mcp_is_error: failed,
+        $mcp_client_name: "claude_code",
+        $mcp_client_version: "2.1.0",
         $process_person_profile: false,
         $geoip_disable: true,
       });
@@ -326,6 +335,7 @@ test("unlinked wire events share only a daily service ID and minute timestamps",
           "$mcp_resource_name",
           "$mcp_duration_ms",
           "$mcp_is_error",
+          "$mcp_client_name",
           "$process_person_profile",
           "$geoip_disable",
           "$app_version",
@@ -339,3 +349,117 @@ test("unlinked wire events share only a daily service ID and minute timestamps",
     transport.mockRestore();
   }
 });
+
+test.each([false, true])(
+  "real HTTP tool calls isolate reported clients (account linked=%s)",
+  async (linked) => {
+    const f = fixture(linked);
+    const handler = createMcpHandler(() => {
+      const server = instrumentMcpAnalytics(
+        new McpServer({ name: "test", version: "1" }),
+        "account",
+        runtime,
+        f.backend,
+      );
+      server.registerTool(
+        "get_file",
+        { inputSchema: z.object({ fail: z.boolean().optional(), mcpReq: z.unknown().optional() }) },
+        async ({ fail }) => ({ content: [], isError: Boolean(fail) }),
+      );
+      server.registerTool("no_input", {}, async () => ({ content: [] }));
+      return server;
+    });
+    async function request(method: string, params: object, modern = true) {
+      const response = await handler.fetch(
+        new Request("https://tidy.test/api/mcp", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json, text/event-stream",
+            "MCP-Protocol-Version": modern ? "2026-07-28" : "2025-11-25",
+            ...(modern
+              ? { "Mcp-Method": method, "Mcp-Name": (params as { name: string }).name }
+              : {}),
+          },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        }),
+      );
+      const body = await response.text();
+      expect(response.status, body).toBe(200);
+      const json = response.headers.get("Content-Type")?.includes("text/event-stream")
+        ? body
+            .split("\n")
+            .find((line) => line.startsWith("data: "))!
+            .slice(6)
+        : body;
+      const result = JSON.parse(json);
+      expect(result.error).toBeUndefined();
+      return result;
+    }
+    try {
+      const clients = [
+        { name: "codex-mcp-client", version: "0.160.0" },
+        { name: "opencode", version: "1.2.3" },
+        { name: "PRIVATE CLIENT", version: "PRIVATE VERSION" },
+        undefined,
+      ];
+      const responses = await Promise.all(
+        clients.map((client, index) =>
+          request("tools/call", {
+            name: index === 1 ? "no_input" : "get_file",
+            arguments: {
+              fail: index === 2,
+              mcpReq: {
+                envelope: {
+                  "io.modelcontextprotocol/clientInfo": { name: "pi", version: "9.9.9" },
+                },
+              },
+            },
+            _meta: {
+              "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities": {},
+              ...(client ? { "io.modelcontextprotocol/clientInfo": client } : {}),
+            },
+          }),
+        ),
+      );
+      expect(responses[2].result.isError).toBe(true);
+      expect(f.sent).toHaveLength(4);
+      const metrics = f.backend.send.mock.calls.map(
+        (call) => call[1] as { client: { name: string; version?: string }; failed: boolean },
+      );
+      expect(
+        metrics.map((metric) => metric.client).sort((a, b) => a.name.localeCompare(b.name)),
+      ).toEqual([
+        { name: "codex", version: "0.160.0" },
+        { name: "opencode", version: "1.2.3" },
+        { name: "other" },
+        { name: "unknown" },
+      ]);
+      expect(metrics.find((metric) => metric.client.name === "other")?.failed).toBe(true);
+      expect(JSON.stringify(f.sent)).not.toMatch(/PRIVATE|9\.9\.9/);
+      for (const call of f.backend.send.mock.calls)
+        expect(call[0]).toBe(linked ? "decision-a" : undefined);
+
+      // Production's stateless legacy fallback cannot carry initialize metadata
+      // into a later request. It must remain usable, with honest unknown attribution.
+      await request(
+        "initialize",
+        {
+          protocolVersion: "2025-11-25",
+          capabilities: {},
+          clientInfo: { name: "codex", version: "0.160.0" },
+        },
+        false,
+      );
+      expect(f.sent).toHaveLength(4);
+      await request("tools/call", { name: "get_file", arguments: {} }, false);
+      expect(f.backend.send.mock.calls[4][1]).toMatchObject({
+        client: { name: "unknown" },
+        failed: false,
+      });
+    } finally {
+      await handler.close();
+    }
+  },
+);

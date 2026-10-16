@@ -1,16 +1,22 @@
 import "server-only";
 import { PostHogMCP } from "@posthog/mcp";
-import type { McpServer } from "@modelcontextprotocol/server";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { queueMcpMonitoringErasure, mcpMonitoringId } from "@/lib/privacy/mcp-retention";
 import { activeMcpConsent, mcpAnalyticsId, withMcpConsent } from "@/lib/privacy/mcp-consent";
 import { requestSignal, runWithRequestSignal, waitForSignal } from "@/lib/request-lifecycle";
+import {
+  mcpClientDiagnostics,
+  normalizeMcpClient,
+  type McpClientDiagnostics,
+} from "./client-diagnostics";
 
 type CallMetric = {
   tool: string;
   durationMs: number;
   failed: boolean;
   timestamp: Date;
+  client?: McpClientDiagnostics;
 };
 type Runtime = {
   enabled?: string;
@@ -28,6 +34,8 @@ type Backend = {
 
 export async function sendMcpMetric(id: string | undefined, metric: CallMetric, runtime: Runtime) {
   if (runtime.enabled !== "1" || !runtime.key || !runtime.host) return;
+  // Revalidate at the outbound boundary as well as at request capture.
+  const diagnosticClient = normalizeMcpClient(metric.client);
   const distinctId = id ? mcpAnalyticsId(id) : mcpMonitoringId(metric.timestamp);
   // Minute precision is sufficient for service reliability and limits correlation.
   const timestamp = id
@@ -62,6 +70,8 @@ export async function sendMcpMetric(id: string | undefined, metric: CallMetric, 
           $mcp_resource_name: metric.tool,
           $mcp_duration_ms: metric.durationMs,
           $mcp_is_error: metric.failed,
+          $mcp_client_name: diagnosticClient.name,
+          ...(diagnosticClient.version ? { $mcp_client_version: diagnosticClient.version } : {}),
           ...(metric.failed ? { $mcp_error_type: "tool_error" } : {}),
           $process_person_profile: false,
           $geoip_disable: true,
@@ -130,6 +140,12 @@ export function instrumentMcpAnalytics(
   const register = server.registerTool.bind(server) as Register;
   server.registerTool = ((tool: string, config: unknown, callback: Handler) =>
     register(tool, config, async (...args) => {
+      // The SDK passes (input, context) for tools with a schema, otherwise (context).
+      // Do not inspect tool arguments for identity, even if they mimic SDK metadata.
+      const context = args[(config as { inputSchema?: unknown })?.inputSchema ? 1 : 0] as
+        | ServerContext
+        | undefined;
+      const diagnosticClient = mcpClientDiagnostics(server, context);
       // Registration supplies the name, never arbitrary client input.
       // Optional account linking must not inherit the pool's 10-second connect/query
       // deadlines. Abort the actual lookup (and release its socket), not just a
@@ -158,6 +174,7 @@ export function instrumentMcpAnalytics(
           timestamp,
           failed,
           durationMs: Math.max(0, Math.round(performance.now() - started)),
+          client: diagnosticClient,
         };
         const task = Promise.resolve()
           .then(() =>

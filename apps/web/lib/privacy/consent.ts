@@ -1,4 +1,5 @@
-export const MCP_NOTICE_VERSION = "2026-10-16.mcp-account-linking-2";
+// Renew account-linking consent before associating harness diagnostics with an account.
+export const MCP_NOTICE_VERSION = "2026-10-16.mcp-account-linking-3";
 export const CONSENT_COOKIE = "tidy_consent";
 // The previous notice promised to remove every browser error message. Obtain a
 // fresh choice before collecting reviewed technical messages under this notice.

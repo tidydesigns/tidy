@@ -7,8 +7,8 @@ no wizard-generated schema changes, intent arguments or content capture.
 
 ## Data and purpose
 
-Service monitoring measures call volume, failure rates, latency and release
-regressions so Tidy can operate the MCP service and verify fixes. Successful calls
+Service monitoring measures call volume, failure rates, latency and app/client release
+regressions so Tidy can operate the MCP service, diagnose compatibility and verify fixes. Successful calls
 provide failure-rate denominators. This stream is not for advertising, behavioural
 profiling or cross-product engagement analysis.
 
@@ -21,12 +21,44 @@ through the consent record. `$mcp_account_linked` distinguishes the two forms.
 shared identifier is not a visitor, and opt-in does not produce a second event.
 
 The outbound hook allows only tool name, timestamp, duration, failure flag/category,
-release and linking status. The SDK adds its static library/version/server markers.
+app release, normalized MCP client application name/version and linking status.
+The SDK adds its static library/version/server markers.
 It never receives tool input/output, client headers, prompts, credentials, raw
 errors, account IDs or emails. Person processing and geolocation are disabled.
 Browser profiles, replay, models, client fingerprints and conversations are absent.
 Do not claim that removing account identifiers guarantees legal anonymisation:
 timing and surrounding information can still carry identification risk.
+
+### Harness diagnostics
+
+`$mcp_client_name` is a fixed product label: `codex`, `claude_code`, `opencode`,
+`pi`, `gemini_cli`, `other` (an unrecognised name), or `unknown` (not reported).
+Exact aliases are maintained in `apps/web/lib/mcp/client-diagnostics.ts`; matching is
+case-insensitive, never a substring guess. Add a reviewed alias when integrating
+another client. Unknown clients retain access and their raw names are discarded.
+`$mcp_client_version` is optional and only emitted for a recognised product:
+bounded numeric releases and known prerelease channels are accepted; custom build
+metadata, hashes, paths and free text are dropped. No title, model, installation
+identifier, raw user agent, OAuth identifier or fingerprint is sent.
+
+Identity comes from the SDK's current request envelope
+(`io.modelcontextprotocol/clientInfo`), falling back to its initialized connection
+identity when available. It is copied before execution and normalized again at the
+outbound boundary. Names and versions always come from the same source. Concurrent
+requests cannot overwrite another call's attribution.
+
+**Coverage limit:** production uses `createMcpHandler` with a fresh server per HTTP
+request. Clients using the 2025 protocol that identify themselves only in
+`initialize` will produce `unknown` on subsequent tool calls. This change does not
+introduce session tokens, a persistent identity cache, OAuth-name inference or
+extra client parameters to fill that gap. Newer clients can report identity in
+each request's protocol metadata. Report the `unknown`/`other` share alongside
+failure rates by client/version; do not claim complete attribution. Identity is
+self-reported and may describe a bridge rather than the underlying harness or model.
+
+Both successes and failures carry these fields, including without account linking.
+Compare event counts, failure rate and latency by `$mcp_client_name` and
+`$mcp_client_version`; do not use the shared daily distinct ID as a user count.
 
 ## Lawful-basis assessment
 
@@ -40,9 +72,18 @@ support exact percentile and release/window comparisons without account identity
 Account identification is not necessary for that baseline and is therefore omitted. Minute-rounded times
 reduce correlation while preserving operational comparisons.
 
+The additional client product/version dimensions identify failures isolated to a
+particular harness release. Tool-level totals cannot distinguish a client
+compatibility regression from a Tidy regression. Product labels alone lose the
+ability to isolate faulty releases, so bounded public release versions are also
+included. Raw client identity strings, device fingerprints and account identity
+are unnecessary for these comparisons and are excluded. This is the operator's
+documented necessity/balancing assessment, not a legal determination: even limited
+release metadata can increase correlation risk in small cohorts.
+
 Users can reasonably expect limited server monitoring when requesting tools.
 The balancing safeguards are restricted technical fields, shared daily identities,
-no device storage/access added for tracking, no content or profiling, a defined
+no additional device probes or tracking storage, no content or profiling, a defined
 90-day deletion-review schedule, restricted operator access and clear disclosure.
 We treat any residual personal-data risk under GDPR rather than assuming the stream
 is anonymous. The privacy notice provides an online contact for Article 21
@@ -56,9 +97,21 @@ reassessment before collection. Owner: the Tidy operator identified in the priva
 notice. Confirm these safeguards and provider arrangements before activation and
 review the assessment if the processing changes.
 
+Before rollout, review the actual protocol-metadata collection against Irish
+ePrivacy Regulation 5(3)/(5), including whether any applicable access is strictly
+necessary for the requested service. A normal protocol field, absence of cookies,
+or a GDPR legitimate-interests basis does not itself establish an exemption.
+Publish the matching privacy notice with the release. Account-linking notice
+version 3 requires a fresh opt-in before these additional fields are linked to an
+account; previous choices fall back to unlinked monitoring and the existing
+privacy cleanup process queues outdated consent IDs for erasure. Browser choices
+are unchanged. No database migration is needed for harness diagnostics.
+
 References: [DPC lawful bases](https://www.dataprotection.ie/sites/default/files/uploads/2020-04/Guidance%20on%20Legal%20Bases.pdf),
 [DPC cookies](https://www.dataprotection.ie/en/dpc-guidance/guidance-cookies-and-other-tracking-technologies),
 [DPC objections](https://www.dataprotection.ie/en/individuals/know-your-rights/right-object-processing-personal-data-article-21-gdpr).
+Additional references: [Irish ePrivacy Regulation 5](https://www.irishstatutebook.ie/eli/2011/si/336/),
+[EDPB technical scope guidance](https://www.edpb.europa.eu/system/files/documents/2024-10/edpb_guidelines_202302_technical_scope_art_53_eprivacydirective_v2_en_0.pdf).
 
 ## Enable after review
 
@@ -122,6 +175,12 @@ Run `bun typecheck`, `bun lint`, `bun test`, `bun test:privacy:db`,
 in workerd with synthetic credentials and intercepted outbound requests. Database
 suites use disposable local clusters. Tests cover rejected/withdrawn/renewed consent,
 metadata envelopes, retention scheduling and no duplicate fallback after a send.
+Harness tests cover real concurrent HTTP requests, with/without account linking,
+successful/failed tools, tools without input schemas, spoofed metadata inside tool
+arguments, legacy stateless fallback, unknown/custom clients and outbound payload
+allowlisting in Bun and workerd. For deployment verification, use a labelled
+temporary file and a client that sends per-request identity; check both a success
+and a harmless expected failure in PostHog, plus an unidentified-client request.
 
 SDK references: [TypeScript installation](https://posthog.com/docs/mcp-analytics/installation/typescript#custom-dispatchers),
 [privacy controls](https://posthog.com/docs/mcp-analytics/privacy).
