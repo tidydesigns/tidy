@@ -14,13 +14,6 @@ export function observeThumbnail(
         const listener = listeners.get(entry.target);
         if (!listener) continue;
         listener.near = entry.isIntersecting;
-        const rect = entry.boundingClientRect;
-        listener.visible =
-          entry.isIntersecting &&
-          rect.bottom > 0 &&
-          rect.right > 0 &&
-          rect.top < window.innerHeight &&
-          rect.left < window.innerWidth;
         listener.notify(listener.near, listener.visible);
       }
     },
