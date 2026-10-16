@@ -1254,3 +1254,41 @@ export async function getArchivedEditorDocument(userId: string, fileId: string) 
 export async function ensureEditorDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readEditorDocument(userId, fileId));
 }
+
+/** Load the canvas and its metadata in one authorized database snapshot.
+ * Native documents (including every new blank file) need no legacy conversion
+ * or separate metadata transaction. Image metadata is fetched only when used.
+ */
+export async function getEditorFile(userId: string, fileId: string) {
+  const result = await db.query<{
+    id: string;
+    name: string;
+    organizationId: string;
+    organizationName: string;
+    folderId: string | null;
+    archivedAt: Date | null;
+    role: string;
+    revision: number | null;
+    content: DesignDocument | null;
+  }>(
+    `select f."id", f."name", f."organizationId", o."name" as "organizationName",
+      f."folderId", f."archivedAt", m."role", d."revision", d."content"
+     from "designFile" f
+     join "organization" o on o."id"=f."organizationId"
+     join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     left join "designDocument" d on d."fileId"=f."id"
+     where f."id"=$1 and m."role" in ${VIEW_ROLES_SQL}`,
+    [fileId, userId],
+  );
+  const row = result.rows[0];
+  if (!row) return null;
+  const { revision, content, ...file } = row;
+  const document =
+    content?.legacyConverted && revision !== null
+      ? await withAssetMimeTypes(userId, { revision, content })
+      : file.archivedAt !== null
+        ? await getArchivedEditorDocument(userId, fileId)
+        : await ensureEditorDocument(userId, fileId);
+  return document ? { file, document } : null;
+}

@@ -8,8 +8,7 @@ import {
 } from "@/lib/editor-preferences";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { getDesignFile } from "@/lib/design/service";
-import { ensureEditorDocument, getArchivedEditorDocument } from "@/lib/design/document-service";
+import { getEditorFile } from "@/lib/design/document-service";
 import { FileEditor } from "./file-editor";
 import { agentsEnabled } from "@/lib/agents/config";
 import { agentsSchemaReady, listAgentThreads } from "@/lib/agents/store";
@@ -17,17 +16,18 @@ import { connectionStatus as agentConnection } from "@/lib/agents/connections";
 import { listDesignFiles } from "@/lib/design/service";
 import { listReviews } from "@/lib/github/reviews";
 import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
-import { FeatureFlagsProvider } from "@/lib/use-feature-flag";
+import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
 
 export default async function DesignFilePage({ params, searchParams }: PageProps<"/files/[uid]">) {
   const { uid } = await params;
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/login");
 
-  const file = await getDesignFile(session.user.id, uid, false, true);
-  if (!file) notFound();
-  const archived = file.archivedAt !== null;
   const flagsPromise = functionalFeatureFlags();
+  const loaded = await getEditorFile(session.user.id, uid);
+  if (!loaded) notFound();
+  const { file, document } = loaded;
+  const archived = file.archivedAt !== null;
   const githubReviews = archived
     ? undefined
     : flagsPromise.then((flags) =>
@@ -38,9 +38,6 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
             })
           : { ready: false, reviews: [] },
       );
-  const documentPromise = archived
-    ? getArchivedEditorDocument(session.user.id, uid)
-    : ensureEditorDocument(session.user.id, uid);
   const agentsPromise = (async () => {
     if (archived || !agentsEnabled() || !(await agentsSchemaReady())) return undefined;
     const [files, initialThreads, connection] = await Promise.all([
@@ -62,19 +59,12 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
     console.error("Could not preload file agents.", error);
     return undefined;
   });
-  // The canvas needs the document, not the optional agent panel's queries.
-  // Stream those separately so delayed integrations cannot block editing.
-  const [document, query, cookieStore, flags] = await Promise.all([
-    documentPromise,
-    searchParams,
-    cookies(),
-    flagsPromise,
-  ]);
-  if (!document) notFound();
+  // Optional rollout and integration requests must not hold up the canvas.
+  const [query, cookieStore] = await Promise.all([searchParams, cookies()]);
   const requestedReview = query.review;
   const initialPanelsOpen = cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open";
   return (
-    <FeatureFlagsProvider flags={flags}>
+    <DeferredFeatureFlagsProvider flags={flagsPromise}>
       <FeedbackProvider>
         <FileEditor
           canEdit={!archived && can(file.role, "edit")}
@@ -97,12 +87,12 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
           )}
           agents={agentsPromise}
           user={{ name: session.user.name, image: session.user.image }}
-          githubReviews={flags["github-connector"] ? githubReviews : undefined}
+          githubReviews={githubReviews}
           viewerId={session.user.id}
           initialReviewId={typeof requestedReview === "string" ? requestedReview : undefined}
           initialFocusNodeId={typeof query.node === "string" ? query.node : undefined}
         />
       </FeedbackProvider>
-    </FeatureFlagsProvider>
+    </DeferredFeatureFlagsProvider>
   );
 }

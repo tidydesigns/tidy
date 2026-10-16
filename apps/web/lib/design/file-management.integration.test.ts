@@ -21,6 +21,7 @@ const {
 const { createDesignFileForUser, renameDesignFileForUser, deleteArchivedDesignFileForUser } =
   await import("./service");
 const { consumeMcpCall } = await import("../mcp/usage");
+const { getEditorFile } = await import("./document-service");
 const testUrl = process.env.FILES_TEST_DATABASE_URL,
   setupUrl = process.env.FILES_SETUP_DATABASE_URL;
 const enabled = Boolean(
@@ -925,3 +926,58 @@ for (const kind of ["current", "stale", "foreign"] as const) {
     },
   );
 }
+
+integration(
+  "editor bootstrap returns the committed blank document with current authority",
+  async () => {
+    const created = await operations.create();
+    if (!created.id) throw new Error(created.error);
+    const editor = await getEditorFile("editor", created.id);
+    expect(editor?.file).toMatchObject({
+      id: created.id,
+      organizationId: "a",
+      organizationName: "A",
+      folderId: "folder",
+      role: "editor",
+      archivedAt: null,
+    });
+    expect(editor?.document).toEqual({ revision: 1, content: blankDesignDocument() });
+    expect((await getEditorFile("viewer", created.id))?.file.role).toBe("viewer");
+    expect(await getEditorFile("outsider", created.id)).toBeNull();
+    expect(await getEditorFile("editor", "missing-file")).toBeNull();
+    await admin.query(`update "user" set "emailVerified"=false where "id"='editor'`);
+    expect(await getEditorFile("editor", created.id)).toBeNull();
+    await admin.query(`update "member" set "role"='unknown' where "id"='view'`);
+    expect(await getEditorFile("viewer", created.id)).toBeNull();
+  },
+);
+
+integration(
+  "editor bootstrap preserves native content and archived legacy reads do not write",
+  async () => {
+    const content = blankDesignDocument();
+    content.nodes = [
+      buildDrawnNode("shape", "container", null, { x: 0, y: 0, width: 100, height: 100 }),
+    ];
+    await admin.query(
+      `update "designDocument" set "revision"=8,"content"=$1 where "fileId"='file'`,
+      [content],
+    );
+    expect((await getEditorFile("editor", "file"))?.document).toEqual({ revision: 8, content });
+    await admin.query(`update "designFile" set "archivedAt"=now() where "id"='file'`);
+    expect((await getEditorFile("viewer", "file"))?.document).toEqual({ revision: 8, content });
+    await admin.query(`delete from "designDocument" where "fileId"='file'`);
+    const before = await state();
+    const archived = await getEditorFile("viewer", "file");
+    expect(archived?.file.archivedAt).not.toBeNull();
+    expect(archived?.document.content.nodes).toHaveLength(2);
+    expect(await state()).toEqual(before);
+    await admin.query(`update "designFile" set "archivedAt"=null where "id"='file'`);
+    const legacy = await getEditorFile("viewer", "file");
+    expect(legacy?.document.content.legacyConverted).toBe(true);
+    expect(legacy?.document.content.nodes).toHaveLength(2);
+    expect(
+      (await admin.query(`select "fileId" from "designDocument" where "fileId"='file'`)).rowCount,
+    ).toBe(1);
+  },
+);
