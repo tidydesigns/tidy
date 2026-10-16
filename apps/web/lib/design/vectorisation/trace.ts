@@ -99,6 +99,7 @@ export function traceRaster(
         new TextEncoder().encode(JSON.stringify(candidate)).length <= traceLimits.bytes
       )
         return { ...candidate, fallback: fallback ?? prepared };
+      return baseline;
     }
   }
   const original = { ...image, data: image.data.slice() };

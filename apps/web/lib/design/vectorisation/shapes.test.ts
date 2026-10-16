@@ -2,6 +2,54 @@ import { expect, test } from "bun:test";
 import sharp from "sharp";
 import { traceRaster } from "./trace";
 import { rasterShapeFixtures, rasterShapeSvg } from "./fixtures";
+import { recoverRasterOcclusion } from "./occlusion";
+import { serializeContours } from "@bella/design/vector-geometry";
+import type { RasterTrace } from "./contract";
+
+test("opaque recovery sorts within translucent barriers without changing compositing order", () => {
+  const rect = (id: string, size: number, opacity: number): RasterTrace["paths"][number] => {
+    const contour = {
+      id,
+      closed: true,
+      points: [
+        { id: `${id}-0`, x: 0, y: 0 },
+        { id: `${id}-1`, x: size, y: 0 },
+        { id: `${id}-2`, x: size, y: size },
+        { id: `${id}-3`, x: 0, y: size },
+      ],
+    };
+    return {
+      name: "Rectangle",
+      color: "#087f68",
+      opacity,
+      vectorPath: {
+        d: serializeContours([contour]),
+        contours: [contour],
+        viewBox: { x: 0, y: 0, width: 32, height: 32 },
+        fillRule: "evenodd",
+      },
+    };
+  };
+  const small = rect("small", 4, 1),
+    large = rect("large", 24, 1),
+    medium = rect("medium", 9, 1),
+    glass = rect("glass", 16, 0.5);
+  const image = { width: 32, height: 32, data: new Uint8ClampedArray(32 * 32 * 4).fill(255) };
+  expect(recoverRasterOcclusion([small, glass, large], image)).toEqual([small, glass, large]);
+  expect(recoverRasterOcclusion([small, large, glass, medium], image)).toEqual([
+    large,
+    small,
+    glass,
+    medium,
+  ]);
+  expect(recoverRasterOcclusion([small, large, glass, small, large], image)).toEqual([
+    large,
+    small,
+    glass,
+    large,
+    small,
+  ]);
+});
 
 for (const fixture of rasterShapeFixtures) {
   test(`${fixture.name}: coherent regions, faithful paint and geometry`, async () => {

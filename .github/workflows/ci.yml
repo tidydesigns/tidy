@@ -38,8 +38,6 @@ jobs:
   browser:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    env:
-      BROWSER_TEST_ARTIFACTS: ${{ runner.temp }}/tidy-browser-results
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -50,6 +48,8 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run test:browser:install
       - run: bun run test:browser
+        env:
+          BROWSER_TEST_ARTIFACTS: ${{ runner.temp }}/tidy-browser-results
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: failure()
         with:

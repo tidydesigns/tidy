@@ -159,11 +159,22 @@ export function recoverRasterOcclusion(
       },
     });
   }
-  // The validation above only fills beneath smaller opaque paints; draw those last.
-  return output
-    .filter((p) => !removed.has(p))
-    .sort((a, b) => {
-      if (a.opacity !== 1 || b.opacity !== 1) return 0;
-      return measure(b).area - measure(a).area;
-    });
+  // Draw recovered opaque backgrounds below smaller paints, but never move a
+  // paint across a translucent layer: its compositing order must stay intact.
+  const kept = output.filter((p) => !removed.has(p));
+  for (let start = 0; start < kept.length;) {
+    if (kept[start].opacity !== 1) {
+      start++;
+      continue;
+    }
+    let end = start + 1;
+    while (end < kept.length && kept[end].opacity === 1) end++;
+    kept.splice(
+      start,
+      end - start,
+      ...kept.slice(start, end).sort((a, b) => measure(b).area - measure(a).area),
+    );
+    start = end;
+  }
+  return kept;
 }
