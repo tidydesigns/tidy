@@ -17,27 +17,37 @@ export const previewSummarySchema = z.object({
   ),
   selectedRootId: z.string().nullable(),
 });
-export const previewSchema = previewSummarySchema.extend({
-  document: designDocumentSchema,
-  assets: z.record(
-    z.string(),
-    z.string().regex(/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/),
-  ),
-  fontUrls: z.array(
-    z
-      .string()
-      .url()
-      .refine((url) => new URL(url).origin === "https://fonts.googleapis.com"),
-  ),
-});
+export const previewSchema = previewSummarySchema
+  .extend({
+    document: designDocumentSchema,
+    assets: z.record(
+      z.string(),
+      z.string().regex(/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/),
+    ),
+    fontUrls: z.array(
+      z
+        .string()
+        .url()
+        .refine((url) => new URL(url).origin === "https://fonts.googleapis.com"),
+    ),
+  })
+  .superRefine((preview, context) => {
+    const nodeIds = new Set(preview.document.nodes.map((node) => node.id));
+    if (preview.roots.some((root) => !nodeIds.has(root.id)))
+      context.addIssue({ code: "custom", message: "Preview root is missing from the document." });
+    if (
+      preview.selectedRootId !== null &&
+      !preview.roots.some((root) => root.id === preview.selectedRootId)
+    )
+      context.addIssue({ code: "custom", message: "Selected preview root is missing." });
+  });
 export type DesignPreview = z.infer<typeof previewSchema>;
 
 export function readPreview(result: unknown): DesignPreview | null {
-  if (!result || typeof result !== "object" || (result as { isError?: boolean }).isError)
-    return null;
-  const parsed = previewSchema.safeParse(
-    (result as { _meta?: { tidyPreview?: unknown } })._meta?.tidyPreview,
-  );
+  if (!result || typeof result !== "object" || ("isError" in result && result.isError)) return null;
+  const envelope = z.object({ _meta: z.object({ tidyPreview: z.unknown() }) }).safeParse(result);
+  if (!envelope.success) return null;
+  const parsed = previewSchema.safeParse(envelope.data._meta.tidyPreview);
   if (!parsed.success) return null;
   const preview = parsed.data;
   const url = new URL(preview.url);

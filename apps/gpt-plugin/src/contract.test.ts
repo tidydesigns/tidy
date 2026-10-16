@@ -20,3 +20,22 @@ test("a late response cannot undo a newer revision or switch back to an old file
   expect(acceptPreview(other, newer, fixture.fileId)).toBe(other);
   expect(acceptPreview(fixture, newer, fixture.fileId)).toBe(newer);
 });
+
+test("preview hydration checks relationships and permits an empty file", () => {
+  const result = (tidyPreview: unknown) => ({ _meta: { tidyPreview } });
+  expect(
+    readPreview(result({ ...fixture, roots: [{ ...fixture.roots[0], id: "missing" }] })),
+  ).toBeNull();
+  expect(readPreview(result({ ...fixture, selectedRootId: "missing" }))).toBeNull();
+  expect(
+    readPreview(
+      result({
+        ...fixture,
+        roots: [],
+        selectedRootId: null,
+        document: { ...fixture.document, nodes: [] },
+      }),
+    ),
+  ).not.toBeNull();
+  for (const _meta of [null, false, [], "invalid"]) expect(readPreview({ _meta })).toBeNull();
+});

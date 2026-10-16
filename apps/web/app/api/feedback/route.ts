@@ -4,6 +4,17 @@ import { reservePersonalAttempts } from "@/lib/security/personal-budget";
 import { boundedRequest } from "@/lib/http/request-body";
 import { PrivacyError, privacyFailure, privateHeaders } from "@/lib/privacy/access";
 import { UUID } from "@/lib/feedback/validation";
+import { z } from "zod";
+
+const feedbackSchema = z.object({
+  id: z.string().regex(UUID),
+  category: z.enum(["broken", "general"]),
+  message: z
+    .string()
+    .max(10000)
+    .transform((value) => value.trim())
+    .pipe(z.string().min(1)),
+});
 export async function POST(request: Request) {
   try {
     if (
@@ -13,21 +24,11 @@ export async function POST(request: Request) {
     const account = await auth.api.getSession({ headers: request.headers });
     if (!account?.user.emailVerified) throw new PrivacyError("Sign in to send feedback.", 401);
     await reservePersonalAttempts("feedback-submit", account.user.id);
-    const data = (await (await boundedRequest(request, 50000)).json()) as {
-      id?: unknown;
-      category?: unknown;
-      message?: unknown;
-    };
-    if (
-      typeof data.id !== "string" ||
-      !UUID.test(data.id) ||
-      (data.category !== "broken" && data.category !== "general") ||
-      typeof data.message !== "string" ||
-      !data.message.trim() ||
-      data.message.length > 10000
-    )
-      throw new PrivacyError("Enter feedback of 10,000 characters or fewer.");
-    await storeFeedback(account.user.id, data.id, data.category, data.message.trim());
+    const bounded = await boundedRequest(request, 50000);
+    const input = feedbackSchema.safeParse(await bounded.json().catch(() => null));
+    if (!input.success) throw new PrivacyError("Enter feedback of 10,000 characters or fewer.");
+    const { id, category, message } = input.data;
+    await storeFeedback(account.user.id, id, category, message);
     return Response.json({ received: true }, { headers: privateHeaders });
   } catch (error) {
     return privacyFailure(error);

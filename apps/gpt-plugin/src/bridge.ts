@@ -1,9 +1,24 @@
-type ToolResult = {
-  isError?: boolean;
-  content?: { type: string; text?: string }[];
-  _meta?: Record<string, unknown>;
-};
-type HostContext = { theme?: "light" | "dark"; locale?: string };
+import { z } from "zod";
+
+const toolResultSchema = z.object({
+  isError: z.boolean().optional(),
+  content: z.array(z.looseObject({ type: z.string(), text: z.string().optional() })).optional(),
+  _meta: z.record(z.string(), z.unknown()).optional(),
+});
+const hostContextSchema = z.object({
+  theme: z.enum(["light", "dark"]).optional(),
+  locale: z.string().optional(),
+});
+const messageSchema = z.looseObject({
+  jsonrpc: z.literal("2.0"),
+  id: z.union([z.string(), z.number()]).optional(),
+  method: z.string().optional(),
+  params: z.unknown().optional(),
+  result: z.unknown().optional(),
+  error: z.unknown().optional(),
+});
+type ToolResult = z.infer<typeof toolResultSchema>;
+type HostContext = z.infer<typeof hostContextSchema>;
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -24,8 +39,9 @@ export class HostBridge {
   }
   private receive = (event: MessageEvent) => {
     if (event.source !== this.host || (this.origin && event.origin !== this.origin)) return;
-    const message = event.data;
-    if (!message || message.jsonrpc !== "2.0") return;
+    const input = messageSchema.safeParse(event.data);
+    if (!input.success) return;
+    const message = input.data;
     if (message.method === "ui/resource-teardown" && message.id !== undefined) {
       this.host.postMessage({ jsonrpc: "2.0", id: message.id, result: {} }, this.targetOrigin());
       this.dispose();
@@ -35,15 +51,25 @@ export class HostBridge {
       if (!this.origin) this.origin = event.origin;
       this.pending.delete(message.id);
       clearTimeout(request.timer);
-      if (message.error)
+      if (message.error !== undefined) {
+        const error = z.object({ message: z.string().optional() }).safeParse(message.error);
         request.reject(
-          new Error(message.error.message ?? "ChatGPT could not complete the request."),
+          new Error(
+            error.success
+              ? (error.data.message ?? "ChatGPT could not complete the request.")
+              : "Invalid host response.",
+          ),
         );
-      else request.resolve(message.result);
-    } else if (message.method === "ui/notifications/tool-result") this.onResult?.(message.params);
-    else if (message.method === "ui/notifications/host-context-changed")
-      this.onContext?.(message.params);
-    else if (message.method === "ui/notifications/tool-cancelled")
+      } else if ("result" in message) request.resolve(message.result);
+      else request.reject(new Error("Invalid host response."));
+    } else if (message.method === "ui/notifications/tool-result") {
+      const result = toolResultSchema.safeParse(message.params);
+      if (result.success) this.onResult?.(result.data);
+      else this.onError?.(new Error("The preview response could not be read."));
+    } else if (message.method === "ui/notifications/host-context-changed") {
+      const context = hostContextSchema.safeParse(message.params);
+      if (context.success) this.onContext?.(context.data);
+    } else if (message.method === "ui/notifications/tool-cancelled")
       this.onError?.(new Error("The request was cancelled."));
   };
   private targetOrigin() {
@@ -60,7 +86,13 @@ export class HostBridge {
         reject(new Error("ChatGPT did not respond. Try again."));
       }, 30_000);
       this.pending.set(id, { resolve, reject, timer });
-      this.host.postMessage({ jsonrpc: "2.0", id, method, params }, this.targetOrigin());
+      try {
+        this.host.postMessage({ jsonrpc: "2.0", id, method, params }, this.targetOrigin());
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(error);
+      }
     });
   }
   connect() {
@@ -70,7 +102,9 @@ export class HostBridge {
       protocolVersion: "2026-01-26",
     })
       .then((value) => {
-        this.onContext?.((value as { hostContext?: HostContext }).hostContext ?? {});
+        const result = z.object({ hostContext: hostContextSchema.optional() }).safeParse(value);
+        if (!result.success) throw new Error("Invalid host initialization response.");
+        this.onContext?.(result.data.hostContext ?? {});
         this.notify("ui/notifications/initialized", {});
       })
       .catch((error) => {
@@ -80,7 +114,11 @@ export class HostBridge {
   }
   async callTool(name: string, args: Record<string, unknown>) {
     await this.connect();
-    return (await this.request("tools/call", { name, arguments: args })) as ToolResult;
+    const result = toolResultSchema.safeParse(
+      await this.request("tools/call", { name, arguments: args }),
+    );
+    if (!result.success) throw new Error("The preview response could not be read.");
+    return result.data;
   }
   async select(fileId: string, rootId: string, revision: number) {
     await this.connect();
