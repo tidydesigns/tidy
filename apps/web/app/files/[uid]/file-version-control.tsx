@@ -1,6 +1,13 @@
 "use client";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { FileVersion, VersionPreview } from "@/lib/design/file-versions";
+import {
+  fileVersionListSchema,
+  versionPreviewSchema,
+  type FileVersion,
+  type VersionPreview,
+} from "@/lib/design/file-version-contract";
+import { z } from "zod";
+import { readJsonResponse } from "@/lib/http/json-response";
 import type { DesignDocument } from "@/lib/design/document";
 import { Dialog } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
@@ -14,11 +21,9 @@ import { openFeedback } from "@/lib/feedback/commands";
 const button =
   "rounded-md border border-primary-grey/70 px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 disabled:opacity-40";
 type List = { versions: FileVersion[]; nextCursor: string | null };
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
+async function api<T>(schema: z.ZodType<T>, url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
-  const value = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(value.error ?? "Could not read file history.");
-  return value;
+  return readJsonResponse({ response, schema, message: "Could not read file history." });
 }
 const body = (value: unknown) => ({
   method: "POST",
@@ -123,7 +128,7 @@ export function FileVersionControl({
   const base = `/api/files/${encodeURIComponent(fileId)}/history`;
   const load = useCallback(
     async (before?: string) => {
-      const next = await api<List>(`${base}${before ? `?before=${before}` : ""}`);
+      const next = await api(fileVersionListSchema, `${base}${before ? `?before=${before}` : ""}`);
       setList((current) =>
         before && current
           ? {
@@ -143,7 +148,7 @@ export function FileVersionControl({
   );
   useEffect(() => {
     let active = true;
-    void api<List>(base).then(
+    void api(fileVersionListSchema, base).then(
       (next) => {
         if (active) {
           setList(next);
@@ -164,7 +169,7 @@ export function FileVersionControl({
   useEffect(() => {
     if (!versionId || !open) return;
     const request = ++requests.current;
-    void api<VersionPreview>(`${base}/${versionId}`).then(
+    void api(versionPreviewSchema, `${base}/${versionId}`).then(
       (next) => {
         if (request !== requests.current) return;
         setPreview(next);
@@ -195,7 +200,8 @@ export function FileVersionControl({
     setPending(true);
     setError("");
     try {
-      const result = await api<{ id: string }>(
+      const result = await api(
+        z.object({ id: z.string() }),
         base,
         body({ id: crypto.randomUUID(), name: submitted, expectedRevision: revision }),
       );

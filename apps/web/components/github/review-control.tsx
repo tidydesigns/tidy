@@ -6,21 +6,22 @@ import Image from "next/image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import posthog from "@/lib/posthog-client";
 import type { DesignDocument } from "@/lib/design/document";
-import type { Review, ReviewContext } from "@/lib/github/reviews";
+import type { ReviewContext } from "@/lib/github/reviews";
+import { reviewListSchema, reviewContextSchema } from "@/lib/github/review-contract";
+import { readJsonResponse } from "@/lib/http/json-response";
+import { z } from "zod";
 import { DesignSnapshot } from "./design-snapshot";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
 
-type ReviewList = { ready: boolean; reviews: Omit<Review, "content">[] };
+type ReviewList = z.infer<typeof reviewListSchema>;
 const button =
   "rounded-md border border-primary-grey/80 bg-surface px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 disabled:opacity-40";
 const input =
   "w-full rounded-md border border-primary-grey/80 bg-surface px-2.5 py-2 text-sm focus:outline-primary-orange";
-async function api<T>(url: string, init?: RequestInit): Promise<T> {
+async function api<T>(schema: z.ZodType<T>, url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { cache: "no-store", ...init });
-  const data = (await response.json()) as T & { error?: string };
-  if (!response.ok) throw new Error(data.error ?? "Could not complete the request.");
-  return data as T;
+  return readJsonResponse({ response, schema, message: "Could not complete the request." });
 }
 const body = (value: unknown, method = "POST") => ({
   method,
@@ -77,7 +78,7 @@ export function ReviewControl({
   const load = useCallback(async (id: string, background = false) => {
     const version = ++requestVersion.current;
     try {
-      const next = await api<ReviewContext>(`/api/github/reviews/${id}`);
+      const next = await api(reviewContextSchema, `/api/github/reviews/${id}`);
       if (
         version === requestVersion.current &&
         liveReviewId.current === id &&
@@ -155,7 +156,7 @@ export function ReviewControl({
         .map((node) => node.id),
     );
     setOpen(true);
-    void api<ReviewList>(`/api/files/${encodeURIComponent(fileId)}/reviews`)
+    void api(reviewListSchema, `/api/files/${encodeURIComponent(fileId)}/reviews`)
       .then(setList)
       .catch((e) => setError(e.message));
   }
@@ -206,12 +207,13 @@ export function ReviewControl({
               onSubmit={(event) => {
                 event.preventDefault();
                 void mutate(async () => {
-                  const linked = await api<{ reviewId: string }>(
+                  const linked = await api(
+                    z.object({ reviewId: z.string() }),
                     `/api/files/${encodeURIComponent(fileId)}/reviews`,
                     body({ url, frameIds: frames, expectedRevision: revision }),
                   );
                   setList(
-                    await api<ReviewList>(`/api/files/${encodeURIComponent(fileId)}/reviews`),
+                    await api(reviewListSchema, `/api/files/${encodeURIComponent(fileId)}/reviews`),
                   );
                   posthog.capture("pull_request_linked", { frame_count: frames.length });
                   chooseReview(linked.reviewId);
@@ -458,6 +460,7 @@ export function ReviewControl({
                 const text = feedback;
                 void mutate(async () => {
                   await api(
+                    z.unknown(),
                     `/api/github/reviews/${review.id}/feedback`,
                     body({
                       body: text,
@@ -564,6 +567,7 @@ export function ReviewControl({
                               onClick={() =>
                                 void mutate(async () => {
                                   await api(
+                                    z.unknown(),
                                     `/api/github/reviews/${review.id}/feedback`,
                                     body({ action: "send", feedbackId: item.id }, "PATCH"),
                                   );
@@ -598,6 +602,7 @@ export function ReviewControl({
                                 onClick={() =>
                                   void mutate(async () => {
                                     await api(
+                                      z.unknown(),
                                       `/api/github/reviews/${review.id}/feedback`,
                                       body(
                                         {

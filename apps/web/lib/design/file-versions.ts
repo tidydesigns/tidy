@@ -10,21 +10,8 @@ import { imageFailureResponse } from "./image-budget";
 import { IMAGE_READ_LIMITS } from "@/lib/security/resource-limits";
 import { designImageResponse } from "@/lib/storage/design-objects";
 
-export type FileVersion = {
-  id: string;
-  sequence: string;
-  revision: number;
-  name: string | null;
-  kind: "automatic" | "named" | "beforeRestore";
-  createdAt: string;
-  createdBy: string | null;
-  author: string | null;
-};
-export type VersionPreview = {
-  version: FileVersion;
-  content: DesignDocument;
-  currentRevision: number;
-};
+import type { FileVersion, VersionPreview } from "./file-version-contract";
+export type { FileVersion, VersionPreview } from "./file-version-contract";
 export class VersionError extends Error {
   constructor(
     message: string,
