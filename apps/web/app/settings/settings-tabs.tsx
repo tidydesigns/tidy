@@ -26,8 +26,7 @@ import { BillingSettings } from "./billing-settings";
 import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
 import { FeatureFlagsProvider } from "@/lib/use-feature-flag";
 import { FLAGS_OFF, type FunctionalFlags } from "@/lib/feature-flags";
-import { useDeferredData } from "@/lib/use-deferred-data";
-import { DeferredSection, SectionLoading } from "@/components/ui/deferred-section";
+import { DeferredSection } from "@/components/ui/deferred-section";
 
 import { AgentConnectionSettings } from "@/components/agents/connection-settings";
 import type { ConnectionStatus as AgentConnection } from "@/lib/agents/protocol";
@@ -68,6 +67,8 @@ function SettingsPanel({
 
 export function SettingsTabs({
   flags = FLAGS_OFF,
+  showBilling,
+  showAgents,
   invitations = [],
   initialTab,
   organization,
@@ -90,7 +91,9 @@ export function SettingsTabs({
   initialEditorPanelsOpen,
   initialEditorToolbarPlacement,
 }: {
-  flags?: FunctionalFlags | Promise<FunctionalFlags>;
+  flags?: FunctionalFlags;
+  showBilling: boolean;
+  showAgents: boolean;
   invitations?: Invite[] | Promise<Invite[]>;
   sessions: AccountSession[] | Promise<AccountSession[]>;
   currentSessionId: string;
@@ -116,22 +119,8 @@ export function SettingsTabs({
   const searchParams = useSearchParams();
   const [editedMembers, setMembers] = useState<Member[]>();
   const [currentRole, setRole] = useState(role);
-  const billingResult = useDeferredData(billing, true);
-  const agentsResult = useDeferredData(agents, true);
-  const flagsResult = useDeferredData(flags);
-  const resolvedFlags = flagsResult.status === "ready" ? flagsResult.value : FLAGS_OFF;
   const requested = settingsTab(searchParams.get("tab"));
-  // A deep link stays selected while its availability is unknown. Ordinary
-  // navigation remains usable without waiting for optional tabs.
-  const showBilling =
-    billingResult.status === "ready"
-      ? Boolean(billingResult.value.proLimits)
-      : requested === "billing";
-  const showAgents =
-    agentsResult.status === "ready" ? Boolean(agentsResult.value) : requested === "agents";
-  const showConnectors =
-    resolvedFlags["settings-connectors"] ||
-    (flagsResult.status === "pending" && requested === "connectors");
+  const showConnectors = flags["settings-connectors"];
   const visibleTabs = settingsTabs(showBilling, showAgents, showConnectors);
   const { names, profileName } = useOrganizationNames();
   const currentOrganization = {
@@ -171,7 +160,7 @@ export function SettingsTabs({
   }
 
   return (
-    <FeatureFlagsProvider flags={resolvedFlags}>
+    <FeatureFlagsProvider flags={flags}>
       <main className={settingsPage} data-page-content="settings">
         <h1 data-ph-public className="text-3xl font-semibold tracking-tight sm:text-4xl">
           Settings
@@ -223,20 +212,16 @@ export function SettingsTabs({
           )}
           {showConnectors && (
             <SettingsPanel item="connectors" selected={tab}>
-              {flagsResult.status === "pending" ? (
-                <SectionLoading label="connectors" />
-              ) : (
-                <ConnectorSettings
-                  key={organization.id}
-                  organizationId={organization.id}
-                  canManage={canInvite}
-                  github={github}
-                  linear={linear}
-                  selected={selectedConnector}
-                  githubCallbackStatus={githubCallbackStatus}
-                  linearCallbackStatus={linearCallbackStatus}
-                />
-              )}
+              <ConnectorSettings
+                key={organization.id}
+                organizationId={organization.id}
+                canManage={canInvite}
+                github={github}
+                linear={linear}
+                selected={selectedConnector}
+                githubCallbackStatus={githubCallbackStatus}
+                linearCallbackStatus={linearCallbackStatus}
+              />
             </SettingsPanel>
           )}
           <SettingsPanel item="members" selected={tab}>

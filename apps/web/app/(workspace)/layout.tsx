@@ -21,8 +21,9 @@ async function Workspace({ children }: { children: ReactNode }) {
 }
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }) {
-  // The page loading boundary is below the layout. This boundary also streams
-  // the first visit while authentication and sidebar metadata are being read.
+  // Stream a cold visit while authentication and sidebar metadata are read.
+  // Data-heavy pages own their loading boundaries; MCP and Settings retain
+  // the current page during an uncached transition instead of flashing a skeleton.
   return (
     <Suspense
       fallback={

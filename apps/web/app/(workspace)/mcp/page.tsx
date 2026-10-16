@@ -1,9 +1,12 @@
+import type { Metadata } from "next";
 import { mcpPage } from "@/components/workspace/page-layout";
 import { getWorkspace } from "@/lib/workspace/server";
 import { authorizedClients } from "@/lib/mcp/authorizations";
 import { McpConnection } from "@/app/mcp/mcp-connection";
 import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
 import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
+
+export const metadata: Metadata = { title: "MCP · Tidy" };
 
 export default function McpPage() {
   const resourceUrl = new URL(

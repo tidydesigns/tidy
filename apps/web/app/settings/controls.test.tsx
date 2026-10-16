@@ -2,6 +2,8 @@ import { expect, mock, test } from "bun:test";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OrganizationNamesProvider } from "@/components/workspace/organization-names";
+import { SettingsSkeleton } from "@/components/workspace/page-skeletons";
+import { FLAGS_OFF } from "@/lib/feature-flags";
 import type { Member } from "./settings-tabs";
 
 mock.module("server-only", () => ({}));
@@ -107,6 +109,8 @@ test("profile renders editable identity, password and other session controls wit
     <SearchParamsContext.Provider value={new URLSearchParams("tab=profile")}>
       <OrganizationNamesProvider>
         <SettingsTabs
+          showBilling={false}
+          showAgents={false}
           initialTab="profile"
           organization={{ id: "org", name: "Team" }}
           user={{ id: "owner", name: "Owner", email: "owner@example.test", emailVerified: false }}
@@ -308,6 +312,8 @@ function deferredSettings(
     <SearchParamsContext.Provider value={new URLSearchParams(`tab=${tab}`)}>
       <OrganizationNamesProvider>
         <SettingsTabs
+          showBilling
+          showAgents
           initialTab="profile"
           organization={{ id: "org", name: "Team" }}
           user={{ id: "owner", name: "Owner", email: "owner@example.test", emailVerified: true }}
@@ -318,7 +324,7 @@ function deferredSettings(
           sessions={pending}
           billing={pending}
           agents={pending}
-          flags={pending}
+          flags={{ ...FLAGS_OFF, "settings-connectors": true }}
           github={pending}
           linear={pending}
           currentSessionId="current"
@@ -357,7 +363,7 @@ test("members render without waiting for invitations", () => {
   expect(html).toContain("Loading invitations");
 });
 
-test("deep links stay on optional tabs while availability is pending", () => {
+test("deep links stay on available tabs while their panel data is pending", () => {
   for (const tab of ["billing", "agents", "connectors"]) {
     const html = renderToStaticMarkup(deferredSettings(tab));
     expect(html).toContain(
@@ -365,4 +371,67 @@ test("deep links stay on optional tabs while availability is pending", () => {
     );
     expect(html).not.toContain("Change password");
   }
+});
+
+test("the complete tab list is present before optional panel data and stays unchanged", () => {
+  const tabs = (html: string) =>
+    [...html.matchAll(/id="settings-tab-([a-z]+)"/g)].map((match) => match[1]);
+  const pending = renderToStaticMarkup(deferredSettings("profile"));
+  expect(tabs(pending)).toEqual([
+    "profile",
+    "preferences",
+    "organization",
+    "members",
+    "connectors",
+    "billing",
+    "agents",
+  ]);
+  const loaded = renderToStaticMarkup(
+    deferredSettings("profile", {
+      billing: {
+        ready: false,
+        tier: "free",
+        plan: null,
+        proLimits: null,
+        status: null,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        customerId: null,
+        firstMonthUsed: false,
+      },
+      agents: undefined,
+    }),
+  );
+  expect(tabs(loaded)).toEqual(tabs(pending));
+});
+
+test("unavailable optional tabs never appear, including on a deep link", () => {
+  for (const tab of ["profile", "billing", "agents", "connectors"]) {
+    const html = renderToStaticMarkup(
+      deferredSettings(tab, {
+        showBilling: false,
+        showAgents: false,
+        flags: FLAGS_OFF,
+      }),
+    );
+    for (const hidden of ["billing", "agents", "connectors"]) {
+      expect(html).not.toContain(`id="settings-tab-${hidden}"`);
+    }
+    expect(html).toContain(
+      'id="settings-tab-profile" type="button" role="tab" aria-selected="true"',
+    );
+    expect(html).toContain("Change password");
+  }
+});
+
+test("cold settings loading does not advertise tabs with unknown availability", () => {
+  const html = renderToStaticMarkup(
+    <SearchParamsContext.Provider value={new URLSearchParams()}>
+      <SettingsSkeleton />
+    </SearchParamsContext.Provider>,
+  );
+  expect(html).toContain("Settings");
+  expect(html).not.toContain("Agents");
+  expect(html).not.toContain("Billing");
+  expect(html).not.toContain("Connectors");
 });

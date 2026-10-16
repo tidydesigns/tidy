@@ -1,4 +1,5 @@
 import { mcpConsentPreference } from "@/lib/privacy/mcp-consent";
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import {
   EDITOR_PANELS_COOKIE,
@@ -13,12 +14,15 @@ import { settingsTab } from "@/lib/settings-navigation";
 import { SettingsTabs } from "@/app/settings/settings-tabs";
 import { connectionStatus } from "@/lib/github/connections";
 import { billingStatus } from "@/lib/billing/server";
+import { billingPlansAvailable } from "@/lib/billing/plan-server";
 import { linearStatus } from "@/lib/linear/connections";
 import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
 
 import { agentsEnabled } from "@/lib/agents/config";
 import { agentsSchemaReady } from "@/lib/agents/store";
 import { connectionStatus as agentConnectionStatus } from "@/lib/agents/connections";
+
+export const metadata: Metadata = { title: "Settings · Tidy" };
 
 export default async function SettingsPage({ searchParams }: PageProps<"/settings">) {
   const flagsPromise = functionalFeatureFlags();
@@ -33,10 +37,14 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
         : undefined,
   );
 
-  const agentStatus = async () =>
-    agentsEnabled() && (await agentsSchemaReady())
-      ? agentConnectionStatus(session.user.id)
-      : undefined;
+  // Resolve navigation separately from usage, sessions and connection details.
+  // The first paint must have the final tabs, including on a prefetched visit.
+  const [cookieStore, flags, showAgents, showBilling] = await Promise.all([
+    cookies(),
+    flagsPromise,
+    agentsEnabled() ? agentsSchemaReady() : false,
+    billingPlansAvailable(),
+  ]);
   const githubUnavailable = {
     configured: false,
     ready: false,
@@ -52,25 +60,21 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
     connections: [],
     error: "Linear is temporarily unavailable.",
   };
-  const github = flagsPromise.then((flags) =>
+  const github =
     flags["settings-connectors"] && flags["github-connector"]
       ? connectionStatus(session.user.id, organization.id).catch(() => githubUnavailable)
-      : githubUnavailable,
-  );
-  const linear = flagsPromise.then((flags) =>
-    flags["settings-connectors"]
-      ? linearStatus(session.user.id, organization.id).catch(() => linearUnavailable)
-      : linearUnavailable,
-  );
+      : githubUnavailable;
+  const linear = flags["settings-connectors"]
+    ? linearStatus(session.user.id, organization.id).catch(() => linearUnavailable)
+    : linearUnavailable;
   // Start independent reads together and stream them into their own sections.
   const members = listWorkspaceMembers(session.user.id, organization.id);
+  const agents = showAgents ? agentConnectionStatus(session.user.id) : undefined;
   const sessions = listAccountSessions(session.user.id);
   const billing = billingStatus(session.user.id, organization.id, true);
   const invitations = canInvite ? listPendingInvitations(session.user.id, organization.id) : [];
-  const agents = agentStatus();
   const mcpAnalytics = mcpConsentPreference(session.user.id).catch(() => null);
   const callbackStatus = params.github;
-  const cookieStore = await cookies();
   return (
     <SettingsTabs
       key={organization.id}
@@ -79,7 +83,9 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       emailConfigured={authEmailConfigured()}
       verificationError={typeof params.error === "string"}
       initialTab={requestedTab ?? "profile"}
-      flags={flagsPromise}
+      flags={flags}
+      showBilling={showBilling}
+      showAgents={showAgents}
       initialMcpAnalytics={mcpAnalytics}
       initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
       initialEditorToolbarPlacement={editorToolbarPlacement(

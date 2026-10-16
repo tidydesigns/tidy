@@ -9,7 +9,7 @@ import { TidyLogo } from "@/components/ui/tidy-logo";
 import { EditorSkeleton, type EditorSkeletonPreferences } from "@/components/files/editor-skeleton";
 import { ConnectorIcon } from "@/components/connectors/connector-icon";
 import { connectorProviders } from "@/lib/connectors/catalog";
-import { settingsTabs, settingsLabels, settingsTab } from "@/lib/settings-navigation";
+import { settingsTab } from "@/lib/settings-navigation";
 import { PageLoading } from "@/components/ui/page-loading";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
 import {
@@ -19,7 +19,6 @@ import {
   filesHeader,
   filesGrid,
   settingsTabList,
-  settingsTabButton,
   settingsPanel,
   threadsPage,
   workspaceFrame,
@@ -352,11 +351,7 @@ function SettingsQuerySkeleton(options: SkeletonOptions) {
   return <SettingsLayoutSkeleton tab={settingsTab(requested) ?? "profile"} {...options} />;
 }
 
-function SettingsLayoutSkeleton({
-  tab,
-  showThreads = true,
-  emailConfigured,
-}: { tab: string } & SkeletonOptions) {
+function SettingsLayoutSkeleton({ tab, emailConfigured }: { tab: string } & SkeletonOptions) {
   const showConnectors = useFeatureFlag("settings-connectors");
   const selectedTab = tab === "connectors" && !showConnectors ? "profile" : tab;
   return (
@@ -364,15 +359,9 @@ function SettingsLayoutSkeleton({
       <h1 data-ph-public className="text-3xl font-semibold tracking-tight sm:text-4xl">
         Settings
       </h1>
+      {/* Availability is not known on a cold load. Never invent optional tabs. */}
       <div className={settingsTabList}>
-        {settingsTabs(true, showThreads, showConnectors).map((item) => (
-          <span
-            key={item}
-            className={`${settingsTabButton} ${item === selectedTab ? "font-semibold text-accent-ink" : "font-medium text-secondary-ink"}`}
-          >
-            {settingsLabels[item]}
-          </span>
-        ))}
+        <Block className="my-2 h-5 w-80 max-w-full" />
       </div>
       <div className={settingsPanel} data-settings-panel-skeleton>
         <SettingsPanelSkeleton tab={selectedTab} emailConfigured={emailConfigured} />

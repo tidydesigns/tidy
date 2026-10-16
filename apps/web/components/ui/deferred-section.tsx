@@ -1,7 +1,17 @@
 "use client";
 
-import { unstable_rethrow } from "next/navigation";
-import { Component, Suspense, use, useDeferredValue, useState, type ReactNode } from "react";
+import { unstable_rethrow, useRouter } from "next/navigation";
+import {
+  Component,
+  Suspense,
+  use,
+  useDeferredValue,
+  useState,
+  useTransition,
+  type ReactNode,
+} from "react";
+
+import { Button } from "@/components/ui/button";
 
 export function SectionLoading({ label }: { label: string }) {
   return (
@@ -24,14 +34,29 @@ class SectionError extends Component<
     return props.source !== state.source ? { source: props.source, failed: false } : null;
   }
   render() {
-    return this.state.failed ? (
-      <p role="alert" className="py-4 text-sm text-danger">
-        Could not load {this.props.label}. Reload to try again.
-      </p>
-    ) : (
-      this.props.children
-    );
+    return this.state.failed ? <SectionRetry label={this.props.label} /> : this.props.children;
   }
+}
+
+function SectionRetry({ label }: { label: string }) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  return (
+    <div className="flex items-center gap-3 py-4 text-sm">
+      <p role="alert" className="text-danger">
+        Could not load {label}.
+      </p>
+      <Button
+        type="button"
+        variant="text"
+        aria-label={`Retry loading ${label}`}
+        disabled={pending}
+        onClick={() => startTransition(() => router.refresh())}
+      >
+        {pending ? "Retrying…" : "Try again"}
+      </Button>
+    </div>
+  );
 }
 
 /** Keep content during promise refreshes; apply completed local updates immediately. */

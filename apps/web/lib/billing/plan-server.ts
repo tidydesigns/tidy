@@ -40,6 +40,18 @@ export async function proPlanLimits(): Promise<PlanLimits> {
   return result.rows[0];
 }
 
+// Tab availability depends on the installed plan catalog, never on a slow usage
+// count or a user's billing connection. Detail failures stay inside the tab.
+export async function billingPlansAvailable(): Promise<boolean> {
+  try {
+    await proPlanLimits();
+    return true;
+  } catch (error) {
+    if ((error as { code?: string }).code === "42P01") return false;
+    throw error;
+  }
+}
+
 // Friendly preflight for Better Auth. Database triggers remain authoritative
 // when two requests contend for the last seat.
 export async function checkInvitationPlan(organizationId: string, email: string, role: string) {
