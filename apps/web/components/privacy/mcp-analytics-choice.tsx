@@ -18,6 +18,10 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
         headers: { "Content-Type": "application/json", "x-tidy-privacy": "1" },
         body: JSON.stringify({ enabled: next, noticeVersion: MCP_NOTICE_VERSION }),
       });
+      if (response.status === 409) {
+        setError("Reload Tidy to review the current MCP analytics notice.");
+        return;
+      }
       if (!response.ok) throw new Error();
       const result = (await response.json()) as { enabled?: unknown };
       if (typeof result.enabled !== "boolean") throw new Error();
