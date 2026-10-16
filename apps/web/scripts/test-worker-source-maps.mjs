@@ -102,11 +102,13 @@ try {
   const trace = new TraceMap(map);
   const source = await readFile(fixture, "utf8");
   const throwLine = source.split("\n").findIndex((line) => line.includes("throw new Error")) + 1;
+  for (const frame of frames) {
+    assert.equal(frame.function, "<redacted>");
+    assert.equal(frame.chunk_id, map.chunk_id);
+    assert.equal(frame.filename, "worker.js");
+  }
   assert.ok(
     frames.some((frame) => {
-      assert.equal(frame.function, "<redacted>");
-      assert.equal(frame.chunk_id, map.chunk_id);
-      assert.equal(frame.filename, "worker.js");
       const position = originalPositionFor(trace, { line: frame.lineno, column: frame.colno });
       return (
         position.source?.endsWith("fixtures/worker-source-maps.ts") && position.line === throwLine

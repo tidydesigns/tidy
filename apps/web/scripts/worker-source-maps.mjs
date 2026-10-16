@@ -90,6 +90,7 @@ export async function assertNoCredentials(directory, env) {
     .flatMap(([, value]) => [value, JSON.stringify(value).slice(1, -1)]);
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const file = path.join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`Symlink in deployment artifacts: ${file}`);
     if (entry.isDirectory()) await assertNoCredentials(file, env);
     else if (entry.isFile() && secrets.length) {
       const bytes = await readFile(file);
@@ -129,6 +130,7 @@ export async function uploadWorkerSourceMaps({ directory, release, env, run = ru
   };
   await assertNoCredentials(directory, cliEnv);
   await injectWorkerSourceMaps({ directory, release, env: cliEnv, run });
+  await assertNoCredentials(directory, cliEnv);
   // Retain maps for Cloudflare's upload. This directory is outside public assets.
   // Any failure stops deployment rather than publishing an unresolvable bundle.
   await run(

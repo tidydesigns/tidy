@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -37,6 +37,20 @@ test("source maps are checked for build credentials including escaped source con
     );
     await expect(assertNoCredentials(directory, { POSTHOG_API_KEY: secret })).rejects.toThrow(
       "Private credential found",
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("artifact symlinks cannot bypass the credential scan", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tidy-map-symlink-"));
+  try {
+    await mkdir(path.join(directory, "deploy"));
+    await writeFile(path.join(directory, "private.js.map"), "private-source");
+    await symlink("../private.js.map", path.join(directory, "deploy/worker.js.map"));
+    await expect(assertNoCredentials(path.join(directory, "deploy"), {})).rejects.toThrow(
+      "Symlink in deployment artifacts",
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
