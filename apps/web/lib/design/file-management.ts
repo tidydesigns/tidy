@@ -13,6 +13,8 @@ import {
   folderAuthority,
 } from "./file-management-authority";
 import { publishFileChanges } from "@/lib/realtime/server";
+import { fileVersion } from "./file-version";
+import { thumbnailIsCurrent, thumbnailVersion } from "./thumbnail-version";
 import { documentSchemaReady } from "./document-service";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "./document";
 
@@ -53,8 +55,10 @@ async function copyAdmission(
   files: SourceFile[],
   documents: boolean,
 ) {
-  const plan = await client.query<{ tier: string; allowance: number | null }>(
-    `select p."id" as tier,p."fileLimit" as allowance from "billingPlan" p where p."id"="organizationPlan"($1)`,
+  const plan = await client.query<{ tier: string; allowance: number | null; thumbnails: boolean }>(
+    `select p."id" as tier,p."fileLimit" as allowance,
+       to_regclass('"designFileThumbnail"') is not null and to_regclass('"designObject"') is not null as thumbnails
+     from "billingPlan" p where p."id"="organizationPlan"($1)`,
     [organizationId],
   );
   if (plan.rows.length !== 1) throw new Error("Missing file plan configuration.");
@@ -107,6 +111,7 @@ async function copyAdmission(
     if (bytes > limits.documentBytesPerCopy || nodes > limits.nodesPerCopy)
       throw new FileManagementError("This copy is too large. Duplicate fewer files.");
   }
+  return documents && plan.rows[0]!.thumbnails;
 }
 
 async function copyFile(
@@ -119,9 +124,10 @@ async function copyFile(
   actor: string,
   archivedAt: Date | null,
   documents: boolean,
+  thumbnails: boolean,
 ) {
-  await client.query(
-    `insert into "designFile" ("id","organizationId","name","createdBy","folderId","archivedAt") values ($1,$2,$3,$4,$5,$6)`,
+  const destination = await client.query<{ updatedAt: Date }>(
+    `insert into "designFile" ("id","organizationId","name","createdBy","folderId","archivedAt") values ($1,$2,$3,$4,$5,$6) returning "updatedAt"`,
     [target, organizationId, name, actor, folderId, archivedAt],
   );
   for (const table of ["designFrame", "designRectangle"] as const) {
@@ -153,6 +159,43 @@ async function copyFile(
         `insert into "designDocument" ("fileId","revision","content") select $2,1,"content" from "designDocument" where "fileId"=$1`,
         [source.id, target],
       );
+      if (!thumbnails) return;
+      // Share only tracked immutable PNGs from the same organization. Holding
+      // their object row excludes collection until the new reference commits.
+      const preview = await client.query<{
+        version: string;
+        updatedAt: Date;
+        revision: number;
+        objectKey: string;
+        sha256: string;
+        byteSize: number;
+      }>(
+        `select t."version",f."updatedAt",d."revision",t."objectKey",t."sha256",t."byteSize"
+         from "designFileThumbnail" t join "designFile" f on f."id"=t."fileId"
+         join "designDocument" d on d."fileId"=f."id"
+         join "designObject" o on o."objectKey"=t."objectKey" and o."organizationId"=f."organizationId"
+           and o."mimeType"='image/png' and o."sha256"=t."sha256" and o."byteSize"=t."byteSize"
+         where f."id"=$1 and f."organizationId"=$2 and t."mimeType"='image/png'
+         for share of t,o`,
+        [source.id, organizationId],
+      );
+      const image = preview.rows[0];
+      if (
+        image &&
+        thumbnailIsCurrent(image.version, fileVersion(image.updatedAt, image.revision))
+      ) {
+        await client.query(
+          `insert into "designFileThumbnail" ("fileId","version","mimeType","sha256","objectKey","byteSize","body")
+           values ($1,$2,'image/png',$3,$4,$5,null)`,
+          [
+            target,
+            thumbnailVersion(fileVersion(destination.rows[0]!.updatedAt, 1)),
+            image.sha256,
+            image.objectKey,
+            image.byteSize,
+          ],
+        );
+      }
     }
   }
 }
@@ -204,7 +247,7 @@ export async function duplicateFolderForUser(
         throw new FileManagementError(
           "This folder has too many files to duplicate at once. Duplicate files individually.",
         );
-      await copyAdmission(client, bound, files.rows, documents);
+      const thumbnails = await copyAdmission(client, bound, files.rows, documents);
       const id = randomUUID();
       await client.query(
         `insert into "designFolder" ("id","organizationId","name","createdBy") values ($1,$2,$3,$4)`,
@@ -221,6 +264,7 @@ export async function duplicateFolderForUser(
           userId,
           file.archivedAt,
           documents,
+          thumbnails,
         );
       return { id };
     });
@@ -245,7 +289,7 @@ export async function duplicateFileForUser(
         throw new FileManagementError("File or folder not found or access denied.");
       const source = result.rows[0]!;
       if (source.folderId !== null) await folderAuthority(client, bound, source.folderId);
-      await copyAdmission(client, bound, [source], documents);
+      const thumbnails = await copyAdmission(client, bound, [source], documents);
       const id = randomUUID();
       await copyFile(
         client,
@@ -257,6 +301,7 @@ export async function duplicateFileForUser(
         userId,
         null,
         documents,
+        thumbnails,
       );
       return { id };
     });

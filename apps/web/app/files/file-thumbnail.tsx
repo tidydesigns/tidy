@@ -11,9 +11,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { fileVersion, fileVersionAtLeast } from "@/lib/design/file-version";
+import { fileVersion } from "@/lib/design/file-version";
 import {
   thumbnailFileVersion,
+  thumbnailFileVersionAtLeast,
   thumbnailIsCurrent,
   thumbnailVersion as encodeThumbnailVersion,
 } from "@/lib/design/thumbnail-version";
@@ -149,7 +150,10 @@ export function FileThumbnail({
 }) {
   const updates = useContext(ThumbnailVersionsContext);
   const container = useRef<HTMLDivElement>(null);
+  const inViewport = useRef(false);
+  const priority = useCallback(() => Number(inViewport.current), []);
   const [visible, setVisible] = useState(eager || prewarm);
+  const [observed, setObserved] = useState(prewarm);
   const [version, setVersion] = useState(thumbnailFileVersion(thumbnailVersion));
   const [source, setSource] = useState(
     thumbnailVersion
@@ -165,7 +169,9 @@ export function FileThumbnail({
   const objectUrl = useRef("");
   const failedVersion = useRef<string | null>(null);
   const appliedCache = useRef<CachedThumbnail | null>(null);
-  const visibilityChanged = useEffectEvent((isVisible: boolean) => {
+  const visibilityChanged = useEffectEvent((isVisible: boolean, isInViewport: boolean) => {
+    inViewport.current = isInViewport;
+    setObserved(true);
     setVisible(isVisible);
     if (isVisible || !rendered) return;
     // Cards stay mounted when scrolling. Release their blobs/decoded images;
@@ -194,7 +200,7 @@ export function FileThumbnail({
     [],
   );
   useEffect(() => {
-    if (!visible || fileId.startsWith("pending-")) return;
+    if (!observed || !visible || fileId.startsWith("pending-")) return;
     const publish = (value: CachedThumbnail) => {
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
       objectUrl.current = URL.createObjectURL(value.blob);
@@ -206,68 +212,76 @@ export function FileThumbnail({
       setJob(null);
     };
     const cached = cachedThumbnail(cacheScope, fileId);
-    if (cached && fileVersionAtLeast(cached.version, checkedVersion)) {
+    if (cached && thumbnailFileVersionAtLeast(cached.version, checkedVersion)) {
       if (appliedCache.current !== cached) publish(cached);
       return;
     }
-    if (fileVersionAtLeast(version, checkedVersion)) return;
+    if (thumbnailFileVersionAtLeast(version, checkedVersion)) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(30_000)]);
-    void prepareThumbnail(async () => {
-      // Another editor may already have published this revision. Reuse its PNG.
-      if (
-        persistedVersion !== failedVersion.current &&
-        thumbnailIsCurrent(persistedVersion, checkedVersion)
-      ) {
-        const response = await fetch(thumbnailUrl(fileId, persistedVersion!), { signal });
-        if (response.ok) {
-          const blob = await response.blob();
-          signal.throwIfAborted();
-          publish({ version: thumbnailFileVersion(persistedVersion), blob, persisted: true });
-          return;
+    void prepareThumbnail(
+      async () => {
+        // Another editor may already have published this revision. Reuse its PNG.
+        if (
+          persistedVersion !== failedVersion.current &&
+          thumbnailIsCurrent(persistedVersion, checkedVersion)
+        ) {
+          const response = await fetch(thumbnailUrl(fileId, persistedVersion!), { signal });
+          if (response.ok) {
+            const blob = await response.blob();
+            signal.throwIfAborted();
+            publish({ version: thumbnailFileVersion(persistedVersion), blob, persisted: true });
+            return;
+          }
+          if ([401, 403].includes(response.status)) throw new Error("Thumbnail access ended.");
+          failedVersion.current = persistedVersion;
         }
-        if ([401, 403].includes(response.status)) throw new Error("Thumbnail access ended.");
-        failedVersion.current = persistedVersion;
-      }
-      const snapshot =
-        providedSnapshot ??
-        (await (async () => {
-          const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/snapshot`, {
-            cache: "no-store",
-            signal,
-          });
-          if (!response.ok) throw new Error("Could not load thumbnail source.");
-          return (await response.json()) as Snapshot & { updatedAt: string };
-        })());
-      signal.throwIfAborted();
-      const currentVersion =
-        "updatedAt" in snapshot
-          ? fileVersion(snapshot.updatedAt as string, snapshot.document?.revision)
-          : initialVersion;
-      await queueThumbnail(async () => {
-        const blob = await new Promise<Blob>((resolve, reject) => {
-          const abort = () => reject(signal.reason);
-          signal.addEventListener("abort", abort, { once: true });
-          setJob({
-            snapshot,
-            signal,
-            onComplete: (blob) => {
-              signal.removeEventListener("abort", abort);
-              resolve(blob);
-            },
-            onError: (error) => {
-              signal.removeEventListener("abort", abort);
-              reject(error);
-            },
-          });
-        });
+        const snapshot =
+          providedSnapshot ??
+          (await (async () => {
+            const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/snapshot`, {
+              cache: "no-store",
+              signal,
+            });
+            if (!response.ok) throw new Error("Could not load thumbnail source.");
+            return (await response.json()) as Snapshot & { updatedAt: string };
+          })());
         signal.throwIfAborted();
-        // Publish immediately. The separate persistence effect retries the same
-        // blob, so a slow/failed POST cannot hide a finished preview or rerender it.
-        publish({ version: currentVersion, blob, persisted: false });
-      }, signal);
-    }, signal).catch(() => {
+        const currentVersion =
+          "updatedAt" in snapshot
+            ? fileVersion(snapshot.updatedAt as string, snapshot.document?.revision)
+            : initialVersion;
+        await queueThumbnail(
+          async () => {
+            const blob = await new Promise<Blob>((resolve, reject) => {
+              const abort = () => reject(signal.reason);
+              signal.addEventListener("abort", abort, { once: true });
+              setJob({
+                snapshot,
+                signal,
+                onComplete: (blob) => {
+                  signal.removeEventListener("abort", abort);
+                  resolve(blob);
+                },
+                onError: (error) => {
+                  signal.removeEventListener("abort", abort);
+                  reject(error);
+                },
+              });
+            });
+            signal.throwIfAborted();
+            // Publish immediately. The separate persistence effect retries the same
+            // blob, so a slow/failed POST cannot hide a finished preview or rerender it.
+            publish({ version: currentVersion, blob, persisted: false });
+          },
+          signal,
+          priority,
+        );
+      },
+      signal,
+      priority,
+    ).catch(() => {
       if (!controller.signal.aborted) {
         setJob(null);
         timer = setTimeout(() => setRetry((value) => value + 1), 10_000);
@@ -280,6 +294,7 @@ export function FileThumbnail({
     };
   }, [
     visible,
+    observed,
     fileId,
     checkedVersion,
     version,
@@ -288,6 +303,7 @@ export function FileThumbnail({
     providedSnapshot,
     cacheScope,
     retry,
+    priority,
   ]);
   useEffect(() => {
     if (!visible || !canGenerate || !rendered || rendered.persisted) return;

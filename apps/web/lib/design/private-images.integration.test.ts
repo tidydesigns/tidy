@@ -259,6 +259,13 @@ integration(
   "thumbnail versions and actual transport/image bounds fail before storage",
   async () => {
     expect((await upload("editor", request(png, "old"))).status).toBe(409);
+    for (const rejected of [
+      version.replace("v2:", "v1:"),
+      version.replace(":3:", ":2:"),
+      version.replace(":3:", ":4:"),
+      "png-v2:3:invalid",
+    ])
+      expect((await upload("editor", request(png, rejected))).status).toBe(409);
     expect((await upload("editor", request(new Uint8Array(2_000_001)))).status).toBe(413);
     expect(
       (await upload("editor", new Request(request(), { headers: { "content-encoding": "gzip" } })))
@@ -284,49 +291,46 @@ const queuedChanges = {
   version: `update "designFile" set "updatedAt"='2026-10-07T12:01:00Z' where "id"='file'`,
 };
 for (const [change, sql] of Object.entries(queuedChanges)) {
-  integration(
-    `queued thumbnail publication rejects changed ${change} without R2 or claims`,
-    async () => {
-      const lock = new Client({ connectionString: setupUrl });
-      await lock.connect();
-      let pending: Promise<Response> | undefined;
-      try {
-        await lock.query("begin");
-        await lock.query("set local lock_timeout='500ms'");
-        const pid = (await lock.query("select pg_backend_pid() as pid")).rows[0].pid;
-        await lock.query("select pg_advisory_xact_lock(hashtextextended('a',0))");
-        pending = upload();
-        let blocked = false;
-        for (let n = 0; n < 100 && !blocked; n++) {
-          blocked = (
-            await lock.query(
-              `select exists(select 1 from pg_locks where locktype='advisory' and not granted and $1=any(pg_blocking_pids(pid))) as blocked`,
-              [pid],
-            )
-          ).rows[0].blocked;
-          if (!blocked) await Bun.sleep(5);
-        }
-        expect(blocked).toBe(true);
-        await lock.query(sql);
-        await lock.query("commit");
-        expect((await pending).status).toBe(
-          change === "revision" || change === "version" ? 409 : 403,
-        );
-        expect(puts).toBe(0);
-        expect(
-          (await admin.query(`select count(*)::int as count from "designObject"`)).rows[0].count,
-        ).toBe(0);
-        expect(
-          (await admin.query(`select "objectKey" from "designFileThumbnail" where "fileId"='file'`))
-            .rows[0].objectKey,
-        ).toBeNull();
-      } finally {
-        await lock.query("rollback");
-        await pending;
-        await lock.end();
+  integration(`queued thumbnail publication rechecks ${change} before R2 or claims`, async () => {
+    const lock = new Client({ connectionString: setupUrl });
+    await lock.connect();
+    let pending: Promise<Response> | undefined;
+    try {
+      await lock.query("begin");
+      await lock.query("set local lock_timeout='500ms'");
+      const pid = (await lock.query("select pg_backend_pid() as pid")).rows[0].pid;
+      await lock.query("select pg_advisory_xact_lock(hashtextextended('a',0))");
+      pending = upload();
+      let blocked = false;
+      for (let n = 0; n < 100 && !blocked; n++) {
+        blocked = (
+          await lock.query(
+            `select exists(select 1 from pg_locks where locktype='advisory' and not granted and $1=any(pg_blocking_pids(pid))) as blocked`,
+            [pid],
+          )
+        ).rows[0].blocked;
+        if (!blocked) await Bun.sleep(5);
       }
-    },
-  );
+      expect(blocked).toBe(true);
+      await lock.query(sql);
+      await lock.query("commit");
+      expect((await pending).status).toBe(
+        change === "version" ? 204 : change === "revision" ? 409 : 403,
+      );
+      expect(puts).toBe(change === "version" ? 1 : 0);
+      expect(
+        (await admin.query(`select count(*)::int as count from "designObject"`)).rows[0].count,
+      ).toBe(change === "version" ? 1 : 0);
+      expect(
+        (await admin.query(`select "objectKey" from "designFileThumbnail" where "fileId"='file'`))
+          .rows[0].objectKey,
+      ).toBe(change === "version" ? key : null);
+    } finally {
+      await lock.query("rollback");
+      await pending;
+      await lock.end();
+    }
+  });
 }
 for (const [change, sql] of Object.entries(queuedChanges).filter(([name]) => name !== "parent")) {
   integration(
@@ -347,9 +351,9 @@ for (const [change, sql] of Object.entries(queuedChanges).filter(([name]) => nam
         expect((await publishing).status).toBe(204);
         await pending;
         expect((await upload()).status).toBe(
-          change === "revision" || change === "version" ? 409 : 403,
+          change === "version" ? 204 : change === "revision" ? 409 : 403,
         );
-        expect(puts).toBe(1);
+        expect(puts).toBe(change === "version" ? 2 : 1);
       } finally {
         pause.release();
         await publishing;

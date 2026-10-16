@@ -1,7 +1,20 @@
 function queue(limit: number) {
   let active = 0;
-  const waiting: (() => void)[] = [];
-  return async function run<T>(work: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  const waiting: { start: () => void; priority: () => number }[] = [];
+  const drain = () => {
+    while (active < limit && waiting.length) {
+      let next = 0;
+      for (let index = 1; index < waiting.length; index++) {
+        if (waiting[index]!.priority() > waiting[next]!.priority()) next = index;
+      }
+      waiting.splice(next, 1)[0]!.start();
+    }
+  };
+  return async function run<T>(
+    work: () => Promise<T>,
+    signal: AbortSignal,
+    priority: () => number = () => 0,
+  ): Promise<T> {
     signal.throwIfAborted();
     await new Promise<void>((resolve, reject) => {
       const start = () => {
@@ -10,22 +23,21 @@ function queue(limit: number) {
         resolve();
       };
       const abort = () => {
-        const index = waiting.indexOf(start);
+        const index = waiting.findIndex((entry) => entry.start === start);
         if (index >= 0) waiting.splice(index, 1);
         reject(signal.reason);
       };
-      if (active < limit) start();
-      else {
-        waiting.push(start);
-        signal.addEventListener("abort", abort, { once: true });
-      }
+      waiting.push({ start, priority });
+      signal.addEventListener("abort", abort, { once: true });
+      // Collect this observer/effect batch before assigning the available slots.
+      queueMicrotask(drain);
     });
     try {
       signal.throwIfAborted();
       return await work();
     } finally {
       active--;
-      waiting.shift()?.();
+      drain();
     }
   };
 }

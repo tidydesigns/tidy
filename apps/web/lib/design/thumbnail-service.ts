@@ -6,7 +6,7 @@ import { inDatabaseScope } from "@/lib/database-scope";
 import { EDIT_ROLES_SQL } from "@/lib/organizations/roles";
 import { IMAGE_READ_LIMITS } from "@/lib/security/resource-limits";
 import { fileVersion } from "./file-version";
-import { thumbnailVersion } from "./thumbnail-version";
+import { thumbnailIsCurrent } from "./thumbnail-version";
 import { designImageResponse, storeDesignObject } from "@/lib/storage/design-objects";
 import { withPrivateImageAccess } from "./image-authority";
 import { imageFailureResponse, reserveImageOperation } from "./image-budget";
@@ -55,7 +55,7 @@ export async function uploadThumbnailForUser(userId: string, uid: string, reques
     const discovered = result.rows[0]!;
     await reserveImageOperation("thumbnail", userId, discovered.organizationId);
     const version = new URL(request.url).searchParams.get("version");
-    if (version !== thumbnailVersion(fileVersion(discovered.updatedAt, discovered.revision)))
+    if (!thumbnailIsCurrent(version, fileVersion(discovered.updatedAt, discovered.revision)))
       return response(409);
     const body = Buffer.from(await (await boundedRequest(request, 2_000_000)).arrayBuffer());
     if (
@@ -83,7 +83,7 @@ export async function uploadThumbnailForUser(userId: string, uid: string, reques
           [uid],
         );
         const file = { ...current.rows[0]!, revision: document.rows[0]?.revision ?? null };
-        if (version !== thumbnailVersion(fileVersion(file.updatedAt, file.revision)))
+        if (!thumbnailIsCurrent(version, fileVersion(file.updatedAt, file.revision)))
           return response(409);
         const { value: stored } = await inDatabaseScope(client, () =>
           storeDesignObject(file.organizationId, "image/png", body, "thumbnail"),

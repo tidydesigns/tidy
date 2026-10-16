@@ -1,6 +1,9 @@
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { Client } from "pg";
 import { db } from "../db";
+import { collectTrackedObject } from "../storage/object-collection";
+import { fileVersion } from "./file-version";
+import { thumbnailIsCurrent, thumbnailVersion } from "./thumbnail-version";
 import { blankDesignDocument, buildDrawnNode } from "./document";
 mock.module("server-only", () => ({}));
 const {
@@ -825,3 +828,99 @@ privateFigma(
   },
   30_000,
 );
+
+for (const table of ["designFileThumbnail", "designObject"] as const) {
+  integration(`document duplication works without optional ${table} storage`, async () => {
+    await admin.query(`alter table "${table}" rename to "${table}Unavailable"`);
+    try {
+      const copied = await operations.file();
+      expect(copied).toHaveProperty("id");
+      expect(
+        (
+          await admin.query(`select "revision" from "designDocument" where "fileId"=$1`, [
+            copied.id,
+          ])
+        ).rows[0].revision,
+      ).toBe(1);
+    } finally {
+      await admin.query(`alter table "${table}Unavailable" rename to "${table}"`);
+    }
+  });
+}
+
+for (const kind of ["current", "stale", "future", "renderer", "foreign"] as const) {
+  integration(
+    `exact duplication reuses only current same-organization PNG references: ${kind}`,
+    async () => {
+      const digest = "a".repeat(64);
+      const objectKey = `originals/${kind === "foreign" ? "b" : "a"}/${digest}.png`;
+      await admin.query(
+        `insert into "designObject" ("objectKey","organizationId","mimeType","sha256","byteSize","usageKind") values ($1,$2,'image/png',$3,100,'thumbnail')`,
+        [objectKey, kind === "foreign" ? "b" : "a", digest],
+      );
+      const original = (await admin.query(`select "updatedAt" from "designFile" where "id"='file'`))
+        .rows[0];
+      const version = thumbnailVersion(
+        fileVersion(original.updatedAt, kind === "stale" ? 6 : kind === "future" ? 8 : 7),
+      );
+      await admin.query(
+        `insert into "designFileThumbnail" ("fileId","version","sha256","objectKey","byteSize") values ('file',$1,$2,$3,100)`,
+        [kind === "renderer" ? version.replace("png-v2:", "png-v1:") : version, digest, objectKey],
+      );
+      const before = (
+        await admin.query(`select sum(bytes)::int as bytes from "organizationStorageObjects"('a')`)
+      ).rows[0].bytes;
+      const copied = await operations.file();
+      expect(copied).toHaveProperty("id");
+      const rows = await admin.query(
+        `select t.*,f."updatedAt",d."revision" from "designFileThumbnail" t join "designFile" f on f."id"=t."fileId" join "designDocument" d on d."fileId"=f."id" where t."fileId"=$1`,
+        [copied.id],
+      );
+      expect(rows.rows.length).toBe(kind === "current" ? 1 : 0);
+      if (kind === "current") {
+        const image = rows.rows[0];
+        expect(image.objectKey).toBe(objectKey);
+        expect(image.body).toBeNull();
+        expect(image.revision).toBe(1);
+        expect(
+          thumbnailIsCurrent(image.version, fileVersion(image.updatedAt, image.revision)),
+        ).toBe(true);
+        await admin.query(`delete from "designFile" where "id"='file'`);
+        await admin.query(
+          `update "designObject" set "lastClaimedAt"=now()-interval '8 days' where "objectKey"=$1`,
+          [objectKey],
+        );
+        let deleted = false;
+        expect(
+          await collectTrackedObject(
+            admin,
+            {
+              delete: async () => {
+                deleted = true;
+              },
+            },
+            objectKey,
+          ),
+        ).toBe(false);
+        expect(deleted).toBe(false);
+        expect(
+          (
+            await admin.query(`select "objectKey" from "designFileThumbnail" where "fileId"=$1`, [
+              copied.id,
+            ])
+          ).rows[0].objectKey,
+        ).toBe(objectKey);
+      }
+      expect(
+        (
+          await admin.query(
+            `select sum(bytes)::int as bytes from "organizationStorageObjects"('a')`,
+          )
+        ).rows[0].bytes,
+      ).toBe(before);
+      expect(
+        (await admin.query(`select count(*)::int as count from "designObject"`)).rows[0].count,
+      ).toBe(1);
+    },
+  );
+}
