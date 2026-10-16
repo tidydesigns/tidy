@@ -5,21 +5,36 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useSyncExternalStore,
   useTransition,
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
 
-type Recovery = { available: () => boolean; claim: () => boolean };
+type Recovery = {
+  available: () => boolean;
+  claim: () => boolean;
+  subscribe: (listener: () => void) => () => void;
+};
+const unavailable = () => false;
+const noSubscription = () => () => {};
 const RecoveryContext = createContext<Recovery | null>(null);
 function recoveryFor(pathname: string): Recovery {
   let attempted = false;
+  const listeners = new Set<() => void>();
   const enabled = pathname === "/mcp" || pathname === "/settings";
   return {
     available: () => enabled && !attempted,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
     claim: () => {
       if (!enabled || attempted) return false;
       attempted = true;
+      for (const listener of listeners) listener();
       return true;
     },
   };
@@ -36,7 +51,12 @@ export function NavigationRecoveryProvider({ children }: { children: ReactNode }
 export function useNavigationRecovery(retry: () => void) {
   const recovery = useContext(RecoveryContext);
   const [pending, startTransition] = useTransition();
-  const available = recovery?.available();
+  // Every boundary observes a claimed budget, even if only its sibling retries.
+  const available = useSyncExternalStore(
+    recovery?.subscribe ?? noSubscription,
+    recovery?.available ?? unavailable,
+    recovery?.available ?? unavailable,
+  );
   useEffect(() => {
     if (!recovery?.claim()) return;
     // Next's retry invalidates failed RSC data as well as resetting the boundary.

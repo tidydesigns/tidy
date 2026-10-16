@@ -50,6 +50,8 @@ const operations = new Set([
   "files.list",
   "asset.session",
   "asset.query",
+  "settings.agents_availability",
+  "settings.billing_availability",
 ]);
 const phases = new Set([
   "handler",

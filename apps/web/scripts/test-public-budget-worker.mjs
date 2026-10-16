@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { buildWorkerFixture } from "./fixtures/build-worker.mjs";
 import { createRequire } from "node:module";
@@ -11,7 +12,7 @@ const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
 const { Miniflare, convertV4MiniflareOptions } = wranglerRequire("miniflare");
 {
   const build = await buildWorkerFixture({
-    entrypoints: [new URL("./fixtures/public-budget-worker.ts", import.meta.url).pathname],
+    entrypoints: [fileURLToPath(new URL("./fixtures/public-budget-worker.ts", import.meta.url))],
     target: "browser",
     external: ["cloudflare:workers", "node:*"],
   });

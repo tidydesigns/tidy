@@ -31,15 +31,22 @@ try {
   assert.equal(response.status, 503);
   assert.match(await response.text(), /Try again/);
   const bodyStarted = performance.now();
-  const body = await worker.dispatchFetch("https://request.test/body-stall", {
-    headers: { Connection: "close" },
-  });
-  // workerd may finish HTTP with partial content or abort the socket. Verify the
-  // actual invariant inside the Worker too: the source is canceled on deadline.
+  let bodyDeadline;
   try {
-    await body.text();
-  } catch {
-    /* interrupted stream */
+    await Promise.race([
+      (async () => {
+        const body = await worker.dispatchFetch("https://request.test/body-stall", {
+          headers: { Connection: "close" },
+        });
+        // Aborting an already-started response is the expected failure mode.
+        await body.text().catch(() => {});
+      })(),
+      new Promise((_, reject) => {
+        bodyDeadline = setTimeout(() => reject(new Error("Page body escaped its deadline.")), 2000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(bodyDeadline);
   }
   assert(performance.now() - bodyStarted < 2000, "Page body escaped its deadline.");
   const sse = await worker.dispatchFetch("https://request.test/sse");

@@ -112,7 +112,7 @@ export function SettingsTabs({
   linear: ConnectorStatus | Promise<ConnectorStatus>;
   selectedConnector?: string;
   linearCallbackStatus?: string;
-  billing: BillingStatus | Promise<BillingStatus>;
+  billing?: BillingStatus | Promise<BillingStatus>;
   agents?: AgentConnection | Promise<AgentConnection | undefined>;
   githubCallbackStatus?: string;
 }) {
@@ -200,13 +200,15 @@ export function SettingsTabs({
           {showBilling && (
             <SettingsPanel item="billing" selected={tab}>
               <DeferredSection value={billing} label="billing">
-                {(loaded) => (
-                  <BillingSettings
-                    organizationId={organization.id}
-                    owner={currentRole.split(",").includes("owner")}
-                    billing={loaded}
-                  />
-                )}
+                {(loaded) =>
+                  loaded ? (
+                    <BillingSettings
+                      organizationId={organization.id}
+                      owner={currentRole.split(",").includes("owner")}
+                      billing={loaded}
+                    />
+                  ) : null
+                }
               </DeferredSection>
             </SettingsPanel>
           )}

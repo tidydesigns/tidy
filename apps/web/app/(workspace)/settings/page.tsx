@@ -10,6 +10,7 @@ import { getWorkspace } from "@/lib/workspace/server";
 import { authEmailConfigured } from "@/lib/auth-email";
 import { listWorkspaceMembers, listPendingInvitations } from "@/lib/organizations/queries";
 import { listAccountSessions } from "@/lib/account/sessions";
+import { settingsAvailability } from "@/lib/settings-availability";
 import { settingsTab } from "@/lib/settings-navigation";
 import { SettingsTabs } from "@/app/settings/settings-tabs";
 import { connectionStatus } from "@/lib/github/connections";
@@ -42,8 +43,10 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const [cookieStore, flags, showAgents, showBilling] = await Promise.all([
     cookies(),
     flagsPromise,
-    agentsEnabled() ? agentsSchemaReady() : false,
-    billingPlansAvailable(),
+    agentsEnabled()
+      ? settingsAvailability("settings.agents_availability", agentsSchemaReady)
+      : false,
+    settingsAvailability("settings.billing_availability", billingPlansAvailable),
   ]);
   const githubUnavailable = {
     configured: false,
@@ -71,7 +74,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const members = listWorkspaceMembers(session.user.id, organization.id);
   const agents = showAgents ? agentConnectionStatus(session.user.id) : undefined;
   const sessions = listAccountSessions(session.user.id);
-  const billing = billingStatus(session.user.id, organization.id, true);
+  const billing = showBilling ? billingStatus(session.user.id, organization.id, true) : undefined;
   const invitations = canInvite ? listPendingInvitations(session.user.id, organization.id) : [];
   const mcpAnalytics = mcpConsentPreference(session.user.id).catch(() => null);
   const callbackStatus = params.github;

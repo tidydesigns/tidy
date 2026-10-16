@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 
@@ -5,7 +6,7 @@ test("workerd shares weighted budgets across callers and caches true readiness s
   // Miniflare requires Undici dispatchers, which Bun's built-in fetch ignores.
   const result = spawnSync(
     "node",
-    [new URL("../../scripts/test-public-budget-worker.mjs", import.meta.url).pathname],
+    [fileURLToPath(new URL("../../scripts/test-public-budget-worker.mjs", import.meta.url))],
     {
       encoding: "utf8",
       timeout: 60_000,
