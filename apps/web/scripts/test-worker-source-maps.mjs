@@ -24,7 +24,14 @@ const directory = path.join(root, "deploy");
 const config = path.join(root, "wrangler.jsonc");
 const fixture = fileURLToPath(new URL("./fixtures/worker-source-maps.ts", import.meta.url));
 const env = {
-  ...process.env,
+  // The CLI derives releases from CI variables even outside a Git checkout.
+  // Keep only process necessities so injection stays offline on hosted runners
+  // and cannot pick up real provider credentials or release configuration.
+  ...Object.fromEntries(
+    ["PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SystemRoot"]
+      .filter((name) => process.env[name] !== undefined)
+      .map((name) => [name, process.env[name]]),
+  ),
   WRANGLER_SEND_METRICS: "false",
   CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false",
   OPEN_NEXT_DEPLOY: "true",
