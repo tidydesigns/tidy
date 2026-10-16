@@ -14,7 +14,7 @@ export function observeThumbnail(
         const listener = listeners.get(entry.target);
         if (!listener) continue;
         listener.near = entry.isIntersecting;
-        listener.notify(listener.near, listener.visible);
+        listener.notify(listener.near || listener.visible, listener.visible);
       }
     },
     { rootMargin: "200px" },
