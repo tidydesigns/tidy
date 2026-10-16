@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import type { Page } from "playwright";
-import { test, required } from "./fixtures";
+import { test, required, expect } from "./fixtures";
 import { measureRasterTrace } from "../../lib/design/vectorisation/quality";
 import { parsePathContours } from "@bella/design/vector-geometry";
 import {
   generalRasterFixtures,
+  gradientRasterFixtures,
   rasterShapeFixtures,
   rasterShapeSvg,
 } from "../../lib/design/vectorisation/fixtures";
@@ -224,6 +225,108 @@ const cases = generalRasterFixtures.flatMap((fixture) => [
     ? [{ fixture, format: "jpeg" as const }]
     : []),
 ]);
+for (const fixture of gradientRasterFixtures) {
+  test(`editable gradients and native export: ${fixture.id}`, async ({ page, baseURL }) => {
+    const { root, panel, openImage } = imageEditor(page);
+    const png = await sharp(Buffer.from(rasterShapeSvg(fixture.body)))
+      .png()
+      .toBuffer();
+    await page.route("**/image-editor-test.svg*", (route) =>
+      route.fulfill({ body: png, contentType: "image/png" }),
+    );
+    await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+    await openImage();
+    await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+    await panel.waitFor({ state: "hidden" });
+    const vectors = root.locator("img[data-vector-path]");
+    await vectors.first().waitFor();
+    expect(await vectors.count()).toBeLessThanOrEqual(fixture.maxShapes);
+    const downloading = page.waitForEvent("download");
+    await page.getByRole("button", { name: "svg", exact: true }).click();
+    const download = await downloading;
+    const exported = await readFile((await download.path())!, "utf8");
+    expect(exported).not.toMatch(/<image|foreignObject/);
+    expect(exported).toContain(
+      fixture.id === "radial-gradient" ? "radialGradient" : "linearGradient",
+    );
+    const original = await sharp(png).ensureAlpha().raw().toBuffer();
+    const rendered = await sharp(Buffer.from(exported))
+      .resize(624, 380)
+      .ensureAlpha()
+      .raw()
+      .toBuffer();
+    const quality = measureRasterTrace(
+      { width: 624, height: 380, data: new Uint8ClampedArray(original) },
+      new Uint8ClampedArray(rendered),
+    );
+    expect(quality.meanError).toBeLessThan(2);
+    expect(quality.alphaError).toBeLessThan(0.6);
+    // Exercise the persisted paint after conversion, including radial coordinates
+    // rebased to the independently editable shape's bounds.
+    if (fixture.maxShapes === 1) {
+      const name = await vectors.first().getAttribute("alt");
+      await page.getByRole("button", { name: `Select ${name}`, exact: true }).click();
+      const stop = page.getByLabel("Stop 1 color", { exact: true });
+      await stop.fill("#ff0000");
+      await stop.press("Tab");
+      await expect.poll(() => vectors.first().getAttribute("src")).toContain("%23ff0000");
+      await page.getByRole("button", { name: `Select ${name}`, exact: true }).click();
+      await page.keyboard.press("ControlOrMeta+z");
+    }
+    await page.getByRole("button", { name: "Select Landscape", exact: true }).click();
+    await page.keyboard.press("ControlOrMeta+z");
+    await root.locator("[data-adjustable-image]").waitFor();
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await vectors.first().waitFor();
+    console.log(
+      `PASS ${fixture.id}: ${await vectors.count()} shapes, mean error ${quality.meanError.toFixed(3)}`,
+    );
+  });
+}
+test("coastal illustration: smooth shading preserves thin highlights and stays editable", async ({
+  page,
+  baseURL,
+}) => {
+  const { root, panel, openImage } = imageEditor(page);
+  const png = await sharp(await readFile("public/image-editor-test.svg"))
+    .png()
+    .toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: png, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  const vectors = root.locator("img[data-vector-path]");
+  await vectors.first().waitFor();
+  expect(await vectors.count()).toBeLessThan(48);
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "svg", exact: true }).click();
+  const download = await downloading;
+  const exported = await readFile((await download.path())!, "utf8");
+  expect(exported).toContain("linearGradient");
+  expect(exported).not.toMatch(/<image|foreignObject/);
+  const original = await sharp(png)
+    .resize(624, 380, { fit: "cover" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  const rendered = await sharp(Buffer.from(exported))
+    .resize(624, 380)
+    .ensureAlpha()
+    .raw()
+    .toBuffer();
+  const quality = measureRasterTrace(
+    { width: 624, height: 380, data: new Uint8ClampedArray(original) },
+    new Uint8ClampedArray(rendered),
+  );
+  expect(quality.meanError).toBeLessThan(2);
+  expect(quality.alphaError).toBeLessThan(0.2);
+  console.log(
+    `PASS coast: ${await vectors.count()} shapes, mean error ${quality.meanError.toFixed(3)}`,
+  );
+});
 for (const { fixture, format } of cases) {
   test(`quality and native export: ${fixture.id} (${format})`, async ({ page, baseURL }) => {
     const base = baseURL!;

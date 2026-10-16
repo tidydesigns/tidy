@@ -17,7 +17,7 @@ export type RasterTrace = {
   height: number;
   paths: {
     name?: string;
-    fill?: Extract<DesignPaint, { type: "linear" }>;
+    fill?: Extract<DesignPaint, { type: "linear" | "radial" }>;
     vectorPath: NonNullable<DesignNode["vectorPath"]>;
     color: string;
     opacity: number;

@@ -64,3 +64,41 @@ export const generalRasterFixtures = [
     body: '<path fill="#087f68" fill-rule="evenodd" d="M70 45H550V335H70ZM115 105V275H500V105ZM90 55H93V320H90Z"/>',
   },
 ] as const;
+
+export const gradientRasterFixtures = [
+  {
+    id: "gradient-highlights",
+    maxShapes: 24,
+    body: '<defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#518e9b"/><stop offset="1" stop-color="#abc7b6"/></linearGradient></defs><rect width="624" height="380" fill="url(#g)"/><path fill="#fff1cb" opacity=".7" d="M100 105H500L200 106ZM140 185H460L240 186ZM200 265H400L300 266Z"/>',
+  },
+  {
+    id: "multi-stop-gradient",
+    maxShapes: 1,
+    body: '<defs><linearGradient id="g"><stop stop-color="#ed5476"/><stop offset=".35" stop-color="#f5bc63"/><stop offset=".7" stop-color="#7352b3"/><stop offset="1" stop-color="#286ccf"/></linearGradient></defs><rect x="42" y="40" width="540" height="300" rx="40" fill="url(#g)"/>',
+  },
+  {
+    id: "diagonal-gradient",
+    maxShapes: 1,
+    body: '<defs><linearGradient id="g" x2="1" y2="1"><stop stop-color="#ec5263"/><stop offset=".4" stop-color="#8e72cb"/><stop offset="1" stop-color="#2b9fb8"/></linearGradient></defs><ellipse cx="312" cy="190" rx="250" ry="145" fill="url(#g)"/>',
+  },
+  {
+    id: "radial-gradient",
+    maxShapes: 1,
+    body: '<defs><radialGradient id="g" cx=".35" cy=".4" r=".7"><stop stop-color="#fff0c5"/><stop offset=".45" stop-color="#ed8971"/><stop offset="1" stop-color="#584088"/></radialGradient></defs><rect x="42" y="40" width="540" height="300" rx="40" fill="url(#g)"/>',
+  },
+  {
+    id: "gradient-objects",
+    maxShapes: 4,
+    body: '<defs><linearGradient id="a" x2="0" y2="1"><stop stop-color="#35bbab"/><stop offset=".6" stop-color="#168d8f"/><stop offset="1" stop-color="#126172"/></linearGradient><linearGradient id="b"><stop stop-color="#f1af63"/><stop offset="1" stop-color="#d85575"/></linearGradient></defs><rect x="35" y="50" width="260" height="280" rx="48" fill="url(#a)"/><ellipse cx="455" cy="190" rx="125" ry="140" fill="url(#b)"/><path fill="#fff1d0" d="M105 215L165 110L225 215Z"/><circle cx="265" cy="305" r="7" fill="#ed5476"/>',
+  },
+  {
+    id: "gradient-cutout",
+    maxShapes: 1,
+    body: '<defs><linearGradient id="g"><stop stop-color="#f05268"/><stop offset=".5" stop-color="#9146ab"/><stop offset="1" stop-color="#336dcb"/></linearGradient></defs><path fill="url(#g)" fill-rule="evenodd" d="M60 40H560V340H60ZM130 105V275H490V105ZM80 50H83V325H80Z"/>',
+  },
+  {
+    id: "gradient-landscape",
+    maxShapes: 32,
+    body: '<defs><linearGradient id="sky" x2="0" y2="1"><stop stop-color="#bfd5df"/><stop offset=".6" stop-color="#f4d9b7"/><stop offset="1" stop-color="#e9c0a6"/></linearGradient><linearGradient id="sea" x2="0" y2="1"><stop stop-color="#518e9b"/><stop offset="1" stop-color="#abc7b6"/></linearGradient><linearGradient id="land" x2=".6" y2="1"><stop stop-color="#6f9467"/><stop offset="1" stop-color="#254d44"/></linearGradient></defs><rect width="624" height="380" fill="url(#sky)"/><circle cx="460" cy="85" r="32" fill="#fff1cb"/><path fill="#809a91" d="M0 200L130 105L260 200L380 145L505 210L624 160V380H0Z"/><rect y="215" width="624" height="165" fill="url(#sea)"/><path fill="url(#land)" d="M0 240Q100 200 220 290T410 340L300 380H0Z"/><path fill="#e5d5ac" d="M0 330Q110 285 240 355L230 365Q100 310 0 350Z"/>',
+  },
+] as const;

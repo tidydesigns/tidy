@@ -8,6 +8,7 @@ import { recoverRasterOcclusion } from "./occlusion";
 import { refineRasterCoverage } from "./coverage";
 import { fitRasterShape } from "./shape-fit";
 import { fitRasterLinearGradient } from "./gradient";
+import { traceGradientRegions } from "./gradient-regions";
 import { prepareRasterRegions } from "./regions";
 import { designNodeSchema } from "../document";
 import { traceLimits, type TraceColors, type RasterTrace } from "./contract";
@@ -48,7 +49,7 @@ function contour(path: TracePath, id: string): VectorContour {
 export function traceRaster(
   image: { width: number; height: number; data: Uint8ClampedArray },
   colors: TraceColors,
-  options: { lossy?: boolean } = {},
+  options: { lossy?: boolean; gradientRegions?: boolean } = {},
 ): RasterTrace {
   if (!["auto", 2, 8, 16, 32].includes(colors))
     throw new Error("Choose Auto, 2, 8, 16 or 32 colours.");
@@ -83,6 +84,21 @@ export function traceRaster(
             paths: silhouette.fallback.paths.map(paint),
           },
         };
+    }
+  }
+  if (colors === "auto" && options.gradientRegions !== false) {
+    const candidate = traceGradientRegions(image, (mask) => traceRaster(mask, 32));
+    if (candidate) {
+      const baseline = traceRaster({ ...image, data: image.data.slice() }, colors, {
+        ...options,
+        gradientRegions: false,
+      });
+      const { fallback, ...prepared } = baseline;
+      if (
+        candidate.pointCount <= traceLimits.points &&
+        new TextEncoder().encode(JSON.stringify(candidate)).length <= traceLimits.bytes
+      )
+        return { ...candidate, fallback: fallback ?? prepared };
     }
   }
   const original = { ...image, data: image.data.slice() };

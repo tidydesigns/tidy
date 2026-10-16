@@ -73,8 +73,18 @@ export function applyRasterTrace(
     );
     const x = Math.min(...points.map((point) => point.x)),
       y = Math.min(...points.map((point) => point.y));
-    const width = Math.max(0.01, Math.max(...points.map((point) => point.x)) - x),
-      height = Math.max(0.01, Math.max(...points.map((point) => point.y)) - y);
+    // Persistence requires a one-pixel frame/viewBox. Pad subpixel geometry's
+    // bounds without stretching it, including when the source was downsampled.
+    const width = Math.max(
+        1,
+        trace.width / viewport.width,
+        Math.max(...points.map((point) => point.x)) - x,
+      ),
+      height = Math.max(
+        1,
+        trace.height / viewport.height,
+        Math.max(...points.map((point) => point.y)) - y,
+      );
     return {
       id: makeId(),
       name: path.name ?? `Shape ${index + 1}`,
@@ -97,14 +107,23 @@ export function applyRasterTrace(
           path.fill
             ? {
                 ...path.fill,
-                start: {
-                  x: (path.fill.start!.x * trace.width - x) / width,
-                  y: (path.fill.start!.y * trace.height - y) / height,
-                },
-                end: {
-                  x: (path.fill.end!.x * trace.width - x) / width,
-                  y: (path.fill.end!.y * trace.height - y) / height,
-                },
+                ...(path.fill.type === "linear"
+                  ? {
+                      start: {
+                        x: (path.fill.start!.x * trace.width - x) / width,
+                        y: (path.fill.start!.y * trace.height - y) / height,
+                      },
+                      end: {
+                        x: (path.fill.end!.x * trace.width - x) / width,
+                        y: (path.fill.end!.y * trace.height - y) / height,
+                      },
+                    }
+                  : {
+                      centerX: (path.fill.centerX * trace.width - x) / width,
+                      centerY: (path.fill.centerY * trace.height - y) / height,
+                      radiusX: (path.fill.radiusX * trace.width) / width,
+                      radiusY: (path.fill.radiusY * trace.height) / height,
+                    }),
                 opacity: path.opacity,
               }
             : {

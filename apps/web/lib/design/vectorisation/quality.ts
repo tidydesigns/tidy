@@ -74,19 +74,40 @@ export function verifyRasterTrace(
   const render = (trace: RasterTrace) => {
     drawing.clearRect(0, 0, canvas.width, canvas.height);
     for (const path of trace.paths) {
+      drawing.save();
       drawing.globalAlpha = path.opacity;
+      let geometry = new Path2D(path.vectorPath.d);
       if (path.fill) {
-        const { start, end, stops } = path.fill;
-        const fill = drawing.createLinearGradient(
-          start!.x * trace.width,
-          start!.y * trace.height,
-          end!.x * trace.width,
-          end!.y * trace.height,
-        );
-        for (const stop of stops) fill.addColorStop(stop.position, stop.color);
+        const paint = path.fill;
+        const fill =
+          paint.type === "linear"
+            ? drawing.createLinearGradient(
+                paint.start!.x * trace.width,
+                paint.start!.y * trace.height,
+                paint.end!.x * trace.width,
+                paint.end!.y * trace.height,
+              )
+            : (() => {
+                const cx = paint.centerX * trace.width,
+                  cy = paint.centerY * trace.height;
+                const rx = paint.radiusX * trace.width,
+                  ry = paint.radiusY * trace.height;
+                drawing.translate(cx, cy);
+                drawing.scale(rx, ry);
+                const transformed = new Path2D();
+                transformed.addPath(
+                  geometry,
+                  new DOMMatrix([1 / rx, 0, 0, 1 / ry, -cx / rx, -cy / ry]),
+                );
+                geometry = transformed;
+                const gradient = drawing.createRadialGradient(0, 0, 0, 0, 0, 1);
+                return gradient;
+              })();
+        for (const stop of paint.stops) fill.addColorStop(stop.position, stop.color);
         drawing.fillStyle = fill;
       } else drawing.fillStyle = path.color;
-      drawing.fill(new Path2D(path.vectorPath.d), path.vectorPath.fillRule);
+      drawing.fill(geometry, path.vectorPath.fillRule);
+      drawing.restore();
     }
     return measureRasterTrace(
       original,

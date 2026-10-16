@@ -3,6 +3,7 @@ import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../doc
 import { applyRasterTrace, vectorisationSource, vectorisationUnavailable } from "./apply";
 import { traceRaster } from "./trace";
 import { diffDocument, applyDocumentPatch } from "../document-patch";
+import { serializeContours } from "@bella/design/vector-geometry";
 
 const assetId = "00000000-0000-4000-8000-000000000071";
 const document = () =>
@@ -27,6 +28,31 @@ const trace = () =>
     },
     8,
   );
+test("subpixel traced details persist without stretching or dropping their geometry", () => {
+  const before = document();
+  const traced = trace();
+  const path = traced.paths[0];
+  const contours = [
+    {
+      id: "tiny",
+      closed: true,
+      points: [
+        { id: "a", x: 2, y: 3 },
+        { id: "b", x: 2.2, y: 3 },
+        { id: "c", x: 2.2, y: 3.1 },
+        { id: "d", x: 2, y: 3.1 },
+      ],
+    },
+  ];
+  traced.paths = [
+    { ...path, vectorPath: { ...path.vectorPath, d: serializeContours(contours), contours } },
+  ];
+  const after = applyRasterTrace(before, "logo", vectorisationSource(before.nodes[0]), traced);
+  expect(after.nodes[1].vectorPath!.viewBox!.width).toBeGreaterThanOrEqual(1);
+  expect(after.nodes[1].vectorPath!.viewBox!.height).toBeGreaterThanOrEqual(1);
+  expect(after.nodes[1].vectorPath!.d).toBe(traced.paths[0].vectorPath.d);
+  expect(() => applyDocumentPatch(before, diffDocument(before, after))).not.toThrow();
+});
 test("conversion preserves identity, location and outer style; paths are asset independent", () => {
   const before = document();
   const after = applyRasterTrace(before, "logo", vectorisationSource(before.nodes[0]), trace());
