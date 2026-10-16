@@ -2157,7 +2157,9 @@ export function FileEditor({
 
   useEffect(() => {
     if (readOnly) return;
-    const typing = () => isEditableTarget(document.activeElement);
+    // An adopted iframe control may belong to another window's Element class.
+    const typing = () =>
+      document.activeElement?.closest("input, textarea, select, [contenteditable]");
     function copy(event: ClipboardEvent) {
       if (typing() || !selectedIds.length || !event.clipboardData) return;
       if (
