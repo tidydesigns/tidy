@@ -1,4 +1,4 @@
-import { textFontSegments } from "@bella/design/rich-text";
+import { textFontSegments } from "@bella/design/rich-text-runtime";
 import {
   parseDesignDocument,
   type DesignDocument,

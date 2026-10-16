@@ -59,7 +59,7 @@ describe("authenticated visual MCP export", () => {
     expect(value.html).toContain("connect-src 'none'");
     expect(value.views[0].variants).toEqual(["primary", "secondary", "danger"]);
     expect(value.byteSize).toBeLessThanOrEqual(VISUAL_PREVIEW_MAX_BYTES);
-    for (const name of ["Paper.js", "React", "Zod"]) {
+    for (const name of ["Paper.js", "React"]) {
       const license = await Bun.file(
         new URL(`../../../../licenses/bundled/${name}.txt`, import.meta.url),
       ).text();

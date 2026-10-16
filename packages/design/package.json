@@ -9,6 +9,7 @@
     "./document": "./document.ts",
     "./native-shapes": "./native-shapes.ts",
     "./rich-text": "./rich-text.ts",
+    "./rich-text-runtime": "./rich-text-runtime.ts",
     "./vector-geometry": "./vector-geometry.ts",
     "./vector-boolean": "./vector-boolean.ts",
     "./vector-relationships": "./vector-relationships.ts",

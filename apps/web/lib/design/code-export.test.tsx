@@ -126,12 +126,10 @@ test("exports only selected asset bytes and strips source paths and history", ()
 test("standalone component runtime carries the full licences of its copied dependencies", async () => {
   const result = exportComponent(document(), "new-thread", "NewThread");
   const runtime = result.files.find((file) => file.path === "tidy-runtime.js")!.content;
-  for (const name of ["Paper.js", "Zod"]) {
-    const license = await Bun.file(
-      new URL(`../../../../licenses/bundled/${name}.txt`, import.meta.url),
-    ).text();
-    expect(runtime).toContain(license.trim());
-  }
+  const license = await Bun.file(
+    new URL("../../../../licenses/bundled/Paper.js.txt", import.meta.url),
+  ).text();
+  expect(runtime).toContain(license.trim());
   expect(runtime).toContain("Tidy runtime code — Apache-2.0");
   expect(runtime).not.toContain("Meta Platforms"); // React is an external import here.
 });

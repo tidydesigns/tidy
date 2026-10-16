@@ -1,5 +1,5 @@
 import type { FigNode } from "openfig-core";
-import { normalizeRichText, type RichText, type TextRun } from "./rich-text";
+import { normalizeRichText, type RichText, type TextRun } from "./rich-text-runtime";
 
 export function figmaFontWeight(face = "Regular") {
   if (/black|heavy/i.test(face)) return 900;

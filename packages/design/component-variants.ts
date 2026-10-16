@@ -1,4 +1,4 @@
-import { replacePlainText, richTextPlain } from "./rich-text";
+import { replacePlainText, richTextPlain } from "./rich-text-runtime";
 import type {
   ComponentVariants,
   DesignNode,

@@ -1,6 +1,6 @@
 "use client";
 import { ImageMimeProvider } from "@tidy/design-renderer/image-context";
-import { textFontSegments } from "@bella/design/rich-text";
+import { textFontSegments } from "@bella/design/rich-text-runtime";
 import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { strokeOutsets } from "@/lib/design/strokes";
@@ -43,6 +43,7 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
     }),
     [content],
   );
+  const colors = useMemo(() => resolvedColorTokens(content), [content]);
   const page = useMemo(
     () => pageNodes(renderedContent, documentPages(renderedContent)[0].id),
     [renderedContent],
@@ -159,7 +160,7 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
     const style = nodeStyle(
       rendered,
       parentLayout,
-      resolvedColorTokens(content),
+      colors,
       parent ? responsiveNode(parent, viewportWidth) : undefined,
       flowIndex,
     );
@@ -168,7 +169,7 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
       vectorCompositeStyle(
         node,
         renderedContent.nodes,
-        resolvedColorTokens(content),
+        colors,
         parent,
         (id) => `/api/assets/${id}`,
       ),
@@ -180,17 +181,13 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
     let childFlowIndex = 0;
     return (
       <div key={node.id} data-thumbnail-node={node.id} style={style}>
-        <NodeStrokes node={rendered} tokens={resolvedColorTokens(content)} />
-        <NodeFills node={rendered} tokens={resolvedColorTokens(content)} />
+        <NodeStrokes node={rendered} tokens={colors} />
+        <NodeFills node={rendered} tokens={colors} />
         {node.type === "text" ? (
           <DesignText node={node} />
         ) : (rendered.type === "image" || rendered.type === "vector") &&
           (node.assetId || rendered.vectorPath) ? (
-          <DesignImage
-            tokens={resolvedColorTokens(content)}
-            node={rendered}
-            src={`/api/assets/${node.assetId}`}
-          />
+          <DesignImage tokens={colors} node={rendered} src={`/api/assets/${node.assetId}`} />
         ) : null}
         {children.get(node.id)?.map((child) => {
           const index = childFlowIndex;

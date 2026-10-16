@@ -1,5 +1,5 @@
 "use client";
-import { textFontSegments } from "@bella/design/rich-text";
+import { textFontSegments } from "@bella/design/rich-text-runtime";
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 import type { DesignNode } from "../document";
 import { fontRegistry } from "./runtime";

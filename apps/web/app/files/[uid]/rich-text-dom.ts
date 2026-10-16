@@ -1,10 +1,10 @@
 import {
   normalizeRichText,
   richTextPlain,
-  textLinkSchema,
   type RichText,
   type TextRun,
-} from "@bella/design/rich-text";
+} from "@bella/design/rich-text-runtime";
+import { textLinkSchema } from "@bella/design/rich-text";
 
 const ignored = new Set([
   "SCRIPT",

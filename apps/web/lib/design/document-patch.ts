@@ -1,6 +1,6 @@
 import { reconcileComponentStructure } from "./component-structure";
 import { z } from "zod";
-import { replacePlainText } from "@bella/design/rich-text";
+import { replacePlainText } from "@bella/design/rich-text-runtime";
 import { parseDesignDocument, type DocumentParser, type DesignDocument } from "./document";
 import { importNoteKey, importNotes, type ImportNote } from "./import-notes";
 import { equalJsonValues as equal, jsonValueKey } from "./json-value";

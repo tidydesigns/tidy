@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { DesignNode } from "@bella/design/document";
 import { renderFontFamily } from "./font-family";
-import { textParagraphs, type TextRun } from "@bella/design/rich-text";
+import { textParagraphs, type TextRun } from "@bella/design/rich-text-runtime";
 
 function Run({
   run,

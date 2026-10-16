@@ -12,7 +12,7 @@ import {
 import type { DesignDocument, DesignNode } from "@bella/design/document";
 import { nodeStyle } from "./node-style";
 import { responsiveNode } from "./responsive-layout";
-import { replacePlainText } from "@bella/design/rich-text";
+import { replacePlainText } from "@bella/design/rich-text-runtime";
 import {
   resolveNodeTokens,
   resolvedColorTokens,
@@ -47,6 +47,7 @@ type TreeProps = Props & {
   parent?: DesignNode;
   flowIndex: number;
   childrenById: Map<string, DesignNode[]>;
+  colors: Record<string, string>;
   insideButton?: boolean;
   measuredWidth: number;
   rootRef?: (element: HTMLElement | null) => void;
@@ -54,7 +55,7 @@ type TreeProps = Props & {
 
 function RenderNode(props: TreeProps) {
   const { node, parent, document, assets, childrenById, measuredWidth, insideButton } = props;
-  const colors = resolvedColorTokens(document);
+  const { colors } = props;
   const [hover, setHover] = useState(false),
     [pressed, setPressed] = useState(false),
     [focus, setFocus] = useState(false);
@@ -339,8 +340,11 @@ export function TidyDesign({
   if (!root?.visible) return null;
   const childrenById = new Map<string, DesignNode[]>();
   for (const node of nodes)
-    if (node.parentId)
-      childrenById.set(node.parentId, [...(childrenById.get(node.parentId) ?? []), node]);
+    if (node.parentId) {
+      const siblings = childrenById.get(node.parentId);
+      if (siblings) siblings.push(node);
+      else childrenById.set(node.parentId, [node]);
+    }
   return (
     <ImageMimeProvider types={document.assetMimeTypes}>
       <RenderNode
@@ -356,6 +360,7 @@ export function TidyDesign({
         text={text}
         node={root}
         childrenById={childrenById}
+        colors={resolvedColorTokens(renderedDocument)}
         measuredWidth={frameWidth ?? width}
         flowIndex={0}
         rootRef={(element) => {
