@@ -8,6 +8,8 @@ import { SignOutButton } from "@/app/sign-out-button";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { AccountOrganizationOptions } from "./organization-options";
 import { PrivacyControls } from "./privacy-controls";
+import { mcpConsentPreference } from "@/lib/privacy/mcp-consent";
+import { McpAnalyticsChoice } from "@/components/privacy/mcp-analytics-choice";
 
 function activeInvitations(
   invitations: { id: string; organizationName?: string; expiresAt: Date }[] | null,
@@ -29,11 +31,12 @@ export default async function AccountPrivacyPage() {
   if (!account) redirect("/login?next=/account/privacy");
   const organizations = await auth.api.listOrganizations({ headers: requestHeaders });
   if (organizations.length) redirect("/settings#account-data");
-  const [creation, invitations] = await Promise.all([
+  const [creation, invitations, mcpAnalytics] = await Promise.all([
     organizationCreationStatus(account.user.id),
     account.user.emailVerified
       ? auth.api.listUserInvitations({ headers: requestHeaders }).catch(() => null)
       : Promise.resolve([]),
+    mcpConsentPreference(account.user.id).catch(() => null),
   ]);
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-6 py-12 pb-24">
@@ -62,6 +65,7 @@ export default async function AccountPrivacyPage() {
       />
       <PrivacyControls email={account.user.email} />
       <PrivacyChoicesButton />
+      {mcpAnalytics && <McpAnalyticsChoice initialEnabled={mcpAnalytics.enabled} />}
     </main>
   );
 }

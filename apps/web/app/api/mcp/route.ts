@@ -8,6 +8,7 @@ import { hasMcpAuthorization } from "@/lib/mcp/authorizations";
 import { readMcpRequest } from "@/lib/mcp/scopes";
 import { instrumentMcpServer, McpActivity } from "@/lib/mcp/activity";
 import { registerTidyTools } from "@/lib/mcp/registry";
+import { instrumentMcpAnalytics } from "@/lib/mcp/analytics";
 import { meterMcpServer } from "@/lib/mcp/usage";
 import { currentMcpGrant, withMcpGrantContext, type McpGrant } from "@/lib/mcp/grant-context";
 import { withMcpGrantOperation } from "@/lib/mcp/grant-operation";
@@ -27,18 +28,21 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
   const activity = new McpActivity({ userId, clientId });
   return registerTidyTools(
     meterMcpServer(
-      instrumentMcpServer(
-        new McpServer(
-          { name: "Tidy canvas", version: "0.1.0" },
-          {
-            cacheHints: {
-              "tools/list": { ttlMs: 300_000, cacheScope: "private" },
-              "resources/list": { ttlMs: 300_000, cacheScope: "private" },
-              "resources/templates/list": { ttlMs: 300_000, cacheScope: "private" },
+      instrumentMcpAnalytics(
+        instrumentMcpServer(
+          new McpServer(
+            { name: "Tidy canvas", version: "0.1.0" },
+            {
+              cacheHints: {
+                "tools/list": { ttlMs: 300_000, cacheScope: "private" },
+                "resources/list": { ttlMs: 300_000, cacheScope: "private" },
+                "resources/templates/list": { ttlMs: 300_000, cacheScope: "private" },
+              },
             },
-          },
+          ),
+          activity,
         ),
-        activity,
+        userId,
       ),
       userId,
       undefined,

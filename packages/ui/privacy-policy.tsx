@@ -71,10 +71,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           legitimate interests (Article 6(1)(f)) for security, reliability, support and
           administering access to an organisation’s service; and legal obligations (Article 6(1)(c))
           for applicable accounting, tax and data-protection duties. Optional browser analytics,
-          replay and diagnostics rely on consent (Article 6(1)(a)); refusing or withdrawing consent
-          does not prevent account access. Our legitimate interests are protecting users and
-          operating a reliable service; processing must be necessary and proportionate. You can
-          object as explained below.
+          replay, diagnostics and MCP usage analytics rely on consent (Article 6(1)(a)); refusing or
+          withdrawing consent does not prevent account access. Our legitimate interests are
+          protecting users and operating a reliable service; processing must be necessary and
+          proportionate. You can object as explained below.
         </p>
         <p>
           Account details and authentication are needed to provide account access. Payment and
@@ -89,10 +89,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
       >
         <p>
           Tidy supports PostHog, Inc. for functional rollout settings, server fault monitoring and
-          optional analytics, browser diagnostics and session replay in the app when these features
-          are enabled. The marketing website does not load the PostHog browser SDK. Functional
-          settings, core server monitoring and optional browser collection have separate purposes
-          and controls.
+          optional analytics, browser diagnostics, session replay and MCP usage analytics when these
+          features are enabled. The marketing website does not load the PostHog browser SDK.
+          Functional settings, core server monitoring and optional browser collection have separate
+          purposes and controls.
         </p>
         <p>
           <strong>Functional rollout settings — independent of optional consent.</strong> Tidy's
@@ -202,6 +202,33 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           confirmation fails, optional collection stays off and the app offers a retry.
         </p>
       </Section>
+      <Section id="mcp-analytics" title="Optional MCP usage analytics">
+        <p>
+          If you turn on <strong>MCP usage analytics</strong> in{" "}
+          <strong>Settings → Preferences → Privacy</strong> (or your account page if you have no
+          organisation), we send PostHog tool names, timestamps, execution durations,
+          success/failure indicators and app version to understand tool adoption and improve
+          reliability. Events use a random identifier linked to your consent record, not your email
+          or account ID. We do not create a person profile for these events or send tool arguments,
+          results, prompts, agent intent, design content, credentials, client IP addresses or raw
+          errors. PostHog receives connection information from our server.
+        </p>
+        <p>
+          This account-level choice is off by default and applies to external MCP calls made with
+          your account. It is separate from browser choices and permission for an agent to access
+          Tidy. It uses no analytics cookies, conversation identifiers or extra tool parameters. You
+          can turn it off in the same place without losing MCP access. Authentication, permissions,
+          usage limits and the limited server fault monitoring described above continue
+          independently. We rely on your consent for optional MCP analytics.
+        </p>
+        <p>
+          The choice expires after 90 days. Withdrawal or expiry stops new collection and queues the
+          associated events for provider erasure; account deletion also includes this follow-up. A
+          new opt-in uses a new identifier. We retain consent evidence for up to one year, or until
+          account deletion. Provider erasure is handled through the review process described below;
+          it is not instantaneous or a guaranteed automatic 90-day deletion deadline.
+        </p>
+      </Section>
       <Section id="cookies" title="Cookies and similar storage">
         <p>
           Cookies and local/session storage can remember information in your browser. The same
@@ -260,8 +287,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           </li>
           <li>
             <strong>PostHog:</strong> global functional rollout settings, limited server fault
-            monitoring and the optional browser analytics, diagnostics, replay and survey responses
-            described above.
+            monitoring, optional MCP usage analytics and the optional browser analytics,
+            diagnostics, replay and survey responses described above.
           </li>
           <li>
             <strong>PlanetScale:</strong> the database holding account, workspace and application
@@ -343,10 +370,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
 
       <Section id="posthog-retention" title="PostHog retention and deletion">
         <p>
-          Tidy records your privacy choices, notice version and timestamps with a random browser
-          identifier and, when signed in, your account ID. These first-party consent records and
-          completed cleanup receipts are scheduled for removal after one year. Account deletion also
-          removes linked consent records. Recording a rejection does not send data to PostHog.
+          Tidy records your browser privacy choices, notice version and timestamps with a random
+          browser identifier and, when signed in, your account ID. These first-party consent records
+          and completed cleanup receipts are scheduled for removal after one year. Account deletion
+          also removes linked consent records. Recording a rejection does not send data to PostHog.
           Withdrawal and expiry create a task for applicable provider deletion. We keep these
           records to meet our data-protection obligations.
         </p>
@@ -357,7 +384,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             PostHog can take additional time to complete removal. Changes to this setting apply to
             new recordings; existing recordings keep their original retention period.
           </dd>
-          <dt>Usage events, historical feature-flag activity and survey responses</dt>
+          <dt>Browser usage events, historical feature-flag activity and survey responses</dt>
           <dd>
             We use PostHog’s standard event-storage settings. Our paid plan makes events available
             for seven years. This is a query window, not a guaranteed deletion deadline; we have not

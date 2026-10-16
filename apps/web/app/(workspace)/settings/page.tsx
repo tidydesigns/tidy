@@ -1,3 +1,4 @@
+import { mcpConsentPreference } from "@/lib/privacy/mcp-consent";
 import { cookies } from "next/headers";
 import {
   EDITOR_PANELS_COOKIE,
@@ -67,6 +68,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const billing = billingStatus(session.user.id, organization.id, true);
   const invitations = canInvite ? listPendingInvitations(session.user.id, organization.id) : [];
   const agents = agentStatus();
+  const mcpAnalytics = mcpConsentPreference(session.user.id).catch(() => null);
   const callbackStatus = params.github;
   const cookieStore = await cookies();
   return (
@@ -78,6 +80,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       verificationError={typeof params.error === "string"}
       initialTab={requestedTab ?? "profile"}
       flags={flagsPromise}
+      initialMcpAnalytics={mcpAnalytics}
       initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
       initialEditorToolbarPlacement={editorToolbarPlacement(
         cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,

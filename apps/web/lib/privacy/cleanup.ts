@@ -4,6 +4,7 @@ import { designBucket } from "@/lib/storage/design-objects";
 import { feedbackBucket } from "@/lib/feedback/storage";
 import { runnerRequest } from "@/lib/agents/runner-client";
 import { maintainConsentRecords } from "./consent-store";
+import { maintainMcpConsentRecords } from "./mcp-consent";
 
 type CleanupJob = {
   id: string;
@@ -45,7 +46,8 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
     if (process.env.PRIVACY_POSTHOG_DISABLED === "1") {
       if (
         process.env.NEXT_PUBLIC_POSTHOG_ENABLED === "1" ||
-        process.env.POSTHOG_SERVER_ERRORS_ENABLED === "1"
+        process.env.POSTHOG_SERVER_ERRORS_ENABLED === "1" ||
+        process.env.POSTHOG_MCP_ANALYTICS_ENABLED === "1"
       )
         throw new Error("PostHog cleanup cannot be disabled while collection is enabled");
       return "complete";
@@ -86,6 +88,7 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
 
 export async function processPrivacyCleanup(limit = 1) {
   await maintainConsentRecords();
+  await maintainMcpConsentRecords();
   let completed = 0,
     failed = 0;
   for (let index = 0; index < limit; index++) {

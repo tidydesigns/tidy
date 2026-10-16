@@ -14,7 +14,8 @@ const lines = ["production", "development", "test"].map((mode) => {
     if (
       name.startsWith("NEXT_PUBLIC_") ||
       name === "POSTHOG_TRACING_ENABLED" ||
-      name === "POSTHOG_SERVER_ERRORS_ENABLED"
+      name === "POSTHOG_SERVER_ERRORS_ENABLED" ||
+      name === "POSTHOG_MCP_ANALYTICS_ENABLED"
     )
       runtime[name] = value;
     else if (
@@ -32,6 +33,7 @@ const lines = ["production", "development", "test"].map((mode) => {
       "NEXT_PUBLIC_POSTHOG_SURVEY_ID",
       "POSTHOG_TRACING_ENABLED",
       "POSTHOG_SERVER_ERRORS_ENABLED",
+      "POSTHOG_MCP_ANALYTICS_ENABLED",
     ]) {
       if (process.env[name]) runtime[name] = process.env[name];
     }

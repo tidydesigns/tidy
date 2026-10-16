@@ -116,7 +116,7 @@ export function CookieConsent() {
             tabIndex={-1}
             className="text-xl font-semibold outline-none"
           >
-            Your privacy choices
+            Your browser privacy choices
           </h2>
           <Button
             type="button"

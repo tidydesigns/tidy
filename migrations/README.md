@@ -61,3 +61,12 @@ versioned consent decisions, an external-erasure review job type and minimal
 operator completion receipts. Apply it before deploying the PostHog restart code,
 then reapply the runtime grants manifest. Local initialization includes it; no
 production migration is automatic.
+
+## MCP analytics consent
+
+`20261016-mcp-analytics-consent.sql` follows `20261015-analytics-consent.sql`.
+It adds separate account-level MCP analytics decisions, defaulting to no permission.
+Apply it before deploying the app changes and reapply the runtime grant manifest.
+Both local setup scripts include it. Run `bun test:privacy:db` to verify consent,
+expiry, withdrawal and deletion with a disposable database. Production migration
+and deployment require separate approval. See [MCP analytics](../docs/mcp-analytics.md).

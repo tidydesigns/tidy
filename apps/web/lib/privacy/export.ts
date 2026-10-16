@@ -53,6 +53,8 @@ export const exportQueries: Record<string, string> = {
   vault: 'select id,name,"createdAt" from "vaultLogin" where "userId"=$1',
   feedback: 'select id,category,message,"createdAt" from "feedbackSubmission" where "userId"=$1',
   feedbackUploads: 'select id,attachments,"createdAt" from "feedbackUpload" where "userId"=$1',
+  mcpAnalyticsChoices:
+    'select id,enabled,"noticeVersion","createdAt","expiresAt","retiredAt" from "mcpAnalyticsConsent" where "userId"=$1',
   privacyChoices:
     'select id,version,"noticeVersion",at,analytics,replay,diagnostics,"recordedAt","expiresAt" from "privacyConsent" where "userId"=$1',
 };

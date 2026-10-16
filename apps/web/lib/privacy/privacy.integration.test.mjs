@@ -8,7 +8,7 @@ const { privacyAccount } = await import("./access");
 const { processPrivacyCleanup } = await import("./cleanup");
 const { recordConsent, recordedConsent, maintainConsentRecords, RECEIPT_COOKIE } =
   await import("./consent-store");
-const { CONSENT_VERSION, consentCookie } = await import("./consent");
+const { CONSENT_VERSION, MCP_NOTICE_VERSION, consentCookie } = await import("./consent");
 const { completePostHogReview } = await import("./cleanup-operations");
 const url = process.env.PRIVACY_TEST_DATABASE_URL;
 const setup = process.env.PRIVACY_SETUP_DATABASE_URL;
@@ -994,5 +994,216 @@ integration(
         else process.env[key] = previous[index];
       });
     }
+  },
+);
+
+const {
+  activeMcpConsent,
+  setMcpConsent,
+  withMcpConsent,
+  maintainMcpConsentRecords,
+  mcpAnalyticsId,
+} = await import("./mcp-consent");
+
+integration(
+  "MCP consent is explicit, account-specific and independent of browser consent",
+  async () => {
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    await recordConsent(
+      {
+        version: CONSENT_VERSION,
+        at: Date.now(),
+        analytics: true,
+        replay: true,
+        diagnostics: true,
+      },
+      "alice",
+    );
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    await setMcpConsent("alice", "alice-session", true);
+    const id = await activeMcpConsent("alice");
+    expect(id).toBeTruthy();
+    expect(await activeMcpConsent("bob")).toBeUndefined();
+    await setMcpConsent("alice", "alice-session", true);
+    expect(await activeMcpConsent("alice")).toBe(id);
+    const exported = await exportAccount("alice", "alice-session");
+    expect(exported.mcpAnalyticsChoices).toHaveLength(1);
+    expect(exported.mcpAnalyticsChoices[0].enabled).toBe(true);
+    expect(exported.mcpAnalyticsChoices[0].noticeVersion).toContain("mcp-analytics");
+  },
+);
+
+integration(
+  "MCP withdrawal fences in-flight calls, queues erasure and re-opt-in uses a new identifier",
+  async () => {
+    await setMcpConsent("alice", "alice-session", true);
+    const id = await activeMcpConsent("alice");
+    const send = mock(async () => {});
+    await withMcpConsent("alice", id, send);
+    expect(send).toHaveBeenCalledTimes(1);
+    await withMcpConsent("bob", id, send);
+    expect(send).toHaveBeenCalledTimes(1);
+    await setMcpConsent("alice", "alice-session", false);
+    await withMcpConsent("alice", id, send);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    const job = (await admin.query('select subject from "privacyCleanup"')).rows[0];
+    expect(JSON.parse(job.subject)).toMatchObject({
+      distinctIds: [mcpAnalyticsId(id)],
+      withdrawn: ["mcp-analytics"],
+    });
+    await setMcpConsent("alice", "alice-session", true);
+    expect(await activeMcpConsent("alice")).not.toBe(id);
+    await withMcpConsent("alice", id, send);
+    expect(send).toHaveBeenCalledTimes(1);
+  },
+);
+
+integration(
+  "MCP expiry and outdated notices stop collection and queue one erasure review",
+  async () => {
+    for (const condition of [
+      "\"expiresAt\"=now()-interval '1 second'",
+      "\"noticeVersion\"='old'",
+    ]) {
+      await setMcpConsent("alice", "alice-session", true);
+      const id = await activeMcpConsent("alice");
+      await admin.query(`update "mcpAnalyticsConsent" set ${condition} where id=$1`, [id]);
+      expect(await activeMcpConsent("alice")).toBeUndefined();
+      const send = mock(async () => {});
+      await withMcpConsent("alice", id, send);
+      expect(send).not.toHaveBeenCalled();
+      await maintainMcpConsentRecords();
+      await maintainMcpConsentRecords();
+      const jobs = (await admin.query('select subject from "privacyCleanup"')).rows.map((r) =>
+        JSON.parse(r.subject),
+      );
+      expect(jobs.filter((j) => j.distinctIds.includes(mcpAnalyticsId(id)))).toHaveLength(1);
+    }
+  },
+);
+
+integration(
+  "MCP account deletion queues pseudonymous events and removes consent evidence",
+  async () => {
+    await setMcpConsent("alice", "alice-session", true);
+    const id = await activeMcpConsent("alice");
+    await deleteAccount("alice", "alice-session", "alice@example.test");
+    expect((await admin.query('select id from "mcpAnalyticsConsent"')).rowCount).toBe(0);
+    const jobs = (
+      await admin.query("select subject from \"privacyCleanup\" where kind='posthog-review'")
+    ).rows;
+    expect(jobs.some((j) => JSON.parse(j.subject).distinctIds.includes(mcpAnalyticsId(id)))).toBe(
+      true,
+    );
+    const send = mock(async () => {});
+    await withMcpConsent("alice", id, send);
+    expect(send).not.toHaveBeenCalled();
+  },
+);
+
+integration(
+  "MCP consent evidence is removed after a year only after erasure is queued",
+  async () => {
+    await setMcpConsent("alice", "alice-session", true);
+    const id = await activeMcpConsent("alice");
+    await admin.query(
+      `update "mcpAnalyticsConsent" set "createdAt"=now()-interval '2 years', "expiresAt"=now()-interval '1 year' where id=$1`,
+      [id],
+    );
+    await maintainMcpConsentRecords();
+    expect((await admin.query('select id from "mcpAnalyticsConsent"')).rowCount).toBe(0);
+    const job = (await admin.query('select subject from "privacyCleanup"')).rows[0];
+    expect(JSON.parse(job.subject).distinctIds).toEqual([mcpAnalyticsId(id)]);
+  },
+);
+
+integration(
+  "MCP preference API rejects anonymous, cross-origin, forged-account and stale-session changes",
+  async () => {
+    const { auth } = await import("../auth");
+    const { POST } = await import("../../app/api/privacy/mcp-analytics/route");
+    const session = spyOn(auth.api, "getSession").mockResolvedValue(null);
+    const origin = new URL(process.env.BETTER_AUTH_URL).origin;
+    const request = (body, headers = {}) =>
+      POST(
+        new Request(`${origin}/api/privacy/mcp-analytics`, {
+          method: "POST",
+          headers: { origin, "x-tidy-privacy": "1", ...headers },
+          body: JSON.stringify(
+            Array.isArray(body) ? body : { noticeVersion: MCP_NOTICE_VERSION, ...body },
+          ),
+        }),
+      );
+    try {
+      expect((await request({ enabled: true })).status).toBe(401);
+      session.mockResolvedValue({ user: { id: "alice" }, session: { id: "alice-session" } });
+      expect((await request({ enabled: true }, { origin: "https://attacker.test" })).status).toBe(
+        403,
+      );
+      expect((await request({ enabled: true }, { "x-tidy-privacy": "" })).status).toBe(403);
+      for (const body of [{ enabled: "true" }, { enabled: true, userId: "bob" }, {}, []])
+        expect((await request(body)).status).toBe(400);
+      expect((await request({ enabled: true, noticeVersion: "old" })).status).toBe(409);
+      expect((await request({ enabled: true, noticeVersion: undefined })).status).toBe(409);
+      const result = await request({ enabled: true });
+      expect(result.status).toBe(200);
+      expect(result.headers.get("cache-control")).toBe("private, no-store");
+      expect(await activeMcpConsent("alice")).toBeTruthy();
+      expect(await activeMcpConsent("bob")).toBeUndefined();
+      expect((await request({ enabled: false, noticeVersion: "old" })).status).toBe(200);
+      expect(await activeMcpConsent("alice")).toBeUndefined();
+      await admin.query("delete from session where id='alice-session'");
+      expect((await request({ enabled: false })).status).toBe(401);
+    } finally {
+      session.mockRestore();
+    }
+  },
+);
+
+integration(
+  "MCP withdrawal waits for admitted delivery, then forbids subsequent sends",
+  async () => {
+    await setMcpConsent("alice", "alice-session", true);
+    const id = await activeMcpConsent("alice");
+    let release;
+    const held = new Promise((resolve) => {
+      release = resolve;
+    });
+    let entered;
+    const started = new Promise((resolve) => {
+      entered = resolve;
+    });
+    const sending = withMcpConsent("alice", id, async () => {
+      entered();
+      await held;
+    });
+    await started;
+    let finished = false;
+    const withdrawing = setMcpConsent("alice", "alice-session", false).then(() => {
+      finished = true;
+    });
+    try {
+      // Observe a real lock waiter rather than assuming a timer schedules the write.
+      for (let attempt = 0; attempt < 100; attempt++) {
+        const blocked = (
+          await admin.query(`select 1 from pg_stat_activity
+        where datname=current_database() and wait_event_type='Lock'
+        and query like 'select id from "user" where id=%for update'`)
+        ).rowCount;
+        if (blocked) break;
+        if (attempt === 99) throw new Error("Withdrawal did not wait for delivery");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      expect(finished).toBe(false);
+    } finally {
+      release();
+      await sending;
+      await withdrawing;
+    }
+    expect(finished).toBe(true);
+    const send = mock(async () => {});
+    await withMcpConsent("alice", id, send);
+    expect(send).not.toHaveBeenCalled();
   },
 );

@@ -6,6 +6,7 @@ import { designBucket } from "@/lib/storage/design-objects";
 import { runnerConfigured } from "@/lib/agents/runner-client";
 import { lockPrivacyAccount, PrivacyError } from "./access";
 import { checkDeletionOwnership } from "./deletion-eligibility";
+import { mcpAnalyticsId } from "./mcp-consent";
 
 export const DELETED_USER = "tidy-deleted-user";
 export async function deleteAccount(userId: string, sessionId: string, confirmation: string) {
@@ -60,6 +61,21 @@ export async function deleteAccount(userId: string, sessionId: string, confirmat
     if (agent.rowCount || runnerConfigured()) await enqueue("runner", userId);
     // Queue even if analytics is currently off: older consent may have created a profile.
     await enqueue("posthog", userId);
+    const mcpIds = (
+      await client.query<{ id: string }>(
+        'select id from "mcpAnalyticsConsent" where "userId"=$1 and enabled',
+        [userId],
+      )
+    ).rows.map((row) => mcpAnalyticsId(row.id));
+    if (mcpIds.length)
+      await enqueue(
+        "posthog-review",
+        JSON.stringify({
+          reason: "account-deletion",
+          distinctIds: mcpIds,
+          withdrawn: ["mcp-analytics"],
+        }),
+      );
     const browserIds = (
       await client.query<{ browserId: string }>(
         'select distinct "browserId" from "privacyConsent" where "userId"=$1',

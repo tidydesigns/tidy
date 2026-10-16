@@ -40,6 +40,7 @@ try {
     "20261010-document-event-performance.sql",
     "20261011-account-privacy.sql",
     "20261015-analytics-consent.sql",
+    "20261016-mcp-analytics-consent.sql",
   ])
     await client.query(
       await readFile(new URL(`../../../migrations/${name}`, import.meta.url), "utf8"),

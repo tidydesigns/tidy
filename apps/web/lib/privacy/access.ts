@@ -22,7 +22,7 @@ export const privateHeaders = {
 
 export async function privacyAccount(
   request: Request,
-  operation: "privacy-export" | "privacy-delete" | "privacy-reauth",
+  operation: "privacy-export" | "privacy-delete" | "privacy-reauth" | "privacy-consent",
 ) {
   // Next.js/proxies can expose an internal request URL. Use the configured public
   // origin, never a caller-supplied Host or forwarded header, for the CSRF boundary.

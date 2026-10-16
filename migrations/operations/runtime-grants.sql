@@ -72,6 +72,7 @@ DECLARE
     'privacyCleanup',
     'privacyCleanupReceipt',
     'privacyConsent',
+    'mcpAnalyticsConsent',
     'session',
     'user',
     'vaultLogin',
