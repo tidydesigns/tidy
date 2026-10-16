@@ -45,7 +45,13 @@ import {
 } from "@/lib/design/asset-placement";
 import type { ExportRequest } from "@/lib/design/export-plan";
 import { FileVersionControl } from "./file-version-control";
-import type { RoomCommit } from "@/lib/design/room-edit-queue";
+import { snapshotCommitSchema } from "@/lib/design/sync-protocol";
+import {
+  assetPageSchema,
+  assetUploadSchema,
+  clipboardAssetsSchema,
+} from "@/lib/design/asset-contract";
+import { readJsonResponse } from "@/lib/http/json-response";
 import { PrototypePlayer } from "@/components/design/prototype-player";
 import { PrototypeInspector } from "./prototype-inspector";
 
@@ -1094,9 +1100,11 @@ export function FileEditor({
       const response = await fetch(
         `/api/files/${encodeURIComponent(fileId)}/assets${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ""}`,
       );
-      const result: { assets: BrowserAsset[]; nextCursor: string | null; error?: string } =
-        await response.json();
-      if (!response.ok) throw new Error(result.error ?? "Could not load assets.");
+      const result = await readJsonResponse({
+        response,
+        schema: assetPageSchema,
+        message: "Could not load assets.",
+      });
       if (version !== assetRequests.current.version) return;
       setBrowserAssets((before) => [
         ...new Map(
@@ -1176,8 +1184,11 @@ export function FileEditor({
       body: form,
       signal,
     });
-    const result: { assetId?: string; error?: string } = await response.json();
-    if (!response.ok || !result.assetId) throw new Error(result.error ?? errorMessage);
+    const result = await readJsonResponse({
+      response,
+      schema: assetUploadSchema,
+      message: errorMessage,
+    });
     return result.assetId;
   }
   async function uploadImages(files: File[], replaceId?: string, target = placementTarget()) {
@@ -1461,8 +1472,11 @@ export function FileEditor({
           body: JSON.stringify({ operationId: crypto.randomUUID(), expectedRevision }),
         },
       );
-      const result = (await response.json()) as RoomCommit & { error?: string };
-      if (!response.ok) throw new Error(result.error ?? "Could not restore this version.");
+      const result = await readJsonResponse({
+        response,
+        schema: snapshotCommitSchema,
+        message: "Could not restore this version.",
+      });
       if (result.patch.length)
         history.record(result.patch, Promise.resolve(result), capturedSelection);
       room.receive(result.snapshot);
@@ -2036,9 +2050,11 @@ export function FileEditor({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sourceFile: payload.sourceFile, assetIds }),
         });
-        const result: { assets?: Record<string, string>; error?: string } = await response.json();
-        if (!response.ok || !result.assets)
-          throw new Error(result.error ?? "Could not copy clipboard images.");
+        const result = await readJsonResponse({
+          response,
+          schema: clipboardAssetsSchema,
+          message: "Could not copy clipboard images.",
+        });
         payload = remapClipboardAssets(payload, result.assets);
       }
       if (!signal?.aborted) await commitClipboard(payload, context, inPlace);

@@ -23,7 +23,15 @@ import {
   updateComment,
 } from "../comment-client";
 import { COMMENT_EMOJIS } from "@/lib/design/comment-emoji";
-import type { CommentMessage, CommentReaction, CommentThread } from "@/lib/design/comments";
+import {
+  commentEmojiSchema,
+  commentPageSchema,
+  type CommentPage,
+  type CommentMessage,
+  type CommentReaction,
+  type CommentThread,
+} from "@/lib/design/comment-contract";
+import { readJsonResponse } from "@/lib/http/json-response";
 
 export type CanvasCommentsHandle = { place: (x: number, y: number) => void };
 type Point = { x: number; y: number };
@@ -91,8 +99,13 @@ function ThreadMessage({
     setPending(true);
     setError("");
     try {
-      const result = await updateComment(fileId, message.id, message.body, editText);
-      if (result.error) {
+      const result = await updateComment({
+        fileId,
+        messageId: message.id,
+        previousBody: message.body,
+        body: editText,
+      });
+      if (result.kind === "error") {
         setError(result.error);
         editRef.current?.focus();
         return;
@@ -107,8 +120,14 @@ function ThreadMessage({
     }
   }
 
-  async function toggleReaction(emoji: string) {
+  async function toggleReaction(value: string) {
     if (pending) return;
+    const parsed = commentEmojiSchema.safeParse(value);
+    if (!parsed.success) {
+      setError("This reaction is no longer supported.");
+      return;
+    }
+    const emoji = parsed.data;
     const existing = message.reactions.find((reaction) => reaction.emoji === emoji);
     setReactionDraft(
       existing
@@ -129,8 +148,8 @@ function ThreadMessage({
     setPending(true);
     setError("");
     try {
-      const result = await reactToComment(fileId, message.id, emoji);
-      if (result.error) {
+      const result = await reactToComment({ fileId, messageId: message.id, emoji });
+      if (result.kind === "error") {
         setError(result.error);
         return;
       }
@@ -321,24 +340,20 @@ export const CanvasComments = forwardRef<
   const refresh = useCallback(
     async (ensureThreadId?: string) => {
       const version = ++refreshVersion.current;
-      type Page = {
-        threads: CommentThread[];
-        viewerId: string;
-        reactionsAvailable: boolean;
-        canModerateThreads: boolean;
-        nextCursor?: string | null;
-      };
       try {
         const pages: CommentThread[][] = [];
         let cursor: string | null = null;
-        let result: Page | undefined;
-        const read = async (query: URLSearchParams): Promise<Page> => {
+        let result: CommentPage | undefined;
+        const read = async (query: URLSearchParams): Promise<CommentPage> => {
           const response = await fetch(
             `/api/files/${encodeURIComponent(fileId)}/comments?${query}`,
             { cache: "no-store" },
           );
-          if (!response.ok) throw new Error("Could not load comments.");
-          return response.json();
+          return readJsonResponse({
+            response,
+            schema: commentPageSchema,
+            message: "Could not load comments.",
+          });
         };
         for (let index = 0; index < loadedPages.current; index++) {
           const query = new URLSearchParams({ pageId });
@@ -438,24 +453,22 @@ export const CanvasComments = forwardRef<
     const interaction = interactionRef.current;
     try {
       const result = draft
-        ? await addCommentThread(fileId, draft.x, draft.y, body, pageId)
+        ? await addCommentThread({ fileId, x: draft.x, y: draft.y, body, pageId })
         : activeId
-          ? await addCommentReply(fileId, activeId, body)
-          : { error: "Choose a comment thread." };
-      if (result.error) {
+          ? await addCommentReply({ fileId, threadId: activeId, body })
+          : { kind: "error" as const, error: "Choose a comment thread." };
+      if (result.kind === "error") {
         if (interaction === interactionRef.current) setError(result.error);
         return;
       }
       if (interaction === interactionRef.current) {
         setBody("");
-        if ("id" in result && typeof result.id === "string") {
+        if (result.kind === "created") {
           setActiveId(result.id);
           setDraft(null);
         }
       }
-      await refresh(
-        "id" in result && typeof result.id === "string" ? result.id : (activeId ?? undefined),
-      );
+      await refresh(result.kind === "created" ? result.id : (activeId ?? undefined));
     } catch {
       if (interaction === interactionRef.current) setError("Could not post comment. Try again.");
     } finally {
@@ -499,9 +512,9 @@ export const CanvasComments = forwardRef<
     try {
       const result =
         resolved === null
-          ? await removeCommentThread(fileId, thread.id)
-          : await changeCommentThreadStatus(fileId, thread.id, resolved);
-      if (result.error) throw new Error(result.error);
+          ? await removeCommentThread({ fileId, threadId: thread.id })
+          : await changeCommentThreadStatus({ fileId, threadId: thread.id, resolved });
+      if (result.kind === "error") throw new Error(result.error);
     } catch (cause) {
       setThreads((current) => [...current.filter((item) => item.id !== thread.id), thread]);
       if (interaction === interactionRef.current) {

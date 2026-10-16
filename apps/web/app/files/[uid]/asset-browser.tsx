@@ -4,7 +4,8 @@ import { displayImageUrl } from "@tidy/design-renderer/image-display";
 import { createImagePool, type ImagePool } from "@tidy/design-renderer/image-loading";
 import { useLoadedImage } from "@tidy/design-renderer/use-loaded-image";
 import type { DesignDocument } from "@/lib/design/document";
-export type BrowserAsset = { assetId: string; mimeType: string; byteSize: number };
+import type { BrowserAsset } from "@/lib/design/asset-contract";
+export type { BrowserAsset } from "@/lib/design/asset-contract";
 
 function AssetThumbnail({ asset, pool }: { asset: BrowserAsset; pool: ImagePool }) {
   const original = `/api/assets/${asset.assetId}`;

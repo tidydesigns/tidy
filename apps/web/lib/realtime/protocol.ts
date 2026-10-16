@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AgentActivity } from "./agent-activity";
+import { agentActivitySchema } from "./agent-activity";
 
 const id = z.string().min(1).max(120);
 const point = z
@@ -47,19 +47,50 @@ export const presenceSchema = z
   })
   .strict();
 export type Presence = z.infer<typeof presenceSchema>;
-export type Actor = { userId: string; name: string; image: string | null };
-export type Peer = Actor & Presence & { sessionId: string; color: string; updatedAt: number };
-export type FileEvent = { sequence: number; kind: "document" | "metadata" | "comments" };
-export type RoomMessage =
-  | { type: "activity"; activity: AgentActivity }
-  | { type: "activities"; activities: AgentActivity[] }
-  | { type: "access"; canEdit: boolean }
-  | { type: "peers"; peers: Peer[] }
-  | { type: "presence"; peer: Peer }
-  | { type: "leave"; sessionId: string }
-  | { type: "events"; events: FileEvent[] }
-  | { type: "ready" }
-  | { type: "pong" };
+export const actorSchema = z.object({
+  userId: id,
+  name: z.string().max(200),
+  image: z.string().max(2048).nullable(),
+});
+export const peerSchema = presenceSchema
+  .extend({
+    ...actorSchema.shape,
+    sessionId: z.uuid(),
+    color: z.string(),
+    updatedAt: z.number().int().nonnegative(),
+  })
+  .strip();
+export const fileEventSchema = z.object({
+  sequence: z.number().int().nonnegative(),
+  kind: z.enum(["document", "metadata", "comments"]),
+});
+export const roomMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("activity"), activity: agentActivitySchema }),
+  z.object({ type: z.literal("activities"), activities: z.array(agentActivitySchema) }),
+  z.object({ type: z.literal("access"), canEdit: z.boolean() }),
+  z.object({ type: z.literal("peers"), peers: z.array(peerSchema) }),
+  z.object({ type: z.literal("presence"), peer: peerSchema }),
+  z.object({ type: z.literal("leave"), sessionId: z.uuid() }),
+  z.object({ type: z.literal("events"), events: z.array(fileEventSchema) }),
+  z.object({ type: z.literal("ready") }),
+  z.object({ type: z.literal("pong") }),
+]);
+export type Actor = z.infer<typeof actorSchema>;
+export type Peer = z.infer<typeof peerSchema>;
+export type FileEvent = z.infer<typeof fileEventSchema>;
+export type RoomMessage = z.infer<typeof roomMessageSchema>;
+
+/** Invalid frames never reach presence stores or advance the synchronization cursor. */
+export function readRoomMessage(input: unknown): RoomMessage | null {
+  if (typeof input !== "string") return null;
+  try {
+    const value: unknown = JSON.parse(input);
+    const parsed = roomMessageSchema.safeParse(value);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
 export const EMPTY_PRESENCE: Presence = {
   pageId: "page-1",
   cursor: null,
