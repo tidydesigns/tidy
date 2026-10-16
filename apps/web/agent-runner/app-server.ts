@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { promisify } from "node:util";
 import { EventEmitter } from "node:events";
@@ -8,13 +9,20 @@ export const CODEX_VERSION = "0.160.0";
 const executeFile = promisify(execFile);
 
 type RpcId = string | number;
-export type RpcMessage = {
-  id?: RpcId;
-  method?: string;
-  params?: Record<string, unknown>;
-  result?: unknown;
-  error?: { code: number; message: string };
-};
+const rpcMessageSchema = z
+  .object({
+    id: z.union([z.string(), z.number()]).optional(),
+    method: z.string().optional(),
+    params: z.record(z.string(), z.unknown()).optional(),
+    result: z.unknown().optional(),
+    error: z.object({ code: z.number(), message: z.string() }).optional(),
+  })
+  .refine(
+    (message) =>
+      message.method !== undefined ||
+      (message.id !== undefined && ("result" in message || message.error !== undefined)),
+  );
+export type RpcMessage = z.infer<typeof rpcMessageSchema>;
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
@@ -55,8 +63,10 @@ export class CodexAppServer extends EventEmitter {
     // Standard Codex home override applies only to this isolated subprocess.
     // Deliberately exclude API keys, the runner service key, and Tidy DB credentials.
     environment.CODEX_HOME = this.directory;
+    // App ProcessEnv declarations require server secrets; this subprocess deliberately excludes them.
+    const subprocessEnvironment = environment as NodeJS.ProcessEnv;
     const version = await executeFile(this.executable, ["--version"], {
-      env: environment as NodeJS.ProcessEnv,
+      env: subprocessEnvironment,
       timeout: 5000,
     });
     if (version.stdout.trim() !== `codex-cli ${CODEX_VERSION}`)
@@ -81,7 +91,7 @@ export class CodexAppServer extends EventEmitter {
         "-c",
         'web_search="disabled"',
       ],
-      { cwd, env: environment as NodeJS.ProcessEnv, stdio: "pipe" },
+      { cwd, env: subprocessEnvironment, stdio: "pipe" },
     );
     this.child = child;
     child.stdout.setEncoding("utf8");
@@ -101,18 +111,18 @@ export class CodexAppServer extends EventEmitter {
     });
     this.notify("initialized");
   }
-  request<T = Record<string, unknown>>(
+  request(
     method: string,
     params: Record<string, unknown> = {},
     timeout = 30_000,
-  ): Promise<T> {
+  ): Promise<unknown> {
     const id = this.nextId++;
     return new Promise((resolvePromise, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`Codex ${method} timed out.`));
       }, timeout);
-      this.pending.set(id, { resolve: (value) => resolvePromise(value as T), reject, timer });
+      this.pending.set(id, { resolve: resolvePromise, reject, timer });
       try {
         this.send({ id, method, params });
       } catch (error) {
@@ -150,7 +160,7 @@ export class CodexAppServer extends EventEmitter {
       if (!line.trim()) continue;
       let message: RpcMessage;
       try {
-        message = JSON.parse(line) as RpcMessage;
+        message = rpcMessageSchema.parse(JSON.parse(line));
       } catch {
         this.fail(new Error("Invalid Codex protocol message."));
         this.close();

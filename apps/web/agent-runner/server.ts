@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { rm } from "node:fs/promises";
 import { timingSafeEqual } from "node:crypto";
 import type { EventEmitter } from "node:events";
@@ -78,7 +79,8 @@ export function createRunnerHandler(options: RunnerOptions) {
             await app.request("account/logout");
             login = {
               result: app
-                .request<{ loginId?: string }>("account/login/start", { type: "chatgptDeviceCode" })
+                .request("account/login/start", { type: "chatgptDeviceCode" })
+                .then((value) => z.looseObject({ loginId: z.string().optional() }).parse(value))
                 .catch((error) => {
                   logins.delete(owner);
                   throw error;

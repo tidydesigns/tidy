@@ -18,12 +18,13 @@ const accountResponse = z.object({
     })
     .nullable(),
 });
-export type NativeLogin = {
-  type: "chatgptDeviceCode";
-  loginId: string;
-  verificationUrl: string;
-  userCode: string;
-};
+const nativeLoginSchema = z.object({
+  type: z.literal("chatgptDeviceCode"),
+  loginId: z.string().min(1).max(200),
+  verificationUrl: z.literal("https://auth.openai.com/codex/device"),
+  userCode: z.string().regex(/^[A-Z0-9-]{4,32}$/),
+});
+export type NativeLogin = z.infer<typeof nativeLoginSchema>;
 export async function connectionStatus(userId: string): Promise<ConnectionStatus> {
   await verifiedAgentUser(db, userId);
   await reservePersonalAttempts("agent-status", userId);
@@ -76,18 +77,10 @@ export async function startNativeLogin(userId: string): Promise<NativeLogin> {
         "Stop your active runs before changing the connected account.",
         409,
       );
-    const login = await runnerRequest<NativeLogin>(userId, "login");
-    if (
-      login.type !== "chatgptDeviceCode" ||
-      typeof login.loginId !== "string" ||
-      !login.loginId ||
-      login.loginId.length > 200 ||
-      typeof login.userCode !== "string" ||
-      !/^[A-Z0-9-]{4,32}$/.test(login.userCode) ||
-      login.verificationUrl !== "https://auth.openai.com/codex/device"
-    ) {
+    const input = nativeLoginSchema.safeParse(await runnerRequest(userId, "login"));
+    if (!input.success)
       throw new AgentError("login_failed", "Codex did not return a supported sign-in flow.", 502);
-    }
+    const login = input.data;
     await client.query(
       `insert into "agentConnection" ("id","userId","provider","subject","clientId","accountLabel","status") values ($1,$2,'codex','','codex-managed','','connecting')
       on conflict ("userId") do update set "provider"='codex',"subject"='',"clientId"='codex-managed',"accountLabel"='',"status"='connecting',"encryptedTokens"=null,"scopes"='{}',"version"="agentConnection"."version"+1,"updatedAt"=now()`,
@@ -106,7 +99,7 @@ export async function refreshNativeConnection(userId: string) {
     )
   ).rows[0];
   if (!connection || connection.status === "disconnected") return statusForUser(userId);
-  const result = accountResponse.safeParse(await runnerRequest<unknown>(userId, "account"));
+  const result = accountResponse.safeParse(await runnerRequest(userId, "account"));
   if (!result.success)
     throw new AgentError("runner_error", "Codex did not return a supported account response.", 502);
   const supported = result.data.account?.type === "chatgpt";

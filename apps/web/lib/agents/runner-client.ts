@@ -11,11 +11,11 @@ export function runnerConfigured() {
     process.env.AGENT_RUNNER_SECRET.length >= 32,
   );
 }
-export async function runnerRequest<T>(
+export async function runnerRequest(
   userId: string,
   action: string,
   body: Record<string, unknown> = {},
-): Promise<T> {
+): Promise<unknown> {
   if (!runnerConfigured())
     throw new AgentError("runner_unavailable", "Codex connections are not available yet.", 503);
   const base = new URL(process.env.AGENT_RUNNER_URL!);
@@ -49,7 +49,8 @@ export async function runnerRequest<T>(
     );
   }
   try {
-    return JSON.parse(await readLimited(response, 1024 * 1024, signal)) as T;
+    const value: unknown = JSON.parse(await readLimited(response, 1024 * 1024, signal));
+    return value;
   } catch {
     throw new AgentError(
       "runner_error",
