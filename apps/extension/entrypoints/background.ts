@@ -2,18 +2,20 @@ import { browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import {
   webCaptureSchema,
-  type ExtensionAccount,
-  type ImportResult,
-  type WebCapture,
+  extensionAccountSchema,
+  importResultSchema,
+  extensionMessageSchema,
+  readImportJob,
+  readExtensionReply,
+  captureViewportSchema,
+  parseExtensionResponse,
 } from "@bella/design/web-capture";
-import type { CaptureViewport } from "@bella/design/capture-effects";
 import { BELLA_URL } from "../lib/config";
-import type { Destination, ImportJob, Reply } from "../lib/messages";
+import type { ImportJob } from "../lib/messages";
 
 export default defineBackground(() => {
   const setJob = (job: ImportJob) => browser.storage.session.set({ job });
-  const getJob = async () =>
-    (await browser.storage.session.get("job")).job as ImportJob | undefined;
+  const getJob = async () => readImportJob((await browser.storage.session.get("job")).job);
   const ready = getJob().then(async (job) => {
     if (job?.state === "importing")
       await setJob({
@@ -25,7 +27,7 @@ export default defineBackground(() => {
   });
   let starting = false;
   let finishingSelection = false;
-  const api = async <T>(path: string, body?: unknown): Promise<T> => {
+  const api = async (path: string, body?: unknown): Promise<unknown> => {
     const response = await fetch(`${BELLA_URL}/api/extension/${path}`, {
       method: body ? "POST" : "GET",
       credentials: "include",
@@ -38,27 +40,35 @@ export default defineBackground(() => {
     const theme = response.headers.get("X-Tidy-Theme");
     if (theme === "light" || theme === "dark" || theme === "system")
       await browser.storage.local.set({ theme }).catch(() => undefined);
-    const data = await response.json().catch(() => {
+    const data: unknown = await response.json().catch(() => {
       throw new Error("Tidy is unavailable. Try again.");
     });
     if (!response.ok)
       throw new Error(
-        data && typeof data.error === "string" ? data.error : "Tidy is unavailable. Try again.",
+        data && typeof data === "object" && "error" in data && typeof data.error === "string"
+          ? data.error
+          : "Tidy is unavailable. Try again.",
       );
-    return data as T;
+    return data;
   };
-  const getCapture = async (job: ImportJob, mode: "page" | "element") => {
+  const getCapture = async (
+    job: Extract<ImportJob, { state: "selecting" | "importing" }>,
+    mode: "page" | "element",
+  ) => {
     const tabId = job.tabId;
-    if (!job.documentId) throw new Error("Reopen the extension and start a new capture.");
     const target = { documentId: job.documentId, frameId: 0 };
-    const prepared = (await browser.tabs.sendMessage(
-      tabId,
-      {
-        type: "bella:prepare-capture",
-      },
-      target,
-    )) as Reply<CaptureViewport>;
-    if ("error" in prepared) throw new Error(prepared.error);
+    const prepared = parseExtensionResponse(
+      captureViewportSchema,
+      readExtensionReply(
+        await browser.tabs.sendMessage(
+          tabId,
+          {
+            type: "bella:prepare-capture",
+          },
+          target,
+        ),
+      ),
+    );
     let screenshot: string | undefined;
     const tab = await browser.tabs.get(tabId);
     // captureVisibleTab always captures the active tab. Do not accidentally capture another page.
@@ -72,32 +82,39 @@ export default defineBackground(() => {
     }
     const stillActive = (await browser.tabs.query({ active: true, windowId: tab.windowId }))[0];
     if (stillActive?.id !== tabId) screenshot = undefined;
-    const reply = (await browser.tabs.sendMessage(
-      tabId,
-      {
-        type: "bella:capture",
-        mode,
-        screenshot,
-        screenshotViewport: prepared.data,
-      },
-      target,
-    )) as Reply<WebCapture>;
-    if ("error" in reply) throw new Error(reply.error);
-    return webCaptureSchema.parse(reply.data);
+    const reply = readExtensionReply(
+      await browser.tabs.sendMessage(
+        tabId,
+        {
+          type: "bella:capture",
+          mode,
+          screenshot,
+          screenshotViewport: prepared,
+        },
+        target,
+      ),
+    );
+    return webCaptureSchema.parse(reply);
   };
-  const runImport = async (job: ImportJob, mode: "page" | "element") => {
+  const runImport = async (
+    job: Extract<ImportJob, { state: "selecting" | "importing" }>,
+    mode: "page" | "element",
+  ) => {
     try {
       await setJob({ ...job, state: "importing" });
-      const account = await api<ExtensionAccount>("account");
-      if (account.user.id !== job.userId || !job.destination)
+      const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+      if (account.user.id !== job.userId)
         throw new Error("Your Tidy account changed. Choose the destination again.");
       const capture = await getCapture(job, mode);
-      const result = await api<ImportResult>("import", {
-        userId: job.userId,
-        organizationId: job.destination.organizationId,
-        fileId: job.destination.fileId,
-        capture,
-      });
+      const result = parseExtensionResponse(
+        importResultSchema.pick({ fileId: true, nodeIds: true, warnings: true }),
+        await api("import", {
+          userId: job.userId,
+          organizationId: job.destination.organizationId,
+          fileId: job.destination.fileId,
+          capture,
+        }),
+      );
       const importedUrl = new URL(`/files/${result.fileId}`, BELLA_URL);
       if (result.nodeIds?.[0]) importedUrl.searchParams.set("node", result.nodeIds[0]);
       await setJob({
@@ -122,8 +139,11 @@ export default defineBackground(() => {
     }
   };
 
-  browser.runtime.onMessage.addListener((message, sender, respond) => {
-    if (sender.id !== browser.runtime.id || !message || typeof message !== "object") return;
+  browser.runtime.onMessage.addListener((raw: unknown, sender, respond) => {
+    if (sender.id !== browser.runtime.id) return;
+    const input = extensionMessageSchema.safeParse(raw);
+    if (!input.success) return;
+    const message = input.data;
     const content = Boolean(sender.tab);
     if (content && !["bella:picked", "bella:cancelled"].includes(message.type)) return;
     if (!content && !sender.url?.startsWith(browser.runtime.getURL(""))) return;
@@ -136,7 +156,8 @@ export default defineBackground(() => {
     }
     const handle = async () => {
       await ready;
-      if (message.type === "bella:account") return await api<ExtensionAccount>("account");
+      if (message.type === "bella:account")
+        return parseExtensionResponse(extensionAccountSchema, await api("account"));
       if (message.type === "bella:login") {
         await browser.tabs.create({ url: `${BELLA_URL}/login` });
         return true;
@@ -181,13 +202,13 @@ export default defineBackground(() => {
         }
         return true;
       }
-      if (message.type !== "bella:start" || !["page", "element"].includes(message.mode)) return;
+      if (message.type !== "bella:start") return;
       const existing = await getJob();
       if (existing && ["selecting", "importing"].includes(existing.state))
         throw new Error("Finish or cancel the current capture first.");
-      const account = await api<ExtensionAccount>("account");
-      const destination = message.destination as Destination;
-      if (account.user.id !== destination?.userId)
+      const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+      const destination = message.destination;
+      if (account.user.id !== destination.userId)
         throw new Error("Your Tidy account changed. Reopen the extension.");
       const organization = account.organizations.find(
         (item) => item.id === destination.organizationId,
@@ -219,7 +240,7 @@ export default defineBackground(() => {
       } catch {
         throw new Error("Chrome does not allow capture on this page.");
       }
-      const job: ImportJob = {
+      const job: Extract<ImportJob, { state: "selecting" | "importing" }> = {
         state: message.mode === "element" ? "selecting" : "importing",
         tabId: tab.id,
         documentId,

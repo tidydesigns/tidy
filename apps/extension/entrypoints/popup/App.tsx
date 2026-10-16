@@ -1,7 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { browser } from "wxt/browser";
-import type { ExtensionAccount } from "@bella/design/web-capture";
-import type { Destination, ImportJob, Reply } from "../../lib/messages";
+import {
+  extensionAccountSchema,
+  destinationSchema,
+  readImportJob,
+  type ExtensionAccount,
+  readExtensionReply,
+  parseExtensionResponse,
+} from "@bella/design/web-capture";
+import type { ImportJob } from "../../lib/messages";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";
 import { Avatar } from "@tidy/ui/avatar";
@@ -9,10 +16,8 @@ import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { BELLA_URL } from "../../lib/config";
 import { applyTheme } from "../../lib/theme";
 
-async function send<T>(message: object): Promise<T> {
-  const reply = (await browser.runtime.sendMessage(message)) as Reply<T>;
-  if ("error" in reply) throw new Error(reply.error);
-  return reply.data;
+async function send(message: object): Promise<unknown> {
+  return readExtensionReply(await browser.runtime.sendMessage(message));
 }
 
 export function App() {
@@ -29,12 +34,15 @@ export function App() {
     let live = true;
     const refresh = async () => {
       try {
-        const data = await send<ExtensionAccount>({ type: "bella:account" });
+        const data = parseExtensionResponse(
+          extensionAccountSchema,
+          await send({ type: "bella:account" }),
+        );
         const stored = await browser.storage.local.get("destination");
         if (!live) return;
         setAccount(data);
         setError("");
-        const last = stored.destination as Destination | undefined;
+        const last = destinationSchema.safeParse(stored.destination).data;
         const organization =
           data.organizations.find(
             (item) => last?.userId === data.user.id && item.id === last.organizationId,
@@ -60,11 +68,11 @@ export function App() {
     };
     void refresh();
     void browser.storage.session.get("job").then((value) => {
-      if (live) setJob(value.job as ImportJob | undefined);
+      if (live) setJob(readImportJob(value.job));
     });
     const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
       if (area === "local" && changes.theme) applyTheme(changes.theme.newValue);
-      if (area === "session" && changes.job) setJob(changes.job.newValue as ImportJob | undefined);
+      if (area === "session" && changes.job) setJob(readImportJob(changes.job.newValue));
     };
     browser.storage.onChanged.addListener(changed);
     window.addEventListener("focus", refresh);
@@ -226,7 +234,9 @@ export function App() {
             </div>
           )}
           {(error || activeJob?.state === "error") && (
-            <p role="alert">{error || activeJob?.error}</p>
+            <p role="alert">
+              {error || (activeJob?.state === "error" ? activeJob.error : undefined)}
+            </p>
           )}
         </>
       )}

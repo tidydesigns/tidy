@@ -1,12 +1,2 @@
-export type Destination = { organizationId: string; fileId?: string; userId: string };
-export type ImportJob = {
-  state: "selecting" | "importing" | "done" | "error";
-  userId: string;
-  tabId: number;
-  documentId?: string;
-  destination?: Destination;
-  url?: string;
-  error?: string;
-  warnings?: { message: string }[];
-};
+export type { Destination, ImportJob } from "@bella/design/web-capture";
 export type Reply<T> = { data: T } | { error: string };
