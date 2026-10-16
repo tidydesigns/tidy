@@ -36,7 +36,6 @@ test("inspector presents the family's selected variant with read-only permission
     onDocument: () => {},
     onExport: () => {},
     onReplaceImage: () => {},
-    onPrototype: () => {},
     onAlign: () => {},
     onDistribute: () => {},
     onGroup: () => {},

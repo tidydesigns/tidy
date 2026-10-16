@@ -1,6 +1,7 @@
 import type {} from "paper";
 import Paper from "paper/dist/paper-core";
 import type { DesignNode } from "./document";
+import { childrenByParent } from "./node-hierarchy";
 
 export type VectorBoolean = "union" | "subtract" | "intersect" | "exclude";
 export type Affine = [number, number, number, number, number, number];
@@ -64,13 +65,7 @@ const paintedBounds = new WeakMap<DesignNode, Bounds>();
 const cache = new WeakMap<DesignNode, { dependencies: DesignNode[]; d: string; bounds: Bounds }>();
 /** Curves remain curves. Results are derived from preserved operand nodes, never flattened assets. */
 export function vectorBooleanPath(node: DesignNode, nodes: readonly DesignNode[]): string {
-  const children = new Map<string, DesignNode[]>();
-  for (const n of nodes) {
-    if (!n.parentId) continue;
-    const siblings = children.get(n.parentId);
-    if (siblings) siblings.push(n);
-    else children.set(n.parentId, [n]);
-  }
+  const children = childrenByParent(nodes);
   const dependencies: DesignNode[] = [];
   const collect = (n: DesignNode) => {
     dependencies.push(n);

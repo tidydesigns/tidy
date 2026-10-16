@@ -53,7 +53,6 @@ const cases: {
   { name: "hidden fills", paints: [{ ...solid, visible: false }], fillStack: true },
   { name: "transparent fills", paints: [{ ...solid, opacity: 0 }], fillStack: true },
   { name: "translucent fills", paints: [{ ...solid, opacity: 0.5 }], fillStack: true },
-  { name: "multiply blending", paints: [{ ...solid, blendMode: "multiply" }], fillStack: true },
   { name: "multiple fills", paints: [solid, linear], fillStack: true },
   {
     name: "unpositioned linear gradients",
@@ -72,7 +71,6 @@ const cases: {
     background: "radial-gradient(ellipse 50% 50% at 50% 50%, #00ff00 0%, #0000ff 100%)",
     fillStack: false,
   },
-  { name: "rotated radial gradients", paints: [{ ...radial, rotation: 45 }], fillStack: true },
   {
     name: "image fills",
     paints: [

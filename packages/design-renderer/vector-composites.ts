@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import type { DesignNode } from "@bella/design/document";
+import { childrenByParent } from "@bella/design/node-hierarchy";
 import {
   authoredPathBounds,
   booleanRenderNode,
@@ -20,16 +21,6 @@ function childOrigin(node: DesignNode) {
   return { x: left, y: top };
 }
 
-function compositeChildren(nodes: readonly DesignNode[]) {
-  const children = new Map<string, DesignNode[]>();
-  for (const node of nodes) {
-    if (!node.parentId) continue;
-    const siblings = children.get(node.parentId);
-    if (siblings) siblings.push(node);
-    else children.set(node.parentId, [node]);
-  }
-  return children;
-}
 function maskViewport(
   node: DesignNode,
   children: Map<string, DesignNode[]>,
@@ -105,7 +96,7 @@ export function vectorMaskSvg(
   suppliedViewport?: { x: number; y: number; width: number; height: number },
 ) {
   let serial = 0;
-  const children = compositeChildren(nodes);
+  const children = childrenByParent(nodes);
   const viewport = suppliedViewport ?? maskViewport(node, children, nodes);
   const paint = (source: DesignNode, depth: number): string => {
     if (depth > 40 || !source.visible) return "";
@@ -242,7 +233,7 @@ export function vectorCompositeStyle(
       WebkitMaskClip: "border-box",
     };
   }
-  const viewport = maskViewport(node, compositeChildren(nodes), nodes);
+  const viewport = maskViewport(node, childrenByParent(nodes), nodes);
   const image = `url("data:image/svg+xml,${encodeURIComponent(vectorMaskSvg(node, nodes, tokens, viewport))}")`;
   return {
     maskImage: image,

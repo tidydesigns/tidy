@@ -298,36 +298,33 @@ export function applyDocumentPatch(
       )
       .map((p) => p.id),
   );
-  const priorNodes = new Map(document.nodes.map((node) => [node.id, node]));
-  result.nodes = (result.nodes as DesignDocument["nodes"]).map((node) => {
-    const prior = priorNodes.get(node.id);
-    if (!prior || prior.assetId === node.assetId) return node;
-    return {
-      ...node,
-      vectorPath: node.vectorPath === prior.vectorPath ? undefined : node.vectorPath,
-      style: cropEdits.has(node.id)
-        ? node.style
-        : { ...node.style, imageCrop: undefined, objectScale: 1 },
-    };
-  });
   const richEdits = new Set(
     patch.filter((p) => p.collection === "nodes" && p.path[0] === "richText").map((p) => p.id),
   );
   const textEdits = new Set(
     patch.filter((p) => p.collection === "nodes" && p.path[0] === "text").map((p) => p.id),
   );
-  const previousNodes = new Map(document.nodes.map((node) => [node.id, node]));
+  const priorNodes = new Map(document.nodes.map((node) => [node.id, node]));
   result.nodes = (result.nodes as DesignDocument["nodes"]).map((node) => {
-    const previous = previousNodes.get(node.id);
-    return previous?.richText && textEdits.has(node.id) && !richEdits.has(node.id)
+    const prior = priorNodes.get(node.id);
+    let next = node;
+    if (prior && prior.assetId !== node.assetId)
+      next = {
+        ...node,
+        vectorPath: node.vectorPath === prior.vectorPath ? undefined : node.vectorPath,
+        style: cropEdits.has(node.id)
+          ? node.style
+          : { ...node.style, imageCrop: undefined, objectScale: 1 },
+      };
+    return prior?.richText && textEdits.has(node.id) && !richEdits.has(node.id)
       ? {
-          ...node,
+          ...next,
           ...replacePlainText(
-            { text: previous.text ?? "", richText: previous.richText },
-            node.text ?? "",
+            { text: prior.text ?? "", richText: prior.richText },
+            next.text ?? "",
           ),
         }
-      : node;
+      : next;
   });
   result.nodes = reconcileComponentStructure(
     document.nodes,

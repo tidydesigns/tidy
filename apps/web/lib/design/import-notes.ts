@@ -58,19 +58,20 @@ export function reconcileImportNotes(
   duplicate = false,
 ): ImportNote[] {
   const previous = current ? importNotes(current) : [];
-  const next = importNotes(incoming).map((note) => ({
-    ...note,
-    importKey: key ?? null,
-    nodeId: note.nodeId ? (ids.get(note.nodeId) ?? note.nodeId) : undefined,
-    status: "unread" as ImportNoteStatus,
-  }));
   const priorByKey = new Map(previous.map((note) => [importNoteKey(note), note]));
-  const refreshed = next.map((note) => ({
-    ...note,
-    status: duplicate
-      ? ("unread" as const)
-      : (priorByKey.get(importNoteKey(note))?.status ?? "unread"),
-  }));
+  const refreshed = importNotes(incoming).map((note) => {
+    const remapped = {
+      ...note,
+      importKey: key ?? null,
+      nodeId: note.nodeId ? (ids.get(note.nodeId) ?? note.nodeId) : undefined,
+    };
+    return {
+      ...remapped,
+      status: duplicate
+        ? ("unread" as const)
+        : (priorByKey.get(importNoteKey(remapped))?.status ?? "unread"),
+    };
+  });
   // Unattributed legacy notes cannot safely be retired on behalf of a source.
   const retained = duplicate ? previous : previous.filter((note) => note.importKey !== key);
   return [

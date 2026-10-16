@@ -1,4 +1,4 @@
-import { captureElement } from "./capture";
+import { captureElement } from "@bella/design/browser-capture";
 import { MAX_CAPTURE_BYTES } from "@bella/design/capture-source";
 import type { WebCapture } from "@bella/design/web-capture";
 import type { CaptureViewport } from "@bella/design/capture-effects";

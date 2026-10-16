@@ -2,6 +2,16 @@ import type { DesignNode } from "./document";
 
 export const resizeHandles = ["nw", "n", "ne", "e", "se", "s", "sw", "w"] as const;
 export type ResizeHandle = (typeof resizeHandles)[number];
+export const resizeHandleDetails = {
+  nw: { label: "top left", x: 0, y: 0, cursor: "nwse-resize" },
+  n: { label: "top", x: 0.5, y: 0, cursor: "ns-resize" },
+  ne: { label: "top right", x: 1, y: 0, cursor: "nesw-resize" },
+  e: { label: "right", x: 1, y: 0.5, cursor: "ew-resize" },
+  se: { label: "bottom right", x: 1, y: 1, cursor: "nwse-resize" },
+  s: { label: "bottom", x: 0.5, y: 1, cursor: "ns-resize" },
+  sw: { label: "bottom left", x: 0, y: 1, cursor: "nesw-resize" },
+  w: { label: "left", x: 0, y: 0.5, cursor: "ew-resize" },
+} satisfies Record<ResizeHandle, { label: string; x: number; y: number; cursor: string }>;
 type Point = { x: number; y: number };
 export function rotatePoint(point: Point, degrees: number): Point {
   const angle = (degrees * Math.PI) / 180;

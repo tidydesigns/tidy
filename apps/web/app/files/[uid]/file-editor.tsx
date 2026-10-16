@@ -494,12 +494,10 @@ export function FileEditor({
   );
   const commentsRef = useRef<CanvasCommentsHandle>(null);
   const busyRef = useRef(false);
-  const editingRef = useRef(false);
   const cancelNameEditRef = useRef(false);
   const nameSavingRef = useRef(false);
   const nameVersionRef = useRef(0);
   const cancelPageEditRef = useRef(false);
-  const inspectorRef = useRef<HTMLElement>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const uploadInProgress = useRef(false);
   const [browserAssets, setBrowserAssets] = useState<BrowserAsset[]>([]);
@@ -596,7 +594,6 @@ export function FileEditor({
         vectorGesture.current = null;
         setVectorMode(null);
         drawingRef.current = null;
-        editingRef.current = false;
         setEditingTextId(null);
         setEditingName(false);
         setEditingPageId(null);
@@ -901,7 +898,6 @@ export function FileEditor({
   );
 
   function togglePanels() {
-    editingRef.current = false;
     setInspectorDismissed(true);
     setPanelsOpen((open) => !open);
   }
@@ -928,7 +924,6 @@ export function FileEditor({
     setContextMenu(null);
     setPageMenu(null);
     setEditingTextId(null);
-    editingRef.current = false;
     setPrototypeMode(false);
     setPrototypeArtboardId(null);
     setTool("select");
@@ -1173,6 +1168,18 @@ export function FileEditor({
       void loadAssets();
     },
   );
+  async function uploadAsset(file: File, errorMessage: string, signal?: AbortSignal) {
+    const form = new FormData();
+    form.set("image", file);
+    const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
+      method: "POST",
+      body: form,
+      signal,
+    });
+    const result: { assetId?: string; error?: string } = await response.json();
+    if (!response.ok || !result.assetId) throw new Error(result.error ?? errorMessage);
+    return result.assetId;
+  }
   async function uploadImages(files: File[], replaceId?: string, target = placementTarget()) {
     if (readOnly || local || uploadInProgress.current || !files.length) return;
     if (files.length > 50) {
@@ -1202,19 +1209,11 @@ export function FileEditor({
     try {
       for (const file of files) {
         try {
-          const decoded = await readImageFile(file),
-            form = new FormData();
-          form.set("image", file);
-          const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
-            method: "POST",
-            body: form,
-          });
-          const result: { assetId?: string; error?: string } = await response.json();
-          if (!response.ok || !result.assetId)
-            throw new Error(result.error ?? "Could not upload image.");
+          const decoded = await readImageFile(file);
+          const assetId = await uploadAsset(file, "Could not upload image.");
           if (decoded.reason) failures.push(`${file.name || "Image"}: ${decoded.reason}`);
           assets.push({
-            id: result.assetId,
+            id: assetId,
             name: file.name || "Image",
             mimeType: file.type,
             ...decoded,
@@ -1321,20 +1320,12 @@ export function FileEditor({
       .filter((target) => target.paintId);
     try {
       const dimensions = await readImageFile(file);
-      const form = new FormData();
-      form.set("image", file);
-      const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
-        method: "POST",
-        body: form,
-      });
-      const result: { assetId?: string; error?: string } = await response.json();
-      if (!response.ok || !result.assetId)
-        throw new Error(result.error ?? "Could not upload fill image.");
+      const assetId = await uploadAsset(file, "Could not upload fill image.");
       await changeDocument((content) =>
         editLayers(
           {
             ...content,
-            assetMimeTypes: { ...content.assetMimeTypes, [result.assetId!]: file.type },
+            assetMimeTypes: { ...content.assetMimeTypes, [assetId]: file.type },
           },
           targets.map((target) => target.id),
           (node) => ({
@@ -1343,7 +1334,7 @@ export function FileEditor({
                 paint.id === targets.find((target) => target.id === node.id)?.paintId &&
                 paint.type === "image" &&
                 paint.assetId === targets.find((target) => target.id === node.id)?.assetId
-                  ? replaceImagePaint(paint, result.assetId!, dimensions)
+                  ? replaceImagePaint(paint, assetId, dimensions)
                   : paint,
               ),
             ),
@@ -2110,22 +2101,14 @@ export function FileEditor({
           setFigmaPreviewAssets((current) => ({ ...current, [asset.id]: url }));
           assetIds.set(asset.id, asset.id);
         } else {
-          const form = new FormData();
-          form.set(
-            "image",
+          const assetId = await uploadAsset(
             new File([asset.bytes.slice().buffer as ArrayBuffer], "Figma image", {
               type: asset.mimeType,
             }),
-          );
-          const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
-            method: "POST",
-            body: form,
+            "Could not upload Figma image.",
             signal,
-          });
-          const value: { assetId?: string; error?: string } = await response.json();
-          if (!response.ok || !value.assetId)
-            throw new Error(value.error ?? "Could not upload Figma image.");
-          assetIds.set(asset.id, value.assetId);
+          );
+          assetIds.set(asset.id, assetId);
         }
       }
       payload = { ...payload, nodes: remapFigmaAssets(result, assetIds).document.nodes };
@@ -2363,7 +2346,6 @@ export function FileEditor({
         event.preventDefault();
         if (selected?.type === "text") {
           setEditingTextId(selection);
-          editingRef.current = true;
         } else {
           const child = nodes.find((node) => node.parentId === selection);
           if (child) selectNode(child.id);
@@ -2912,7 +2894,6 @@ export function FileEditor({
       if (node.type !== "text") return;
       event.stopPropagation();
       selectNode(node.id);
-      editingRef.current = true;
       setEditingTextId(node.id);
     },
   );
@@ -3110,7 +3091,6 @@ export function FileEditor({
   });
   const artworkTextFinish = useEditorEvent((node: DesignNode, value: TextContent | null) => {
     setEditingTextId(null);
-    editingRef.current = false;
     if (
       value !== null &&
       (value.text !== node.text || JSON.stringify(value.richText) !== JSON.stringify(node.richText))
@@ -3146,7 +3126,6 @@ export function FileEditor({
             setInspectorMode((mode) => (mode === "inspect" ? "design" : "inspect"));
             setTool("select");
             setEditingTextId(null);
-            editingRef.current = false;
             setCropId(null);
             setGradientMode(null);
           }}
@@ -3681,12 +3660,12 @@ export function FileEditor({
   const panelUpload = useEditorEvent(uploadFillImage);
   const panelReplace = useEditorEvent(() => replaceImageInput.current?.click());
   const panelCrop = useEditorEvent(toggleCrop);
+  const panelPrototype = useEditorEvent(togglePrototype);
   const panelVector = useEditorEvent(() => {
     if (!selected) return;
     if (vectorMode === selected.id) setVectorMode(null);
     else beginVectorEditing(selected);
   });
-  const panelPrototype = useEditorEvent(togglePrototype);
   const panelAlign = useEditorEvent(
     (axis: Parameters<typeof alignLayers>[2], keyObjectId?: string) =>
       void changeDocument((content) => alignLayers(content, selectedIds, axis, keyObjectId)),
@@ -4662,27 +4641,6 @@ export function FileEditor({
       <EditorPanel open={inspectorOpen} width={296} side="right">
         <aside
           data-ph-public-label
-          ref={inspectorRef}
-          onFocusCapture={(event) => {
-            if (
-              event.target instanceof HTMLInputElement ||
-              event.target instanceof HTMLTextAreaElement ||
-              event.target instanceof HTMLSelectElement
-            )
-              editingRef.current = true;
-          }}
-          onBlurCapture={() => {
-            window.setTimeout(() => {
-              const active = document.activeElement;
-              editingRef.current = Boolean(
-                active &&
-                inspectorRef.current?.contains(active) &&
-                (active instanceof HTMLInputElement ||
-                  active instanceof HTMLTextAreaElement ||
-                  active instanceof HTMLSelectElement),
-              );
-            }, 0);
-          }}
           aria-label="Inspector"
           className="z-10 flex h-full w-[296px] shrink-0 flex-col border-l border-primary-grey/70 bg-primary-white text-primary-black"
         >
@@ -4751,7 +4709,6 @@ export function FileEditor({
                 cropping={cropping}
                 editingVector={vectorMode === selected.id}
                 onEditVector={panelVector}
-                onPrototype={panelPrototype}
                 onAlign={panelAlign}
                 onDistribute={panelDistribute}
                 onGroup={panelGroup}

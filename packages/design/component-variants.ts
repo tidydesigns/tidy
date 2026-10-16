@@ -6,6 +6,7 @@ import type {
   VariantNodeChanges,
 } from "./document";
 import { detachChangedBindings, tokenBindingExclusions } from "./design-tokens";
+import { childrenByParent } from "./node-hierarchy";
 
 /** A copied nested component can also resolve its family through its source node. */
 function findFamily(byId: ReadonlyMap<string, DesignNode>, node: DesignNode) {
@@ -47,17 +48,6 @@ function inheritedOverrides(byId: ReadonlyMap<string, DesignNode>, node: DesignN
     source = byId.get(source.componentSourceId ?? "");
   }
   return { ...node, instanceOverrides: [...overrides] };
-}
-
-function childrenByParent(nodes: readonly DesignNode[]) {
-  const children = new Map<string, DesignNode[]>();
-  for (const node of nodes)
-    if (node.parentId) {
-      const siblings = children.get(node.parentId);
-      if (siblings) siblings.push(node);
-      else children.set(node.parentId, [node]);
-    }
-  return children;
 }
 
 function subtreeIds(children: ReadonlyMap<string, readonly DesignNode[]>, rootId: string) {

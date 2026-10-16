@@ -110,7 +110,6 @@ export const SelectionInspector = memo(function SelectionInspector({
   cropping?: boolean;
   onEditVector?: () => void;
   editingVector?: boolean;
-  onPrototype: () => void;
   onGoToMaster?: (id: string) => void;
   onAlign: (
     axis: "left" | "center-x" | "right" | "top" | "center-y" | "bottom",

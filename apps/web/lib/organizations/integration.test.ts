@@ -1823,24 +1823,7 @@ integration(
       docs.replaceDocumentForHistory(invitedId, file.id, initial.revision, initial.content),
     ).rejects.toThrow();
     await expect(
-      docs.addDocumentNode(invitedId, file.id, initial.revision, null, "text"),
-    ).rejects.toThrow();
-    await expect(
-      docs.drawDocumentNode(invitedId, file.id, initial.revision, "new", "text", null, {
-        x: 1,
-        y: 1,
-        width: 100,
-        height: 40,
-      }),
-    ).rejects.toThrow();
-    await expect(
       docs.patchDocumentNode(invitedId, file.id, initial.revision, "missing", { name: "Denied" }),
-    ).rejects.toThrow();
-    await expect(
-      docs.deleteDocumentNode(invitedId, file.id, initial.revision, "missing"),
-    ).rejects.toThrow();
-    await expect(
-      docs.duplicateDocumentNode(invitedId, file.id, initial.revision, "missing"),
     ).rejects.toThrow();
     await expect(
       commitDocumentPatch(
@@ -4533,6 +4516,8 @@ for (const state of ["unverified", "unknown-role", "removed", "foreign"] as cons
     const files = await import("../design/service");
     const folders = await import("../design/folder-service");
     const docs = await import("../design/document-service");
+    const { commitDocumentPatch } = await import("../design/commands");
+    const { diffDocument } = await import("../design/document-patch");
     const { getFileImage } = await import("../design/file-image");
     const { buildDrawnNode } = await import("../design/document");
     const file = await files.createDesignFileForUser(ownerId, orgId, "Protected canvas");
@@ -4590,16 +4575,15 @@ for (const state of ["unverified", "unknown-role", "removed", "foreign"] as cons
       () => docs.putAsset(actor, orgId, "image/svg+xml", svg), // Includes dedup retry.
       () => docs.replaceDocumentForHistory(actor, file.id, saved.revision, content),
       () => docs.patchDocumentNode(actor, file.id, saved.revision, node.id, { name: "Denied" }),
-      () => docs.addDocumentNode(actor, file.id, saved.revision, null, "text"),
       () =>
-        docs.drawDocumentNode(actor, file.id, saved.revision, crypto.randomUUID(), "text", null, {
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 100,
-        }),
-      () => docs.deleteDocumentNode(actor, file.id, saved.revision, node.id),
-      () => docs.duplicateDocumentNode(actor, file.id, saved.revision, node.id),
+        commitDocumentPatch(
+          actor,
+          file.id,
+          crypto.randomUUID(),
+          saved.revision,
+          diffDocument(content, { ...content, nodes: [{ ...node, name: "Denied" }] }),
+          false,
+        ),
       () => docs.getExportAssets(actor, [asset.assetId]),
       () => getFileImage(actor, file.id, asset.assetId),
     ];
@@ -4852,6 +4836,8 @@ integration(
     const files = await import("../design/service");
     const folders = await import("../design/folder-service");
     const docs = await import("../design/document-service");
+    const { commitDocumentPatch } = await import("../design/commands");
+    const { diffDocument } = await import("../design/document-patch");
     const { getFileImage } = await import("../design/file-image");
     const { buildDrawnNode } = await import("../design/document");
     await db.query('update "member" set "role"=\'editor\' where "userId"=$1', [invitedId]);
@@ -4883,38 +4869,31 @@ integration(
       scoped.release();
     }
     const initial = await docs.ensureEditorDocument(invitedId, file.id);
-    const added = await docs.addDocumentNode(invitedId, file.id, initial.revision, null, "text");
+    const text = buildDrawnNode(crypto.randomUUID(), "text", null, {
+      x: 120,
+      y: 120,
+      width: 200,
+      height: 48,
+    });
+    const added = await commitDocumentPatch(
+      invitedId,
+      file.id,
+      crypto.randomUUID(),
+      initial.revision,
+      diffDocument(initial.content, {
+        ...initial.content,
+        nodes: [...initial.content.nodes, text],
+      }),
+      false,
+    );
     const patched = await docs.patchDocumentNode(
       invitedId,
       file.id,
-      added.revision,
-      added.node.id,
+      added.snapshot.revision,
+      text.id,
       { text: "Changed" },
     );
     expect(patched.node?.text).toBe("Changed");
-    const duplicate = await docs.duplicateDocumentNode(
-      invitedId,
-      file.id,
-      patched.revision,
-      added.node.id,
-    );
-    expect(duplicate.document.nodes).toHaveLength(2);
-    const drawn = await docs.drawDocumentNode(
-      invitedId,
-      file.id,
-      duplicate.revision,
-      crypto.randomUUID(),
-      "container",
-      null,
-      { x: 300, y: 300, width: 100, height: 100 },
-    );
-    const deleted = await docs.deleteDocumentNode(
-      invitedId,
-      file.id,
-      drawn.revision,
-      drawn.node.id,
-    );
-    expect(deleted.document.nodes).toHaveLength(2);
     const svg = '<svg xmlns="http://www.w3.org/2000/svg"/>';
     const asset = await docs.putAsset(
       invitedId,
@@ -4932,11 +4911,11 @@ integration(
       type: "image" as const,
       assetId: asset.assetId,
     };
-    const content = { ...deleted.document, nodes: [...deleted.document.nodes, image] };
+    const content = { ...patched.document, nodes: [...patched.document.nodes, image] };
     const replaced = await docs.replaceDocumentForHistory(
       invitedId,
       file.id,
-      deleted.revision,
+      patched.revision,
       content,
     );
     expect((await getFileImage(invitedId, file.id, asset.assetId)).base64).toBe(

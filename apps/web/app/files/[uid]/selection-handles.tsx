@@ -11,6 +11,7 @@ import type { DesignNode, DesignNodeChanges } from "@/lib/design/document";
 import {
   resizeBox,
   resizeHandles,
+  resizeHandleDetails as handles,
   rotatePoint,
   rotationFromPointer,
   type ResizeHandle,
@@ -22,16 +23,6 @@ import { renderedNodeBox, renderedParentSize } from "@/lib/design/canvas-geometr
 import { snapLayerResize } from "@/lib/design/resize-snapping";
 import type { SnapBox } from "@/lib/design/snapping";
 
-const handles: Record<ResizeHandle, { label: string; x: number; y: number; cursor: string }> = {
-  nw: { label: "top left", x: 0, y: 0, cursor: "nwse-resize" },
-  n: { label: "top", x: 0.5, y: 0, cursor: "ns-resize" },
-  ne: { label: "top right", x: 1, y: 0, cursor: "nesw-resize" },
-  e: { label: "right", x: 1, y: 0.5, cursor: "ew-resize" },
-  se: { label: "bottom right", x: 1, y: 1, cursor: "nwse-resize" },
-  s: { label: "bottom", x: 0.5, y: 1, cursor: "ns-resize" },
-  sw: { label: "bottom left", x: 0, y: 1, cursor: "nesw-resize" },
-  w: { label: "left", x: 0, y: 0.5, cursor: "ew-resize" },
-};
 type Bounds = {
   x: number;
   y: number;

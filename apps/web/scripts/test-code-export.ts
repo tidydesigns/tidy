@@ -231,7 +231,7 @@ function Demo() {
   const selected = resolveVariantNodes(document.nodes).filter(node => node.id === "new-thread");
   return <><div id="live"><NewThread variant={document.nodes[0].variant} assets={assets}/></div>
     <SelectionInspector document={document} selected={selected} onPatch={changes => setDocument(current => ({...current, nodes:syncComponentEdit(current.nodes, "new-thread", changes)}))}
-      onDocument={() => {}} onExport={() => {}} onReplaceImage={() => {}} onPrototype={() => {}} onAlign={() => {}} onDistribute={() => {}} onGroup={() => {}} /></>;
+      onDocument={() => {}} onExport={() => {}} onReplaceImage={() => {}} onAlign={() => {}} onDistribute={() => {}} onGroup={() => {}} /></>;
 }
 window.shortcuts = 0;
 window.addEventListener("keydown", event => { if (event.key.startsWith("Arrow")) window.shortcuts++; });

@@ -9,6 +9,7 @@ import { DesignText } from "@/components/design/design-text";
 import { DesignImage } from "@/components/design/design-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
+import { childrenByParent } from "@bella/design/node-hierarchy";
 import { resolvedColorTokens, resolvedDocumentNodes } from "@/lib/design/design-tokens";
 import { nodeStyle } from "@/lib/design/node-style";
 import { responsiveNode } from "@/lib/design/responsive-layout";
@@ -55,9 +56,7 @@ export function DesignSnapshot({
   const visualWidth = frame.box.width + left + right,
     visualHeight = frame.box.height + top + bottom;
   const scale = Math.min(1, width / visualWidth);
-  const children = new Map<string, DesignNode[]>();
-  for (const node of renderedNodes)
-    if (node.parentId) children.set(node.parentId, [...(children.get(node.parentId) ?? []), node]);
+  const children = childrenByParent(renderedNodes);
   function draw(node: DesignNode, parentLayout: DesignNode["layout"] = "absolute", flowIndex = 0) {
     if (!node.visible) return null;
     const rendered = booleanRenderNode(responsiveNode(node, frameWidth), renderedNodes);

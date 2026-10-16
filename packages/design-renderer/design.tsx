@@ -10,6 +10,7 @@ import {
   type HTMLAttributes,
 } from "react";
 import type { DesignDocument, DesignNode } from "@bella/design/document";
+import { childrenByParent } from "@bella/design/node-hierarchy";
 import { nodeStyle } from "./node-style";
 import { responsiveNode } from "./responsive-layout";
 import { replacePlainText } from "@bella/design/rich-text-runtime";
@@ -338,13 +339,7 @@ export function TidyDesign({
     return () => observer.disconnect();
   }, [frameWidth]);
   if (!root?.visible) return null;
-  const childrenById = new Map<string, DesignNode[]>();
-  for (const node of nodes)
-    if (node.parentId) {
-      const siblings = childrenById.get(node.parentId);
-      if (siblings) siblings.push(node);
-      else childrenById.set(node.parentId, [node]);
-    }
+  const childrenById = childrenByParent(nodes);
   return (
     <ImageMimeProvider types={document.assetMimeTypes}>
       <RenderNode

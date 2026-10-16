@@ -9,6 +9,7 @@ import { NodeFills } from "@/components/design/node-fills";
 import { DesignText } from "@/components/design/design-text";
 import { DesignImage } from "@/components/design/design-image";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
+import { childrenByParent } from "@bella/design/node-hierarchy";
 import { nodeStyle } from "@/lib/design/node-style";
 import { documentPages, pageNodes } from "@/lib/design/pages";
 import { useDocumentFonts } from "@/lib/design/fonts/use-document-fonts";
@@ -96,13 +97,7 @@ export function DocumentPreview({ content }: { content: DesignDocument }) {
     const nodes = page;
     const roots = nodes.filter((node) => node.parentId === null && node.visible);
     if (!roots.length) return null;
-    const children = new Map<string, DesignNode[]>();
-    for (const node of nodes) {
-      if (!node.parentId) continue;
-      const siblings = children.get(node.parentId) ?? [];
-      siblings.push(node);
-      children.set(node.parentId, siblings);
-    }
+    const children = childrenByParent(nodes);
     const visibleBoxes: Box[] = [];
     function collect(node: DesignNode, x: number, y: number) {
       if (!node.visible) return;

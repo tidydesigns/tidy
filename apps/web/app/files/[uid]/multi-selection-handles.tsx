@@ -4,7 +4,11 @@ import { useFrameEvent } from "./use-frame-event";
 import { canvasElements, selectedElements } from "./canvas-elements";
 
 import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
-import { resizeHandles, type ResizeHandle } from "@/lib/design/resize-box";
+import {
+  resizeHandles,
+  resizeHandleDetails as handles,
+  type ResizeHandle,
+} from "@/lib/design/resize-box";
 import { renderedNodeBox } from "@/lib/design/canvas-geometry";
 
 type Bounds = {
@@ -22,17 +26,6 @@ type Gesture = {
   bounds: Bounds;
   inverse: DOMMatrix;
 };
-const handles: Record<ResizeHandle, { x: number; y: number; label: string; cursor: string }> = {
-  nw: { x: 0, y: 0, label: "top left", cursor: "nwse-resize" },
-  n: { x: 0.5, y: 0, label: "top", cursor: "ns-resize" },
-  ne: { x: 1, y: 0, label: "top right", cursor: "nesw-resize" },
-  e: { x: 1, y: 0.5, label: "right", cursor: "ew-resize" },
-  se: { x: 1, y: 1, label: "bottom right", cursor: "nwse-resize" },
-  s: { x: 0.5, y: 1, label: "bottom", cursor: "ns-resize" },
-  sw: { x: 0, y: 1, label: "bottom left", cursor: "nesw-resize" },
-  w: { x: 0, y: 0.5, label: "left", cursor: "ew-resize" },
-};
-
 export function MultiSelectionHandles({
   ids,
   viewport,

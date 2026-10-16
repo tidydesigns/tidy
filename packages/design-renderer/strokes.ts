@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { DesignNode, DesignStrokePaint } from "@bella/design/document";
-import { linearGradientLine } from "./gradient-geometry";
+import { paintDefinition } from "./paints";
+export { paintDefinition } from "./paints";
 type Style = DesignNode["style"];
 type Size = { width: number; height: number };
 type Corner = { x: number; y: number };
@@ -174,37 +175,6 @@ export function strokeGeometry(style: Style, size: Size) {
     center,
     width: size.width + outset[3] + outset[1],
     height: size.height + outset[0] + outset[2],
-  };
-}
-export function paintDefinition(
-  paint: DesignStrokePaint,
-  id: string,
-  size: Size,
-  tokens: Record<string, string>,
-  origin = { x: 0, y: 0 },
-) {
-  if (paint.type === "solid")
-    return {
-      definition: "",
-      fill: paint.token ? (tokens[paint.token] ?? paint.color) : paint.color,
-    };
-  const stops = [...paint.stops]
-    .sort((a, b) => a.position - b.position)
-    .map(
-      (stop) =>
-        `<stop offset="${stop.position}" stop-color="${stop.token ? (tokens[stop.token] ?? stop.color) : stop.color}"/>`,
-    )
-    .join("");
-  if (paint.type === "linear") {
-    const { start, end } = linearGradientLine(paint, size);
-    return {
-      fill: `url(#${id})`,
-      definition: `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${origin.x + start.x * size.width}" y1="${origin.y + start.y * size.height}" x2="${origin.x + end.x * size.width}" y2="${origin.y + end.y * size.height}">${stops}</linearGradient>`,
-    };
-  }
-  return {
-    fill: `url(#${id})`,
-    definition: `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${origin.x + paint.centerX * size.width} ${origin.y + paint.centerY * size.height})${paint.rotation ? ` rotate(${paint.rotation})` : ""} scale(${paint.radiusX * size.width} ${paint.radiusY * size.height})">${stops}</radialGradient>`,
   };
 }
 /** Self-contained border image: outside paint remains visible even on overflow-clipped frames. */

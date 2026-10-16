@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { Window } from "happy-dom";
 import { parseDesignDocument } from "@bella/design/document";
-import { captureElement, captureStyle, cssColor } from "./capture";
+import { captureElement, captureStyle, cssColor } from "@bella/design/browser-capture";
 
 type Listener = (
   message: { type: string; mode?: string },

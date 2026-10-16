@@ -223,7 +223,6 @@ test("viewer inspection provides CSS and provenance with no editing fields", () 
       }}
       onExport={() => {}}
       onReplaceImage={() => {}}
-      onPrototype={() => {}}
       onAlign={() => {}}
       onDistribute={() => {}}
       onGroup={() => {}}
