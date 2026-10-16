@@ -64,7 +64,10 @@
     "test:worker-source-maps": "node apps/web/scripts/test-worker-source-maps.mjs",
     "test:browser": "bun run --cwd apps/web test:browser",
     "test:browser:install": "bun run --cwd apps/web browser:install",
-    "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs"
+    "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs",
+    "test:prototypes:local": "bun apps/web/scripts/run-prototype-browser.ts",
+    "test:versions:local": "bun apps/web/scripts/run-file-version-history.ts",
+    "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

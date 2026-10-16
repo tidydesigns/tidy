@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { blankDesignDocument, parseDesignDocument } from "./document";
-import { addGuide, moveGuide, removeGuide } from "./guides";
+import { addGuide, moveGuide, removeGuide, type CanvasGuide } from "./guides";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
 import { duplicatePage } from "./pages";
 
@@ -22,7 +22,7 @@ test("page guides persist through patches, undo, and duplication", () => {
 
 test("guides are bounded and unique within a page", () => {
   const document = blankDesignDocument();
-  const guide = { id: firstId, axis: "y", position: 0 };
+  const guide: CanvasGuide = { id: firstId, axis: "y", position: 0 };
   expect(() => addGuide(addGuide(document, "page-1", guide), "page-1", guide)).toThrow(
     "Duplicate guide ID",
   );

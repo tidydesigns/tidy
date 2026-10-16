@@ -39,7 +39,10 @@ test("scaled dimensions use rounded pixel bounds and reject unsupported allocati
 });
 test("batch filenames are safe and unique even with case collisions and suffixed names", () => {
   const names = exportNames(
-    [{ name: "../Button" }, { name: "button" }, { name: "button-2" }, { name: "??" }],
+    ["../Button", "button", "button-2", "??"].map((name, index) => ({
+      ...buildDrawnNode(`node-${index}`, "container", null, { x: 0, y: 0, width: 10, height: 10 }),
+      name,
+    })),
     2,
     "png",
   );

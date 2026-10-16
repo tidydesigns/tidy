@@ -1,15 +1,25 @@
 import { test, expect } from "bun:test";
-import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
+import {
+  blankDesignDocument,
+  buildDrawnNode,
+  parseDesignDocument,
+  type DesignNode,
+} from "./document";
 import { editLayers } from "./edit-document";
 import { nodeStyle } from "./node-style";
 import { makeComponent, createComponentInstance } from "./document-operations";
 const frame = buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 400, height: 300 });
-const child = (id, horizontalConstraint, verticalConstraint = "start", parentId = "frame") => ({
+const child = (
+  id: string,
+  horizontalConstraint: DesignNode["horizontalConstraint"],
+  verticalConstraint: DesignNode["verticalConstraint"] = "start",
+  parentId = "frame",
+): DesignNode => ({
   ...buildDrawnNode(id, "container", parentId, { x: 20, y: 30, width: 100, height: 50 }),
   horizontalConstraint,
   verticalConstraint,
 });
-const fixture = (nodes) =>
+const fixture = (nodes: DesignNode[]) =>
   parseDesignDocument({ ...blankDesignDocument(), nodes: [frame, ...nodes] });
 test("parent resizing preserves left, right, center, stretch and proportional constraints", () => {
   const doc = fixture([
@@ -36,18 +46,18 @@ test("nested constraints cascade, including locked children, without changing fl
     box: { x: 10, y: 10, width: 300, height: 200 },
   };
   const badge = { ...child("badge", "end", "end", "panel"), locked: true };
-  const flowParent = { ...child("row", "start"), layout: "flex-row" };
+  const flowParent: DesignNode = { ...child("row", "start"), layout: "flex-row" };
   const flowChild = child("flow-child", "end", "end", "row");
   const doc = fixture([badge, flowChild, parent, flowParent]); // Deliberately not in parent order.
   const next = editLayers(doc, ["frame"], { box: { width: 500, height: 400 } });
-  expect(next.nodes.find((n) => n.id === "badge").box).toEqual({
+  expect(next.nodes.find((n) => n.id === "badge")?.box).toEqual({
     x: 120,
     y: 130,
     width: 100,
     height: 50,
   });
   const row = editLayers(next, ["row"], { box: { width: 200, height: 100 } });
-  expect(row.nodes.find((n) => n.id === "flow-child").box).toEqual(flowChild.box);
+  expect(row.nodes.find((n) => n.id === "flow-child")?.box).toEqual(flowChild.box);
 });
 test("constraints use the interior between independent borders and support absolute children in flow", () => {
   const doc = fixture([{ ...child("right", "end"), positionMode: "absolute" }]);
@@ -55,7 +65,7 @@ test("constraints use the interior between independent borders and support absol
     layout: "flex-row",
     style: { borderLeftWidth: 10, borderRightWidth: 20 },
   });
-  expect(next.nodes.find((n) => n.id === "right").box.x).toBe(-10);
+  expect(next.nodes.find((n) => n.id === "right")?.box.x).toBe(-10);
   expect(nodeStyle(next.nodes[1], "flex-row", {}, next.nodes[0]).left).toBe("calc(100% - 380px)");
 });
 test("instance child constraints follow their own parent size without creating overrides", () => {
@@ -69,9 +79,9 @@ test("instance child constraints follow their own parent size without creating o
   doc = instance.document;
   const next = editLayers(doc, [instance.rootId], { box: { width: 300, height: 200 } });
   const copiedChild = next.nodes.find((n) => n.componentSourceId === "content");
-  expect(copiedChild.box).toEqual({ x: 120, y: 130, width: 100, height: 50 });
-  expect(copiedChild.instanceOverrides ?? []).toEqual([]);
-  expect(next.nodes.find((n) => n.id === "content").box).toEqual({
+  expect(copiedChild?.box).toEqual({ x: 120, y: 130, width: 100, height: 50 });
+  expect(copiedChild?.instanceOverrides ?? []).toEqual([]);
+  expect(next.nodes.find((n) => n.id === "content")?.box).toEqual({
     x: 20,
     y: 30,
     width: 100,

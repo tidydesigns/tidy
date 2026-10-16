@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,13 +11,13 @@ const container = `tidy-versions-${crypto.randomUUID()}`;
 const database = "postgres://tidy_test:tidy_local@127.0.0.1:55441/tidy_versions_test";
 const app = "http://localhost:3041";
 const secret = "tidy-disposable-acceptance-local-secret-only";
-const children = [];
-const log = async (name) => {
+const children: ChildProcess[] = [];
+const log = async (name: string) => {
   const { open } = await import("node:fs/promises");
   return open(join(temporary, `${name}.log`), "w");
 };
-const run = (command, args, options = {}) =>
-  new Promise((resolve, reject) => {
+const run = (command: string, args: string[], options: SpawnOptions = {}) =>
+  new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd: root, stdio: "inherit", ...options });
     child.on("error", reject);
     child.on("exit", (code) =>
@@ -38,7 +38,7 @@ const env = {
   POSTHOG_HOST: "http://127.0.0.1:9",
   TIDY_AGENTS_ENABLED: "false",
 };
-const waitFor = async (url) => {
+const waitFor = async (url: string) => {
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (children.some((child) => child.exitCode !== null))
@@ -46,9 +46,7 @@ const waitFor = async (url) => {
     try {
       await fetch(url, { signal: AbortSignal.timeout(2000) });
       return;
-    } catch {
-      /* Starting. */
-    }
+    } catch {}
     if (Date.now() > deadline) throw new Error(`Local test server did not start: ${url}`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -144,7 +142,7 @@ try {
 } finally {
   for (const child of children)
     try {
-      process.kill(-child.pid, "SIGTERM");
+      if (child.pid !== undefined) process.kill(-child.pid, "SIGTERM");
     } catch {
       /* Already stopped. */
     }

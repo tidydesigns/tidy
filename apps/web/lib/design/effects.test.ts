@@ -45,6 +45,7 @@ test("ordered effects and shadow visibility agree in shared renderers and surviv
       content: after,
       frameId: "frame",
       selectedNode: null,
+      onSelect: () => {},
     }),
     createElement(TidyDesign, { document: after, rootId: "frame", assets: {} }),
   ]) {
@@ -64,5 +65,5 @@ test("ordered effects and shadow visibility agree in shared renderers and surviv
   });
   expect(parseDesignDocument(JSON.parse(JSON.stringify(capture.document)))).toEqual(after);
   const scaled = scaleLayers(after, ["frame"], 2);
-  expect(scaled.nodes[0].style.effects.map((effect) => effect.amount)).toEqual([8, 80, 120]);
+  expect(scaled.nodes[0].style.effects?.map((effect) => effect.amount)).toEqual([8, 80, 120]);
 });
