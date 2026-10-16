@@ -1,7 +1,7 @@
 "use client";
 
 import { unstable_rethrow } from "next/navigation";
-import { Component, Suspense, use, useDeferredValue, type ReactNode } from "react";
+import { Component, Suspense, use, useDeferredValue, useState, type ReactNode } from "react";
 
 export function SectionLoading({ label }: { label: string }) {
   return (
@@ -34,7 +34,7 @@ class SectionError extends Component<
   }
 }
 
-/** Only the dependent section suspends; keep its previous content during refreshes. */
+/** Keep content during promise refreshes; apply completed local updates immediately. */
 export function DeferredSection<T>({
   value,
   label,
@@ -45,10 +45,20 @@ export function DeferredSection<T>({
   children: (value: T) => ReactNode;
 }) {
   const deferred = useDeferredValue(value);
+  const promise = value && typeof value === "object" && "then" in value;
+  const [local, setLocal] = useState({ source: value, value, superseded: value });
+  if (!Object.is(local.source, value)) {
+    setLocal(
+      promise ? { ...local, source: value } : { source: value, value, superseded: deferred },
+    );
+  }
+  // An urgent local update can overtake the deferred render. A refresh started
+  // immediately afterward must not bring back the value that update replaced.
+  const current = !promise ? value : Object.is(deferred, local.superseded) ? local.value : deferred;
   return (
-    <SectionError source={deferred} label={label}>
+    <SectionError source={current} label={label}>
       <Suspense fallback={<SectionLoading label={label} />}>
-        <Resolved value={deferred}>{children}</Resolved>
+        <Resolved value={current}>{children}</Resolved>
       </Suspense>
     </SectionError>
   );
