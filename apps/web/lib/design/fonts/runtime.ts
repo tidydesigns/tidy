@@ -11,6 +11,7 @@ import { loadedWebFont, loadFontCatalog } from "./catalog-loader";
 import { mapConcurrent } from "../../map-concurrent";
 import { localFontMetadata, localFontExportError } from "./local-metadata";
 import { fontCssForText } from "./export-css";
+import { createEmbeddedFontCache } from "./embedded-font-cache";
 export type FontStatus = "loading" | "loaded" | "missing" | "error";
 type LocalFont = {
   family: string;
@@ -27,6 +28,11 @@ const asDataUrl = (blob: Blob) =>
     reader.onerror = reject;
     reader.readAsDataURL(blob);
   });
+const embeddedWebFont = createEmbeddedFontCache(async (url) => {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Could not include a font in the export.");
+  return asDataUrl(await response.blob());
+});
 type FontSource = FontFamily["source"];
 const fontKey = (
   family: string,
@@ -369,7 +375,15 @@ class FontRegistry {
     }[],
   ) {
     const css: string[] = [];
+    const groups = new Map<string, { request: (typeof values)[number]; characters: Set<string> }>();
     for (const value of values) {
+      const key = fontKey(value.family, value.weight, value.italic, value.source, value.face);
+      const group = groups.get(key) ?? { request: value, characters: new Set<string>() };
+      for (const character of value.text) group.characters.add(character);
+      groups.set(key, group);
+    }
+    for (const { request, characters } of groups.values()) {
+      const value = { ...request, text: [...characters].join("") };
       await this.load(
         value.family,
         value.weight,
@@ -432,11 +446,7 @@ class FontRegistry {
         ),
       ];
     const replacements = await mapConcurrent(urls, 4, async (url) => {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error("Could not include a font in the export.");
-      const blob = await response.blob();
-      const data = await asDataUrl(blob);
-      return [url, data] as const;
+      return [url, await embeddedWebFont(url)] as const;
     });
     return replacements.reduce((css, [url, data]) => css.split(url).join(data), combined);
   }

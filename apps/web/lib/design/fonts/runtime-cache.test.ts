@@ -32,3 +32,47 @@ test("font stylesheet eviction retains mounted families and reloads evicted face
   );
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
 });
+
+test("font exports group glyph requests and reuse embedded public font bytes", () => {
+  const child = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+    import { expect } from "bun:test";
+    let fontReads = 0; const samples = [];
+    globalThis.document = {
+      createElement: () => ({ dataset: {}, remove() {} }),
+      head: { appendChild() {} },
+      fonts: { async load(_face, text) { samples.push(text); return [{}]; } },
+    };
+    globalThis.FileReader = class {
+      readAsDataURL(blob) {
+        blob.arrayBuffer().then(bytes => {
+          this.result = 'data:font/woff2;base64,' + Buffer.from(bytes).toString('base64');
+          this.onload();
+        });
+      }
+    };
+    globalThis.fetch = async url => {
+      if (String(url).startsWith('https://fonts.gstatic.com/')) {
+        fontReads++; return new Response(new Uint8Array([1, 2, 3]));
+      }
+      return new Response('@font-face{font-family:"test";font-weight:400;font-style:normal;src:url(https://fonts.gstatic.com/f.woff2);unicode-range:U+0000-00FF;}');
+    };
+    const { webFonts } = await import('./lib/design/fonts/catalog');
+    const { fontRegistry } = await import('./lib/design/fonts/runtime');
+    const family = webFonts[0].family;
+    const requests = ['A', 'Z', 'A'].map(text => ({ family, weight: 400, italic: false, text, source: 'web' }));
+    const first = await fontRegistry.exportCss(requests);
+    const second = await fontRegistry.exportCss(requests);
+    expect(samples).toEqual(['AZ']);
+    expect(fontReads).toBe(1);
+    expect(first).toContain('data:font/woff2;base64,AQID');
+    expect(second).toBe(first);
+  `,
+    ],
+    { cwd: resolve(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" },
+  );
+  expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
+});
