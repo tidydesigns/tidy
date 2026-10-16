@@ -32,7 +32,7 @@
     "test:agents:browser": "node apps/web/scripts/test-agents-browser.mjs",
     "test:agents": "node apps/web/scripts/test-account-controls.mjs --agents",
     "agents:runner": "bun --env-file=apps/web/agent-runner/.env.local apps/web/agent-runner/main.ts",
-    "test:auth-worker": "bun apps/web/scripts/test-auth-context-worker.mjs && bun apps/web/scripts/test-auth-worker.mjs",
+    "test:auth-worker": "node apps/web/scripts/test-auth-context-worker.mjs && node apps/web/scripts/test-auth-worker.mjs",
     "zip:extension": "bun run --cwd apps/extension zip",
     "dev:realtime": "bun run --cwd apps/web dev:realtime",
     "test:multiplayer": "bun run --cwd apps/web test:multiplayer",
@@ -56,13 +56,14 @@
     "check:public-source": "node scripts/public-source.mjs",
     "test:release": "node --test scripts/release.test.mjs",
     "audit:dependencies": "node scripts/dependency-audit.mjs",
-    "test:request-worker": "bun apps/web/scripts/test-request-worker.mjs",
+    "test:request-worker": "node apps/web/scripts/test-request-worker.mjs",
     "test:privacy:db": "node apps/web/scripts/test-account-controls.mjs --privacy",
     "test:figma:browser": "bun apps/web/scripts/test-figma-browser.ts",
     "test:figma:publication:browser": "node apps/web/scripts/test-figma-publication-browser.ts",
-    "test:telemetry-worker": "bun apps/web/scripts/test-telemetry-worker.mjs",
+    "test:telemetry-worker": "node apps/web/scripts/test-telemetry-worker.mjs",
     "test:browser": "bun run --cwd apps/web test:browser",
-    "test:browser:install": "bun run --cwd apps/web browser:install"
+    "test:browser:install": "bun run --cwd apps/web browser:install",
+    "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

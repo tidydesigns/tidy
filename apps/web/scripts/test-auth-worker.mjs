@@ -1,3 +1,4 @@
+import { buildWorkerFixture } from "./fixtures/build-worker.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -7,7 +8,7 @@ const require = createRequire(import.meta.url);
 const wranglerRequire = createRequire(require.resolve("wrangler/package.json"));
 const { Miniflare, convertV4MiniflareOptions } = wranglerRequire("miniflare");
 const fixture = fileURLToPath(new URL("./fixtures/auth-worker.ts", import.meta.url));
-const build = await Bun.build({
+const build = await buildWorkerFixture({
   entrypoints: [fixture],
   target: "browser",
   external: ["cloudflare:workers", "node:*"],

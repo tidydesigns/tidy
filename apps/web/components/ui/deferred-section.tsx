@@ -1,16 +1,17 @@
 "use client";
 
-import { unstable_rethrow, useRouter } from "next/navigation";
+import { catchError, type ErrorInfo } from "next/error";
 import {
-  Component,
   Suspense,
   use,
   useDeferredValue,
+  useEffect,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
 } from "react";
-
+import { useNavigationRecovery } from "@/components/workspace/navigation-recovery";
 import { Button } from "@/components/ui/button";
 
 export function SectionLoading({ label }: { label: string }) {
@@ -21,26 +22,20 @@ export function SectionLoading({ label }: { label: string }) {
   );
 }
 
-class SectionError extends Component<
-  { source: unknown; label: string; children: ReactNode },
-  { failed: boolean; source: unknown }
-> {
-  state = { failed: false, source: this.props.source };
-  static getDerivedStateFromError(error: unknown) {
-    unstable_rethrow(error);
-    return { failed: true };
-  }
-  static getDerivedStateFromProps(props: { source: unknown }, state: { source: unknown }) {
-    return props.source !== state.source ? { source: props.source, failed: false } : null;
-  }
-  render() {
-    return this.state.failed ? <SectionRetry label={this.props.label} /> : this.props.children;
-  }
-}
-
-function SectionRetry({ label }: { label: string }) {
-  const router = useRouter();
+const SectionError = catchError(function SectionRetry(
+  { label, source }: { label: string; source: unknown },
+  { retry, reset }: ErrorInfo,
+) {
+  const failedSource = useRef(source);
+  useEffect(() => {
+    if (!Object.is(failedSource.current, source)) {
+      failedSource.current = source;
+      reset();
+    }
+  }, [source, reset]);
+  const recovering = useNavigationRecovery(retry);
   const [pending, startTransition] = useTransition();
+  if (recovering) return <SectionLoading label={label} />;
   return (
     <div className="flex items-center gap-3 py-4 text-sm">
       <p role="alert" className="text-danger">
@@ -51,13 +46,13 @@ function SectionRetry({ label }: { label: string }) {
         variant="text"
         aria-label={`Retry loading ${label}`}
         disabled={pending}
-        onClick={() => startTransition(() => router.refresh())}
+        onClick={() => startTransition(retry)}
       >
         {pending ? "Retrying…" : "Try again"}
       </Button>
     </div>
   );
-}
+});
 
 /** Keep content during promise refreshes; apply completed local updates immediately. */
 export function DeferredSection<T>({
@@ -81,7 +76,7 @@ export function DeferredSection<T>({
   // immediately afterward must not bring back the value that update replaced.
   const current = !promise ? value : Object.is(deferred, local.superseded) ? local.value : deferred;
   return (
-    <SectionError source={current} label={label}>
+    <SectionError label={label} source={current}>
       <Suspense fallback={<SectionLoading label={label} />}>
         <Resolved value={current}>{children}</Resolved>
       </Suspense>
