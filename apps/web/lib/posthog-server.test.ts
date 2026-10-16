@@ -155,10 +155,38 @@ test("server reports allowlist details, strip sensitive stack context and preser
     expect(event.properties.$exception_list[0].stacktrace.frames[0].platform).toBe(
       "node:javascript",
     );
+    for (const frame of event.properties.$exception_list[0].stacktrace.frames)
+      expect(frame.function).toBe("<redacted>");
     expect(event.properties.$exception_list[0].mechanism).toMatchObject({
       type: "generic",
       handled: true,
     });
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test("anonymous server frames retain the required function field in the SDK wire payload", async () => {
+  const c = collector();
+  try {
+    const failure = new Error("private message");
+    failure.stack = "Error: private message\n    at /private/server/chunk.js:12:3";
+    await createErrorReporter(runtime)(failure, { source: "next", event: "server_request_failed" });
+    expect(c.events()).toHaveLength(1);
+    expect(c.events()[0].properties.$exception_list[0].stacktrace).toEqual({
+      type: "raw",
+      frames: [
+        {
+          filename: "chunk.js",
+          function: "<redacted>",
+          lineno: 12,
+          colno: 3,
+          platform: "node:javascript",
+          in_app: true,
+        },
+      ],
+    });
+    expect(c.bodies.join("")).not.toContain("private");
   } finally {
     c.transport.mockRestore();
   }

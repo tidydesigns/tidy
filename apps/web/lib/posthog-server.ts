@@ -283,6 +283,8 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
                         )
                         .map((frame) => ({
                           filename: frame.filename!.split(/[\/\\]/).at(-1),
+                          // Keep the required wire field without exposing the SDK's name.
+                          function: "<redacted>",
                           lineno: frame.lineno,
                           colno: frame.colno,
                           platform: "node:javascript",

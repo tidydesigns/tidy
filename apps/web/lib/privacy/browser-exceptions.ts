@@ -47,6 +47,8 @@ export function browserExceptions(value: unknown, pageUrl: string, operation?: A
         return [
           {
             filename,
+            // Cymbal requires a string even when the original name is private or absent.
+            function: "<redacted>",
             lineno: frame.lineno,
             colno: frame.colno,
             platform: "web:javascript",

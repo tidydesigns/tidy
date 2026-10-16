@@ -58,6 +58,39 @@ test("shipped dependency failures retain frames and chunk IDs without private da
   expect(JSON.stringify(errors)).not.toMatch(/secret|private|vars|password/);
 });
 
+test.each([undefined, null, "", "privateFunction", { secret: "private-token" }])(
+  "serialized browser frames have a redacted function when the SDK supplies %j",
+  (functionName) => {
+    const input = {
+      uuid: "synthetic-event",
+      event: "$exception",
+      properties: {
+        $exception_list: [
+          exception("Failed to fetch", [{ ...frame, ...{ function: functionName } }]),
+        ],
+      },
+    };
+    const choices = { analytics: false, replay: false, diagnostics: true };
+    const result = JSON.parse(JSON.stringify(redactTelemetry(input, choices, page)));
+    expect(result.properties.$exception_list[0].stacktrace).toEqual({
+      type: "raw",
+      frames: [
+        {
+          filename: frame.filename.split("?")[0],
+          function: "<redacted>",
+          lineno: 12,
+          colno: 3,
+          platform: "web:javascript",
+          in_app: true,
+          chunk_id: frame.chunk_id,
+        },
+      ],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/private|secret|password/);
+    expect(redactTelemetry(input, { ...choices, diagnostics: false }, page)).toBeNull();
+  },
+);
+
 test("extension and unrelated scripts do not produce global issues", () => {
   for (const filename of [
     "chrome-extension://private/background.js",

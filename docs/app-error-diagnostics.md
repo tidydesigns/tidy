@@ -26,6 +26,13 @@ replay linkage. They retain reviewed technical messages/categories, sanitized co
 locations and source-map chunk IDs. Source maps describe application code, not user
 content. Avoid putting secrets in source code or build artifacts.
 
+Both browser and server stack frames include `function: "<redacted>"`. PostHog's
+raw JavaScript frame schema requires a string here, even for anonymous frames.
+Omitting the field prevents Error Tracking from processing the exception. The fixed
+placeholder contains no original function name or user data; locations and chunk IDs
+remain available for source-map resolution. This preserves the existing notice and
+consent scope without collecting additional information about users.
+
 ## Build and Worker configuration
 
 No new variables, Worker bindings or database migrations are required.

@@ -31,6 +31,7 @@ window.runDiagnostics = async () => {
   assert(errors.length===2, 'Only app errors survive');
   assert(errors.some(e=>e.properties.$exception_list[0].value==='Cannot read a property of null or undefined'), 'Readable runtime diagnosis');
   assert(errors[0].properties.$exception_list[0].stacktrace.frames.length>0, 'Application stack preserved');
+  assert(errors.every(e=>e.properties.$exception_list.every(exception=>exception.stacktrace.frames.every(frame=>frame.function==='<redacted>'))), 'Required function field survives SDK serialization without original names');
   assert(!JSON.stringify(sent).includes('private-secret'), 'Private values excluded');
   assert(!sent.some(e=>e.event==='$snapshot'||e.event==='$pageview'), 'Replay and analytics remain off');
   chooseConsent({analytics:false,replay:true,diagnostics:true}); await wait();
