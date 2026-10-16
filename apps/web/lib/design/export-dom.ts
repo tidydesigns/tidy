@@ -10,9 +10,11 @@ import {
   type ExportMatrix,
 } from "./export-plan";
 const translate = (x: number, y: number): ExportMatrix => [1, 0, 0, 1, x, y];
-export function elementMatrix(element: HTMLElement): ExportMatrix {
-  const style = getComputedStyle(element),
-    raw = new DOMMatrix(style.transform === "none" ? undefined : style.transform),
+export function elementMatrix(
+  element: HTMLElement,
+  style = getComputedStyle(element),
+): ExportMatrix {
+  const raw = new DOMMatrix(style.transform === "none" ? undefined : style.transform),
     origin = style.transformOrigin.split(" ").map(parseFloat);
   const parent = element.offsetParent instanceof HTMLElement ? element.offsetParent : null;
   return matrixMultiply(
@@ -29,22 +31,45 @@ export function elementMatrix(element: HTMLElement): ExportMatrix {
     ),
   );
 }
-export function worldMatrix(element: HTMLElement): ExportMatrix {
-  let result = elementMatrix(element),
-    parent = element.parentElement?.closest<HTMLElement>("[data-node-id]");
+/** Reuse live DOM reads only during one synchronous bounds/clone operation.
+ * Font loading and batch encoding can change layout between these operations. */
+function geometryMeasurements() {
+  const styles = new WeakMap<HTMLElement, CSSStyleDeclaration>();
+  const matrices = new WeakMap<HTMLElement, ExportMatrix>();
+  const style = (element: HTMLElement) => {
+    let value = styles.get(element);
+    if (!value) styles.set(element, (value = getComputedStyle(element)));
+    return value;
+  };
+  return {
+    style,
+    matrix(element: HTMLElement) {
+      let value = matrices.get(element);
+      if (!value) matrices.set(element, (value = elementMatrix(element, style(element))));
+      return value;
+    },
+  };
+}
+export function worldMatrix(
+  element: HTMLElement,
+  measurements = geometryMeasurements(),
+): ExportMatrix {
+  let result: ExportMatrix = [...measurements.matrix(element)];
+  let parent = element.parentElement?.closest<HTMLElement>("[data-node-id]");
   while (parent) {
-    result = matrixMultiply(elementMatrix(parent), result);
+    result = matrixMultiply(measurements.matrix(parent), result);
     parent = parent.parentElement?.closest<HTMLElement>("[data-node-id]");
   }
   return result;
 }
-export function exportNodeBounds(
+function exportNodeBounds(
   node: DesignNode,
   element: HTMLElement,
-  elements: ReadonlyMap<string, HTMLElement>,
   nodes: ReadonlyMap<string, DesignNode>,
+  allNodes: readonly DesignNode[],
+  measurements: ReturnType<typeof geometryMeasurements>,
 ): ExportBounds {
-  const style = getComputedStyle(element),
+  const style = measurements.style(element),
     width = parseFloat(style.width),
     height = parseFloat(style.height),
     resolved = { ...node, box: { ...node.box, width, height } };
@@ -64,7 +89,7 @@ export function exportNodeBounds(
     outset[2] = Math.max(outset[2], radius + shadow.y);
     outset[3] = Math.max(outset[3], radius - shadow.x);
   }
-  const painted = authoredPathBounds(booleanRenderNode(resolved, [...nodes.values()]));
+  const painted = authoredPathBounds(booleanRenderNode(resolved, allNodes));
   const boxes = [
     transformedExportBounds(
       {
@@ -73,15 +98,15 @@ export function exportNodeBounds(
         width: (painted?.width ?? width) + outset[1] + outset[3],
         height: (painted?.height ?? height) + outset[0] + outset[2],
       },
-      worldMatrix(element),
+      worldMatrix(element, measurements),
     ),
   ];
   if (style.overflow === "visible")
     for (const child of element.children) {
       if (!(child instanceof HTMLElement) || !child.dataset.nodeId) continue;
       const descendant = nodes.get(child.dataset.nodeId);
-      if (descendant?.visible && getComputedStyle(child).opacity !== "0")
-        boxes.push(exportNodeBounds(descendant, child, elements, nodes));
+      if (descendant?.visible && measurements.style(child).opacity !== "0")
+        boxes.push(exportNodeBounds(descendant, child, nodes, allNodes, measurements));
     }
   return unionExportBounds(boxes);
 }
@@ -93,9 +118,10 @@ export function exportClone(
   bounds: ExportBounds,
 ) {
   const clone = original.cloneNode(true) as HTMLElement;
+  const measurements = geometryMeasurements();
   const copy = (from: Element, to: Element) => {
     if (from instanceof HTMLElement && to instanceof HTMLElement) {
-      const style = getComputedStyle(from);
+      const style = measurements.style(from);
       for (const key of [
         "fontFamily",
         "fontSize",
@@ -116,7 +142,7 @@ export function exportClone(
         to.style.outline = source?.style.outlineWidth
           ? `${source.style.outlineWidth}px solid ${source.style.outlineColor ?? "#000000"}`
           : "none";
-        to.dataset.exportMatrix = elementMatrix(from).join(" ");
+        to.dataset.exportMatrix = measurements.matrix(from).join(" ");
         to.dataset.exportWidth = String(parseFloat(style.width));
         to.dataset.exportHeight = String(parseFloat(style.height));
       }
@@ -130,7 +156,7 @@ export function exportClone(
     for (let i = 0; i < from.children.length; i++) copy(from.children[i], to.children[i]);
   };
   copy(original, clone);
-  const matrix = worldMatrix(original);
+  const matrix = worldMatrix(original, measurements);
   matrix[4] -= bounds.x;
   matrix[5] -= bounds.y;
   clone.dataset.exportMatrix = matrix.join(" ");
@@ -165,8 +191,9 @@ export function selectionBounds(
   roots: readonly DesignNode[],
   elements: ReadonlyMap<string, HTMLElement>,
   document: DesignDocument,
+  nodes: ReadonlyMap<string, DesignNode> = new Map(document.nodes.map((n) => [n.id, n])),
 ) {
-  const nodes = new Map(document.nodes.map((n) => [n.id, n]));
+  const measurements = geometryMeasurements();
   return unionExportBounds(
     roots.map((n) => {
       const e = elements.get(n.id);
@@ -174,7 +201,7 @@ export function selectionBounds(
         throw new Error(
           `Layer ${n.name} is not on the canvas. Switch to its page before exporting.`,
         );
-      return exportNodeBounds(n, e, elements, nodes);
+      return exportNodeBounds(n, e, nodes, document.nodes, measurements);
     }),
   );
 }

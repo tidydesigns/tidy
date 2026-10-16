@@ -92,7 +92,7 @@ export async function createSelectionExport(
   const groups = request.mode === "batch" ? roots.map((root) => [root]) : [roots];
   const plans = groups.map((group) => ({
     group,
-    bounds: selectionBounds(group, elements, document),
+    bounds: selectionBounds(group, elements, document, nodes),
   }));
   const dimensions = plans.map((plan) => exportDimensions(plan.bounds, request.scale));
   if (dimensions.reduce((sum, size) => sum + size.width * size.height, 0) > 128_000_000)
