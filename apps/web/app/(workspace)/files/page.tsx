@@ -41,6 +41,7 @@ async function FilesContent({ query }: { query: Awaited<PageProps<"/files">["sea
   return (
     <main className={filesPage} data-page-content="files">
       <FilesBrowser
+        organizationId={organization.id}
         thumbnailScope={session.user.id}
         canEdit={can(role, "edit")}
         key={archived ? "archive" : (folderId ?? "files")}

@@ -9,6 +9,7 @@ import {
 import { actionError } from "@/lib/action-error";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { auth } from "@/lib/auth";
 import { deleteArchivedDesignFileForUser, renameDesignFileForUser } from "@/lib/design/service";
@@ -21,22 +22,26 @@ import {
 
 export async function createDesignFile(
   folderId: string | null = null,
-): Promise<{ id?: string; error?: string }> {
+  organizationId?: string,
+): Promise<{ error: string }> {
   const requestHeaders = await headers();
   const session = await auth.api.getSession({ headers: requestHeaders });
   if (!session) return { error: "Sign in to create a file." };
 
-  const organizations = await auth.api.listOrganizations({ headers: requestHeaders });
-  const organization =
-    organizations.find((item) => item.id === session.session.activeOrganizationId) ??
-    organizations[0];
-  if (!organization) return { error: "Create an organisation first." };
+  // Files already knows its workspace. The service still checks current edit
+  // authority, folder ownership and quota; this is only a lookup shortcut.
+  const targetOrganizationId =
+    organizationId ??
+    session.session.activeOrganizationId ??
+    (await auth.api.listOrganizations({ headers: requestHeaders }))[0]?.id;
+  if (!targetOrganizationId) return { error: "Create an organisation first." };
 
-  const result = await createBrowserFileForUser(session.user.id, organization.id, folderId);
-  if ("error" in result) return result;
-  const { id } = result;
+  const result = await createBrowserFileForUser(session.user.id, targetOrganizationId, folderId);
+  if (result.error !== undefined) return { error: result.error };
   revalidatePath("/files");
-  return { id };
+  // Redirect in the action so revalidation does not render the Files listing
+  // before the client can start a second request for the editor.
+  redirect(`/files/${encodeURIComponent(result.id)}`);
 }
 
 function validName(name: string) {

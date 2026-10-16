@@ -208,20 +208,31 @@ export async function createBrowserFileForUser(
   try {
     if (folderId !== null && !validId(folderId))
       throw new FileManagementError("File or folder not found or access denied.");
-    const bound = await discoverFileManagement(userId, organizationId, "organization");
-    const documents = await documentSchemaReady();
+    const [bound, documents] = await Promise.all([
+      discoverFileManagement(userId, organizationId, "organization"),
+      documentSchemaReady(),
+    ]);
     return await withOrganizationEditAuthority(userId, bound, async (client) => {
       if (folderId !== null) await folderAuthority(client, bound, folderId);
       const id = randomUUID();
-      await client.query(
-        `insert into "designFile" ("id","organizationId","name","createdBy","folderId") values ($1,$2,$3,$4,$5)`,
-        [id, bound, randomDesignFileName(), userId, folderId],
-      );
-      if (documents)
+      const values = [id, bound, randomDesignFileName(), userId, folderId];
+      if (documents) {
+        // The document depends on the inserted file, keeping both writes atomic
+        // in one round trip while retaining all database admission triggers.
         await client.query(
-          `insert into "designDocument" ("fileId","revision","content") values ($1,1,$2::jsonb)`,
-          [id, JSON.stringify(blankDesignDocument())],
+          `with file as (
+            insert into "designFile" ("id","organizationId","name","createdBy","folderId")
+            values ($1,$2,$3,$4,$5) returning "id"
+          ) insert into "designDocument" ("fileId","revision","content")
+            select "id",1,$6::jsonb from file`,
+          [...values, JSON.stringify(blankDesignDocument())],
         );
+      } else {
+        await client.query(
+          `insert into "designFile" ("id","organizationId","name","createdBy","folderId") values ($1,$2,$3,$4,$5)`,
+          values,
+        );
+      }
       return { id };
     });
   } catch (error) {

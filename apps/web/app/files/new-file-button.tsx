@@ -1,7 +1,9 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState, useTransition } from "react";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { Dialog } from "@/components/ui/dialog";
+import { EditorSkeleton } from "@/components/files/editor-skeleton";
 import posthog from "@/lib/posthog-client";
 import { createDesignFile } from "./actions";
 import { SelectMenu } from "@/components/ui/select-menu";
@@ -9,41 +11,60 @@ import { Icon } from "@/components/ui/icon";
 import { FigmaFileImport } from "./figma-file-import";
 import type { FigmaImport } from "@bella/design/figma";
 
+let editorCode: Promise<unknown> | undefined;
+function preloadEditor() {
+  // Warm code on intent without creating a file or querying a nonexistent ID.
+  editorCode ??= import("./[uid]/file-editor").catch(() => {
+    editorCode = undefined;
+  });
+}
+
 export function NewFileButton({
   folderId = null,
   folderName = "Files",
+  organizationId,
   onImported,
   onCreate,
 }: {
   folderId?: string | null;
   folderName?: string;
+  organizationId?: string;
   onImported?: (result: FigmaImport) => Promise<void>;
   onCreate?: () => Promise<void>;
 }) {
-  const router = useRouter();
-  const [pending, setPending] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const creating = useRef(false);
   const [importOpen, setImportOpen] = useState(false);
   const [error, setError] = useState("");
 
-  async function create() {
-    if (pending) return;
-    setPending(true);
+  function create() {
+    if (creating.current) return;
+    creating.current = true;
     setError("");
-    try {
-      if (onCreate) {
-        await onCreate();
-        return;
+    preloadEditor();
+    startTransition(async () => {
+      try {
+        if (onCreate) {
+          await onCreate();
+          return;
+        }
+        const result = await createDesignFile(folderId, organizationId);
+        setError(result.error);
+      } catch (error) {
+        if (isRedirectError(error)) {
+          // Next delivers successful action redirects as control-flow errors.
+          // Preserve navigation and count only committed file creations.
+          try {
+            posthog.capture("design_file_created", { in_folder: Boolean(folderId) });
+          } finally {
+            throw error;
+          }
+        }
+        setError("Could not create the file. Please try again.");
+      } finally {
+        creating.current = false;
       }
-      const result = await createDesignFile(folderId);
-      if (result.id) {
-        posthog.capture("design_file_created", { in_folder: Boolean(folderId) });
-        router.push(`/files/${encodeURIComponent(result.id)}`);
-      } else setError(result.error ?? "Could not create the file.");
-    } catch {
-      setError("Could not create the file. Please try again.");
-    } finally {
-      setPending(false);
-    }
+    });
   }
 
   return (
@@ -52,10 +73,13 @@ export function NewFileButton({
         <button
           type="button"
           onClick={create}
+          onPointerEnter={preloadEditor}
+          onFocus={preloadEditor}
+          onTouchStart={preloadEditor}
           disabled={pending}
           className="rounded-l-lg px-4 py-2.5 text-sm font-medium hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 active:scale-[0.98]"
         >
-          <span data-ph-public>{pending ? "Creating…" : "+ New file"}</span>
+          <span data-ph-public>+ New file</span>
         </button>
         <SelectMenu
           replayOptions
@@ -90,6 +114,26 @@ export function NewFileButton({
           }
         />
       </div>
+      {pending && (
+        <Dialog
+          ref={(dialog) => {
+            if (dialog && !dialog.open) dialog.showModal();
+          }}
+          padded={false}
+          aria-label="Creating file"
+          onCancel={(event) => event.preventDefault()}
+          style={{
+            width: "100%",
+            height: "100dvh",
+            maxWidth: "none",
+            maxHeight: "none",
+            border: 0,
+            borderRadius: 0,
+          }}
+        >
+          <EditorSkeleton />
+        </Dialog>
+      )}
       {error && (
         <p role="alert" className="text-xs text-danger">
           {error}

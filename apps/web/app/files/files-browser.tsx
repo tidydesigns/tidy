@@ -117,6 +117,7 @@ export function FilesBrowser({
   asOf,
   canEdit = true,
   thumbnailScope,
+  organizationId,
 }: {
   files: File[];
   folders: Folder[];
@@ -125,6 +126,7 @@ export function FilesBrowser({
   asOf: string;
   canEdit?: boolean;
   thumbnailScope?: string;
+  organizationId?: string;
 }) {
   const router = useRouter();
   const [view, setView] = useState<"grid" | "list">("grid");
@@ -552,6 +554,7 @@ export function FilesBrowser({
           {canEdit && !archived && (
             <>
               <NewFileButton
+                organizationId={organizationId}
                 folderId={currentFolder?.id ?? null}
                 folderName={currentFolder?.name ?? "Files"}
               />
