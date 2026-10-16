@@ -17,28 +17,18 @@ import {
 } from "./client";
 import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 
-const installationSchema = z.object({
-  id: z.number().int().positive(),
-  app_id: z.number().int().positive(),
-  account: z.object({ login: z.string() }),
-  suspended_at: z.string().nullable(),
-});
+import {
+  installationSchema,
+  type Installation,
+  type ConnectionStatus,
+} from "./connection-contract";
+export type { Installation, ConnectionStatus } from "./connection-contract";
 const repositorySchema = z.object({
   id: z.number().int().positive(),
   full_name: z.string(),
   permissions: z.object({ admin: z.boolean().optional() }).optional(),
 });
-export type Installation = z.infer<typeof installationSchema>;
 export type Repository = z.infer<typeof repositorySchema>;
-export type ConnectionStatus = {
-  configured: boolean;
-  ready: boolean;
-  login: string | null;
-  connections: { installationId: string; account: string; active: boolean }[];
-  installations: Installation[];
-  error: string | null;
-  installUrl: string;
-};
 export async function githubSchemaReady() {
   return requestWork("githubSchemaReady", async () => {
     const result = await db.query<{ ready: boolean }>(

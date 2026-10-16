@@ -11,8 +11,15 @@ import {
   type ConnectionStatus,
   type ThreadSnapshot,
   type ThreadSummary,
-  type ThreadEvent,
+  threadSnapshotSchema,
+  threadListSchema,
+  threadEventsSchema,
+  startedRunSchema,
+  steeredRunSchema,
+  agentOkSchema,
 } from "@/lib/agents/protocol";
+
+import { readJsonResponse } from "@/lib/http/json-response";
 
 export type ThreadsWorkspaceProps = {
   organizationId: string;
@@ -80,14 +87,17 @@ export function ThreadsWorkspace({
   const ownsRun = run?.ownerId === userId;
   const loadThread = useCallback(async (id: string, signal?: AbortSignal) => {
     const response = await fetch(`/api/agents/threads/${id}`, { signal });
-    const data = (await response.json()) as ThreadSnapshot & { error?: string };
     if (!response.ok) {
       if ([401, 403, 404].includes(response.status)) {
         cache.current.delete(id);
         if (selectedRef.current === id) setSnapshot(null);
       }
-      throw new Error(data.error);
     }
+    const data = await readJsonResponse({
+      response,
+      schema: threadSnapshotSchema,
+      message: "Could not load thread.",
+    });
     if (signal?.aborted) return;
     const previous = cache.current.get(id);
     if (previous && previous.thread.sequence > data.thread.sequence) return;
@@ -96,7 +106,7 @@ export function ThreadsWorkspace({
     const merged: ThreadSnapshot = {
       ...data,
       messages: [...earlier, ...data.messages],
-      hasOlder: earlier.length ? previous!.hasOlder : data.hasOlder,
+      hasOlder: earlier.length && previous ? previous.hasOlder : data.hasOlder,
     };
     cache.current.set(id, merged);
     setThreads((current) =>
@@ -120,7 +130,6 @@ export function ThreadsWorkspace({
           const response = await fetch(`/api/agents/threads?${params}`, {
             signal: controller.signal,
           });
-          const data = (await response.json()) as { threads: ThreadSummary[]; error?: string };
           if (controller.signal.aborted) return;
           if (!response.ok) {
             if ([401, 403].includes(response.status)) {
@@ -129,27 +138,25 @@ export function ThreadsWorkspace({
               setOlderThreads([]);
               setSnapshot(null);
             }
-            throw new Error(data.error);
           }
+          const data = await readJsonResponse({
+            response,
+            schema: threadListSchema,
+            message: "Could not load threads.",
+          });
+          if (controller.signal.aborted) return;
           lastList = Date.now();
           // Preserve positions of existing rows during activity updates.
           setThreads((current) => {
             const incoming = new Map<string, ThreadSummary>(
-              (data.threads as ThreadSummary[]).map((thread) => [thread.id, thread]),
+              data.threads.map((thread) => [thread.id, thread]),
             );
-            const kept = current.flatMap((thread) =>
-              incoming.has(thread.id)
-                ? [
-                    thread.sequence > incoming.get(thread.id)!.sequence
-                      ? thread
-                      : incoming.get(thread.id)!,
-                  ]
-                : [],
-            );
+            const kept = current.flatMap((thread) => {
+              const next = incoming.get(thread.id);
+              return next ? [thread.sequence > next.sequence ? thread : next] : [];
+            });
             return [
-              ...(data.threads as ThreadSummary[]).filter(
-                (thread) => !current.some((old) => old.id === thread.id),
-              ),
+              ...data.threads.filter((thread) => !current.some((old) => old.id === thread.id)),
               ...kept,
             ];
           });
@@ -163,14 +170,18 @@ export function ThreadsWorkspace({
               `/api/agents/threads/${id}/events?after=${cached.thread.sequence}`,
               { signal: controller.signal },
             );
-            const data = (await response.json()) as { events: ThreadEvent[]; error?: string };
             if (!response.ok) {
               if ([401, 403, 404].includes(response.status)) {
                 cache.current.delete(id);
                 if (selectedRef.current === id) setSnapshot(null);
               }
-              throw new Error(data.error);
             }
+            const data = await readJsonResponse({
+              response,
+              schema: threadEventsSchema,
+              message: "Could not load thread events.",
+            });
+            if (controller.signal.aborted) return;
             if (data.events.length) await loadThread(id, controller.signal);
           }
         }
@@ -244,11 +255,20 @@ export function ThreadsWorkspace({
           ),
         },
       );
-      const data = (await response.json()) as { threadId?: string; error?: string };
-      if (!response.ok) throw new Error(data.error);
+      const data = steering
+        ? await readJsonResponse({
+            response,
+            schema: steeredRunSchema,
+            message: "Could not send your message.",
+          })
+        : await readJsonResponse({
+            response,
+            schema: startedRunSchema,
+            message: "Could not start the run.",
+          });
       setPrompt((current) => (current.trim() === content ? "" : current));
       requestRef.current = null;
-      if (data.threadId) {
+      if ("threadId" in data) {
         selectedRef.current = data.threadId;
         setSelected(data.threadId);
       }
@@ -265,7 +285,11 @@ export function ThreadsWorkspace({
     setError("");
     try {
       const response = await fetch(`/api/agents/runs/${run.id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error);
+      await readJsonResponse({
+        response,
+        schema: agentOkSchema,
+        message: "Could not stop the run.",
+      });
       await loadThread(run.threadId);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not stop the run.");
@@ -282,8 +306,11 @@ export function ThreadsWorkspace({
       const params = new URLSearchParams({ organizationId, before: cursor });
       if (scope === "file" && fileId) params.set("fileId", fileId);
       const response = await fetch(`/api/agents/threads?${params}`);
-      const data = (await response.json()) as { threads: ThreadSummary[]; error?: string };
-      if (!response.ok) throw new Error(data.error);
+      const data = await readJsonResponse({
+        response,
+        schema: threadListSchema,
+        message: "Could not load older threads.",
+      });
       if (scopeRef.current !== requestedScope) return;
       setOlderThreads((current) => [
         ...current,
@@ -319,8 +346,11 @@ export function ThreadsWorkspace({
       before = snapshot.messages[0]?.sequence;
     try {
       const response = await fetch(`/api/agents/threads/${id}?before=${before}`);
-      const data: ThreadSnapshot & { error?: string } = await response.json();
-      if (!response.ok) throw new Error(data.error);
+      const data = await readJsonResponse({
+        response,
+        schema: threadSnapshotSchema,
+        message: "Could not load earlier messages.",
+      });
       if (selectedRef.current === id)
         setSnapshot((current) => {
           if (!current) return current;

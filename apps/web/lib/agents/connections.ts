@@ -5,7 +5,14 @@ import { reservePersonalAttempts } from "@/lib/security/personal-budget";
 import { lockAgentUser, verifiedAgentUser, withAgentDisconnectLock } from "./personal-authority";
 import { db } from "@/lib/db";
 import { chatgptConfigured } from "./config";
-import { activeRunStatuses, AgentError, planHelpUrl, type ConnectionStatus } from "./protocol";
+import {
+  activeRunStatuses,
+  AgentError,
+  planHelpUrl,
+  nativeLoginSchema,
+  type NativeLogin,
+  type ConnectionStatus,
+} from "./protocol";
 import { runnerConfigured, runnerRequest } from "./runner-client";
 import { agentTransaction, appendThreadEvent } from "./store";
 
@@ -18,13 +25,7 @@ const accountResponse = z.object({
     })
     .nullable(),
 });
-const nativeLoginSchema = z.object({
-  type: z.literal("chatgptDeviceCode"),
-  loginId: z.string().min(1).max(200),
-  verificationUrl: z.literal("https://auth.openai.com/codex/device"),
-  userCode: z.string().regex(/^[A-Z0-9-]{4,32}$/),
-});
-export type NativeLogin = z.infer<typeof nativeLoginSchema>;
+export type { NativeLogin } from "./protocol";
 export async function connectionStatus(userId: string): Promise<ConnectionStatus> {
   await verifiedAgentUser(db, userId);
   await reservePersonalAttempts("agent-status", userId);

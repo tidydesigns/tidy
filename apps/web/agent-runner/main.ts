@@ -30,5 +30,5 @@ if (import.meta.main) {
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
-  console.log(`Tidy Codex runner listening on port ${server.port}.`);
+  console.info(JSON.stringify({ event: "agent_runner_listening", port: server.port }));
 }

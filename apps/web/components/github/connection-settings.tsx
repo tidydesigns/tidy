@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import posthog from "@/lib/posthog-client";
-import type { ConnectionStatus } from "@/lib/github/connections";
+import { connectionStatusSchema, type ConnectionStatus } from "@/lib/github/connection-contract";
+import { readJsonResponse } from "@/lib/http/json-response";
+import { z } from "zod";
 
 const button =
   "rounded-md border border-primary-grey/80 bg-surface px-3 py-2 text-sm hover:bg-primary-grey/20 disabled:opacity-50";
@@ -34,8 +36,11 @@ export function GitHubSettings({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ organizationId, installationId }),
       });
-      const data = (await response.json()) as ConnectionStatus;
-      if (!response.ok) throw new Error(data.error ?? "Could not update GitHub connection.");
+      const data = await readJsonResponse({
+        response,
+        schema: connectionStatusSchema,
+        message: "Could not update GitHub connection.",
+      });
       setStatus(data);
       posthog.capture("github_installation_linked");
     } catch (e) {
@@ -49,7 +54,8 @@ export function GitHubSettings({
     setError("");
     try {
       const response = await fetch("/api/github/connection", { method: "DELETE" });
-      if (!response.ok) throw new Error(((await response.json()) as { error: string }).error);
+      if (!response.ok)
+        await readJsonResponse({ response, schema: z.unknown(), message: "Could not disconnect." });
       setStatus((current) => ({ ...current, login: null, installations: [] }));
       posthog.capture("github_account_disconnected");
     } catch (e) {
@@ -131,9 +137,11 @@ export function GitHubSettings({
                 const response = await fetch(
                   `/api/github/connection?organizationId=${encodeURIComponent(organizationId)}`,
                 );
-                const data = (await response.json()) as ConnectionStatus;
-                if (!response.ok)
-                  throw new Error(data.error ?? "Could not update GitHub connection.");
+                const data = await readJsonResponse({
+                  response,
+                  schema: connectionStatusSchema,
+                  message: "Could not update GitHub connection.",
+                });
                 setStatus(data);
                 setError(data.error ?? "");
               } catch (e) {
