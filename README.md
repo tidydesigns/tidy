@@ -137,12 +137,17 @@ The configuration path is relative to `apps/web`.
 ### Worker error source maps
 
 `deploy:worker` first runs Wrangler's final bundling pass locally into
-`apps/web/.open-next/deploy/`, with source maps. When PostHog collection and
-`POSTHOG_UPLOAD_SOURCEMAPS=1` are enabled, it injects a chunk ID and uploads this
+`apps/web/.open-next/deploy/`, with source maps. When
+`POSTHOG_UPLOAD_SOURCEMAPS=1` is enabled, it injects a chunk ID and uploads this
 final bundle/map pair using the built app version, `POSTHOG_API_KEY`,
 `POSTHOG_PROJECT_ID` and `POSTHOG_API_HOST` (EU Cloud by default). Failed or invalid
 uploads stop deployment. The credentials are build-only and artifacts are checked
 for private environment values before upload.
+
+This explicit artifact-upload switch is independent of error collection:
+`--keep-vars` can preserve a server-error binding that is absent from the local
+deployment configuration or build environment. Error collection continues to use
+its existing runtime switches and consent rules.
 
 The subsequent OpenNext deployment uses `--no-bundle --upload-source-maps`, so
 Cloudflare receives the same JavaScript and source map that PostHog received.

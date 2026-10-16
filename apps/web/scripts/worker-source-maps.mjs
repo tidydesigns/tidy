@@ -15,10 +15,9 @@ export function runTool(script, args, options) {
 }
 
 export function uploadWorkerSourceMapsEnabled(env) {
-  return (
-    (env.NEXT_PUBLIC_POSTHOG_ENABLED === "1" || env.POSTHOG_SERVER_ERRORS_ENABLED === "1") &&
-    env.POSTHOG_UPLOAD_SOURCEMAPS === "1"
-  );
+  // --keep-vars can preserve collection bindings that are absent locally.
+  // Honor the explicit artifact-upload opt-in independently of collection.
+  return env.POSTHOG_UPLOAD_SOURCEMAPS === "1";
 }
 
 // Run Wrangler's final bundling pass before uploading symbols. Deployment must
@@ -83,7 +82,7 @@ export async function assertNoCredentials(directory, env) {
       ([name, value]) =>
         value &&
         !name.startsWith("NEXT_PUBLIC_") &&
-        /SECRET|TOKEN|PASSWORD|PRIVATE_KEY|ENCRYPTION_KEY|DATABASE_URL|API_KEY|CONNECTION_STRING/.test(
+        /SECRET|TOKEN|PASSWORD|PRIVATE_KEY|ENCRYPTION_KEY|DATABASE_URL|API_KEY|CONNECTION_STRING|ACCESS_KEY|_KEY$|CREDENTIAL|(?:^|_)AUTH(?:ORIZATION)?(?:_CONFIG)?$/i.test(
           name,
         ),
     )

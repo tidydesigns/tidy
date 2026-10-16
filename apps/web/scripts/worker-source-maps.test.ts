@@ -9,9 +9,17 @@ import {
   validateWorkerSourceMap,
 } from "./worker-source-maps.mjs";
 
-test("Worker source maps follow the existing collection and upload switches", () => {
-  expect(uploadWorkerSourceMapsEnabled({ POSTHOG_UPLOAD_SOURCEMAPS: "1" })).toBe(false);
+test("explicit map uploads work when collection is enabled only in a preserved Worker binding", () => {
+  expect(uploadWorkerSourceMapsEnabled({})).toBe(false);
+  expect(uploadWorkerSourceMapsEnabled({ POSTHOG_UPLOAD_SOURCEMAPS: "1" })).toBe(true);
   expect(uploadWorkerSourceMapsEnabled({ POSTHOG_SERVER_ERRORS_ENABLED: "1" })).toBe(false);
+  expect(
+    uploadWorkerSourceMapsEnabled({
+      POSTHOG_UPLOAD_SOURCEMAPS: "0",
+      POSTHOG_SERVER_ERRORS_ENABLED: "1",
+      NEXT_PUBLIC_POSTHOG_ENABLED: "1",
+    }),
+  ).toBe(false);
   expect(
     uploadWorkerSourceMapsEnabled({
       POSTHOG_UPLOAD_SOURCEMAPS: "1",
@@ -38,6 +46,35 @@ test("source maps are checked for build credentials including escaped source con
     await expect(assertNoCredentials(directory, { POSTHOG_API_KEY: secret })).rejects.toThrow(
       "Private credential found",
     );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("credential scan catches access keys, auth configuration and provider credentials", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "tidy-map-credential-names-"));
+  const secret = "synthetic-private-provider-credential";
+  try {
+    await writeFile(path.join(directory, "worker.js.map"), secret);
+    for (const name of [
+      "AWS_ACCESS_KEY_ID",
+      "DOCKER_AUTH_CONFIG",
+      "STRIPE_KEY",
+      "REGISTRY_AUTH",
+      "NPM_CONFIG__AUTH",
+      "AUTHORIZATION",
+      "GCP_CREDENTIALS",
+      "CLOUDFLARE_API_KEY",
+    ]) {
+      await expect(assertNoCredentials(directory, { [name]: secret })).rejects.toThrow(
+        "Private credential found",
+      );
+    }
+    // Public project keys and the public auth origin are not credentials.
+    await assertNoCredentials(directory, {
+      NEXT_PUBLIC_POSTHOG_KEY: secret,
+      BETTER_AUTH_URL: secret,
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

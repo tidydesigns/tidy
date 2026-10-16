@@ -42,13 +42,7 @@ if (
 const cwd = path.resolve(import.meta.dirname, "..");
 const directory = path.join(cwd, ".open-next/deploy");
 const entrypoint = await bundleWorker({ config, directory, cwd });
-if (
-  uploadWorkerSourceMapsEnabled({
-    ...process.env,
-    POSTHOG_SERVER_ERRORS_ENABLED:
-      settings.vars?.POSTHOG_SERVER_ERRORS_ENABLED ?? process.env.POSTHOG_SERVER_ERRORS_ENABLED,
-  })
-) {
+if (uploadWorkerSourceMapsEnabled(process.env)) {
   const { production } = await import(
     pathToFileURL(path.join(cwd, ".open-next/cloudflare/next-env.mjs")).href
   );
