@@ -19,9 +19,7 @@ export async function publishAgentActivity(input: AgentActivity) {
     let context;
     try {
       context = getCloudflareContext();
-    } catch {
-      /* Local relay below. */
-    }
+    } catch {}
     if (context?.env.FILE_ROOMS) {
       const delivery = withDeadline(
         context.env.FILE_ROOMS.getByName(activity.fileId).activity(activity),

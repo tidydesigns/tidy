@@ -36,9 +36,8 @@ export function componentEditSession(
     if (copies) copies.push(node);
     else copiesBySource.set(node.componentSourceId, [node]);
   }
-  // Interaction/mask remaps previously rebuilt an ancestry map for every
-  // candidate lookup. Relationships cannot change in a property patch, so one
-  // lazy per-operation index safely serves all copied references.
+  // Relationships cannot change in a property patch, so interaction/mask remaps
+  // share a lazy per-operation ancestry index.
   let references: Map<string | undefined, Map<string, string>> | undefined;
   const roots = new Map<string, string | undefined>();
   const referenceInInstance = (sourceId: string, copyId: string) => {

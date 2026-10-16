@@ -148,9 +148,7 @@ function stop(clearStorage = true) {
     // The same-origin transport rejects the old consent revision, including retries.
     try {
       void previous.shutdown().catch(() => {});
-    } catch {
-      /* Optional SDK cleanup. */
-    }
+    } catch {}
   }
   if (clearStorage) clearAnalyticsStorage();
 }
@@ -266,9 +264,7 @@ function notifyAuthChange() {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(AUTH_EVENT, crypto.randomUUID());
-  } catch {
-    /* Optional sync. */
-  }
+  } catch {}
 }
 
 function afterInitialization(deliver: (sdk: PostHog) => unknown) {

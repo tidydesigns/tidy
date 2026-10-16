@@ -96,7 +96,7 @@ function ActivityDetails({
       )}
       {activity.phase === "staged" && (
         <p data-ph-public className="mt-1 text-secondary-ink">
-          Layers are prepared. They’ll appear on the canvas when the agent places them.
+          Layers are prepared. They&#39;ll appear on the canvas when the agent places them.
         </p>
       )}
       {activity.phase === "failed" && (

@@ -8,7 +8,7 @@ import { enabledSocialProviders } from "@/lib/auth-social";
 import { authEmailConfigured } from "@/lib/auth-email";
 
 export const metadata: Metadata = {
-  title: "Log in — Tidy",
+  title: "Log in to Tidy",
   description: "Log in to your Tidy workspace.",
   robots: { index: false },
 };

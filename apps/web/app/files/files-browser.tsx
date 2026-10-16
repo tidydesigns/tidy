@@ -1222,14 +1222,14 @@ export function FilesBrowser({
           <p id="delete-folder-description" className="mt-3 text-sm leading-6 text-secondary-ink">
             {deletingFile && (
               <>
-                “{deletingFile.name}” and its design history, comments and reviews will be
+                &quot;{deletingFile.name}&quot; and its design history, comments and reviews will be
                 permanently deleted. This cannot be undone.
               </>
             )}
             {deletingFolder && (
               <>
-                “{deletingFolder.name}” will be deleted. Active files inside will move to Files.
-                Archived files will stay in Archive.
+                &quot;{deletingFolder.name}&quot; will be deleted. Active files inside will move to
+                Files. Archived files will stay in Archive.
               </>
             )}
           </p>

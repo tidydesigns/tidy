@@ -95,7 +95,8 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
           Codex
         </h2>
         <p data-ph-public className="mt-2 text-sm leading-6 text-secondary-ink">
-          Use your Codex subscription for shared design threads. Your connection stays personal.
+          Use your Codex subscription for shared design threads. Other workspace members need their
+          own Codex connection to start runs.
         </p>
       </div>
       {connection.status === "connected" ? (

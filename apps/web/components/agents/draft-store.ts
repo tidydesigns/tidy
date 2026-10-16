@@ -33,9 +33,7 @@ export function useAgentDraft(key: string) {
       try {
         if (value) window.sessionStorage.setItem(key, value);
         else window.sessionStorage.removeItem(key);
-      } catch {
-        /* Memory still preserves this page's draft. */
-      }
+      } catch {}
       for (const listener of listeners) listener();
     },
     [key],

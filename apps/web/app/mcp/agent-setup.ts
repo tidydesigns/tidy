@@ -88,7 +88,7 @@ export function setupFor(agent: Agent, name: string, resourceUrl: string) {
     case "other":
       install = {
         title: "Add Tidy to your agent",
-        description: "In your agent’s settings, add this URL using Streamable HTTP.",
+        description: "In your agent's settings, add this URL using Streamable HTTP.",
         values: [url(resourceUrl)],
       };
       authorize = {

@@ -32,7 +32,7 @@ export function AccountOrganizationOptions({
       </p>
       {invitations === null && (
         <p data-ph-public role="status" className="text-secondary-ink">
-          Invitations couldn’t be loaded. You can still use your invitation link.
+          Invitations couldn&#39;t be loaded. You can still use your invitation link.
         </p>
       )}
       {invitations && invitations.length > 0 && (

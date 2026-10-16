@@ -110,7 +110,7 @@ export function ReauthDialog({
           if (closedTimer.current) clearInterval(closedTimer.current);
           popup.current = null;
           setPending(false);
-          setError("Sign-in was closed. Try again when you’re ready.");
+          setError("Sign-in was closed. Try again when you're ready.");
         }
       }, 500);
     } catch (error) {
@@ -137,7 +137,7 @@ export function ReauthDialog({
         Authenticate again
       </h2>
       <p data-ph-public id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
-        Confirm it’s you to access your data or delete your account. You’ll stay signed in.
+        Confirm it&#39;s you to access your data or delete your account. You&#39;ll stay signed in.
       </p>
       <p className="mb-5 break-all text-sm font-medium">{email}</p>
       <div className="space-y-3">

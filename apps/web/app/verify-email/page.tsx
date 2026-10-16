@@ -8,7 +8,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { VerificationForm } from "@/components/auth/verification-form";
 
 export const metadata: Metadata = {
-  title: "Verify your email — Tidy",
+  title: "Verify your email for Tidy",
   description: "Verify your email to finish signing in to Tidy.",
   robots: { index: false },
 };

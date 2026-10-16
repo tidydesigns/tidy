@@ -6,7 +6,7 @@ import { ForgotPasswordForm } from "./reset-form";
 import { headers } from "next/headers";
 
 export const metadata: Metadata = {
-  title: "Reset your password — Tidy",
+  title: "Reset your Tidy password",
   description: "Request a password reset link for your Tidy account.",
   robots: { index: false },
 };
@@ -17,7 +17,7 @@ export default async function ForgotPasswordPage() {
   return (
     <AuthShell
       title="Reset your password."
-      description="We’ll email you a link to choose a new password."
+      description="We'll email you a link to choose a new password."
     >
       <ForgotPasswordForm emailConfigured={authEmailConfigured()} />
       <p className="mt-8 text-center text-sm">

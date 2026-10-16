@@ -96,7 +96,7 @@ export function UpgradeDialog({
             ? "Unlimited MCP calls"
             : `${limits.mcpCalls.toLocaleString()} MCP calls per month`}
           <span data-ph-public style={{ display: "contents" }}>
-            . Bring your own inference. Your provider’s limits apply.
+            . Use your own AI provider. Your provider&#39;s limits apply.
           </span>
         </p>
 

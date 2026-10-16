@@ -449,9 +449,7 @@ export function FileEditor({
     setNudgeStep(step);
     try {
       window.localStorage.setItem("bella-canvas-nudge-step", String(step));
-    } catch {
-      /* Keep this session's value. */
-    }
+    } catch {}
   }
   const [gradientMode, setGradientMode] = useState<{ nodeId: string; paintId: string } | null>(
     null,

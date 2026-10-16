@@ -88,7 +88,7 @@ export function DeleteOrganization({
         <form onSubmit={remove} className="mt-6 space-y-4">
           <TextField
             id={`${id}-name`}
-            label={`Enter “${organization.name}” to confirm`}
+            label={`Enter "${organization.name}" to confirm`}
             value={confirmation}
             onChange={(event) => setConfirmation(event.target.value)}
             autoComplete="off"

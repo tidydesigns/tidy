@@ -6,7 +6,7 @@ import { pageMetadata } from "../../lib/page-metadata";
 
 export const metadata = pageMetadata(
   "/privacy",
-  "Privacy policy — Tidy",
+  "Tidy privacy policy",
   "How the hosted Tidy service handles personal information, cookies and privacy requests.",
 );
 

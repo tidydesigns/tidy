@@ -13,13 +13,12 @@ export function clearAnalyticsStorage() {
   } catch {
     /* Storage can be unavailable. */
   }
+  // Authentication and functional preferences are left intact.
   for (const storage of [() => localStorage, () => sessionStorage]) {
     try {
       const store = storage();
       for (const name of Object.keys(store))
         if (name.startsWith("ph_") || name.startsWith("__ph_opt_in_out_")) store.removeItem(name);
-    } catch {
-      /* Authentication and functional preferences are left intact. */
-    }
+    } catch {}
   }
 }

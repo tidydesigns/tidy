@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   metadataBase: siteUrl,
   ...pageMetadata(
     "/",
-    "Tidy — Open-source design canvas for teams and AI agents",
+    "Tidy. Open-source design canvas for teams and AI agents",
     "Design interfaces together in Tidy. Edit designs with AI agents through MCP, capture webpages, and self-host an open-source product canvas under Apache 2.0.",
   ),
 };

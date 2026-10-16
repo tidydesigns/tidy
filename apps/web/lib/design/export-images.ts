@@ -80,8 +80,8 @@ export function createExportImageSession(parent?: AbortSignal): ExportImageSessi
         (value) => {
           signal.throwIfAborted();
           if (entries.get(url) !== entry) return value;
-          // Account conservatively for UTF-16 strings. Oversized entries still
-          // export normally; they simply aren't retained for reuse.
+          // Estimate two bytes per UTF-16 code unit.
+          // Export oversized entries without retaining them in the cache.
           entry.bytes = 2 * (url.length + value.length);
           bytes += entry.bytes;
           while (bytes > retainedStringBytes) evict();

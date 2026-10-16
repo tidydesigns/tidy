@@ -6,7 +6,7 @@ import { pageMetadata } from "../../lib/page-metadata";
 
 export const metadata: Metadata = pageMetadata(
   "/changelog",
-  "Changelog — Tidy",
+  "Tidy changelog",
   "The latest features and fixes in Tidy, the open-source design canvas for teams and AI agents.",
 );
 
@@ -51,7 +51,7 @@ export default function ChangelogPage() {
       <main className="changelog-content">
         <div className="changelog-intro">
           <h1>Changelog</h1>
-          <p>What’s new and what’s fixed in Tidy.</p>
+          <p>What&#39;s new and what&#39;s fixed in Tidy.</p>
         </div>
         {entries.map((entry) => (
           <section

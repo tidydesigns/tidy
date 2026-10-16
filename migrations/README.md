@@ -48,7 +48,7 @@ property-path semantics, skips unchanged recursive branches, and writes changed
 paths in one statement. JIT is disabled only within this short-lived trigger to
 avoid recursive-plan compilation overhead on LLVM-enabled PostgreSQL; the caller's
 setting is restored on return. Fresh local databases apply it automatically; existing
-local databases must apply it before measuring phase-three database improvements.
+local databases must apply this migration before measuring collaboration event performance.
 Production application still requires an explicitly approved target and operation.
 
 ## Account privacy

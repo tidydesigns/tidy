@@ -11,7 +11,7 @@ test("host boundaries preserve metadata, reject malformed payloads, and settle p
   const events = new EventTarget();
   Object.defineProperty(globalThis, "window", { configurable: true, value: events });
   const sent: { id?: number | string; method?: string }[] = [];
-  // This fixture implements only the Window surface consumed by the transport.
+  // The fixture implements postMessage, the host method used by HostBridge.
   const host = {
     postMessage: (message: { id?: number | string; method?: string }) => sent.push(message),
   };

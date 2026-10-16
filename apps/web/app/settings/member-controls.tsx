@@ -38,7 +38,7 @@ export function MemberControls({
         current.map((item) => (item.id === member.id ? { ...item, role: next } : item)),
       );
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not change this member’s role.");
+      setError(error instanceof Error ? error.message : "Could not change this member's role.");
     } finally {
       setPendingId("");
     }

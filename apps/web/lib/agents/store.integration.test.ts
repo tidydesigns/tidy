@@ -82,7 +82,6 @@ integration("a six-agent run persists a shared thread without sharing a connecti
   const events = await getThreadEvents("bob", created.threadId, 0);
   expect(events.map((event) => event.sequence)).toEqual([1, 2]);
   expect(snapshot.thread.sequence).toBe(2);
-  // Validate actual SQL output after the same serialization used by the HTTP routes.
   const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
   expect(threadSnapshotSchema.parse(wire(snapshot))).toEqual(snapshot);
   expect(

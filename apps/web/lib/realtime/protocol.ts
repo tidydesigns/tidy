@@ -80,7 +80,6 @@ export type Peer = z.infer<typeof peerSchema>;
 export type FileEvent = z.infer<typeof fileEventSchema>;
 export type RoomMessage = z.infer<typeof roomMessageSchema>;
 
-/** Invalid frames never reach presence stores or advance the synchronization cursor. */
 export function readRoomMessage(input: unknown): RoomMessage | null {
   if (typeof input !== "string") return null;
   try {

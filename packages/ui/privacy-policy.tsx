@@ -47,7 +47,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           <li>
             <strong>Your work:</strong> designs, images, imports, versions, comments, invitations
             and collaboration records. We store and share them with people authorised to access the
-            workspace. Invitees’ information comes from the person inviting them.
+            workspace. Invitees&#39; information comes from the person inviting them.
           </li>
           <li>
             <strong>Support:</strong> feedback, attachments and correspondence you send us, to
@@ -69,7 +69,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           We rely on performance of a contract (GDPR Article 6(1)(b)) for the service you request;
           legitimate interests (Article 6(1)(f)) for security, reliability, support and
-          administering access to an organisation’s service; and legal obligations (Article 6(1)(c))
+          administering access to an organisation&#39;s service; and legal obligations (Article 6(1)(c))
           for applicable accounting, tax and data-protection duties. Optional browser analytics,
           replay, diagnostics and optional MCP account linking rely on consent (Article 6(1)(a));
           refusing or withdrawing consent does not prevent account access. Our legitimate interests
@@ -95,7 +95,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           purposes and controls.
         </p>
         <p>
-          <strong>Functional rollout settings — independent of optional consent.</strong> Tidy's
+          <strong>Functional rollout settings. Independent of optional consent.</strong> Tidy's
           server checks global on/off settings to control which interface features are available.
           These checks use our project token, the requested setting names and one fixed service
           identifier shared across all users. They do not send your account ID, email, browser or
@@ -108,7 +108,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           the purposes you allow below.
         </p>
         <p>
-          <strong>Core server fault monitoring — legitimate interests.</strong> When enabled, we
+          <strong>Core server fault monitoring. Legitimate interests.</strong> When enabled, we
           report failed or stalled server requests and operations to find faults and restore a
           reliable service. Reports contain reviewed technical messages or error categories, code
           file names and line/column locations, route templates, operation type, timing/status
@@ -123,7 +123,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           under the rights described below.
         </p>
         <p>
-          <strong>Optional browser features — consent.</strong> In the app, including login and
+          <strong>Optional browser features. Consent.</strong> In the app, including login and
           sign-up, optional collection starts only for the purposes you turn on in{" "}
           <strong>Privacy choices</strong>. Rejecting, closing the dialog or doing nothing leaves
           unselected purposes off. You can accept all, reject all or change each purpose separately.
@@ -184,9 +184,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           Our production project is on PostHog EU Cloud, whose core storage is in Frankfurt,
           Germany. This does not mean all support, transit or subprocessor processing takes place in
-          the EU. PostHog’s <a href="https://posthog.com/dpa">data processing agreement</a> and{" "}
+          the EU. PostHog&#39;s <a href="https://posthog.com/dpa">data processing agreement</a> and{" "}
           <a href="https://posthog.com/subprocessors">subprocessor register</a> describe its
-          processing and transfer arrangements. We have signed PostHog’s data processing agreement.
+          processing and transfer arrangements. We have signed PostHog&#39;s data processing
+          agreement.
         </p>
         <p>
           Open <strong>Settings → Preferences → Privacy → Privacy choices</strong> in the app to
@@ -259,7 +260,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           cookie.
         </p>
         <dl>
-          <dt>Sign-in and security — necessary</dt>
+          <dt>Necessary sign-in and security storage</dt>
           <dd>
             Better Auth session and short-lived authentication-flow cookies maintain your login and
             protect verification and connected sign-in. They are not used as permission for
@@ -267,22 +268,22 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             use the app. Temporary authentication cookies expire when their flow ends or times out.
             Blocking essential cookies may prevent sign-in.
           </dd>
-          <dt>Privacy choices — necessary</dt>
+          <dt>Necessary privacy-choice storage</dt>
           <dd>
-            The host-only <code>tidy_consent</code> cookie records this notice’s consent version,
-            the time and each choice for 180 days. A separate HttpOnly receipt cookie, lasting up to
-            one year, links your browser to the server record of your choice; it does not authorise
-            tracking by itself. A local-storage change marker synchronises open tabs. Existing or
-            older consent versions do not silently opt you into new purposes.
+            The host-only <code>tidy_consent</code> cookie records this notice&#39;s consent
+            version, the time and each choice for 180 days. A separate HttpOnly receipt cookie,
+            lasting up to one year, links your browser to the server record of your choice; it does
+            not authorise tracking by itself. A local-storage change marker synchronises open tabs.
+            Existing or older consent versions do not silently opt you into new purposes.
           </dd>
-          <dt>Preferences — functional</dt>
+          <dt>Functional preference storage</dt>
           <dd>
             Theme, editor layout, recent colours and local preferences remember choices you make.
             Tab-based draft text uses session storage. The theme cookie is limited to the extension
             endpoint and can last one year; local preferences remain until changed or cleared. These
             are not advertising identifiers.
           </dd>
-          <dt>PostHog identifiers — optional</dt>
+          <dt>Optional PostHog identifiers</dt>
           <dd>
             Only after an optional choice, a host-only <code>ph_…_posthog</code> cookie stores the
             identifier and SDK state used for the selected purposes, including the email profile
@@ -333,13 +334,13 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             <strong>Linear:</strong> if you connect its integration, we exchange authorised account,
             workspace, issue and comment information to carry out your requests. Tidy stores the
             connection credentials and related application records. See{" "}
-            <a href="https://linear.app/privacy">Linear’s privacy notice</a>.
+            <a href="https://linear.app/privacy">Linear&#39;s privacy notice</a>.
           </li>
           <li>
             <strong>Stripe:</strong> when you use paid features, Stripe processes payment details
             directly. Tidy sends the billing email and organisation identifier and stores customer,
             subscription and checkout references and status, rather than full card details. See{" "}
-            <a href="https://stripe.com/ie/privacy">Stripe’s privacy notice</a>.
+            <a href="https://stripe.com/ie/privacy">Stripe&#39;s privacy notice</a>.
           </li>
           <li>
             <strong>MCP clients you authorise:</strong> receive the design information and tool
@@ -377,17 +378,18 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
         <p>
           Account deletion removes personal account records, credentials, sessions and memberships.
-          Shared designs and related organisation content can remain attributed to “Deleted user”;
-          embedded content and versions can still contain personal information. A final owner must
-          transfer ownership or delete the organisation first, subject to billing safeguards.
-          Uploaded-file and provider cleanup is separate and may require operator follow-up; closing
-          an account is not confirmation that every external copy has been erased.
+          Shared designs and related organisation content can remain attributed to &quot;Deleted
+          user&quot;; embedded content and versions can still contain personal information. A final
+          owner must transfer ownership or delete the organisation first, subject to billing
+          safeguards. Uploaded-file and provider cleanup is separate and may require operator
+          follow-up; closing an account is not confirmation that every external copy has been
+          erased.
         </p>
         <p>
           Scheduled database backups currently expire after two days. This does not establish a
-          deadline for every recovery copy or export. Cloudflare’s stored Worker logs have a maximum
-          retention of seven days; other provider records can have different periods. Contact us
-          about retained copies or content the account controls cannot remove.
+          deadline for every recovery copy or export. Cloudflare&#39;s stored Worker logs have a
+          maximum retention of seven days; other provider records can have different periods.
+          Contact us about retained copies or content the account controls cannot remove.
         </p>
       </section>
 
@@ -409,12 +411,12 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           </dd>
           <dt>Browser usage events, historical feature-flag activity and survey responses</dt>
           <dd>
-            We use PostHog’s standard event-storage settings. Our paid plan makes events available
-            for seven years. This is a query window, not a guaranteed deletion deadline; we have not
-            configured a shorter automatic event-deletion period. We use this history to understand
-            feature adoption, compare product changes and follow up on survey feedback. Current
-            functional rollout checks do not create user event history; historical feature-flag
-            events remain subject to these retention and deletion arrangements.
+            We use PostHog&#39;s standard event-storage settings. Our paid plan makes events
+            available for seven years. This is a query window, not a guaranteed deletion deadline;
+            we have not configured a shorter automatic event-deletion period. We use this history to
+            understand feature adoption, compare product changes and follow up on survey feedback.
+            Current functional rollout checks do not create user event history; historical
+            feature-flag events remain subject to these retention and deletion arrangements.
           </dd>
           <dt>Other errors and performance information</dt>
           <dd>
@@ -461,7 +463,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           For other requests, email{" "}
           <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>. We may need to
           verify your identity and normally respond within one month; if a lawful extension is
-          necessary, we explain it within that month. You can complain to Ireland’s{" "}
+          necessary, we explain it within that month. You can complain to Ireland&#39;s{" "}
           <a href="https://www.dataprotection.ie/en/contact/how-contact-us">
             Data Protection Commission
           </a>{" "}

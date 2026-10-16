@@ -288,7 +288,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               rows={5}
               maxLength={2000}
               required
-              placeholder="Tell us what’s on your mind. Paste a screenshot to help us see what you mean."
+              placeholder="Describe the issue or share feedback. You can paste a screenshot."
               className="w-full resize-y rounded-lg border border-primary-grey bg-transparent px-3 py-2 text-sm outline-none placeholder:text-secondary-ink focus-visible:border-primary-black focus-visible:ring-2 focus-visible:ring-primary-orange"
             />
           </div>

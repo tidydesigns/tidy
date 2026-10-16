@@ -116,9 +116,7 @@ try {
         ready = true;
         break;
       }
-    } catch {
-      /* Starting. */
-    }
+    } catch {}
     if (server.exitCode !== null) throw new Error("Fixture server exited. Inspect its local log.");
     await delay(250);
   }

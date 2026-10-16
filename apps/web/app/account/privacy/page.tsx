@@ -50,11 +50,11 @@ export default async function AccountPrivacyPage() {
         </h1>
         <p className="text-sm text-secondary-ink">
           <span data-ph-public style={{ display: "contents" }}>
-            You’re signed in as{" "}
+            You&#39;re signed in as{" "}
           </span>
           {account.user.email}
           <span data-ph-public style={{ display: "contents" }}>
-            . You don’t belong to an organization.
+            . You don&#39;t belong to an organization.
           </span>
         </p>
       </div>

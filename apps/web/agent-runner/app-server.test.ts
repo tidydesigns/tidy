@@ -7,7 +7,6 @@ import { CodexAppServer, CODEX_VERSION } from "./app-server";
 test("malformed native RPC frames reject pending calls and stop the process", async () => {
   const directory = await mkdtemp(join(tmpdir(), "tidy-rpc-test-"));
   const executable = join(directory, "runtime.ts");
-  // Replace the external Codex binary, while exercising the real subprocess transport.
   await writeFile(
     executable,
     `#!${process.execPath}

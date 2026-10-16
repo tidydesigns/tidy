@@ -47,8 +47,8 @@ requested. Settings → Agents is the connection's only management home.
   repository execution environment.
 - Every tool checks current membership, connection, immutable file scope and
   execution generation. A tool write and its duplicate-call receipt commit in
-  the same database transaction. Stop waits for any already admitted commit,
-  then fences all later commits. Inference is interrupted at the next heartbeat.
+  the same database transaction. Stop waits for already admitted writes to commit,
+  then rejects later writes. Inference is interrupted at the next heartbeat.
 - Six agents includes the lead. Reserve at most twelve agents per owner and
   thirty-six per organisation; each owner can have at most three active threads.
   Viewing work never triggers inference. Messages and cursor activity contain no
@@ -60,8 +60,8 @@ requested. Settings → Agents is the connection's only management home.
 ## Capabilities and limits
 
 The canvas integration reuses the shared MCP registry, scoped to attached files.
-The composer’s collapsed Tool access option explicitly permits new files and
-folder changes in the organisation. Created files become part of that run’s
+The composer's collapsed Tool access option explicitly permits new files and
+folder changes in the organisation. Created files become part of that run's
 scope. GitHub tools retain their existing connection and repository checks; they
 record local review data and do not post externally. Repository execution and
 rendering a fresh screenshot need separate runtime capabilities. `get_file_image` returns

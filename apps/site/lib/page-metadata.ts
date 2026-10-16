@@ -5,7 +5,7 @@ export function pageMetadata(path: string, title: string, description: string): 
     url: "/share-card.png",
     width: 1200,
     height: 630,
-    alt: "Tidy — an open-source design canvas for people and AI agents",
+    alt: "Tidy. An open-source design canvas for people and AI agents",
   };
 
   return {
