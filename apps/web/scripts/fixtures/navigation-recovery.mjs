@@ -11,8 +11,10 @@ export async function testNavigationRecovery({ context, base, database, artifact
   const ready = async (page, path) => {
     await page.waitForURL(`${base}${path}`);
     await page.locator(`[data-page-content="${path.slice(1)}"]`).waitFor();
-    await page.waitForFunction(
-      () => !document.querySelector('main [role="status"]')?.textContent?.startsWith("Loading"),
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll('main [role="status"]')]
+        .filter((element) => element.getClientRects().length)
+        .every((element) => !/^(Loading|Retrying)/.test(element.textContent ?? "")),
     );
   };
   const page = await context.newPage();
