@@ -2,7 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { ConnectorError } from "@/lib/connectors/http";
 import { linearAccess } from "./connections";
-import { linearRequest } from "./client";
+import { linearRequest, parseLinearResponse } from "./client";
 import { withLinearAuthority, type LinearAuthority } from "./authority";
 import { reserveLinearReceipt, finishLinearReceipt } from "./receipts";
 import { boundedLinearOperation } from "./work-budget";
@@ -52,26 +52,47 @@ export const linearInputs = {
     ),
 };
 type Base = z.infer<typeof connectionInput>;
-type Page<T> = { nodes: T[]; pageInfo: { hasNextPage: boolean; endCursor: string | null } };
-export type LinearIssue = {
-  id: string;
-  identifier: string;
-  title: string;
-  description: string | null;
-  url: string;
-  updatedAt: string;
-  team: { id: string; name: string };
-  state: { id: string; name: string; type: string };
-  assignee: { id: string; name: string } | null;
-};
+const entity = z.object({ id: z.string().min(1) });
+const teamSchema = entity.extend({ name: z.string() });
+const stateSchema = teamSchema.extend({ type: z.string() });
+const issueSchema = entity.extend({
+  identifier: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  url: z.string(),
+  updatedAt: z.string(),
+  team: teamSchema,
+  state: stateSchema,
+  assignee: teamSchema.nullable(),
+});
+export type LinearIssue = z.infer<typeof issueSchema>;
+const pageSchema = <T extends z.ZodType>(item: T) =>
+  z.object({
+    nodes: z.array(item),
+    pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+  });
+const issueResponse = z.object({ issue: issueSchema.nullable() });
+const teamResponse = z.object({ team: entity.nullable() });
+const createdIssueResponse = z.object({
+  issueCreate: z.object({ success: z.boolean(), issue: entity.nullable() }),
+});
+const updatedIssueResponse = z.object({
+  issueUpdate: z.object({ success: z.boolean(), issue: entity.nullable() }),
+});
+const commentResponse = z.object({
+  commentCreate: z.object({ success: z.boolean(), comment: entity.nullable() }),
+});
 const issueFields =
   "id identifier title description url updatedAt team { id name } state { id name type } assignee { id name }";
 
 async function readIssue(token: string, id: string) {
-  const data = await linearRequest<{ issue: LinearIssue | null }>(
-    token,
-    `query TidyIssue($id: String!) { issue(id: $id) { ${issueFields} } }`,
-    { id },
+  const data = parseLinearResponse(
+    issueResponse,
+    await linearRequest(
+      token,
+      `query TidyIssue($id: String!) { issue(id: $id) { ${issueFields} } }`,
+      { id },
+    ),
   );
   if (!data.issue) throw new ConnectorError("Issue not found or access removed.", 404);
   return data.issue;
@@ -83,10 +104,13 @@ export const listLinearTeams = boundedLinearOperation(async function listLinearT
   const input = linearInputs.teams.parse(raw);
   const access = await linearAccess(userId, input.organizationId, input.connectionId);
   const { token } = access;
-  const result = await linearRequest<{ teams: Page<{ id: string; name: string; key: string }> }>(
-    token,
-    "query TidyTeams($after: String) { teams(first: 50, after: $after) { nodes { id name key } pageInfo { hasNextPage endCursor } } }",
-    { after: input.after },
+  const result = parseLinearResponse(
+    z.object({ teams: pageSchema(teamSchema.extend({ key: z.string() })) }),
+    await linearRequest(
+      token,
+      "query TidyTeams($after: String) { teams(first: 50, after: $after) { nodes { id name key } pageInfo { hasNextPage endCursor } } }",
+      { after: input.after },
+    ),
   );
   return withLinearAuthority(userId, access, false, async () => result);
 });
@@ -97,18 +121,19 @@ export const searchLinearIssues = boundedLinearOperation(async function searchLi
   const input = linearInputs.search.parse(raw);
   const access = await linearAccess(userId, input.organizationId, input.connectionId);
   const { token } = access;
-  const result = await linearRequest<{
-    issues: Page<Omit<LinearIssue, "description" | "assignee">>;
-  }>(
-    token,
-    "query TidySearch($filter: IssueFilter!, $after: String) { issues(first: 25, after: $after, filter: $filter) { nodes { id identifier title url updatedAt team { id name } state { id name type } } pageInfo { hasNextPage endCursor } } }",
-    {
-      after: input.after,
-      filter: {
-        title: { containsIgnoreCase: input.query },
-        ...(input.teamId ? { team: { id: { eq: input.teamId } } } : {}),
+  const result = parseLinearResponse(
+    z.object({ issues: pageSchema(issueSchema.omit({ description: true, assignee: true })) }),
+    await linearRequest(
+      token,
+      "query TidySearch($filter: IssueFilter!, $after: String) { issues(first: 25, after: $after, filter: $filter) { nodes { id identifier title url updatedAt team { id name } state { id name type } } pageInfo { hasNextPage endCursor } } }",
+      {
+        after: input.after,
+        filter: {
+          title: { containsIgnoreCase: input.query },
+          ...(input.teamId ? { team: { id: { eq: input.teamId } } } : {}),
+        },
       },
-    },
+    ),
   );
   return withLinearAuthority(userId, access, false, async () => result);
 });
@@ -120,12 +145,13 @@ export const getLinearIssue = boundedLinearOperation(async function getLinearIss
   const access = await linearAccess(userId, input.organizationId, input.connectionId);
   const { token } = access;
   const issue = await readIssue(token, input.issueId);
-  const states = await linearRequest<{
-    workflowStates: Page<{ id: string; name: string; type: string }>;
-  }>(
-    token,
-    "query TidyStates($teamId: ID!) { workflowStates(first: 100, filter: { team: { id: { eq: $teamId } } }) { nodes { id name type } pageInfo { hasNextPage endCursor } } }",
-    { teamId: issue.team.id },
+  const states = parseLinearResponse(
+    z.object({ workflowStates: pageSchema(stateSchema) }),
+    await linearRequest(
+      token,
+      "query TidyStates($teamId: ID!) { workflowStates(first: 100, filter: { team: { id: { eq: $teamId } } }) { nodes { id name type } pageInfo { hasNextPage endCursor } } }",
+      { teamId: issue.team.id },
+    ),
   );
   return withLinearAuthority(userId, access, false, async () => ({
     issue,
@@ -139,22 +165,29 @@ export const listLinearComments = boundedLinearOperation(async function listLine
   const input = linearInputs.comments.parse(raw);
   const access = await linearAccess(userId, input.organizationId, input.connectionId);
   const { token } = access;
-  const data = await linearRequest<{
-    issue: {
-      comments: Page<{
-        id: string;
-        body: string;
-        updatedAt: string;
-        user: { name: string } | null;
-      }>;
-    } | null;
-  }>(
-    token,
-    "query TidyComments($id: String!, $after: String) { issue(id: $id) { comments(first: 50, after: $after) { nodes { id body updatedAt user { name } } pageInfo { hasNextPage endCursor } } } }",
-    { id: input.issueId, after: input.after },
+  const data = parseLinearResponse(
+    z.object({
+      issue: z
+        .object({
+          comments: pageSchema(
+            entity.extend({
+              body: z.string(),
+              updatedAt: z.string(),
+              user: z.object({ name: z.string() }).nullable(),
+            }),
+          ),
+        })
+        .nullable(),
+    }),
+    await linearRequest(
+      token,
+      "query TidyComments($id: String!, $after: String) { issue(id: $id) { comments(first: 50, after: $after) { nodes { id body updatedAt user { name } } pageInfo { hasNextPage endCursor } } } }",
+      { id: input.issueId, after: input.after },
+    ),
   );
   if (!data.issue) throw new ConnectorError("Issue not found or access removed.", 404);
-  return withLinearAuthority(userId, access, false, async () => data.issue!);
+  const issue = data.issue;
+  return withLinearAuthority(userId, access, false, async () => issue);
 });
 
 /** Reserve first, then retain live authority for the external POST. Never retry
@@ -190,19 +223,21 @@ export const createLinearIssue = boundedLinearOperation(async function createLin
   const input = linearInputs.create.parse(raw);
   const access = await linearAccess(userId, input.organizationId, input.connectionId, true);
   const { token } = access;
-  const team = await linearRequest<{ team: { id: string } | null }>(
-    token,
-    "query TidyTeam($id: String!) { team(id: $id) { id } }",
-    { id: input.teamId },
+  const team = parseLinearResponse(
+    teamResponse,
+    await linearRequest(token, "query TidyTeam($id: String!) { team(id: $id) { id } }", {
+      id: input.teamId,
+    }),
   );
   if (!team.team) throw new ConnectorError("Team not found or access removed.", 404);
   const result = await mutate(userId, access, input, "issueCreate", input, async () => {
-    const data = await linearRequest<{
-      issueCreate: { success: boolean; issue: { id: string } | null };
-    }>(
-      token,
-      "mutation TidyCreateIssue($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id } } }",
-      { input: { teamId: input.teamId, title: input.title, description: input.description } },
+    const data = parseLinearResponse(
+      createdIssueResponse,
+      await linearRequest(
+        token,
+        "mutation TidyCreateIssue($input: IssueCreateInput!) { issueCreate(input: $input) { success issue { id } } }",
+        { input: { teamId: input.teamId, title: input.title, description: input.description } },
+      ),
     );
     if (!data.issueCreate.success || !data.issueCreate.issue)
       throw new ConnectorError("Linear did not confirm issue creation.", 502);
@@ -220,12 +255,13 @@ export const addLinearComment = boundedLinearOperation(async function addLinearC
   const { token } = access;
   const issue = await readIssue(token, input.issueId);
   const result = await mutate(userId, access, input, "commentCreate", input, async () => {
-    const data = await linearRequest<{
-      commentCreate: { success: boolean; comment: { id: string } | null };
-    }>(
-      token,
-      "mutation TidyComment($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }",
-      { input: { issueId: issue.id, body: input.body } },
+    const data = parseLinearResponse(
+      commentResponse,
+      await linearRequest(
+        token,
+        "mutation TidyComment($input: CommentCreateInput!) { commentCreate(input: $input) { success comment { id } } }",
+        { input: { issueId: issue.id, body: input.body } },
+      ),
     );
     if (!data.commentCreate.success || !data.commentCreate.comment)
       throw new ConnectorError("Linear did not confirm the comment.", 502);
@@ -251,15 +287,16 @@ export const updateLinearIssue = boundedLinearOperation(async function updateLin
     "issueUpdate",
     input,
     async () => {
-      const data = await linearRequest<{
-        issueUpdate: { success: boolean; issue: { id: string } | null };
-      }>(
-        token,
-        "mutation TidyUpdateIssue($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { id } } }",
-        {
-          id: issue.id,
-          input: { title: input.title, description: input.description, stateId: input.stateId },
-        },
+      const data = parseLinearResponse(
+        updatedIssueResponse,
+        await linearRequest(
+          token,
+          "mutation TidyUpdateIssue($id: String!, $input: IssueUpdateInput!) { issueUpdate(id: $id, input: $input) { success issue { id } } }",
+          {
+            id: issue.id,
+            input: { title: input.title, description: input.description, stateId: input.stateId },
+          },
+        ),
       );
       if (!data.issueUpdate.success || !data.issueUpdate.issue)
         throw new ConnectorError("Linear did not confirm the update.", 502);
@@ -269,10 +306,13 @@ export const updateLinearIssue = boundedLinearOperation(async function updateLin
       if (issue.updatedAt !== input.expectedUpdatedAt)
         throw new ConnectorError("The issue changed. Read it again before updating.", 409);
       if (input.stateId) {
-        const state = await linearRequest<{ workflowState: { team: { id: string } } | null }>(
-          token,
-          "query TidyState($id: String!) { workflowState(id: $id) { team { id } } }",
-          { id: input.stateId },
+        const state = parseLinearResponse(
+          z.object({ workflowState: z.object({ team: entity }).nullable() }),
+          await linearRequest(
+            token,
+            "query TidyState($id: String!) { workflowState(id: $id) { team { id } } }",
+            { id: input.stateId },
+          ),
         );
         if (state.workflowState?.team.id !== issue.team.id)
           throw new ConnectorError("Choose a status from this issue's team.");

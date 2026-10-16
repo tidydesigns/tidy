@@ -2,33 +2,35 @@ import { GitHubRequestError } from "./request-error";
 import * as z from "zod";
 import { removeComponentReferences } from "@/lib/design/component-variants";
 import type { DesignDocument } from "@/lib/design/document";
-import type { Pull } from "./reviews";
 
 /** Metadata occupies a fixed 8 KiB reservation per retained review. Bound all
  * provider fields before link, reconciliation or webhook publication. */
-export function checkedPull(pull: Pull): Pull {
-  const fields: [unknown, number][] = [
-    [pull?.title, 1024],
-    [pull?.html_url, 1000],
-    [pull?.head?.ref, 1024],
-    [pull?.base?.repo?.full_name, 500],
-  ];
-  if (
-    fields.some(
-      ([value, limit]) => typeof value !== "string" || Buffer.byteLength(value, "utf8") > limit,
-    ) ||
-    !Number.isSafeInteger(pull.number) ||
-    pull.number < 1 ||
-    pull.number > 2147483647 ||
-    !Number.isSafeInteger(pull.base.repo.id) ||
-    pull.base.repo.id < 1 ||
-    typeof pull.merged !== "boolean" ||
-    !["open", "closed"].includes(pull.state) ||
-    !shaSchema.safeParse(pull.head.sha).success ||
-    !shaSchema.safeParse(pull.base.sha).success
-  ) {
-    throw new GitHubRequestError("GitHub returned invalid or oversized pull request metadata.");
-  }
+const providerString = (limit: number) =>
+  z.string().refine((value) => Buffer.byteLength(value, "utf8") <= limit);
+const pullSchema = z.looseObject({
+  number: z.number().int().min(1).max(2147483647),
+  title: providerString(1024),
+  html_url: providerString(1000),
+  merged: z.boolean(),
+  state: z.enum(["open", "closed"]),
+  head: z.looseObject({ ref: providerString(1024), sha: z.string().regex(/^[a-f0-9]{40}$/) }),
+  base: z.looseObject({
+    sha: z.string().regex(/^[a-f0-9]{40}$/),
+    repo: z.looseObject({
+      id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      full_name: providerString(500),
+    }),
+  }),
+});
+export type Pull = z.infer<typeof pullSchema>;
+export function checkedPull(input: unknown): Pull {
+  const parsed = pullSchema.safeParse(input);
+  if (!parsed.success)
+    throw new GitHubRequestError(
+      "GitHub returned invalid or oversized pull request metadata.",
+      502,
+    );
+  const pull = parsed.data;
   const location = parsePullUrl(pull.html_url);
   if (location.repository !== pull.base.repo.full_name || location.number !== pull.number)
     throw new GitHubRequestError("GitHub returned inconsistent pull request metadata.");

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { GitHubRequestError } from "./request-error";
 import { mapConcurrent } from "@/lib/map-concurrent";
 import { storeDesignObject, designObjectKey } from "@/lib/storage/design-objects";
@@ -15,7 +16,7 @@ import { documentAssetIds } from "@/lib/design/document";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import type { DesignDocument } from "@/lib/design/document";
-import { boundedGitHubOperation, githubRequest, paginated } from "./client";
+import { boundedGitHubOperation, githubRequest, paginated, checkedGitHub } from "./client";
 import { githubSchemaReady, repositoryAccess, requireSchema } from "./connections";
 import {
   captureBytes,
@@ -27,62 +28,12 @@ import {
   safePreviewUrl,
   snapshotFrames,
   checkedPull,
+  type Pull,
 } from "./validation";
 
-export type Review = {
-  id: string;
-  fileId: string;
-  organizationId: string;
-  installationId: string;
-  repositoryId: string;
-  repository: string;
-  number: number;
-  title: string;
-  url: string;
-  state: string;
-  branch: string;
-  baseSha: string;
-  headSha: string;
-  linkedSha: string;
-  revision: number;
-  frameIds: string[];
-  content: DesignDocument;
-  createdAt: Date;
-};
-export type Capture = {
-  id: string;
-  frameId: string;
-  sha: string;
-  route: string;
-  width: number;
-  height: number;
-  createdAt: Date;
-};
-export type Feedback = {
-  id: string;
-  captureId: string | null;
-  nodeId: string | null;
-  point: { x: number; y: number } | null;
-  sha: string;
-  body: string;
-  authorId: string;
-  authorName: string;
-  status: "open" | "proposed" | "verified";
-  response: string | null;
-  fixSha: string | null;
-  githubCommentId: string | null;
-  createdAt: Date;
-};
-export type Pull = {
-  number: number;
-  title: string;
-  html_url: string;
-  state: string;
-  merged: boolean;
-  updated_at: string;
-  base: { sha: string; repo: { id: number; full_name: string } };
-  head: { sha: string; ref: string };
-};
+import type { Review, Capture, Feedback } from "./review-contract";
+export type { Review, Capture, Feedback } from "./review-contract";
+export type { Pull } from "./validation";
 export async function fileOrganization(userId: string, fileId: string) {
   const result = await db.query<{ organizationId: string }>(
     `select f."organizationId" from "designFile" f join "member" m on m."organizationId" = f."organizationId"
@@ -105,13 +56,13 @@ export const linkPullRequest = boundedGitHubOperation(async function linkPullReq
   const organizationId = await fileOrganization(userId, fileId);
   // Resolve the repository with the user's credentials, then verify installation access.
   const { userToken } = await import("./client");
-  const repository = await githubRequest<{ id: number }>(
-    await userToken(userId),
-    `/repos/${parsed.repository}`,
+  const repository = await checkedGitHub(
+    z.object({ id: z.number().int().positive() }),
+    githubRequest(await userToken(userId), `/repos/${parsed.repository}`),
   );
   const access = await repositoryAccess(userId, organizationId, repository.id);
   const pull = checkedPull(
-    await githubRequest<Pull>(
+    await githubRequest(
       access.token,
       `/repos/${access.repository.full_name}/pulls/${parsed.number}`,
     ),
@@ -306,7 +257,7 @@ export const getReviewContext = boundedGitHubOperation(async function getReviewC
     await lock.query("begin");
     await lock.query(`select pg_advisory_xact_lock(hashtext($1))`, [id]);
     pull = checkedPull(
-      await githubRequest<Pull>(
+      await githubRequest(
         access.token,
         `/repos/${access.repository.full_name}/pulls/${access.review.number}`,
       ),
@@ -355,32 +306,47 @@ export const getReviewContext = boundedGitHubOperation(async function getReviewC
       from "githubFeedback" f join "user" u on u."id"=f."authorId" where f."reviewId"=$1 order by f."createdAt"`,
       [id],
     ),
-    githubRequest<{
-      check_runs: {
-        name: string;
-        status: string;
-        conclusion: string | null;
-        html_url: string | null;
-      }[];
-    }>(access.token, `${path}/commits/${pull.head.sha}/check-runs?per_page=100`).catch(() => null),
-    githubRequest<{ state: string }>(access.token, `${path}/commits/${pull.head.sha}/status`).catch(
-      () => null,
-    ),
-    githubRequest<{ id: number; sha: string; environment: string }[]>(
-      access.token,
-      `${path}/deployments?sha=${pull.head.sha}&per_page=10`,
+    checkedGitHub(
+      z.object({
+        check_runs: z.array(
+          z.object({
+            name: z.string(),
+            status: z.string(),
+            conclusion: z.string().nullable(),
+            html_url: z.string().nullable(),
+          }),
+        ),
+      }),
+      githubRequest(access.token, `${path}/commits/${pull.head.sha}/check-runs?per_page=100`),
+    ).catch(() => null),
+    checkedGitHub(
+      z.object({ state: z.string() }),
+      githubRequest(access.token, `${path}/commits/${pull.head.sha}/status`),
+    ).catch(() => null),
+    checkedGitHub(
+      z.array(
+        z.object({ id: z.number().int().positive(), sha: z.string(), environment: z.string() }),
+      ),
+      githubRequest(access.token, `${path}/deployments?sha=${pull.head.sha}&per_page=10`),
     ).catch(() => []),
-    githubRequest<{ id: number; body: string; html_url: string; user: { login: string } }[]>(
-      access.token,
-      `${path}/issues/${pull.number}/comments?per_page=100`,
+    checkedGitHub(
+      z.array(
+        z.object({
+          id: z.number().int().positive(),
+          body: z.string(),
+          html_url: z.string(),
+          user: z.object({ login: z.string() }),
+        }),
+      ),
+      githubRequest(access.token, `${path}/issues/${pull.number}/comments?per_page=100`),
     ).catch(() => null),
   ]);
   let previewUrl: string | null = null;
   for (const deployment of deployments) {
     if (deployment.sha !== pull.head.sha || /production/i.test(deployment.environment)) continue;
-    const statuses = await githubRequest<{ state: string; environment_url: string }[]>(
-      access.token,
-      `${path}/deployments/${deployment.id}/statuses?per_page=1`,
+    const statuses = await checkedGitHub(
+      z.array(z.object({ state: z.string(), environment_url: z.string() })),
+      githubRequest(access.token, `${path}/deployments/${deployment.id}/statuses?per_page=1`),
     ).catch(() => []);
     if (statuses[0]?.state === "success") previewUrl = safePreviewUrl(statuses[0].environment_url);
     if (previewUrl) break;
@@ -428,7 +394,7 @@ export const uploadCapture = boundedGitHubOperation(async function uploadCapture
   if (!access.review.frameIds.includes(value.frameId))
     throw new GitHubRequestError("Capture must target a frame in this design snapshot.");
   const pull = checkedPull(
-    await githubRequest<Pull>(
+    await githubRequest(
       access.token,
       `/repos/${access.repository.full_name}/pulls/${access.review.number}`,
     ),
@@ -505,7 +471,7 @@ export const createFeedback = boundedGitHubOperation(async function createFeedba
     throw new GitHubRequestError("A screenshot point requires a capture.");
   if (!value.captureId && value.sha !== review.linkedSha) {
     const pull = checkedPull(
-      await githubRequest<Pull>(
+      await githubRequest(
         access.token,
         `/repos/${access.repository.full_name}/pulls/${review.number}`,
       ),
@@ -555,9 +521,12 @@ export const recordFeedbackResponse = boundedGitHubOperation(async function reco
   const value = responseSchema.parse(input);
   const access = await authorizedReview(userId, id);
   await requireFilePermission(userId, access.review.fileId, "edit");
-  const commits = await paginated<{ sha: string }>(
-    access.token,
-    `/repos/${access.repository.full_name}/pulls/${access.review.number}/commits`,
+  const commits = await checkedGitHub(
+    z.array(z.object({ sha: z.string() })),
+    paginated(
+      access.token,
+      `/repos/${access.repository.full_name}/pulls/${access.review.number}/commits`,
+    ),
   );
   if (!commits.some((commit) => commit.sha === value.sha))
     throw new GitHubRequestError("Fix commit is not part of this pull request.");
@@ -637,7 +606,16 @@ export const sendFeedback = boundedGitHubOperation(async function sendFeedback(
     const path = `/repos/${access.repository.full_name}/issues/${access.review.number}/comments`;
     // Recover a successful remote POST if a previous local transaction failed.
     const previous = (
-      await paginated<{ id: number; body: string; user: { id: number } }>(access.token, path)
+      await checkedGitHub(
+        z.array(
+          z.object({
+            id: z.number().int().positive(),
+            body: z.string(),
+            user: z.object({ id: z.number().int().positive() }),
+          }),
+        ),
+        paginated(access.token, path),
+      )
     ).find(
       (comment) => comment.body.includes(marker) && String(comment.user.id) === access.githubId,
     );
@@ -649,10 +627,13 @@ export const sendFeedback = boundedGitHubOperation(async function sendFeedback(
         const body = `${feedback.body}\n\nDesign review: ${link}\nDesign revision: ${access.review.revision}\nReviewed commit: ${feedback.sha}${node ? `\nLayer: ${node.name}${node.sourcePath ? ` (${node.sourcePath})` : ""}` : ""}${feedback.captureId ? `\nCapture: ${feedback.captureId}` : ""}${feedback.point ? `\nScreenshot point: ${Math.round(feedback.point.x * 100)}%, ${Math.round(feedback.point.y * 100)}%` : ""}\n\n${marker}`;
         const comment =
           previous ??
-          (await githubRequest<{ id: number }>(access.token, path, {
-            method: "POST",
-            body: JSON.stringify({ body }),
-          }));
+          (await checkedGitHub(
+            z.object({ id: z.number().int().positive() }),
+            githubRequest(access.token, path, {
+              method: "POST",
+              body: JSON.stringify({ body }),
+            }),
+          ));
         await authorized.query(
           `update "githubFeedback" set "githubCommentId"=$2 where "id"=$1 and "reviewId"=$3 and "authorId"=$4`,
           [feedbackId, comment.id, id, userId],

@@ -23,6 +23,7 @@ import {
   linearIdentity,
   revokeToken,
   tokenScopes,
+  parseLinearToken,
   type LinearToken,
 } from "./client";
 import { linearConfigured } from "./config";
@@ -86,7 +87,7 @@ async function refreshAccount(userId: string, organizationId: string, connection
       let row = await account(client, userId, organizationId, connectionId, true);
       if (row.expiresAt.getTime() < Date.now() + 60000) {
         const context = credentialContext(userId, row.externalWorkspaceId);
-        const previous = JSON.parse(unseal(row.credentials!, context)) as LinearToken;
+        const previous = parseLinearToken(JSON.parse(unseal(row.credentials!, context)));
         let token: LinearToken;
         try {
           token = await exchangeToken({
@@ -139,9 +140,9 @@ export const linearAccess = boundedLinearOperation(async function linearAccess(
   let row = await account(db, userId, organizationId, connectionId);
   if (row.expiresAt.getTime() < Date.now() + 60000)
     row = await refreshAccount(userId, organizationId, connectionId);
-  const token = JSON.parse(
-    unseal(row.credentials!, credentialContext(userId, row.externalWorkspaceId)),
-  ) as LinearToken;
+  const token = parseLinearToken(
+    JSON.parse(unseal(row.credentials!, credentialContext(userId, row.externalWorkspaceId))),
+  );
   if (write && !tokenScopes(token).includes("write"))
     throw new ConnectorError("Reconnect Linear to allow issue updates.", 403);
   const access: LinearAuthority & { token: string } = {
@@ -197,9 +198,9 @@ export const disconnectLinear = boundedLinearOperation(async function disconnect
       [row.id, connectionId],
     );
     if (!other.rowCount && row.credentials) {
-      const token = JSON.parse(
-        unseal(row.credentials, credentialContext(userId, row.externalWorkspaceId)),
-      ) as LinearToken;
+      const token = parseLinearToken(
+        JSON.parse(unseal(row.credentials, credentialContext(userId, row.externalWorkspaceId))),
+      );
       await revokeToken(token.refresh_token);
     }
     await client.query(`delete from "connectorConnection" where "id"=$1`, [connectionId]);

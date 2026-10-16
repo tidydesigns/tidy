@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { GitHubRequestError } from "./request-error";
 import { withoutDatabaseScope } from "@/lib/database-scope";
 import { createSign } from "node:crypto";
@@ -79,14 +80,14 @@ export async function readLimited(
 ) {
   return (await readResponse(response, limit, signal)).text;
 }
-export async function githubRequest<T>(
+export async function githubRequest(
   token: string,
   path: string,
   init: RequestInit = {},
-): Promise<T> {
-  return (await githubResponse<T>(token, path, init)).value;
+): Promise<unknown> {
+  return (await githubResponse(token, path, init)).value;
 }
-async function githubResponse<T>(
+async function githubResponse(
   token: string,
   path: string,
   init: RequestInit,
@@ -116,15 +117,21 @@ async function githubResponse<T>(
     throw new GitHubError(response.status);
   }
   const body = await readResponse(response, limit, signal);
-  return { value: (body.text ? JSON.parse(body.text) : null) as T, bytes: body.bytes };
+  let value: unknown = null;
+  try {
+    if (body.text) value = JSON.parse(body.text);
+  } catch {
+    throw new GitHubError(502);
+  }
+  return { value, bytes: body.bytes };
 }
-export async function paginated<T>(token: string, path: string, field?: string): Promise<T[]> {
-  const items: T[] = [];
+export async function paginated(token: string, path: string, field?: string): Promise<unknown[]> {
+  const items: unknown[] = [];
   const signal = AbortSignal.timeout(30000);
   let remaining = paginationBytes;
   for (let page = 1; page <= paginationPages; page++) {
     if (remaining <= 0) throw new GitHubWorkLimitError();
-    const { value: data, bytes } = await githubResponse<unknown>(
+    const { value: data, bytes } = await githubResponse(
       token,
       `${path}${path.includes("?") ? "&" : "?"}per_page=100&page=${page}`,
       {},
@@ -145,13 +152,22 @@ export async function paginated<T>(token: string, path: string, field?: string):
   }
   throw new GitHubWorkLimitError();
 }
-type TokenResponse = {
-  access_token: string;
-  refresh_token?: string;
-  expires_in?: number;
-  refresh_token_expires_in?: number;
-  error?: string;
-};
+const tokenResponseSchema = z.looseObject({
+  access_token: z.string().min(1),
+  error: z.string().optional(),
+  refresh_token: z.string().min(1).optional(),
+  expires_in: z.number().positive().optional(),
+  refresh_token_expires_in: z.number().positive().optional(),
+});
+type TokenResponse = z.infer<typeof tokenResponseSchema>;
+export async function checkedGitHub<T>(
+  schema: z.ZodType<T>,
+  request: Promise<unknown>,
+): Promise<T> {
+  const input = schema.safeParse(await request);
+  if (!input.success) throw new GitHubError(502);
+  return input.data;
+}
 export async function exchangeToken(parameters: Record<string, string>) {
   const secret = process.env.GITHUB_CLIENT_SECRET;
   if (!secret) throw new Error("GitHub authentication is not configured.");
@@ -172,10 +188,12 @@ export async function exchangeToken(parameters: Record<string, string>) {
     void response.body?.cancel().catch(() => {});
     throw new GitHubError(response.status);
   }
-  const value = JSON.parse(await readLimited(response, 16000, signal)) as TokenResponse;
-  if (value.error || !value.access_token)
+  const input = tokenResponseSchema.safeParse(
+    JSON.parse(await readLimited(response, 16000, signal)),
+  );
+  if (!input.success || input.data.error)
     throw new GitHubRequestError("GitHub authorization expired or was declined. Connect again.");
-  return value;
+  return input.data;
 }
 function expiry(seconds?: number) {
   return seconds ? new Date(Date.now() + seconds * 1000) : null;
@@ -185,15 +203,13 @@ export async function storeUserToken(
   token: TokenResponse,
   authority: { sessionId: string; organizationId: string; stateHash: string },
 ) {
-  const identity = await githubRequest<{ id: number; login: string }>(token.access_token, "/user");
-  if (
-    !Number.isSafeInteger(identity.id) ||
-    identity.id <= 0 ||
-    typeof identity.login !== "string" ||
-    !identity.login ||
-    identity.login.length > 100
-  )
-    throw new GitHubRequestError("GitHub did not return a supported account.", 502);
+  const identity = await checkedGitHub(
+    z.object({
+      id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+      login: z.string().min(1).max(100),
+    }),
+    githubRequest(token.access_token, "/user"),
+  );
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -272,7 +288,7 @@ async function readUserToken(userId: string) {
       needsRefresh = Boolean(row.expiresAt && row.expiresAt.getTime() < Date.now() + 60000);
     }
     let credentialVersion = row.credentialVersion;
-    let token = JSON.parse(unseal(row.credentials, userId)) as TokenResponse;
+    let token = tokenResponseSchema.parse(JSON.parse(unseal(row.credentials, userId)));
     if (needsRefresh) {
       if (
         !token.refresh_token ||
@@ -310,10 +326,9 @@ export async function installationToken(installationId: string) {
   const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
   const data = `${encode({ alg: "RS256", typ: "JWT" })}.${encode({ iat: now - 60, exp: now + 540, iss: githubConfig().clientId })}`;
   const jwt = `${data}.${createSign("RSA-SHA256").update(data).sign(key, "base64url")}`;
-  const token = await githubRequest<{ token: string }>(
-    jwt,
-    `/app/installations/${installationId}/access_tokens`,
-    {
+  const token = await checkedGitHub(
+    z.object({ token: z.string().min(1) }),
+    githubRequest(jwt, `/app/installations/${installationId}/access_tokens`, {
       method: "POST",
       body: JSON.stringify({
         permissions: {
@@ -324,7 +339,7 @@ export async function installationToken(installationId: string) {
           deployments: "read",
         },
       }),
-    },
+    }),
   );
   return token.token;
 }

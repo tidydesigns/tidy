@@ -2,7 +2,6 @@ import * as z from "zod";
 import { db } from "@/lib/db";
 import { githubRequest, installationToken } from "./client";
 import { githubSchemaReady } from "./connections";
-import type { Pull } from "./reviews";
 import { checkedPull } from "./validation";
 
 const payloadSchema = z.object({
@@ -44,7 +43,7 @@ export async function processWebhook(deliveryId: string, event: string, input: u
         for (const row of rows.rows) {
           await client.query(`select pg_advisory_xact_lock(hashtext($1))`, [row.id]);
           const pull = checkedPull(
-            await githubRequest<Pull>(token, `/repos/${row.repository}/pulls/${row.number}`),
+            await githubRequest(token, `/repos/${row.repository}/pulls/${row.number}`),
           );
           if (pull.base.repo.id !== payload.repository.id)
             throw new Error("Webhook repository mismatch.");
