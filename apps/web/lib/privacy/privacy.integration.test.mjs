@@ -1029,7 +1029,7 @@ integration(
     const exported = await exportAccount("alice", "alice-session");
     expect(exported.mcpAnalyticsChoices).toHaveLength(1);
     expect(exported.mcpAnalyticsChoices[0].enabled).toBe(true);
-    expect(exported.mcpAnalyticsChoices[0].noticeVersion).toContain("mcp-analytics");
+    expect(exported.mcpAnalyticsChoices[0].noticeVersion).toContain("mcp-account-linking");
   },
 );
 
@@ -1205,5 +1205,39 @@ integration(
     const send = mock(async () => {});
     await withMcpConsent("alice", id, send);
     expect(send).not.toHaveBeenCalled();
+  },
+);
+
+integration(
+  "unlinked MCP retention is scheduled once per UTC day without account records",
+  async () => {
+    const { queueMcpMonitoringErasure, mcpMonitoringId } = await import("./mcp-retention");
+    const start = new Date();
+    start.setUTCHours(0, 0, 0, 0);
+    const end = new Date(start.getTime() + 86_399_000);
+    await Promise.all([queueMcpMonitoringErasure(start), queueMcpMonitoringErasure(end)]);
+    const jobs = (await admin.query('select * from "privacyCleanup"')).rows;
+    expect(jobs).toHaveLength(1);
+    expect(JSON.parse(jobs[0].subject)).toEqual({
+      reason: "mcp-monitoring-retention",
+      distinctIds: [mcpMonitoringId(start)],
+    });
+    expect(new Date(jobs[0].nextAttemptAt).getTime()).toBe(start.getTime() + 90 * 86_400_000);
+    expect((await admin.query('select id from "mcpAnalyticsConsent"')).rowCount).toBe(0);
+    await processPrivacyCleanup();
+    expect((await admin.query('select attempts from "privacyCleanup"')).rows[0].attempts).toBe(0);
+    const expiredDay = new Date(start.getTime() - 91 * 86_400_000);
+    await queueMcpMonitoringErasure(expiredDay);
+    await processPrivacyCleanup();
+    const due = (
+      await admin.query('select id,attempts,"nextAttemptAt" from "privacyCleanup" where attempts>0')
+    ).rows[0];
+    expect(due.attempts).toBe(1);
+    expect(due.nextAttemptAt).toBe(Infinity);
+    await completePostHogReview(admin, due.id, "synthetic provider erasure verification");
+    expect(
+      (await admin.query('select id from "privacyCleanupReceipt" where id=$1', [due.id])).rowCount,
+    ).toBe(1);
+    expect((await admin.query('select id from "privacyCleanup"')).rowCount).toBe(1);
   },
 );

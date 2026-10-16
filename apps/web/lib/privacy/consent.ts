@@ -1,4 +1,4 @@
-export const MCP_NOTICE_VERSION = "2026-10-16.mcp-analytics-1";
+export const MCP_NOTICE_VERSION = "2026-10-16.mcp-account-linking-2";
 export const CONSENT_COOKIE = "tidy_consent";
 // The previous notice promised to remove every browser error message. Obtain a
 // fresh choice before collecting reviewed technical messages under this notice.

@@ -17,7 +17,7 @@ try {
     // Contains identifiers: keep output private. The operator must inspect both queues.
     const rows = (
       await client.query(
-        `select id,kind,subject,"createdAt",attempts,"nextAttemptAt" from "privacyCleanup" where kind in ('posthog','posthog-review') order by "createdAt" limit 100`,
+        `select id,kind,subject,"createdAt",attempts,"nextAttemptAt" from "privacyCleanup" where kind in ('posthog','posthog-review') order by ("nextAttemptAt">now() and attempts=0),"createdAt" limit 100`,
       )
     ).rows;
     console.log(JSON.stringify(rows, null, 2));

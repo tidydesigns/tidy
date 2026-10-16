@@ -131,7 +131,8 @@ export async function processPrivacyCleanup(limit = 1) {
   const pending = (
     await db.query<{ pending: number; overdue: number }>(`select count(*)::int as pending,
     count(*) filter (where "createdAt"<now()-interval '1 day')::int as overdue
-    from "privacyCleanup" where kind in ('posthog','posthog-review')`)
+    from "privacyCleanup" where kind in ('posthog','posthog-review')
+      and ("nextAttemptAt"<=now() or attempts>0)`)
   ).rows[0];
   if (pending.pending)
     console.warn(JSON.stringify({ event: "privacy_review_pending", ...pending }));

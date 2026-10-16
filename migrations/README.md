@@ -65,7 +65,8 @@ production migration is automatic.
 ## MCP analytics consent
 
 `20261016-mcp-analytics-consent.sql` follows `20261015-analytics-consent.sql`.
-It adds separate account-level MCP analytics decisions, defaulting to no permission.
+It adds consent decisions for optional MCP account linking, defaulting to off.
+Service monitoring without account identifiers is independent of this choice.
 Apply it before deploying the app changes and reapply the runtime grant manifest.
 Both local setup scripts include it. Run `bun test:privacy:db` to verify consent,
 expiry, withdrawal and deletion with a disposable database. Production migration

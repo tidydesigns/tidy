@@ -22,6 +22,9 @@ function fixture(allowed = true) {
   const sent: unknown[] = [];
   const backend = {
     consent: mock(async () => consent),
+    prepareUnlinked: mock(async (timestamp: Date) => {
+      void timestamp;
+    }),
     withConsent: async (_user: string, id: string, send: () => Promise<void>) => {
       if (id === consent) await send();
     },
@@ -41,7 +44,7 @@ function fixture(allowed = true) {
   };
 }
 
-test("only opted-in registered tools emit metadata; arguments and results remain untouched", async () => {
+test("opted-in calls carry only their consent identifier; arguments and results remain untouched", async () => {
   const f = fixture();
   instrumentMcpAnalytics(f.server, "account", runtime, f.backend);
   const input = { prompt: "PRIVATE PROMPT", token: "PRIVATE TOKEN" };
@@ -56,7 +59,7 @@ test("only opted-in registered tools emit metadata; arguments and results remain
   expect(f.backend.send.mock.calls[0][1]).toMatchObject({ tool: "get_file", failed: false });
 });
 
-test("off switch, rejection and consent-read failure never collect or block a tool", async () => {
+test("global switch disables monitoring; rejection or unavailable consent emits unlinked metrics", async () => {
   for (const mode of ["off", "rejected", "unavailable"]) {
     const f = fixture(mode !== "rejected");
     if (mode === "unavailable") f.backend.consent.mockRejectedValue(new Error("database failure"));
@@ -68,8 +71,12 @@ test("off switch, rejection and consent-read failure never collect or block a to
     );
     f.server.registerTool("get_file", {}, async () => ({ content: [] }));
     expect(await f.call()).toEqual({ content: [] });
-    expect(f.sent).toHaveLength(0);
+    expect(f.sent).toHaveLength(mode === "off" ? 0 : 1);
     if (mode === "off") expect(f.backend.consent).not.toHaveBeenCalled();
+    else {
+      expect(f.backend.send.mock.calls[0][0]).toBeUndefined();
+      expect(f.backend.prepareUnlinked).toHaveBeenCalledTimes(1);
+    }
   }
 });
 
@@ -82,7 +89,8 @@ test("withdrawal or re-opt-in during execution cannot authorise a previous call"
       return { content: [] };
     });
     await f.call();
-    expect(f.sent).toHaveLength(0);
+    expect(f.sent).toHaveLength(1);
+    expect(f.backend.send.mock.calls[0][0]).toBeUndefined();
   }
 });
 
@@ -153,7 +161,7 @@ test("client cancellation does not release the background consent lock", async (
   expect(f.sent).toHaveLength(1);
 });
 
-test("a stalled consent lookup is canceled and cannot delay or enable collection", async () => {
+test("a stalled consent lookup is canceled and monitoring continues without account linking", async () => {
   const f = fixture();
   let lookupSignal: AbortSignal | undefined;
   f.backend.consent.mockImplementation(() => {
@@ -164,7 +172,8 @@ test("a stalled consent lookup is canceled and cannot delay or enable collection
   f.server.registerTool("get_file", {}, async () => ({ content: [] }));
   expect(await f.call()).toEqual({ content: [] });
   expect(lookupSignal?.aborted).toBe(true);
-  expect(f.sent).toHaveLength(0);
+  expect(f.sent).toHaveLength(1);
+  expect(f.backend.send.mock.calls[0][0]).toBeUndefined();
 });
 
 test("Worker tool response does not wait for slow delivery", async () => {
@@ -242,6 +251,7 @@ test.each([false, true])(
       expect(events[0].event).toBe("$mcp_tool_call");
       expect(events[0].distinct_id).toBe("mcp:decision-a");
       expect(events[0].properties).toMatchObject({
+        $mcp_account_linked: true,
         $mcp_tool_name: "get_file",
         $mcp_duration_ms: 42,
         $mcp_is_error: failed,
@@ -256,3 +266,76 @@ test.each([false, true])(
     }
   },
 );
+
+test("failed consent admission falls back without double-counting an attempted send", async () => {
+  for (const deliveryStarted of [false, true]) {
+    const f = fixture();
+    f.backend.withConsent = async (_user, _id, send) => {
+      if (deliveryStarted) await send();
+      throw new Error("database commit unavailable");
+    };
+    instrumentMcpAnalytics(f.server, "account", runtime, f.backend);
+    f.server.registerTool("get_file", {}, async () => ({ content: [] }));
+    await f.call();
+    expect(f.sent).toHaveLength(1);
+    expect(f.backend.send.mock.calls[0][0]).toBe(deliveryStarted ? "decision-a" : undefined);
+  }
+});
+
+test("retention scheduling failure cannot leak untracked events or fail a tool", async () => {
+  const f = fixture(false);
+  f.backend.prepareUnlinked.mockRejectedValue(new Error("database unavailable"));
+  instrumentMcpAnalytics(f.server, "account", runtime, f.backend);
+  f.server.registerTool("get_file", {}, async () => ({ content: [] }));
+  expect(await f.call()).toEqual({ content: [] });
+  expect(f.sent).toHaveLength(0);
+});
+
+test("unlinked wire events share only a daily service ID and minute timestamps", async () => {
+  const events: { distinct_id: string; timestamp: string; properties: Record<string, unknown> }[] =
+    [];
+  const transport = spyOn(globalThis, "fetch").mockImplementation((async (
+    _url: unknown,
+    init?: RequestInit,
+  ) => {
+    const body =
+      init?.body instanceof Uint8Array ? gunzipSync(init.body).toString() : String(init?.body);
+    events.push(...JSON.parse(body).batch);
+    return Response.json({ status: 1 });
+  }) as typeof fetch);
+  try {
+    for (const timestamp of ["2026-10-16T12:34:56.789Z", "2026-10-16T12:34:59.123Z"]) {
+      await sendMcpMetric(
+        undefined,
+        { tool: "get_file", timestamp: new Date(timestamp), durationMs: 42, failed: false },
+        runtime,
+      );
+    }
+    expect(events).toHaveLength(2);
+    for (const event of events) {
+      expect(event.distinct_id).toBe("mcp:service:2026-10-16");
+      expect(new Date(event.timestamp).toISOString()).toBe("2026-10-16T12:34:00.000Z");
+      expect(event.properties.$mcp_account_linked).toBe(false);
+      expect(Object.keys(event.properties).sort()).toEqual(
+        [
+          "$mcp_account_linked",
+          "$mcp_source",
+          "$mcp_server_name",
+          "$mcp_method",
+          "$mcp_tool_name",
+          "$mcp_resource_name",
+          "$mcp_duration_ms",
+          "$mcp_is_error",
+          "$process_person_profile",
+          "$geoip_disable",
+          "$app_version",
+          "$is_server",
+          "$lib",
+          "$lib_version",
+        ].sort(),
+      );
+    }
+  } finally {
+    transport.mockRestore();
+  }
+});

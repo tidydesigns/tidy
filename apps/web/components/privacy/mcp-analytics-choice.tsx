@@ -31,9 +31,9 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
   return (
     <div className="ph-no-capture space-y-2">
       <div className="flex items-center justify-between gap-4">
-        <span className="text-sm font-medium">MCP usage analytics</span>
+        <span className="text-sm font-medium">Link MCP monitoring to my account</span>
         <SelectMenu
-          label="MCP usage analytics"
+          label="Link MCP monitoring to my account"
           value={enabled ? "on" : "off"}
           disabled={pending}
           options={[
@@ -44,9 +44,10 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
         />
       </div>
       <p className="text-sm text-secondary-ink">
-        Share tool names, timings and outcomes with PostHog to improve Tidy. No prompts or tool
-        content. Applies to your account’s connected agents for 90 days, separately from browser
-        choices. Turning it off does not affect MCP access.
+        Tidy monitors tool counts, timings and failures to operate the MCP service. Turn this on to
+        let us associate those events with your account for troubleshooting for 90 days. Off stops
+        account linking; service monitoring continues. No prompts or tool content are sent. This is
+        separate from browser choices and does not affect MCP access.
       </p>
       {error && (
         <p role="alert" className="text-sm text-danger">

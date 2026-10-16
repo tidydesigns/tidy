@@ -71,9 +71,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           legitimate interests (Article 6(1)(f)) for security, reliability, support and
           administering access to an organisation’s service; and legal obligations (Article 6(1)(c))
           for applicable accounting, tax and data-protection duties. Optional browser analytics,
-          replay, diagnostics and MCP usage analytics rely on consent (Article 6(1)(a)); refusing or
-          withdrawing consent does not prevent account access. Our legitimate interests are
-          protecting users and operating a reliable service; processing must be necessary and
+          replay, diagnostics and optional MCP account linking rely on consent (Article 6(1)(a));
+          refusing or withdrawing consent does not prevent account access. Our legitimate interests
+          are protecting users and operating a reliable service; processing must be necessary and
           proportionate. You can object as explained below.
         </p>
         <p>
@@ -89,8 +89,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
       >
         <p>
           Tidy supports PostHog, Inc. for functional rollout settings, server fault monitoring and
-          optional analytics, browser diagnostics, session replay and MCP usage analytics when these
-          features are enabled. The marketing website does not load the PostHog browser SDK.
+          MCP service monitoring, optional analytics, browser diagnostics and session replay when
+          these features are enabled. The marketing website does not load the PostHog browser SDK.
           Functional settings, core server monitoring and optional browser collection have separate
           purposes and controls.
         </p>
@@ -202,31 +202,48 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           confirmation fails, optional collection stays off and the app offers a retry.
         </p>
       </Section>
-      <Section id="mcp-analytics" title="Optional MCP usage analytics">
+      <Section id="mcp-analytics" title="MCP service monitoring and optional account linking">
         <p>
-          If you turn on <strong>MCP usage analytics</strong> in{" "}
-          <strong>Settings → Preferences → Privacy</strong> (or your account page if you have no
-          organisation), we send PostHog tool names, timestamps, execution durations,
-          success/failure indicators and app version to understand tool adoption and improve
-          reliability. Events use a random identifier linked to your consent record, not your email
-          or account ID. We do not create a person profile for these events or send tool arguments,
-          results, prompts, agent intent, design content, credentials, client IP addresses or raw
-          errors. PostHog receives connection information from our server.
+          We monitor external MCP tool calls to operate a reliable service, detect failures and
+          latency, and verify fixes. When monitoring is enabled, PostHog receives tool names,
+          timestamps, durations, success/failure indicators and app/SDK version information for
+          calls regardless of your optional privacy choices. Successful calls provide the totals
+          needed to measure failure rates. We rely on legitimate interests for this limited
+          operational monitoring, not for advertising or behavioural profiling.
         </p>
         <p>
-          This account-level choice is off by default and applies to external MCP calls made with
-          your account. It is separate from browser choices and permission for an agent to access
-          Tidy. It uses no analytics cookies, conversation identifiers or extra tool parameters. You
-          can turn it off in the same place without losing MCP access. Authentication, permissions,
-          usage limits and the limited server fault monitoring described above continue
-          independently. We rely on your consent for optional MCP analytics.
+          By default, events share a service identifier for the day and timestamps are rounded to
+          the minute. We do not attach an account, browser, client or conversation identifier, or
+          keep a mapping from these events to individual accounts. We send no prompts, tool
+          arguments or results, design content, credentials, client IP addresses or raw errors. This
+          monitoring uses no analytics cookies or extra tool parameters and creates no person
+          profile. PostHog receives connection information from our server. You can object to
+          processing based on legitimate interests using the contact details below; we assess
+          objections as described under your rights.
         </p>
         <p>
-          The choice expires after 90 days. Withdrawal or expiry stops new collection and queues the
-          associated events for provider erasure; account deletion also includes this follow-up. A
-          new opt-in uses a new identifier. We retain consent evidence for up to one year, or until
-          account deletion. Provider erasure is handled through the review process described below;
-          it is not instantaneous or a guaranteed automatic 90-day deletion deadline.
+          <strong>Optional account linking — consent.</strong> Turning on{" "}
+          <strong>Link MCP monitoring to my account</strong> in{" "}
+          <strong>Settings → Preferences → Privacy</strong> (or your account privacy page if you
+          have no organisation) lets us associate tool events with your account for troubleshooting.
+          These events use precise timestamps and a pseudonymous identifier that Tidy can link to
+          your account through your consent record. We do not send your email address or direct
+          account ID to PostHog, or join these events to browser profiles or replay.
+        </p>
+        <p>
+          Account linking is off by default, separate from browser choices and agent access, and
+          expires after 90 days. Turning it off does not affect MCP access. Withdrawal or expiry
+          stops new account linking and queues the linked events for provider erasure; monitoring
+          without account linking continues. Account deletion also queues linked events for erasure.
+          A new opt-in uses a new identifier. Consent evidence is retained for up to one year or
+          until account deletion.
+        </p>
+        <p>
+          Events without account linking are grouped by day and scheduled for provider-deletion
+          review 90 days after that day begins. Linked events are scheduled for erasure when consent
+          expires or ends earlier. Provider erasure uses the manual verification process below;
+          these schedules do not guarantee completed deletion on day 90. Events without an account
+          link cannot be selected for deletion by account ID.
         </p>
       </Section>
       <Section id="cookies" title="Cookies and similar storage">
@@ -287,8 +304,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           </li>
           <li>
             <strong>PostHog:</strong> global functional rollout settings, limited server fault
-            monitoring, optional MCP usage analytics and the optional browser analytics,
-            diagnostics, replay and survey responses described above.
+            monitoring, MCP service monitoring and optional account linking, and the optional
+            browser analytics, diagnostics, replay and survey responses described above.
           </li>
           <li>
             <strong>PlanetScale:</strong> the database holding account, workspace and application
@@ -393,7 +410,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
             functional rollout checks do not create user event history; historical feature-flag
             events remain subject to these retention and deletion arrangements.
           </dd>
-          <dt>Errors and performance information</dt>
+          <dt>Other errors and performance information</dt>
           <dd>
             Exception and performance events use the same event-storage settings. We use their
             history to investigate faults, verify fixes and monitor recurrence and reliability over

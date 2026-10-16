@@ -2,6 +2,7 @@ import "server-only";
 import { PostHogMCP } from "@posthog/mcp";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { queueMcpMonitoringErasure, mcpMonitoringId } from "@/lib/privacy/mcp-retention";
 import { activeMcpConsent, mcpAnalyticsId, withMcpConsent } from "@/lib/privacy/mcp-consent";
 import { requestSignal, runWithRequestSignal, waitForSignal } from "@/lib/request-lifecycle";
 
@@ -22,10 +23,16 @@ type Backend = {
   consent: typeof activeMcpConsent;
   withConsent: typeof withMcpConsent;
   send: typeof sendMcpMetric;
+  prepareUnlinked: typeof queueMcpMonitoringErasure;
 };
 
-export async function sendMcpMetric(id: string, metric: CallMetric, runtime: Runtime) {
+export async function sendMcpMetric(id: string | undefined, metric: CallMetric, runtime: Runtime) {
   if (runtime.enabled !== "1" || !runtime.key || !runtime.host) return;
+  const distinctId = id ? mcpAnalyticsId(id) : mcpMonitoringId(metric.timestamp);
+  // Minute precision is sufficient for service reliability and limits correlation.
+  const timestamp = id
+    ? metric.timestamp
+    : new Date(Math.floor(metric.timestamp.getTime() / 60000) * 60000);
   // Manual SDK capture deliberately never receives arguments, results, request
   // headers, OAuth identifiers or errors. No prepareTool* calls alter MCP schemas.
   const client = new PostHogMCP(runtime.key, {
@@ -44,9 +51,10 @@ export async function sendMcpMetric(id: string, metric: CallMetric, runtime: Run
       if (event?.event !== "$mcp_tool_call") return null;
       return {
         event: "$mcp_tool_call",
-        distinctId: mcpAnalyticsId(id),
-        timestamp: metric.timestamp,
+        distinctId,
+        timestamp,
         properties: {
+          $mcp_account_linked: Boolean(id),
           $mcp_source: "posthog_mcp_analytics",
           $mcp_server_name: "Tidy canvas",
           $mcp_method: "tools/call",
@@ -67,11 +75,11 @@ export async function sendMcpMetric(id: string, metric: CallMetric, runtime: Run
   client.on("error", () => console.warn(JSON.stringify({ event: "mcp_analytics_unavailable" })));
   try {
     client.captureToolCall({
-      distinctId: mcpAnalyticsId(id),
+      distinctId,
       toolName: metric.tool,
       durationMs: metric.durationMs,
       isError: metric.failed,
-      timestamp: metric.timestamp,
+      timestamp,
     });
   } finally {
     await client.shutdown(2000);
@@ -107,6 +115,7 @@ export function instrumentMcpAnalytics(
     consent: activeMcpConsent,
     withConsent: withMcpConsent,
     send: sendMcpMetric,
+    prepareUnlinked: queueMcpMonitoringErasure,
   },
 ) {
   if (
@@ -122,7 +131,7 @@ export function instrumentMcpAnalytics(
   server.registerTool = ((tool: string, config: unknown, callback: Handler) =>
     register(tool, config, async (...args) => {
       // Registration supplies the name, never arbitrary client input.
-      // Optional analytics must not inherit the pool's 10-second connect/query
+      // Optional account linking must not inherit the pool's 10-second connect/query
       // deadlines. Abort the actual lookup (and release its socket), not just a
       // timer race, while preserving cancellation from the MCP request.
       const parentSignal = requestSignal();
@@ -144,33 +153,46 @@ export function instrumentMcpAnalytics(
         );
         return result;
       } finally {
-        if (consent) {
-          const metric = {
-            tool,
-            timestamp,
-            failed,
-            durationMs: Math.max(0, Math.round(performance.now() - started)),
-          };
-          const task = Promise.resolve()
-            .then(() =>
-              // A disconnected MCP client must not release the database consent
-              // lock while a bounded outbound send is still running in waitUntil.
-              runWithRequestSignal(new AbortController().signal, () =>
-                backend.withConsent(userId, consent, () => backend.send(consent, metric, runtime)),
-              ),
-            )
-            .catch(() => {
-              /* Optional collection must never fail the tool. */
-            });
-          if (runtime.waitUntil) {
-            try {
-              runtime.waitUntil(task);
-            } catch {
-              // A scheduler failure must not replace the original tool result.
-              await task;
-            }
-          } else await task;
-        }
+        const metric = {
+          tool,
+          timestamp,
+          failed,
+          durationMs: Math.max(0, Math.round(performance.now() - started)),
+        };
+        const task = Promise.resolve()
+          .then(() =>
+            // A disconnected MCP client must not release the database consent
+            // lock while a bounded outbound send is still running in waitUntil.
+            runWithRequestSignal(new AbortController().signal, async () => {
+              let attempted = false;
+              if (consent) {
+                try {
+                  await backend.withConsent(userId, consent, async () => {
+                    attempted = true;
+                    await backend.send(consent, metric, runtime);
+                  });
+                } catch {
+                  // Fall back only before delivery starts; retries could double-count.
+                }
+              }
+              if (!attempted) {
+                // No account identifier enters this path, including the retention job.
+                await backend.prepareUnlinked(metric.timestamp);
+                await backend.send(undefined, metric, runtime);
+              }
+            }),
+          )
+          .catch(() => {
+            /* Monitoring must never fail the tool. */
+          });
+        if (runtime.waitUntil) {
+          try {
+            runtime.waitUntil(task);
+          } catch {
+            // A scheduler failure must not replace the original tool result.
+            await task;
+          }
+        } else await task;
       }
     })) as McpServer["registerTool"];
   return server;

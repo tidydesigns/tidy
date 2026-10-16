@@ -25,12 +25,14 @@ const bundle = await build({
         }));
         // Database consent enforcement is exercised by test:privacy:db. This test
         // checks the real SDK transport and simultaneous Worker invocations only.
-        builder.onResolve({ filter: /^@\/lib\/privacy\/mcp-consent$/ }, () => ({
+        builder.onResolve({ filter: /^@\/lib\/privacy\/(?:mcp-consent|mcp-retention)$/ }, () => ({
           path: "consent",
           namespace: "fixture",
         }));
         builder.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({
-          contents: `export const mcpAnalyticsId = id => 'mcp:' + id;
+          contents: `export const mcpMonitoringId = date => 'mcp:service:' + date.toISOString().slice(0,10);
+        export async function queueMcpMonitoringErasure() { throw new Error('No database in this fixture'); }
+        export const mcpAnalyticsId = id => 'mcp:' + id;
         export async function activeMcpConsent() { throw new Error('No database in this fixture'); }
         export async function withMcpConsent() { throw new Error('No database in this fixture'); }`,
           loader: "js",
@@ -43,7 +45,7 @@ const bundle = await build({
     contents: `import { sendMcpMetric } from './lib/mcp/analytics.ts';
       export default { async fetch(request) {
         const id = new URL(request.url).pathname.slice(1);
-        await sendMcpMetric(id, { tool: 'get_file', timestamp: new Date(), durationMs: 42, failed: id === 'failed' }, {
+        await sendMcpMetric(id === 'unlinked' ? undefined : id, { tool: 'get_file', timestamp: new Date('2026-10-16T12:34:56.789Z'), durationMs: 42, failed: id === 'failed' }, {
           enabled: '1', key: 'synthetic-project', host: 'https://posthog.invalid', release: 'test-worker'
         });
         return new Response('ok');
@@ -70,15 +72,23 @@ const worker = new Miniflare(
 try {
   await worker.ready;
   const responses = await Promise.all(
-    ["success", "failed"].map((id) => worker.dispatchFetch(`https://mcp.test/${id}`)),
+    ["success", "failed", "unlinked"].map((id) => worker.dispatchFetch(`https://mcp.test/${id}`)),
   );
   for (const response of responses) assert.equal(await response.text(), "ok");
-  assert.equal(events.length, 2);
-  assert.deepEqual(events.map((event) => event.distinct_id).sort(), ["mcp:failed", "mcp:success"]);
+  assert.equal(events.length, 3);
+  assert.deepEqual(events.map((event) => event.distinct_id).sort(), [
+    "mcp:failed",
+    "mcp:service:2026-10-16",
+    "mcp:success",
+  ]);
   for (const event of events) {
     assert.equal(event.event, "$mcp_tool_call");
     assert.equal(event.properties.$mcp_tool_name, "get_file");
     assert.equal(event.properties.$mcp_is_error, event.distinct_id === "mcp:failed");
+    assert.equal(
+      event.properties.$mcp_account_linked,
+      !event.distinct_id.startsWith("mcp:service:"),
+    );
     assert.equal(event.properties.$process_person_profile, false);
     assert.equal(event.properties.$geoip_disable, true);
     assert.doesNotMatch(
