@@ -33,7 +33,12 @@ worker.onmessage = ({ data }) => {
     const original = context ? { ...image, data: image.data.slice() } : undefined;
     const trace = traceRaster(image, data.colors, { lossy: data.lossy });
     worker.postMessage({
-      trace: original ? verifyRasterTrace(original, trace, context) : trace,
+      trace: original
+        ? verifyRasterTrace(original, trace, context, {
+            automatic: data.colors === "auto",
+            lossy: data.lossy,
+          })
+        : trace,
       verified: !!original,
     });
   } catch (error) {

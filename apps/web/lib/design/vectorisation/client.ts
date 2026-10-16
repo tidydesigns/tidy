@@ -154,9 +154,13 @@ export async function traceImage(
         const worker = new Worker(new URL("./trace.worker.ts", import.meta.url), {
           type: "module",
         });
+        let settled = false;
         const finish = (error?: Error, trace?: RasterTrace, verified = false) => {
+          if (settled) return;
+          settled = true;
           clearTimeout(timeout);
           signal.removeEventListener("abort", cancel);
+          worker.onmessage = worker.onmessageerror = null;
           worker.terminate();
           if (error) reject(error);
           else resolve({ trace: trace!, verified });
@@ -173,7 +177,12 @@ export async function traceImage(
           if (data.error || !data.trace) finish(new Error(data.error ?? "No trace returned."));
           else finish(undefined, data.trace, data.verified);
         };
-        worker.onerror = () => finish(new Error("The image tracing worker failed."));
+        worker.onerror = (event) => {
+          // Terminating during the bundler's importScripts bootstrap can queue
+          // a late load error. Keep it handled after cancellation has settled.
+          event.preventDefault();
+          finish(new Error("The image tracing worker failed."));
+        };
         worker.onmessageerror = () => finish(new Error("Could not read the trace result."));
         if (signal.aborted) cancel();
         else
@@ -207,7 +216,10 @@ export async function traceImage(
       if (signal.aborted) cancel();
     });
     check(signal);
-    const verified = verifyRasterTrace(original, result.trace);
+    const verified = verifyRasterTrace(original, result.trace, undefined, {
+      automatic: colors === "auto",
+      lossy: mime === "image/jpeg",
+    });
     check(signal);
     return verified;
   } finally {

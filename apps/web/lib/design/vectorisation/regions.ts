@@ -1,6 +1,37 @@
 import type { TraceColor } from "imagetracerjs";
 import type { TraceColors, RasterPixels } from "./contract";
 
+function nearRgba(data: Uint8ClampedArray, a: number, b: number, rgb = 4, alpha = 4) {
+  return (
+    Math.abs(data[a] - data[b]) <= rgb &&
+    Math.abs(data[a + 1] - data[b + 1]) <= rgb &&
+    Math.abs(data[a + 2] - data[b + 2]) <= rgb &&
+    Math.abs(data[a + 3] - data[b + 3]) <= alpha
+  );
+}
+
+// A narrow extremum has no flat four-neighbour interior. Keep its coverage
+// colour instead of treating it as an ordinary blend along a larger shape edge.
+function thinFeature(data: Uint8ClampedArray, pixel: number, width: number) {
+  const i = pixel * 4;
+  if (data[i + 3] !== 255) return false;
+  const x = pixel % width;
+  for (let axis = 0; axis < 2; axis++) {
+    const offset = axis === 0 ? 1 : width;
+    if (offset === 1 && (x === 0 || x === width - 1)) continue;
+    const before = i - offset * 4,
+      after = i + offset * 4;
+    if (before < 0 || after >= data.length || data[before + 3] !== 255 || data[after + 3] !== 255)
+      continue;
+    for (let k = 0; k < 3; k++) {
+      const a = data[i + k] - data[before + k],
+        b = data[i + k] - data[after + k];
+      if ((a > 12 && b > 12) || (a < -12 && b < -12)) return true;
+    }
+  }
+  return false;
+}
+
 /** Deterministic, frequency-weighted diverse seeds; no random sampling, hidden RGB or white removal. */
 function palette(
   data: Uint8ClampedArray,
@@ -13,7 +44,14 @@ function palette(
   const solidCores = new Map<number, { color: TraceColor; count: number }>();
   const histogram = new Map<
     number,
-    { color: TraceColor; count: number; peak: number; core: number; samples: Map<number, number> }
+    {
+      color: TraceColor;
+      count: number;
+      peak: number;
+      core: number;
+      detail: number;
+      samples: Map<number, number>;
+    }
   >();
   let transparent = false;
   for (let i = 0; i < data.length; i += 4) {
@@ -34,18 +72,18 @@ function palette(
       x < imageWidth - 1 &&
       pixel >= imageWidth &&
       pixel < data.length / 4 - imageWidth &&
-      [-1, 1, -imageWidth, imageWidth].every((offset) =>
-        [0, 1, 2, 3].every(
-          (k) => Math.abs(data[i + k] - data[i + offset * 4 + k]) <= (lossy && k !== 3 ? 32 : 4),
-        ),
-      );
+      nearRgba(data, i, i - 4, lossy ? 32 : 4) &&
+      nearRgba(data, i, i + 4, lossy ? 32 : 4) &&
+      nearRgba(data, i, i - imageWidth * 4, lossy ? 32 : 4) &&
+      nearRgba(data, i, i + imageWidth * 4, lossy ? 32 : 4);
     const entry = histogram.get(key);
     const sample = ((data[i] << 24) | (data[i + 1] << 16) | (data[i + 2] << 8) | data[i + 3]) >>> 0;
     if (
       core &&
-      [-1, 1, -imageWidth, imageWidth].every((offset) =>
-        [0, 1, 2, 3].every((k) => data[i + k] === data[i + offset * 4 + k]),
-      )
+      nearRgba(data, i, i - 4, 0, 0) &&
+      nearRgba(data, i, i + 4, 0, 0) &&
+      nearRgba(data, i, i - imageWidth * 4, 0, 0) &&
+      nearRgba(data, i, i + imageWidth * 4, 0, 0)
     ) {
       const solid = solidCores.get(sample);
       if (solid) solid.count++;
@@ -58,6 +96,7 @@ function palette(
     if (entry) {
       entry.count++;
       if (core) entry.core++;
+      if (!lossy && colors === "auto" && thinFeature(data, pixel, imageWidth)) entry.detail++;
       const frequency = (entry.samples.get(sample) ?? 0) + 1;
       entry.samples.set(sample, frequency);
       if (frequency > entry.peak) {
@@ -70,6 +109,7 @@ function palette(
         count: 1,
         peak: 1,
         core: Number(core),
+        detail: Number(!lossy && colors === "auto" && thinFeature(data, pixel, imageWidth)),
         samples: new Map([[sample, 1]]),
       });
   }
@@ -81,6 +121,7 @@ function palette(
         ...entry,
         peak: entry.count,
         core: entry.count,
+        detail: 0,
         stable: true,
         samples: new Map<number, number>(),
       })),
@@ -93,13 +134,15 @@ function palette(
   const distance = (a: TraceColor, b: TraceColor) =>
     Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b) + Math.abs(a.a - b.a);
   if (remaining.length) chosen.push(remaining.shift()!.color);
+  let detailPaints = 0;
   const isEdgeBlend = (entry: (typeof sorted)[number]) => {
     // A small bin containing many different samples is usually coverage or JPEG
     // ringing. Do not allocate a third paint to a blend of two established paints.
     // Repeated flat colours and substantial shaded areas remain eligible.
     if (
       (entry.stable && entry.core >= (lossy ? Math.max(16, visiblePixels * 0.0005) : 4)) ||
-      entry.count >= visiblePixels * 0.01
+      entry.count >= visiblePixels * 0.01 ||
+      (solidCores.size <= 4 && entry.detail >= 4 && detailPaints < 2)
     )
       return false;
     const values = (c: TraceColor) => [c.r, c.g, c.b, c.a];
@@ -134,6 +177,7 @@ function palette(
         isEdgeBlend(remaining[i]) ||
         // Repeated opaque samples can be deliberate small lossless accents.
         (!remaining[i].stable &&
+          remaining[i].detail < 4 &&
           (lossy || remaining[i].color.a !== 255 || remaining[i].peak < 4) &&
           remaining[i].core < 2 &&
           remaining[i].count < visiblePixels * 0.003)
@@ -151,7 +195,9 @@ function palette(
         score = value;
       }
     }
-    chosen.push(remaining.splice(best, 1)[0].color);
+    const next = remaining.splice(best, 1)[0];
+    if (!next.stable && next.detail >= 4) detailPaints++;
+    chosen.push(next.color);
   }
   return chosen;
 }
@@ -191,6 +237,7 @@ function separateRegions(
   image: { width: number; height: number; data: Uint8ClampedArray },
   palette: TraceColor[],
   lossy: boolean,
+  preserveDetail: boolean,
 ) {
   const { width, height, data } = image;
   const count = width * height;
@@ -208,10 +255,6 @@ function separateRegions(
       (data[i + 2] * alpha - color.b * other) ** 2 +
       (data[i + 3] - color.a) ** 2
     );
-  };
-  const similar = (a: number, b: number) => {
-    for (let k = 0; k < 4; k++) if (Math.abs(data[a * 4 + k] - data[b * 4 + k]) > 8) return false;
-    return true;
   };
   // Flat artwork repeats exact RGBA values. Bound the cache for photographic inputs.
   const nearestColors = new Map<number, { best: number; error: number }>();
@@ -246,11 +289,29 @@ function separateRegions(
       x < width - 1 &&
       y > 0 &&
       y < height - 1 &&
-      [pixel - 1, pixel + 1, pixel - width, pixel + width].every((p) => similar(pixel, p));
-    if (error <= 144 || flat) {
+      nearRgba(data, offset, offset - 4, 8, 8) &&
+      nearRgba(data, offset, offset + 4, 8, 8) &&
+      nearRgba(data, offset, offset - width * 4, 8, 8) &&
+      nearRgba(data, offset, offset + width * 4, 8, 8);
+    if (error <= 144 || flat || (preserveDetail && thinFeature(data, pixel, width))) {
       labels[pixel] = best;
       queue[tail++] = pixel;
     }
+  }
+  // Only boundary seeds can expand. Avoid scanning four neighbours and allocating
+  // a frontier entry for every pixel in the already-labelled flat interiors.
+  const seeded = tail;
+  tail = 0;
+  for (let i = 0; i < seeded; i++) {
+    const p = queue[i],
+      x = p % width;
+    if (
+      (x > 0 && labels[p - 1] === -1) ||
+      (x < width - 1 && labels[p + 1] === -1) ||
+      (p >= width && labels[p - width] === -1) ||
+      (p < count - width && labels[p + width] === -1)
+    )
+      queue[tail++] = p;
   }
   // Expand one distance wave at a time. Every ambiguous edge may only inherit a
   // label from the previous wave, so scan direction cannot bias the silhouette.
@@ -371,6 +432,6 @@ export function prepareRasterRegions(
   const seeds = palette(image.data, colors, image.width, lossy);
   if (!seeds.some((color) => color.a > 0))
     throw new Error("This image has no visible pixels to trace.");
-  separateRegions(image, seeds, lossy);
+  separateRegions(image, seeds, lossy, !lossy && colors === "auto" && seeds.length <= 5);
   return seeds;
 }

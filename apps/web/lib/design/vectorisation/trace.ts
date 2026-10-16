@@ -7,7 +7,7 @@ import {
 import { recoverRasterOcclusion } from "./occlusion";
 import { refineRasterCoverage } from "./coverage";
 import { fitRasterShape } from "./shape-fit";
-import { fitRasterLinearGradient } from "./gradient";
+import { fitRasterLinearGradient, fitRasterOpacityGradient } from "./gradient";
 import { traceGradientRegions } from "./gradient-regions";
 import { prepareRasterRegions } from "./regions";
 import { designNodeSchema } from "../document";
@@ -45,6 +45,42 @@ function contour(path: TracePath, id: string): VectorContour {
   return { id, closed: true, points };
 }
 
+/** Keep disconnected coverage fragments in bounded compound paths. Full-size
+ * objects stay independent; one-pixel edge fragments need not consume a layer each. */
+function compactDetails(paths: RasterTrace["paths"]) {
+  const result: RasterTrace["paths"] = [];
+  const merged = new Set<RasterTrace["paths"][number]>();
+  let group: RasterTrace["paths"][number] | undefined;
+  for (const path of paths) {
+    const contours = path.vectorPath.contours!;
+    const points = contours.flatMap((c) => c.points);
+    const xs = points.map((p) => p.x),
+      ys = points.map((p) => p.y);
+    const small =
+      path.opacity === 1 &&
+      !path.fill &&
+      points.length <= 16 &&
+      (Math.max(...xs) - Math.min(...xs) <= 2 || Math.max(...ys) - Math.min(...ys) <= 2);
+    if (!small || group?.color !== path.color) group = undefined;
+    if (
+      small &&
+      group &&
+      group.vectorPath.contours!.length + contours.length <= 100 &&
+      group.vectorPath.contours!.reduce((n, c) => n + c.points.length, 0) + points.length <= 1000
+    ) {
+      group.vectorPath.contours!.push(...contours);
+      group.name = undefined;
+      merged.add(group);
+    } else {
+      const copy = { ...path, vectorPath: { ...path.vectorPath, contours: [...contours] } };
+      result.push(copy);
+      group = small ? copy : undefined;
+    }
+  }
+  for (const path of merged) path.vectorPath.d = serializeContours(path.vectorPath.contours!);
+  return result;
+}
+
 /** Worker-only CPU work. Return native contours, never untrusted SVG markup. */
 export function traceRaster(
   image: { width: number; height: number; data: Uint8ClampedArray },
@@ -65,10 +101,14 @@ export function traceRaster(
   )
     throw new Error("Trace input exceeds the pixel limit.");
   if (colors === "auto") {
-    const gradient = fitRasterLinearGradient(image);
+    const opacityGradient = fitRasterOpacityGradient(image);
+    const gradient = opacityGradient ?? fitRasterLinearGradient(image);
     if (gradient) {
       const mask = image.data.slice();
-      for (let i = 0; i < mask.length; i += 4) mask[i] = mask[i + 1] = mask[i + 2] = 255;
+      for (let i = 0; i < mask.length; i += 4) {
+        mask[i] = mask[i + 1] = mask[i + 2] = 255;
+        if (opacityGradient && mask[i + 3]) mask[i + 3] = 255;
+      }
       const silhouette = traceRaster({ ...image, data: mask }, 2);
       const paint = (path: RasterTrace["paths"][number]) => ({
         ...path,
@@ -89,17 +129,22 @@ export function traceRaster(
   if (colors === "auto" && options.gradientRegions !== false) {
     const candidate = traceGradientRegions(image, (mask) => traceRaster(mask, 32));
     if (candidate) {
-      const baseline = traceRaster({ ...image, data: image.data.slice() }, colors, {
-        ...options,
-        gradientRegions: false,
-      });
-      const { fallback, ...prepared } = baseline;
-      if (
+      const withinBudget =
         candidate.pointCount <= traceLimits.points &&
-        new TextEncoder().encode(JSON.stringify(candidate)).length <= traceLimits.bytes
-      )
-        return { ...candidate, fallback: fallback ?? prepared };
-      return baseline;
+        new TextEncoder().encode(JSON.stringify(candidate)).length <= traceLimits.bytes;
+      try {
+        const baseline = traceRaster({ ...image, data: image.data.slice() }, colors, {
+          ...options,
+          gradientRegions: false,
+        });
+        const { fallback, ...prepared } = baseline;
+        return withinBudget ? { ...candidate, fallback: fallback ?? prepared } : baseline;
+      } catch (error) {
+        // A smooth opacity ramp can exceed the palette tracer's region budget.
+        // Its compact model still undergoes pixel verification in the worker.
+        if (withinBudget) return candidate;
+        throw error;
+      }
     }
   }
   const original = { ...image, data: image.data.slice() };
@@ -121,6 +166,7 @@ export function traceRaster(
   const paths: RasterTrace["paths"] = [];
   const fallbackPaths: RasterTrace["paths"] = [];
   const underlays: { path: RasterTrace["paths"][number]; area: number }[] = [];
+  const fallbackUnderlays: typeof underlays = [];
   let pointCount = 0;
   for (let layerIndex = 0; layerIndex < result.layers.length; layerIndex++) {
     const color = result.palette[layerIndex];
@@ -128,10 +174,13 @@ export function traceRaster(
     const layer = result.layers[layerIndex];
     for (const path of layer) {
       if (path.isholepath) continue;
-      if (paths.length >= traceLimits.paths || path.holechildren.length >= 100)
+      if (
+        paths.length >= traceLimits.points / 3 ||
+        path.holechildren.length > traceLimits.points / 3
+      )
         throw new Error("This trace has too many shapes. Try fewer colours or a simpler image.");
       const rawContours = [path, ...path.holechildren.map((index) => layer[index])].map(
-        (p, index) => contour(p, `trace-${paths.length}-${index}`),
+        (p, index) => contour(p, `trace-${fallbackPaths.length}-${index}`),
       );
       const fallbackPath = {
         vectorPath: {
@@ -143,11 +192,6 @@ export function traceRaster(
         color: `#${[color.r, color.g, color.b].map((value) => value.toString(16).padStart(2, "0")).join("")}`,
         opacity: color.a / 255,
       };
-      if (!designNodeSchema.shape.vectorPath.safeParse(fallbackPath.vectorPath).success)
-        throw new Error(
-          "This trace exceeds the editable path limits. Try fewer colours or a simpler image.",
-        );
-      fallbackPaths.push(fallbackPath);
       const fitted = rawContours.map((raw) => {
         const primitive = fitRasterShape(raw);
         return primitive.name
@@ -174,6 +218,15 @@ export function traceRaster(
           return true;
         });
       const contours = (underlay ? fitted.slice(0, 1) : fitted).map((p) => p.contour);
+      if (underlay) {
+        fallbackPath.vectorPath.contours = rawContours.slice(0, 1);
+        fallbackPath.vectorPath.d = serializeContours(fallbackPath.vectorPath.contours);
+      }
+      if (!designNodeSchema.shape.vectorPath.safeParse(fallbackPath.vectorPath).success)
+        throw new Error(
+          "This trace exceeds the editable path limits. Try fewer colours or a simpler image.",
+        );
+      fallbackPaths.push(fallbackPath);
       const outer = contours[0].points;
       // A closed line has no fill. Do not create an invisible layer for a collapsed
       // raster speck; two-anchor curves can still enclose genuine visible geometry.
@@ -216,6 +269,7 @@ export function traceRaster(
           path: tracedPath,
           area: (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys)),
         });
+        fallbackUnderlays.push({ path: fallbackPath, area: underlays.at(-1)!.area });
       }
     }
   }
@@ -223,17 +277,23 @@ export function traceRaster(
   const underneath = new Set(underlays.map((entry) => entry.path));
   const ordered = [
     ...underlays.sort((a, b) => b.area - a.area).map((entry) => entry.path),
-    ...paths.filter((path) => !underneath.has(path)),
+    ...compactDetails(paths.filter((path) => !underneath.has(path))),
   ];
+  if (ordered.length > traceLimits.paths)
+    throw new Error("This trace has too many shapes. Try fewer colours or a simpler image.");
   const recovered = recoverRasterOcclusion(ordered, image);
   pointCount = recovered.reduce(
     (sum, path) => sum + path.vectorPath.contours!.reduce((n, c) => n + c.points.length, 0),
     0,
   );
+  const fallbackUnderneath = new Set(fallbackUnderlays.map((entry) => entry.path));
   const fallback = {
     width: image.width,
     height: image.height,
-    paths: fallbackPaths,
+    paths: [
+      ...fallbackUnderlays.sort((a, b) => b.area - a.area).map((entry) => entry.path),
+      ...compactDetails(fallbackPaths.filter((path) => !fallbackUnderneath.has(path))),
+    ],
     pointCount: fallbackPaths.reduce(
       (sum, path) => sum + path.vectorPath.contours!.reduce((n, c) => n + c.points.length, 0),
       0,

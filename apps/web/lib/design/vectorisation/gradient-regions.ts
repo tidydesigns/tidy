@@ -44,13 +44,13 @@ function profile(samples: Sample[], project: (x: number, y: number) => number) {
   const minimum = Math.min(...positions),
     maximum = Math.max(...positions);
   if (maximum - minimum < 1e-4) return;
-  const bins = Array.from({ length: 64 }, () => ({ n: 0, t: 0, rgb: [0, 0, 0] }));
+  const bins = Array.from({ length: 64 }, () => ({ n: 0, t: 0, rgb: [0, 0, 0, 0] }));
   samples.forEach((sample, i) => {
     const t = (positions[i] - minimum) / (maximum - minimum);
     const bin = bins[Math.min(63, Math.floor(t * 64))];
     bin.n++;
     bin.t += t;
-    for (let k = 0; k < 3; k++) bin.rgb[k] += sample.rgb[k];
+    for (let k = 0; k < 4; k++) bin.rgb[k] += sample.rgb[k];
   });
   const knots = bins
     .filter((b) => b.n)
@@ -66,7 +66,9 @@ function profile(samples: Sample[], project: (x: number, y: number) => number) {
       index = -1;
     for (let i = first + 1; i < last; i++) {
       const rgb = interpolate(knots[first], knots[last], knots[i].t);
-      const error = Math.max(...rgb.map((v, k) => Math.abs(v - knots[i].rgb[k])));
+      const error = Math.max(
+        ...rgb.map((v, k) => Math.abs(v - knots[i].rgb[k]) * (k === 3 ? 1 : knots[i].rgb[3] / 255)),
+      );
       if (error > worst) {
         worst = error;
         index = i;
@@ -91,13 +93,13 @@ function profile(samples: Sample[], project: (x: number, y: number) => number) {
     worst = 0;
   for (const sample of samples) {
     const rgb = at(sample.x, sample.y);
-    for (let k = 0; k < 3; k++) {
-      const error = Math.abs(rgb[k] - sample.rgb[k]);
+    for (let k = 0; k < 4; k++) {
+      const error = Math.abs(rgb[k] - sample.rgb[k]) * (k === 3 ? 1 : sample.rgb[3] / 255);
       total += error;
       worst = Math.max(worst, error);
     }
   }
-  if (!Number.isFinite(total) || total / (samples.length * 3) > 1.6 || worst > 8) return;
+  if (!Number.isFinite(total) || total / (samples.length * 4) > 1.6 || worst > 10) return;
   return { minimum, maximum, stops, at };
 }
 
@@ -110,28 +112,31 @@ function fitRegion(
   const { width, height, data } = image;
   const samples: Sample[] = [];
   const stride = Math.max(1, Math.floor(pixels.length / 8192));
-  const low = [255, 255, 255],
-    high = [0, 0, 0],
-    sum = [0, 0, 0];
+  const low = [255, 255, 255, 255],
+    high = [0, 0, 0, 0],
+    sum = [0, 0, 0, 0];
   for (let i = 0; i < pixels.length; i += stride) {
     const p = pixels[i],
-      rgb = [data[p * 4], data[p * 4 + 1], data[p * 4 + 2]];
+      rgb = [data[p * 4], data[p * 4 + 1], data[p * 4 + 2], data[p * 4 + 3]];
     samples.push({ x: (p % width) + 0.5, y: Math.floor(p / width) + 0.5, rgb });
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 4; k++) {
       low[k] = Math.min(low[k], rgb[k]);
       high[k] = Math.max(high[k], rgb[k]);
       sum[k] += rgb[k];
     }
   }
-  const alpha = data[pixels[0] * 4 + 3],
+  const varyingAlpha = high[3] - low[3] > 4;
+  const alpha = varyingAlpha ? 255 : data[pixels[0] * 4 + 3],
     mean = sum.map((v) => v / samples.length);
-  if (high.every((v, k) => v - low[k] <= 4)) return { color: hex(mean), alpha, at: () => mean };
+  if (high.every((v, k) => v - low[k] <= 4))
+    return { color: hex(mean.slice(0, 3)), alpha, at: () => mean };
   if (pixels.length < 128) return;
   let xx = 0,
     xy = 0,
     yy = 0;
-  const matrix = Array.from({ length: 3 }, () => [0, 0, 0]),
-    values = [0, 0, 0];
+  const matrix = Array.from({ length: 4 }, () => [0, 0, 0, 0]),
+    values = [0, 0, 0, 0],
+    scale = Math.max(width, height);
   for (let i = 0; i < pixels.length; i += stride) {
     const p = pixels[i],
       x = p % width,
@@ -144,7 +149,7 @@ function fitRegion(
       [p - 6, p + 6, p - 6 * width, p + 6 * width].some((n) => labels[n] !== label)
     )
       continue;
-    for (let k = 0; k < 3; k++) {
+    for (let k = 0; k < 4; k++) {
       const gx = (data[(p + 6) * 4 + k] - data[(p - 6) * 4 + k]) / 12;
       const gy = (data[(p + 6 * width) * 4 + k] - data[(p - 6 * width) * 4 + k]) / 12;
       xx += gx * gx;
@@ -152,15 +157,17 @@ function fitRegion(
       yy += gy * gy;
       const length = Math.hypot(gx, gy);
       if (length < 0.3) continue;
-      // A radial gradient's normals meet at its centre. Solve the axis-aligned
-      // ellipse ratio and centre together, using normalized coordinates for conditioning.
-      const dx = (gx * width) / length,
-        dy = (gy * height) / length;
-      const row = [(dy * (x + 0.5)) / width, dx, -dy],
-        target = (dx * (y + 0.5)) / height;
-      for (let a = 0; a < 3; a++) {
+      // The normal is parallel to Q*(point-centre). Solve a symmetric conic
+      // including its cross term, so rotated ellipses retain one editable paint.
+      const dx = gx,
+        dy = gy,
+        nx = (x + 0.5) / scale,
+        ny = (y + 0.5) / scale;
+      const row = [dy * nx, dy * ny - dx * nx, dy, -dx],
+        target = dx * ny;
+      for (let a = 0; a < 4; a++) {
         values[a] += row[a] * target;
-        for (let b = 0; b < 3; b++) matrix[a][b] += row[a] * row[b];
+        for (let b = 0; b < 4; b++) matrix[a][b] += row[a] * row[b];
       }
     }
   }
@@ -176,7 +183,7 @@ function fitRegion(
       y: (middle.y + (t - origin) * uy) / height,
     });
     return {
-      color: hex(mean),
+      color: hex(mean.slice(0, 3)),
       alpha,
       at: linear.at,
       fill: {
@@ -187,21 +194,44 @@ function fitRegion(
         angle: 0,
         start: point(linear.minimum),
         end: point(linear.maximum),
-        stops: linear.stops.map((s, i) => ({ id: `stop-${i}`, position: s.t, color: hex(s.rgb) })),
+        stops: linear.stops.map((s, i) => ({
+          id: `stop-${i}`,
+          position: s.t,
+          color: hex(s.rgb.slice(0, varyingAlpha ? 4 : 3)),
+        })),
       },
     };
   }
   const solution = solve(matrix, values);
   if (!solution) return;
-  const [ratio, cy, scaledCx] = solution,
-    cx = scaledCx / ratio;
-  if (ratio < 0.02 || ratio > 50 || cx < -2 || cx > 3 || cy < -2 || cy > 3) return;
-  const radial = profile(samples, (x, y) =>
-    Math.hypot(x / width - cx, (y / height - cy) / Math.sqrt(ratio)),
-  );
-  if (!radial || radial.maximum > 3 || radial.maximum * Math.sqrt(ratio) > 3) return;
+  const [a, b, d, e] = solution,
+    determinant = a - b * b;
+  if (a <= 0 || determinant <= 1e-4) return;
+  const cx = (b * e - d) / determinant,
+    cy = (b * d - a * e) / determinant,
+    theta = Math.atan2(2 * b, a - 1) / 2,
+    spread = Math.hypot(a - 1, 2 * b),
+    eigenX = (a + 1 + spread) / 2,
+    eigenY = (a + 1 - spread) / 2;
+  if (eigenY <= 0 || eigenX / eigenY > 100 || cx < -2 || cx > 3 || cy < -2 || cy > 3) return;
+  const radial = profile(samples, (x, y) => {
+    const dx = x / scale - cx,
+      dy = y / scale - cy;
+    return Math.sqrt(Math.max(0, a * dx * dx + 2 * b * dx * dy + dy * dy));
+  });
+  if (!radial) return;
+  const last = radial.stops.at(-1)!,
+    previous = radial.stops.at(-2)!;
+  // A clipped gradient may have a large constant-colour exterior. Its final
+  // plateau does not need to inflate the editable ellipse beyond paint limits.
+  const extent = last.rgb.every((v, k) => Math.abs(v - previous.rgb[k]) <= 1.2)
+    ? radial.minimum + previous.t * (radial.maximum - radial.minimum)
+    : radial.maximum;
+  const radiusX = (extent * scale) / Math.sqrt(eigenX) / width,
+    radiusY = (extent * scale) / Math.sqrt(eigenY) / height;
+  if (radiusX > 3 || radiusY > 3) return;
   return {
-    color: hex(mean),
+    color: hex(mean.slice(0, 3)),
     alpha,
     at: radial.at,
     fill: {
@@ -209,18 +239,21 @@ function fitRegion(
       type: "radial",
       visible: true,
       opacity: 1,
-      centerX: cx,
-      centerY: cy,
-      radiusX: radial.maximum,
-      radiusY: radial.maximum * Math.sqrt(ratio),
-      stops: radial.stops.map((s, i) => ({
-        id: `stop-${i}`,
-        position: Math.max(
-          0,
-          Math.min(1, (radial.minimum + s.t * (radial.maximum - radial.minimum)) / radial.maximum),
-        ),
-        color: hex(s.rgb),
-      })),
+      centerX: (cx * scale) / width,
+      centerY: (cy * scale) / height,
+      radiusX,
+      radiusY,
+      rotation: (theta * 180) / Math.PI,
+      stops: radial.stops
+        .filter((s) => radial.minimum + s.t * (radial.maximum - radial.minimum) <= extent + 1e-6)
+        .map((s, i) => ({
+          id: `stop-${i}`,
+          position: Math.max(
+            0,
+            Math.min(1, (radial.minimum + s.t * (radial.maximum - radial.minimum)) / extent),
+          ),
+          color: hex(s.rgb.slice(0, varyingAlpha ? 4 : 3)),
+        })),
     },
   };
 }
@@ -244,7 +277,7 @@ export function traceGradientRegions(
     p < count - width ? p + width : -1,
   ];
   const similar = (p: number, q: number) =>
-    data[p * 4 + 3] === data[q * 4 + 3] &&
+    Math.abs(data[p * 4 + 3] - data[q * 4 + 3]) <= 6 &&
     [0, 1, 2].every((k) => Math.abs(data[p * 4 + k] - data[q * 4 + k]) <= 6);
   for (let p = 0; p < count; p++)
     if (data[p * 4 + 3] && neighbors(p).every((q) => q < 0 || similar(p, q))) core[p] = 1;
@@ -264,7 +297,7 @@ export function traceGradientRegions(
           queue[tail++] = q;
         }
     }
-    if (tail < 4) {
+    if (tail < 32) {
       for (let i = 0; i < tail; i++) labels[queue[i]] = -2;
       continue;
     }
@@ -337,7 +370,10 @@ export function traceGradientRegions(
         (label % 4) * 64 + 32,
         (Math.floor(label / 4) % 4) * 64 + 32,
         Math.floor(label / 16) * 64 + 32,
-        data[p * 4 + 3] >= model.alpha / 2 ? model.alpha : 0,
+        data[p * 4 + 3] >=
+        (model.at((p % width) + 0.5, Math.floor(p / width) + 0.5)[3] ?? model.alpha) / 2
+          ? model.alpha
+          : 0,
       ],
       p * 4,
     );

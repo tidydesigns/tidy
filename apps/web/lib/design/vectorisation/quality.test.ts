@@ -41,12 +41,37 @@ test("a rejected simplification returns the original contour geometry and never 
   const { selectVerifiedRasterTrace } = await import("./quality");
   const fallback = { width: 16, height: 16, paths: [], pointCount: 0 };
   const proposed = { ...fallback, pointCount: 4, fallback };
-  const exact = { meanError: 0, alphaError: 0, changedFraction: 0, worstTileError: 0 };
+  const exact = {
+    meanError: 0,
+    alphaError: 0,
+    changedFraction: 0,
+    worstTileError: 0,
+    detailLoss: 0,
+  };
   expect(selectVerifiedRasterTrace(proposed, { ...exact, worstTileError: 30 }, exact)).toBe(
     fallback,
   );
   expect(selectVerifiedRasterTrace(proposed, exact, exact).fallback).toBeUndefined();
   expect(() =>
     selectVerifiedRasterTrace({ ...fallback }, { ...exact, worstTileError: 90 }),
+  ).toThrow("loses too much detail");
+});
+
+test("automatic verification rejects missing thin strokes even when pixel and tile errors are small", async () => {
+  const { selectVerifiedRasterTrace } = await import("./quality");
+  const original = image(512, 256, [255, 255, 255, 255]),
+    missing = original.data.slice();
+  for (let x = 20; x < 100; x++) original.data.set([100, 100, 100, 255], (30 * 512 + x) * 4);
+  const lost = measureRasterTrace(original, missing);
+  expect(lost.meanError).toBeLessThan(1);
+  expect(lost.worstTileError).toBeLessThan(20);
+  expect(lost.detailLoss).toBe(1);
+  expect(() =>
+    selectVerifiedRasterTrace(
+      { width: 512, height: 256, paths: [], pointCount: 0 },
+      lost,
+      undefined,
+      { automatic: true },
+    ),
   ).toThrow("loses too much detail");
 });

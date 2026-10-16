@@ -67,6 +67,21 @@ export const generalRasterFixtures = [
 
 export const gradientRasterFixtures = [
   {
+    id: "opacity-gradient",
+    maxShapes: 1,
+    body: '<defs><linearGradient id="g"><stop stop-color="#8a3ffc" stop-opacity="0"/><stop offset="1" stop-color="#8a3ffc"/></linearGradient></defs><rect x="30" y="40" width="564" height="300" rx="55" fill="url(#g)"/>',
+  },
+  {
+    id: "rotated-radial-gradient",
+    maxShapes: 2,
+    body: '<defs><radialGradient id="g" gradientTransform="translate(.5 .5) rotate(35) scale(.7 .22)"><stop stop-color="white"/><stop offset=".4" stop-color="#65ddf0"/><stop offset="1" stop-color="#30286c"/></radialGradient></defs><rect width="624" height="380" fill="url(#g)"/>',
+  },
+  {
+    id: "colour-opacity-gradient",
+    maxShapes: 1,
+    body: '<defs><linearGradient id="g"><stop stop-color="#e85c69" stop-opacity=".2"/><stop offset="1" stop-color="#367abf" stop-opacity=".9"/></linearGradient></defs><rect x="40" y="40" width="544" height="300" fill="url(#g)"/>',
+  },
+  {
     id: "gradient-highlights",
     maxShapes: 24,
     body: '<defs><linearGradient id="g" x2="0" y2="1"><stop stop-color="#518e9b"/><stop offset="1" stop-color="#abc7b6"/></linearGradient></defs><rect width="624" height="380" fill="url(#g)"/><path fill="#fff1cb" opacity=".7" d="M100 105H500L200 106ZM140 185H460L240 186ZM200 265H400L300 266Z"/>',

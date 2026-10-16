@@ -225,6 +225,106 @@ const cases = generalRasterFixtures.flatMap((fixture) => [
     ? [{ fixture, format: "jpeg" as const }]
     : []),
 ]);
+test("small lettering and subpixel strokes survive conversion and native export", async ({
+  page,
+  baseURL,
+}) => {
+  const { root, panel, openImage } = imageEditor(page);
+  const png = await sharp(
+    Buffer.from(
+      rasterShapeSvg(
+        '<rect width="624" height="380" fill="white"/><text x="35" y="180" font-family="sans-serif" font-size="115" font-weight="bold" fill="#101827">tidy.</text><text x="40" y="240" font-family="sans-serif" font-size="17" fill="#515b70">Small text — curves, counters &amp; spacing</text><path d="M20 300H600" stroke="#111827" stroke-width=".5"/>',
+      ),
+    ),
+  )
+    .png()
+    .toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: png, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  await root.locator("img[data-vector-path]").first().waitFor();
+  const downloading = page.waitForEvent("download");
+  await page.getByRole("button", { name: "svg", exact: true }).click();
+  const svg = await readFile((await (await downloading).path())!, "utf8");
+  expect(svg).not.toMatch(/<image|foreignObject/);
+  const original = await sharp(png).ensureAlpha().raw().toBuffer();
+  const rendered = await sharp(Buffer.from(svg)).resize(624, 380).ensureAlpha().raw().toBuffer();
+  for (const [top, bottom] of [
+    [220, 245],
+    [295, 305],
+  ]) {
+    const ink = (data: Buffer) => {
+      let sum = 0;
+      for (let y = top; y < bottom; y++)
+        for (let x = 20; x < 600; x++)
+          for (let k = 0; k < 3; k++) sum += 255 - data[(y * 624 + x) * 4 + k];
+      return sum;
+    };
+    expect(ink(rendered)).toBeGreaterThan(ink(original) * 0.6);
+    expect(ink(rendered)).toBeLessThan(ink(original) * 1.4);
+  }
+});
+
+test("cancelling a started worker handles late bootstrap errors exactly once", async ({
+  page,
+  baseURL,
+}) => {
+  const { root, panel, openImage } = imageEditor(page);
+  const png = await sharp(Buffer.from(rasterShapeSvg(gradientRasterFixtures[1].body)))
+    .png()
+    .toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: png, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  await page.evaluate(() => {
+    const state = { started: false, terminated: 0, handled: false };
+    (window as Window & { traceWorker?: typeof state }).traceWorker = state;
+    const NativeWorker = window.Worker;
+    window.Worker = class extends NativeWorker {
+      constructor(...args: ConstructorParameters<typeof Worker>) {
+        super(...args);
+        state.started = true;
+      }
+      terminate() {
+        state.terminated++;
+        super.terminate();
+        queueMicrotask(() => {
+          const error = new ErrorEvent("error", {
+            cancelable: true,
+            message: "late bootstrap error",
+          });
+          state.handled = !this.dispatchEvent(error);
+        });
+      }
+    };
+  });
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await page.waitForFunction(
+    () => (window as Window & { traceWorker?: { started: boolean } }).traceWorker?.started,
+  );
+  await panel.getByRole("button", { name: "Cancel vectorisation", exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => (window as Window & { traceWorker?: { handled: boolean } }).traceWorker?.handled,
+      ),
+    )
+    .toBe(true);
+  expect(
+    await page.evaluate(
+      () => (window as Window & { traceWorker?: { terminated: number } }).traceWorker?.terminated,
+    ),
+  ).toBe(1);
+  await expect(root.locator("[data-adjustable-image]")).toHaveCount(1);
+  await expect(root.locator("img[data-vector-path]")).toHaveCount(0);
+});
+
 for (const fixture of gradientRasterFixtures) {
   test(`editable gradients and native export: ${fixture.id}`, async ({ page, baseURL }) => {
     const { root, panel, openImage } = imageEditor(page);
@@ -246,9 +346,7 @@ for (const fixture of gradientRasterFixtures) {
     const download = await downloading;
     const exported = await readFile((await download.path())!, "utf8");
     expect(exported).not.toMatch(/<image|foreignObject/);
-    expect(exported).toContain(
-      fixture.id === "radial-gradient" ? "radialGradient" : "linearGradient",
-    );
+    expect(exported).toContain(fixture.id.includes("radial") ? "radialGradient" : "linearGradient");
     const original = await sharp(png).ensureAlpha().raw().toBuffer();
     const rendered = await sharp(Buffer.from(exported))
       .resize(624, 380)

@@ -204,7 +204,7 @@ export function paintDefinition(
   }
   return {
     fill: `url(#${id})`,
-    definition: `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${origin.x + paint.centerX * size.width} ${origin.y + paint.centerY * size.height}) scale(${paint.radiusX * size.width} ${paint.radiusY * size.height})">${stops}</radialGradient>`,
+    definition: `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${origin.x + paint.centerX * size.width} ${origin.y + paint.centerY * size.height})${paint.rotation ? ` rotate(${paint.rotation})` : ""} scale(${paint.radiusX * size.width} ${paint.radiusY * size.height})">${stops}</radialGradient>`,
   };
 }
 /** Self-contained border image: outside paint remains visible even on overflow-clipped frames. */

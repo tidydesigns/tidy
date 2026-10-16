@@ -2,6 +2,60 @@ import type { DesignPaint } from "../document";
 import type { RasterPixels } from "./contract";
 
 type LinearPaint = Extract<DesignPaint, { type: "linear" }>;
+
+/** Fit opacity in premultiplied space: low-alpha RGB rounding must not split a
+ * single colour fade into hundreds of separate translucent regions. */
+export function fitRasterOpacityGradient(image: RasterPixels) {
+  const { width, height, data } = image;
+  let weight = 0,
+    low = 255,
+    high = 0;
+  for (let i = 3; i < data.length; i += 4)
+    if (data[i]) {
+      low = Math.min(low, data[i]);
+      high = Math.max(high, data[i]);
+    }
+  if (high - low < 24) return;
+  const sum = [0, 0, 0];
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3];
+    if (!alpha) continue;
+    weight += alpha;
+    for (let k = 0; k < 3; k++) sum[k] += data[i + k] * alpha;
+  }
+  if (!weight) return;
+  const rgb = sum.map((v) => v / weight),
+    mask = new Uint8ClampedArray(data.length);
+  for (let p = 0; p < width * height; p++) {
+    const i = p * 4,
+      alpha = data[i + 3];
+    if (!alpha) continue;
+    for (let k = 0; k < 3; k++) if ((Math.abs(data[i + k] - rgb[k]) * alpha) / 255 > 2) return;
+    const x = p % width;
+    if (
+      x === 0 ||
+      x === width - 1 ||
+      p < width ||
+      p >= width * (height - 1) ||
+      [-1, 1, -width, width].some((n) => Math.abs(data[(p + n) * 4 + 3] - alpha) > 3)
+    )
+      continue;
+    mask.set([alpha, alpha, alpha, 255], i);
+  }
+  const fitted = fitRasterLinearGradient({ width, height, data: mask });
+  if (!fitted) return;
+  const color = "#" + rgb.map((v) => Math.round(v).toString(16).padStart(2, "0")).join("");
+  return {
+    opacity: 1,
+    fill: {
+      ...fitted.fill,
+      stops: fitted.fill.stops.map((stop) => ({
+        ...stop,
+        color: color + stop.color.slice(1, 3),
+      })),
+    },
+  };
+}
 /** Conservative single-region, two-stop gradient model. Fit colour planes, require
  * their spatial directions to agree, then verify residuals against every interior
  * pixel. Multi-region shading, radial gradients and photos decline this model. */
