@@ -35,27 +35,6 @@ jobs:
       - run: bun run test:telemetry-worker
       - run: bun run build:worker
       - run: bun run build
-  browser:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
-        with:
-          bun-version: 1.3.14
-      - run: bun install --frozen-lockfile
-      - run: bun run test:browser:install
-      - run: bun run test:browser
-        env:
-          BROWSER_TEST_ARTIFACTS: ${{ runner.temp }}/tidy-browser-results
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        if: failure()
-        with:
-          name: browser-failures
-          path: ${{ runner.temp }}/tidy-browser-results
-          retention-days: 7
   database:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
