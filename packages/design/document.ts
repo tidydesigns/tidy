@@ -26,14 +26,14 @@ const gridTrack = z.discriminatedUnion("unit", [
   z.object({ unit: z.literal("px"), value: number.min(1).max(5000) }).strict(),
   z.object({ unit: z.literal("auto") }).strict(),
 ]);
-const sizeModeFields = {
+const sizeModeFields = () => ({
   widthMode: z.enum(["fixed", "fill", "hug"]).optional(),
   heightMode: z.enum(["fixed", "fill", "hug"]).optional(),
   minWidth: number.min(0).max(5000).optional(),
   maxWidth: number.min(1).max(5000).optional(),
   minHeight: number.min(0).max(5000).optional(),
   maxHeight: number.min(1).max(5000).optional(),
-};
+});
 const responsiveBreakpoint = z
   .object({
     id: z.string().uuid(),
@@ -53,7 +53,7 @@ const responsiveBreakpoint = z
     wrap: z.boolean().optional(),
     align: z.enum(["start", "center", "end", "stretch", "baseline"]).optional(),
     justify: z.enum(["start", "center", "end", "space-between", "space-evenly"]).optional(),
-    ...sizeModeFields,
+    ...sizeModeFields(),
   })
   .strict();
 const gradientPoint = z
@@ -338,7 +338,8 @@ const semanticsSchema = z
     element: elementSchema,
     label: z.string().trim().min(1).max(240).optional(),
     hidden: z.boolean().optional(),
-    href: textLinkSchema.optional(),
+    // Clone without a Zod parent so MCP discovery retains its existing $defs/$ref layout.
+    href: textLinkSchema.clone(textLinkSchema.def).optional(),
     buttonType: z.enum(["button", "submit", "reset"]).optional(),
     disabled: z.boolean().optional(),
   })
@@ -427,7 +428,7 @@ const baseNodeSchema = z
     gridColumnSpan: z.number().int().min(1).max(12).optional(),
     gridRowSpan: z.number().int().min(1).max(12).optional(),
     responsiveBreakpoints: z.array(responsiveBreakpoint).max(8).optional(),
-    ...sizeModeFields,
+    ...sizeModeFields(),
     linkTo: z.string().min(1).max(120).optional(),
     interactions: z
       .array(prototypeInteractionSchema)
