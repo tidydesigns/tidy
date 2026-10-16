@@ -139,7 +139,8 @@ export async function testNavigationRecovery({ context, base, database, artifact
 
   // A failed RSC prefetch is real server output, not a synthetic HTTP error.
   // Block a page dependency until pg's query timeout, then restore it BEFORE clicking.
-  for (const [label, path, table, persistent, optional] of [
+  for (const [label, path, table, persistent, optional, failedTransport] of [
+    ["MCP", "/mcp", "oauthConsent", false, false, true],
     ["MCP", "/mcp", "oauthConsent"],
     ["Settings", "/settings", "member"],
     ["Settings", "/settings", "billingPlan", false, true],
@@ -157,9 +158,14 @@ export async function testNavigationRecovery({ context, base, database, artifact
       captured = resolve;
     });
     let delivered;
-    const prefetched = new Promise((resolve) => {
+    let rejectPrefetched;
+    const prefetched = new Promise((resolve, reject) => {
       delivered = resolve;
+      rejectPrefetched = reject;
     });
+    // Cleanup may release the gate after an earlier setup error. Observe that
+    // late rejection too; awaiting the original promise still propagates it.
+    void prefetched.catch(() => {});
     let first = true;
     await cold.route(
       (url) => url.pathname === path && url.searchParams.has("_rsc"),
@@ -168,10 +174,17 @@ export async function testNavigationRecovery({ context, base, database, artifact
           first = false;
           captured();
           await gate;
-          const response = await route.fetch({ timeout: 30_000 });
-          const payload = await response.text();
-          await route.fulfill({ response, body: payload });
-          delivered(payload);
+          try {
+            const response = await route.fetch({ timeout: failedTransport ? 1 : 30_000 });
+            const payload = await response.text();
+            await route.fulfill({ response, body: payload });
+            delivered(payload);
+          } catch (error) {
+            // Propagate through the awaiting test, which owns the database lock
+            // and its finally block, instead of throwing from the route callback.
+            rejectPrefetched(error);
+            await route.abort().catch(() => {});
+          }
         } else {
           await route.continue();
         }
@@ -183,6 +196,13 @@ export async function testNavigationRecovery({ context, base, database, artifact
       await started;
       await lock.query(`begin; lock table "${table}" in access exclusive mode`);
       allowPrefetch();
+      if (failedTransport) {
+        await assert.rejects(prefetched, /Timeout .* exceeded/);
+        console.log(
+          "PASS prefetch transport failure rejects the waiter and reaches database cleanup",
+        );
+        continue;
+      }
       const payload = await prefetched;
       if (!optional)
         assert.match(payload, /:E\{/, `${label} fixture did not generate a server-render error.`);
