@@ -61,6 +61,7 @@
     "test:figma:browser": "bun apps/web/scripts/test-figma-browser.ts",
     "test:figma:publication:browser": "node apps/web/scripts/test-figma-publication-browser.ts",
     "test:telemetry-worker": "node apps/web/scripts/test-telemetry-worker.mjs",
+    "test:worker-source-maps": "node apps/web/scripts/test-worker-source-maps.mjs",
     "test:browser": "bun run --cwd apps/web test:browser",
     "test:browser:install": "bun run --cwd apps/web browser:install",
     "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs"

@@ -134,6 +134,33 @@ TIDY_DEPLOY_CONFIG=./wrangler.deploy.jsonc bun run deploy:worker
 
 The configuration path is relative to `apps/web`.
 
+### Worker error source maps
+
+`deploy:worker` first runs Wrangler's final bundling pass locally into
+`apps/web/.open-next/deploy/`, with source maps. When PostHog collection and
+`POSTHOG_UPLOAD_SOURCEMAPS=1` are enabled, it injects a chunk ID and uploads this
+final bundle/map pair using the built app version, `POSTHOG_API_KEY`,
+`POSTHOG_PROJECT_ID` and `POSTHOG_API_HOST` (EU Cloud by default). Failed or invalid
+uploads stop deployment. The credentials are build-only and artifacts are checked
+for private environment values before upload.
+
+The subsequent OpenNext deployment uses `--no-bundle --upload-source-maps`, so
+Cloudflare receives the same JavaScript and source map that PostHog received.
+Do not replace this with a direct deployment of `worker.ts`: another bundling pass
+would remove the injected identifier and invalidate the uploaded positions.
+The final maps stay outside `.open-next/assets` and are never public assets.
+Next.js's existing browser source-map upload remains separate.
+
+Final Worker maps resolve the Worker wrapper and its imports to their sources;
+OpenNext server frames resolve to the generated server handler where the adapter
+does not emit an intermediate source map. This preserves accurate generated-code
+context without claiming those frames resolve all the way to the original TSX.
+
+Run `bun run test:worker-source-maps` to verify final-bundle injection, unchanged
+deployment bytes, and a sanitized exception mapping to its original TypeScript
+throw site in the local Cloudflare runtime. This uses synthetic credentials and
+a local collector, without sending exceptions or source maps to a provider.
+
 Use separate databases, storage and secrets for preview and production. Preserve
 the authentication and encryption secrets when restoring an existing database.
 

@@ -1,6 +1,13 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { resolveDeploymentConfig } from "../../../scripts/deployment-config.mjs";
+import {
+  bundleWorker,
+  uploadWorkerSourceMaps,
+  uploadWorkerSourceMapsEnabled,
+  workerDeploymentArgs,
+} from "./worker-source-maps.mjs";
 
 const config = await resolveDeploymentConfig(
   path.resolve(import.meta.dirname, ".."),
@@ -32,10 +39,29 @@ if (
   throw new Error(
     "Configure your Worker name, HTTPS auth origin and Hyperdrive binding before deployment.",
   );
+const cwd = path.resolve(import.meta.dirname, "..");
+const directory = path.join(cwd, ".open-next/deploy");
+const entrypoint = await bundleWorker({ config, directory, cwd });
+if (
+  uploadWorkerSourceMapsEnabled({
+    ...process.env,
+    POSTHOG_SERVER_ERRORS_ENABLED:
+      settings.vars?.POSTHOG_SERVER_ERRORS_ENABLED ?? process.env.POSTHOG_SERVER_ERRORS_ENABLED,
+  })
+) {
+  const { production } = await import(
+    pathToFileURL(path.join(cwd, ".open-next/cloudflare/next-env.mjs")).href
+  );
+  await uploadWorkerSourceMaps({
+    directory,
+    release: production.NEXT_PUBLIC_APP_VERSION,
+    env: process.env,
+  });
+}
 const child = Bun.spawn(
-  ["bunx", "opennextjs-cloudflare", "deploy", "--config", config, "--", "--keep-vars"],
+  ["bunx", "opennextjs-cloudflare", ...workerDeploymentArgs(config, entrypoint)],
   {
-    cwd: path.resolve(import.meta.dirname, ".."),
+    cwd,
     stdout: "inherit",
     stderr: "inherit",
     env: {
