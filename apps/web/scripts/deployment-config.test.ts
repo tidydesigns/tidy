@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import {
   assertRuntimeSafety,
   configFromBindings,
@@ -166,16 +166,17 @@ test("fresh Cloudflare site checkout generates a private config; local deploymen
   }
 });
 
-test("runtime safety preflight requires explicit cost/routing settings and the cleanup secret", () => {
+test("runtime safety preflight requires explicit cost/routing settings and authentication", () => {
   const settings = { workers_dev: false, preview_urls: false, limits: { cpu_ms: 10000 } };
   const secrets = [
     { name: "BETTER_AUTH_SECRET", type: "secret_text" },
     { name: "PRIVACY_CLEANUP_SECRET", type: "secret_text" },
   ];
   expect(() => assertRuntimeSafety(settings, secrets)).not.toThrow();
-  expect(() => assertRuntimeSafety(settings, secrets.slice(0, 1))).toThrow(
-    "PRIVACY_CLEANUP_SECRET",
-  );
+  expect(() => assertRuntimeSafety(settings, secrets.slice(1))).toThrow("BETTER_AUTH_SECRET");
+  expect(() =>
+    assertRuntimeSafety(settings, [{ name: "BETTER_AUTH_SECRET", type: "plain_text" }]),
+  ).toThrow("BETTER_AUTH_SECRET");
   expect(() => assertRuntimeSafety({ ...settings, workers_dev: true }, secrets)).toThrow(
     "workers_dev",
   );
@@ -183,4 +184,20 @@ test("runtime safety preflight requires explicit cost/routing settings and the c
     "preview_urls",
   );
   expect(() => assertRuntimeSafety({ ...settings, limits: {} }, secrets)).toThrow("CPU limit");
+});
+
+test("deployment can proceed with a warning when scheduled cleanup is not configured", () => {
+  const settings = { workers_dev: false, preview_urls: false, limits: { cpu_ms: 10000 } };
+  const auth = { name: "BETTER_AUTH_SECRET", type: "secret_text" };
+  const warning = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    expect(() => assertRuntimeSafety(settings, [auth])).not.toThrow();
+    expect(warning).toHaveBeenCalledTimes(1);
+    expect(warning.mock.calls[0][0]).toContain("PRIVACY_CLEANUP_SECRET");
+    warning.mockClear();
+    assertRuntimeSafety(settings, [auth, { name: "PRIVACY_CLEANUP_SECRET", type: "secret_text" }]);
+    expect(warning).not.toHaveBeenCalled();
+  } finally {
+    warning.mockRestore();
+  }
 });

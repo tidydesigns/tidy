@@ -125,11 +125,13 @@ Set `BETTER_AUTH_URL` to your app's HTTPS address. Use
 and supply runtime settings and secrets through Cloudflare. Keep secrets out of
 Wrangler files and `NEXT_PUBLIC_*` variables.
 
-Provision `BETTER_AUTH_SECRET` and `PRIVACY_CLEANUP_SECRET` as Worker secrets
-before deployment. The deployment preflight requires both, disabled
+Provision `BETTER_AUTH_SECRET` as a Worker secret before deployment.
+The deployment preflight requires it, disabled
 `workers_dev` and preview URLs, and an explicit CPU limit of at most 30 seconds.
 The template starts at 10 seconds; validate it against representative workloads.
-The cleanup secret also authenticates scheduled account erasure.
+Provision `PRIVACY_CLEANUP_SECRET` to authenticate scheduled privacy cleanup.
+Its absence produces a deployment warning; scheduled cleanup remains unavailable
+until it is configured. Manual PostHog deletion is a separate operator process.
 
 From the repository root:
 

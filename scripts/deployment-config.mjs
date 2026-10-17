@@ -149,9 +149,20 @@ export function assertRuntimeSafety(config, bindings) {
     throw new Error(
       "Configure an explicit CPU limit of at most 30000 ms; profile the default 10000 ms against your largest supported requests.",
     );
-  for (const name of ["BETTER_AUTH_SECRET", "PRIVACY_CLEANUP_SECRET"])
-    if (!bindings.some((binding) => binding.name === name && binding.type === "secret_text"))
-      throw new Error(`Provision the required Worker secret ${name} before deployment.`);
+  if (
+    !bindings.some(
+      (binding) => binding.name === "BETTER_AUTH_SECRET" && binding.type === "secret_text",
+    )
+  )
+    throw new Error("Provision the required Worker secret BETTER_AUTH_SECRET before deployment.");
+  if (
+    !bindings.some(
+      (binding) => binding.name === "PRIVACY_CLEANUP_SECRET" && binding.type === "secret_text",
+    )
+  )
+    console.warn(
+      "Scheduled privacy cleanup requires PRIVACY_CLEANUP_SECRET; deployment can continue without enabling it.",
+    );
 }
 
 export async function resolveDeploymentConfig(directory, variable, { runtime = false } = {}) {
