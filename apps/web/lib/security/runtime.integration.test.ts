@@ -84,6 +84,12 @@ integration(
         )
       ).rows[0],
     ).toEqual({ rolsuper: false, rolbypassrls: false, rolcreatedb: false, rolcreaterole: false });
+    expect((await db.query("show statement_timeout")).rows[0].statement_timeout).toBe("8s");
+    expect((await db.query("show lock_timeout")).rows[0].lock_timeout).toBe("3s");
+    expect(
+      (await db.query("show idle_in_transaction_session_timeout")).rows[0]
+        .idle_in_transaction_session_timeout,
+    ).toBe("30s");
     await expect(db.query('update "billingPlan" set "fileLimit"=null')).rejects.toMatchObject({
       code: "42501",
     });

@@ -370,3 +370,24 @@ test("reviewed server runtime messages retain diagnosis without customer express
     c.transport.mockRestore();
   }
 });
+
+test("server export admission fails closed before contacting PostHog", async () => {
+  const c = collector();
+  try {
+    for (const admit of [
+      async () => false,
+      async () => {
+        throw new Error("budget unavailable");
+      },
+    ]) {
+      await createErrorReporter({ ...runtime, admit })(new Error("sensitive"), {
+        source: "worker",
+        event: "request_failed",
+        route: "/files/private-id",
+      });
+    }
+    expect(c.bodies).toHaveLength(0);
+  } finally {
+    c.transport.mockRestore();
+  }
+});

@@ -1,3 +1,4 @@
+import { operationBudgetResponse } from "@/lib/security/operation-budget";
 import { auth } from "@/lib/auth";
 import { avatarObjectKey, MAX_IMAGE_BYTES, type AvatarKind } from "@/lib/avatars";
 import { currentAvatar, requireAvatarAccess, updateAvatar } from "@/lib/avatar-storage";
@@ -30,6 +31,8 @@ export async function GET(request: Request, context: Context) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) return new Response(null, { status: 401 });
+    const denied = await operationBudgetResponse("avatar-read", session.user.id);
+    if (denied) return denied;
     const { kind, id } = await target(context);
     await requireAvatarAccess(session.user.id, kind, id, false);
     const url = await currentAvatar(kind, id);
@@ -59,6 +62,8 @@ async function mutate(request: Request, context: Context, upload: boolean) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) return new Response(null, { status: 401 });
+    const denied = await operationBudgetResponse("avatar-write", session.user.id);
+    if (denied) return denied;
     const { kind, id } = await target(context);
     await requireAvatarAccess(session.user.id, kind, id, true);
     let file: File | null = null;

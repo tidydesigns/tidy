@@ -1,3 +1,5 @@
+import { consumeMutationRateLimitPair } from "./auth/guard-client";
+import { windowChecks } from "./security/worker-budget";
 import { clientAdmissionPlugin } from "@/lib/auth/client-admission";
 import { hardenedMcp, oauthCodeBindingPlugin } from "@/lib/auth/oauth-issuance";
 import { reserveClientRegistration } from "@/lib/auth/client-registration-budget";
@@ -115,6 +117,28 @@ function createAuth() {
       },
     },
     databaseHooks: {
+      user: {
+        create: {
+          before: async () => {
+            if (!workerRuntime()) return;
+            try {
+              const decision = await consumeMutationRateLimitPair(
+                "new-accounts",
+                ...windowChecks("global", 60, 1000),
+              );
+              if (!decision.allowed)
+                throw new APIError("TOO_MANY_REQUESTS", {
+                  message: "Account creation is busy. Try again shortly.",
+                });
+            } catch (error) {
+              if (error instanceof APIError) throw error;
+              throw new APIError("SERVICE_UNAVAILABLE", {
+                message: "Account creation is temporarily unavailable.",
+              });
+            }
+          },
+        },
+      },
       session: {
         create: {
           before: async ({ userId }, context) => {

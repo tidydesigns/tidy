@@ -5,6 +5,14 @@
   "compatibility_date": "2026-09-26",
   "compatibility_flags": ["nodejs_compat"],
   "vars": { "BETTER_AUTH_URL": "http://localhost:3000" },
-  "durable_objects": { "bindings": [{ "name": "FILE_ROOMS", "class_name": "FileRoom" }] },
-  "migrations": [{ "tag": "file-rooms-v1", "new_sqlite_classes": ["FileRoom"] }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "FILE_ROOMS", "class_name": "FileRoom" },
+      { "name": "AUTH_GUARD", "class_name": "AuthGuard" },
+    ],
+  },
+  "migrations": [
+    { "tag": "file-rooms-v1", "new_sqlite_classes": ["FileRoom"] },
+    { "tag": "auth-guard-v1", "new_sqlite_classes": ["AuthGuard"] },
+  ],
 }

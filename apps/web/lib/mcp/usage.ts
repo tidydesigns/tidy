@@ -1,3 +1,4 @@
+import { reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import "server-only";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db } from "@/lib/db";
@@ -51,6 +52,7 @@ export async function consumeMcpCall(userId: string, input: Record<string, unkno
     const grant = currentMcpGrant();
     if (grant) await requireMcpGrant(client, grant, userId);
     await retainMcpTargets(client, userId, organizationId, input);
+    await reserveWorkspaceOperation("mcp-request", organizationId);
     // Prices are enrolled by operators; metering never writes the billing catalog.
     await client.query('select "consumeOrganizationMcpCall"($1,$2)', [userId, organizationId]);
     await client.query("commit");

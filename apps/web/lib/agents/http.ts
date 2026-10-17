@@ -1,3 +1,4 @@
+import { reserveOperation, operationFailure } from "@/lib/security/operation-budget";
 import "server-only";
 import { auth } from "@/lib/auth";
 import { AgentError } from "./protocol";
@@ -17,6 +18,7 @@ export async function agentSession(request: Request) {
     throw new AgentError("invalid_origin", "Request origin denied.", 403);
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) throw new AgentError("unauthorized", "Sign in to Tidy to continue.", 401);
+  if (request.method === "GET") await reserveOperation("agent-read", session.user.id);
   if (!(await agentsSchemaReady()))
     throw new AgentError("not_ready", "Agents are not available yet.", 503);
   return session;
@@ -43,6 +45,8 @@ export function agentJson(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 export function agentFailure(error: unknown) {
+  const denied = operationFailure(error);
+  if (denied) return denied;
   if (error instanceof UserAccessError)
     return agentJson({ error: error.message, code: "access_denied" }, 403);
   if (error instanceof PersonalBudgetError)

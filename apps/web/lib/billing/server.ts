@@ -1,3 +1,4 @@
+import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import { requireOrganizationPermission } from "@/lib/organizations/authorization";
 import "server-only";
 import Stripe from "stripe";
@@ -154,7 +155,9 @@ function returnUrl() {
 }
 
 export async function checkoutUrl(userId: string, organizationId: string, email: string) {
+  await reserveOperation("billing", userId);
   await requireBillingOwner(userId, organizationId);
+  await reserveWorkspaceOperation("billing", organizationId);
   if ((await organizationPlanTier(organizationId)) === "self_hosted")
     throw new Error("Billing is disabled for self-hosted workspaces.");
   if (!billingConfigured()) throw new Error("Stripe billing is not configured.");
@@ -235,7 +238,9 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
 }
 
 export async function portalUrl(userId: string, organizationId: string) {
+  await reserveOperation("billing", userId);
   await requireBillingOwner(userId, organizationId);
+  await reserveWorkspaceOperation("billing", organizationId);
   if (!billingConfigured()) throw new Error("Stripe billing is not configured.");
   const row = (
     await db.query<{ stripeCustomerId: string | null }>(

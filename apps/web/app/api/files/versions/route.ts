@@ -1,3 +1,4 @@
+import { operationBudgetResponse } from "@/lib/security/operation-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
 import { fileVersionsForUser } from "@/lib/design/file-versions";
@@ -9,6 +10,8 @@ async function post(request: Request) {
     return new Response(null, { status: 403 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("document-read", session.user.id);
+  if (denied) return denied;
 
   const body: unknown = await request.json().catch(() => null);
   const ids = body && typeof body === "object" && "ids" in body ? body.ids : null;

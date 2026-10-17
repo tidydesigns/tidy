@@ -125,6 +125,12 @@ Set `BETTER_AUTH_URL` to your app's HTTPS address. Use
 and supply runtime settings and secrets through Cloudflare. Keep secrets out of
 Wrangler files and `NEXT_PUBLIC_*` variables.
 
+Provision `BETTER_AUTH_SECRET` and `PRIVACY_CLEANUP_SECRET` as Worker secrets
+before deployment. The deployment preflight requires both, disabled
+`workers_dev` and preview URLs, and an explicit CPU limit of at most 30 seconds.
+The template starts at 10 seconds; validate it against representative workloads.
+The cleanup secret also authenticates scheduled account erasure.
+
 From the repository root:
 
 ```sh

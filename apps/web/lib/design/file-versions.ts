@@ -1,3 +1,4 @@
+import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import "server-only";
 import { fileVersion } from "./file-version";
 import { randomUUID } from "node:crypto";
@@ -36,7 +37,7 @@ export async function versionSchemaReady() {
   return (
     (
       await db.query<{ ready: boolean }>(
-        `select to_regclass('"designFileVersion"') is not null and to_regclass('"designFileRestore"') is not null as ready`,
+        `select to_regclass('"designFileVersion"') is not null and to_regclass('"designFileRestore"') is not null and to_regclass('"fileHistoryUsage"') is not null as ready`,
       )
     ).rows[0]?.ready === true
   );
@@ -84,18 +85,20 @@ export async function createFileVersion(
   expectedRevision: number,
   id: string = randomUUID(),
 ) {
+  await reserveOperation("history-write", userId);
   const client = await db.connect();
   try {
     await client.query("begin");
     const row = (
-      await client.query<{ revision: number; content: DesignDocument }>(
-        `select d."revision",d."content" from "designFile" f join "designDocument" d on d."fileId"=f."id"
+      await client.query<{ revision: number; content: DesignDocument; organizationId: string }>(
+        `select d."revision",d."content",f."organizationId" from "designFile" f join "designDocument" d on d."fileId"=f."id"
       join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL}
       where f."id"=$1 and f."archivedAt" is null for update of f,d`,
         [fileId, userId],
       )
     ).rows[0];
     if (!row) throw new VersionError("Editor access is required to create a version.", 403);
+    await reserveWorkspaceOperation("history-write", row.organizationId);
     const prior = (
       await client.query<{ fileId: string; createdBy: string; name: string; revision: number }>(
         'select "fileId","createdBy","name","revision" from "designFileVersion" where "id"=$1',

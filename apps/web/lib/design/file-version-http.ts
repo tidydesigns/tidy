@@ -1,3 +1,5 @@
+import { reserveOperation, operationFailure } from "@/lib/security/operation-budget";
+import { isHistoryCapacityError } from "./history-capacity";
 import { auth } from "@/lib/auth";
 import { z } from "zod";
 import { VersionError, versionSchemaReady } from "./file-versions";
@@ -9,6 +11,7 @@ export async function versionUser(request: Request, write = false) {
   if (session && !session.user.emailVerified)
     throw new VersionError("Verify your email to access file history.", 403);
   if (!session) throw new VersionError("Authentication is required.", 401);
+  await reserveOperation(write ? "history-request" : "history-read", session.user.id);
   if (!(await versionSchemaReady()))
     throw new VersionError("File history is not available on this database yet.", 503);
   return session.user.id;
@@ -41,6 +44,15 @@ export async function versionBody(request: Request) {
   }
 }
 export function versionFailure(error: unknown) {
+  const denied = operationFailure(error);
+  if (denied) return denied;
+  if (isHistoryCapacityError(error))
+    return Response.json(
+      {
+        error: "File history has reached its storage limit. Existing versions are still available.",
+      },
+      { status: 409, headers: versionHeaders },
+    );
   if (error instanceof VersionError)
     return Response.json({ error: error.message }, { status: error.status });
   if (error instanceof z.ZodError)

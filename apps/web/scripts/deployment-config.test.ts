@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  assertRuntimeSafety,
   configFromBindings,
   resolveDeploymentConfig,
 } from "../../../scripts/deployment-config.mjs";
@@ -147,4 +148,23 @@ test("fresh Cloudflare site checkout generates a private config; local deploymen
     else process.env[variable] = previousConfig;
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("runtime safety preflight requires explicit cost/routing settings and the cleanup secret", () => {
+  const settings = { workers_dev: false, preview_urls: false, limits: { cpu_ms: 10000 } };
+  const secrets = [
+    { name: "BETTER_AUTH_SECRET", type: "secret_text" },
+    { name: "PRIVACY_CLEANUP_SECRET", type: "secret_text" },
+  ];
+  expect(() => assertRuntimeSafety(settings, secrets)).not.toThrow();
+  expect(() => assertRuntimeSafety(settings, secrets.slice(0, 1))).toThrow(
+    "PRIVACY_CLEANUP_SECRET",
+  );
+  expect(() => assertRuntimeSafety({ ...settings, workers_dev: true }, secrets)).toThrow(
+    "workers_dev",
+  );
+  expect(() => assertRuntimeSafety({ ...settings, preview_urls: true }, secrets)).toThrow(
+    "preview_urls",
+  );
+  expect(() => assertRuntimeSafety({ ...settings, limits: {} }, secrets)).toThrow("CPU limit");
 });

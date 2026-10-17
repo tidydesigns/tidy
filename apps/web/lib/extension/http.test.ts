@@ -115,7 +115,7 @@ describe("extension HTTP boundary", () => {
         new Request("http://localhost:3000/api/extension/account", { headers: { origin, cookie } }),
       );
       expect(headers.get("X-Tidy-Theme")).toBe(expected);
-      expect(headers.get("Access-Control-Expose-Headers")).toBe("X-Tidy-Theme");
+      expect(headers.get("Access-Control-Expose-Headers")).toBe("X-Tidy-Theme, Retry-After");
     }
   });
 });

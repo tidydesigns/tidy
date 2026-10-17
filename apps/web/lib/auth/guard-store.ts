@@ -16,10 +16,16 @@ export class AuthGuardLimit extends Error {}
 // Only completed, validated public metadata is persisted. No sessions, grants,
 // credentials, request objects, or pending promises are retained here.
 export class AuthGuardStore {
+  private bucketCount: number;
+  private nextCleanupAt = 0;
   constructor(private sql: SqlStorage) {
     sql.exec(
       "CREATE TABLE IF NOT EXISTS auth_bucket (key TEXT PRIMARY KEY, count INTEGER NOT NULL, last_request INTEGER NOT NULL, expires_at INTEGER NOT NULL)",
     );
+    sql.exec("CREATE INDEX IF NOT EXISTS auth_bucket_expiry ON auth_bucket (expires_at)");
+    this.bucketCount = sql
+      .exec<Counter>("SELECT count(*) AS count FROM auth_bucket")
+      .toArray()[0].count;
     sql.exec(
       "CREATE TABLE IF NOT EXISTS metadata_cache (url TEXT PRIMARY KEY, body TEXT NOT NULL, headers TEXT NOT NULL, fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, accessed_at INTEGER NOT NULL)",
     );
@@ -28,7 +34,8 @@ export class AuthGuardStore {
     );
   }
 
-  /** Atomically charge a positive integer cost, defaulting to one request. */
+  /** Fixed windows start with the first charge. Successful requests never extend
+   * an active window. Existing stored counters keep their expiry on upgrade. */
   consume(key: string, rule: RateRule, now = Date.now()): RateDecision {
     const cost = rule.cost ?? 1;
     if (
@@ -43,33 +50,43 @@ export class AuthGuardStore {
       rule.window > 3600
     )
       throw new Error("Invalid auth rate-limit rule.");
-    this.sql.exec("DELETE FROM auth_bucket WHERE expires_at <= ?", now);
+    // Indexed, bounded cleanup, at most once per second per active object. Only
+    // this synchronous store mutates buckets, so the in-memory row count stays
+    // exact across calls and is reconstructed once when an object wakes.
+    if (now >= this.nextCleanupAt) {
+      const removed = this.sql
+        .exec(
+          "DELETE FROM auth_bucket WHERE key IN (SELECT key FROM auth_bucket WHERE expires_at <= ? ORDER BY expires_at LIMIT 256) RETURNING key",
+          now,
+        )
+        .toArray().length;
+      this.bucketCount -= removed;
+      this.nextCleanupAt = now + 1000;
+    }
     const row = this.sql
-      .exec<{ count: number; last_request: number }>(
-        "SELECT count, last_request FROM auth_bucket WHERE key = ?",
+      .exec<{ count: number; expires_at: number }>(
+        "SELECT count, expires_at FROM auth_bucket WHERE key = ?",
         key,
       )
       .toArray()[0];
-    if (row && now - row.last_request < rule.window * 1000 && row.count + cost > rule.max) {
+    if (row && row.expires_at > now && row.count + cost > rule.max) {
       return {
         allowed: false,
-        retryAfter: Math.max(1, Math.ceil((row.last_request + rule.window * 1000 - now) / 1000)),
+        retryAfter: Math.max(1, Math.ceil((row.expires_at - now) / 1000)),
       };
     }
-    if (
-      !row &&
-      this.sql.exec<Counter>("SELECT count(*) AS count FROM auth_bucket").toArray()[0].count >=
-        10_000
-    )
-      return { allowed: false, retryAfter: 60 };
-    const count = row && now - row.last_request < rule.window * 1000 ? row.count + cost : cost;
+    if (!row && this.bucketCount >= 10_000) return { allowed: false, retryAfter: 60 };
+    const active = row && row.expires_at > now;
+    const count = active ? row.count + cost : cost;
+    const expiresAt = active ? row.expires_at : now + rule.window * 1000;
     this.sql.exec(
       "INSERT INTO auth_bucket (key, count, last_request, expires_at) VALUES (?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET count = excluded.count, last_request = excluded.last_request, expires_at = excluded.expires_at",
       key,
       count,
       now,
-      now + rule.window * 1000,
+      expiresAt,
     );
+    if (!row) this.bucketCount++;
     return { allowed: true, retryAfter: null };
   }
 

@@ -31,7 +31,11 @@ rejects unreviewed schema drift. Production role changes require explicit approv
 Verify grants using the runtime login: application reads and intended writes
 should work; protected catalog writes, DDL and TRUNCATE should fail. Tenant
 authorization remains in application services; these grants do not isolate tenant
-rows. Recheck the manifest when adding tables or sequences. Runtime needs explicit
+rows. Recheck the manifest when adding tables or sequences. The operation also sets runtime defaults of 8 seconds per statement, 3 seconds
+waiting for locks, and 30 seconds idle in a transaction. Review those values against
+legitimate workload latency before production approval; reconnect pooled origin
+sessions and verify the settings through Hyperdrive after applying them. Operator
+connections keep their own settings. Runtime needs explicit
 grants for new objects, including the file-history sequence. Keep migration
 credentials out of app bindings and native agent environments. Run
 `bun run test:runtime:db` for the disposable restricted-login suite.
@@ -71,3 +75,20 @@ Apply it before deploying the app changes and reapply the runtime grant manifest
 Both local setup scripts include it. Run `bun test:privacy:db` to verify consent,
 expiry, withdrawal and deletion with a disposable database. Production migration
 and deployment require separate approval. See [MCP analytics](../docs/mcp-analytics.md).
+
+## File history capacity
+
+`20261017-file-history-capacity.sql` follows the file-version and account-privacy
+migrations. Apply it and the updated runtime-grant manifest before deploying the
+history capacity changes. It backfills logical-byte and version-count accounting
+without deleting existing versions. Each file is limited to 200 versions and
+128 MB; each workspace to 1 GB of historical document JSON including per-row
+allowance. These are safety limits, independent of the R2 storage plan.
+
+Named checkpoints and restores reject new storage at capacity. Automatic
+checkpoints stop accumulating at capacity while edits continue; existing history
+remains readable. Existing over-limit files/workspaces are preserved and cannot
+grow further through version creation. This migration does not implement automatic
+pruning or delete user checkpoints. Review retention policy separately before
+removing existing history. Run `bun test:versions:db` and `bun test:runtime:db` using
+the disposable local fixtures. Production migration requires explicit approval.

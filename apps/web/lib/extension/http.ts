@@ -50,7 +50,7 @@ export function extensionHeaders(request: Request) {
     headers.set("Access-Control-Allow-Credentials", "true");
     headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     headers.set("Access-Control-Allow-Headers", "Content-Type, X-Tidy-Extension");
-    headers.set("Access-Control-Expose-Headers", "X-Tidy-Theme");
+    headers.set("Access-Control-Expose-Headers", "X-Tidy-Theme, Retry-After");
   }
   return headers;
 }

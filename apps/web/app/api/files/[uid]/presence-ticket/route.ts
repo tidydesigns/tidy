@@ -1,3 +1,8 @@
+import {
+  operationBudgetResponse,
+  reserveWorkspaceOperation,
+  operationFailure,
+} from "@/lib/security/operation-budget";
 import { auth } from "@/lib/auth";
 import { getDesignFile } from "@/lib/design/service";
 import { realtimeSchemaReady } from "@/lib/realtime/server";
@@ -12,9 +17,18 @@ export async function POST(
     return new Response(null, { status: 403 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("presence-ticket", session.user.id);
+  if (denied) return denied;
   const { uid } = await params;
   const file = await getDesignFile(session.user.id, uid, false);
   if (!file) return new Response(null, { status: 404 });
+  try {
+    await reserveWorkspaceOperation("presence-ticket", file.organizationId);
+  } catch (error) {
+    const denied = operationFailure(error);
+    if (denied) return denied;
+    throw error;
+  }
   if (!(await realtimeSchemaReady()))
     return Response.json(
       { error: "Live files require the multiplayer migration." },

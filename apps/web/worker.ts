@@ -1,4 +1,6 @@
+import { admitServerError } from "./lib/security/server-telemetry-budget";
 // OpenNext generates this module during build:worker.
+import { ingressResponse } from "./lib/security/ingress-budget";
 import handler from "./.open-next/worker.js";
 import { production as buildEnv } from "./.open-next/cloudflare/next-env.mjs";
 import { upgradeFileRoom } from "./lib/realtime/upgrade";
@@ -25,6 +27,8 @@ export default {
     ctx.waitUntil(response.arrayBuffer());
   },
   async fetch(request, env, ctx) {
+    const denied = await ingressResponse(request, env);
+    if (denied) return denied;
     const monitoringEnv = buildEnv as Record<string, string>;
     const tracingEnv = env as CloudflareEnv & {
       POSTHOG_TRACING_ENABLED?: string;
@@ -42,6 +46,7 @@ export default {
       enabled: tracingEnv.POSTHOG_TRACING_ENABLED ?? monitoringEnv.POSTHOG_TRACING_ENABLED,
       environment: tracingEnv.NEXTJS_ENV ?? "production",
       waitUntil: (task: Promise<unknown>) => ctx.waitUntil(task),
+      admit: (fingerprint: string) => admitServerError(env, fingerprint),
     };
     const report = createErrorReporter(runtime);
     if (isAuthRequest(new URL(request.url).pathname)) {

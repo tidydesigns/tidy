@@ -1,3 +1,4 @@
+import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import { PublicActionError } from "@/lib/security/public-error";
 import { withOrganizationEditAuthority } from "./organization-authority";
 import { inDatabaseScope } from "@/lib/database-scope";
@@ -353,6 +354,7 @@ export async function createImport(
   maxNodes: number;
   maxChunkNodes: number;
 }> {
+  await reserveOperation("import", userId);
   await requireDocumentSchema();
   const cleanName = cleanDesignName(name);
   if (!cleanName) throw new PublicActionError("Enter a file name of up to 120 characters.");
@@ -362,6 +364,7 @@ export async function createImport(
     [organizationId, userId],
   );
   if (!member.rowCount) throw new PublicActionError("Organization not found or access denied.");
+  await reserveWorkspaceOperation("import", organizationId);
   let expectedRevision: number | null = null;
   if (fileId) {
     const file = await db.query<{
@@ -763,6 +766,7 @@ export async function putAsset(
   base64: string,
   signal?: AbortSignal,
 ) {
+  await reserveOperation("asset-upload", userId);
   await requireDocumentSchema();
   if (
     !allowedMime.has(mimeType) ||
@@ -797,6 +801,7 @@ export async function putAsset(
     throw new PublicActionError("Invalid WebP.");
   const hash = createHash("sha256").update(body).digest("hex");
   return withOrganizationEditAuthority(userId, organizationId, async (client) => {
+    await reserveWorkspaceOperation("asset-upload", organizationId);
     const existing = await client.query<{ id: string }>(
       `select "id" from "designAsset" where "organizationId"=$1 and "sha256"=$2`,
       [organizationId, hash],

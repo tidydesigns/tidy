@@ -94,6 +94,58 @@ export function configFromBindings(template, bindings) {
   return config;
 }
 
+/** Read-only preflight, including when the operator supplies a private config. */
+export async function readWorkerBindings(directory, name, configuredAccount) {
+  const wrangler = (...args) =>
+    JSON.parse(
+      execFileSync("bunx", ["wrangler", ...args, "--json"], {
+        cwd: directory,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      }),
+    );
+  let token, account;
+  try {
+    ({ token } = wrangler("auth", "token"));
+    account = configuredAccount ?? process.env.CLOUDFLARE_ACCOUNT_ID;
+    if (!account) {
+      const { accounts } = wrangler("whoami");
+      if (accounts?.length !== 1) throw new Error("Choose an account.");
+      account = accounts[0].id;
+    }
+  } catch {
+    throw new Error("Cannot read deployment credentials/account for the read-only preflight.");
+  }
+  if (!token || !/^[a-f0-9]{32}$/.test(account))
+    throw new Error("Missing valid Cloudflare deployment credentials/account.");
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${encodeURIComponent(name)}/settings`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const settings = await response.json();
+  if (!response.ok || !settings.success || !Array.isArray(settings.result?.bindings))
+    throw new Error("Cannot read existing Worker bindings. No bindings were changed.");
+  return { account, bindings: settings.result.bindings };
+}
+
+export function assertRuntimeSafety(config, bindings) {
+  if (config.workers_dev !== false || config.preview_urls !== false)
+    throw new Error(
+      "Set workers_dev and preview_urls to false in the private deployment config; use the configured custom hostname.",
+    );
+  const cpu = config.limits?.cpu_ms;
+  if (!Number.isSafeInteger(cpu) || cpu <= 0 || cpu > 30_000)
+    throw new Error(
+      "Configure an explicit CPU limit of at most 30000 ms; profile the default 10000 ms against your largest supported requests.",
+    );
+  for (const name of ["BETTER_AUTH_SECRET", "PRIVACY_CLEANUP_SECRET"])
+    if (!bindings.some((binding) => binding.name === name && binding.type === "secret_text"))
+      throw new Error(`Provision the required Worker secret ${name} before deployment.`);
+}
+
 export async function resolveDeploymentConfig(directory, variable, { runtime = false } = {}) {
   const configured = process.env[variable];
   const file = path.resolve(directory, configured ?? "wrangler.deploy.jsonc");
@@ -107,40 +159,9 @@ export async function resolveDeploymentConfig(directory, variable, { runtime = f
 
   let config = Bun.JSONC.parse(await Bun.file(path.join(directory, "wrangler.jsonc")).text());
   if (runtime) {
-    const wrangler = (...args) =>
-      JSON.parse(
-        execFileSync("bunx", ["wrangler", ...args, "--json"], {
-          cwd: directory,
-          encoding: "utf8",
-          stdio: ["ignore", "pipe", "pipe"],
-        }),
-      );
-    let token, account;
-    try {
-      ({ token } = wrangler("auth", "token"));
-      account = process.env.CLOUDFLARE_ACCOUNT_ID;
-      if (!account) {
-        const { accounts } = wrangler("whoami");
-        if (accounts?.length !== 1) throw new Error("Choose an account.");
-        account = accounts[0].id;
-      }
-    } catch {
-      throw new Error(
-        "Cannot read Wrangler credentials/account; supply a private deployment config or CLOUDFLARE_ACCOUNT_ID.",
-      );
-    }
-    if (!token || !/^[a-f0-9]{32}$/.test(account))
-      throw new Error("Missing valid Cloudflare deployment credentials/account.");
-    const response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${encodeURIComponent(config.name)}/settings`,
-      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(30_000) },
-    );
-    const settings = await response.json();
-    if (!response.ok || !settings.success || !Array.isArray(settings.result?.bindings))
-      throw new Error(
-        "Cannot read existing Worker bindings; supply a private deployment config. No bindings were changed.",
-      );
-    config = configFromBindings(config, settings.result.bindings);
+    const { account, bindings } = await readWorkerBindings(directory, config.name);
+    config = configFromBindings(config, bindings);
+    assertRuntimeSafety(config, bindings);
     config.account_id = account;
   }
   writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });

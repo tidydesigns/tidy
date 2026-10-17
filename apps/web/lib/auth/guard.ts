@@ -1,9 +1,11 @@
+import { ConnectionLeases } from "../realtime/connection-leases";
 import { DurableObject } from "cloudflare:workers";
 import { AuthGuardLimit, AuthGuardStore, type RateCheck, type RateRule } from "./guard-store";
 import { waitForSignal } from "./request-lifecycle";
 
 export class AuthGuard extends DurableObject<CloudflareEnv> {
   private store: AuthGuardStore;
+  private connections?: ConnectionLeases;
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
     this.store = new AuthGuardStore(ctx.storage.sql);
@@ -12,6 +14,15 @@ export class AuthGuard extends DurableObject<CloudflareEnv> {
   consume(key: string, rule: RateRule, next?: RateCheck) {
     if (!next) return this.store.consume(key, rule);
     return { ...this.store.consumePair({ key, rule }, next), batchSupported: true };
+  }
+
+  acquireConnection(owner: string, id: string, expiresAt: number) {
+    this.connections ??= new ConnectionLeases(this.ctx.storage.sql);
+    return this.connections.acquire(owner, id, expiresAt);
+  }
+  releaseConnection(owner: string, id: string) {
+    this.connections ??= new ConnectionLeases(this.ctx.storage.sql);
+    this.connections.release(owner, id);
   }
 
   async fetch(request: Request) {

@@ -1,3 +1,4 @@
+import { admitServerError } from "./security/server-telemetry-budget";
 import { posthogServerErrorsEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
@@ -26,6 +27,7 @@ type ReportingRuntime = {
   release?: string;
   deploymentId?: string;
   waitUntil?: (task: Promise<unknown>) => void;
+  admit?: (fingerprint: string) => Promise<boolean>;
 };
 
 const failureEvents = new Set([
@@ -195,6 +197,7 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
         serverErrorsEnabled: (env as CloudflareEnv & { POSTHOG_SERVER_ERRORS_ENABLED?: string })
           .POSTHOG_SERVER_ERRORS_ENABLED,
         deploymentId: env.CF_VERSION_METADATA?.id,
+        admit: (fingerprint) => admitServerError(env, fingerprint),
         waitUntil: (task: Promise<unknown>) => ctx.waitUntil(task),
       };
     } catch {
@@ -207,6 +210,7 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
   const release = safeBuildLabel(runtime.release ?? process.env.NEXT_PUBLIC_APP_VERSION);
   const deploymentId = safeBuildLabel(runtime.deploymentId);
   const waitUntil = runtime.waitUntil;
+  const admit = runtime.admit;
   // Server-generated correlation within this reporter only; never a person/session ID.
   const reportId = crypto.randomUUID();
 
@@ -249,6 +253,14 @@ export function createErrorReporter(runtime?: ReportingRuntime) {
         : {}),
     };
     const task = (async () => {
+      const fingerprint = [
+        diagnostic.event,
+        diagnostic.route,
+        diagnostic.operation,
+        diagnostic.phase,
+        serverErrorCategory(value),
+      ].join(":");
+      if (admit && !(await admit(fingerprint).catch(() => false))) return;
       const client = new PostHog(key, {
         host,
         flushAt: 1,

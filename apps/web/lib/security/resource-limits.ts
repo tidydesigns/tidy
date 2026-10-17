@@ -87,3 +87,11 @@ export const LINEAR_LIMITS = {
     oauth: { accountMinute: 10, accountHour: 100, workspaceMinute: 30, workspaceHour: 300 },
   },
 } as const;
+
+/** Logical Postgres history storage, independent of R2 plan allowances.
+ * Enforced transactionally by 20261017-file-history-capacity.sql. */
+export const FILE_HISTORY_LIMITS = {
+  versionsPerFile: 200,
+  bytesPerFile: 128_000_000,
+  bytesPerWorkspace: 1_000_000_000,
+} as const;

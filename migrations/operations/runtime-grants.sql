@@ -45,6 +45,7 @@ DECLARE
     'designRealtimeProperty',
     'designRealtimeState',
     'designRectangle',
+    'fileHistoryUsage',
     'feedbackUpload',
     'feedbackSubmission',
     'githubCapture',
@@ -67,6 +68,7 @@ DECLARE
     'oauthResource',
     'organization',
     'organizationCreationPermission',
+    'organizationHistoryUsage',
     'organizationMcpUsage',
     'organization_billing',
     'privacyCleanup',
@@ -110,6 +112,12 @@ BEGIN
       EXECUTE format('GRANT INSERT, UPDATE, DELETE ON TABLE public.%I TO %I', table_name, runtime_name);
     END IF;
   END LOOP;
+  -- Origin-side deadlines also cover pooled Hyperdrive queries. Apply to the
+  -- runtime login only, never the operator; reconnect pooled origin sessions
+  -- after an approved rollout and verify SHOW through the actual runtime path.
+  EXECUTE format('ALTER ROLE %I SET statement_timeout = %L', runtime_name, '8s');
+  EXECUTE format('ALTER ROLE %I SET lock_timeout = %L', runtime_name, '3s');
+  EXECUTE format('ALTER ROLE %I SET idle_in_transaction_session_timeout = %L', runtime_name, '30s');
   -- Version ordering is the only reviewed identity sequence. No future sequences
   -- inherit runtime access; reads cannot reset its counter.
   EXECUTE format('GRANT USAGE ON SEQUENCE public."designFileVersion_sequence_seq" TO %I', runtime_name);

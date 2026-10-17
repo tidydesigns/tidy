@@ -2,6 +2,7 @@
 import { upgradeFileRoom } from "../lib/realtime/upgrade";
 import { verifyTicket } from "../lib/realtime/ticket";
 import { agentActivitySchema } from "../lib/realtime/agent-activity";
+export { AuthGuard } from "../lib/auth/guard";
 export { FileRoom } from "../lib/realtime/file-room";
 export default {
   async fetch(request, env) {

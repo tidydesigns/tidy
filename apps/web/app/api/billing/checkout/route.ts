@@ -1,3 +1,4 @@
+import { operationFailure } from "@/lib/security/operation-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
 import { checkoutUrl } from "@/lib/billing/server";
@@ -27,6 +28,8 @@ async function post(request: Request) {
       url: await checkoutUrl(session.user.id, organizationId, session.user.email),
     });
   } catch (error) {
+    const denied = operationFailure(error);
+    if (denied) return denied;
     console.error("Stripe checkout failed", error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not start checkout." },

@@ -323,3 +323,238 @@ integration(
     ).toBe(true);
   },
 );
+
+integration(
+  "history accounting bounds named versions and lets automatic edits continue at capacity",
+  async () => {
+    const limited = `limited-${fixture}`;
+    await client.query(
+      'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,\'Limited\',$3)',
+      [limited, organization, actor],
+    );
+    await client.query('insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)', [
+      limited,
+      JSON.stringify(initial()),
+    ]);
+    try {
+      await client.query(
+        `insert into "designFileVersion" ("fileId","revision","content","name","kind","createdBy")
+      select d."fileId",d."revision",d."content",'Checkpoint '||n,'named',$2
+      from "designDocument" d cross join generate_series(1,199) n where d."fileId"=$1`,
+        [limited, actor],
+      );
+      await expect(versions.createFileVersion(actor, limited, "Overflow", 1)).rejects.toThrow(
+        "file_history_capacity",
+      );
+      const version = (await versions.listFileVersions(actor, limited)).versions[0];
+      await expect(
+        commands.commitDocumentPatch(
+          actor,
+          limited,
+          crypto.randomUUID(),
+          1,
+          [],
+          false,
+          undefined,
+          undefined,
+          undefined,
+          { versionId: version.id, expectedRevision: 1 },
+        ),
+      ).rejects.toThrow("file_history_capacity");
+      expect(
+        (await client.query('select "revision" from "designDocument" where "fileId"=$1', [limited]))
+          .rows[0].revision,
+      ).toBe(1);
+      await client.query(
+        'update "designFileVersion" set "createdAt"=now()-interval \'6 minutes\' where "fileId"=$1',
+        [limited],
+      );
+      await client.query('update "designDocument" set "revision"="revision"+1 where "fileId"=$1', [
+        limited,
+      ]);
+      expect(
+        (
+          await client.query('select "versions" from "fileHistoryUsage" where "fileId"=$1', [
+            limited,
+          ])
+        ).rows[0].versions,
+      ).toBe(200);
+      expect(
+        (await client.query('select "revision" from "designDocument" where "fileId"=$1', [limited]))
+          .rows[0].revision,
+      ).toBe(2);
+      await expect(
+        client.query('update "designFileVersion" set "content"=\'{}\'::jsonb where "id"=$1', [
+          version.id,
+        ]),
+      ).rejects.toThrow("immutable");
+    } finally {
+      await client.query('delete from "designFile" where "id"=$1', [limited]);
+    }
+    const totals = (
+      await client.query(
+        `select u."bytes", (select coalesce(sum(v."byteSize"),0) from "designFileVersion" v join "designFile" f on f."id"=v."fileId" where f."organizationId"=u."organizationId") as actual
+    from "organizationHistoryUsage" u where u."organizationId"=$1`,
+        [organization],
+      )
+    ).rows[0];
+    expect(totals.bytes).toBe(totals.actual);
+  },
+);
+
+integration(
+  "concurrent files share one workspace history byte allowance and failed inserts do not charge it",
+  async () => {
+    const concurrent = `concurrent-${fixture}`;
+    await client.query(
+      'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,\'Concurrent\',$3)',
+      [concurrent, organization, actor],
+    );
+    await client.query('insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)', [
+      concurrent,
+      JSON.stringify(initial()),
+    ]);
+    try {
+      const size = Number(
+        (
+          await client.query(
+            'select max("byteSize") as bytes from "designFileVersion" where "fileId"=any($1::text[])',
+            [[file, concurrent]],
+          )
+        ).rows[0].bytes,
+      );
+      // Simulate existing history near the workspace ceiling without allocating 1 GB.
+      await client.query(
+        'update "organizationHistoryUsage" set "bytes"=1000000000-$2 where "organizationId"=$1',
+        [organization, size],
+      );
+      const current = await snapshot();
+      const results = await Promise.allSettled([
+        versions.createFileVersion(actor, file, "Racing A", current.revision),
+        versions.createFileVersion(actor, concurrent, "Racing B", 1),
+      ]);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+      const usage = Number(
+        (
+          await client.query(
+            'select "bytes" from "organizationHistoryUsage" where "organizationId"=$1',
+            [organization],
+          )
+        ).rows[0].bytes,
+      );
+      expect(usage).toBeLessThanOrEqual(1_000_000_000);
+      const accepted = results.find(
+        (r) => r.status === "fulfilled",
+      ) as PromiseFulfilledResult<string>;
+      const acceptedFile = results[0].status === "fulfilled" ? file : concurrent;
+      await client.query(
+        `insert into "designFileVersion" ("id","fileId","revision","content","kind")
+      select "id","fileId","revision","content",'automatic' from "designFileVersion" where "id"=$1 on conflict do nothing`,
+        [accepted.value],
+      );
+      expect(
+        Number(
+          (
+            await client.query(
+              'select "bytes" from "organizationHistoryUsage" where "organizationId"=$1',
+              [organization],
+            )
+          ).rows[0].bytes,
+        ),
+      ).toBe(usage);
+      expect((await versions.readFileVersion(actor, acceptedFile, accepted.value)).version.id).toBe(
+        accepted.value,
+      );
+    } finally {
+      await client.query(
+        `update "organizationHistoryUsage" u set "bytes"=(select coalesce(sum(v."byteSize"),0) from "designFileVersion" v join "designFile" f on f."id"=v."fileId" where f."organizationId"=u."organizationId") where u."organizationId"=$1`,
+        [organization],
+      );
+      await client.query('delete from "designFile" where "id"=$1', [concurrent]);
+    }
+  },
+);
+
+integration("workspace moves transfer history usage and respect destination capacity", async () => {
+  await client.query("begin");
+  try {
+    const usage = async (id: string) =>
+      Number(
+        (
+          await client.query(
+            'select coalesce((select "bytes" from "organizationHistoryUsage" where "organizationId"=$1),0) as bytes',
+            [id],
+          )
+        ).rows[0].bytes,
+      );
+    const before = await usage(organization),
+      destination = await usage(other);
+    const bytes = Number(
+      (await client.query('select "bytes" from "fileHistoryUsage" where "fileId"=$1', [file]))
+        .rows[0].bytes,
+    );
+    await client.query('update "designFile" set "organizationId"=$2 where "id"=$1', [file, other]);
+    expect(await usage(organization)).toBe(before - bytes);
+    expect(await usage(other)).toBe(destination + bytes);
+    await client.query('update "designFile" set "organizationId"=$2 where "id"=$1', [
+      file,
+      organization,
+    ]);
+    expect(await usage(organization)).toBe(before);
+    expect(await usage(other)).toBe(destination);
+    await client.query(
+      'update "organizationHistoryUsage" set "bytes"=1000000000 where "organizationId"=$1',
+      [other],
+    );
+    await client.query("savepoint capacity");
+    await expect(
+      client.query('update "designFile" set "organizationId"=$2 where "id"=$1', [file, other]),
+    ).rejects.toThrow("file_history_capacity");
+    await client.query("rollback to savepoint capacity");
+    expect(await usage(organization)).toBe(before);
+    expect(
+      (await client.query('select "organizationId" from "designFile" where "id"=$1', [file]))
+        .rows[0].organizationId,
+    ).toBe(organization);
+  } finally {
+    await client.query("rollback");
+  }
+});
+
+integration(
+  "per-file history bytes stop named snapshots without charging the workspace",
+  async () => {
+    await client.query("begin");
+    try {
+      const before = (
+        await client.query(
+          'select "bytes" from "organizationHistoryUsage" where "organizationId"=$1',
+          [organization],
+        )
+      ).rows[0].bytes;
+      await client.query('update "fileHistoryUsage" set "bytes"=128000000 where "fileId"=$1', [
+        file,
+      ]);
+      await client.query("savepoint capacity");
+      await expect(
+        client.query(
+          `insert into "designFileVersion" ("fileId","revision","content","name","kind")
+      select "fileId","revision","content",'Too large','named' from "designDocument" where "fileId"=$1`,
+          [file],
+        ),
+      ).rejects.toThrow("file_history_capacity");
+      await client.query("rollback to savepoint capacity");
+      expect(
+        (
+          await client.query(
+            'select "bytes" from "organizationHistoryUsage" where "organizationId"=$1',
+            [organization],
+          )
+        ).rows[0].bytes,
+      ).toBe(before);
+    } finally {
+      await client.query("rollback");
+    }
+  },
+);

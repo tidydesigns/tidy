@@ -1,3 +1,4 @@
+import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { can } from "@/lib/organizations/roles";
 import { auth } from "@/lib/auth";
@@ -10,6 +11,8 @@ export const runtime = "nodejs";
 export async function GET(request: Request, { params }: RouteContext<"/api/files/[uid]/assets">) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("document-read", session.user.id);
+  if (denied) return denied;
   const { uid } = await params;
   try {
     const result = await listFileAssets(
@@ -36,6 +39,8 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
     return new Response(null, { status: 403 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("asset-request", session.user.id);
+  if (denied) return denied;
   const { uid } = await params;
   const file = await getDesignFile(session.user.id, uid);
   if (!file) return new Response(null, { status: 404 });
@@ -58,6 +63,8 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
     );
     return Response.json(result);
   } catch (error) {
+    const denied = operationFailure(error);
+    if (denied) return denied;
     if (error instanceof RequestBodyError) return requestBodyError(error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not upload image." },

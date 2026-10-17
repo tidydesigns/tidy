@@ -1,3 +1,4 @@
+import { operationBudgetResponse } from "@/lib/security/operation-budget";
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createResourceServerChallenge } from "@better-auth/oauth-provider";
 import { APIError } from "better-auth/api";
@@ -101,6 +102,8 @@ async function grantFailure(
 const authenticatedPost = requireMcpAuth(
   auth,
   async (request, claims) => {
+    const limited = await operationBudgetResponse("mcp-request", claims.sub as string);
+    if (limited) return limited;
     let parsed: Awaited<ReturnType<typeof readMcpRequest>>;
     try {
       parsed = await traceOperation("mcp.request_body", () => readMcpRequest(request));

@@ -101,6 +101,24 @@ const { Miniflare, convertV4MiniflareOptions } = wranglerRequire("miniflare");
     assert((await worker.listDurableObjectIds("AuthGuard")).length <= 131);
     // Health admission has its own shard and is unaffected by telemetry exhaustion.
     assert.equal((await worker.dispatchFetch("https://public.test/health?noise=last")).status, 200);
+    // Outer admission works before OpenNext has installed any request context.
+    const registration = await Promise.all(
+      Array.from({ length: 6 }, () =>
+        worker.dispatchFetch("https://public.test/ingress/api/auth/sign-up/email", {
+          headers: { "cf-connecting-ip": "203.0.113.1" },
+        }),
+      ),
+    );
+    assert.equal(registration.filter((r) => r.status === 204).length, 5);
+    assert.equal(registration.filter((r) => r.status === 429).length, 1);
+    assert.equal(registration.find((r) => r.status === 429).headers.has("x-test-admitted"), false);
+    const connections = await Promise.all(
+      Array.from({ length: 20 }, (_, i) =>
+        worker.dispatchFetch(`https://public.test/lease?id=${i}`),
+      ),
+    );
+    assert.equal(connections.filter((r) => r.status === 204).length, 10);
+    assert.equal(connections.filter((r) => r.status === 429).length, 10);
   } finally {
     await worker.dispose();
     await rm(directory, { recursive: true, force: true });

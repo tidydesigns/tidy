@@ -1,3 +1,4 @@
+import { operationFailure } from "@/lib/security/operation-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
 import { portalUrl } from "@/lib/billing/server";
@@ -25,6 +26,8 @@ async function post(request: Request) {
   try {
     return Response.json({ url: await portalUrl(session.user.id, organizationId) });
   } catch (error) {
+    const denied = operationFailure(error);
+    if (denied) return denied;
     console.error("Stripe portal failed", error);
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not open billing." },

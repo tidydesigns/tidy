@@ -1,3 +1,4 @@
+import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { revalidatePath } from "next/cache";
 import { listDesignFolders } from "@/lib/design/folder-service";
 import { auth } from "@/lib/auth";
@@ -34,6 +35,10 @@ export async function POST(request: Request) {
     return new Response(null, { status: 403 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "Sign in to import a Figma file." }, { status: 401 });
+  const denied = await operationBudgetResponse("import-request", session.user.id);
+  if (denied) {
+    return denied;
+  }
   try {
     const input = inputSchema.parse(await (await boundedRequest(request, 16_000_000)).json());
     const document = parseDesignDocument(input.document);
@@ -88,6 +93,8 @@ export async function POST(request: Request) {
     revalidatePath("/files");
     return Response.json(published, { headers: { "Cache-Control": "no-store" } });
   } catch (cause) {
+    const denied = operationFailure(cause);
+    if (denied) return denied;
     if (cause instanceof z.ZodError)
       return Response.json(
         { error: "This Figma import contains invalid layer or image data." },

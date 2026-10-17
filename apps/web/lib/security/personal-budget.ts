@@ -1,3 +1,4 @@
+import { budgetShard } from "./worker-budget";
 import { consumeMutationRateLimit } from "@/lib/auth/guard-client";
 import type { RateDecision, RateRule } from "@/lib/auth/guard-store";
 import { PublicActionError } from "./public-error";
@@ -35,11 +36,16 @@ export async function consumePersonalAttempts(
   consume: (scope: string, key: string, rule: RateRule) => Promise<RateDecision>,
 ) {
   const limits = PERSONAL_ATTEMPTS[kind];
+  // Anonymous identities must not allocate one persistent object per source IP.
+  const anonymous = kind === "privacy-consent";
+  const scope = anonymous
+    ? `personal-consent-shard:${await budgetShard(userId)}`
+    : `personal-${kind}:${userId}`;
   for (const [key, window, max] of [
     ["minute", 60, limits.minute],
     ["hour", 3600, limits.hour],
   ] as const) {
-    if (!(await consume(`personal-${kind}:${userId}`, key, { window, max })).allowed)
+    if (!(await consume(scope, anonymous ? `${userId}:${key}` : key, { window, max })).allowed)
       throw new PersonalBudgetError(429);
   }
 }

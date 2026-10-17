@@ -1,3 +1,4 @@
+import { acquireConnection, releaseConnection } from "./connection-budget";
 import { fileEventsQuery } from "./events";
 import { roomConnectionQuery, roomSessionsQuery } from "./authorization";
 import { can } from "../organizations/roles";
@@ -41,6 +42,8 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
   private participants = new Map<string, Peer>();
   private activities = new AgentActivityStore();
   private authorizedAt = 0;
+  private pendingConnections = new Map<string, string>();
+  private messageWindow = { at: 0, count: 0, accounts: new Map<string, number>() };
   constructor(ctx: DurableObjectState, env: CloudflareEnv) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
@@ -73,61 +76,102 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     if (!ticket || request.headers.get("upgrade")?.toLowerCase() !== "websocket")
       return new Response(null, { status: 403 });
     if (this.fileId && this.fileId !== ticket.fileId) return new Response(null, { status: 403 });
-    if (this.ctx.getWebSockets().length >= 100) return new Response(null, { status: 429 });
-    await this.ctx.storage.put("fileId", ticket.fileId);
-    this.fileId = ticket.fileId;
-    const client = this.databaseClient();
-    let canEdit = false;
+    const sockets = this.ctx.getWebSockets();
+    const active = sockets.map((socket) => socket.deserializeAttachment() as Attachment | null);
+    const forAccount = active.filter(
+      (item) => item && this.participants.get(item.sessionId)?.userId === ticket.userId,
+    ).length;
+    const pendingAccount = [...this.pendingConnections.values()].filter(
+      (user) => user === ticket.userId,
+    ).length;
+    if (
+      sockets.length + this.pendingConnections.size >= 100 ||
+      forAccount + pendingAccount >= 3 ||
+      active.some((item) => item?.sessionId === ticket.sessionId) ||
+      this.pendingConnections.has(ticket.sessionId)
+    )
+      return new Response(null, { status: 429, headers: { "Retry-After": "5" } });
+    // Reserve synchronously before any database/lease/storage await. Concurrent
+    // handshakes cannot all observe the same free room/account capacity.
+    this.pendingConnections.set(ticket.sessionId, ticket.userId);
+    let leased = false;
+    let accepted = false;
     try {
-      await client.connect();
-      const access = await client.query<{ role: string }>(roomConnectionQuery, [
-        ticket.fileId,
-        ticket.userId,
-        ticket.authSessionId,
-        ticket.organizationId,
-      ]);
-      if (!access.rowCount) return new Response(null, { status: 403 });
-      canEdit = can(access.rows[0].role, "edit");
+      try {
+        leased = await acquireConnection(
+          this.env,
+          ticket.userId,
+          ticket.sessionId,
+          ticket.expiresAt,
+        );
+      } catch {
+        return new Response(null, { status: 503, headers: { "Retry-After": "5" } });
+      }
+      if (!leased) return new Response(null, { status: 429, headers: { "Retry-After": "5" } });
+      await this.ctx.storage.put("fileId", ticket.fileId);
+      this.fileId = ticket.fileId;
+      const client = this.databaseClient();
+      let canEdit = false;
+      try {
+        await client.connect();
+        const access = await client.query<{ role: string }>(roomConnectionQuery, [
+          ticket.fileId,
+          ticket.userId,
+          ticket.authSessionId,
+          ticket.organizationId,
+        ]);
+        if (!access.rowCount) return new Response(null, { status: 403 });
+        canEdit = can(access.rows[0].role, "edit");
+      } finally {
+        await client.end();
+      }
+      const pair = new WebSocketPair();
+      const peer: Peer = {
+        ...EMPTY_PRESENCE,
+        userId: ticket.userId,
+        name: ticket.name,
+        image: ticket.image,
+        sessionId: ticket.sessionId,
+        color: actorColor(ticket.userId),
+        updatedAt: Date.now(),
+      };
+      await this.ctx.storage.put(`peer:${peer.sessionId}`, peer);
+      this.participants.set(peer.sessionId, peer);
+      pair[1].serializeAttachment({
+        canEdit,
+        sessionId: ticket.sessionId,
+        authSessionId: ticket.authSessionId,
+        expiresAt: ticket.expiresAt,
+        updatedAt: peer.updatedAt,
+        cursor: null,
+        pageId: peer.pageId,
+        action: null,
+        away: false,
+        windowAt: Date.now(),
+        count: 0,
+      } satisfies Attachment);
+      this.ctx.acceptWebSocket(pair[1]);
+      accepted = true;
+      this.send(pair[1], {
+        type: "peers",
+        peers: [...this.participants.values()].filter(
+          (item) => item.updatedAt > Date.now() - 60_000,
+        ),
+      });
+      this.activities.expire();
+      this.send(pair[1], { type: "activities", activities: this.activities.getSnapshot() });
+      this.broadcast({ type: "presence", peer }, pair[1]);
+      this.send(pair[1], { type: "ready" });
+      await this.ctx.storage.setAlarm(Date.now() + 15_000);
+      this.ctx.waitUntil(this.sync(ticket.fileId));
+      return new Response(null, { status: 101, webSocket: pair[0] });
     } finally {
-      await client.end();
+      this.pendingConnections.delete(ticket.sessionId);
+      if (leased && !accepted)
+        this.ctx.waitUntil(
+          releaseConnection(this.env, ticket.userId, ticket.sessionId).catch(() => {}),
+        );
     }
-    const pair = new WebSocketPair();
-    const peer: Peer = {
-      ...EMPTY_PRESENCE,
-      userId: ticket.userId,
-      name: ticket.name,
-      image: ticket.image,
-      sessionId: ticket.sessionId,
-      color: actorColor(ticket.userId),
-      updatedAt: Date.now(),
-    };
-    await this.ctx.storage.put(`peer:${peer.sessionId}`, peer);
-    this.participants.set(peer.sessionId, peer);
-    pair[1].serializeAttachment({
-      canEdit,
-      sessionId: ticket.sessionId,
-      authSessionId: ticket.authSessionId,
-      expiresAt: ticket.expiresAt,
-      updatedAt: peer.updatedAt,
-      cursor: null,
-      pageId: peer.pageId,
-      action: null,
-      away: false,
-      windowAt: Date.now(),
-      count: 0,
-    } satisfies Attachment);
-    this.ctx.acceptWebSocket(pair[1]);
-    this.send(pair[1], {
-      type: "peers",
-      peers: [...this.participants.values()].filter((item) => item.updatedAt > Date.now() - 60_000),
-    });
-    this.activities.expire();
-    this.send(pair[1], { type: "activities", activities: this.activities.getSnapshot() });
-    this.broadcast({ type: "presence", peer }, pair[1]);
-    this.send(pair[1], { type: "ready" });
-    await this.ctx.storage.setAlarm(Date.now() + 15_000);
-    this.ctx.waitUntil(this.sync(ticket.fileId));
-    return new Response(null, { status: 101, webSocket: pair[0] });
   }
   private send(socket: WebSocket, message: RoomMessage) {
     try {
@@ -142,6 +186,11 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
   }
   private remove(socket: WebSocket) {
     const attachment = socket.deserializeAttachment() as Attachment | null;
+    const peer = attachment ? this.participants.get(attachment.sessionId) : undefined;
+    if (attachment && peer)
+      this.ctx.waitUntil(
+        releaseConnection(this.env, peer.userId, attachment.sessionId).catch(() => {}),
+      );
     socket.serializeAttachment(null);
     try {
       socket.close(1000, "Session ended");
@@ -175,6 +224,13 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
       this.remove(socket);
       return;
     }
+    const now = Date.now();
+    if (now - this.messageWindow.at >= 1000)
+      this.messageWindow = { at: now, count: 0, accounts: new Map() };
+    const accountCount = (this.messageWindow.accounts.get(peer.userId) ?? 0) + 1;
+    this.messageWindow.accounts.set(peer.userId, accountCount);
+    socket.serializeAttachment(attachment);
+    if (accountCount > 60 || ++this.messageWindow.count > 600) return;
     try {
       const input = JSON.parse(message);
       if (input.type === "ping") {

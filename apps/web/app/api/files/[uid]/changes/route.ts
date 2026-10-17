@@ -1,3 +1,4 @@
+import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { DOCUMENT_HISTORY_LIMITS, ExpiredDocumentEdit } from "@/lib/design/history-retention";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { getDesignFile } from "@/lib/design/service";
@@ -24,6 +25,8 @@ const inputSchema = z
 export async function GET(request: Request, { params }: RouteContext<"/api/files/[uid]/changes">) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("document-read", session.user.id);
+  if (denied) return denied;
   const { uid } = await params;
   if (!(await realtimeSchemaReady()))
     return Response.json(
@@ -59,6 +62,8 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
     return new Response(null, { status: 403 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("document-request", session.user.id);
+  if (denied) return denied;
   const { uid } = await params;
   const file = await getDesignFile(session.user.id, uid);
   if (!file) return new Response(null, { status: 404 });
@@ -101,6 +106,8 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
       : { patch: result.patch, snapshot: result.snapshot, sequence: result.sequence };
     return Response.json(response, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
+    const denied = operationFailure(error);
+    if (denied) return denied;
     if (error instanceof ExpiredDocumentEdit)
       return Response.json(
         { error: error.message, code: "EDIT_EXPIRED" },

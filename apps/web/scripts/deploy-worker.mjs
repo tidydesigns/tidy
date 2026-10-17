@@ -1,7 +1,11 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { resolveDeploymentConfig } from "../../../scripts/deployment-config.mjs";
+import {
+  resolveDeploymentConfig,
+  readWorkerBindings,
+  assertRuntimeSafety,
+} from "../../../scripts/deployment-config.mjs";
 import {
   bundleWorker,
   uploadWorkerSourceMaps,
@@ -40,6 +44,8 @@ if (
     "Configure your Worker name, HTTPS auth origin and Hyperdrive binding before deployment.",
   );
 const cwd = path.resolve(import.meta.dirname, "..");
+const { bindings } = await readWorkerBindings(cwd, settings.name, settings.account_id);
+assertRuntimeSafety(settings, bindings);
 const directory = path.join(cwd, ".open-next/deploy");
 const entrypoint = await bundleWorker({ config, directory, cwd });
 if (uploadWorkerSourceMapsEnabled(process.env)) {

@@ -1,3 +1,4 @@
+import { admitFlagEvaluation } from "./security/server-telemetry-budget";
 import "server-only";
 import { cache } from "react";
 import { featureFlagKeys, FLAGS_OFF, type FunctionalFlags } from "./feature-flags";
@@ -27,6 +28,7 @@ export async function evaluateFunctionalFlags({
     url.pathname = "/flags/";
     url.search = "?v=2";
     url.hash = "";
+    if (!(await admitFlagEvaluation())) return FLAGS_OFF;
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

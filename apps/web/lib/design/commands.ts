@@ -1,3 +1,4 @@
+import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import {
   DOCUMENT_HISTORY_LIMITS,
   ExpiredDocumentEdit,
@@ -28,6 +29,8 @@ export async function commitDocumentPatch(
 ) {
   if (!Number.isSafeInteger(requestRevision) || requestRevision < 0 || requestRevision > 2147483647)
     throw new Error("A valid base revision is required.");
+  const operation = restore ? "history-write" : "document-write";
+  await reserveOperation(operation, userId);
   const hash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -52,6 +55,7 @@ export async function commitDocumentPatch(
       [fileId, userId],
     );
     if (!access.rows[0]) throw new Error("File not found or access denied.");
+    await reserveWorkspaceOperation(operation, access.rows[0].organizationId);
     const row = await client.query<{ revision: number; content: DesignDocument }>(
       `select "revision", "content" from "designDocument" where "fileId" = $1 for update`,
       [fileId],

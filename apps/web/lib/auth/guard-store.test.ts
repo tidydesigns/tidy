@@ -188,3 +188,61 @@ test("weighted budgets reject overshoot atomically, retain counts and recover af
     database.close();
   }
 });
+
+test("steady traffic replenishes without requiring an idle window", () => {
+  for (const [window, max, interval] of [
+    [60, 120, 1000],
+    [3600, 600, 10000],
+  ]) {
+    const { database, guard } = store();
+    try {
+      for (let i = 0; i < max * 3; i++)
+        expect(guard.consume("steady", { window, max }, 1000 + i * interval).allowed).toBe(true);
+    } finally {
+      database.close();
+    }
+  }
+});
+
+test("weighted charges and rejected attempts do not move the window boundary", () => {
+  const { database, guard } = store();
+  try {
+    expect(guard.consume("bytes", { window: 60, max: 100, cost: 60 }, 1000).allowed).toBe(true);
+    expect(guard.consume("bytes", { window: 60, max: 100, cost: 40 }, 30_000).allowed).toBe(true);
+    expect(guard.consume("bytes", { window: 60, max: 100 }, 60_999)).toEqual({
+      allowed: false,
+      retryAfter: 1,
+    });
+    expect(guard.consume("bytes", { window: 60, max: 100, cost: 100 }, 61_000).allowed).toBe(true);
+  } finally {
+    database.close();
+  }
+});
+
+test("expiry cleanup is indexed, bounded and recovers capacity after object restart", () => {
+  const { database, guard } = store();
+  try {
+    for (let i = 0; i < 10_000; i++)
+      expect(guard.consume(`key-${i}`, { window: 60, max: 1 }, 1000).allowed).toBe(true);
+    expect(guard.consume("overflow", { window: 60, max: 1 }, 1000).allowed).toBe(false);
+    expect(guard.consume("recovered", { window: 60, max: 1 }, 61_000).allowed).toBe(true);
+    expect(database.query("SELECT count(*) AS count FROM auth_bucket").get()).toEqual({
+      count: 9745,
+    });
+    const plan = database
+      .query(
+        "EXPLAIN QUERY PLAN SELECT key FROM auth_bucket WHERE expires_at <= ? ORDER BY expires_at LIMIT 256",
+      )
+      .all(61000);
+    expect(JSON.stringify(plan)).toContain("auth_bucket_expiry");
+    const restarted = new AuthGuardStore({
+      exec(query: string, ...bindings: (string | number | null)[]) {
+        const rows = database.prepare(query).all(...bindings);
+        return { toArray: () => rows };
+      },
+    } as unknown as SqlStorage);
+    expect(restarted.consume("recovered", { window: 60, max: 1 }, 61_001).allowed).toBe(false);
+  } finally {
+    database.close();
+  }
+});

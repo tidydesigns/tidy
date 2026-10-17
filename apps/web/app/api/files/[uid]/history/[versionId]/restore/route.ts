@@ -1,3 +1,5 @@
+import { OperationBudgetError } from "@/lib/security/operation-budget";
+import { isHistoryCapacityError } from "@/lib/design/history-capacity";
 import { z } from "zod";
 import { getDesignFile } from "@/lib/design/service";
 import { can } from "@/lib/organizations/roles";
@@ -44,6 +46,7 @@ export async function POST(
       );
       return Response.json(result, { headers: versionHeaders });
     } catch (error) {
+      if (error instanceof OperationBudgetError || isHistoryCapacityError(error)) throw error;
       throw new VersionError(
         error instanceof Error ? error.message : "Could not restore this version.",
         409,
