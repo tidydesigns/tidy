@@ -11,6 +11,7 @@ const customEvents = new Set([
   "pull_request_linked",
   "review_feedback_added",
   "team_invitations_created",
+  "onboarding_team_completed",
   "onboarding_completed",
   "organization_switched",
   "organization_created",
@@ -23,6 +24,7 @@ const booleans = new Set([
   "has_implementation_point",
   "panels_open",
   "has_selection",
+  "mcp_setup_prompt_copied",
 ]);
 const numbers = new Set([
   "frame_count",

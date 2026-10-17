@@ -83,6 +83,8 @@ test("all eight combinations enforce independent purpose boundaries", () => {
     for (const [name, purpose] of [
       ["$pageview", "analytics"],
       ["survey sent", "analytics"],
+      ["onboarding_team_completed", "analytics"],
+      ["onboarding_completed", "analytics"],
       ["$snapshot", "replay"],
       ["$exception", "diagnostics"],
       ["$web_vitals", "diagnostics"],
@@ -97,6 +99,25 @@ test("all eight combinations enforce independent purpose boundaries", () => {
         ),
       ).toBe(choices[purpose]);
     expect(redactTelemetry(event("unreviewed-event"), choices, url)).toBeNull();
+  }
+});
+test("onboarding analytics retain setup outcomes without invitation addresses or prompt text", () => {
+  for (const name of ["onboarding_team_completed", "onboarding_completed"]) {
+    const result = redactTelemetry(
+      event(name, {
+        invitation_count: 2,
+        mcp_setup_prompt_copied: true,
+        email: "private@example.test",
+        prompt: "Private setup prompt",
+      }),
+      all,
+      url,
+    )!;
+    expect(result.event).toBe(name);
+    expect(result.properties.invitation_count).toBe(2);
+    expect(result.properties.mcp_setup_prompt_copied).toBe(true);
+    expect(result.properties).not.toHaveProperty("email");
+    expect(result.properties).not.toHaveProperty("prompt");
   }
 });
 test("events remove content, identity traits, raw URLs and DOM properties", () => {

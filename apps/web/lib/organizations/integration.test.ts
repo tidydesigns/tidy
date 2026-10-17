@@ -470,6 +470,40 @@ integration("MCP onboarding requires a session and an organization membership", 
   }
 });
 
+integration("MCP onboarding only defaults to localhost in development", async () => {
+  const nextHeaders = await import("next/headers");
+  const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(owner);
+  const environment = process.env as Record<string, string | undefined>;
+  const originalUrl = environment.BETTER_AUTH_URL;
+  const originalMode = environment.NODE_ENV;
+  try {
+    const { default: McpOnboardingPage } = await import("../../app/onboarding/mcp/page");
+    const page = () =>
+      McpOnboardingPage({
+        params: Promise.resolve({}),
+        searchParams: Promise.resolve({ organizationId: orgId }),
+      });
+    environment.NODE_ENV = "production";
+    for (const value of [undefined, ""]) {
+      if (value === undefined) delete environment.BETTER_AUTH_URL;
+      else environment.BETTER_AUTH_URL = value;
+      await expect(page()).rejects.toThrow("BETTER_AUTH_URL is required for MCP onboarding.");
+    }
+    environment.BETTER_AUTH_URL = "https://app.example.test";
+    expect((await page()).props.resourceUrl).toBe("https://app.example.test/api/mcp");
+
+    environment.NODE_ENV = "development";
+    delete environment.BETTER_AUTH_URL;
+    expect((await page()).props.resourceUrl).toBe("http://localhost:3000/api/mcp");
+  } finally {
+    if (originalUrl === undefined) delete environment.BETTER_AUTH_URL;
+    else environment.BETTER_AUTH_URL = originalUrl;
+    if (originalMode === undefined) delete environment.NODE_ENV;
+    else environment.NODE_ENV = originalMode;
+    requestHeaders.mockRestore();
+  }
+});
+
 integration("confirmed deletion frees the created-organisation allowance", async () => {
   await db.query('update "billingDeployment" set "selfHosted"=false');
   const created = await create(invited, "Temporary");

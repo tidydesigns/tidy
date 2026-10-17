@@ -82,11 +82,14 @@ export function McpOnboarding({ resourceUrl }: { resourceUrl: string }) {
                 <span className={`${styles.agent} ${styles.opencode}`} />
               </span>
               <span aria-hidden="true" className={styles.divider} />
-              <span aria-live="polite" className={styles.buttonLabel}>
+              <span className={styles.buttonLabel}>
                 {copied ? "Prompt copied" : "Copy setup prompt"}
               </span>
               <Icon name={copied ? "check" : "copy"} size={19} />
             </Button>
+            <span role="status" className="sr-only">
+              {copied ? "Prompt copied" : ""}
+            </span>
           </section>
 
           <ol aria-label="Connect your agent" data-ph-public className={styles.steps}>

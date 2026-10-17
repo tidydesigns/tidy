@@ -5,10 +5,11 @@ export default async function McpOnboardingPage({ searchParams }: PageProps<"/on
   const requestedId = (await searchParams).organizationId;
   await getWorkspace(typeof requestedId === "string" ? requestedId : undefined);
 
-  const resourceUrl = new URL(
-    "/api/mcp",
-    process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-  ).toString();
+  const baseUrl =
+    process.env.BETTER_AUTH_URL ||
+    (process.env.NODE_ENV === "development" ? "http://localhost:3000" : undefined);
+  if (!baseUrl) throw new Error("BETTER_AUTH_URL is required for MCP onboarding.");
+  const resourceUrl = new URL("/api/mcp", baseUrl).toString();
 
   return <McpOnboarding resourceUrl={resourceUrl} />;
 }
