@@ -16,7 +16,7 @@ export default function HomePage() {
       <SiteHeader />
 
       <main className="content">
-        <h1>Tidy is a product canvas for designers, engineers, and agents.</h1>
+        <h1>Tidy is an open source product canvas for designers, engineers, and agents.</h1>
         <p>
           It brings design and engineering into one workspace. People work directly on interfaces,
           while agents can read, create, and edit designs through MCP. Tidy can be self-hosted and

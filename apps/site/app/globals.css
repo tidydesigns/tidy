@@ -68,6 +68,19 @@ body {
   text-underline-offset: 4px;
 }
 
+.github-link {
+  white-space: nowrap;
+}
+
+.github-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 4ch;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .header-link:hover,
   .github-link:hover {
@@ -332,9 +345,13 @@ p {
     gap: 0;
   }
 
+  .header {
+    gap: 12px;
+  }
+
   .header-link,
   .github-link {
-    padding: 0 8px;
+    padding: 0 6px;
     font-size: 14px;
   }
 
