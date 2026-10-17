@@ -6,6 +6,7 @@ import { Icon } from "@/components/ui/icon";
 
 import { workspaceNavClass } from "./workspace-nav-style";
 import { workspaceDestinations as destinations } from "./workspace-nav-data";
+import { useCloseWorkspaceNavigation } from "./workspace-navigation";
 
 export function WorkspaceNav({
   showThreads,
@@ -16,6 +17,7 @@ export function WorkspaceNav({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const closeNavigation = useCloseWorkspaceNavigation();
   const current =
     pathname === "/files" && searchParams.get("view") === "archive"
       ? "archive"
@@ -25,7 +27,7 @@ export function WorkspaceNav({
       data-ph-public-label
       data-ph-public
       aria-label="Workspace"
-      className="-mx-3 mt-10 flex w-[calc(100%+1.5rem)] shrink-0 flex-wrap items-start gap-x-3 gap-y-1 lg:mt-13 lg:flex-col"
+      className="-mx-3 mt-6 flex w-[calc(100%+1.5rem)] shrink-0 flex-col items-start gap-1 lg:mt-13"
     >
       {destinations
         .filter(
@@ -36,8 +38,9 @@ export function WorkspaceNav({
             key={id}
             href={href}
             prefetch={true}
+            onNavigate={closeNavigation}
             aria-current={current === id ? "page" : undefined}
-            className={`${workspaceNavClass} max-lg:w-auto`}
+            className={workspaceNavClass}
           >
             <Icon name={icon} size={18} />
             <span

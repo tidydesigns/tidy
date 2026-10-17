@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import { chromium } from "playwright";
 import { testNavigationRecovery } from "./fixtures/navigation-recovery.mjs";
+import { testResponsiveNavigation } from "./fixtures/responsive-navigation.mjs";
 import { verifiedTestAccount } from "./fixtures/verified-test-account.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -216,6 +217,7 @@ try {
     await page.goto(`${base}/files`);
     await page.getByRole("button", { name: /Reject optional|Use essential storage/ }).click();
     await page.getByRole("heading", { name: "Files", exact: true }).waitFor();
+    await testResponsiveNavigation(page, base);
     await page.evaluate(() => {
       window.__navigationDocument = "original";
       document.querySelector("aside").dataset.navigationIdentity = "persistent";

@@ -101,13 +101,21 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     function open() {
-      if (!dialog.current || document.querySelector("dialog[open]")) return;
+      if (
+        !dialog.current ||
+        document.querySelector("dialog[open]:not([data-workspace-navigation])")
+      )
+        return;
       setError("");
       dialog.current.showModal();
       if (surveyId) posthog.capture("survey shown", { $survey_id: surveyId });
     }
     function shortcut(event: KeyboardEvent) {
-      if (!isFeedbackShortcut(event) || document.querySelector("dialog[open]")) return;
+      if (
+        !isFeedbackShortcut(event) ||
+        document.querySelector("dialog[open]:not([data-workspace-navigation])")
+      )
+        return;
       if (
         event.target instanceof Element &&
         event.target.closest(

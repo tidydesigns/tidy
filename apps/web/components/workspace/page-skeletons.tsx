@@ -23,6 +23,7 @@ import {
   threadsPage,
   workspaceFrame,
   workspaceSidebar,
+  workspaceMobileHeader,
   workspaceContent,
   memberList,
   memberRow,
@@ -100,7 +101,7 @@ function FilesLayoutSkeleton({ archived, folder }: { archived: boolean; folder: 
             {archived ? "Archive" : "Files"}
           </h1>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!archived && (
             <>
               <Block className="h-[42px] w-28" />
@@ -455,6 +456,13 @@ export function WorkspacePageSkeleton(options: SkeletonOptions = {}) {
 export function WorkspaceSkeleton({ showThreads = true, emailConfigured }: SkeletonOptions) {
   return (
     <div className={workspaceFrame}>
+      <div aria-hidden="true" className={workspaceMobileHeader}>
+        <TidyLogo />
+        <div className="inline-flex min-h-11 items-center gap-2 px-3 text-sm text-secondary-ink">
+          <Icon name="menu" />
+          <span data-ph-public>Menu</span>
+        </div>
+      </div>
       <aside aria-hidden="true" className={workspaceSidebar}>
         <div className="shrink-0">
           <TidyLogo />

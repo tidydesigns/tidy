@@ -16,6 +16,7 @@ const sources = {
   feedback: "/icons/iconoir/megaphone.svg",
   history: "/icons/iconoir/clock-rotate-right.svg",
   more: "/icons/iconoir/more-horiz.svg",
+  menu: "/icons/iconoir/menu.svg",
   zoomIn: "/icons/iconoir/zoom-in.svg",
   zoomOut: "/icons/iconoir/zoom-out.svg",
   xmark: "/icons/xmark.svg",

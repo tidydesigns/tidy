@@ -1,9 +1,8 @@
 import { Suspense, type ReactNode } from "react";
-import { workspaceFrame, workspaceSidebar, workspaceContent } from "./page-layout";
-import { NavigationLink as Link } from "@/components/ui/navigation-link";
+import { workspaceFrame, workspaceContent } from "./page-layout";
+import { WorkspaceNavigation } from "./workspace-navigation";
 import { WorkspaceNav } from "./workspace-nav";
 import { workspaceNavClass as navClass } from "./workspace-nav-style";
-import { TidyLogo } from "@/components/ui/tidy-logo";
 import { OrganizationSwitcher } from "./organization-switcher";
 import { OrganizationNamesProvider } from "./organization-names";
 import { UpgradeDialog } from "./upgrade-dialog";
@@ -44,20 +43,17 @@ export async function WorkspaceShell({
     <FeedbackProvider key={`${user.id}:${organizationId}`}>
       <OrganizationNamesProvider>
         <div className={workspaceFrame}>
-          <aside className={workspaceSidebar}>
-            <Link
-              data-ph-public
-              href="/files"
-              prefetch={true}
-              aria-label="Tidy files"
-              className="shrink-0 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black"
-            >
-              <TidyLogo />
-            </Link>
+          <a
+            href="#workspace-content"
+            className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-panel focus:px-4 focus:py-3 focus:text-ink focus:outline-2 focus:outline-accent"
+          >
+            Skip to content
+          </a>
+          <WorkspaceNavigation>
             <Suspense fallback={null}>
               <WorkspaceNav showThreads={agentsEnabled()} showVault={showVault} />
             </Suspense>
-            <div className="relative -mx-3 mt-6 flex w-[calc(100%+1.5rem)] max-w-70 shrink-0 flex-col gap-4 lg:mt-auto lg:pt-5">
+            <div className="relative -mx-3 mt-auto flex w-[calc(100%+1.5rem)] shrink-0 flex-col gap-4 pt-8 lg:max-w-70 lg:pt-5">
               <div className="flex w-full flex-col gap-1">
                 <SendFeedback showIcon className={navClass} />
                 {canUpgrade && billing.proLimits && (
@@ -78,8 +74,10 @@ export async function WorkspaceShell({
                 canCreateOrganization={creation.canCreateOrganization}
               />
             </div>
-          </aside>
-          <div className={workspaceContent}>{children}</div>
+          </WorkspaceNavigation>
+          <div id="workspace-content" tabIndex={-1} className={workspaceContent}>
+            {children}
+          </div>
         </div>
       </OrganizationNamesProvider>
     </FeedbackProvider>

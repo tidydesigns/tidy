@@ -54,6 +54,24 @@
   color-scheme: dark;
 }
 
+html:has(dialog[data-workspace-navigation][open]) {
+  overflow: hidden;
+}
+
+.workspace-navigation-dialog {
+  inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  scroll-padding-top: 5rem;
+  box-shadow: none;
+}
+
 .editor-panel {
   --editor-panel-duration: 220ms;
   --editor-panel-ease: cubic-bezier(0.32, 0.72, 0, 1);
