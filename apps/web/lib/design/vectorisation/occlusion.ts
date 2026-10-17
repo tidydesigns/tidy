@@ -2,7 +2,7 @@ import {
   serializeContours,
   type VectorContour,
   type VectorPoint,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 import { fitRasterShape, sampleRasterContour } from "./shape-fit";
 import type { RasterTrace } from "./contract";
 

@@ -3,17 +3,17 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "bella",
+      "name": "tidy",
       "devDependencies": {
         "oxfmt": "0.72.0",
         "turbo": "^2.8.20",
       },
     },
     "apps/extension": {
-      "name": "@bella/extension",
+      "name": "@tidy/extension",
       "version": "0.1.0",
       "dependencies": {
-        "@bella/design": "workspace:*",
+        "@tidy/design": "workspace:*",
         "@tidy/ui": "workspace:*",
         "react": "19.2.8",
         "react-dom": "19.2.8",
@@ -31,7 +31,7 @@
       "name": "@tidy/gpt-plugin",
       "version": "0.1.0",
       "dependencies": {
-        "@bella/design": "workspace:*",
+        "@tidy/design": "workspace:*",
         "@tidy/design-renderer": "workspace:*",
         "@tidy/ui": "workspace:*",
         "react": "19.2.8",
@@ -68,10 +68,10 @@
       },
     },
     "apps/web": {
-      "name": "@bella/web",
+      "name": "@tidy/web",
       "version": "0.1.0",
       "dependencies": {
-        "@bella/design": "workspace:*",
+        "@tidy/design": "workspace:*",
         "@better-auth/cimd": "1.7.7",
         "@better-auth/core": "1.7.7",
         "@better-auth/mcp": "1.7.7",
@@ -116,7 +116,7 @@
       },
     },
     "packages/design": {
-      "name": "@bella/design",
+      "name": "@tidy/design",
       "version": "0.1.0",
       "dependencies": {
         "fflate": "0.8.3",
@@ -135,7 +135,7 @@
       "name": "@tidy/design-renderer",
       "version": "0.1.0",
       "dependencies": {
-        "@bella/design": "workspace:*",
+        "@tidy/design": "workspace:*",
         "react": "19.2.8",
       },
       "devDependencies": {
@@ -325,11 +325,11 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@bella/design": ["@bella/design@workspace:packages/design"],
+    "@tidy/design": ["@tidy/design@workspace:packages/design"],
 
-    "@bella/extension": ["@bella/extension@workspace:apps/extension"],
+    "@tidy/extension": ["@tidy/extension@workspace:apps/extension"],
 
-    "@bella/web": ["@bella/web@workspace:apps/web"],
+    "@tidy/web": ["@tidy/web@workspace:apps/web"],
 
     "@better-auth/cimd": ["@better-auth/cimd@1.7.7", "", { "peerDependencies": { "@better-auth/core": "^1.7.7", "@better-auth/oauth-provider": "^1.7.7", "better-auth": "^1.7.7", "better-call": "1.4.0" } }, "sha512-jFSuQ3B77usVZbPxqDdsDgd78Gy8ZwwLxAyfDJwZrvmSyDMB0Qt9rHba6chBXjvXsyiaItmdWeF/hlhbl6S1Zg=="],
 

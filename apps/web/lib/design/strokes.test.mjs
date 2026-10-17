@@ -18,7 +18,7 @@ import { DocumentPreview } from "@/app/files/thumbnail-renderer";
 import { DesignSnapshot } from "@/components/github/design-snapshot";
 import { TidyDesign } from "./code-runtime";
 import { FillInspector } from "@/app/files/[uid]/fill-inspector";
-import { webCaptureSchema } from "@bella/design/web-capture";
+import { webCaptureSchema } from "@tidy/design/web-capture";
 const base = buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 100, height: 100 });
 const solid = (id, color, opacity = 1) => ({ id, type: "solid", color, opacity, visible: true });
 

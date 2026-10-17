@@ -37,7 +37,7 @@ export function bindingPath(binding: TokenBinding) {
 
 // Index the fixed binding/property relationships once, including path ancestors
 // (e.g. "style" excludes all style properties). Preserve declaration order and
-// duplicates exactly as the former scan did; only the lookup work changes.
+// duplicates.
 const exclusionGroups = (Object.keys(bindingKinds) as TokenBinding[]).map((binding) => [
   `tokenBindings.${binding}`,
   ...(binding === "textStyle"

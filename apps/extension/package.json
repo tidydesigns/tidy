@@ -1,5 +1,5 @@
 {
-  "name": "@bella/extension",
+  "name": "@tidy/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
     "postinstall": "wxt prepare"
   },
   "dependencies": {
-    "@bella/design": "workspace:*",
+    "@tidy/design": "workspace:*",
     "@tidy/ui": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8"

@@ -1,5 +1,5 @@
 {
-  "name": "bella",
+  "name": "tidy",
   "private": true,
   "packageManager": "bun@1.3.14",
   "workspaces": [
@@ -7,13 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --filter=@bella/web",
+    "dev": "turbo run dev --filter=@tidy/web",
     "dev:site": "turbo run dev --filter=@tidy/site",
-    "dev:extension": "turbo run dev --filter=@bella/extension",
+    "dev:extension": "turbo run dev --filter=@tidy/extension",
     "build": "turbo run build",
-    "build:web": "turbo run build --filter=@bella/web",
+    "build:web": "turbo run build --filter=@tidy/web",
     "build:site": "turbo run build --filter=@tidy/site",
-    "build:extension": "turbo run build --filter=@bella/extension",
+    "build:extension": "turbo run build --filter=@tidy/extension",
     "build:worker": "bun run --cwd apps/web build:worker",
     "deploy:worker": "bun run --cwd apps/web deploy:worker",
     "preview:worker": "bun run --cwd apps/web preview:worker",
@@ -64,7 +64,10 @@
     "test:worker-source-maps": "node apps/web/scripts/test-worker-source-maps.mjs",
     "test:browser": "bun run --cwd apps/web test:browser",
     "test:browser:install": "bun run --cwd apps/web browser:install",
-    "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs"
+    "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs",
+    "test:prototypes:local": "bun apps/web/scripts/run-prototype-browser.ts",
+    "test:versions:local": "bun apps/web/scripts/run-file-version-history.ts",
+    "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

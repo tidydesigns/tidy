@@ -1,7 +1,7 @@
 import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { documentAssetIds } from "@bella/design/document";
+import { documentAssetIds } from "@tidy/design/document";
 import { getDocument } from "@/lib/design/document-service";
 import { getFileImage } from "@/lib/design/file-image";
 import { packagePreviewFonts } from "@/lib/design/visual-preview-fonts";
@@ -89,7 +89,7 @@ export function registerVisualTools(server: McpServer, userId: string, backend =
             selfContained: true,
             maxHtmlBytes: 512000,
           },
-          next: "Call T3 html_preview with html at width 728 and 390. Inspect warnings and consoleMessages before html_render; use its contentHeight (80–2000). Re-export after revision-checked Tidy edits. This is a private snapshot; sharing the HTML shares its embedded design assets.",
+          next: "Call T3 html_preview with html at widths of 728 and 390 pixels. Inspect warnings and consoleMessages. Use the returned contentHeight, between 80 and 2,000 pixels, when calling html_render. Check the current revision before editing the design, then export it again. Sharing the HTML also shares its embedded private design assets.",
         };
         return {
           content: [{ type: "text" as const, text: JSON.stringify(value) }],

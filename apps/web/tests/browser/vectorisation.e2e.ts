@@ -4,7 +4,7 @@ import sharp from "sharp";
 import type { Page } from "playwright";
 import { test, required, expect } from "./fixtures";
 import { measureRasterTrace } from "../../lib/design/vectorisation/quality";
-import { parsePathContours } from "@bella/design/vector-geometry";
+import { parsePathContours } from "@tidy/design/vector-geometry";
 import {
   generalRasterFixtures,
   gradientRasterFixtures,

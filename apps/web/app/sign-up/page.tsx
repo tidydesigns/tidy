@@ -8,7 +8,7 @@ import { enabledSocialProviders } from "@/lib/auth-social";
 import { authEmailConfigured } from "@/lib/auth-email";
 
 export const metadata: Metadata = {
-  title: "Create an account — Tidy",
+  title: "Create a Tidy account",
   description: "Create an account to start designing in Tidy.",
   robots: { index: false },
 };

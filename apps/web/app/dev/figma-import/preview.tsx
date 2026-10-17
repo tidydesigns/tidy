@@ -4,8 +4,8 @@ import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { NewFileButton } from "@/app/files/new-file-button";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
-import { parseDesignDocument, type DesignDocument } from "@bella/design/document";
-import type { FigmaImport } from "@bella/design/figma";
+import { parseDesignDocument, type DesignDocument } from "@tidy/design/document";
+import type { FigmaImport } from "@tidy/design/figma";
 import { readLocalDraft, writeLocalDraft, type LocalDraft } from "./draft";
 
 export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {

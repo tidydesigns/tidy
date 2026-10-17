@@ -32,7 +32,7 @@ const nextConfig: NextConfig = {
   // PostHog sends trailing-slash API requests; forward them without a redirect.
   skipTrailingSlashRedirect: true,
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
-  transpilePackages: ["@bella/design", "@tidy/design-renderer", "@tidy/ui", "@tidy/gpt-plugin"],
+  transpilePackages: ["@tidy/design", "@tidy/design-renderer", "@tidy/ui", "@tidy/gpt-plugin"],
   turbopack: { root: path.join(import.meta.dirname, "../..") },
   images: { unoptimized: true },
   async headers() {

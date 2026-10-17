@@ -5,7 +5,7 @@ import {
   remapComponentVariants,
 } from "./component-variants";
 import * as z from "zod";
-import { remapInteractions } from "@bella/design/prototype";
+import { remapInteractions } from "@tidy/design/prototype";
 import {
   blankDesignDocument,
   designNodeSchema,

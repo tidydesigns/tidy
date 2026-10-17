@@ -8,7 +8,7 @@ import {
   createVectorMask,
   releaseVectorComposite,
 } from "./vector-composite-operations";
-import { booleanRenderNode, vectorBooleanPath } from "@bella/design/vector-boolean";
+import { booleanRenderNode, vectorBooleanPath } from "@tidy/design/vector-boolean";
 import { vectorMaskSvg, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
 import { vectorImageStyle, vectorSvg } from "./vector-path";
 import { editLayers } from "./edit-document";

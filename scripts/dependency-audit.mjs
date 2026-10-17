@@ -25,14 +25,14 @@ for (const [name, advisories] of Object.entries(report)) {
         "fast-glob",
         "@next/eslint-plugin-next",
         "eslint-config-next",
-        "@bella/web",
+        "@tidy/web",
         "@tidy/site",
       ]);
       toolingOnly =
         why.status === 0 &&
         consumers.length > 0 &&
         consumers.every((consumer) => allowed.has(consumer)) &&
-        why.stdout.includes("dev @bella/web@workspace") &&
+        why.stdout.includes("dev @tidy/web@workspace") &&
         why.stdout.includes("dev @tidy/site@workspace");
     }
     console.info(

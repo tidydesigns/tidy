@@ -2,7 +2,7 @@ import { Client } from "pg";
 import { writeFile } from "node:fs/promises";
 import { cpus, platform, arch } from "node:os";
 import { designNodeSchema, blankDesignDocument } from "../design/document";
-import { linearReadFixture } from "./linear-read-fixture.mjs";
+import { linearReadFixture } from "./linear-read-fixture.ts";
 
 // Called only inside the disposable PostgreSQL harness. All HTTP calls go to
 // loopback; the same authenticated POST handler serves both protocol revisions.

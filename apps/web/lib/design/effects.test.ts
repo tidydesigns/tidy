@@ -8,14 +8,14 @@ import {
   effectStyle,
   shadowStyle,
   moveEffect,
-} from "@bella/design/effects";
+} from "@tidy/design/effects";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
 import { DocumentPreview } from "@/app/files/thumbnail-renderer";
 import { DesignSnapshot } from "@/components/github/design-snapshot";
 import { TidyDesign } from "./code-runtime";
 import { nodeStyle } from "./node-style";
 import { scaleLayers } from "./layout-operations";
-import { webCaptureSchema } from "@bella/design/web-capture";
+import { webCaptureSchema } from "@tidy/design/web-capture";
 
 const frame = {
   ...buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 200, height: 200 }),
@@ -45,6 +45,7 @@ test("ordered effects and shadow visibility agree in shared renderers and surviv
       content: after,
       frameId: "frame",
       selectedNode: null,
+      onSelect: () => {},
     }),
     createElement(TidyDesign, { document: after, rootId: "frame", assets: {} }),
   ]) {
@@ -64,5 +65,5 @@ test("ordered effects and shadow visibility agree in shared renderers and surviv
   });
   expect(parseDesignDocument(JSON.parse(JSON.stringify(capture.document)))).toEqual(after);
   const scaled = scaleLayers(after, ["frame"], 2);
-  expect(scaled.nodes[0].style.effects.map((effect) => effect.amount)).toEqual([8, 80, 120]);
+  expect(scaled.nodes[0].style.effects?.map((effect) => effect.amount)).toEqual([8, 80, 120]);
 });

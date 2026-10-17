@@ -26,6 +26,11 @@ const tokenSchema = z.object({
   scope: z.union([z.string(), z.array(z.string())]),
 });
 export type LinearToken = z.infer<typeof tokenSchema>;
+export function parseLinearToken(value: unknown): LinearToken {
+  const token = tokenSchema.safeParse(value);
+  if (!token.success) throw new LinearError(401);
+  return token.data;
+}
 export function tokenScopes(token: LinearToken) {
   return Array.isArray(token.scope) ? token.scope : token.scope.split(/[ ,]+/).filter(Boolean);
 }
@@ -57,11 +62,11 @@ export async function exchangeToken(parameters: Record<string, string>) {
   if (!token.success || !tokenScopes(token.data).includes("read")) throw new LinearError(401);
   return token.data;
 }
-export async function linearRequest<T>(
+export async function linearRequest(
   token: string,
   query: string,
   variables: Record<string, unknown> = {},
-): Promise<T> {
+): Promise<unknown> {
   const signal = linearRequestSignal();
   const response = await waitForSignal(
     fetch("https://api.linear.app/graphql", {
@@ -78,10 +83,23 @@ export async function linearRequest<T>(
     void response.body?.cancel().catch(() => {});
     throw new LinearError(response.status);
   }
-  const body = JSON.parse(await readLimited(response, 1024 * 1024, signal, consumeLinearBytes)) as {
-    data?: T;
-    errors?: { extensions?: { code?: string } }[];
-  };
+  const text = await readLimited(response, 1024 * 1024, signal, consumeLinearBytes);
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    throw new LinearError(502);
+  }
+  const envelope = z
+    .object({
+      data: z.unknown().optional(),
+      errors: z
+        .array(z.object({ extensions: z.object({ code: z.string().optional() }).optional() }))
+        .optional(),
+    })
+    .safeParse(raw);
+  if (!envelope.success) throw new LinearError(502);
+  const body = envelope.data;
   if (body.errors?.length || !body.data) {
     const codes = body.errors?.map((error) => error.extensions?.code);
     throw new LinearError(
@@ -95,6 +113,11 @@ export async function linearRequest<T>(
     );
   }
   return body.data;
+}
+export function parseLinearResponse<T>(schema: z.ZodType<T>, value: unknown): T {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success) throw new LinearError(502);
+  return parsed.data;
 }
 export async function linearIdentity(token: string) {
   const schema = z.object({

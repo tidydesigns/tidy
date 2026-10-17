@@ -3,7 +3,7 @@ import sharp from "sharp";
 import { traceRaster } from "./trace";
 import { rasterShapeFixtures, rasterShapeSvg } from "./fixtures";
 import { recoverRasterOcclusion } from "./occlusion";
-import { serializeContours } from "@bella/design/vector-geometry";
+import { serializeContours } from "@tidy/design/vector-geometry";
 import type { RasterTrace } from "./contract";
 
 test("opaque recovery sorts within translucent barriers without changing compositing order", () => {

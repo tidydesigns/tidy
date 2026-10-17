@@ -12,7 +12,12 @@ import {
 } from "./store";
 import { AgentError, type StartRun } from "./protocol";
 import { agentTools, checkToolScope, filterDiscovery } from "./tools";
-import type { ExecutionRequest, ExecutionRun, ExecutionWorker } from "./execution-protocol";
+import {
+  executionRunSchema,
+  type ExecutionRequest,
+  type ExecutionRun,
+  type ExecutionWorker,
+} from "./execution-protocol";
 
 type Run = {
   id: string;
@@ -172,12 +177,14 @@ export async function claimExecution(runnerId: string): Promise<ExecutionRun | n
         )
       ).rows[0];
       await appendThreadEvent(client, run.threadId, "run.started", { runId: run.id });
-      const workers = (
-        await client.query<ExecutionWorker>(
-          `select "id","parentId","name","task","runtimeThreadId" from "agentWorker" where "runId"=$1 order by "parentId" nulls first`,
-          [run.id],
-        )
-      ).rows;
+      const workers = executionRunSchema.shape.workers.parse(
+        (
+          await client.query<ExecutionWorker>(
+            `select "id","parentId","name","task","runtimeThreadId" from "agentWorker" where "runId"=$1 order by "parentId" nulls first`,
+            [run.id],
+          )
+        ).rows,
+      );
       const messages = (
         await client.query<ExecutionRun["messages"][number]>(
           `select m."kind",m."content",coalesce(u."name",w."name",'Tidy') as "authorName" from "agentMessage" m

@@ -2,8 +2,8 @@ import { mcpSchema } from "@/lib/mcp/schema";
 import { mcpToolPolicy } from "@/lib/mcp/tool-policy";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { designNodeSchema } from "@bella/design/document";
-import { MAX_CAPTURE_BYTES, webCaptureSchema } from "@bella/design/web-capture";
+import { designNodeSchema } from "@tidy/design/document";
+import { MAX_CAPTURE_BYTES, webCaptureSchema } from "@tidy/design/web-capture";
 import { browserCaptureScript, browserCaptureSourceHash } from "./browser-capture.generated";
 import { importWebCapture } from "@/lib/design/web-capture-service";
 import type { McpActivity } from "./activity";
@@ -110,7 +110,7 @@ export function registerImportTools(
     {
       ...mcpToolPolicy("import_web_capture"),
       description:
-        "Import an already captured rendered page from get_browser_capture_script or the extension (editable nodes and raster assets). Does not browse a URL or accept HTML. Appends a new copy on EVERY call; do not blindly retry after a timeout—check list_files/get_document first. For retry-safe publishing use the staged import tools. Read get_import_guidance first.",
+        "Import an already captured rendered page from get_browser_capture_script or the extension (editable nodes and raster assets). Does not browse a URL or accept HTML. Each call creates a new copy. If a request times out, use list_files or get_document to check whether it succeeded before retrying. For retry-safe publishing use the staged import tools. Read get_import_guidance first.",
       inputSchema: mcpSchema("import_web_capture", () =>
         z.object({
           organization_id: z.string().min(1),

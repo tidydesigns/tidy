@@ -34,8 +34,12 @@ test("grid tracks and child spans survive validation, patches, and one-step undo
   expect(childStyle.width).toBe("100%");
   const thumbnail = renderToStaticMarkup(
     createElement(ThumbnailRenderer, {
-      fileId: "grid-file",
-      snapshot: { document: { content: document }, frames: [], rectangles: [] },
+      signal: new AbortController().signal,
+      onComplete: () => {},
+      onError: (error) => {
+        throw error;
+      },
+      snapshot: { document: { content: document, revision: 1 }, frames: [], rectangles: [] },
     }),
   );
   const review = renderToStaticMarkup(

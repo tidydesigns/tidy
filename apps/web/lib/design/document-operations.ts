@@ -1,4 +1,4 @@
-import { remapInteractions } from "@bella/design/prototype";
+import { remapInteractions } from "@tidy/design/prototype";
 import { nodePageId, parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
 import {
   componentSubtreeIds,

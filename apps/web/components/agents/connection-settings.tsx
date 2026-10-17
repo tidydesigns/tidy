@@ -2,12 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import type { ConnectionStatus } from "@/lib/agents/protocol";
+import {
+  connectionStatusSchema,
+  nativeLoginSchema,
+  agentOkSchema,
+  type ConnectionStatus,
+  type NativeLogin,
+} from "@/lib/agents/protocol";
+import { readJsonResponse } from "@/lib/http/json-response";
 
-type Login = { loginId: string; verificationUrl: string; userCode: string };
 export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus }) {
   const [connection, setConnection] = useState(initial);
-  const [login, setLogin] = useState<Login | null>(null);
+  const [login, setLogin] = useState<NativeLogin | null>(null);
   const [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   useEffect(() => {
@@ -16,23 +22,25 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     let timer: ReturnType<typeof setTimeout>;
     const started = Date.now();
     const poll = async () => {
+      if (Date.now() - started > 10 * 60_000) {
+        setLogin(null);
+        setError("Sign-in expired. Connect again to get a new code.");
+        return;
+      }
       try {
         const response = await fetch("/api/agents/connection", {
           method: "PATCH",
           signal: controller.signal,
         });
-        const data = (await response.json()) as ConnectionStatus;
+        const data = await readJsonResponse({
+          response,
+          schema: connectionStatusSchema,
+          message: "Could not check Codex connection.",
+        });
         if (controller.signal.aborted) return;
-        if (response.ok) {
-          setConnection(data);
-          if (data.status === "connected") {
-            setLogin(null);
-            return;
-          }
-        }
-        if (Date.now() - started > 10 * 60_000) {
+        setConnection(data);
+        if (data.status === "connected") {
           setLogin(null);
-          setError("Sign-in expired. Connect again to get a new code.");
           return;
         }
       } catch {
@@ -51,8 +59,11 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     setError("");
     try {
       const response = await fetch("/api/agents/connection", { method: "POST" });
-      const data = (await response.json()) as Login & { error?: string };
-      if (!response.ok) throw new Error(data.error);
+      const data = await readJsonResponse({
+        response,
+        schema: nativeLoginSchema,
+        message: "Could not connect Codex.",
+      });
       setLogin(data);
       setConnection((current) => ({ ...current, status: "connecting" }));
     } catch (error) {
@@ -66,7 +77,7 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     setError("");
     try {
       const response = await fetch("/api/agents/connection", { method: "DELETE" });
-      if (!response.ok) throw new Error(((await response.json()) as { error?: string }).error);
+      await readJsonResponse({ response, schema: agentOkSchema, message: "Could not disconnect." });
       setLogin(null);
       setConnection((current) => ({ ...current, status: "disconnected", accountLabel: null }));
     } catch (error) {
@@ -82,7 +93,8 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
           Codex
         </h2>
         <p data-ph-public className="mt-2 text-sm leading-6 text-secondary-ink">
-          Use your Codex subscription for shared design threads. Your connection stays personal.
+          Use your Codex subscription for shared design threads. Other workspace members need their
+          own Codex connection to start runs.
         </p>
       </div>
       {connection.status === "connected" ? (

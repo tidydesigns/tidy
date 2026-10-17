@@ -1,5 +1,5 @@
 import { verifyRasterTrace } from "./quality";
-import { imageAdjustmentFilter, hasImageAdjustments } from "@bella/design/image-adjustments";
+import { imageAdjustmentFilter, hasImageAdjustments } from "@tidy/design/image-adjustments";
 import type { DesignNode } from "../document";
 import { imageViewport } from "../image-viewport";
 import {

@@ -49,7 +49,7 @@ for workspace validation.
    complete Tidy sign-in and consent. A normal logged-in browser session alone is
    not enough for MCP authorization.
 4. Ask ChatGPT to create a screen in Tidy and call `preview_design` after committing
-   it. For example: “Create an onboarding screen in Tidy and show it here.”
+   it. For example: "Create an onboarding screen in Tidy and show it here."
 5. Check follow-up edits, frame selection, refresh, and **Open in Tidy**. After tool
    or UI changes, refresh the MCP connection metadata and start a new conversation.
 

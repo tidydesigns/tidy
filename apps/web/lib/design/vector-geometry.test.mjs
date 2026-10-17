@@ -8,7 +8,7 @@ import {
   moveVectorPoint,
   splitVectorSegment,
   setVectorPointMode,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 import {
   blankDesignDocument,
   buildDrawnNode,

@@ -1,4 +1,4 @@
-import type { DesignDocument } from "@bella/design/document";
+import type { DesignDocument } from "@tidy/design/document";
 
 export type VisualPreviewState = "default" | "hover" | "pressed" | "focus" | "disabled";
 export type VisualPreviewView = {

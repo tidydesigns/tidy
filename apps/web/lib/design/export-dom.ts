@@ -1,7 +1,7 @@
 import type { DesignDocument, DesignNode } from "./document";
-import { authoredPathBounds, booleanRenderNode } from "@bella/design/vector-boolean";
+import { authoredPathBounds, booleanRenderNode } from "@tidy/design/vector-boolean";
 import { strokeOutsets } from "./strokes";
-import { nodeEffects, parseCssShadows } from "@bella/design/effects";
+import { nodeEffects, parseCssShadows } from "@tidy/design/effects";
 import {
   matrixMultiply,
   transformedExportBounds,

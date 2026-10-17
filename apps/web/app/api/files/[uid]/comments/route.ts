@@ -1,7 +1,6 @@
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
-import { z } from "zod";
-import { COMMENT_EMOJIS } from "@/lib/design/comment-emoji";
+import { commentMutationSchema } from "@/lib/design/comment-contract";
 import { auth } from "@/lib/auth";
 import {
   CommentCapacityError,
@@ -42,30 +41,13 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
 }
 
 // Stable URLs keep long-lived editor tabs independent of build-specific Server Action IDs.
-const id = z.string().min(1).max(120);
-const body = z.string().trim().min(1).max(2000);
-const mutationSchema = z.discriminatedUnion("action", [
-  z.object({
-    action: z.literal("create"),
-    x: z.number().int().min(-100000).max(100000),
-    y: z.number().int().min(-100000).max(100000),
-    body,
-    pageId: id,
-  }),
-  z.object({ action: z.literal("reply"), threadId: id, body }),
-  z.object({ action: z.literal("edit"), messageId: id, previousBody: z.string().max(2000), body }),
-  z.object({ action: z.literal("delete"), threadId: id }),
-  z.object({ action: z.literal("react"), messageId: id, emoji: z.enum(COMMENT_EMOJIS) }),
-  z.object({ action: z.literal("resolve"), threadId: id, resolved: z.boolean() }),
-]);
-
 async function post(request: Request, { params }: RouteContext<"/api/files/[uid]/comments">) {
   if (request.headers.get("origin") !== new URL(request.url).origin) {
     return Response.json({ error: "Comment requests must come from this site." }, { status: 403 });
   }
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "Sign in to comment." }, { status: 401 });
-  const input = mutationSchema.safeParse(await request.json().catch(() => null));
+  const input = commentMutationSchema.safeParse(await request.json().catch(() => null));
   if (!input.success) return Response.json({ error: "Invalid comment request." }, { status: 400 });
   const { uid } = await params;
   const userId = session.user.id;
@@ -91,6 +73,10 @@ async function post(request: Request, { params }: RouteContext<"/api/files/[uid]
       case "resolve":
         await setCommentThreadResolved(uid, data.threadId, userId, data.resolved);
         break;
+      default: {
+        const exhaustive: never = data;
+        throw new Error(`Unhandled comment action: ${exhaustive}`);
+      }
     }
     return Response.json(createdId ? { id: createdId } : {}, {
       headers: { "Cache-Control": "private, no-store" },

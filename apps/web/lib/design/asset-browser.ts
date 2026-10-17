@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { getDesignFile } from "./service";
+import { assetCursorSchema, browserAssetSchema } from "./asset-contract";
 
 export async function listFileAssets(userId: string, fileId: string, cursor?: string | null) {
   const file = await getDesignFile(userId, fileId);
@@ -8,15 +9,8 @@ export async function listFileAssets(userId: string, fileId: string, cursor?: st
   if (cursor) {
     try {
       if (cursor.length > 400) throw new Error();
-      const value = JSON.parse(Buffer.from(cursor, "base64url").toString());
-      if (
-        typeof value.id !== "string" ||
-        !/^[0-9a-f-]{36}$/i.test(value.id) ||
-        typeof value.createdAt !== "string" ||
-        !Number.isFinite(Date.parse(value.createdAt))
-      )
-        throw new Error();
-      after = value;
+      const value: unknown = JSON.parse(Buffer.from(cursor, "base64url").toString());
+      after = assetCursorSchema.parse(value);
     } catch {
       throw new Error("Invalid asset cursor.");
     }
@@ -24,7 +18,7 @@ export async function listFileAssets(userId: string, fileId: string, cursor?: st
   const result = await db.query<{
     id: string;
     mimeType: string;
-    byteSize: number;
+    byteSize: string | number;
     createdAt: string;
   }>(
     `select a."id", a."mimeType", coalesce(a."byteSize", octet_length(a."body")) as "byteSize", a."createdAt"::text as "createdAt" from "designAsset" a
@@ -36,11 +30,13 @@ export async function listFileAssets(userId: string, fileId: string, cursor?: st
   const rows = result.rows.slice(0, 50),
     last = rows.at(-1);
   return {
-    assets: rows.map((row) => ({
-      assetId: row.id,
-      mimeType: row.mimeType,
-      byteSize: row.byteSize,
-    })),
+    assets: rows.map((row) =>
+      browserAssetSchema.parse({
+        assetId: row.id,
+        mimeType: row.mimeType,
+        byteSize: row.byteSize,
+      }),
+    ),
     nextCursor:
       result.rows.length > 50 && last
         ? Buffer.from(JSON.stringify({ createdAt: last.createdAt, id: last.id })).toString(

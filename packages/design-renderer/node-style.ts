@@ -1,7 +1,7 @@
 import { strokeStyle } from "./strokes";
-import { effectCss, shadowCss } from "@bella/design/effects";
+import { effectCss, shadowCss } from "@tidy/design/effects";
 import type { CSSProperties } from "react";
-import type { DesignNode } from "@bella/design/document";
+import type { DesignNode } from "@tidy/design/document";
 import { nodeBackgroundPaint, paintBackground } from "./paints";
 import { constraintStyle } from "./constraints";
 import { renderFontFamily } from "./font-family";

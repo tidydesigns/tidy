@@ -10,26 +10,8 @@ import { COMMENT_EMOJIS } from "@/lib/design/comment-emoji";
 import { documentPages } from "@/lib/design/pages";
 import type { DesignDocument } from "@/lib/design/document";
 
-export type CommentReaction = { emoji: string; count: number; reacted: boolean };
-export type CommentMessage = {
-  id: string;
-  authorId: string;
-  authorName: string;
-  authorImage: string | null;
-  body: string;
-  createdAt: string;
-  reactions: CommentReaction[];
-};
-export type CommentThread = {
-  id: string;
-  pageId: string;
-  x: number;
-  y: number;
-  createdBy: string;
-  resolved: boolean;
-  messages: CommentMessage[];
-  preview?: Pick<CommentMessage, "authorName" | "authorImage" | "body">;
-};
+import type { CommentReaction, CommentThread } from "./comment-contract";
+export type { CommentReaction, CommentMessage, CommentThread } from "./comment-contract";
 
 function cleanBody(body: string) {
   const value = body.trim();

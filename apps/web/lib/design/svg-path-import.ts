@@ -1,5 +1,5 @@
 import { designNodeSchema, type DesignNode } from "./document";
-import { parsePathContours, serializeContours } from "@bella/design/vector-geometry";
+import { parsePathContours, serializeContours } from "@tidy/design/vector-geometry";
 
 type Imported = Pick<DesignNode, "vectorPath" | "style">;
 export type SvgImportResult =

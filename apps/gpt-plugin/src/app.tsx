@@ -64,6 +64,7 @@ export function App() {
       ? selected?.rootId
       : preview?.selectedRootId;
   const root = preview?.roots.find((root) => root.id === rootId);
+  const node = preview?.document.nodes.find((node) => node.id === root?.id);
   async function refresh() {
     if (!preview || refreshing) return;
     const fileId = preview.fileId;
@@ -83,7 +84,8 @@ export function App() {
       if (!next) throw new Error("The preview response could not be read.");
       setPreview((previous) => acceptPreview(previous, next, fileId));
     } catch (error) {
-      if (current.current?.fileId === fileId) setError((error as Error).message);
+      if (current.current?.fileId === fileId)
+        setError(error instanceof Error ? error.message : "Could not refresh the design.");
     } finally {
       setRefreshing(false);
     }
@@ -143,8 +145,13 @@ export function App() {
         </p>
       )}
       {preview && !root && <p className="message">This file has no visible layers.</p>}
-      {preview && root && (
-        <PreviewCanvas key={`${preview.fileId}/${root.id}`} preview={preview} root={root} />
+      {preview && root && node && (
+        <PreviewCanvas
+          key={`${preview.fileId}/${root.id}`}
+          preview={preview}
+          root={root}
+          node={node}
+        />
       )}
     </main>
   );
@@ -153,14 +160,15 @@ export function App() {
 function PreviewCanvas({
   preview,
   root,
+  node,
 }: {
   preview: DesignPreview;
   root: DesignPreview["roots"][number];
+  node: DesignPreview["document"]["nodes"][number];
 }) {
   const canvas = useRef<HTMLDivElement>(null),
     design = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(640);
-  const node = preview.document.nodes.find((node) => node.id === root.id)!;
   const [size, setSize] = useState({
     width: node.widthMode === "hug" ? 360 : root.width,
     height: root.height,

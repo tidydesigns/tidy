@@ -1,4 +1,4 @@
-import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
+import { DESIGN_DOCUMENT_LIMITS } from "@tidy/design/document-limits";
 /** Hosted resource safety ceilings, independent of paid editing/file allowances. */
 export const IMPORT_LIMITS = {
   recordsPerOrganization: 100,

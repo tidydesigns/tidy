@@ -1,5 +1,5 @@
 "use client";
-import type { TextContent } from "@bella/design/rich-text";
+import type { TextContent } from "@tidy/design/rich-text";
 
 import { memo, useCallback, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
 import type { DesignNode } from "@/lib/design/document";

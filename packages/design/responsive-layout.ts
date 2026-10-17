@@ -12,7 +12,7 @@ export function responsiveNode(node: DesignNode, frameWidth: number): DesignNode
     const { id: _id, frameMaxWidth: _frameMaxWidth, ...changes } = breakpoint;
     void _id;
     void _frameMaxWidth;
-    // Undefined is the editor's “Inherit” value, including before a JSON round trip.
+    // Undefined is the editor's "Inherit" value, including before a JSON round trip.
     result = {
       ...result,
       ...Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined)),

@@ -1,5 +1,5 @@
 import { defineConfig } from "wxt";
-import { EXTENSION_KEY } from "@bella/design/extension";
+import { EXTENSION_KEY } from "@tidy/design/extension";
 import { appOrigin } from "./lib/app-origin";
 import { createHash } from "node:crypto";
 import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";

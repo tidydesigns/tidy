@@ -1,24 +1,23 @@
-import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const web = join(root, "apps/web");
-const temporary = await mkdtemp(join(tmpdir(), "tidy-authenticated-acceptance-"));
-const container = `tidy-acceptance-${crypto.randomUUID()}`;
-const database = "postgres://tidy_test:tidy_local@127.0.0.1:55449/tidy_acceptance";
-const app = "http://localhost:3045",
-  proxy = "http://localhost:3046";
+const temporary = await mkdtemp(join(tmpdir(), "tidy-prototypes-"));
+const container = `tidy-prototypes-${crypto.randomUUID()}`;
+const database = "postgres://tidy_test:tidy_local@127.0.0.1:55442/tidy_prototypes_test";
+const app = "http://localhost:3042";
 const secret = "tidy-disposable-acceptance-local-secret-only";
-const children = [];
-const log = async (name) => {
+const children: ChildProcess[] = [];
+const log = async (name: string) => {
   const { open } = await import("node:fs/promises");
   return open(join(temporary, `${name}.log`), "w");
 };
-const run = (command, args, options = {}) =>
-  new Promise((resolve, reject) => {
+const run = (command: string, args: string[], options: SpawnOptions = {}) =>
+  new Promise<void>((resolve, reject) => {
     const child = spawn(command, args, { cwd: root, stdio: "inherit", ...options });
     child.on("error", reject);
     child.on("exit", (code) =>
@@ -29,16 +28,17 @@ const env = {
   ...process.env,
   DATABASE_URL: database,
   MULTIPLAYER_TEST_DATABASE_URL: database,
+  PROTOTYPE_TEST_DATABASE_URL: database,
   BETTER_AUTH_URL: app,
   BETTER_AUTH_SECRET: secret,
-  BELLA_REALTIME_URL: "http://localhost:8845",
+  BELLA_REALTIME_URL: "http://localhost:8842",
   NEXT_PUBLIC_POSTHOG_HOST: "http://127.0.0.1:9",
   POSTHOG_API_KEY: "",
   POSTHOG_UPLOAD_SOURCEMAPS: "0",
   POSTHOG_HOST: "http://127.0.0.1:9",
   TIDY_AGENTS_ENABLED: "false",
 };
-const waitFor = async (url) => {
+const waitFor = async (url: string) => {
   const deadline = Date.now() + 60_000;
   for (;;) {
     if (children.some((child) => child.exitCode !== null))
@@ -46,9 +46,7 @@ const waitFor = async (url) => {
     try {
       await fetch(url, { signal: AbortSignal.timeout(2000) });
       return;
-    } catch {
-      /* Starting. */
-    }
+    } catch {}
     if (Date.now() > deadline) throw new Error(`Local test server did not start: ${url}`);
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -60,13 +58,13 @@ try {
     "--name",
     container,
     "-e",
-    "POSTGRES_DB=tidy_acceptance",
+    "POSTGRES_DB=tidy_prototypes_test",
     "-e",
     "POSTGRES_USER=tidy_test",
     "-e",
     "POSTGRES_PASSWORD=tidy_local",
     "-p",
-    "127.0.0.1:55449:5432",
+    "127.0.0.1:55442:5432",
     "postgres:17",
   ]);
   const ready = Date.now() + 30_000;
@@ -83,7 +81,7 @@ try {
           "-U",
           "tidy_test",
           "-d",
-          "tidy_acceptance",
+          "tidy_prototypes_test",
         ],
         { stdio: "ignore" },
       );
@@ -94,16 +92,18 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   await run("node", ["apps/web/scripts/setup-multiplayer-local.mjs"], { env });
-  await run("bun", ["test", "apps/web/lib/realtime/commands.integration.test.mjs"], { env });
+  await run("bun", ["test", "apps/web/lib/realtime/commands.integration.test.mjs"], {
+    env: { ...env, BELLA_REALTIME_URL: "" },
+  });
   const vars = join(temporary, "worker.env");
   await writeFile(
     vars,
-    `DATABASE_URL=${database}\nBETTER_AUTH_URL=${proxy}\nBETTER_AUTH_SECRET=${secret}\n`,
+    `DATABASE_URL=${database}\nBETTER_AUTH_URL=${app}\nBETTER_AUTH_SECRET=${secret}\n`,
   );
   const webLog = await log("web"),
     roomLog = await log("room");
   children.push(
-    spawn("bun", ["run", "--cwd", "apps/web", "dev", "--", "--port", "3045"], {
+    spawn("bun", ["run", "--cwd", "apps/web", "dev", "--", "--port", "3042"], {
       cwd: root,
       env,
       detached: true,
@@ -119,7 +119,7 @@ try {
         "--config",
         "wrangler.realtime.jsonc",
         "--port",
-        "8845",
+        "8842",
         "--env-file",
         vars,
         "--persist-to",
@@ -128,19 +128,20 @@ try {
       { cwd: web, env, detached: true, stdio: ["ignore", roomLog.fd, roomLog.fd] },
     ),
   );
-  await Promise.all([waitFor(`${app}/login`), waitFor("http://localhost:8845/")]);
-  await mkdir(join(web, ".artifacts/authenticated-acceptance"), { recursive: true });
-  await run("node", ["apps/web/scripts/test-multiplayer-browser.mjs"], {
-    env: { ...env, MULTIPLAYER_TEST_BASE_URL: proxy, MULTIPLAYER_TEST_PROXY_TARGET: app },
+  await Promise.all([waitFor(`${app}/login`), waitFor("http://localhost:8842/")]);
+  await run("node", ["apps/web/scripts/test-prototype-browser.mjs"], {
+    env: { ...env, PROTOTYPE_TEST_BASE_URL: app },
   });
-  console.log("PASS: isolated authenticated acceptance matrix and Postgres integration checks");
+  console.log(
+    "PASS: authenticated prototype authoring, presentation playback and Postgres regression checks",
+  );
 } catch (error) {
   console.error(`Local test server logs: ${temporary}`);
   throw error;
 } finally {
   for (const child of children)
     try {
-      process.kill(-child.pid, "SIGTERM");
+      if (child.pid !== undefined) process.kill(-child.pid, "SIGTERM");
     } catch {
       /* Already stopped. */
     }

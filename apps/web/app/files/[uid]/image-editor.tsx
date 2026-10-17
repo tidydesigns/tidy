@@ -6,7 +6,7 @@ import {
   imageAdjustmentLabels,
   type ImageAdjustments,
   type ImageAdjustment,
-} from "@bella/design/image-adjustments";
+} from "@tidy/design/image-adjustments";
 import type { DesignNode } from "@/lib/design/document";
 import type { ImageEdit } from "@/lib/design/image-edit-target";
 import { DesignImage } from "@/components/design/design-image";

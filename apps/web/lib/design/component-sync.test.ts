@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { test, expect } from "bun:test";
 import { blankDesignDocument, buildDrawnNode } from "./document";
 import { createComponentInstance, makeComponent } from "./document-operations";
@@ -18,7 +19,8 @@ test("master edits update instances while local overrides stay in place", () => 
   let index = 0;
   const instance = createComponentInstance(document, "master", () => `copy-${++index}`);
   const copiedLabel = instance.document.nodes.find((node) => node.componentSourceId === "label");
-  expect(copiedLabel?.text).toBe("Original");
+  assert(copiedLabel, "The instance must contain the copied label.");
+  expect(copiedLabel.text).toBe("Original");
   const changed = syncComponentEdit(instance.document.nodes, "label", { text: "Updated" });
   expect(changed.find((node) => node.id === copiedLabel.id)?.text).toBe("Updated");
   const overridden = syncComponentEdit(changed, copiedLabel.id, { text: "Custom" });

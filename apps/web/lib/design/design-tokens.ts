@@ -1,2 +1,2 @@
-export * from "@bella/design/design-tokens";
-export * from "@bella/design/token-schema";
+export * from "@tidy/design/design-tokens";
+export * from "@tidy/design/token-schema";

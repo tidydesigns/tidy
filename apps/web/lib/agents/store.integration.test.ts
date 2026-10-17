@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { Client } from "pg";
 import { randomUUID } from "node:crypto";
 import { db } from "../db";
+import { threadSnapshotSchema, threadListSchema, threadEventsSchema } from "./protocol";
 
 mock.module("server-only", () => ({}));
 const {
@@ -81,6 +82,12 @@ integration("a six-agent run persists a shared thread without sharing a connecti
   const events = await getThreadEvents("bob", created.threadId, 0);
   expect(events.map((event) => event.sequence)).toEqual([1, 2]);
   expect(snapshot.thread.sequence).toBe(2);
+  const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+  expect(threadSnapshotSchema.parse(wire(snapshot))).toEqual(snapshot);
+  expect(
+    threadListSchema.parse(wire({ threads: await listAgentThreads("viewer", "org-a") })).threads,
+  ).toHaveLength(1);
+  expect(threadEventsSchema.parse(wire({ events })).events).toEqual(events);
 });
 integration(
   "concurrent duplicate submissions create exactly one run, message and lead",

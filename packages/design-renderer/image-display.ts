@@ -1,4 +1,4 @@
-import type { DesignNode } from "@bella/design/document";
+import type { DesignNode } from "@tidy/design/document";
 const widths = [128, 256, 512, 1024, 2048];
 export function isManagedImage(source: string) {
   return /^\/api\/(assets\/[^/?]+|github\/reviews\/[^/?]+\/(assets|captures)\/[^/?]+)(\?|$)/.test(

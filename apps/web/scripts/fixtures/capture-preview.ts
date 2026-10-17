@@ -4,8 +4,8 @@ import { createRoot } from "react-dom/client";
 import { flushSync } from "react-dom";
 import { DesignText } from "@tidy/design-renderer/design-text";
 import { TidyDesign } from "@tidy/design-renderer/design";
-import type { DesignDocument } from "@bella/design/document";
-import type { DesignNode } from "@bella/design/document";
+import type { DesignDocument } from "@tidy/design/document";
+import type { DesignNode } from "@tidy/design/document";
 Object.assign(window, {
   nodeStyle,
   imageStyle,

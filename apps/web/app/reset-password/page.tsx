@@ -4,7 +4,7 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { ResetPasswordForm } from "./reset-form";
 
 export const metadata: Metadata = {
-  title: "Choose a new password — Tidy",
+  title: "Choose a new Tidy password",
   description: "Choose a new password for your Tidy account.",
   robots: { index: false },
 };

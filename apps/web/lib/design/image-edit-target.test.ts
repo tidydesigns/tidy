@@ -2,7 +2,7 @@ import { imageAdjustmentsSchema } from "./document";
 import { describe, expect, test } from "bun:test";
 import { buildDrawnNode, parseDesignDocument, blankDesignDocument } from "./document";
 import { imageEditChanges, imageEditNode } from "./image-edit-target";
-import { imageAdjustmentFilter } from "@bella/design/image-adjustments";
+import { imageAdjustmentFilter } from "@tidy/design/image-adjustments";
 const assetId = "00000000-0000-4000-8000-000000000001";
 const node = {
   ...buildDrawnNode("photo", "container", null, { x: 0, y: 0, width: 100, height: 100 }),

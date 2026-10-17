@@ -3,7 +3,7 @@ import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../doc
 import { applyRasterTrace, vectorisationSource, vectorisationUnavailable } from "./apply";
 import { traceRaster } from "./trace";
 import { diffDocument, applyDocumentPatch } from "../document-patch";
-import { serializeContours } from "@bella/design/vector-geometry";
+import { serializeContours } from "@tidy/design/vector-geometry";
 
 const assetId = "00000000-0000-4000-8000-000000000071";
 const document = () =>

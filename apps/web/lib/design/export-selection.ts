@@ -1,6 +1,6 @@
 import type { DesignDocument } from "./document";
 import { resolvedDocumentNodes, resolvedColorTokens } from "./design-tokens";
-import { textFontSegments } from "@bella/design/rich-text-runtime";
+import { textFontSegments } from "@tidy/design/rich-text-runtime";
 import { resolveVariantNodes, componentSubtreeIds } from "./component-variants";
 import { fontRegistry } from "./fonts/runtime";
 import { createExportImageSession, embedDesignImages } from "./export-images";

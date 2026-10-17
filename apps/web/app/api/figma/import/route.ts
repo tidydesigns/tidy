@@ -3,7 +3,7 @@ import { revalidatePath } from "next/cache";
 import { listDesignFolders } from "@/lib/design/folder-service";
 import { auth } from "@/lib/auth";
 import { boundedRequest, requestBodyError, RequestBodyError } from "@/lib/http/request-body";
-import { documentAssetIds, parseDesignDocument } from "@bella/design/document";
+import { documentAssetIds, parseDesignDocument } from "@tidy/design/document";
 import { publishFigmaImport } from "@/lib/design/figma-import-service";
 import { putAsset } from "@/lib/design/document-service";
 import * as z from "zod";

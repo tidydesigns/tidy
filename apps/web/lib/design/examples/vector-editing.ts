@@ -1,5 +1,5 @@
 import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../document";
-import { parsePathContours, serializeContours } from "@bella/design/vector-geometry";
+import { parsePathContours, serializeContours } from "@tidy/design/vector-geometry";
 
 /** Development-only browser fixture exercises native paths and transformed ancestors. */
 export function buildVectorEditingDocument() {

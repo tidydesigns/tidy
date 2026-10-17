@@ -111,7 +111,7 @@ export function BillingSettings({
           </p>
           <p data-ph-public className="text-xs text-primary-black/60">
             MCP calls are shared by this workspace and reset each month. Use your own inference
-            provider; your provider’s limits also apply.
+            provider; your provider&#39;s limits also apply.
           </p>
           {(["files", "editors", "storageBytes"] as const).some(
             (key) =>

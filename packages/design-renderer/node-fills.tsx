@@ -1,6 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef, useState } from "react";
-import type { DesignNode } from "@bella/design/document";
+import type { DesignNode } from "@tidy/design/document";
 import { nodeBackgroundPaint, paintBackground } from "./paints";
 import { DesignImage } from "./design-image";
 export function NodeFills({

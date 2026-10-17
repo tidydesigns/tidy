@@ -1,7 +1,7 @@
 import { browser } from "wxt/browser";
 import { defineContentScript } from "wxt/utils/define-content-script";
-import { currentViewport } from "@bella/design/capture-effects";
-import { captureElement } from "@bella/design/browser-capture";
+import { currentViewport } from "@tidy/design/capture-effects";
+import { captureElement } from "@tidy/design/browser-capture";
 import { captureSelection } from "../lib/capture-selection";
 import { startElementPicker } from "../lib/element-picker";
 

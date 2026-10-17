@@ -4,8 +4,13 @@ import { db } from "../db";
 import { collectTrackedObject } from "../storage/object-collection";
 import { fileVersion } from "./file-version";
 import { thumbnailIsCurrent, thumbnailVersion } from "./thumbnail-version";
+import { assetPageSchema } from "./asset-contract";
+import { commentPageSchema } from "./comment-contract";
 import { blankDesignDocument, buildDrawnNode } from "./document";
 mock.module("server-only", () => ({}));
+const { listFileAssets } = await import("./asset-browser");
+const { createComment, listComments, replyToComment, toggleCommentReaction } =
+  await import("./comments");
 const {
   createBrowserFileForUser,
   duplicateFileForUser,
@@ -740,7 +745,7 @@ const privateFigma = enabled && process.env.FIGMA_TEST_FILE ? test : test.skip;
 privateFigma(
   "large operator-supplied Figma page publishes images and native layers in the disposable database",
   async () => {
-    const { importFigma, decodeFigma, figmaPages } = await import("@bella/design/figma");
+    const { importFigma, decodeFigma, figmaPages } = await import("@tidy/design/figma");
     const { publishFigmaImport } = await import("./figma-import-service");
     const { putAsset, getDocument } = await import("./document-service");
     const input = new Uint8Array(await Bun.file(process.env.FIGMA_TEST_FILE!).arrayBuffer());
@@ -792,7 +797,7 @@ privateFigma(
 privateFigma(
   "complete operator-supplied Figma file retains every page and layer",
   async () => {
-    const { importFigma } = await import("@bella/design/figma");
+    const { importFigma } = await import("@tidy/design/figma");
     const { publishFigmaImport } = await import("./figma-import-service");
     const { putAsset, getDocument } = await import("./document-service");
     const result = importFigma(
@@ -981,3 +986,40 @@ integration(
     ).toBe(1);
   },
 );
+integration(
+  "asset pages normalize PostgreSQL bigint sizes before reaching the browser",
+  async () => {
+    const id = "00000000-0000-4000-8000-000000000011";
+    await admin.query(
+      `insert into "designAsset" ("id","organizationId","mimeType","sha256","body","byteSize") values ($1,'a','image/png',repeat('a',64),decode('010203','hex'),3)`,
+      [id],
+    );
+    const page = await listFileAssets("editor", "file");
+    expect(page?.assets[0].byteSize).toBe(3);
+    const wire: unknown = JSON.parse(JSON.stringify(page));
+    expect(assetPageSchema.parse(wire).assets[0]).toEqual({
+      assetId: id,
+      mimeType: "image/png",
+      byteSize: 3,
+    });
+    await expect(
+      listFileAssets("editor", "file", Buffer.from("null").toString("base64url")),
+    ).rejects.toThrow("Invalid asset cursor.");
+  },
+);
+
+integration("comment pages validate actual author, preview and reaction rows", async () => {
+  const threadId = await createComment("file", "editor", 10, 20, "Comment", "page-1");
+  await replyToComment("file", threadId, "editor", "Reply");
+  const before = await listComments("file", "editor");
+  if (!before) throw new Error("Expected readable comments.");
+  const messageId = before.threads[0].messages[0].id;
+  await toggleCommentReaction("file", messageId, "editor", "👍");
+  const page = await listComments("file", "editor");
+  const wire: unknown = JSON.parse(JSON.stringify({ ...page, viewerId: "editor" }));
+  const parsed = commentPageSchema.parse(wire);
+  expect(parsed.threads[0].messages).toHaveLength(2);
+  expect(parsed.threads[0].messages[0].reactions).toEqual([
+    { emoji: "👍", count: 1, reacted: true },
+  ]);
+});

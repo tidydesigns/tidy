@@ -1,1 +1,1 @@
-export { responsiveNode, containingFrameWidth } from "@bella/design/responsive-layout";
+export { responsiveNode, containingFrameWidth } from "@tidy/design/responsive-layout";

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { test, expect } from "bun:test";
 import {
   initialImageCrop,
@@ -11,11 +12,12 @@ import {
   designNodeChangesSchema,
   parseDesignDocument,
   blankDesignDocument,
+  type DesignNode,
 } from "./document";
 import { copyProperties, pasteProperties, readDesignClipboard } from "./clipboard";
 import { resizeBox } from "./resize-box";
 const box = { x: 10, y: 20, width: 200, height: 200 };
-const node = () => ({
+const node = (): DesignNode => ({
   ...buildDrawnNode("photo", "container", null, box),
   type: "image",
   assetId: "00000000-0000-4000-8000-000000000001",
@@ -43,6 +45,7 @@ test("cropping waits for decoded asset dimensions instead of loading or failure 
     }),
   ).toBeUndefined();
   const size = loadedImageSize(image);
+  assert(size, "A decoded image must provide dimensions.");
   expect(size).toEqual({ width: 800, height: 400 });
   expect(initialImageCrop(node(), box, size.width, size.height)).toMatchObject({
     sourceWidth: 800,
@@ -137,6 +140,7 @@ test("appearance paste preserves the crop belonging to a different image asset",
   };
   const document = { ...blankDesignDocument(), nodes: [source, target] };
   const payload = readDesignClipboard(copyProperties(source, document, "file"));
+  assert(payload, "Copied appearance must parse as design clipboard data.");
   const pasted = pasteProperties(document, payload, ["other"]);
   expect(pasted.nodes[1].style.imageCrop).toEqual(targetCrop);
   expect(pasted.nodes[1].style.radius).toBe(16);

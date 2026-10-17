@@ -1,5 +1,5 @@
 import { ZodError } from "zod";
-import { figmaClipboardBytes, decodeFigma, convertFigma, figmaPages } from "@bella/design/figma";
+import { figmaClipboardBytes, decodeFigma, convertFigma, figmaPages } from "@tidy/design/figma";
 self.onmessage = (
   event: MessageEvent<{
     bytes?: Uint8Array;

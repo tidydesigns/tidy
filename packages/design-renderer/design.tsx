@@ -9,22 +9,22 @@ import {
   type CSSProperties,
   type HTMLAttributes,
 } from "react";
-import type { DesignDocument, DesignNode } from "@bella/design/document";
-import { childrenByParent } from "@bella/design/node-hierarchy";
+import type { DesignDocument, DesignNode } from "@tidy/design/document";
+import { childrenByParent } from "@tidy/design/node-hierarchy";
 import { nodeStyle } from "./node-style";
 import { responsiveNode } from "./responsive-layout";
-import { replacePlainText } from "@bella/design/rich-text-runtime";
+import { replacePlainText } from "@tidy/design/rich-text-runtime";
 import {
   resolveNodeTokens,
   resolvedColorTokens,
   resolvedDocumentNodes,
-} from "@bella/design/design-tokens";
+} from "@tidy/design/design-tokens";
 import { DesignText } from "./design-text";
 import { ImageMimeProvider } from "./image-context";
 import { DesignImage } from "./design-image";
 import { NodeFills } from "./node-fills";
 import { NodeStrokes } from "./node-strokes";
-import type { PrototypeState } from "@bella/design/prototype";
+import type { PrototypeState } from "@tidy/design/prototype";
 
 type Props = {
   document: DesignDocument;

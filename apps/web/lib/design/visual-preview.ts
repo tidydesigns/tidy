@@ -1,5 +1,5 @@
-import { resolvedDocumentNodes } from "@bella/design/design-tokens";
-import type { DesignDocument } from "@bella/design/document";
+import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
+import type { DesignDocument } from "@tidy/design/document";
 import { componentExportDocument } from "./code-export";
 import type {
   VisualPreviewData,

@@ -209,7 +209,7 @@ export function TeamInvites({
                                 ),
                               );
                           })
-                          .catch(() => setError("Could not change this invitation’s role."))
+                          .catch(() => setError("Could not change this invitation's role."))
                           .finally(() => setCancellingId(""));
                       }}
                     />

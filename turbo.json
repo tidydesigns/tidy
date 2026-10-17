@@ -33,11 +33,11 @@
     "test": {
       "dependsOn": ["^test"]
     },
-    "@bella/web#typecheck": {
+    "@tidy/web#typecheck": {
       "dependsOn": ["^typecheck", "@tidy/gpt-plugin#build"],
       "outputs": [".next/types/**", "next-env.d.ts"]
     },
-    "@bella/extension#typecheck": {
+    "@tidy/extension#typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": [".wxt/**"]
     },
@@ -45,10 +45,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
-    "@bella/web#test": {
+    "@tidy/web#test": {
       "dependsOn": ["^test", "@tidy/gpt-plugin#build"]
     },
-    "@bella/web#dev": {
+    "@tidy/web#dev": {
       "dependsOn": ["@tidy/gpt-plugin#build"],
       "cache": false,
       "persistent": true

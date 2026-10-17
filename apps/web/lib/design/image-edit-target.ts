@@ -1,5 +1,5 @@
 import type { DesignNode, DesignNodeChanges as NodeChanges } from "./document";
-import type { ImageAdjustments } from "@bella/design/image-adjustments";
+import type { ImageAdjustments } from "@tidy/design/image-adjustments";
 export type ImageEditTarget = { nodeId: string; paintId?: string };
 export function imageEditNode(node: DesignNode, target: ImageEditTarget): DesignNode | undefined {
   if (node.id !== target.nodeId || node.vectorPath || node.vectorBoolean) return;

@@ -88,7 +88,7 @@ const invalid = <NewThread variant="unknown" />;
         createElement(NewThread, { disabled: true, "aria-label": "Create a thread" }),
       ),
     ).toContain('aria-label="Create a thread"');
-    expect(codeRuntimeSource).not.toMatch(/from\s*["'](?:next|@\/|@bella)/);
+    expect(codeRuntimeSource).not.toMatch(/from\s*["'](?:next|@\/|@(?:tidy|bella)\/)/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

@@ -212,6 +212,22 @@ test("dynamic tool output preserves image inputs and tool failures", () => {
   ).toBe(false);
 });
 
+test("explicit tool failures survive malformed payloads and image metadata", () => {
+  for (const payload of [
+    { content: null },
+    { content: [{ type: "text", text: 7 }] },
+    { structuredContent: null },
+    { structuredContent: [] },
+    { structuredContent: { base64: "YWJj", mimeType: "image/png" } },
+  ]) {
+    const result = toolResponse({ ...payload, isError: true });
+    expect(result.success).toBe(false);
+    expect(result.contentItems.some((item) => item.type === "inputImage")).toBe(false);
+  }
+  for (const isError of [undefined, null, "true", 1, false])
+    expect(toolResponse({ isError, content: null }).success).toBe(true);
+});
+
 test("history exhaustion stops the runtime instead of asking the model to retry tools", async () => {
   const run = fixture("alice", 1);
   let claimed = false,

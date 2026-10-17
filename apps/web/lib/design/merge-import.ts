@@ -4,7 +4,7 @@ import { documentPages } from "@/lib/design/pages";
 import { reconcileImportNotes } from "./import-notes";
 import { remapComponentProperties, remapComponentVariants } from "./component-variants";
 import { importTokenDefinitions } from "./tokens";
-import { remapInteractions } from "@bella/design/prototype";
+import { remapInteractions } from "@tidy/design/prototype";
 import { PublicActionError } from "@/lib/security/public-error";
 
 export function requireImportSource(document: DesignDocument) {

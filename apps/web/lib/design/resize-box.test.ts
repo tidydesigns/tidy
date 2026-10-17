@@ -2,8 +2,11 @@ import { test, expect } from "bun:test";
 import { resizeBox, rotatePoint, rotationFromPointer } from "./resize-box";
 
 const box = { x: 20, y: 30, width: 100, height: 50 };
-const center = (b) => ({ x: b.x + b.width / 2, y: b.y + b.height / 2 });
-const corner = (b, x, y, angle) => {
+const center = (b: Parameters<typeof resizeBox>[0]) => ({
+  x: b.x + b.width / 2,
+  y: b.y + b.height / 2,
+});
+const corner = (b: Parameters<typeof resizeBox>[0], x: number, y: number, angle: number) => {
   const point = rotatePoint({ x: b.width * x, y: b.height * y }, angle);
   const c = center(b);
   return { x: c.x + point.x, y: c.y + point.y };

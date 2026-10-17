@@ -3,11 +3,11 @@ import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { widgetHtml, widgetUri } from "@tidy/gpt-plugin/widget";
 import { previewSummarySchema, type DesignPreview } from "@tidy/gpt-plugin/contract";
-import { documentAssetIds, parseDesignDocument } from "@bella/design/document";
+import { documentAssetIds, parseDesignDocument } from "@tidy/design/document";
 import { getDocument, getExportAssets } from "@/lib/design/document-service";
 import { getDesignFile } from "@/lib/design/service";
 import { fontFamilies, googleFontUrl, webFontByName } from "@/lib/design/fonts/catalog";
-import { resolveVariantNodes } from "@bella/design/component-variants";
+import { resolveVariantNodes } from "@tidy/design/component-variants";
 import { mcpToolPolicy } from "./tool-policy";
 
 const services = { getDocument, getExportAssets, getDesignFile };

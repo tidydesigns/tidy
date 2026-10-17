@@ -1,4 +1,4 @@
-import type { DesignNode, DesignPaint, DesignStrokePaint } from "@bella/design/document";
+import type { DesignNode, DesignPaint, DesignStrokePaint } from "@tidy/design/document";
 import { linearGradientLine, linearGradientMapping, type Size } from "./gradient-geometry";
 export function nodePaints(node: DesignNode): DesignPaint[] {
   if (node.style.paints) return node.style.paints;

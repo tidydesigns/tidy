@@ -1,4 +1,4 @@
-import { parseDesignDocument, type DesignDocument } from "@bella/design/document";
+import { parseDesignDocument, type DesignDocument } from "@tidy/design/document";
 import {
   abortImport,
   createImport,

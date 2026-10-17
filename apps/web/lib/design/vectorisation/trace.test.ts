@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { traceRaster } from "./trace";
 import { traceLimits, traceSize } from "./contract";
-import { serializeContours } from "@bella/design/vector-geometry";
+import { serializeContours } from "@tidy/design/vector-geometry";
 
 function pixels(
   width = 32,

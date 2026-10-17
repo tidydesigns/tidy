@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { zipSync, deflateSync } from "fflate";
 import { assembleCanvasFig, encodeFigParts, type FigNode } from "openfig-core";
-import { decodeFigma } from "@bella/design/figma";
+import { decodeFigma } from "@tidy/design/figma";
 
 /** Synthetic source references: no private design-system content. */
 export async function fidelityFixture(image: Uint8Array) {

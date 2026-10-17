@@ -1,4 +1,4 @@
-import { documentAssetIds, parseDesignDocument, type DesignDocument } from "@bella/design/document";
+import { documentAssetIds, parseDesignDocument, type DesignDocument } from "@tidy/design/document";
 export type LocalDraft = { id: string; name: string; document: DesignDocument };
 const databaseName = "tidy-figma-prototype";
 let queue = Promise.resolve();

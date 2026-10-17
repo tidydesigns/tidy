@@ -9,7 +9,7 @@ import { DesignText } from "@/components/design/design-text";
 import { DesignImage } from "@/components/design/design-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
-import { childrenByParent } from "@bella/design/node-hierarchy";
+import { childrenByParent } from "@tidy/design/node-hierarchy";
 import { resolvedColorTokens, resolvedDocumentNodes } from "@/lib/design/design-tokens";
 import { nodeStyle } from "@/lib/design/node-style";
 import { responsiveNode } from "@/lib/design/responsive-layout";

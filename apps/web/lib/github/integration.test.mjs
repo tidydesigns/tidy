@@ -36,6 +36,7 @@ const { registerGitHubTools } = await import("./mcp");
 const { GITHUB_HISTORY_LIMITS: historyLimits } = await import("../security/resource-limits");
 const { GITHUB_OAUTH_LIMITS: oauthLimits } = await import("./oauth-budget");
 const { disconnectGithubUser } = await import("./connections");
+const { reviewContextSchema } = await import("./review-contract");
 
 // Run explicitly against a disposable local database; never fall back to .env.local.
 const testUrl = process.env.GITHUB_TEST_DATABASE_URL,
@@ -765,6 +766,85 @@ integration(
     expect((await getReviewContext("alice", reviewId)).feedback[0].status).toBe("verified");
   },
 );
+integration(
+  "unavailable installation accounts neither hide usable installations nor persist",
+  async () => {
+    const previousFetch = globalThis.fetch;
+    try {
+      for (const account of [null, {}, { login: "" }, { login: "   " }]) {
+        globalThis.fetch = async (input, init) =>
+          new URL(input).pathname === "/user/installations"
+            ? Response.json({
+                installations: [
+                  { id: 9, app_id: 12345, account: { login: "tidydesigns" }, suspended_at: null },
+                  { id: 10, app_id: 12345, account, suspended_at: null },
+                ],
+              })
+            : previousFetch(input, init);
+        const status = await connectionStatus("alice", "org");
+        expect(status.error).toBeNull();
+        expect(status.installations.map((item) => item.id)).toEqual([9]);
+        await expect(attachInstallation("alice", "org", 10)).rejects.toThrow(
+          "Install this GitHub App",
+        );
+        await attachInstallation("alice", "org", 9);
+        expect(
+          (await admin.query('select "installationId","account" from "githubConnection"')).rows,
+        ).toEqual([{ installationId: "9", account: "tidydesigns" }]);
+      }
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+  },
+);
+
+integration("review context retains comments whose GitHub authors are unavailable", async () => {
+  const { reviewId } = await linked();
+  comments.push(
+    { id: 501, body: "Unavailable author", html_url: "https://github.com/comment/501", user: null },
+    {
+      id: 502,
+      body: "Known author",
+      html_url: "https://github.com/comment/502",
+      user: { id: 100, login: "alice" },
+    },
+  );
+  const context = await getReviewContext("alice", reviewId);
+  const parsed = reviewContextSchema.parse(JSON.parse(JSON.stringify(context)));
+  expect(parsed.comments).toEqual([
+    { id: 501, body: "Unavailable author", html_url: "https://github.com/comment/501", user: null },
+    {
+      id: 502,
+      body: "Known author",
+      html_url: "https://github.com/comment/502",
+      user: { login: "alice" },
+    },
+  ]);
+});
+
+for (const recoverOwn of [false, true])
+  integration(
+    `feedback recovery ignores unavailable and foreign authors, own match: ${recoverOwn}`,
+    async () => {
+      const { reviewId } = await linked();
+      const { feedbackId } = await createFeedback("alice", reviewId, {
+        sha: sha1,
+        body: "Feedback",
+      });
+      const body = `<!-- tidy-feedback:${feedbackId} -->`;
+      comments.push(
+        { id: 601, body, user: null },
+        { id: 602, body, user: { id: 101, login: "bob" } },
+      );
+      if (recoverOwn) comments.push({ id: 603, body, user: { id: 100, login: "alice" } });
+      const result = await sendFeedback("alice", reviewId, feedbackId);
+      expect(result.commentId).toBe(recoverOwn ? "603" : "1");
+      expect(posts).toBe(recoverOwn ? 0 : 1);
+      expect(await sendFeedback("alice", reviewId, feedbackId)).toEqual(result);
+      expect(posts).toBe(recoverOwn ? 0 : 1);
+    },
+  );
+
 integration("webhook deduplication, canonical head reconciliation and revocation", async () => {
   const { reviewId } = await linked();
   head = sha2;

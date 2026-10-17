@@ -31,7 +31,7 @@ export async function updateMemberRole(
     await changeMemberRole(session.user.id, organizationId, memberId, role);
     return {};
   } catch (error) {
-    return { error: actionError(error, "Could not change this member’s role.") };
+    return { error: actionError(error, "Could not change this member's role.") };
   }
 }
 export async function removeOrganizationMember(organizationId: string, memberId: string) {
@@ -81,6 +81,6 @@ export async function updateInvitationRole(
     await changeInvitationRole(session.user.id, organizationId, invitationId, role);
     return {};
   } catch (error) {
-    return { error: actionError(error, "Could not change this invitation’s role.") };
+    return { error: actionError(error, "Could not change this invitation's role.") };
   }
 }

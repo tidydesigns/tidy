@@ -17,7 +17,7 @@ const { consumeMcpCall, meterMcpServer } = await import("./usage");
 const { runWithRequestSignal } = await import("../request-lifecycle");
 const { blankDesignDocument } = await import("../design/document");
 const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
-const { linearReadFixture } = await import("./linear-read-fixture.mjs");
+const { linearReadFixture } = await import("./linear-read-fixture.ts");
 const { renameDesignFileForUser } = await import("../design/service");
 const { withoutDatabaseScope, inDatabaseScope, scopedDatabaseClient } =
   await import("../database-scope");

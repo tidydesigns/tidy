@@ -1,5 +1,5 @@
 {
-  "name": "@bella/web",
+  "name": "@tidy/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -21,7 +21,7 @@
     "browser:install": "playwright install --with-deps chromium"
   },
   "dependencies": {
-    "@bella/design": "workspace:*",
+    "@tidy/design": "workspace:*",
     "@better-auth/cimd": "1.7.7",
     "@better-auth/core": "1.7.7",
     "@better-auth/mcp": "1.7.7",

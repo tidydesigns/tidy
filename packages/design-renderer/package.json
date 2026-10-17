@@ -29,7 +29,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@bella/design": "workspace:*",
+    "@tidy/design": "workspace:*",
     "react": "19.2.8"
   },
   "devDependencies": {

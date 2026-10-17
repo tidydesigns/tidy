@@ -38,7 +38,7 @@ function OwnershipAlert({
         Resolve organization ownership first
       </h2>
       <p data-ph-public id={`${id}-description`} className="my-4 text-sm text-secondary-ink">
-        You’re the last owner of{" "}
+        You&#39;re the last owner of{" "}
         {organizations.length === 1 ? "this organization" : "these organizations"}. Before you can
         delete your account, delete {organizations.length === 1 ? "it" : "each one"} or transfer
         ownership to another member in organization settings. Your account has not been deleted.
@@ -223,8 +223,8 @@ export function PrivacyControls({ email }: { email: string }) {
           Download your profile, memberships, comments, connections, agent conversations and designs
           you created, plus feedback stored in Tidy, as JSON. Passwords and access tokens are
           excluded. Export complete design files with images from the editor. For historical
-          analytics, legacy feedback or other records held outside Tidy, contact the operator. We’ll
-          ask you to authenticate again when needed.
+          analytics, legacy feedback or other records held outside Tidy, contact the operator.
+          We&#39;ll ask you to authenticate again when needed.
         </p>
         <Button disabled={pending} onClick={() => void download()}>
           <span data-ph-public style={{ display: "contents" }}>
@@ -244,8 +244,8 @@ export function PrivacyControls({ email }: { email: string }) {
         </h2>
         <p data-ph-public className="text-sm text-secondary-ink">
           Permanently delete your account, personal credentials and comments, and revoke all
-          sessions and agent access. Shared designs remain with the organization under “Deleted
-          user”. Transfer ownership or delete organizations where you are the last owner first.
+          sessions and agent access. Shared designs remain with the organization under &quot;Deleted
+          user&quot;. Transfer ownership or delete organizations where you are the last owner first.
           External storage and analytics cleanup continues after your account closes.
         </p>
         <Button

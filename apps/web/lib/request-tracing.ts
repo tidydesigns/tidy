@@ -60,8 +60,8 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
         flushIntervalMs: 0,
         maxExportBatchSize: 256,
         maxQueueSize: 512,
-        // Only explicitly constructed attributes are recorded. As a final guard,
-        // discard exception events and status messages from the SDK surface.
+        // Record only the explicitly listed attributes.
+        // Remove SDK exception events and status messages.
         beforeSpanSend(record: SpanRecord) {
           record.events = [];
           if (record.status) delete record.status.message;

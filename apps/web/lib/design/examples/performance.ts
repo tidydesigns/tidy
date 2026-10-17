@@ -1,5 +1,5 @@
 import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../document";
-/** Repeatable, mixed nested scenes within the document's 5,000-node limit. */
+/** Repeatable, mixed nested scenes validated against the shared document limits. */
 export function performanceDocument(count: number) {
   const document = blankDesignDocument();
   for (let i = 0; i < count; i++) {

@@ -1,6 +1,6 @@
 "use client";
 import { ImageMimeProvider } from "@tidy/design-renderer/image-context";
-import { textFontSegments } from "@bella/design/rich-text-runtime";
+import { textFontSegments } from "@tidy/design/rich-text-runtime";
 import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { strokeOutsets } from "@/lib/design/strokes";
@@ -9,7 +9,7 @@ import { NodeFills } from "@/components/design/node-fills";
 import { DesignText } from "@/components/design/design-text";
 import { DesignImage } from "@/components/design/design-image";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
-import { childrenByParent } from "@bella/design/node-hierarchy";
+import { childrenByParent } from "@tidy/design/node-hierarchy";
 import { nodeStyle } from "@/lib/design/node-style";
 import { documentPages, pageNodes } from "@/lib/design/pages";
 import { useDocumentFonts } from "@/lib/design/fonts/use-document-fonts";

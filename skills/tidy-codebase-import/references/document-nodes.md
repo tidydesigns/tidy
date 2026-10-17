@@ -1,4 +1,4 @@
-# Bella document nodes
+# Tidy document nodes
 
 `put_import_chunk` accepts an array of nodes. The full import must include at least one root artboard and no more than 5,000 nodes. Parent IDs must exist, form an acyclic tree of depth at most 40, and point to an artboard or container. Children use coordinates relative to their parent. Artboard positions are canvas coordinates.
 

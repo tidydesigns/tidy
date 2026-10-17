@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { GitHubRequestError } from "./request-error";
 import { publicGitHubMessage } from "./public-error";
 import { MANAGE_ROLES_SQL } from "@/lib/organizations/roles";
@@ -11,26 +12,23 @@ import {
   credentialVersionSql,
   githubRequest,
   paginated,
+  checkedGitHub,
   userAuthorization,
 } from "./client";
 import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 
-export type Installation = {
-  id: number;
-  app_id: number;
-  account: { login: string };
-  suspended_at: string | null;
-};
-export type Repository = { id: number; full_name: string; permissions?: { admin?: boolean } };
-export type ConnectionStatus = {
-  configured: boolean;
-  ready: boolean;
-  login: string | null;
-  connections: { installationId: string; account: string; active: boolean }[];
-  installations: Installation[];
-  error: string | null;
-  installUrl: string;
-};
+import {
+  installationSchema,
+  type Installation,
+  type ConnectionStatus,
+} from "./connection-contract";
+export type { Installation, ConnectionStatus } from "./connection-contract";
+const repositorySchema = z.object({
+  id: z.number().int().positive(),
+  full_name: z.string(),
+  permissions: z.object({ admin: z.boolean().optional() }).optional(),
+});
+export type Repository = z.infer<typeof repositorySchema>;
 export async function githubSchemaReady() {
   return requestWork("githubSchemaReady", async () => {
     const result = await db.query<{ ready: boolean }>(
@@ -76,8 +74,16 @@ export const connectionStatus = boundedGitHubOperation(async function connection
     try {
       const authorization = await userAuthorization(userId);
       installations = (
-        await paginated<Installation>(authorization.token, "/user/installations", "installations")
-      ).filter((item) => String(item.app_id) === githubConfig().appId && !item.suspended_at);
+        await checkedGitHub(
+          z.array(installationSchema),
+          paginated(authorization.token, "/user/installations", "installations"),
+        )
+      ).filter(
+        (item) =>
+          String(item.app_id) === githubConfig().appId &&
+          !item.suspended_at &&
+          Boolean(item.account?.login?.trim()),
+      );
       const current = await db.query(
         `select 1 from "githubUser" g where "userId"=$1
         and g."githubId"=$2 and ${credentialVersionSql}=$3`,
@@ -113,14 +119,19 @@ export const attachInstallation = boundedGitHubOperation(async function attachIn
   const authorization = await userAuthorization(userId);
   const { token } = authorization;
   const installation = (
-    await paginated<Installation>(token, "/user/installations", "installations")
+    await checkedGitHub(
+      z.array(installationSchema),
+      paginated(token, "/user/installations", "installations"),
+    )
   ).find(
     (item) =>
       item.id === installationId &&
       String(item.app_id) === githubConfig().appId &&
-      !item.suspended_at,
+      !item.suspended_at &&
+      Boolean(item.account?.login?.trim()),
   );
-  if (!installation)
+  const login = installation?.account?.login;
+  if (!installation || !login?.trim())
     throw new GitHubRequestError("Install this GitHub App on an account you can access first.");
   // Fetch from GitHub, never trust an installation ID or account from a callback/query string.
   await githubRequest(token, `/user/installations/${installationId}/repositories?per_page=1`);
@@ -135,7 +146,7 @@ export const attachInstallation = boundedGitHubOperation(async function attachIn
     [
       organizationId,
       installationId,
-      installation.account.login,
+      login,
       userId,
       authorization.githubId,
       authorization.credentialVersion,
@@ -156,10 +167,13 @@ export const repositoryAccess = boundedGitHubOperation(async function repository
     [organizationId],
   );
   for (const connection of connections.rows) {
-    const repositories = await paginated<Repository>(
-      token,
-      `/user/installations/${connection.installationId}/repositories`,
-      "repositories",
+    const repositories = await checkedGitHub(
+      z.array(repositorySchema),
+      paginated(
+        token,
+        `/user/installations/${connection.installationId}/repositories`,
+        "repositories",
+      ),
     );
     const repository = repositories.find((item) => String(item.id) === String(repositoryId));
     if (repository) {

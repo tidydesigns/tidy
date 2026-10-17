@@ -205,7 +205,7 @@ test("rotated radial axes and stops use physical geometry at every aspect ratio"
 test("radial rotation patches preserve other fills, token bindings, undo and reopened captures", async () => {
   const { parseDesignDocument } = await import("./document");
   const { diffDocument, applyDocumentPatch, invertPatch } = await import("./document-patch");
-  const { webCaptureSchema } = await import("@bella/design/web-capture");
+  const { webCaptureSchema } = await import("@tidy/design/web-capture");
   const radial = {
     ...paint(),
     type: "radial",

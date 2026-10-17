@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { DEVELOPMENT_EXTENSION_ID } from "@bella/design/extension";
-import { MAX_CAPTURE_BYTES } from "@bella/design/web-capture";
+import { DEVELOPMENT_EXTENSION_ID } from "@tidy/design/extension";
+import { MAX_CAPTURE_BYTES } from "@tidy/design/web-capture";
 import {
   extensionHeaders,
   extensionPreflight,

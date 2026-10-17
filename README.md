@@ -16,7 +16,7 @@
   <a href="CONTRIBUTING.md">Contribute</a>
 </p>
 
-![Connect your agent to Tidy — Claude Code, Codex and Cursor alongside the editable canvas](docs/readme/agent-canvas.png)
+![Connect your agent to Tidy. Claude Code, Codex and Cursor alongside the editable canvas](docs/readme/agent-canvas.png)
 
 <p align="center">Design together. Keep every layer editable.</p>
 

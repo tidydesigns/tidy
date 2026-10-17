@@ -1,8 +1,8 @@
-export * from "@bella/design/component-variants";
+export * from "@tidy/design/component-variants";
 
 import type { DesignNode } from "./document";
-import { componentFamily, resolveVariantNodes } from "@bella/design/component-variants";
-import { remapInteractions } from "@bella/design/prototype";
+import { componentFamily, resolveVariantNodes } from "@tidy/design/component-variants";
+import { remapInteractions } from "@tidy/design/prototype";
 
 /** Detach deleted sources with their current appearance and prune variant child references. */
 export function removeComponentReferences(

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ImportJob } from "./messages";
-import { blankDesignDocument } from "@bella/design/document";
+import { blankDesignDocument } from "@tidy/design/document";
 
 type Sender = {
   id: string;
@@ -149,6 +149,37 @@ afterEach(() => {
 });
 
 describe("extension import authority and lifecycle", () => {
+  test("an invalid import response cannot trigger a duplicate import", async () => {
+    await start();
+    fetchMock.mockImplementationOnce(async () =>
+      Response.json({
+        user: { id: accountId, name: "Fixture" },
+        organizations: [{ id: "fixture-org", name: "Fixture", files: [] }],
+      }),
+    );
+    fetchMock.mockImplementationOnce(async () => {
+      events.push("post");
+      return Response.json({ fileId: 42 });
+    });
+    await send({ type: "bella:picked" }, content);
+    expect(job?.state).toBe("error");
+    expect(events.filter((event) => event === "post")).toHaveLength(1);
+  });
+
+  test("restart recovery retains terminal jobs without requiring capture metadata", async () => {
+    job = {
+      state: "importing",
+      tabId: 7,
+      userId: accountId,
+      documentId: currentDocument,
+      destination: { userId: accountId, organizationId: "fixture-org" },
+    };
+    (initialize as unknown as () => void)();
+    await send({ type: "bella:account" });
+    expect(job?.state).toBe("error");
+    expect(job && "error" in job ? job.error : "").toContain("interrupted");
+    expect(events).not.toContain("post");
+  });
   test("handles non-JSON server responses with a useful message", async () => {
     fetchMock.mockImplementationOnce(async () => new Response("Unavailable", { status: 502 }));
     expect(await send({ type: "bella:account" })).toEqual({

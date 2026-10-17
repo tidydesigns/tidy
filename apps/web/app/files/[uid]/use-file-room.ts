@@ -2,19 +2,28 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { applyDocumentPatch, diffDocument, type DocumentPatch } from "@/lib/design/document-patch";
-import { applyRevisionChanges, type RevisionChanges } from "@/lib/design/revision-sync";
+import { applyRevisionChanges } from "@/lib/design/revision-sync";
 import { parseImmutableDesignDocument, type DesignDocument } from "@/lib/design/document";
 import {
   RoomEditQueue,
   type CommitDependency,
   type RoomCommit,
 } from "@/lib/design/room-edit-queue";
-import { EMPTY_PRESENCE, type Presence, type RoomMessage } from "@/lib/realtime/protocol";
+import { EMPTY_PRESENCE, type Presence, readRoomMessage } from "@/lib/realtime/protocol";
 import { PresenceStore } from "@/lib/realtime/presence-store";
 import { AgentActivityStore } from "@/lib/realtime/agent-activity";
 import { appErrorReporter } from "@/lib/posthog-client";
 import { fetchWithRateLimitRetry } from "@/lib/retry-after";
 
+import {
+  fileChangesSchema,
+  fileCommitSchema,
+  presenceTicketSchema,
+} from "@/lib/design/sync-protocol";
+import { readJsonResponse } from "@/lib/http/json-response";
+import { z } from "zod";
+
+const editErrorSchema = z.object({ error: z.string().optional() });
 type Snapshot = { revision: number; content: DesignDocument };
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "unavailable";
 export function useFileRoom({
@@ -134,18 +143,18 @@ export function useFileRoom({
             return;
           }
           if (!response.ok) throw new Error("Could not synchronize file.");
-          const result: {
-            snapshot?: Snapshot;
-            name: string;
-            sequence: number;
-            canEdit: boolean;
-          } & Partial<RevisionChanges> = await response.json();
+          const result = await readJsonResponse({
+            response,
+            schema: fileChangesSchema,
+            message: "Could not synchronize file.",
+          });
           if (controller.signal.aborted) return;
           callbacks.current.onPermission?.(result.canEdit);
           const saved = edits.saved;
           const next =
-            result.snapshot ??
-            applyRevisionChanges(saved, result as RevisionChanges, parseImmutableDesignDocument);
+            "snapshot" in result
+              ? result.snapshot
+              : applyRevisionChanges(saved, result, parseImmutableDesignDocument);
           if (next !== saved) edits.receive(next);
           requireSnapshot = false;
           if (!result.canEdit) edits.restore();
@@ -193,40 +202,65 @@ export function useFileRoom({
           return;
         }
         if (!response.ok) throw new Error("Could not join file.");
-        const ticket: { url: string; expiresAt: number; sessionId: string } = await response.json();
+        const ticket = await readJsonResponse({
+          response,
+          schema: presenceTicketSchema,
+          message: "Could not join file.",
+        });
         if (controller.signal.aborted) return;
         store.identify(ticket.sessionId);
         const ws = new WebSocket(ticket.url);
         socket.current = ws;
         ws.onmessage = (event) => {
           if (socket.current !== ws || controller.signal.aborted) return;
-          const message: RoomMessage = JSON.parse(event.data);
-          if (message.type === "ready") {
-            attempt = 0;
-            setConnection("live");
-            flushPresence();
-            seenSequence = -1;
-            void refresh();
-            setCommentsVersion((version) => version + 1);
-          } else if (message.type === "access") {
-            callbacks.current.onPermission?.(message.canEdit);
-            if (!message.canEdit) {
-              edits.restore();
-              publishPresence({ preview: null, action: null }, true);
-            }
-          } else if (message.type === "peers") store.replace(message.peers);
-          else if (message.type === "activities") activities.replace(message.activities);
-          else if (message.type === "activity") activities.update(message.activity);
-          else if (message.type === "presence") store.update(message.peer);
-          else if (message.type === "leave") store.remove(message.sessionId);
-          else if (message.type === "events") {
-            wantedSequence = Math.max(
-              wantedSequence,
-              ...message.events.map((item) => item.sequence),
-            );
-            if (message.events.some((item) => item.kind === "comments"))
+          const message = readRoomMessage(event.data);
+          if (!message) return;
+          switch (message.type) {
+            case "ready":
+              attempt = 0;
+              setConnection("live");
+              flushPresence();
+              seenSequence = -1;
+              void refresh();
               setCommentsVersion((version) => version + 1);
-            if (wantedSequence > seenSequence && !document.hidden) void refresh();
+              break;
+            case "access":
+              callbacks.current.onPermission?.(message.canEdit);
+              if (!message.canEdit) {
+                edits.restore();
+                publishPresence({ preview: null, action: null }, true);
+              }
+              break;
+            case "peers":
+              store.replace(message.peers);
+              break;
+            case "activities":
+              activities.replace(message.activities);
+              break;
+            case "activity":
+              activities.update(message.activity);
+              break;
+            case "presence":
+              store.update(message.peer);
+              break;
+            case "leave":
+              store.remove(message.sessionId);
+              break;
+            case "events":
+              wantedSequence = Math.max(
+                wantedSequence,
+                ...message.events.map((item) => item.sequence),
+              );
+              if (message.events.some((item) => item.kind === "comments"))
+                setCommentsVersion((version) => version + 1);
+              if (wantedSequence > seenSequence && !document.hidden) void refresh();
+              break;
+            case "pong":
+              break;
+            default: {
+              const exhaustive: never = message;
+              throw new Error(`Unhandled room message: ${exhaustive}`);
+            }
           }
         };
         ws.onclose = () => {
@@ -329,16 +363,9 @@ export function useFileRoom({
                 controller.signal,
               );
               if (response.status >= 500) throw new Error("Server unavailable");
-              const payload = (await response
-                .json()
-                .catch(() => ({ error: "Could not apply edit." }))) as {
-                patch: DocumentPatch;
-                snapshot?: Snapshot;
-                baseRevision?: number;
-                revision?: number;
-                sequence: number;
-                error?: string;
-              };
+              const value: unknown = await response.json().catch(() => null);
+              const failure = editErrorSchema.safeParse(value);
+              const rejection = failure.success ? failure.data.error : undefined;
               if (response.status === 410) {
                 // A receipt may already have been retired: never retag or replay this edit.
                 // Reconcile an accepted-but-unacknowledged edit from the authoritative snapshot.
@@ -348,37 +375,44 @@ export function useFileRoom({
                     signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
                   });
                   if (latest.ok) {
-                    const synchronized = (await latest.json()) as { snapshot?: Snapshot };
-                    if (synchronized.snapshot && !controller.signal.aborted)
+                    const synchronized = await readJsonResponse({
+                      response: latest,
+                      schema: fileChangesSchema,
+                      message: "Could not synchronize file.",
+                    });
+                    if ("snapshot" in synchronized && !controller.signal.aborted)
                       edits.receive(synchronized.snapshot);
                   }
                 } catch {
                   /* A failed refresh must not replay an explicitly expired edit. */
                 }
                 throw new RejectedEdit(
-                  payload.error ??
+                  rejection ??
                     "This edit has expired. Synchronize the latest file before editing again.",
                 );
               }
               if (!response.ok) {
                 // An explicit response is a definitive rejection, unlike a lost ack.
-                throw new RejectedEdit(payload.error ?? "Could not apply edit.");
+                throw new RejectedEdit(rejection ?? "Could not apply edit.");
               }
+              // An invalid acknowledgement is uncertain, so retry this same operation ID.
+              const payload = fileCommitSchema.parse(value);
               const snapshot =
-                payload.snapshot ??
-                edits.acknowledge(operationId, base, {
-                  baseRevision: payload.baseRevision!,
-                  revision: payload.revision!,
-                  patches: payload.patch.length
-                    ? [
-                        {
-                          baseRevision: payload.baseRevision!,
-                          revision: payload.revision!,
-                          patch: payload.patch,
-                        },
-                      ]
-                    : [],
-                });
+                "snapshot" in payload
+                  ? payload.snapshot
+                  : edits.acknowledge(operationId, base, {
+                      baseRevision: payload.baseRevision,
+                      revision: payload.revision,
+                      patches: payload.patch.length
+                        ? [
+                            {
+                              baseRevision: payload.baseRevision,
+                              revision: payload.revision,
+                              patch: payload.patch,
+                            },
+                          ]
+                        : [],
+                    });
               result = { patch: payload.patch, snapshot, sequence: payload.sequence };
               break;
             } catch (error) {

@@ -152,9 +152,7 @@ export class McpActivity {
       if (!scope && typeof data.fileId === "string") {
         try {
           scope = await this.services.resolve(this.actor.userId, { file_id: data.fileId });
-        } catch {
-          /* Best effort. */
-        }
+        } catch {}
       }
       if (scope && typeof data.importId === "string") scope.importId = data.importId;
       const summary: ActivityDetails = {};

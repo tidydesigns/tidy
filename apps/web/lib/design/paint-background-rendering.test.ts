@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildDrawnNode, type DesignPaint } from "@bella/design/document";
+import { buildDrawnNode, type DesignPaint } from "@tidy/design/document";
 import { NodeFills } from "@tidy/design-renderer/node-fills";
 import { nodeStyle } from "@tidy/design-renderer/node-style";
 
