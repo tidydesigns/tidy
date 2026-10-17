@@ -460,11 +460,36 @@ integration("MCP onboarding requires a session and an organization membership", 
       expect(result.props.resourceUrl).toBe(
         new URL("/api/mcp", process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString(),
       );
+      expect(result.props.organizationId).toBe(orgId);
     }
 
     const unaffiliated = await account("No workspace", "no-workspace@example.test");
     requestHeaders.mockResolvedValue(unaffiliated.headers);
     await expect(page()).rejects.toThrow("NEXT_REDIRECT");
+  } finally {
+    requestHeaders.mockRestore();
+  }
+});
+
+integration("MCP onboarding carries the selected authorized organization into setup", async () => {
+  const invitation = await auth.api.createInvitation({
+    headers: outsider,
+    body: { email: "owner@example.com", role: "member", organizationId: otherId },
+  });
+  await auth.api.acceptInvitation({ headers: owner, body: { invitationId: invitation.id } });
+  await auth.api.setActiveOrganization({ headers: owner, body: { organizationId: orgId } });
+
+  const nextHeaders = await import("next/headers");
+  const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(owner);
+  try {
+    const { default: McpOnboardingPage } = await import("../../app/onboarding/mcp/page");
+    for (const requestedId of [orgId, otherId, "not-a-membership"]) {
+      const result = await McpOnboardingPage({
+        params: Promise.resolve({}),
+        searchParams: Promise.resolve({ organizationId: requestedId }),
+      });
+      expect(result.props.organizationId).toBe(requestedId === otherId ? otherId : orgId);
+    }
   } finally {
     requestHeaders.mockRestore();
   }

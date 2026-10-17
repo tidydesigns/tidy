@@ -3,7 +3,9 @@ import { McpOnboarding } from "./mcp-onboarding";
 
 export default async function McpOnboardingPage({ searchParams }: PageProps<"/onboarding/mcp">) {
   const requestedId = (await searchParams).organizationId;
-  await getWorkspace(typeof requestedId === "string" ? requestedId : undefined);
+  const { organization } = await getWorkspace(
+    typeof requestedId === "string" ? requestedId : undefined,
+  );
 
   const baseUrl =
     process.env.BETTER_AUTH_URL ||
@@ -11,5 +13,5 @@ export default async function McpOnboardingPage({ searchParams }: PageProps<"/on
   if (!baseUrl) throw new Error("BETTER_AUTH_URL is required for MCP onboarding.");
   const resourceUrl = new URL("/api/mcp", baseUrl).toString();
 
-  return <McpOnboarding resourceUrl={resourceUrl} />;
+  return <McpOnboarding resourceUrl={resourceUrl} organizationId={organization.id} />;
 }
