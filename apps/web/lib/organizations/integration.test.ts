@@ -495,6 +495,31 @@ integration("MCP onboarding carries the selected authorized organization into se
   }
 });
 
+integration(
+  "MCP onboarding recognizes existing authorization for the signed-in account",
+  async () => {
+    await oauthClient("onboarding-codex");
+    await consent("onboarding-codex", ownerId);
+    const nextHeaders = await import("next/headers");
+    const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(owner);
+    try {
+      const { default: McpOnboardingPage } = await import("../../app/onboarding/mcp/page");
+      const page = () =>
+        McpOnboardingPage({
+          params: Promise.resolve({}),
+          searchParams: Promise.resolve({ organizationId: orgId }),
+        });
+      expect((await page()).props.initialClients).toEqual([
+        { clientId: "onboarding-codex", name: "onboarding-codex" },
+      ]);
+      requestHeaders.mockResolvedValue(invited);
+      expect((await page()).props.initialClients).toEqual([]);
+    } finally {
+      requestHeaders.mockRestore();
+    }
+  },
+);
+
 integration("MCP onboarding only defaults to localhost in development", async () => {
   const nextHeaders = await import("next/headers");
   const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(owner);

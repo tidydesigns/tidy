@@ -106,7 +106,14 @@ export function McpSetupGuide({
             </span>
             <div>
               <p className={styles.stepTitle}>{title}</p>
-              <p className={styles.stepDescription}>{description}</p>
+              <p
+                role={variant === "onboarding" && index === 2 ? "status" : undefined}
+                className={styles.stepDescription}
+              >
+                {variant === "onboarding" && props.copied && index === 2
+                  ? "Waiting for your agent to connect…"
+                  : description}
+              </p>
             </div>
           </li>
         ))}

@@ -1,9 +1,10 @@
 import { getWorkspace } from "@/lib/workspace/server";
+import { authorizedClients } from "@/lib/mcp/authorizations";
 import { McpOnboarding } from "./mcp-onboarding";
 
 export default async function McpOnboardingPage({ searchParams }: PageProps<"/onboarding/mcp">) {
   const requestedId = (await searchParams).organizationId;
-  const { organization } = await getWorkspace(
+  const { organization, session } = await getWorkspace(
     typeof requestedId === "string" ? requestedId : undefined,
   );
 
@@ -13,5 +14,14 @@ export default async function McpOnboardingPage({ searchParams }: PageProps<"/on
   if (!baseUrl) throw new Error("BETTER_AUTH_URL is required for MCP onboarding.");
   const resourceUrl = new URL("/api/mcp", baseUrl).toString();
 
-  return <McpOnboarding resourceUrl={resourceUrl} organizationId={organization.id} />;
+  // A transient read failure must not block setup. The client retries automatically.
+  const initialClients = await authorizedClients(session.user.id, resourceUrl).catch(() => []);
+  return (
+    <McpOnboarding
+      key={organization.id}
+      resourceUrl={resourceUrl}
+      organizationId={organization.id}
+      initialClients={initialClients}
+    />
+  );
 }
