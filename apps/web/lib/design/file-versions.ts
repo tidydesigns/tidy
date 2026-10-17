@@ -90,6 +90,7 @@ export async function createFileVersion(
     await db.query<{ organizationId: string }>(
       `select f."organizationId" from "designFile" f join "member" m
     on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL}
+    join "user" u on u."id"=m."userId" and u."emailVerified"=true
     where f."id"=$1 and f."archivedAt" is null`,
       [fileId, userId],
     )
@@ -103,7 +104,8 @@ export async function createFileVersion(
       await client.query<{ revision: number; content: DesignDocument; organizationId: string }>(
         `select d."revision",d."content",f."organizationId" from "designFile" f join "designDocument" d on d."fileId"=f."id"
       join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL}
-      where f."id"=$1 and f."archivedAt" is null for update of f,d`,
+      join "user" u on u."id"=m."userId" and u."emailVerified"=true
+      where f."id"=$1 and f."archivedAt" is null for update of f,d for share of m,u`,
         [fileId, userId],
       )
     ).rows[0];

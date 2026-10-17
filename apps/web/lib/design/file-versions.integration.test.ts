@@ -661,6 +661,24 @@ integration(
   },
 );
 
+integration("checkpoint creation rejects unverified accounts at the service boundary", async () => {
+  await client.query('update "user" set "emailVerified"=false where "id"=$1', [actor]);
+  try {
+    const current = await snapshot();
+    const count = (
+      await client.query('select 1 from "designFileVersion" where "fileId"=$1', [file])
+    ).rowCount;
+    await expect(
+      versions.createFileVersion(actor, file, "Unverified", current.revision),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(
+      (await client.query('select 1 from "designFileVersion" where "fileId"=$1', [file])).rowCount,
+    ).toBe(count);
+  } finally {
+    await client.query('update "user" set "emailVerified"=true where "id"=$1', [actor]);
+  }
+});
+
 integration("workspace rolling skips a file locked by another editor", async () => {
   const org = `rolling-lock-${fixture}`,
     older = `${org}-a`,
