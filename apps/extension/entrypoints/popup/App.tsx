@@ -85,6 +85,14 @@ export function App() {
   const organization = account?.organizations.find((item) => item.id === organizationId);
   const activeJob = job?.userId === account?.user.id ? job : undefined;
   const busy = starting || activeJob?.state === "importing" || activeJob?.state === "selecting";
+  const status =
+    starting || activeJob?.state === "importing"
+      ? "Importing into Tidy…"
+      : activeJob?.state === "selecting"
+        ? "Select elements on the page, then choose Copy elements."
+        : activeJob?.state === "done"
+          ? "Import complete. Open imported design is available."
+          : "";
   const copy = async (mode: "page" | "element") => {
     if (!account) return;
     setError("");
@@ -197,9 +205,11 @@ export function App() {
               </div>
             </>
           )}
+          <p role="status" aria-atomic="true">
+            {status}
+          </p>
           {activeJob?.state === "selecting" && (
             <div className="status">
-              <p role="status">Select elements on the page, then choose Copy elements.</p>
               <Button
                 className="secondary"
                 onClick={() =>
@@ -209,9 +219,6 @@ export function App() {
                 Cancel selection
               </Button>
             </div>
-          )}
-          {(starting || activeJob?.state === "importing") && (
-            <p role="status">Importing into Tidy…</p>
           )}
           {activeJob?.state === "done" && (
             <div className="status">

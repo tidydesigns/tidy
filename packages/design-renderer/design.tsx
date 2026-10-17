@@ -54,6 +54,19 @@ type TreeProps = Props & {
   rootRef?: (element: HTMLElement | null) => void;
 };
 
+function hasNamingContent(
+  node: DesignNode,
+  childrenById: Map<string, DesignNode[]>,
+  text: Props["text"],
+): boolean {
+  if (!node.visible || node.semantics?.hidden) return false;
+  if (node.type === "text" && (text?.[node.id] ?? node.text)?.trim()) return true;
+  if ((node.assetId || node.vectorPath) && (node.semantics?.label ?? node.name).trim()) return true;
+  return (childrenById.get(node.id) ?? []).some((child) =>
+    hasNamingContent(child, childrenById, text),
+  );
+}
+
 function RenderNode(props: TreeProps) {
   const { node, parent, document, assets, childrenById, measuredWidth, insideButton } = props;
   const { colors } = props;
@@ -154,30 +167,42 @@ function RenderNode(props: TreeProps) {
     if (painted.widthMode === "fill") style.width = "100%";
     if (painted.heightMode === "fill") style.height = "100%";
   }
+  const href = props.readOnly
+    ? undefined
+    : ((external as { href?: string }).href ?? node.semantics?.href);
+  const nativeControl = tag === "button" || (tag === "a" && !!href);
+  const hasHoverAction = node.interactions?.some((item) => item.trigger.type === "hover");
+  const interactive =
+    !!props.onTrigger &&
+    (nativeControl ||
+      node.linkTo ||
+      node.interactions?.some((item) => ["click", "key", "hover"].includes(item.trigger.type)));
+  const label =
+    external["aria-label"] ??
+    node.semantics?.label ??
+    (interactive &&
+    !external["aria-labelledby"] &&
+    !external.title?.trim() &&
+    !hasNamingContent(node, childrenById, props.text)
+      ? node.name
+      : undefined);
   const attributes = {
     ...external,
     ref: props.rootRef,
     style: { ...style, ...external.style },
-    "aria-label": external["aria-label"] ?? node.semantics?.label,
+    "aria-label": label,
     "aria-hidden": node.semantics?.hidden || undefined,
+    inert: node.semantics?.hidden || external.inert || undefined,
     ...(props.onTrigger
       ? {
           "data-prototype-node": node.id,
-          "aria-label": node.semantics?.label ?? node.name,
-          "aria-disabled": disabled || undefined,
-          ...(!["button", "a"].includes(tag) &&
-          (node.linkTo ||
-            node.interactions?.some((item) => ["click", "key"].includes(item.trigger.type))) &&
-          !disabled
-            ? { role: "button", tabIndex: 0 }
-            : {}),
+          "aria-disabled": tag === "button" ? undefined : disabled || undefined,
+          ...(!nativeControl && interactive && !disabled ? { role: "button", tabIndex: 0 } : {}),
         }
       : {}),
     ...(tag === "a"
       ? {
-          href: props.readOnly
-            ? undefined
-            : ((external as { href?: string }).href ?? node.semantics?.href),
+          href,
         }
       : {}),
     ...(tag === "button"
@@ -232,8 +257,17 @@ function RenderNode(props: TreeProps) {
       external.onPointerCancel?.(event);
     },
     onFocus: (event: React.FocusEvent<HTMLElement>) => {
-      setFocus(event.target.matches(":focus-visible"));
+      const focusVisible = event.target.matches(":focus-visible");
+      setFocus(focusVisible);
       external.onFocus?.(event);
+      if (
+        !event.defaultPrevented &&
+        event.target === event.currentTarget &&
+        focusVisible &&
+        !disabled &&
+        hasHoverAction
+      )
+        props.onTrigger?.(node.id, "hover");
     },
     onBlur: (event: React.FocusEvent<HTMLElement>) => {
       setFocus(false);
@@ -248,7 +282,7 @@ function RenderNode(props: TreeProps) {
         !event.repeat &&
         props.onTrigger &&
         (props.onTrigger(node.id, "key", event.key) ||
-          (!["button", "a"].includes(tag) &&
+          (!nativeControl &&
             [" ", "Enter"].includes(event.key) &&
             props.onTrigger(node.id, "click")))
       ) {

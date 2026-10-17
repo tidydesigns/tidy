@@ -23,6 +23,9 @@ export function startElementPicker({
   onConfirm: (elements: Element[]) => void;
   onCancel: () => void;
 }) {
+  let previousFocus = document.activeElement as HTMLElement | null;
+  while (previousFocus?.shadowRoot?.activeElement)
+    previousFocus = previousFocus.shadowRoot.activeElement as HTMLElement;
   const host = document.createElement("div");
   host.dataset.bellaPicker = "";
   host.style.cssText =
@@ -35,7 +38,9 @@ export function startElementPicker({
     .outline{position:fixed;pointer-events:none;border:1px solid var(--ink);background:light-dark(#4242420a,#d0d0d00a)}
     .selected{border:2px solid var(--ink);background:light-dark(#42424214,#d0d0d014)}
     .toolbar{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 32px);padding:12px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);box-shadow:0 2px 12px #0002;pointer-events:auto;font:15px/1.4 "Tidy Instrument Sans",system-ui,sans-serif}
-    .selection-row{display:flex;align-items:center;gap:24px}
+    .selection-row{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+    .target{max-width:min(320px,calc(100vw - 64px));overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .target[aria-pressed=true]{outline:2px solid var(--ink);outline-offset:2px}
     .hint{color:var(--muted);font-size:14px}
     .shortcuts{margin-top:8px;color:var(--muted);font-size:12px}
     summary{width:max-content;cursor:pointer}
@@ -79,6 +84,63 @@ export function startElementPicker({
     );
   };
   setTheme(theme);
+  function parentElement(element: Element) {
+    const tree = element.getRootNode();
+    return element.parentElement ?? (tree instanceof ShadowRoot ? tree.host : undefined);
+  }
+  function children(element: Element) {
+    return [...element.children, ...(element.shadowRoot?.children ?? [])];
+  }
+  function selectable(element: Element) {
+    if (
+      element === host ||
+      element === document.documentElement ||
+      /^(script|style|noscript|template|meta|link|title)$/i.test(element.localName)
+    )
+      return false;
+    const box = element.getBoundingClientRect();
+    const computed = getComputedStyle(element);
+    return (
+      box.width > 0 &&
+      box.height > 0 &&
+      computed.visibility !== "hidden" &&
+      computed.visibility !== "collapse"
+    );
+  }
+  function findTarget(elements: Element[], reverse = false): Element | undefined {
+    for (const element of reverse ? elements.toReversed() : elements) {
+      if (element === host) continue;
+      if (selectable(element)) return element;
+      const descendant = findTarget(children(element), reverse);
+      if (descendant) return descendant;
+    }
+  }
+  function description(element: Element) {
+    const label =
+      element.getAttribute("aria-label") ||
+      element.getAttribute("alt") ||
+      element.textContent ||
+      "";
+    const text = label.replace(/\s+/g, " ").trim().slice(0, 80);
+    return `${element.localName}${text ? `: ${text}` : ""}`;
+  }
+  target =
+    previousFocus && previousFocus !== document.body && selectable(previousFocus)
+      ? previousFocus
+      : findTarget([...document.body.children]);
+  function toggleTarget() {
+    if (!target?.isConnected) return;
+    notice = "";
+    const prior = selected.find((element) => contains(element, target!));
+    if (prior) selected = selected.filter((element) => element !== prior);
+    else {
+      const next = selected.filter((element) => !contains(target!, element));
+      if (next.length >= MAX_SELECTED_ELEMENTS)
+        notice = `Select up to ${MAX_SELECTED_ELEMENTS} elements at a time.`;
+      else selected = [...next, target];
+    }
+    render();
+  }
   function confirm() {
     if (stopped || !selected.length) return;
     if (selected.some((element) => !element.isConnected)) {
@@ -120,9 +182,15 @@ export function startElementPicker({
       root.render(
         <div className="toolbar">
           <div className="selection-row">
-            <span className="hint" role="status">
-              {notice || "Click elements to select them"}
-            </span>
+            <Button
+              className="target"
+              data-picker-target
+              aria-pressed={!!target && selected.some((element) => contains(element, target!))}
+              aria-describedby="picker-status picker-instructions"
+              onClick={toggleTarget}
+            >
+              {target ? `Select ${description(target)}` : "No selectable elements"}
+            </Button>
             <Button
               disabled={!selected.length}
               onClick={confirm}
@@ -135,6 +203,13 @@ export function startElementPicker({
                   : "Copy elements"}
             </Button>
           </div>
+          <p className="hint" id="picker-status" role="status" aria-atomic="true">
+            {notice ||
+              `${selected.length} ${selected.length === 1 ? "element" : "elements"} selected.`}
+          </p>
+          <p className="hint" id="picker-instructions">
+            Click page elements, or use arrows to browse and Space to select.
+          </p>
           <details className="shortcuts">
             <summary>Keyboard shortcuts</summary>
             <dl className="shortcut-list">
@@ -146,9 +221,17 @@ export function startElementPicker({
               <dd>
                 <kbd>↓</kbd>
               </dd>
+              <dt>Previous / next element</dt>
+              <dd>
+                <kbd>←</kbd> <kbd>→</kbd>
+              </dd>
+              <dt>Select / deselect element</dt>
+              <dd>
+                <kbd>Space</kbd>
+              </dd>
               <dt>Copy selection</dt>
               <dd>
-                <kbd>Enter</kbd>
+                Tab to Copy, then <kbd>Enter</kbd>
               </dd>
               <dt>Cancel</dt>
               <dd>
@@ -161,45 +244,67 @@ export function startElementPicker({
     );
   }
   const inToolbar = (event: Event) => event.composedPath().includes(host);
-  const suppress = (event: Event) => {
-    if (inToolbar(event)) return;
+  const consume = (event: Event) => {
     event.preventDefault();
     event.stopImmediatePropagation();
   };
+  const suppress = (event: Event) => {
+    if (!inToolbar(event)) consume(event);
+  };
   const move = (event: PointerEvent) => {
     if (inToolbar(event)) return;
-    target = event.composedPath().find((node) => node instanceof Element) as Element | undefined;
-    highlight();
+    const next = event.composedPath().find((node) => node instanceof Element) as
+      | Element
+      | undefined;
+    if (next === target) return;
+    target = next;
+    render();
   };
   const click = (event: MouseEvent) => {
     if (inToolbar(event)) return;
     suppress(event);
     // Return keyboard control to selection after interacting with the toolbar.
-    (shadow.activeElement as HTMLElement | null)?.blur?.();
-    if (!target?.isConnected) return;
-    notice = "";
-    const prior = selected.find((element) => contains(element, target!));
-    if (prior) selected = selected.filter((element) => element !== prior);
-    else {
-      const next = selected.filter((element) => !contains(target!, element));
-      if (next.length >= MAX_SELECTED_ELEMENTS)
-        notice = `Select up to ${MAX_SELECTED_ELEMENTS} elements at a time.`;
-      else selected = [...next, target];
-    }
-    render();
+    target = event.composedPath().find((node) => node instanceof Element) as Element | undefined;
+    toggleTarget();
+    (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();
   };
+  function browse(direction: string) {
+    if (!target?.isConnected) target = findTarget([...document.body.children]);
+    else if (direction === "ArrowDown") target = findTarget(children(target)) ?? target;
+    else if (direction === "ArrowUp") {
+      let parent = parentElement(target);
+      while (parent && !selectable(parent)) parent = parentElement(parent);
+      target = parent ?? target;
+    } else {
+      const parent = parentElement(target);
+      const siblings = parent ? children(parent) : [];
+      const index = siblings.indexOf(target);
+      const next =
+        direction === "ArrowLeft"
+          ? findTarget(siblings.slice(0, index), true)
+          : findTarget(siblings.slice(index + 1));
+      target = next ?? target;
+    }
+    target?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "instant" });
+    notice = target
+      ? `Target ${description(target)}. ${selected.length} selected.`
+      : "No selectable elements.";
+    render();
+  }
   const key = (event: KeyboardEvent) => {
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopImmediatePropagation();
       stop();
       onCancel();
-    } else if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-      if (inToolbar(event)) return;
+    } else if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)) {
+      const targetControl = shadow.activeElement?.hasAttribute("data-picker-target");
+      if (inToolbar(event) && !targetControl) return;
+      consume(event);
+      browse(event.key);
+    } else if (event.key === " " && !inToolbar(event)) {
       suppress(event);
-      target =
-        (event.key === "ArrowUp" ? target?.parentElement : target?.firstElementChild) ?? target;
-      highlight();
+      toggleTarget();
     } else if (event.key === "Enter" && !inToolbar(event)) {
       suppress(event);
       confirm();
@@ -217,6 +322,7 @@ export function startElementPicker({
     window.removeEventListener("resize", highlight);
     root.unmount();
     host.remove();
+    if (previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
     if (font) document.fonts.delete(font);
   }
   window.addEventListener("pointermove", move, true);
@@ -227,5 +333,6 @@ export function startElementPicker({
   window.addEventListener("scroll", highlight, true);
   window.addEventListener("resize", highlight);
   render();
+  (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();
   return { stop, setTheme };
 }

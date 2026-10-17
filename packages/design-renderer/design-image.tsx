@@ -59,12 +59,13 @@ export function DesignImage({
       ? display
       : undefined;
   const failed = load.status === "failed" || (resolved !== undefined && decodeError === resolved);
+  const label = node.semantics?.label ?? node.name;
   if (node.vectorPath)
     return (
       <img
         data-vector-path
         src={`data:image/svg+xml,${encodeURIComponent(vectorSvg(node, tokens))}`}
-        alt={node.name}
+        alt={label}
         draggable={false}
         style={vectorImageStyle(node)}
       />
@@ -101,7 +102,7 @@ export function DesignImage({
           data-image-loading={(!failed && resolved === undefined) || undefined}
           data-image-failed={failed || undefined}
           onError={() => setDecodeError(resolved)}
-          alt={failed ? `${node.name || "Image"} unavailable` : node.name}
+          alt={failed ? `${label || "Image"} unavailable` : label}
           width={node.box.width}
           height={node.box.height}
           draggable={false}
@@ -118,7 +119,7 @@ export function DesignImage({
     <svg
       ref={viewport.ref}
       role="img"
-      aria-label={failed ? `${node.name || "Image"} unavailable` : node.name}
+      aria-label={failed ? `${label || "Image"} unavailable` : label}
       data-image-failed={failed || undefined}
       data-image-crop
       {...attributes}
