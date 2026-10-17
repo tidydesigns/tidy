@@ -7,7 +7,7 @@ import {
   editorErrorInstance,
   type EditorErrorNotice,
 } from "@/lib/design/editor-error";
-import { detachInstance } from "@/lib/design/component-instance";
+import { detachInstance, owningInstance } from "@/lib/design/component-instance";
 import { ImageEditor } from "./image-editor";
 import {
   applyRasterTrace,
@@ -2282,6 +2282,7 @@ export function FileEditor({
       Number(node?.type === "container") +
       Number(Boolean(node && !node.isComponent && !node.instanceOf && node.type !== "artboard")) +
       Number(Boolean(node?.isComponent)) +
+      Number(Boolean(owningInstance(snapshotRef.current.content.nodes, nodeId))) +
       Number(
         selectionCount === 1 &&
           Boolean(
@@ -3333,6 +3334,9 @@ export function FileEditor({
   );
 
   const contextNode = contextMenu ? nodes.find((node) => node.id === contextMenu.nodeId) : null;
+  const contextInstance = contextNode
+    ? owningInstance(snapshot.content.nodes, contextNode.id)
+    : undefined;
   const contextItems: LayerMenuItem[] = contextNode
     ? [
         ...contextMenu!.behindIds.map((id, index) => ({
@@ -3448,6 +3452,31 @@ export function FileEditor({
                     (content) => makeComponent(content, contextNode.id),
                     contextNode.id,
                   ),
+              },
+            ]
+          : []),
+        ...(contextInstance
+          ? [
+              {
+                label: "Detach instance",
+                replayLabel: true,
+                disabled:
+                  readOnly ||
+                  isLayerLocked(nodes, contextNode.id) ||
+                  isLayerLocked(nodes, contextInstance.id),
+                onSelect: () => {
+                  void changeDocument((content) => {
+                    const instance = owningInstance(content.nodes, contextNode.id);
+                    if (
+                      instance?.id !== contextInstance.id ||
+                      instance.instanceOf !== contextInstance.instanceOf ||
+                      isLayerLocked(content.nodes, contextNode.id)
+                    )
+                      return content;
+                    return detachInstance(content, instance.id);
+                  });
+                  viewport.current?.focus({ preventScroll: true });
+                },
               },
             ]
           : []),
