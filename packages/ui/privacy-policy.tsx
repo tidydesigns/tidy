@@ -69,12 +69,12 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           We rely on performance of a contract (GDPR Article 6(1)(b)) for the service you request;
           legitimate interests (Article 6(1)(f)) for security, reliability, support and
-          administering access to an organisation&#39;s service; and legal obligations (Article 6(1)(c))
-          for applicable accounting, tax and data-protection duties. Optional browser analytics,
-          replay, diagnostics and optional MCP account linking rely on consent (Article 6(1)(a));
-          refusing or withdrawing consent does not prevent account access. Our legitimate interests
-          are protecting users and operating a reliable service; processing must be necessary and
-          proportionate. You can object as explained below.
+          administering access to an organisation&#39;s service; and legal obligations (Article
+          6(1)(c)) for applicable accounting, tax and data-protection duties. Optional browser
+          analytics, replay, diagnostics and optional MCP account linking rely on consent (Article
+          6(1)(a)); refusing or withdrawing consent does not prevent account access. Our legitimate
+          interests are protecting users and operating a reliable service; processing must be
+          necessary and proportionate. You can object as explained below.
         </p>
         <p>
           Account details and authentication are needed to provide account access. Payment and
