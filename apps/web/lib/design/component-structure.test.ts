@@ -14,7 +14,7 @@ import {
 } from "./document-operations";
 import { editLayers, trackDocumentChanges } from "./edit-document";
 import { reconcileComponentStructure } from "./component-structure";
-import { resetInstance, detachInstance, swapInstance } from "./component-instance";
+import { owningInstance, resetInstance, detachInstance, swapInstance } from "./component-instance";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
 import { resolveVariantNodes, standaloneVariants } from "./component-variants";
 import { mergeImport } from "./merge-import";
@@ -366,4 +366,34 @@ test("master structure edits remain usable in imported documents over 5000 layer
   expect(after.nodes).toHaveLength(6002);
   expect(copyOf(after, "imported-child").parentId).toBe("copy-0");
   expect(applyDocumentPatch(after, invertPatch(diffDocument(before, after)), true)).toEqual(before);
+});
+
+test("instance controls resolve the selected child's own copy, not another copy or the master", () => {
+  const before = fixture();
+  let id = 0;
+  const document = createComponentInstance(before, "master", () => `second-${id++}`).document;
+  expect(owningInstance(document.nodes, "copy-1")?.id).toBe("copy-0");
+  expect(owningInstance(document.nodes, "second-1")?.id).toBe("second-0");
+  expect(owningInstance(document.nodes, "copy-0")?.id).toBe("copy-0");
+  expect(owningInstance(document.nodes, "label")).toBeUndefined();
+  expect(owningInstance(document.nodes, "missing")).toBeUndefined();
+  const detached = detachInstance(document, "copy-0");
+  expect(owningInstance(detached.nodes, "copy-1")).toBeUndefined();
+});
+
+test("linked text can be cleared; explicit detach enables deletion and both actions undo", () => {
+  const before = fixture();
+  const cleared = commit(before, editLayers(before, ["copy-1"], { text: "" }));
+  expect(cleared.nodes.find((node) => node.id === "copy-1")?.text).toBe("");
+  expect(cleared.nodes.find((node) => node.id === "label")?.text).toBe("Original");
+  const owner = owningInstance(cleared.nodes, "copy-1")!;
+  const detached = commit(cleared, detachInstance(cleared, owner.id));
+  const deleted = commit(detached, removeLayers(detached, ["copy-1"]));
+  expect(deleted.nodes.some((node) => node.id === "copy-1")).toBe(false);
+  expect(deleted.nodes.find((node) => node.id === "label")?.text).toBe("Original");
+  const restored = applyDocumentPatch(deleted, invertPatch(diffDocument(detached, deleted)), true);
+  expect(restored).toEqual(detached);
+  expect(applyDocumentPatch(restored, invertPatch(diffDocument(cleared, detached)), true)).toEqual(
+    cleared,
+  );
 });

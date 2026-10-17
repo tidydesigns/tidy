@@ -3,6 +3,21 @@ import { componentSubtreeIds, resolveVariantNodes } from "./component-variants";
 import { instanceChildId, reconcileComponentStructure } from "./component-structure";
 import { isLayerLocked } from "./edit-document";
 
+/** Resolve the owning instance for a selected root or linked child. */
+export function owningInstance(nodes: readonly DesignNode[], id: string): DesignNode | undefined {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const sourceId = byId.get(id)?.instanceOf;
+  if (!sourceId) return undefined;
+  const visited = new Set<string>();
+  let node = byId.get(id);
+  while (node && !visited.has(node.id)) {
+    if (node.instanceOf === sourceId && node.componentSourceId === sourceId) return node;
+    visited.add(node.id);
+    node = byId.get(node.parentId ?? "");
+  }
+  return undefined;
+}
+
 function linkedRoot(document: DesignDocument, id: string) {
   const root = document.nodes.find((node) => node.id === id);
   if (

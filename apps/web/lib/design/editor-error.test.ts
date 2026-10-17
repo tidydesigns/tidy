@@ -29,3 +29,19 @@ test("useful edit conflict and permission errors retain their messages", () => {
     expect(editorErrorMessage(new Error(message), "Could not change layers.")).toBe(message);
   }
 });
+
+test("instance structure restrictions explain where to find the recovery control", () => {
+  for (const action of [
+    "adding or reparenting",
+    "deleting or moving",
+    "reparenting",
+    "reordering",
+  ]) {
+    const message = editorErrorMessage(
+      new Error(`Detach the instance before ${action} its children.`),
+      "Could not change layers.",
+    );
+    expect(message).toContain("component instance");
+    expect(message).toContain("Detach instance in the Component section");
+  }
+});

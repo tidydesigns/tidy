@@ -2,6 +2,7 @@
 import { proportionalImageSize } from "@/lib/design/image-sizing";
 import { nativeShapePath } from "@bella/design/native-shapes";
 import { InstanceControls } from "./instance-controls";
+import { owningInstance } from "@/lib/design/component-instance";
 import { HandoffInspector } from "./handoff-inspector";
 import { useRichTextSelection, RichTextSelectionControls } from "./rich-text-selection";
 import { fontRegistry } from "@/lib/design/fonts/runtime";
@@ -126,7 +127,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   const [keyObjectId, setKeyObjectId] = useState("");
   const [maskSourceId, setMaskSourceId] = useState("");
   const node = selected[0];
-  const instance = !multi && node.instanceOf && node.componentSourceId === node.instanceOf;
+  const instance = !multi ? owningInstance(document.nodes, node.id) : undefined;
   const family = !multi ? componentFamily(document.nodes, node) : undefined;
   const parentLayout = (item: DesignNode) => {
     const parent = document.nodes.find((candidate) => candidate.id === item.parentId);
@@ -369,7 +370,8 @@ export const SelectionInspector = memo(function SelectionInspector({
       )}
       {instance && (
         <InstanceControls
-          node={node}
+          node={instance}
+          fromChild={instance.id !== node.id}
           document={document}
           readOnly={inspect}
           onDocument={onDocument}

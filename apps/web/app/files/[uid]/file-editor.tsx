@@ -4587,7 +4587,7 @@ export function FileEditor({
           {(visibleError || exportError) && (
             <div
               role="alert"
-              className="absolute bottom-4 left-4 z-30 max-w-xs rounded-lg bg-surface p-3 text-xs shadow-sm"
+              className="absolute bottom-4 right-4 z-30 max-w-[min(20rem,calc(100%-2rem))] rounded-lg bg-surface p-3 text-xs shadow-sm"
             >
               {visibleError || exportError}
             </div>
