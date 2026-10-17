@@ -4,17 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
-import { FormMessage } from "@/components/ui/form-message";
-import { Icon } from "@/components/ui/icon";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
+import { McpSetupGuide } from "@/components/mcp/setup-prompt";
 import styles from "./mcp-onboarding.module.css";
-
-const steps = [
-  ["Copy the setup prompt", "Everything your agent needs to connect."],
-  ["Paste it into your agent", "Start a new message and run the prompt."],
-  ["Sign in to Tidy", "Follow the link your agent gives you."],
-];
 
 export function McpOnboarding({
   resourceUrl,
@@ -25,33 +18,6 @@ export function McpOnboarding({
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
-  const [copying, setCopying] = useState(false);
-  const [error, setError] = useState("");
-
-  async function copyPrompt() {
-    setCopying(true);
-    setError("");
-    try {
-      await navigator.clipboard.writeText(
-        `Connect this coding agent to Tidy using ${resourceUrl}.\n\n` +
-          "Set up the remote Streamable HTTP MCP server using this agent’s supported configuration. " +
-          "Preserve any existing MCP servers. Guide me through browser-based OAuth sign-in, " +
-          "then verify the connection by listing my Tidy organizations and confirming that " +
-          `organization_id ${JSON.stringify(organizationId)} is available. ` +
-          "Use this organization for subsequent work: always pass this exact organization_id " +
-          "to tools that accept it, and use files belonging to this organization for file-specific tools. " +
-          "Do not choose a default or another organization; ask me if this organization is unavailable. " +
-          "If this agent cannot configure MCP itself, give me the exact setup steps for this client.",
-      );
-      setCopied(true);
-    } catch {
-      setCopied(false);
-      setError("Could not copy the setup prompt. Please try again.");
-    } finally {
-      setCopying(false);
-    }
-  }
-
   function finish() {
     posthog.capture("onboarding_completed", { mcp_setup_prompt_copied: copied });
     router.replace("/files");
@@ -65,63 +31,13 @@ export function McpOnboarding({
           <OnboardingProgress step={3} />
         </header>
 
-        <div className={styles.content}>
-          <section aria-labelledby="connect-agent-title" className={styles.introduction}>
-            <h1 id="connect-agent-title" data-ph-public className={styles.title}>
-              Bring your agent
-              <br />
-              to Tidy.
-            </h1>
-            <p data-ph-public className={styles.description}>
-              Connect Tidy to your coding agent.
-              <br />
-              Keep your designs and code in the same conversation.
-            </p>
-            {error && <FormMessage>{error}</FormMessage>}
-            <Button
-              type="button"
-              data-ph-public
-              className={styles.copyButton}
-              onClick={() => void copyPrompt()}
-              disabled={copying}
-              aria-busy={copying}
-            >
-              <span aria-hidden="true" className={styles.agents}>
-                <span className={`${styles.agent} ${styles.codex}`} />
-                <span className={`${styles.agent} ${styles.claude}`} />
-                <span className={`${styles.agent} ${styles.opencode}`} />
-              </span>
-              <span aria-hidden="true" className={styles.divider} />
-              <span className={styles.buttonLabel}>
-                {copied ? "Prompt copied" : "Copy setup prompt"}
-              </span>
-              <Icon name={copied ? "check" : "copy"} size={19} />
-            </Button>
-            <span role="status" className="sr-only">
-              {copied ? "Prompt copied" : ""}
-            </span>
-          </section>
-
-          <ol aria-label="Connect your agent" data-ph-public className={styles.steps}>
-            {steps.map(([title, description], index) => (
-              <li
-                key={title}
-                aria-current={index === (copied ? 1 : 0) ? "step" : undefined}
-                data-active={copied && index === 1 ? "" : undefined}
-                data-complete={copied && index === 0 ? "" : undefined}
-                className={styles.step}
-              >
-                <span aria-hidden="true" className={styles.stepNumber}>
-                  {index + 1}
-                </span>
-                <div>
-                  <p className={styles.stepTitle}>{title}</p>
-                  <p className={styles.stepDescription}>{description}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </div>
+        <McpSetupGuide
+          variant="onboarding"
+          resourceUrl={resourceUrl}
+          organizationId={organizationId}
+          copied={copied}
+          onCopied={setCopied}
+        />
 
         <footer className={styles.footer}>
           <Button type="button" data-ph-public className={styles.skipButton} onClick={finish}>

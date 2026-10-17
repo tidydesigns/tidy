@@ -1,16 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { DeferredSection } from "@/components/ui/deferred-section";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "@/components/ui/confirm-action";
+import { Icon } from "@/components/ui/icon";
 import { SelectMenu } from "@/components/ui/select-menu";
+import {
+  McpPromptButton,
+  McpSetupGuide,
+  type SetupPromptProps,
+} from "@/components/mcp/setup-prompt";
 import { checkAuthorizedAgents, revokeAgent } from "./actions";
 import { agentOptions, setupFor, type Agent, type SetupValue } from "./agent-setup";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
+import type { AuthorizedClient } from "@/lib/mcp/authorizations";
+import styles from "./mcp-connection.module.css";
 
-type AuthorizedClient = { clientId: string; name: string };
-type EndpointStatus = "checking" | "ready" | "unavailable" | "misconfigured";
 function CopyableValue({ value, copyLabel }: SetupValue) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
@@ -37,9 +43,12 @@ function CopyableValue({ value, copyLabel }: SetupValue) {
           aria-label={copyLabel}
           className="shrink-0 rounded px-1 py-1 text-xs font-medium transition-transform duration-150 ease-out hover:text-primary-black active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
         >
-          <span role="status">{copied ? "Copied" : copyLabel}</span>
+          <span>{copied ? "Copied" : copyLabel}</span>
         </Button>
       </div>
+      <span role="status" className="sr-only">
+        {copied ? "Copied" : ""}
+      </span>
       {error && (
         <p role="alert" className="mt-2 text-xs text-danger">
           {error}
@@ -49,48 +58,7 @@ function CopyableValue({ value, copyLabel }: SetupValue) {
   );
 }
 
-async function probeEndpoint(resourceUrl: string): Promise<EndpointStatus> {
-  try {
-    const signal = AbortSignal.timeout(10_000);
-    const metadata = await fetch("/.well-known/oauth-protected-resource/api/mcp", {
-      cache: "no-store",
-      signal,
-    });
-    if (!metadata.ok) return "unavailable";
-    const details: { resource?: string } = await metadata.json();
-    if (details.resource !== resourceUrl) return "misconfigured";
-    const response = await fetch("/api/mcp", {
-      signal,
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2025-06-18",
-          capabilities: {},
-          clientInfo: { name: "tidy-connection-check", version: "1" },
-        },
-      }),
-    });
-    return response.status === 401 || response.ok ? "ready" : "unavailable";
-  } catch {
-    return "unavailable";
-  }
-}
-
-export function McpConnection({
-  clients,
-  resourceUrl,
-}: {
-  clients: AuthorizedClient[] | Promise<AuthorizedClient[]>;
-  resourceUrl: string;
-}) {
-  const [currentClients, setClients] = useState<AuthorizedClient[]>();
-  const [error, setError] = useState("");
-  const [endpoint, setEndpoint] = useState<EndpointStatus>("checking");
-  const [checking, setChecking] = useState(false);
+function ManualSetup({ resourceUrl }: { resourceUrl: string }) {
   const [selectedAgent, setAgent] = useState<Agent>("codex");
   const showAdditionalClients = useFeatureFlag("mcp-pi-gemini");
   const options = agentOptions.filter(
@@ -102,51 +70,13 @@ export function McpConnection({
     : "tidy";
   const setup = setupFor(agent, name, resourceUrl);
 
-  const check = useCallback(async () => {
-    setError("");
-    setChecking(true);
-    setEndpoint("checking");
-    setEndpoint(await probeEndpoint(resourceUrl));
-    try {
-      const result = await checkAuthorizedAgents();
-      if (result.error) setError(result.error);
-      if (result.clients) setClients(result.clients);
-    } catch {
-      setError("Could not check authorized agents.");
-    } finally {
-      setChecking(false);
-    }
-  }, [resourceUrl]);
-
-  useEffect(() => {
-    let active = true;
-    void probeEndpoint(resourceUrl).then((status) => {
-      if (active) setEndpoint(status);
-    });
-    return () => {
-      active = false;
-    };
-  }, [resourceUrl]);
-
-  const endpointLabel =
-    endpoint === "checking"
-      ? "Checking…"
-      : endpoint === "ready"
-        ? "Ready"
-        : endpoint === "misconfigured"
-          ? "Address mismatch"
-          : "Unavailable";
-
   return (
-    <section className="min-w-0">
-      <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
-        Connect your agent
-      </h1>
-      <p data-ph-public className="mt-2 text-sm text-secondary-ink">
-        Read, create, and edit Tidy designs from your agent.
-      </p>
-
-      <div className="mt-6">
+    <details className={styles.manual}>
+      <summary data-ph-public className={styles.manualToggle}>
+        <Icon name="arrowRight" size={14} className={styles.disclosureIcon} />
+        Manual setup
+      </summary>
+      <div className={styles.manualContent}>
         <SelectMenu
           replayOptions
           replayLabel
@@ -156,162 +86,268 @@ export function McpConnection({
           options={options}
           className="w-[210px] max-w-full"
         />
+        <ol key={agent} className="mt-6 space-y-6">
+          {setup.steps.map((step, index) => (
+            <li key={step.title} className="flex min-w-0 items-start gap-3">
+              <span aria-hidden="true" className={styles.manualStep}>
+                {index + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h3 data-ph-public className="text-sm font-medium leading-6">
+                  {step.title}
+                </h3>
+                <p data-ph-public className="mt-1 text-[13px] leading-5 text-secondary-ink">
+                  {step.description}
+                </p>
+                {step.values.map((item) => (
+                  <div key={item.value} className="mt-2">
+                    <CopyableValue {...item} />
+                  </div>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ol>
       </div>
+    </details>
+  );
+}
 
-      <ol key={agent} className="mt-6 space-y-6">
-        {setup.steps.map((step, index) => (
-          <li key={step.title} className="flex min-w-0 items-start gap-4">
-            <span
-              aria-hidden="true"
-              className="flex size-[26px] shrink-0 items-center justify-center rounded-full border border-primary-grey text-xs text-secondary-ink"
-            >
-              {index + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-[15px] font-semibold leading-[26px]">{step.title}</h2>
-              <p className="mt-1 text-[13px] leading-5 text-secondary-ink">{step.description}</p>
-              {step.values.map((item) => (
-                <div key={item.value} className="mt-2">
-                  <CopyableValue {...item} />
-                </div>
-              ))}
+function EmptySetup(props: SetupPromptProps) {
+  return (
+    <>
+      <McpSetupGuide {...props} />
+      <ManualSetup resourceUrl={props.resourceUrl} />
+    </>
+  );
+}
+
+function AgentLogo({ name }: { name: string }) {
+  const agent = /claude/i.test(name)
+    ? "claude"
+    : /opencode/i.test(name)
+      ? "opencode"
+      : /codex|openai/i.test(name)
+        ? "codex"
+        : null;
+  return agent ? (
+    <span
+      aria-hidden="true"
+      className={styles.agentLogo}
+      style={{ maskImage: `url(/agents/${agent}.svg)` }}
+    />
+  ) : (
+    <Icon name="plug" size={28} />
+  );
+}
+
+function Connections({
+  initialClients,
+  ...props
+}: SetupPromptProps & { initialClients: AuthorizedClient[] }) {
+  const [clients, setClients] = useState(initialClients);
+  const [adding, setAdding] = useState(false);
+  const [revoking, setRevoking] = useState(false);
+  const access = useRef({ clients: initialClients, generation: 0, revoking: false });
+  const agentsHeading = useRef<HTMLDivElement>(null);
+  const panelTitle = useRef<HTMLHeadingElement>(null);
+  const wasAdding = useRef(false);
+  const panelId = useId();
+  const { copied, onCopied } = props;
+
+  useEffect(() => {
+    if (adding) panelTitle.current?.focus();
+    else if (wasAdding.current) agentsHeading.current?.querySelector("button")?.focus();
+    wasAdding.current = adding;
+  }, [adding]);
+
+  useEffect(() => {
+    let disposed = false;
+    let inFlight = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const schedule = () => {
+      timer = setTimeout(() => void refresh(), copied ? 5000 : 15000);
+    };
+    async function refresh() {
+      if (inFlight || disposed) return;
+      clearTimeout(timer);
+      if (document.hidden || !navigator.onLine || access.current.revoking) {
+        schedule();
+        return;
+      }
+      inFlight = true;
+      const generation = access.current.generation;
+      try {
+        const result = await checkAuthorizedAgents();
+        if (!disposed && generation === access.current.generation && result.clients) {
+          const previous = new Set(access.current.clients.map((client) => client.clientId));
+          if (result.clients.some((client) => !previous.has(client.clientId))) {
+            setAdding(false);
+            onCopied(false);
+          }
+          access.current.clients = result.clients;
+          setClients(result.clients);
+        }
+      } catch {
+        // Keep the last known authorization state when a background refresh fails.
+      } finally {
+        inFlight = false;
+        if (!disposed) schedule();
+      }
+    }
+    function wake() {
+      if (!document.hidden) void refresh();
+    }
+    schedule();
+    window.addEventListener("focus", wake);
+    window.addEventListener("online", wake);
+    document.addEventListener("visibilitychange", wake);
+    return () => {
+      disposed = true;
+      clearTimeout(timer);
+      window.removeEventListener("focus", wake);
+      window.removeEventListener("online", wake);
+      document.removeEventListener("visibilitychange", wake);
+    };
+  }, [copied, onCopied]);
+
+  async function revoke(clientId: string) {
+    access.current.generation++;
+    access.current.revoking = true;
+    setRevoking(true);
+    try {
+      const result = await revokeAgent(clientId);
+      if (result.error) throw new Error(result.error);
+      const remaining = access.current.clients.filter((client) => client.clientId !== clientId);
+      access.current.clients = remaining;
+      setClients(remaining);
+      if (!remaining.length) {
+        setAdding(false);
+        onCopied(false);
+      }
+    } finally {
+      access.current.generation++;
+      access.current.revoking = false;
+      setRevoking(false);
+    }
+  }
+
+  if (!clients.length) return <EmptySetup {...props} />;
+
+  return (
+    <>
+      <div ref={agentsHeading} className={styles.agentsHeading}>
+        <h2 data-ph-public className="text-base font-medium">
+          Your agents
+        </h2>
+        <Button
+          type="button"
+          data-ph-public
+          hidden={adding}
+          aria-expanded={adding}
+          aria-controls={panelId}
+          className={styles.addButton}
+          onClick={() => {
+            onCopied(false);
+            setAdding(true);
+          }}
+        >
+          <span aria-hidden="true">+</span> Connect another agent
+        </Button>
+      </div>
+      <ul aria-label="Your agents" className={styles.agentList}>
+        {clients.map((client) => (
+          <li key={client.clientId} className={styles.agentRow}>
+            <div className={styles.agentIdentity}>
+              <AgentLogo name={client.name} />
+              <div className="min-w-0">
+                <p className={styles.agentName}>{client.name}</p>
+                <p data-ph-public className={styles.agentScope}>
+                  Access to your Tidy account
+                </p>
+              </div>
+            </div>
+            <div className={styles.agentActions}>
+              <span data-ph-public className={styles.authorized}>
+                <span aria-hidden="true" />
+                Authorized
+              </span>
+              <ConfirmAction
+                replayLabel
+                label="Revoke access"
+                title={`Revoke ${client.name} access?`}
+                disabled={revoking}
+                className={styles.revokeButton}
+                onConfirm={() => revoke(client.clientId)}
+              >
+                This agent will lose access to your Tidy account. You can connect it again later.
+              </ConfirmAction>
             </div>
           </li>
         ))}
-      </ol>
-
-      <DeferredSection value={currentClients ?? clients} label="authorized agents">
-        {(loadedClients) => (
-          <>
-            {loadedClients.length > 0 && (
-              <div className="mt-6 border-t border-primary-grey/70 pt-4">
-                <h2 data-ph-public className="text-sm font-medium">
-                  Authorized agents
-                </h2>
-                <ul className="mt-2 space-y-2">
-                  {loadedClients.map((client) => (
-                    <li
-                      key={client.clientId}
-                      className="flex flex-wrap items-center justify-between gap-3 text-sm"
-                    >
-                      <span>{client.name}</span>
-                      <ConfirmAction
-                        replayLabel
-                        label="Revoke access"
-                        title={`Revoke ${client.name} access?`}
-                        disabled={checking}
-                        className="rounded px-1 py-1 text-xs text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-danger disabled:opacity-50"
-                        onConfirm={async () => {
-                          const result = await revokeAgent(client.clientId);
-                          if (result.error) throw new Error(result.error);
-                          setClients((current) =>
-                            (current ?? loadedClients).filter(
-                              (item) => item.clientId !== client.clientId,
-                            ),
-                          );
-                        }}
-                      >
-                        <span data-ph-public style={{ display: "contents" }}>
-                          This agent will lose access to Tidy until you reconnect it.
-                        </span>
-                      </ConfirmAction>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
-        )}
-      </DeferredSection>
-
-      <details className="group mt-4 border-t border-primary-grey/70">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 rounded py-3 text-[13px] text-secondary-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange [&::-webkit-details-marker]:hidden">
-          <span data-ph-public style={{ display: "contents" }}>
-            Connection help
-          </span>
-          <svg
-            data-ph-public
-            aria-hidden="true"
-            width="16"
-            height="16"
-            viewBox="0 0 16 16"
-            fill="none"
-            className="shrink-0 group-open:rotate-180"
-          >
-            <path
-              d="m3.5 6 4.5 4 4.5-4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </summary>
-        <div className="max-h-80 space-y-4 overflow-y-auto pb-4 text-[13px] leading-5 text-secondary-ink">
-          {setup.connectionCheck && (
-            <div>
-              <p data-ph-public className="mb-2">
-                Check from your terminal:
-              </p>
-              <CopyableValue
-                key={`${agent}-check`}
-                value={setup.connectionCheck}
-                copyLabel="Copy command"
-              />
-            </div>
-          )}
-          <p data-ph-public>Sign-in timed out? Close the browser tab and try step 2 again.</p>
-          {agent === "opencode" && (
-            <div>
-              <p data-ph-public className="mb-2">
-                Can read but cannot edit? Clear the old sign-in, then repeat step 2 and approve
-                design read and write access.
-              </p>
-              <CopyableValue value={`opencode mcp logout ${name}`} copyLabel="Copy command" />
-            </div>
-          )}
-          {agent === "other" && <p data-ph-public>Your agent must support OAuth.</p>}
-          {name === "tidy-local" && <p data-ph-public>Keep Tidy running while you connect.</p>}
-          <div>
-            <div className="flex items-center justify-between gap-3">
-              <h2 data-ph-public className="font-medium text-primary-black">
-                Server
-              </h2>
-              <p role="status">{endpointLabel}</p>
-            </div>
-            <p className="mt-2 break-all font-mono text-xs">{resourceUrl}</p>
-            {endpoint === "misconfigured" && (
-              <p data-ph-public className="mt-2">
-                Server addresses do not match. Check Tidy’s public URL configuration.
-              </p>
-            )}
-            {endpoint === "unavailable" && (
-              <p data-ph-public className="mt-2">
-                Server unavailable. Check that Tidy is running, then retry.
-              </p>
-            )}
+      </ul>
+      {adding ? (
+        <section id={panelId} aria-labelledby={`${panelId}-title`} className={styles.addPanel}>
+          <div className={styles.panelHeading}>
+            <h2
+              id={`${panelId}-title`}
+              ref={panelTitle}
+              tabIndex={-1}
+              data-ph-public
+              className={styles.panelTitle}
+            >
+              Connect another agent
+            </h2>
+            <Button
+              type="button"
+              data-ph-public
+              className={styles.cancelButton}
+              onClick={() => {
+                setAdding(false);
+                onCopied(false);
+              }}
+            >
+              Cancel
+            </Button>
           </div>
-          <Button
-            type="button"
-            variant="text"
-            disabled={checking}
-            onClick={() => void check()}
-            className="rounded border border-primary-grey px-3 py-2 text-xs font-medium text-primary-black hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
-          >
-            <span data-ph-public style={{ display: "contents" }}>
-              {checking ? "Checking…" : "Check server access"}
-            </span>
-          </Button>
-          <p data-ph-public className="text-xs">
-            This checks server access. Use step 3 to test your agent.
-          </p>
-          {error && (
-            <p role="alert" className="text-danger">
-              {error}
-            </p>
-          )}
-        </div>
-      </details>
+          <McpPromptButton {...props} />
+          <ManualSetup resourceUrl={props.resourceUrl} />
+        </section>
+      ) : (
+        <ManualSetup resourceUrl={props.resourceUrl} />
+      )}
+    </>
+  );
+}
+
+export function McpConnection({
+  clients,
+  resourceUrl,
+  organizationId,
+}: {
+  clients: AuthorizedClient[] | Promise<AuthorizedClient[]>;
+  resourceUrl: string;
+  organizationId: string;
+}) {
+  const [copied, setCopied] = useState(false);
+  const prompt = { resourceUrl, organizationId, copied, onCopied: setCopied };
+  return (
+    <section className={styles.connection}>
+      <h1 data-ph-public className={styles.pageTitle}>
+        MCP
+      </h1>
+      <p data-ph-public className={styles.pageDescription}>
+        Use your coding agents with your Tidy files.
+      </p>
+      <div className={styles.content}>
+        <DeferredSection
+          value={clients}
+          label="authorized agents"
+          fallback={<EmptySetup {...prompt} />}
+        >
+          {(loaded) => <Connections initialClients={loaded} {...prompt} />}
+        </DeferredSection>
+      </div>
     </section>
   );
 }

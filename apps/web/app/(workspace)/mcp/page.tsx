@@ -8,20 +8,23 @@ import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
 
 export const metadata: Metadata = { title: "MCP · Tidy" };
 
-export default function McpPage() {
+export default async function McpPage() {
   const resourceUrl = new URL(
     "/api/mcp",
     process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
   ).toString();
-  const clients = getWorkspace().then(({ session }) =>
-    authorizedClients(session.user.id, resourceUrl),
-  );
+  const { session, organization } = await getWorkspace();
+  const clients = authorizedClients(session.user.id, resourceUrl);
   const flags = functionalFeatureFlags();
 
   return (
     <DeferredFeatureFlagsProvider flags={flags}>
       <main className={mcpPage} data-page-content="mcp">
-        <McpConnection clients={clients} resourceUrl={resourceUrl} />
+        <McpConnection
+          clients={clients}
+          resourceUrl={resourceUrl}
+          organizationId={organization.id}
+        />
       </main>
     </DeferredFeatureFlagsProvider>
   );

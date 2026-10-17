@@ -58,10 +58,12 @@ const SectionError = catchError(function SectionRetry(
 export function DeferredSection<T>({
   value,
   label,
+  fallback,
   children,
 }: {
   value: T | Promise<T>;
   label: string;
+  fallback?: ReactNode;
   children: (value: T) => ReactNode;
 }) {
   const deferred = useDeferredValue(value);
@@ -77,7 +79,7 @@ export function DeferredSection<T>({
   const current = !promise ? value : Object.is(deferred, local.superseded) ? local.value : deferred;
   return (
     <SectionError label={label} source={current}>
-      <Suspense fallback={<SectionLoading label={label} />}>
+      <Suspense fallback={fallback ?? <SectionLoading label={label} />}>
         <Resolved value={current}>{children}</Resolved>
       </Suspense>
     </SectionError>

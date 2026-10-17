@@ -19,7 +19,11 @@ const enabled: FunctionalFlags = {
 
 test("MCP setup and review deep links hide unreleased features in initial markup", () => {
   const mcp = renderToStaticMarkup(
-    <McpConnection clients={[]} resourceUrl="https://app.example/api/mcp" />,
+    <McpConnection
+      clients={[]}
+      resourceUrl="https://app.example/api/mcp"
+      organizationId="fixture-org"
+    />,
   );
   expect(mcp).toContain("Codex");
   expect(mcp).not.toContain("Gemini");

@@ -205,7 +205,11 @@ export async function authorizedClients(userId: string, resource: string) {
       `select distinct c."clientId", coalesce(nullif(c."name", ''), 'Coding agent') as "name"
     from "oauthConsent" consent join "oauthClient" c on c."clientId" = consent."clientId"
     join "user" u on u."id"=consent."userId" and u."emailVerified"=true
+    join "oauthResource" r on r."identifier"=$2 and r."disabled" is not true
+    join "oauthClientResource" link on link."clientId"=c."clientId" and link."resourceId"=r."identifier"
     where consent."userId" = $1 and consent."resources" @> jsonb_build_array($2::text) and consent."scopes" ? 'mcp:read'
+    and c."disabled" is not true and (c."scopes" is null or c."scopes" ? 'mcp:read')
+    and (r."allowedScopes" is null or r."allowedScopes" ? 'mcp:read')
     order by c."clientId"`,
       [userId, resource],
     )

@@ -1503,6 +1503,43 @@ integration(
 );
 
 integration(
+  "agent status includes only current account grants with live MCP permission",
+  async () => {
+    const { authorizedClients } = await import("../mcp/authorizations");
+    await oauthClient("status-a");
+    await oauthClient("status-b");
+    await oauthClient("status-other-account");
+    await consent("status-a", ownerId);
+    await consent("status-b", ownerId);
+    await consent("status-other-account", invitedId);
+    const ids = async () =>
+      (await authorizedClients(ownerId, mcpResource)).map((item) => item.clientId);
+    expect(await ids()).toEqual(["status-a", "status-b"]);
+    await db.query('update "oauthClient" set "disabled"=true where "clientId"=$1', ["status-a"]);
+    expect(await ids()).toEqual(["status-b"]);
+    await db.query(
+      'update "oauthClient" set "disabled"=false, "scopes"=\'[]\' where "clientId"=$1',
+      ["status-a"],
+    );
+    expect(await ids()).toEqual(["status-b"]);
+    await db.query('update "oauthClient" set "scopes"=null where "clientId"=$1', ["status-a"]);
+    expect(await ids()).toEqual(["status-a", "status-b"]);
+    await db.query('delete from "oauthClientResource" where "clientId"=$1', ["status-a"]);
+    expect(await ids()).toEqual(["status-b"]);
+    try {
+      await db.query('update "oauthResource" set "disabled"=true where "identifier"=$1', [
+        mcpResource,
+      ]);
+      expect(await ids()).toEqual([]);
+    } finally {
+      await db.query('update "oauthResource" set "disabled"=false where "identifier"=$1', [
+        mcpResource,
+      ]);
+    }
+  },
+);
+
+integration(
   "agent revocation invalidates issued JWTs and refresh tokens without affecting other grants",
   async () => {
     const { revokeMcpAuthorization, hasMcpAuthorization, authorizationVersion, authorizedClients } =

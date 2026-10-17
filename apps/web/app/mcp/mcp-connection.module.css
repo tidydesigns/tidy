@@ -1,0 +1,218 @@
+.connection {
+  container-type: inline-size;
+  min-width: 0;
+}
+.pageTitle {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+}
+.pageDescription {
+  margin-top: 12px;
+  color: var(--color-secondary-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.content {
+  margin-top: 56px;
+}
+.agentsHeading,
+.panelHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.addButton,
+.cancelButton,
+.revokeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.addButton {
+  border: 1px solid light-dark(#d7d7d2, #454541);
+  background: light-dark(#fafaf8, #30302e);
+}
+.addButton[hidden] {
+  display: none;
+}
+.agentList {
+  margin-top: 8px;
+}
+.agentRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  min-width: 0;
+  border-top: 1px solid light-dark(#d7d7d2, #454541);
+  padding-block: 20px;
+}
+.agentIdentity {
+  display: flex;
+  flex: 1 1 200px;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+.agentLogo {
+  display: block;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  background: currentColor;
+  mask-position: center;
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
+.agentName {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.agentScope {
+  margin-top: 3px;
+  color: var(--color-secondary-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.agentActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.authorized {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: light-dark(#4b6d4b, #a5c79c);
+  font-size: 12px;
+}
+.authorized > span {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.revokeButton {
+  padding-inline: 4px;
+}
+.revokeButton:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+.addPanel {
+  margin-top: 24px;
+  border-radius: 10px;
+  padding: 24px 28px;
+  background: light-dark(#eaeae5, #30302e);
+}
+.panelHeading {
+  align-items: flex-start;
+  margin-bottom: 20px;
+}
+.panelTitle {
+  flex: 1 1 180px;
+  min-width: 0;
+  padding-top: 6px;
+  font-size: 24px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  outline: none;
+}
+.cancelButton {
+  margin-top: -4px;
+  padding-inline: 4px;
+}
+.manual {
+  margin-top: 32px;
+}
+.manualToggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 44px;
+  padding: 8px 4px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  list-style: none;
+}
+.manualToggle::-webkit-details-marker {
+  display: none;
+}
+.manual[open] > .manualToggle .disclosureIcon {
+  transform: rotate(90deg);
+}
+.manualContent {
+  min-width: 0;
+  padding-top: 16px;
+  padding-bottom: 8px;
+}
+.manualStep {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid light-dark(#d7d7d2, #454541);
+  border-radius: 50%;
+  color: var(--color-secondary-ink);
+  font-size: 11px;
+}
+.addPanel .manual {
+  margin-top: 24px;
+  padding-top: 12px;
+  border-top: 1px solid light-dark(#d7d7d2, #454541);
+}
+.addButton:focus-visible,
+.cancelButton:focus-visible,
+.revokeButton:focus-visible,
+.manualToggle:focus-visible {
+  outline: 2px solid #ff5d00;
+  outline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .addButton:hover,
+  .cancelButton:hover,
+  .revokeButton:hover,
+  .manualToggle:hover {
+    background: light-dark(#e5e5df, #3a3a35);
+  }
+}
+@container (max-width: 450px) {
+  .addPanel {
+    padding: 20px 16px;
+  }
+  .panelHeading {
+    gap: 8px;
+  }
+  .panelTitle {
+    flex-basis: 150px;
+    font-size: 21px;
+  }
+  .agentActions {
+    padding-left: 44px;
+  }
+}
+@media (max-width: 767px) {
+  .content {
+    margin-top: 40px;
+  }
+}
