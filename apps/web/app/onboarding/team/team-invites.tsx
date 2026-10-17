@@ -181,10 +181,11 @@ export function TeamInvites({
                 className="flex flex-wrap items-center justify-between gap-4 py-3 text-sm"
               >
                 <span className="min-w-0 truncate">{invite.email}</span>
-                <div className="flex shrink-0 flex-wrap items-center gap-4">
+                <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto">
                   {canAssignRole(actorRole, invite.role ?? "") ? (
                     <SelectMenu
                       replayOptions
+                      className="max-w-full"
                       label={`Invite role for ${invite.email}`}
                       value={invite.role === "member" ? "editor" : (invite.role ?? "")}
                       disabled={Boolean(cancellingId)}
