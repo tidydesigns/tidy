@@ -19,9 +19,29 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
     const controller = new AbortController();
     let requestInFlight = false;
     let lastSuccessfulRefresh = starCache.get(repositoryUrl)?.refreshedAt ?? null;
+    let refreshTimeout: number | undefined;
+
+    function scheduleRefresh() {
+      window.clearTimeout(refreshTimeout);
+      if (controller.signal.aborted) return;
+
+      const remainingFreshTime =
+        lastSuccessfulRefresh === null
+          ? refreshInterval
+          : refreshInterval - (Date.now() - lastSuccessfulRefresh);
+      refreshTimeout = window.setTimeout(
+        refreshStars,
+        remainingFreshTime > 0 ? remainingFreshTime : refreshInterval,
+      );
+    }
 
     async function refreshStars() {
-      if (controller.signal.aborted || document.visibilityState === "hidden" || requestInFlight) {
+      if (controller.signal.aborted || requestInFlight) return;
+      if (
+        document.visibilityState === "hidden" ||
+        (lastSuccessfulRefresh !== null && Date.now() - lastSuccessfulRefresh < refreshInterval)
+      ) {
+        scheduleRefresh();
         return;
       }
 
@@ -53,37 +73,18 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
         // Keep the link and any last known count usable if GitHub is unavailable.
       } finally {
         requestInFlight = false;
+        scheduleRefresh();
       }
     }
 
-    function refreshIfStale() {
-      if (lastSuccessfulRefresh === null || Date.now() - lastSuccessfulRefresh >= refreshInterval) {
-        void refreshStars();
-      }
-    }
-
-    refreshIfStale();
-    document.addEventListener("visibilitychange", refreshIfStale);
-    window.addEventListener("online", refreshIfStale);
-    // Navigating should not postpone the refresh of a still-fresh cached count.
-    const remainingFreshTime =
-      lastSuccessfulRefresh === null
-        ? refreshInterval
-        : refreshInterval - (Date.now() - lastSuccessfulRefresh);
-    let interval: number | undefined;
-    const firstRefresh = window.setTimeout(
-      () => {
-        void refreshStars();
-        interval = window.setInterval(refreshStars, refreshInterval);
-      },
-      remainingFreshTime > 0 ? remainingFreshTime : refreshInterval,
-    );
+    void refreshStars();
+    document.addEventListener("visibilitychange", refreshStars);
+    window.addEventListener("online", refreshStars);
     return () => {
       controller.abort();
-      document.removeEventListener("visibilitychange", refreshIfStale);
-      window.removeEventListener("online", refreshIfStale);
-      window.clearTimeout(firstRefresh);
-      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", refreshStars);
+      window.removeEventListener("online", refreshStars);
+      window.clearTimeout(refreshTimeout);
     };
   }, [repositoryUrl]);
 
