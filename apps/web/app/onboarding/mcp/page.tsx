@@ -1,6 +1,9 @@
 import { getWorkspace } from "@/lib/workspace/server";
 import { authorizedClients } from "@/lib/mcp/authorizations";
 import { McpOnboarding } from "./mcp-onboarding";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Connect your agent · Tidy" };
 
 export default async function McpOnboardingPage({ searchParams }: PageProps<"/onboarding/mcp">) {
   const requestedId = (await searchParams).organizationId;

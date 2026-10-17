@@ -519,9 +519,12 @@ export function ThreadsWorkspace({
             </div>
           )}
           <div
+            key={snapshot?.thread.id ?? "new"}
             data-ph-public-label
+            role="log"
             className="min-h-0 flex-1 overflow-y-auto py-3"
             aria-label="Conversation"
+            aria-relevant="additions text"
           >
             {snapshot?.hasOlder && (
               <button
@@ -562,7 +565,7 @@ export function ThreadsWorkspace({
                 <span data-ph-public style={{ display: "contents" }}>
                   ·
                 </span>{" "}
-                {run ? runLabels[run.status] : ""}
+                <span role="status">{run ? runLabels[run.status] : ""}</span>
               </summary>
               <ul className="mt-3 max-h-44 space-y-3 overflow-auto">
                 {snapshot.workers.map((worker) => (

@@ -7,6 +7,12 @@ import { can } from "@/lib/organizations/roles";
 import { notFound } from "next/navigation";
 import { listBrowserFiles, listBrowserFolders } from "@/lib/design/browser-queries";
 import { FilesBrowser } from "@/app/files/files-browser";
+import type { Metadata } from "next";
+
+export async function generateMetadata({ searchParams }: PageProps<"/files">): Promise<Metadata> {
+  const query = await searchParams;
+  return { title: query.view === "archive" ? "Archive · Tidy" : "Files · Tidy" };
+}
 
 export default async function FilesPage({ searchParams }: PageProps<"/files">) {
   const query = await searchParams;

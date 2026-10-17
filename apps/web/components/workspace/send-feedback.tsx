@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "rea
 import { Icon } from "@/components/ui/icon";
 import {
   FEEDBACK_SHORTCUT,
+  FEEDBACK_SHORTCUT_LABEL,
   OPEN_FEEDBACK_EVENT,
   isFeedbackShortcut,
   openFeedback,
@@ -32,10 +33,10 @@ export function SendFeedback({
       data-ph-public
       type="button"
       className={className}
-      aria-label="Send feedback"
+      aria-label={compact ? "Send feedback" : undefined}
       aria-haspopup="dialog"
       aria-keyshortcuts={FEEDBACK_SHORTCUT}
-      title={compact ? `Send feedback (${FEEDBACK_SHORTCUT})` : undefined}
+      title={compact ? `Send feedback (${FEEDBACK_SHORTCUT_LABEL})` : undefined}
       onClick={openFeedback}
     >
       {compact ? (
@@ -44,7 +45,11 @@ export function SendFeedback({
         <>
           {showIcon && <Icon name="feedback" size={18} />}
           <span>Send feedback</span>
-          {showShortcut && <kbd className="ml-auto text-xs font-normal text-secondary-ink">⇧F</kbd>}
+          {showShortcut && (
+            <kbd aria-hidden="true" className="ml-auto text-xs font-normal text-secondary-ink">
+              {FEEDBACK_SHORTCUT_LABEL}
+            </kbd>
+          )}
         </>
       )}
     </button>

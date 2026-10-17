@@ -6,6 +6,9 @@ import { OrganizationForm } from "./organization-form";
 import { organizationCreationStatus } from "@/lib/organizations/creation";
 import { SignOutButton } from "@/app/sign-out-button";
 import { NavigationLink } from "@/components/ui/navigation-link";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Create your organisation · Tidy" };
 
 export default async function OrganizationPage({
   searchParams,

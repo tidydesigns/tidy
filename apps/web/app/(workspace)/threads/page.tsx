@@ -7,6 +7,9 @@ import { agentsEnabled } from "@/lib/agents/config";
 import { agentsSchemaReady, getAgentThread, listAgentThreads } from "@/lib/agents/store";
 import { connectionStatus } from "@/lib/agents/connections";
 import { ThreadsWorkspace } from "@/components/agents/threads-workspace";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Threads · Tidy" };
 
 export default async function ThreadsPage({
   searchParams,

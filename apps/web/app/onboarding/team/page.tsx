@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { OnboardingShell } from "@/components/onboarding/onboarding-shell";
 import { TeamInvites } from "./team-invites";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Invite your team · Tidy" };
 
 function pendingInvites(
   invitations: {

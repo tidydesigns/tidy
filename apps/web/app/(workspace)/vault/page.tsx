@@ -4,6 +4,9 @@ import { redirect } from "next/navigation";
 import { listVaultLogins } from "@/lib/vault/logins";
 import { VaultContent } from "@/app/vault/vault-content";
 import { vaultEnabled } from "@/lib/vault/feature-flag";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = { title: "Vault · Tidy" };
 
 export default async function VaultPage() {
   const { session } = await getWorkspace();

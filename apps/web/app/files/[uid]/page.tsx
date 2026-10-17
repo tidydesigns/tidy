@@ -17,16 +17,28 @@ import { listDesignFiles } from "@/lib/design/service";
 import { listReviews } from "@/lib/github/reviews";
 import { functionalFeatureFlags } from "@/lib/functional-feature-flags";
 import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
+import type { Metadata } from "next";
+import { cache } from "react";
+
+// Metadata and the page share the same authorized read within this request.
+const editorData = cache(async (uid: string) => {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/login");
+  const loaded = await getEditorFile(session.user.id, uid);
+  if (!loaded) notFound();
+  return { session, ...loaded };
+});
+
+export async function generateMetadata({ params }: PageProps<"/files/[uid]">): Promise<Metadata> {
+  const { uid } = await params;
+  const { file } = await editorData(uid);
+  return { title: `${file.name} · Tidy`, description: "Edit your Tidy design." };
+}
 
 export default async function DesignFilePage({ params, searchParams }: PageProps<"/files/[uid]">) {
   const { uid } = await params;
-  const session = await auth.api.getSession({ headers: await headers() });
-  if (!session) redirect("/login");
-
+  const { session, file, document } = await editorData(uid);
   const flagsPromise = functionalFeatureFlags();
-  const loaded = await getEditorFile(session.user.id, uid);
-  if (!loaded) notFound();
-  const { file, document } = loaded;
   const archived = file.archivedAt !== null;
   const githubReviews = archived
     ? undefined

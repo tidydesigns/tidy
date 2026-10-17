@@ -49,11 +49,19 @@ type Menu =
 type RenameTarget = { kind: "file"; file: File } | { kind: "folder"; folder: Folder };
 
 const menuItem =
-  "block w-full rounded px-3 py-2 text-left text-sm hover:bg-primary-grey/25 focus-visible:bg-primary-grey/25 focus-visible:outline-none disabled:opacity-50";
+  "block w-full rounded px-3 py-2 text-left text-sm hover:bg-primary-grey/25 focus-visible:bg-hover-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink disabled:opacity-50";
 const folderCard =
   "flex h-24 items-center gap-4 rounded-xl border border-primary-grey/70 px-5 pr-12 transition-colors hover:border-primary-grey hover:bg-surface/40";
 const listColumns =
   "grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_110px_32px] lg:grid-cols-[minmax(0,1fr)_110px_110px_150px_32px] xl:grid-cols-[minmax(0,1fr)_110px_110px_150px_100px_32px]";
+
+function restoreItemFocus(invoker: HTMLElement | null, heading: HTMLHeadingElement | null) {
+  const destination = invoker?.isConnected
+    ? invoker
+    : (heading?.closest("main")?.querySelector<HTMLButtonElement>("button[data-item-actions]") ??
+      heading);
+  destination?.focus({ preventScroll: true });
+}
 
 function relativeDate(value: string, asOf: string) {
   const elapsed = Math.max(0, new Date(asOf).getTime() - new Date(value).getTime());
@@ -149,9 +157,13 @@ export function FilesBrowser({
   const [addedFiles, setAddedFiles] = useState<File[]>([]);
   const [expandedFolderIds, setExpandedFolderIds] = useState<string[]>([]);
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuInvoker = useRef<HTMLElement | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const menuOpen = menu !== null;
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const cancelFolderRef = useRef(false);
   const cancelRenameRef = useRef(false);
+  const restoreRenameFocus = useRef(false);
 
   function changeView(next: "grid" | "list") {
     setView(next);
@@ -201,20 +213,29 @@ export function FilesBrowser({
   }
 
   useEffect(() => {
-    if (!menu) return;
+    if (!menuOpen) return;
+    const popup = menuRef.current;
+    const heading = headingRef.current;
     function dismiss(event: PointerEvent) {
       if (!menuRef.current?.contains(event.target as Node)) setMenu(null);
     }
     function escape(event: KeyboardEvent) {
-      if (event.key === "Escape") setMenu(null);
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setMenu(null);
+      }
     }
     document.addEventListener("pointerdown", dismiss);
     document.addEventListener("keydown", escape);
     return () => {
       document.removeEventListener("pointerdown", dismiss);
       document.removeEventListener("keydown", escape);
+      const active = document.activeElement;
+      if (active === document.body || (active instanceof Node && popup?.contains(active))) {
+        restoreItemFocus(menuInvoker.current, heading);
+      }
     };
-  }, [menu]);
+  }, [menuOpen]);
 
   useEffect(() => {
     if ((deletingFolder || deletingFile) && !deleteDialogRef.current?.open)
@@ -225,7 +246,10 @@ export function FilesBrowser({
     target: { kind: "file"; file: File } | { kind: "folder"; folder: Folder },
     x: number,
     y: number,
+    invoker?: HTMLElement,
   ) {
+    menuInvoker.current =
+      invoker ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setMenu({
       ...target,
       x: Math.max(8, Math.min(x, window.innerWidth - 232)),
@@ -240,7 +264,13 @@ export function FilesBrowser({
     target: { kind: "file"; file: File } | { kind: "folder"; folder: Folder },
   ) {
     event.preventDefault();
-    showMenu(target, event.clientX, event.clientY);
+    const root = event.currentTarget;
+    const invoker =
+      root instanceof HTMLElement
+        ? (root.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]') ??
+          root.querySelector<HTMLAnchorElement>("a[href]"))
+        : null;
+    showMenu(target, event.clientX, event.clientY, invoker ?? undefined);
   }
 
   function menuKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
@@ -430,6 +460,10 @@ export function FilesBrowser({
   async function finishRename() {
     const target = renaming;
     setRenaming(null);
+    if (restoreRenameFocus.current) {
+      restoreRenameFocus.current = false;
+      restoreItemFocus(menuInvoker.current, headingRef.current);
+    }
     if (cancelRenameRef.current) {
       cancelRenameRef.current = false;
       return;
@@ -449,6 +483,14 @@ export function FilesBrowser({
       const success = await perform(() => renameDesignFolder(folder.id, name));
       if (!success) setRenamedFolders((current) => ({ ...current, [folder.id]: folder.name }));
     }
+  }
+
+  function renameKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.nativeEvent.isComposing || !["Enter", "Escape"].includes(event.key)) return;
+    event.preventDefault();
+    cancelRenameRef.current = event.key === "Escape";
+    restoreRenameFocus.current = true;
+    event.currentTarget.blur();
   }
 
   function fileListRow(file: File, nested = false) {
@@ -486,13 +528,7 @@ export function FilesBrowser({
               onChange={(event) => setRenameDraft(event.target.value)}
               onFocus={(event) => event.currentTarget.select()}
               onBlur={() => void finishRename()}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") event.currentTarget.blur();
-                if (event.key === "Escape") {
-                  cancelRenameRef.current = true;
-                  event.currentTarget.blur();
-                }
-              }}
+              onKeyDown={renameKeyDown}
               className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
             />
           ) : (
@@ -514,9 +550,17 @@ export function FilesBrowser({
         <button
           type="button"
           aria-label={`Actions for ${file.name}`}
+          data-item-actions
+          aria-haspopup="menu"
+          aria-expanded={menu?.kind === "file" && menu.file.id === file.id}
           onClick={(event) => {
             const bounds = event.currentTarget.getBoundingClientRect();
-            showMenu({ kind: "file", file }, bounds.right - 216, bounds.bottom + 4);
+            showMenu(
+              { kind: "file", file },
+              bounds.right - 216,
+              bounds.bottom + 4,
+              event.currentTarget,
+            );
           }}
           className="rounded p-1 text-secondary-ink hover:bg-primary-grey/25 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
         >
@@ -541,7 +585,12 @@ export function FilesBrowser({
         </Link>
       )}
       <div className={filesHeader}>
-        <h1 data-ph-public className="min-w-0 truncate text-3xl font-semibold tracking-tight">
+        <h1
+          ref={headingRef}
+          tabIndex={-1}
+          data-ph-public
+          className="min-w-0 truncate text-3xl font-semibold tracking-tight outline-none"
+        >
           {archived ? (
             "Archive"
           ) : currentFolder ? (
@@ -682,13 +731,7 @@ export function FilesBrowser({
                       onChange={(event) => setRenameDraft(event.target.value)}
                       onFocus={(event) => event.currentTarget.select()}
                       onBlur={() => void finishRename()}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") event.currentTarget.blur();
-                        if (event.key === "Escape") {
-                          cancelRenameRef.current = true;
-                          event.currentTarget.blur();
-                        }
-                      }}
+                      onKeyDown={renameKeyDown}
                       className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
                     />
                   </div>
@@ -707,9 +750,17 @@ export function FilesBrowser({
                 <button
                   type="button"
                   aria-label={`Actions for folder ${folder.name}`}
+                  data-item-actions
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.kind === "folder" && menu.folder.id === folder.id}
                   onClick={(event) => {
                     const bounds = event.currentTarget.getBoundingClientRect();
-                    showMenu({ kind: "folder", folder }, bounds.right - 216, bounds.bottom + 4);
+                    showMenu(
+                      { kind: "folder", folder },
+                      bounds.right - 216,
+                      bounds.bottom + 4,
+                      event.currentTarget,
+                    );
                   }}
                   className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-1 text-secondary-ink hover:bg-primary-grey/25 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
                 >
@@ -814,13 +865,7 @@ export function FilesBrowser({
                           onChange={(event) => setRenameDraft(event.target.value)}
                           onFocus={(event) => event.currentTarget.select()}
                           onBlur={() => void finishRename()}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") event.currentTarget.blur();
-                            if (event.key === "Escape") {
-                              cancelRenameRef.current = true;
-                              event.currentTarget.blur();
-                            }
-                          }}
+                          onKeyDown={renameKeyDown}
                           className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
                         />
                       ) : (
@@ -842,9 +887,17 @@ export function FilesBrowser({
                     <button
                       type="button"
                       aria-label={`Actions for folder ${folder.name}`}
+                      data-item-actions
+                      aria-haspopup="menu"
+                      aria-expanded={menu?.kind === "folder" && menu.folder.id === folder.id}
                       onClick={(event) => {
                         const bounds = event.currentTarget.getBoundingClientRect();
-                        showMenu({ kind: "folder", folder }, bounds.right - 216, bounds.bottom + 4);
+                        showMenu(
+                          { kind: "folder", folder },
+                          bounds.right - 216,
+                          bounds.bottom + 4,
+                          event.currentTarget,
+                        );
                       }}
                       className="rounded p-1 text-secondary-ink hover:bg-primary-grey/25 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
                     >
@@ -920,13 +973,7 @@ export function FilesBrowser({
                         onChange={(event) => setRenameDraft(event.target.value)}
                         onFocus={(event) => event.currentTarget.select()}
                         onBlur={() => void finishRename()}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter") event.currentTarget.blur();
-                          if (event.key === "Escape") {
-                            cancelRenameRef.current = true;
-                            event.currentTarget.blur();
-                          }
-                        }}
+                        onKeyDown={renameKeyDown}
                         className="relative z-20 w-full min-w-0 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
                       />
                     ) : (
@@ -952,9 +999,17 @@ export function FilesBrowser({
                 <button
                   type="button"
                   aria-label={`Actions for ${file.name}`}
+                  data-item-actions
+                  aria-haspopup="menu"
+                  aria-expanded={menu?.kind === "file" && menu.file.id === file.id}
                   onClick={(event) => {
                     const bounds = event.currentTarget.getBoundingClientRect();
-                    showMenu({ kind: "file", file }, bounds.right - 216, bounds.bottom + 4);
+                    showMenu(
+                      { kind: "file", file },
+                      bounds.right - 216,
+                      bounds.bottom + 4,
+                      event.currentTarget,
+                    );
                   }}
                   className="absolute bottom-3 right-3 z-20 rounded p-1 text-secondary-ink hover:bg-primary-grey/25 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
                 >
@@ -975,6 +1030,7 @@ export function FilesBrowser({
 
       {menu && (
         <div
+          key={`${menu.kind}:${menu.kind === "file" ? menu.file.id : menu.folder.id}:${menu.mode}`}
           data-ph-public
           ref={menuRef}
           role="menu"
@@ -1208,6 +1264,10 @@ export function FilesBrowser({
         onClose={() => {
           setDeletingFolder(null);
           setDeletingFile(null);
+          const active = document.activeElement;
+          if (active === document.body || deleteDialogRef.current?.contains(active)) {
+            restoreItemFocus(menuInvoker.current, headingRef.current);
+          }
         }}
         padded={false}
       >

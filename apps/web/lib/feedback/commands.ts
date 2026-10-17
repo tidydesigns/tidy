@@ -1,5 +1,6 @@
 export const OPEN_FEEDBACK_EVENT = "tidy:open-feedback";
-export const FEEDBACK_SHORTCUT = "Shift+F";
+export const FEEDBACK_SHORTCUT = "Control+Shift+F Meta+Shift+F";
+export const FEEDBACK_SHORTCUT_LABEL = "Ctrl/⌘+Shift+F";
 
 /** Shared UI command for buttons and the keyboard shortcut. */
 export function openFeedback() {
@@ -12,8 +13,7 @@ export function isFeedbackShortcut(event: KeyboardEvent) {
     !event.repeat &&
     !event.isComposing &&
     event.shiftKey &&
-    !event.metaKey &&
-    !event.ctrlKey &&
+    (event.metaKey || event.ctrlKey) &&
     !event.altKey &&
     event.key.toLowerCase() === "f"
   );
