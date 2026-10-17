@@ -117,6 +117,7 @@ beforeAll(async () => {
     "20261006-thumbnail-storage-limits.sql",
     "20261006-document-history-bounds.sql",
     "20261007-file-version-history.sql",
+    "20261017-file-history-capacity.sql",
   ]) {
     await db.query(
       await readFile(resolve(import.meta.dir, "../../../..", "migrations", migration), "utf8"),

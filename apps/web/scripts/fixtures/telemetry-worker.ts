@@ -14,6 +14,9 @@ const worker = {
             get: () => ({
               consume: async () => ({ allowed: true, retryAfter: null, batchSupported: true }),
             }),
+            getByName: () => ({
+              consume: async () => ({ allowed: true, retryAfter: null, batchSupported: true }),
+            }),
           },
         },
       },

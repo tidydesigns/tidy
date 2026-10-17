@@ -83,6 +83,9 @@ create trigger "immutable_file_version_content" before update on "designFileVers
 -- can no longer resolve the parent and deliberately do not charge it twice.
 create function "releaseFileHistory"() returns trigger language plpgsql as $$
 begin
+  -- Workspace deletion also cascades its usage row; do not update that row
+  -- after its foreign-key parent has disappeared.
+  if not exists (select 1 from "organization" where "id"=OLD."organizationId") then return OLD; end if;
   update "organizationHistoryUsage" set "bytes"="bytes"-coalesce(
     (select "bytes" from "fileHistoryUsage" where "fileId"=OLD."id"), 0)
     where "organizationId"=OLD."organizationId";

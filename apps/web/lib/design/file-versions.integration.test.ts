@@ -558,3 +558,21 @@ integration(
     }
   },
 );
+
+integration("workspace deletion cascades history and its accounting together", async () => {
+  await client.query("begin");
+  try {
+    await client.query('delete from "organization" where "id"=$1', [organization]);
+    for (const [table, column, id] of [
+      ["organizationHistoryUsage", "organizationId", organization],
+      ["fileHistoryUsage", "fileId", file],
+      ["designFileVersion", "fileId", file],
+    ]) {
+      expect(
+        (await client.query(`select 1 from "${table}" where "${column}"=$1`, [id])).rowCount,
+      ).toBe(0);
+    }
+  } finally {
+    await client.query("rollback");
+  }
+});
