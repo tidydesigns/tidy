@@ -17,6 +17,36 @@
 .content {
   margin-top: 56px;
 }
+.authorizationState {
+  position: relative;
+}
+.leavingSetup {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+  animation: setupOut 160ms ease-in-out both;
+}
+.enteringAgents {
+  animation: agentsIn 160ms ease-in-out both;
+}
+@keyframes setupOut {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes agentsIn {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .leavingSetup {
+    display: none;
+  }
+  .enteringAgents {
+    animation: none;
+  }
+}
 .agentsHeading,
 .panelHeading {
   display: flex;

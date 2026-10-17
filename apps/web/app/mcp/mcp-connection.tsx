@@ -146,6 +146,7 @@ function Connections({
   ...props
 }: SetupPromptProps & { initialClients: AuthorizedClient[] }) {
   const [clients, setClients] = useState(initialClients);
+  const [leavingSetup, setLeavingSetup] = useState<{ copied: boolean } | null>(null);
   const [adding, setAdding] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const access = useRef({ clients: initialClients, generation: 0, revoking: false });
@@ -154,6 +155,13 @@ function Connections({
   const wasAdding = useRef(false);
   const panelId = useId();
   const { copied, onCopied } = props;
+
+  useEffect(() => {
+    if (!leavingSetup) return;
+    // Also retire the inert setup if animations are disabled or interrupted.
+    const timer = setTimeout(() => setLeavingSetup(null), 200);
+    return () => clearTimeout(timer);
+  }, [leavingSetup]);
 
   useEffect(() => {
     if (adding) panelTitle.current?.focus();
@@ -166,7 +174,10 @@ function Connections({
     let inFlight = false;
     let timer: ReturnType<typeof setTimeout>;
     const schedule = () => {
-      timer = setTimeout(() => void refresh(), copied ? 5000 : 15000);
+      timer = setTimeout(
+        () => void refresh(),
+        copied && (!access.current.clients.length || adding) ? 5000 : 15000,
+      );
     };
     async function refresh() {
       if (inFlight || disposed) return;
@@ -181,9 +192,15 @@ function Connections({
         const result = await checkAuthorizedAgents();
         if (!disposed && generation === access.current.generation && result.clients) {
           const previous = new Set(access.current.clients.map((client) => client.clientId));
+          if (
+            !previous.size &&
+            result.clients.length &&
+            !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ) {
+            setLeavingSetup({ copied });
+          }
           if (result.clients.some((client) => !previous.has(client.clientId))) {
             setAdding(false);
-            onCopied(false);
           }
           access.current.clients = result.clients;
           setClients(result.clients);
@@ -209,7 +226,7 @@ function Connections({
       window.removeEventListener("online", wake);
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [copied, onCopied]);
+  }, [copied, adding]);
 
   async function revoke(clientId: string) {
     access.current.generation++;
@@ -222,6 +239,7 @@ function Connections({
       access.current.clients = remaining;
       setClients(remaining);
       if (!remaining.length) {
+        setLeavingSetup(null);
         setAdding(false);
         onCopied(false);
       }
@@ -232,91 +250,104 @@ function Connections({
     }
   }
 
-  if (!clients.length) return <EmptySetup {...props} />;
-
   return (
-    <>
-      <div ref={agentsHeading} className={styles.agentsHeading}>
-        <h2 data-ph-public className="text-base font-medium">
-          Your agents
-        </h2>
-        <Button
-          type="button"
-          data-ph-public
-          hidden={adding}
-          aria-expanded={adding}
-          aria-controls={panelId}
-          className={styles.addButton}
-          onClick={() => {
-            onCopied(false);
-            setAdding(true);
-          }}
+    <div className={styles.authorizationState}>
+      {(!clients.length || leavingSetup) && (
+        <div
+          key="setup"
+          className={leavingSetup ? styles.leavingSetup : undefined}
+          aria-hidden={leavingSetup ? true : undefined}
+          inert={Boolean(leavingSetup)}
         >
-          <span aria-hidden="true">+</span> Connect another agent
-        </Button>
-      </div>
-      <ul aria-label="Your agents" className={styles.agentList}>
-        {clients.map((client) => (
-          <li key={client.clientId} className={styles.agentRow}>
-            <div className={styles.agentIdentity}>
-              <AgentLogo name={client.name} />
-              <div className="min-w-0">
-                <p className={styles.agentName}>{client.name}</p>
-                <p data-ph-public className={styles.agentScope}>
-                  Access to your Tidy account
-                </p>
-              </div>
-            </div>
-            <div className={styles.agentActions}>
-              <span data-ph-public className={styles.authorized}>
-                <span aria-hidden="true" />
-                Authorized
-              </span>
-              <ConfirmAction
-                replayLabel
-                label="Revoke access"
-                title={`Revoke ${client.name} access?`}
-                disabled={revoking}
-                className={styles.revokeButton}
-                onConfirm={() => revoke(client.clientId)}
-              >
-                This agent will lose access to your Tidy account. You can connect it again later.
-              </ConfirmAction>
-            </div>
-          </li>
-        ))}
-      </ul>
-      {adding ? (
-        <section id={panelId} aria-labelledby={`${panelId}-title`} className={styles.addPanel}>
-          <div className={styles.panelHeading}>
-            <h2
-              id={`${panelId}-title`}
-              ref={panelTitle}
-              tabIndex={-1}
-              data-ph-public
-              className={styles.panelTitle}
-            >
-              Connect another agent
+          <EmptySetup {...props} copied={leavingSetup?.copied ?? copied} />
+        </div>
+      )}
+      {clients.length > 0 && (
+        <div key="agents" className={leavingSetup ? styles.enteringAgents : undefined}>
+          <div ref={agentsHeading} className={styles.agentsHeading}>
+            <h2 data-ph-public className="text-base font-medium">
+              Your agents
             </h2>
             <Button
               type="button"
               data-ph-public
-              className={styles.cancelButton}
+              hidden={adding}
+              aria-expanded={adding}
+              aria-controls={panelId}
+              className={styles.addButton}
               onClick={() => {
-                setAdding(false);
                 onCopied(false);
+                setAdding(true);
               }}
             >
-              Cancel
+              <span aria-hidden="true">+</span> Connect another agent
             </Button>
           </div>
-          <McpPromptButton {...props} />
-          <ManualSetup resourceUrl={props.resourceUrl} />
-        </section>
-      ) : (
-        <ManualSetup resourceUrl={props.resourceUrl} />
+          <ul aria-label="Your agents" className={styles.agentList}>
+            {clients.map((client) => (
+              <li key={client.clientId} className={styles.agentRow}>
+                <div className={styles.agentIdentity}>
+                  <AgentLogo name={client.name} />
+                  <div className="min-w-0">
+                    <p className={styles.agentName}>{client.name}</p>
+                    <p data-ph-public className={styles.agentScope}>
+                      Access to your Tidy account
+                    </p>
+                  </div>
+                </div>
+                <div className={styles.agentActions}>
+                  <span data-ph-public className={styles.authorized}>
+                    <span aria-hidden="true" />
+                    Authorized
+                  </span>
+                  <ConfirmAction
+                    replayLabel
+                    label="Revoke access"
+                    title={`Revoke ${client.name} access?`}
+                    disabled={revoking}
+                    className={styles.revokeButton}
+                    onConfirm={() => revoke(client.clientId)}
+                  >
+                    This agent will lose access to your Tidy account. You can connect it again
+                    later.
+                  </ConfirmAction>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {adding ? (
+            <section id={panelId} aria-labelledby={`${panelId}-title`} className={styles.addPanel}>
+              <div className={styles.panelHeading}>
+                <h2
+                  id={`${panelId}-title`}
+                  ref={panelTitle}
+                  tabIndex={-1}
+                  data-ph-public
+                  className={styles.panelTitle}
+                >
+                  Connect another agent
+                </h2>
+                <Button
+                  type="button"
+                  data-ph-public
+                  className={styles.cancelButton}
+                  onClick={() => {
+                    setAdding(false);
+                    onCopied(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+              <McpPromptButton {...props} />
+              <ManualSetup resourceUrl={props.resourceUrl} />
+            </section>
+          ) : (
+            <ManualSetup resourceUrl={props.resourceUrl} />
+          )}
+        </div>
       )}
-    </>
+    </div>
   );
 }
 
