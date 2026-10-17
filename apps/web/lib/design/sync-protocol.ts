@@ -32,7 +32,9 @@ export const fileCommitSchema = z
   .union([z.object({ snapshot }), delta])
   .and(z.object({ patch: documentPatchSchema, sequence: revision }));
 export const presenceTicketSchema = z.object({
-  url: z.url().refine((value) => ["ws:", "wss:"].includes(new URL(value).protocol)),
+  url: z
+    .url()
+    .refine((value) => URL.canParse(value) && ["ws:", "wss:"].includes(new URL(value).protocol)),
   expiresAt: z.number().int().nonnegative(),
   sessionId: z.uuid(),
 });

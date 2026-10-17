@@ -87,6 +87,12 @@ test("presence authorization requires a WebSocket URL and a complete ticket", ()
     sessionId: crypto.randomUUID(),
   };
   expect(presenceTicketSchema.parse(ticket)).toEqual(ticket);
+  expect(presenceTicketSchema.parse({ ...ticket, url: "ws://localhost/live" }).url).toBe(
+    "ws://localhost/live",
+  );
+  for (const url of ["", "not a URL", "wss://", "/relative", "https://room.example.test"]) {
+    expect(presenceTicketSchema.safeParse({ ...ticket, url }).success).toBe(false);
+  }
   expect(
     presenceTicketSchema.safeParse({ ...ticket, url: "https://room.example.test" }).success,
   ).toBe(false);

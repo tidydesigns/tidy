@@ -1,6 +1,20 @@
 import { expect, test } from "bun:test";
 import { fixture } from "../dev/fixture";
-import { acceptPreview, readPreview } from "./contract";
+import { acceptPreview, previewSchema, readPreview } from "./contract";
+
+test("invalid font URLs fail validation without throwing during preview hydration", () => {
+  for (const url of ["", "not a URL", "https://", "/relative", "https://untrusted.example/font"]) {
+    const preview = { ...fixture, fontUrls: [url] };
+    expect(previewSchema.safeParse(preview).success).toBe(false);
+    expect(readPreview({ _meta: { tidyPreview: preview } })).toBeNull();
+  }
+  expect(
+    previewSchema.safeParse({
+      ...fixture,
+      fontUrls: ["https://fonts.googleapis.com/css2?family=Inter"],
+    }).success,
+  ).toBe(true);
+});
 
 test("reads private UI hydration and rejects unsafe assets or navigation", () => {
   const result = (value: unknown) => ({ _meta: { tidyPreview: value } });

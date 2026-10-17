@@ -28,7 +28,9 @@ export const previewSchema = previewSummarySchema
       z
         .string()
         .url()
-        .refine((url) => new URL(url).origin === "https://fonts.googleapis.com"),
+        .refine(
+          (url) => URL.canParse(url) && new URL(url).origin === "https://fonts.googleapis.com",
+        ),
     ),
   })
   .superRefine((preview, context) => {

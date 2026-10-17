@@ -22,6 +22,11 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     let timer: ReturnType<typeof setTimeout>;
     const started = Date.now();
     const poll = async () => {
+      if (Date.now() - started > 10 * 60_000) {
+        setLogin(null);
+        setError("Sign-in expired. Connect again to get a new code.");
+        return;
+      }
       try {
         const response = await fetch("/api/agents/connection", {
           method: "PATCH",
@@ -33,16 +38,9 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
           message: "Could not check Codex connection.",
         });
         if (controller.signal.aborted) return;
-        if (response.ok) {
-          setConnection(data);
-          if (data.status === "connected") {
-            setLogin(null);
-            return;
-          }
-        }
-        if (Date.now() - started > 10 * 60_000) {
+        setConnection(data);
+        if (data.status === "connected") {
           setLogin(null);
-          setError("Sign-in expired. Connect again to get a new code.");
           return;
         }
       } catch {
