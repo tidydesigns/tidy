@@ -1563,8 +1563,15 @@ export function FileEditor({
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (prototypeMode) return;
-      if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (isEditableTarget(event.target)) return;
+      if (
+        event.defaultPrevented ||
+        event.target !== viewport.current ||
+        event.isComposing ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey
+      )
+        return;
       const target = event.target;
       const element = target instanceof Element ? target : null;
       if (event.code === "Space") {
@@ -2261,7 +2268,7 @@ export function FileEditor({
   });
 
   function openNodeMenu(event: MouseEvent<HTMLElement>, nodeId: string) {
-    if (viewPreferences.rightClickPan) {
+    if (viewPreferences.rightClickPan && event.button === 2) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -2281,9 +2288,11 @@ export function FileEditor({
         }
       }
     }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const keyboard = event.clientX === 0 && event.clientY === 0;
     setContextMenu({
-      x: event.clientX,
-      y: event.clientY,
+      x: keyboard ? bounds.left + Math.min(bounds.width, 32) : event.clientX,
+      y: keyboard ? bounds.top + bounds.height : event.clientY,
       nodeId,
       behindIds,
     });
@@ -2291,9 +2300,15 @@ export function FileEditor({
 
   useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      const layerCommand =
+        (event.metaKey || event.ctrlKey) &&
+        event.target instanceof Element &&
+        Boolean(event.target.closest("[data-layer-row]"));
       if (
         readOnly ||
         prototypeMode ||
+        event.defaultPrevented ||
+        (event.target !== viewport.current && !layerCommand) ||
         (vectorMode !== null &&
           vectorMode === selection &&
           selectedIds.length === 1 &&
@@ -2386,16 +2401,6 @@ export function FileEditor({
         }
         return;
       }
-      if (!command && event.key === "Tab") {
-        event.preventDefault();
-        const siblings = nodes.filter((node) => node.parentId === selected?.parentId);
-        const index = siblings.findIndex((node) => node.id === selection);
-        const next =
-          siblings[(index + (event.shiftKey ? -1 : 1) + siblings.length) % siblings.length];
-        if (next) selectNode(next.id);
-        return;
-      }
-
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "d") {
         event.preventDefault();
         void duplicate();
@@ -2445,6 +2450,7 @@ export function FileEditor({
     function onKeyDown(event: KeyboardEvent) {
       if (
         event.defaultPrevented ||
+        event.target !== viewport.current ||
         event.isComposing ||
         event.repeat ||
         event.altKey ||
@@ -2509,6 +2515,44 @@ export function FileEditor({
       pageId: currentPageId,
     };
     await changeDocument((content) => ({ ...content, nodes: [...content.nodes, node] }), id);
+  }
+
+  function insertFromKeyboard() {
+    const canvas = viewport.current;
+    if (
+      !canvas ||
+      readOnly ||
+      prototypeMode ||
+      !(tool === "frame" || tool === "rectangle" || tool === "text" || isShapeKind(tool))
+    )
+      return;
+    const bounds = canvas.getBoundingClientRect();
+    const center = worldPoint({
+      clientX: bounds.left + bounds.width / 2,
+      clientY: bounds.top + bounds.height / 2,
+    });
+    const width = tool === "text" ? 200 : tool === "frame" ? 400 : 100;
+    const height = tool === "text" ? 48 : tool === "frame" ? 300 : 100;
+    const parentId =
+      tool !== "frame" &&
+      selected &&
+      ["artboard", "container"].includes(selected.type) &&
+      !isLayerLocked(nodes, selected.id) &&
+      selected.visible
+        ? selected.id
+        : null;
+    void createDrawnNode(
+      tool === "frame" ? "artboard" : tool === "text" ? "text" : "container",
+      parentId,
+      {
+        x: parentId ? 20 : Math.round(center.x - width / 2),
+        y: parentId ? 20 : Math.round(center.y - height / 2),
+        width,
+        height,
+      },
+      isShapeKind(tool) ? { kind: tool } : undefined,
+    );
+    setTool("select");
   }
 
   function beginVectorEditing(node: DesignNode) {
@@ -3163,7 +3207,7 @@ export function FileEditor({
       {!readOnly && (
         <CanvasToolButton
           label="Frame tool"
-          hint="Frame · F, then drag"
+          hint="Frame · F, then drag or press Enter on canvas"
           pressed={tool === "frame"}
           onClick={() => setTool("frame")}
         >
@@ -3173,7 +3217,7 @@ export function FileEditor({
       {!readOnly && (
         <CanvasToolButton
           label="Rectangle tool"
-          hint="Rectangle · R, then drag"
+          hint="Rectangle · R, then drag or press Enter on canvas"
           pressed={tool === "rectangle"}
           onClick={() => setTool("rectangle")}
         >
@@ -3231,7 +3275,7 @@ export function FileEditor({
       {!readOnly && (
         <CanvasToolButton
           label="Text tool"
-          hint="Text · T, then click"
+          hint="Text · T, then click or press Enter on canvas"
           pressed={tool === "text"}
           onClick={() => setTool("text")}
         >
@@ -3734,7 +3778,10 @@ export function FileEditor({
         }}
       />
       <EditorPanel open={panelsOpen && !prototypeMode} width={256} kind="layers">
-        <aside className="z-10 flex h-full w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white">
+        <aside
+          aria-label="File sidebar"
+          className="z-10 flex h-full w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white"
+        >
           <div className="editor-panel-heading flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
             <Link
               href={backHref}
@@ -3745,7 +3792,7 @@ export function FileEditor({
             >
               <Icon name="back" size={18} />
             </Link>
-            <div className="min-w-0 flex-1">{fileHeading}</div>
+            <h1 className="min-w-0 flex-1">{fileHeading}</h1>
             <PanelToggle expanded onClick={togglePanels} />
           </div>
           <div
@@ -3754,14 +3801,30 @@ export function FileEditor({
             role="tablist"
             aria-label="File tools"
             className="flex shrink-0 gap-1 border-b border-primary-grey/60 px-3 py-2"
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next =
+                event.key === "Home"
+                  ? "layers"
+                  : event.key === "End"
+                    ? "tokens"
+                    : sidebarTab === "layers"
+                      ? "tokens"
+                      : "layers";
+              setSidebarTab(next);
+              event.currentTarget.querySelector<HTMLButtonElement>(`#file-tab-${next}`)?.focus();
+            }}
           >
             {(["layers", "tokens"] as const).map((tab) => (
               <button
                 key={tab}
                 type="button"
                 role="tab"
+                id={`file-tab-${tab}`}
+                tabIndex={sidebarTab === tab ? 0 : -1}
                 aria-selected={sidebarTab === tab}
-                aria-controls={`file-${tab}`}
+                aria-controls="file-tools-panel"
                 onClick={() => setSidebarTab(tab)}
                 className={`rounded-lg px-3 py-1.5 text-xs capitalize focus-visible:outline-2 focus-visible:outline-primary-orange ${sidebarTab === tab ? "bg-primary-grey/30 text-primary-black" : "text-secondary-ink hover:bg-primary-grey/15"}`}
               >
@@ -3769,7 +3832,12 @@ export function FileEditor({
               </button>
             ))}
           </div>
-          <div role="tabpanel" id={`file-${sidebarTab}`} className="min-h-0 flex-1 overflow-auto">
+          <div
+            role="tabpanel"
+            id="file-tools-panel"
+            aria-labelledby={`file-tab-${sidebarTab}`}
+            className="min-h-0 flex-1 overflow-auto"
+          >
             {sidebarTab === "tokens" ? (
               <fieldset disabled={readOnly}>
                 <ColorTokens
@@ -3939,15 +4007,33 @@ export function FileEditor({
         width={53}
         kind="tools"
       >
-        <aside className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
+        <div className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
           {toolRail()}
-        </aside>
+        </div>
       </EditorPanel>
       <div
         data-ph-public-label
         ref={attachViewport}
+        role="region"
         tabIndex={0}
         aria-label="Design canvas"
+        aria-describedby={!readOnly && !prototypeMode ? "canvas-keyboard-help" : undefined}
+        onKeyDown={(event) => {
+          if (
+            event.target !== event.currentTarget ||
+            event.defaultPrevented ||
+            event.nativeEvent.isComposing ||
+            event.repeat ||
+            event.metaKey ||
+            event.ctrlKey ||
+            event.altKey ||
+            event.key !== "Enter" ||
+            !(tool === "frame" || tool === "rectangle" || tool === "text" || isShapeKind(tool))
+          )
+            return;
+          event.preventDefault();
+          insertFromKeyboard();
+        }}
         onDragOver={(event) => {
           if (!readOnly && event.dataTransfer.types.includes("Files")) {
             event.preventDefault();
@@ -4034,8 +4120,14 @@ export function FileEditor({
           setDrawing(null);
           setMarquee(null);
         }}
-        className={`relative min-w-0 flex-1 overflow-hidden touch-none bg-canvas focus:outline-none ${tool === "hand" || spaceHeld ? (panning ? "cursor-grabbing" : "cursor-grab") : tool === "select" ? "cursor-default" : "cursor-crosshair"}`}
+        className={`relative min-w-0 flex-1 overflow-hidden touch-none bg-canvas focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black ${tool === "hand" || spaceHeld ? (panning ? "cursor-grabbing" : "cursor-grab") : tool === "select" ? "cursor-default" : "cursor-crosshair"}`}
       >
+        {!readOnly && !prototypeMode && (
+          <p id="canvas-keyboard-help" className="sr-only" data-ph-public>
+            Use F for frame, R for rectangle, or T for text, then Enter to insert. Use the inspector
+            to edit position and size. Tab moves to the next control.
+          </p>
+        )}
         <div style={{ display: "contents", visibility: viewportReady ? "visible" : "hidden" }}>
           {!preview && !local && (
             <div hidden={!viewPreferences.comments}>
@@ -4574,7 +4666,7 @@ export function FileEditor({
                 <Icon name="back" />
               </Link>
               <span className="h-6 w-px shrink-0 bg-primary-grey/65" />
-              <div className="min-w-0 max-w-44 px-2 text-sm">{fileHeading}</div>
+              <h1 className="min-w-0 max-w-44 px-2 text-sm">{fileHeading}</h1>
               {!prototypeMode && <PanelToggle expanded={false} onClick={togglePanels} />}
             </div>
           </EditorChrome>

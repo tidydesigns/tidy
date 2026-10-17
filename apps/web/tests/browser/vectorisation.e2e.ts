@@ -187,6 +187,8 @@ for (const fixture of rasterShapeFixtures) {
       );
       const leaf = vectors.nth(1);
       await page.getByRole("button", { name: "Select Shape 2", exact: true }).click();
+      // Layer controls own their arrow keys; artwork nudges belong to the focused canvas.
+      await page.getByRole("region", { name: "Design canvas", exact: true }).focus();
       const before = required(await leaf.boundingBox());
       await page.keyboard.press("ArrowRight");
       const after = required(await leaf.boundingBox());

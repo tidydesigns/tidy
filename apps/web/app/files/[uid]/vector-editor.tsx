@@ -5,7 +5,6 @@ import type { DesignNode } from "@/lib/design/document";
 import { elementPlane } from "@/lib/design/canvas-geometry";
 import { canvasElements } from "./canvas-elements";
 import { useEditorEvent } from "./use-editor-event";
-import { isEditableTarget } from "./editable-target";
 import { useFrameEvent } from "./use-frame-event";
 import { PropertyField } from "./property-field";
 import { Choice } from "./inspector-controls";
@@ -42,6 +41,7 @@ export function VectorEditor({
   const contours = path.contours ?? parsePathContours(path.d);
   const [plane, setPlane] = useState<ReturnType<typeof elementPlane> | null>(null);
   const [selectedId, setSelectedId] = useState(contours[0].points[0].id);
+  const pendingFocus = useRef<string | null>(null);
   const gesture = useRef<{
     contours: VectorContour[];
     id: string;
@@ -82,12 +82,24 @@ export function VectorEditor({
   );
   const selectedContour = contours.find((c) => c.points.some((p) => p.id === selectedId));
   const selected = selectedContour?.points.find((p) => p.id === selectedId);
+  useLayoutEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    viewport.current
+      ?.querySelector<HTMLButtonElement>(
+        `[data-vector-control="anchor"][data-vector-point="${CSS.escape(id)}"]`,
+      )
+      ?.focus({ preventScroll: true });
+    pendingFocus.current = null;
+  }, [selectedId, viewport]);
   const commit = (next: VectorContour[]) => {
     onBegin();
     onCommit(next);
   };
   const remove = useEditorEvent(() => {
     if (!selectedContour || selectedContour.points.length <= 2) return;
+    const nextId = selectedContour.points.find((p) => p.id !== selectedId)!.id;
+    if (document.activeElement?.matches("[data-vector-control]")) pendingFocus.current = nextId;
     commit(
       contours.map((c) =>
         c.id === selectedContour.id
@@ -95,15 +107,17 @@ export function VectorEditor({
           : c,
       ),
     );
-    setSelectedId(selectedContour.points.find((p) => p.id !== selectedId)!.id);
+    setSelectedId(nextId);
   });
   const keys = useEditorEvent((event: KeyboardEvent) => {
     if (
+      event.defaultPrevented ||
       event.isComposing ||
       event.metaKey ||
       event.ctrlKey ||
       event.altKey ||
-      isEditableTarget(event.target)
+      (event.target !== viewport.current &&
+        !(event.target instanceof Element && event.target.closest("[data-vector-control]")))
     )
       return;
     if (event.key === "Escape" || event.key === "Enter") {
@@ -113,6 +127,7 @@ export function VectorEditor({
       gesture.current = null;
       onCancel();
       onExit();
+      viewport.current?.focus({ preventScroll: true });
     } else if (event.key === "Delete" || event.key === "Backspace") {
       event.preventDefault();
       event.stopImmediatePropagation();
@@ -124,12 +139,15 @@ export function VectorEditor({
       event.preventDefault();
       event.stopImmediatePropagation();
       const step = event.shiftKey ? 10 : 1;
+      const handle =
+        event.target instanceof HTMLElement ? event.target.dataset.vectorControl : undefined;
+      const kind = handle === "in" || handle === "out" ? handle : "anchor";
+      const point = kind === "anchor" ? selected : selected[kind];
+      if (!point) return;
       commit(
-        moveVectorPoint(contours, selected.id, "anchor", {
-          x:
-            selected.x +
-            (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0),
-          y: selected.y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0),
+        moveVectorPoint(contours, selected.id, kind, {
+          x: point.x + (event.key === "ArrowLeft" ? -step : event.key === "ArrowRight" ? step : 0),
+          y: point.y + (event.key === "ArrowUp" ? -step : event.key === "ArrowDown" ? step : 0),
         }),
       );
     }
@@ -185,6 +203,7 @@ export function VectorEditor({
         aria-label={`${kind === "anchor" ? "Anchor" : kind === "in" ? "Incoming handle" : "Outgoing handle"} ${id}`}
         data-vector-control={kind}
         data-vector-point={id}
+        onFocus={() => setSelectedId(id)}
         className={`absolute size-2.5 border border-primary-orange ${kind === "anchor" ? "rounded-sm" : "rounded-full"} ${id === selectedId && kind === "anchor" ? "bg-primary-orange" : "bg-primary-white"}`}
         style={{ left: position.x - 5, top: position.y - 5, pointerEvents: "auto" }}
         onPointerDown={(e) => begin(e, id, kind)}

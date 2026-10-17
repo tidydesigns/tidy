@@ -50,6 +50,8 @@ export function PenEditor({
   });
   const keys = useEditorEvent((event: KeyboardEvent) => {
     if (
+      event.defaultPrevented ||
+      event.target !== viewport.current ||
       event.isComposing ||
       event.metaKey ||
       event.ctrlKey ||

@@ -26,6 +26,24 @@ export function LayerContextMenu({
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
 
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menu?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+    return () => {
+      const active = document.activeElement;
+      if (active !== document.body && active?.isConnected && !menu?.contains(active)) return;
+      const destination =
+        invoker?.isConnected &&
+        invoker !== document.body &&
+        !invoker.matches(":disabled") &&
+        !invoker.closest("[inert]")
+          ? invoker
+          : document.querySelector<HTMLElement>('[role="region"][aria-label="Design canvas"]');
+      destination?.focus({ preventScroll: true });
+    };
+  }, []);
+
   // Measure the actual menu before paint; callers only provide the click point.
   useLayoutEffect(() => {
     const menu = menuRef.current;
@@ -36,9 +54,6 @@ export function LayerContextMenu({
   }, [x, y, items.length]);
 
   useEffect(() => {
-    menuRef.current
-      ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
-      ?.focus({ preventScroll: true });
     function onPointerDown(event: globalThis.PointerEvent) {
       if (event.target instanceof Node && !menuRef.current?.contains(event.target)) onClose();
     }
@@ -94,7 +109,7 @@ export function LayerContextMenu({
             onClose();
             item.onSelect();
           }}
-          className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left outline-none hover:bg-primary-grey/25 focus-visible:bg-primary-grey/25 disabled:cursor-not-allowed disabled:opacity-40 ${item.danger ? "text-danger" : ""}`}
+          className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left outline-none hover:bg-primary-grey/25 focus-visible:bg-primary-grey/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black disabled:cursor-not-allowed disabled:opacity-40 ${item.danger ? "text-danger" : ""}`}
         >
           <span
             data-ph-public={item.replayLabel || undefined}

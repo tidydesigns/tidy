@@ -2,8 +2,12 @@
 
 import {
   memo,
+  useId,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
+  type KeyboardEvent,
   type MouseEvent,
   type Dispatch,
   type SetStateAction,
@@ -34,6 +38,10 @@ export const LayerTree = memo(function LayerTree({
   onLock: (id: string) => void;
 }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [focusedId, setFocusedId] = useState<string | null>(selectedIds.at(-1) ?? null);
+  const [focusWithin, setFocusWithin] = useState(false);
+  const pendingFocus = useRef<string | null>(null);
+  const treeId = useId();
   const [dragged, setDragged] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; position: DropPosition } | null>(null);
   const { children, byId } = useMemo(() => {
@@ -94,10 +102,65 @@ export const LayerTree = memo(function LayerTree({
     roots.forEach((node, index) => collect(node, 0, false, true, index, roots.length));
     return result;
   }, [nodes, children, byId, query, collapsed]);
+  const preferredId = focusWithin ? focusedId : (selectedIds.at(-1) ?? focusedId);
+  const focusedIndex = Math.max(
+    0,
+    rows.findIndex((row) => row.node.id === preferredId),
+  );
   const { tree, start, end, virtual, rowHeight } = useLayerWindow(
     rows.length,
-    rows.findIndex((row) => row.node.id === selectedIds.at(-1)),
+    focusWithin || pendingFocus.current
+      ? focusedIndex
+      : rows.findIndex((row) => row.node.id === selectedIds.at(-1)),
   );
+  useLayoutEffect(() => {
+    const id = pendingFocus.current;
+    if (!id) return;
+    const row = tree.current?.querySelector<HTMLElement>(`[data-layer-row="${CSS.escape(id)}"]`);
+    if (row) {
+      row.focus({ preventScroll: true });
+      pendingFocus.current = null;
+    }
+  }, [focusedId, rows, start, end, tree]);
+
+  function onRowKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
+    if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey)
+      return;
+    const row = rows[index];
+    let destination = index;
+    if (event.key === "ArrowDown") destination = Math.min(rows.length - 1, index + 1);
+    else if (event.key === "ArrowUp") destination = Math.max(0, index - 1);
+    else if (event.key === "Home") destination = 0;
+    else if (event.key === "End") destination = rows.length - 1;
+    else if (event.key === "ArrowRight") {
+      if (!row.nested.length) return;
+      if (!row.expanded) {
+        setCollapsed((current) => {
+          const next = new Set(current);
+          next.delete(row.node.id);
+          return next;
+        });
+      } else destination = Math.min(rows.length - 1, index + 1);
+    } else if (event.key === "ArrowLeft") {
+      if (row.nested.length && row.expanded) {
+        if (query) return;
+        setCollapsed((current) => new Set([...current, row.node.id]));
+      } else {
+        const parent = rows.findIndex((candidate) => candidate.node.id === row.node.parentId);
+        if (parent >= 0) destination = parent;
+      }
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onSelect(row.node.id, event.shiftKey);
+      return;
+    } else return;
+    event.preventDefault();
+    const id = rows[destination]?.node.id;
+    if (id && destination !== index) {
+      pendingFocus.current = id;
+      setFocusedId(id);
+    }
+  }
 
   return (
     <div
@@ -105,6 +168,11 @@ export const LayerTree = memo(function LayerTree({
       ref={tree}
       role="tree"
       aria-label="Layers"
+      aria-multiselectable="true"
+      onFocusCapture={() => setFocusWithin(true)}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
+      }}
       style={virtual ? { position: "relative", height: rows.length * rowHeight } : undefined}
     >
       {rows.slice(start, end).map((item, index) => (
@@ -114,6 +182,12 @@ export const LayerTree = memo(function LayerTree({
           position={start + index}
           virtual={virtual}
           rowHeight={rowHeight}
+          labelId={`${treeId}-${item.node.id}`}
+          focused={
+            start + index === (focusedIndex >= start && focusedIndex < end ? focusedIndex : start)
+          }
+          onFocus={() => setFocusedId(item.node.id)}
+          onKeyDown={(event) => onRowKeyDown(event, start + index)}
           selected={selection.has(item.node.id)}
           readOnly={readOnly}
           dragged={dragged}
@@ -148,6 +222,10 @@ type LayerRowProps = {
   position: number;
   virtual: boolean;
   rowHeight: number;
+  labelId: string;
+  focused: boolean;
+  onFocus: () => void;
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
   selected: boolean;
   readOnly: boolean;
   dragged: string | null;
@@ -166,6 +244,10 @@ const LayerRow = memo(function LayerRow({
   position,
   virtual,
   rowHeight,
+  labelId,
+  focused,
+  onFocus,
+  onKeyDown,
   selected,
   readOnly,
   dragged,
@@ -196,6 +278,13 @@ const LayerRow = memo(function LayerRow({
     <div
       key={node.id}
       role="treeitem"
+      data-layer-row={node.id}
+      aria-labelledby={labelId}
+      tabIndex={focused ? 0 : -1}
+      onFocus={onFocus}
+      onKeyDown={onKeyDown}
+      onContextMenu={(event) => onMenu(event, node.id)}
+      className="rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black"
       aria-level={depth + 1}
       aria-posinset={index + 1}
       aria-setsize={siblings}
@@ -246,7 +335,6 @@ const LayerRow = memo(function LayerRow({
           setDragged(null);
           setDrop(null);
         }}
-        onContextMenu={(event) => onMenu(event, node.id)}
         className={`group relative flex h-8 items-center gap-1 rounded-md pr-1 text-xs ${selected ? "bg-primary-orange/10" : "hover:bg-primary-grey/20"} ${!visible ? "text-secondary-ink" : "text-primary-black/80"} ${drop?.id === node.id && drop.position === "inside" ? "ring-1 ring-inset ring-primary-orange/50" : ""}`}
         style={{ paddingLeft: 3 + depth * 14 }}
       >
@@ -260,6 +348,7 @@ const LayerRow = memo(function LayerRow({
           <button
             data-ph-public
             type="button"
+            tabIndex={-1}
             aria-label={`${expanded ? "Collapse" : "Expand"} ${node.name}`}
             onClick={() =>
               setCollapsed((current) => {
@@ -278,8 +367,14 @@ const LayerRow = memo(function LayerRow({
         )}
         <button
           type="button"
+          tabIndex={-1}
           aria-label={`Select ${node.name}`}
-          onClick={(event) => onSelect(node.id, event.shiftKey)}
+          onClick={(event) => {
+            onSelect(node.id, event.shiftKey);
+            event.currentTarget
+              .closest<HTMLElement>('[role="treeitem"]')
+              ?.focus({ preventScroll: true });
+          }}
           className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left focus-visible:outline-2 focus-visible:outline-primary-orange"
         >
           <span
@@ -289,10 +384,13 @@ const LayerRow = memo(function LayerRow({
           >
             {glyph}
           </span>
-          <span className="truncate">{node.name}</span>
+          <span id={labelId} className="truncate">
+            {node.name}
+          </span>
         </button>
         <button
           type="button"
+          tabIndex={focused ? 0 : -1}
           disabled={readOnly || locked}
           aria-label={`${node.visible ? "Hide" : "Show"} ${node.name}`}
           onClick={() => onVisibility(node.id)}
@@ -316,6 +414,7 @@ const LayerRow = memo(function LayerRow({
         </button>
         <button
           type="button"
+          tabIndex={focused ? 0 : -1}
           disabled={readOnly || parentLocked}
           aria-label={`${node.locked ? "Unlock" : "Lock"} ${node.name}`}
           onClick={() => onLock(node.id)}

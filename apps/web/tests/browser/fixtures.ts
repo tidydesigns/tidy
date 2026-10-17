@@ -22,7 +22,9 @@ export const test = base.extend({
     // Pixel comparisons use document pixels; the product now defaults exports
     // to 2x, so explicitly choose 1x when the export controls first appear.
     await page.addLocatorHandler(
-      page.locator('input[aria-label="Export scale"][value="2"]'),
+      page
+        .getByRole("spinbutton", { name: "Export scale", exact: true })
+        .and(page.locator('[value="2"]')),
       async (input) => {
         await input.fill("1");
         await page.getByLabel("Export scale", { exact: true }).press("Enter");
