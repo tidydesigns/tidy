@@ -442,6 +442,34 @@ integration(
   },
 );
 
+integration("MCP onboarding requires a session and an organization membership", async () => {
+  const nextHeaders = await import("next/headers");
+  const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(new Headers());
+  try {
+    const { default: McpOnboardingPage } = await import("../../app/onboarding/mcp/page");
+    const page = () =>
+      McpOnboardingPage({
+        params: Promise.resolve({}),
+        searchParams: Promise.resolve({ organizationId: orgId }),
+      });
+    await expect(page()).rejects.toThrow("NEXT_REDIRECT");
+
+    for (const memberHeaders of [owner, invited]) {
+      requestHeaders.mockResolvedValue(memberHeaders);
+      const result = await page();
+      expect(result.props.resourceUrl).toBe(
+        new URL("/api/mcp", process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString(),
+      );
+    }
+
+    const unaffiliated = await account("No workspace", "no-workspace@example.test");
+    requestHeaders.mockResolvedValue(unaffiliated.headers);
+    await expect(page()).rejects.toThrow("NEXT_REDIRECT");
+  } finally {
+    requestHeaders.mockRestore();
+  }
+});
+
 integration("confirmed deletion frees the created-organisation allowance", async () => {
   await db.query('update "billingDeployment" set "selfHosted"=false');
   const created = await create(invited, "Temporary");

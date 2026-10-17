@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { TidyLogo } from "@/components/ui/tidy-logo";
+import { OnboardingProgress } from "./onboarding-progress";
 
 export function OnboardingShell({
   step,
@@ -18,20 +19,12 @@ export function OnboardingShell({
 }) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-5xl flex-col px-6 py-8 sm:px-10">
-      <TidyLogo />
+      <header className="flex flex-wrap items-center justify-between gap-6">
+        <TidyLogo />
+        {step && <OnboardingProgress step={step} />}
+      </header>
       <div className="flex flex-1 flex-col justify-center py-16">
         <div className="w-full max-w-md">
-          {step && (
-            <p className="text-xs font-semibold uppercase tracking-widest text-secondary-ink">
-              <span data-ph-public style={{ display: "contents" }}>
-                Step{" "}
-              </span>
-              {step}{" "}
-              <span data-ph-public style={{ display: "contents" }}>
-                of 2
-              </span>
-            </p>
-          )}
           <h1
             data-ph-public={replayTitle || undefined}
             className="mt-5 text-3xl font-semibold tracking-tight sm:text-4xl"

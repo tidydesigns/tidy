@@ -22,9 +22,10 @@ and assets retain their original licenses and copyright notices.
   `apps/site` and `apps/extension`.
 - **Instrument Sans**: SIL Open Font License 1.1, copyright the Instrument Sans
   Project Authors. Its license accompanies the site font as `OFL-InstrumentSans.txt`.
-- Provider logos and names (Google, GitHub and Linear) identify integrations.
+- Provider logos and names (Google, GitHub, Linear, Codex, Claude and OpenCode) identify integrations.
   Their owners retain trademark rights. Follow the attribution and source notes
-  in `apps/web/public/connectors/README.md`; do not imply provider endorsement.
+  in `apps/web/public/connectors/README.md` and `apps/web/public/agents/README.md`;
+  do not imply provider endorsement.
 - Tidy branding and application icons are project assets. The Apache License 2.0
   does not grant rights to Tidy trademarks.
 
