@@ -79,7 +79,7 @@ export const reviewContextSchema = z.object({
         id: z.number(),
         body: z.string(),
         html_url: z.string(),
-        user: z.object({ login: z.string() }),
+        user: z.object({ login: z.string() }).nullable(),
       }),
     )
     .nullable(),

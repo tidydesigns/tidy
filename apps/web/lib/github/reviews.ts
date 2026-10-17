@@ -335,7 +335,7 @@ export const getReviewContext = boundedGitHubOperation(async function getReviewC
           id: z.number().int().positive(),
           body: z.string(),
           html_url: z.string(),
-          user: z.object({ login: z.string() }),
+          user: z.object({ login: z.string() }).nullable(),
         }),
       ),
       githubRequest(access.token, `${path}/issues/${pull.number}/comments?per_page=100`),
@@ -611,13 +611,16 @@ export const sendFeedback = boundedGitHubOperation(async function sendFeedback(
           z.object({
             id: z.number().int().positive(),
             body: z.string(),
-            user: z.object({ id: z.number().int().positive() }),
+            user: z.object({ id: z.number().int().positive() }).nullable(),
           }),
         ),
         paginated(access.token, path),
       )
     ).find(
-      (comment) => comment.body.includes(marker) && String(comment.user.id) === access.githubId,
+      (comment) =>
+        comment.user !== null &&
+        comment.body.includes(marker) &&
+        String(comment.user.id) === access.githubId,
     );
     const publication = await inDatabaseScope(client, () =>
       withReviewProviderAuthority(userId, access, "edit", async (authorized) => {

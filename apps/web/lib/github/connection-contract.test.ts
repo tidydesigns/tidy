@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { connectionStatusSchema } from "./connection-contract";
+import { connectionStatusSchema, installationSchema } from "./connection-contract";
 
 test("GitHub settings require complete connection state without rejecting unlinked accounts", () => {
   const connection = {
@@ -16,4 +16,13 @@ test("GitHub settings require complete connection state without rejecting unlink
     connectionStatusSchema.safeParse({ ...connection, installations: [{ id: 1 }] }).success,
   ).toBe(false);
   expect(connectionStatusSchema.safeParse({ error: "Access ended." }).success).toBe(false);
+});
+
+test("installation payloads accept unavailable accounts without accepting invalid login types", () => {
+  const installation = { id: 9, app_id: 12345, suspended_at: null };
+  for (const account of [null, {}, { login: "tidydesigns" }])
+    expect(installationSchema.parse({ ...installation, account }).account).toEqual(account);
+  expect(installationSchema.safeParse({ ...installation, account: { login: 42 } }).success).toBe(
+    false,
+  );
 });

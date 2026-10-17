@@ -604,6 +604,8 @@ function providerCode(result: TurnResult) {
       : "provider_error";
 }
 export function toolResponse(value: unknown) {
+  const isError =
+    z.object({ isError: z.boolean().optional() }).safeParse(value).data?.isError === true;
   const result = z
     .object({
       content: z
@@ -622,7 +624,7 @@ export function toolResponse(value: unknown) {
     .safeParse(value).data;
   const metadata = result?.structuredContent;
   if (
-    !result?.isError &&
+    !isError &&
     metadata &&
     typeof metadata.base64 === "string" &&
     ["image/png", "image/jpeg", "image/webp"].includes(String(metadata.mimeType))
@@ -643,5 +645,5 @@ export function toolResponse(value: unknown) {
         ? [{ type: "inputImage", imageUrl: `data:${item.mimeType};base64,${item.data}` }]
         : [],
   ) ?? [{ type: "inputText", text: JSON.stringify(value) }];
-  return { contentItems, success: result?.isError !== true };
+  return { contentItems, success: !isError };
 }

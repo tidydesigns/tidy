@@ -78,7 +78,12 @@ export const connectionStatus = boundedGitHubOperation(async function connection
           z.array(installationSchema),
           paginated(authorization.token, "/user/installations", "installations"),
         )
-      ).filter((item) => String(item.app_id) === githubConfig().appId && !item.suspended_at);
+      ).filter(
+        (item) =>
+          String(item.app_id) === githubConfig().appId &&
+          !item.suspended_at &&
+          Boolean(item.account?.login?.trim()),
+      );
       const current = await db.query(
         `select 1 from "githubUser" g where "userId"=$1
         and g."githubId"=$2 and ${credentialVersionSql}=$3`,
@@ -122,9 +127,11 @@ export const attachInstallation = boundedGitHubOperation(async function attachIn
     (item) =>
       item.id === installationId &&
       String(item.app_id) === githubConfig().appId &&
-      !item.suspended_at,
+      !item.suspended_at &&
+      Boolean(item.account?.login?.trim()),
   );
-  if (!installation)
+  const login = installation?.account?.login;
+  if (!installation || !login?.trim())
     throw new GitHubRequestError("Install this GitHub App on an account you can access first.");
   // Fetch from GitHub, never trust an installation ID or account from a callback/query string.
   await githubRequest(token, `/user/installations/${installationId}/repositories?per_page=1`);
@@ -139,7 +146,7 @@ export const attachInstallation = boundedGitHubOperation(async function attachIn
     [
       organizationId,
       installationId,
-      installation.account.login,
+      login,
       userId,
       authorization.githubId,
       authorization.credentialVersion,

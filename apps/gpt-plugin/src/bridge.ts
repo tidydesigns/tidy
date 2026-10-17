@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const toolResultSchema = z.object({
   isError: z.boolean().optional(),
-  content: z.array(z.looseObject({ type: z.string(), text: z.string().optional() })).optional(),
+  content: z.array(z.looseObject({ type: z.string(), text: z.string().optional() })),
   _meta: z.record(z.string(), z.unknown()).optional(),
 });
 const hostContextSchema = z.object({

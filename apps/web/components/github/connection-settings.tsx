@@ -166,7 +166,9 @@ export function GitHubSettings({
                 key={item.id}
                 className="flex items-center justify-between gap-3 rounded-lg border border-primary-grey/70 p-3"
               >
-                <span className="text-sm">{item.account.login}</span>
+                <span className="text-sm">
+                  {item.account?.login?.trim() || "Unknown GitHub account"}
+                </span>
                 <button
                   data-ph-public
                   disabled={busy}

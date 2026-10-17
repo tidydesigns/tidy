@@ -3,7 +3,7 @@ import { z } from "zod";
 export const installationSchema = z.object({
   id: z.number().int().positive(),
   app_id: z.number().int().positive(),
-  account: z.object({ login: z.string() }),
+  account: z.object({ login: z.string().optional() }).nullable(),
   suspended_at: z.string().nullable(),
 });
 export const connectionStatusSchema = z.object({

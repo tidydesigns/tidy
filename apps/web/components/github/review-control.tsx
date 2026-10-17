@@ -644,7 +644,7 @@ export function ReviewControl({
                         rel="noreferrer"
                         className="text-xs underline"
                       >
-                        {comment.user.login}
+                        {comment.user?.login ?? "Unknown GitHub user"}
                       </a>
                       <p className="whitespace-pre-wrap">{comment.body}</p>
                     </li>

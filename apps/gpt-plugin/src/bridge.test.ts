@@ -35,8 +35,10 @@ test("host boundaries preserve metadata, reject malformed payloads, and settle p
   });
   await connected;
   receive({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: null });
+  receive({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: {} });
+  receive({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { isError: true } });
   receive({ jsonrpc: "2.0", method: "ui/notifications/host-context-changed", params: null });
-  expect(errors).toHaveLength(1);
+  expect(errors).toHaveLength(3);
   const result = {
     content: [{ type: "image", data: "bytes" }],
     _meta: { tidyPreview: { revision: 2 } },
@@ -48,6 +50,8 @@ test("host boundaries preserve metadata, reject malformed payloads, and settle p
   expect(results).toHaveLength(0);
   receive({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: result });
   expect(results).toEqual([result]);
+  receive({ jsonrpc: "2.0", method: "ui/notifications/tool-result", params: { content: [] } });
+  expect(results).toEqual([result, { content: [] }]);
   const tool = bridge.callTool("preview_design", {});
   await Promise.resolve();
   receive({ jsonrpc: "2.0", id: sent.at(-1)?.id, result: null });
