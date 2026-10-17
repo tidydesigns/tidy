@@ -1,6 +1,64 @@
 import assert from "node:assert/strict";
 import { test } from "./fixtures";
 
+test("adopted controls retain their keyboard input", async ({ page, baseURL }) => {
+  await page.goto(`${baseURL!}/dev/import-preview?edit=1`);
+  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  await heading.locator("[data-design-text]").waitFor();
+
+  const results = await page.evaluate(() => {
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    const foreignDocument = frame.contentDocument!;
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    try {
+      return ["input", "textarea", "select", "contenteditable", "contenteditable-false"].map(
+        (kind) => {
+          const control = foreignDocument.createElement(
+            kind.startsWith("contenteditable") ? "div" : kind,
+          );
+          if (kind.startsWith("contenteditable"))
+            control.setAttribute("contenteditable", kind.endsWith("false") ? "false" : "true");
+          const target = kind.startsWith("contenteditable")
+            ? control.appendChild(foreignDocument.createElement("span"))
+            : control;
+          host.appendChild(document.adoptNode(control));
+          control.focus();
+          const prevented = [
+            { key: "p", code: "KeyP" },
+            { key: " ", code: "Space" },
+            { key: "c", code: "KeyC", ctrlKey: true, altKey: true },
+            { key: "z", code: "KeyZ", ctrlKey: true },
+            { key: "Delete", code: "Delete" },
+          ].map((key) => {
+            const event = new KeyboardEvent("keydown", {
+              ...key,
+              bubbles: true,
+              cancelable: true,
+            });
+            target.dispatchEvent(event);
+            return event.defaultPrevented;
+          });
+          return { kind, currentRealm: target instanceof Element, prevented };
+        },
+      );
+    } finally {
+      host.remove();
+      frame.remove();
+    }
+  });
+  for (const result of results) {
+    assert.equal(result.currentRealm, false, result.kind);
+    assert.deepEqual(result.prevented, [false, false, false, false, false], result.kind);
+  }
+  assert.equal(await heading.count(), 1, "typing in an adopted control must retain the layer");
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("Delete");
+  await heading.waitFor({ state: "detached" });
+});
+
 test("rich text paste sanitisation, formatting and persisted editing", async ({
   page,
   baseURL,

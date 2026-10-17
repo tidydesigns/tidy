@@ -1543,6 +1543,7 @@ export function FileEditor({
     function onKeyDown(event: KeyboardEvent) {
       if (prototypeMode) return;
       if (event.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isEditableTarget(event.target)) return;
       const target = event.target;
       const element = target instanceof Element ? target : null;
       if (event.code === "Space") {
@@ -1551,7 +1552,6 @@ export function FileEditor({
         setSpaceHeld(true);
         return;
       }
-      if (isEditableTarget(element)) return;
       if (event.repeat) return;
       if (event.shiftKey) return;
       const shortcut = event.key.toLowerCase();
