@@ -1332,11 +1332,13 @@ async function responsiveConstraints(browser) {
   await chooseSelectMenu(page, "Width sizing", "Fill");
   await select("Email input");
   const email = page.locator('[data-node-id="desktop-email-input"]');
-  await page.waitForFunction(() => {
-    const e = document.querySelector('[data-node-id="desktop-email-input"]');
-    const field = document.querySelector('input[aria-label="Width"]');
-    return Math.abs(Number(field?.value) - parseFloat(getComputedStyle(e).width)) < 0.05;
-  });
+  await page.waitForFunction(
+    (field) => {
+      const element = document.querySelector('[data-node-id="desktop-email-input"]');
+      return Math.abs(Number(field.value) - parseFloat(getComputedStyle(element).width)) < 0.05;
+    },
+    await page.getByLabel("Width", { exact: true }).elementHandle(),
+  );
   const handle = page.getByRole("button", { name: "Resize Email input right", exact: true });
   await handle.waitFor();
   const h = await handle.boundingBox();
@@ -1430,7 +1432,8 @@ async function layoutWorkflows(browser) {
   await page.getByRole("button", { name: "Select Frame", exact: true }).click({ button: "right" });
   await page.getByRole("menuitem", { name: "Fit to content", exact: true }).click();
   await page.waitForFunction(
-    () => Math.abs(Number(document.querySelector('input[aria-label="Height"]')?.value) - 88) < 0.1,
+    (field) => Math.abs(Number(field.value) - 88) < 0.1,
+    await page.getByLabel("Height", { exact: true }).elementHandle(),
   );
   const fitted = await geometry();
   for (let i = 0; i < 2; i++)

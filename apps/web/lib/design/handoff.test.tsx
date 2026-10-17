@@ -233,6 +233,6 @@ test("viewer inspection provides CSS and provenance with no editing fields", () 
   expect(html).toContain("secondary");
   expect(html).toContain("Imported source");
   expect(html.match(/<input/g)).toHaveLength(1);
-  expect(html).toContain('aria-label="Export scale"');
+  expect(html).toMatch(/<label[^>]*for="[^"]+"[^>]*>Export scale<\/label>/);
   expect(html).not.toContain("<fieldset");
 });

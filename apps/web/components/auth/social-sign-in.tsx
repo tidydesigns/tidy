@@ -56,7 +56,7 @@ export function SocialSignIn({
         />
       ))}
       {error && <FormMessage>{error}</FormMessage>}
-      <p data-ph-public className="pt-2 text-center text-sm text-primary-black/60">
+      <p data-ph-public className="pt-2 text-center text-sm text-secondary-ink">
         or use your email
       </p>
     </div>

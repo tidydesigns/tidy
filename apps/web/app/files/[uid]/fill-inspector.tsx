@@ -696,7 +696,9 @@ export function FillInspector({
                 </p>
               )}
               {onUpload && (
-                <label className={`${button} inline-block cursor-pointer`}>
+                <label
+                  className={`${button} inline-block cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-orange`}
+                >
                   <span data-ph-public style={{ display: "contents" }}>
                     {uploading
                       ? "Uploading…"
@@ -706,7 +708,6 @@ export function FillInspector({
                   </span>
                   <input
                     data-ph-public-label
-                    aria-label="Fill image"
                     type="file"
                     accept="image/png,image/jpeg,image/webp,image/svg+xml"
                     className="sr-only"

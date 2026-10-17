@@ -163,7 +163,7 @@ try {
     "#00ff00",
   );
   await chooseSelectMenu(page, "Fill type", "Image");
-  await page.getByLabel("Fill image", { exact: true }).setInputFiles({
+  await page.getByLabel(/^(Choose|Replace) fill image$/).setInputFiles({
     name: "fill.svg",
     mimeType: "image/svg+xml",
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400"/>'),

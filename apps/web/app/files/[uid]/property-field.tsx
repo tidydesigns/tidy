@@ -1,8 +1,15 @@
 "use client";
-import { useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
+import {
+  useId,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FocusEvent,
+  type KeyboardEvent,
+} from "react";
 type Value = string | number | undefined;
 const inputClass =
-  "h-8 w-full min-w-0 rounded-md border border-primary-grey/70 bg-surface px-2 text-xs text-primary-black outline-none focus:border-primary-orange disabled:opacity-40";
+  "h-8 w-full min-w-0 rounded-md border border-control-border bg-surface px-2 text-xs text-primary-black outline-none focus:border-primary-orange focus-visible:ring-2 focus-visible:ring-primary-orange disabled:opacity-40";
 /** Keep the draft focused while other fields and network responses update. */
 export function PropertyField({
   label,
@@ -17,6 +24,7 @@ export function PropertyField({
   placeholder = "Mixed",
   list,
   disabled = false,
+  required = false,
   multiline = false,
   validate,
 }: {
@@ -32,66 +40,80 @@ export function PropertyField({
   placeholder?: string;
   list?: string;
   disabled?: boolean;
+  required?: boolean;
   multiline?: boolean;
-  validate?: (value: string) => boolean;
+  validate?: (value: string) => string | undefined;
 }) {
+  const id = useId();
   const [draft, setDraft] = useState<string | null>(null);
   const committed = useRef(false);
-  const [invalid, setInvalid] = useState(false);
+  const [error, setError] = useState<string>();
   const displayed = typeof value === "number" ? Math.round(value * 1000) / 1000 : value;
-  function commit() {
+  function commit(input: HTMLInputElement | HTMLTextAreaElement) {
     if (draft === null || committed.current) return;
-    if (
-      (validate && !validate(draft)) ||
-      (numeric &&
-        draft !== "" &&
-        (!Number.isFinite(Number(draft)) ||
-          (integer && !Number.isInteger(Number(draft))) ||
-          (min !== undefined && Number(draft) < min) ||
-          (max !== undefined && Number(draft) > max)))
-    ) {
-      setInvalid(true);
+    let message = validate?.(draft) ?? (required && draft === "" ? "Enter a value." : undefined);
+    if (numeric && (input.validity.badInput || draft !== "")) {
+      const number = Number(draft);
+      if (input.validity.badInput || !Number.isFinite(number)) message = "Enter a number.";
+      else if (integer && !Number.isInteger(number)) message = "Enter a whole number.";
+      else if ((min !== undefined && number < min) || (max !== undefined && number > max))
+        message =
+          min !== undefined && max !== undefined
+            ? `Enter a number from ${min} to ${max}.`
+            : min !== undefined
+              ? `Enter a number of at least ${min}.`
+              : `Enter a number no greater than ${max}.`;
+    }
+    if (message) {
+      setError(message);
       return;
     }
     committed.current = true;
     if (draft !== String(displayed ?? "")) onCommit(draft);
     setDraft(null);
-    setInvalid(false);
+    setError(undefined);
   }
   const control = {
+    id,
     disabled,
-    "aria-label": label,
-    "aria-invalid": invalid || undefined,
+    required,
+    "aria-invalid": error ? true : undefined,
+    "aria-describedby": error ? `${id}-error` : undefined,
     value: draft ?? displayed ?? "",
     placeholder,
     onChange: (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       committed.current = false;
       setDraft(event.target.value);
-      setInvalid(false);
+      setError(undefined);
     },
-    onBlur: commit,
+    onBlur: (event: FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+      commit(event.currentTarget),
     onKeyDown: (event: KeyboardEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       event.stopPropagation();
+      if (event.nativeEvent.isComposing) return;
       if (event.key === "Enter" && (!multiline || event.metaKey || event.ctrlKey)) {
-        commit();
+        event.preventDefault();
+        commit(event.currentTarget);
         event.currentTarget.blur();
       }
       if (event.key === "Escape") {
         committed.current = true;
         setDraft(null);
-        setInvalid(false);
+        setError(undefined);
         event.currentTarget.blur();
       }
     },
   };
   return (
-    <label className="block min-w-0 text-[10px] text-secondary-ink">
-      <span data-ph-public={replayLabel || undefined}>{label}</span>
+    <div className="min-w-0 text-[10px] text-secondary-ink">
+      <label htmlFor={id} data-ph-public={replayLabel || undefined}>
+        {label}
+      </label>
       {multiline ? (
         <textarea
           {...control}
           rows={3}
-          className={`${inputClass} mt-1 min-h-16 resize-y py-2 ${invalid ? "border-danger" : ""}`}
+          className={`${inputClass} mt-1 min-h-16 resize-y py-2 ${error ? "border-danger" : ""}`}
         />
       ) : (
         <input
@@ -101,9 +123,14 @@ export function PropertyField({
           max={max}
           step={step}
           list={list}
-          className={`${inputClass} mt-1 ${invalid ? "border-danger" : ""}`}
+          className={`${inputClass} mt-1 ${error ? "border-danger" : ""}`}
         />
       )}
-    </label>
+      {error && (
+        <p id={`${id}-error`} role="alert" className="mt-1 text-danger">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }

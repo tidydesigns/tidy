@@ -2,6 +2,7 @@
   --background: #f2f2f0;
   --text: #1e1e1e;
   --orange: #ff5d00;
+  --accent-ink: #aa3d00;
 }
 
 * {
@@ -110,7 +111,7 @@ body {
 
 .header-link[aria-current="page"] {
   text-decoration: underline;
-  text-decoration-color: var(--orange);
+  text-decoration-color: var(--accent-ink);
 }
 
 .content {
@@ -149,11 +150,11 @@ p {
 }
 
 .login-link:hover {
-  color: var(--orange);
+  color: var(--accent-ink);
 }
 
 .login-link:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--accent-ink);
   outline-offset: 6px;
 }
 
@@ -172,7 +173,7 @@ p {
 }
 
 .product-hunt-badge:focus-visible {
-  outline: 2px solid var(--orange);
+  outline: 2px solid var(--accent-ink);
   outline-offset: 4px;
 }
 

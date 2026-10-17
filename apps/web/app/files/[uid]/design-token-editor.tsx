@@ -11,6 +11,7 @@ import { renameDesignToken, removeDesignToken } from "@/lib/design/tokens";
 import { Choice } from "./inspector-controls";
 import { PropertyField } from "./property-field";
 import { FontPicker } from "./font-picker";
+import { normalizeColor } from "@/lib/design/selection-colors";
 
 type Change = (transform: (document: DesignDocument) => DesignDocument) => void;
 const defaults: Record<DesignToken["type"], DesignToken> = {
@@ -33,6 +34,12 @@ const defaults: Record<DesignToken["type"], DesignToken> = {
 };
 const label = (type: string) =>
   type === "typography" ? "Text style" : type[0].toUpperCase() + type.slice(1);
+const numericBounds = {
+  radius: [0, 5000],
+  spacing: [-1000, 1000],
+  dimension: [0, 5000],
+  number: [-100000, 100000],
+} as const;
 export function AddToken({ onChange }: { onChange: Change }) {
   const [type, setType] = useState<DesignToken["type"]>("color");
   return (
@@ -114,6 +121,10 @@ export function DesignTokenEditor({
     })
     .map(([name]) => name);
   const text = resolved.type === "typography" ? resolved.value : undefined;
+  const bounds =
+    resolved.type === "typography" || resolved.type === "color"
+      ? undefined
+      : numericBounds[resolved.type];
   const textNode = {
     ...buildDrawnNode("token-preview", "text", null, { x: 0, y: 0, width: 100, height: 40 }),
     style: text ?? {},
@@ -219,9 +230,19 @@ export function DesignTokenEditor({
                   key={key}
                   label={label}
                   numeric
+                  integer={key === "fontWeight"}
+                  required={key === "fontSize" || key === "fontWeight"}
                   min={min}
                   max={max}
                   value={text[key] ?? fallback}
+                  validate={
+                    key === "fontSize" || key === "fontWeight"
+                      ? (value) =>
+                          value === ""
+                            ? `Enter a ${label.toLowerCase()} from ${min} to ${max}.`
+                            : undefined
+                      : undefined
+                  }
                   onCommit={(value) => textValue(key, Number(value))}
                 />
               ))}
@@ -243,12 +264,20 @@ export function DesignTokenEditor({
                 replayLabel
                 label="Line height"
                 numeric
+                required
                 min={text.lineHeightMode === "px" ? 0.1 : 0.01}
                 max={text.lineHeightMode === "px" ? 1200 : 20000}
                 value={
                   text.lineHeightMode === "px"
                     ? (text.lineHeightPx ?? 22)
                     : (text.lineHeight ?? 1.35) * 100
+                }
+                validate={(value) =>
+                  value === ""
+                    ? text.lineHeightMode === "px"
+                      ? "Enter a line height in pixels."
+                      : "Enter a line height as a percentage."
+                    : undefined
                 }
                 onCommit={(value) =>
                   textValue(
@@ -276,6 +305,16 @@ export function DesignTokenEditor({
             label={token.type === "color" ? "Color" : "Value"}
             value={resolved.value as string | number}
             numeric={token.type !== "color"}
+            min={bounds?.[0]}
+            max={bounds?.[1]}
+            validate={
+              token.type === "color"
+                ? (value) =>
+                    normalizeColor(value)
+                      ? undefined
+                      : "Enter a hex color such as #336699 or #336699ff."
+                : undefined
+            }
             onCommit={(value) =>
               update(
                 (current) =>

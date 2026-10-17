@@ -166,7 +166,7 @@ export function SelectMenu({
         }}
         className={
           triggerClassName ??
-          `flex w-full items-center justify-between gap-2 border bg-surface text-left font-normal text-primary-black hover:border-primary-black/40 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50 ${size === "sm" ? "h-8 rounded-md border-primary-grey/70 px-2 text-xs" : "min-h-10 rounded-lg border-primary-grey px-3 text-sm"}`
+          `flex w-full items-center justify-between gap-2 border border-control-border bg-surface text-left font-normal text-primary-black hover:border-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50 ${size === "sm" ? "h-8 rounded-md px-2 text-xs" : "min-h-10 rounded-lg px-3 text-sm"}`
         }
       >
         {triggerContent ?? (
@@ -217,7 +217,7 @@ export function SelectMenu({
                 trigger.current?.focus();
                 if (actionMenu || option.value !== value) onChange(option.value);
               }}
-              className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-none disabled:opacity-50 ${value === option.value ? "bg-primary-grey/20" : ""}`}
+              className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${value === option.value ? "bg-primary-grey/20" : ""}`}
             >
               <span className="flex min-w-0 items-center gap-2">
                 {option.icon}

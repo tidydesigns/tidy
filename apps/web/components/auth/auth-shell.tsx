@@ -17,7 +17,7 @@ export function AuthShell({ title, description, children }: AuthShellProps) {
         <TidyLogo />
         <div className="auth-shell-heading mt-14">
           <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
-          <p className="mt-2 text-sm text-primary-black/70">{description}</p>
+          <p className="mt-2 text-sm text-secondary-ink">{description}</p>
         </div>
         {children}
         <NavigationLink

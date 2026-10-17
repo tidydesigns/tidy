@@ -67,7 +67,11 @@ export function ColorTokens({
                 replayLabel
                 label="Color"
                 value={value}
-                validate={(color) => Boolean(normalizeColor(color))}
+                validate={(color) =>
+                  normalizeColor(color)
+                    ? undefined
+                    : "Enter a hex color such as #336699 or #336699ff."
+                }
                 onCommit={(color) =>
                   onChange((content) => ({
                     ...content,

@@ -202,7 +202,9 @@ export function ColorField({
           replayLabel={replayLabel}
           label={label}
           value={color}
-          validate={(value) => Boolean(normalizeColor(value))}
+          validate={(value) =>
+            normalizeColor(value) ? undefined : "Enter a hex color such as #336699 or #336699ff."
+          }
           onCommit={change}
         />
         <PropertyField

@@ -31,7 +31,14 @@ test("public inspector labels do not opt field values or custom labels into repl
     </Section>,
   );
   expect(html).toMatch(/data-ph-public="true"[^>]*>Position</);
-  expect(html).toContain('<span data-ph-public="true">Width</span>');
+  const widthLabel = html.match(/<label for="([^"]+)" data-ph-public="true">Width<\/label>/);
+  expect(widthLabel).not.toBeNull();
+  const widthInput = [...html.matchAll(/<input\b[^>]*>/g)]
+    .map(([tag]) => tag)
+    .find((tag) => tag.includes(`id="${widthLabel![1]}"`));
+  expect(widthInput).toContain('value="private-value"');
+  expect(widthInput).not.toContain("data-ph-public");
+  expect(html).toMatch(/<label for="[^"]+">private-property-name<\/label>/);
   expect(html).not.toMatch(/data-ph-public="true"[^>]*>private-/);
   expect(html).toMatch(/data-ph-private="true"[^>]*>private-token-name</);
   expect(html).toMatch(/data-ph-private="true"[^>]*style="background-color:#123abc"/);

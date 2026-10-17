@@ -361,7 +361,7 @@ try {
         response.request().method() === "POST",
     );
     await page
-      .getByLabel("Fill image", { exact: true })
+      .getByLabel(/^(Choose|Replace) fill image$/)
       .setInputFiles({ name: "portrait-mask.png", mimeType: "image/png", buffer: replacement });
     const upload = await uploadPromise;
     assert.equal(upload.status(), 200, await upload.text());

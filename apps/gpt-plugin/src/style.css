@@ -6,6 +6,7 @@
   --muted: #62655f;
   --line: #dedfd9;
   --canvas: #f4f4f0;
+  --error: #b24e30;
 }
 :root[data-theme="dark"] {
   --surface: #242622;
@@ -13,6 +14,7 @@
   --muted: #b5b7ae;
   --line: #494c43;
   --canvas: #1c1e19;
+  --error: #ffad91;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -22,6 +24,7 @@
     --muted: #b5b7ae;
     --line: #494c43;
     --canvas: #1c1e19;
+    --error: #ffad91;
   }
 }
 * {
@@ -97,7 +100,7 @@ body {
   font-size: 13px;
 }
 .message[role="alert"] {
-  color: #b24e30;
+  color: var(--error);
 }
 /* The shared SelectMenu keeps its keyboard and focus behavior in every host. */
 .toolbar .relative {
@@ -154,6 +157,10 @@ body {
 .toolbar [role="menuitemradio"][aria-checked="true"],
 .toolbar [role="menuitemradio"]:focus-visible {
   background: var(--canvas);
+}
+.toolbar [role="menuitemradio"]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: -2px;
 }
 .toolbar .truncate {
   overflow: hidden;

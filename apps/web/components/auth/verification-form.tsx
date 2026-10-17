@@ -53,7 +53,7 @@ export function VerificationForm({
   return (
     <form method="post" onSubmit={resend} className="mt-10 space-y-5">
       {delivered && (
-        <p data-ph-public role="status" className="text-sm text-primary-black/70">
+        <p data-ph-public role="status" className="text-sm text-secondary-ink">
           If this address has an account awaiting verification, a link has been sent. Check your
           inbox and spam folder. The link expires in one hour.
         </p>

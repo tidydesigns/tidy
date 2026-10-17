@@ -29,7 +29,7 @@ export function UsageBar({
       <dt data-ph-public={replayLabel || undefined} id={id} className="font-medium">
         {label}
       </dt>
-      <dd data-ph-private className="tabular-nums text-primary-black/70">
+      <dd data-ph-private className="tabular-nums text-secondary-ink">
         {format(used)} / {limit === null ? "Unlimited" : format(limit)}
       </dd>
       <dd className="col-span-2 space-y-2">
@@ -50,7 +50,7 @@ export function UsageBar({
             style={{ width: `${percentage}%` }}
           />
         </div>
-        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-primary-black/60">
+        <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-xs text-secondary-ink">
           <span className="tabular-nums">{remaining}</span>
           {detail && <span>{detail}</span>}
         </div>

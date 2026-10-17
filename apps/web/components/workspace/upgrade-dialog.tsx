@@ -75,12 +75,12 @@ export function UpgradeDialog({
             disabled={busy}
             onClick={() => dialog.current?.close()}
             aria-label="Close upgrade dialog"
-            className="-mr-2 -mt-2 rounded-md px-2 py-1 text-xl text-primary-black/55 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
+            className="-mr-2 -mt-2 rounded-md px-2 py-1 text-xl text-secondary-ink hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
           >
             ×
           </button>
         </div>
-        <p data-ph-public id="upgrade-description" className="mt-3 text-sm text-primary-black/65">
+        <p data-ph-public id="upgrade-description" className="mt-3 text-sm text-secondary-ink">
           {limits.files === null ? "Unlimited design files" : `${limits.files} design files`},{" "}
           {limits.editors === null
             ? "all team members included"
@@ -91,7 +91,7 @@ export function UpgradeDialog({
             : `${formatStorage(limits.storageBytes)} asset storage`}
           .
         </p>
-        <p className="mt-2 text-sm text-primary-black/65">
+        <p className="mt-2 text-sm text-secondary-ink">
           {limits.mcpCalls === null
             ? "Unlimited MCP calls"
             : `${limits.mcpCalls.toLocaleString()} MCP calls per month`}
@@ -105,14 +105,14 @@ export function UpgradeDialog({
             <span data-ph-public style={{ display: "contents" }}>
               $10
             </span>
-            <span data-ph-public className="ml-1 text-sm font-normal text-primary-black/55">
+            <span data-ph-public className="ml-1 text-sm font-normal text-secondary-ink">
               / month
             </span>
           </p>
-          <p data-ph-public className="mt-1 text-sm text-primary-black/60">
+          <p data-ph-public className="mt-1 text-sm text-secondary-ink">
             $10 billed monthly
           </p>
-          <p data-ph-public className="mt-4 text-sm text-primary-black/60">
+          <p data-ph-public className="mt-4 text-sm text-secondary-ink">
             {firstMonthUsed ? "Billed monthly." : "$5 for your first month, then $10 monthly."}
           </p>
         </div>
@@ -128,12 +128,12 @@ export function UpgradeDialog({
             {busy ? "Opening checkout…" : "Continue with monthly Pro"}
           </button>
         ) : (
-          <p data-ph-public className="mt-7 text-sm text-primary-black/65">
+          <p data-ph-public className="mt-7 text-sm text-secondary-ink">
             Ask an organization owner to upgrade.
           </p>
         )}
         {error && (
-          <p role="alert" className="mt-3 text-sm text-red-700">
+          <p role="alert" className="mt-3 text-sm text-danger">
             {error}
           </p>
         )}
