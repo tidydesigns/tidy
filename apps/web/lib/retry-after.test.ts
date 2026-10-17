@@ -10,6 +10,8 @@ test("Retry-After supports seconds and dates with a safe delay for invalid value
   for (const value of [null, "", "invalid", "-1", "Wed, 31 Dec 2025 23:59:00 GMT"])
     expect(retryAfterMilliseconds(value, now)).toBe(1000);
   expect(retryAfterMilliseconds("0", now)).toBe(250);
+  expect(retryAfterMilliseconds("Sat, 03 Jan 2026 00:00:00 GMT", now)).toBe(1000);
+  expect(retryAfterMilliseconds("172800", now)).toBe(86_400_000);
 });
 
 test("a throttled edit retains its identity and navigation protection until acknowledged", async () => {

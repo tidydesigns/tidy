@@ -709,3 +709,90 @@ integration("workspace rolling skips a file locked by another editor", async () 
     await client.query('delete from "organization" where "id"=$1', [org]);
   }
 });
+
+integration(
+  "edits and checkpoints recheck a workspace move after preflight admission",
+  async () => {
+    const locker = new pg.Client({
+      connectionString: process.env.VERSION_SETUP_DATABASE_URL ?? url,
+    });
+    await locker.connect();
+    const pid = (await locker.query("select pg_backend_pid() as pid")).rows[0].pid;
+    try {
+      await client.query(
+        'insert into "organization_billing" ("organizationId","stripeStatus","stripePriceId") values ($1,\'active\',\'price_multiplayer_fixture\')',
+        [other],
+      );
+      await client.query(
+        'update "member" set "role"=\'editor\' where "organizationId"=$1 and "userId"=$2',
+        [other, actor],
+      );
+      for (const kind of ["edit", "checkpoint"]) {
+        const id = `moving-${kind}-${fixture}`;
+        let pending: Promise<unknown> | undefined;
+        try {
+          await client.query(
+            'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,$1,$3)',
+            [id, organization, actor],
+          );
+          await client.query(
+            'insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)',
+            [id, JSON.stringify(blankDesignDocument())],
+          );
+          await locker.query("begin");
+          await locker.query('select 1 from "designFile" where "id"=$1 for update', [id]);
+          pending = (
+            kind === "edit"
+              ? commands.commitDocumentPatch(actor, id, crypto.randomUUID(), 1, [], false)
+              : versions.createFileVersion(actor, id, "Checkpoint", 1)
+          ).then(
+            () => null,
+            (error: unknown) => error,
+          );
+          let blocked = false;
+          for (let i = 0; i < 100 && !blocked; i++) {
+            blocked = (
+              await client.query(
+                "select exists(select 1 from pg_stat_activity where $1=any(pg_blocking_pids(pid))) as blocked",
+                [pid],
+              )
+            ).rows[0].blocked;
+            if (!blocked) await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          expect(blocked).toBe(true);
+          await locker.query('update "designFile" set "organizationId"=$2 where "id"=$1', [
+            id,
+            other,
+          ]);
+          await locker.query("commit");
+          const result = await pending;
+          expect(result).toBeInstanceOf(Error);
+          expect((result as Error).message).toMatch(/moved|access/i);
+          expect(
+            (await client.query('select "revision" from "designDocument" where "fileId"=$1', [id]))
+              .rows[0].revision,
+          ).toBe(1);
+          expect(
+            (
+              await client.query(
+                'select 1 from "designFileVersion" where "fileId"=$1 and "kind"=\'named\'',
+                [id],
+              )
+            ).rowCount,
+          ).toBe(0);
+        } finally {
+          await locker.query("rollback");
+          await pending;
+          await client.query('delete from "designFile" where "id"=$1', [id]);
+        }
+      }
+    } finally {
+      await locker.end();
+      await client.query(
+        'update "member" set "role"=\'viewer\' where "organizationId"=$1 and "userId"=$2',
+        [other, actor],
+      );
+      await client.query('delete from "organization_billing" where "organizationId"=$1', [other]);
+    }
+  },
+);

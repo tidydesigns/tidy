@@ -31,6 +31,19 @@ export async function commitDocumentPatch(
     throw new Error("A valid base revision is required.");
   const operation = restore ? "history-write" : "document-write";
   await reserveOperation(operation, userId);
+  // Reserve against an authorized workspace before taking the file lock. The
+  // locked query below rechecks both authority and workspace after admission.
+  const workspace = (
+    await db.query<{ organizationId: string }>(
+      `select f."organizationId" from "designFile" f
+    join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL}
+    join "user" u on u."id"=m."userId" and u."emailVerified"=true
+    where f."id"=$1 and f."archivedAt" is null`,
+      [fileId, userId],
+    )
+  ).rows[0]?.organizationId;
+  if (!workspace) throw new Error("File not found or access denied.");
+  await reserveWorkspaceOperation(operation, workspace);
   const hash = createHash("sha256")
     .update(
       JSON.stringify({
@@ -55,7 +68,8 @@ export async function commitDocumentPatch(
       [fileId, userId],
     );
     if (!access.rows[0]) throw new Error("File not found or access denied.");
-    await reserveWorkspaceOperation(operation, access.rows[0].organizationId);
+    if (access.rows[0].organizationId !== workspace)
+      throw new Error("The file moved. Refresh before editing again.");
     const row = await client.query<{ revision: number; content: DesignDocument }>(
       `select "revision", "content" from "designDocument" where "fileId" = $1 for update`,
       [fileId],

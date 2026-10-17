@@ -28,9 +28,13 @@ fixed service identifier. All visitors receive the same evaluation inputs.
 Only an explicit enabled boolean result without a variant reveals a feature.
 Missing configuration/flags, timeouts, HTTP/provider errors, malformed responses,
 quota limits and string variants fail closed. Evaluations have a 1.5-second
-deadline and no retries or stale enabled fallback. React memoizes only within
-the current server render; no pending I/O or results are shared across requests.
-Each server page render evaluates fresh flags. An already rendered or restored
+deadline and no retries or stale enabled fallback. Each Worker isolate retains
+at most one successful completed evaluation for up to 60 seconds, keyed by the
+project token and host. Provider admission is charged only on cache misses;
+expired results are discarded and failed evaluations invalidate the cache.
+Pending I/O is never shared across requests. React also memoizes within the
+current server render. Changes to global switches can therefore take up to
+60 seconds to appear on new renders. An already rendered or restored
 page keeps its snapshot until a new server render; flags are not a live security
 boundary.
 

@@ -72,10 +72,35 @@ export async function evaluateFunctionalFlags({
   }
 }
 
-// React's cache lasts only for this render/request. Never share pending I/O
-// across Cloudflare Worker requests, or retain enabled values after failures.
+/** One completed global result per isolate, fresh for at most one minute. No
+ * account data or pending I/O crosses requests; failures never extend freshness. */
+export function createCachedFlagEvaluator(evaluate = evaluateFunctionalFlags, now = Date.now) {
+  let saved: { key: string; host: string; expiresAt: number; flags: FunctionalFlags } | undefined;
+  let generation = 0;
+  return async (configuration: Configuration): Promise<FunctionalFlags> => {
+    const { key, host } = configuration;
+    if (saved && saved.key === key && saved.host === host && saved.expiresAt > now())
+      return saved.flags;
+    saved = undefined;
+    const request = ++generation;
+    const started = now();
+    const flags = await evaluate(configuration).catch(() => FLAGS_OFF);
+    if (flags === FLAGS_OFF) {
+      // A failed overlapping request also invalidates a completed result.
+      saved = undefined;
+      generation++;
+    } else if (key && host && request === generation && started + 60_000 > now()) {
+      saved = { key, host, expiresAt: started + 60_000, flags };
+    }
+    return flags;
+  };
+}
+
+const cachedEvaluation = createCachedFlagEvaluator();
+// React also deduplicates callers within one render. The completed-result cache
+// above charges admission only when a fresh provider fetch is needed.
 export const functionalFeatureFlags = cache(() =>
-  evaluateFunctionalFlags({
+  cachedEvaluation({
     key: process.env.NEXT_PUBLIC_POSTHOG_KEY,
     host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
   }),

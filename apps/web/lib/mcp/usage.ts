@@ -42,6 +42,10 @@ export async function consumeMcpCall(userId: string, input: Record<string, unkno
     ).rows[0]?.organizationId;
   }
   if (!organizationId || (explicit !== undefined && explicit !== organizationId)) throw denied();
+  // Autocommit authority checks release their locks before the external budget
+  // call. Repeat them below while retaining the workspace transaction's locks.
+  await retainMcpTargets(db, userId, organizationId, input);
+  await reserveWorkspaceOperation("mcp-request", organizationId);
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -52,7 +56,6 @@ export async function consumeMcpCall(userId: string, input: Record<string, unkno
     const grant = currentMcpGrant();
     if (grant) await requireMcpGrant(client, grant, userId);
     await retainMcpTargets(client, userId, organizationId, input);
-    await reserveWorkspaceOperation("mcp-request", organizationId);
     // Prices are enrolled by operators; metering never writes the billing catalog.
     await client.query('select "consumeOrganizationMcpCall"($1,$2)', [userId, organizationId]);
     await client.query("commit");

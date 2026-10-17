@@ -2,7 +2,8 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { featureFlagKeys, FLAGS_OFF } from "./feature-flags";
 
 mock.module("server-only", () => ({}));
-const { evaluateFunctionalFlags } = await import("./functional-feature-flags");
+const { evaluateFunctionalFlags, createCachedFlagEvaluator } =
+  await import("./functional-feature-flags");
 const configuration = { key: "synthetic-project-token", host: "https://eu.i.posthog.com" };
 const enabled = { "mcp-pi-gemini": true, "github-connector": true, "settings-connectors": true };
 const response = (value: unknown = true) => ({
@@ -11,6 +12,48 @@ const response = (value: unknown = true) => ({
 });
 let transport: ReturnType<typeof spyOn>;
 afterEach(() => transport?.mockRestore());
+
+test("successful global evaluations are reused only while fresh and for the same configuration", async () => {
+  let now = 0;
+  const evaluate = mock(async () => enabled);
+  const cached = createCachedFlagEvaluator(evaluate, () => now);
+  for (let i = 0; i < 200; i++) expect(await cached(configuration)).toEqual(enabled);
+  expect(evaluate).toHaveBeenCalledTimes(1);
+  now = 60_000;
+  await cached(configuration);
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  await cached({ ...configuration, key: "another-project" });
+  await cached(configuration);
+  expect(evaluate).toHaveBeenCalledTimes(4);
+});
+
+test("expired flag results are discarded on provider failure or budget denial", async () => {
+  let now = 0;
+  const evaluate = mock(async () => enabled as typeof FLAGS_OFF);
+  const cached = createCachedFlagEvaluator(evaluate, () => now);
+  expect(await cached(configuration)).toEqual(enabled);
+  now = 60_000;
+  evaluate.mockResolvedValueOnce(FLAGS_OFF);
+  expect(await cached(configuration)).toEqual(FLAGS_OFF);
+  evaluate.mockRejectedValueOnce(new Error("Unavailable"));
+  expect(await cached(configuration)).toEqual(FLAGS_OFF);
+  expect(await cached(configuration)).toEqual(enabled);
+  expect(evaluate).toHaveBeenCalledTimes(4);
+});
+
+test("overlapping requests share no pending I/O and a failure invalidates completed flags", async () => {
+  let resolveFirst!: (flags: typeof FLAGS_OFF) => void;
+  const evaluate = mock(async () => enabled as typeof FLAGS_OFF);
+  evaluate.mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)));
+  const cached = createCachedFlagEvaluator(evaluate);
+  const first = cached(configuration);
+  expect(await cached(configuration)).toEqual(enabled);
+  expect(evaluate).toHaveBeenCalledTimes(2);
+  resolveFirst(FLAGS_OFF);
+  expect(await first).toEqual(FLAGS_OFF);
+  await cached(configuration);
+  expect(evaluate).toHaveBeenCalledTimes(3);
+});
 
 test("functional evaluation sends only fixed service inputs and returns three booleans", async () => {
   transport = spyOn(globalThis, "fetch").mockResolvedValue(Response.json(response()));

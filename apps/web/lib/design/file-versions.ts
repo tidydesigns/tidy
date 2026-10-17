@@ -86,6 +86,16 @@ export async function createFileVersion(
   id: string = randomUUID(),
 ) {
   await reserveOperation("history-write", userId);
+  const workspace = (
+    await db.query<{ organizationId: string }>(
+      `select f."organizationId" from "designFile" f join "member" m
+    on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL}
+    where f."id"=$1 and f."archivedAt" is null`,
+      [fileId, userId],
+    )
+  ).rows[0]?.organizationId;
+  if (!workspace) throw new VersionError("Editor access is required to create a version.", 403);
+  await reserveWorkspaceOperation("history-write", workspace);
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -98,7 +108,8 @@ export async function createFileVersion(
       )
     ).rows[0];
     if (!row) throw new VersionError("Editor access is required to create a version.", 403);
-    await reserveWorkspaceOperation("history-write", row.organizationId);
+    if (row.organizationId !== workspace)
+      throw new VersionError("The file moved. Refresh before creating a version.", 409);
     const prior = (
       await client.query<{ fileId: string; createdBy: string; name: string; revision: number }>(
         'select "fileId","createdBy","name","revision" from "designFileVersion" where "id"=$1',

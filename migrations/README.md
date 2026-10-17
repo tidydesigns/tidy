@@ -85,6 +85,15 @@ without deleting existing versions. Each file is limited to 200 versions and
 128 MB; each workspace to 1 GB of historical document JSON including per-row
 allowance. These are safety limits, independent of the R2 storage plan.
 
+Schedule this migration for a low-traffic maintenance window after measuring its
+duration on a production-sized copy. The stored generated column rewrites
+`designFileVersion`; the backfill, constraint scan and index builds hold an
+`ACCESS EXCLUSIVE` lock until commit. History reads and inserts wait, including
+automatic checkpoints during document edits. Requests can fail when their lock
+timeout expires. If the measured interruption is too long, prepare a separate
+staged migration with batched backfill and concurrent index creation; the stored
+generated column still requires a rewrite.
+
 Admissions replace the oldest automatic and pre-restore checkpoints when needed
 for the file or workspace allowance. Named checkpoints are never pruned. The
 active restore target and its new safety checkpoint are protected until commit.

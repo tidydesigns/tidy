@@ -103,6 +103,7 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
           ticket.userId,
           ticket.sessionId,
           ticket.expiresAt,
+          (task) => this.ctx.waitUntil(task),
         );
       } catch {
         return new Response(null, { status: 503, headers: { "Retry-After": "5" } });

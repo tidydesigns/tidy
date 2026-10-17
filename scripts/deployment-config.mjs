@@ -94,6 +94,14 @@ export function configFromBindings(template, bindings) {
   return config;
 }
 
+export function deploymentAuthHeaders(credentials) {
+  if (typeof credentials?.token === "string" && credentials.token)
+    return { Authorization: `Bearer ${credentials.token}` };
+  if (credentials?.type === "api_key" && credentials.key && credentials.email)
+    return { "X-Auth-Key": credentials.key, "X-Auth-Email": credentials.email };
+  throw new Error("Missing valid Cloudflare deployment credentials.");
+}
+
 /** Read-only preflight, including when the operator supplies a private config. */
 export async function readWorkerBindings(directory, name, configuredAccount) {
   const wrangler = (...args) =>
@@ -104,9 +112,9 @@ export async function readWorkerBindings(directory, name, configuredAccount) {
         stdio: ["ignore", "pipe", "pipe"],
       }),
     );
-  let token, account;
+  let headers, account;
   try {
-    ({ token } = wrangler("auth", "token"));
+    headers = deploymentAuthHeaders(wrangler("auth", "token"));
     account = configuredAccount ?? process.env.CLOUDFLARE_ACCOUNT_ID;
     if (!account) {
       const { accounts } = wrangler("whoami");
@@ -116,12 +124,12 @@ export async function readWorkerBindings(directory, name, configuredAccount) {
   } catch {
     throw new Error("Cannot read deployment credentials/account for the read-only preflight.");
   }
-  if (!token || !/^[a-f0-9]{32}$/.test(account))
+  if (!/^[a-f0-9]{32}$/.test(account))
     throw new Error("Missing valid Cloudflare deployment credentials/account.");
   const response = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${account}/workers/scripts/${encodeURIComponent(name)}/settings`,
     {
-      headers: { Authorization: `Bearer ${token}` },
+      headers,
       signal: AbortSignal.timeout(30_000),
     },
   );

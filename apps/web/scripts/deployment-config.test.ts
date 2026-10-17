@@ -2,11 +2,27 @@ import { describe, expect, test } from "bun:test";
 import {
   assertRuntimeSafety,
   configFromBindings,
+  deploymentAuthHeaders,
   resolveDeploymentConfig,
 } from "../../../scripts/deployment-config.mjs";
 import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+
+test("deployment preflight accepts token, OAuth and API-key authentication", () => {
+  for (const type of ["api_token", "oauth"])
+    expect(deploymentAuthHeaders({ type, token: "fixture-token" })).toEqual({
+      Authorization: "Bearer fixture-token",
+    });
+  expect(
+    deploymentAuthHeaders({ type: "api_key", key: "fixture-key", email: "operator@example.test" }),
+  ).toEqual({
+    "X-Auth-Key": "fixture-key",
+    "X-Auth-Email": "operator@example.test",
+  });
+  for (const credentials of [{}, { type: "api_key", key: "fixture-key" }])
+    expect(() => deploymentAuthHeaders(credentials)).toThrow("Missing valid");
+});
 
 const template = {
   name: "fixture-app",
