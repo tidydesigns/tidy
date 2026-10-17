@@ -69,6 +69,8 @@ body {
 }
 
 .github-link {
+  border: 1px solid #d8d8d4;
+  background: #f8f8f6;
   white-space: nowrap;
 }
 
@@ -77,15 +79,20 @@ body {
   align-items: center;
   gap: 4px;
   min-width: 4ch;
+  color: #595959;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .header-link:hover,
-  .github-link:hover {
+  .header-link:hover {
     background: #f0f0f0;
     text-decoration: underline;
+  }
+
+  .github-link:hover {
+    border-color: #c5c5c0;
+    background: #eaeae7;
   }
 }
 
