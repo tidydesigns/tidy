@@ -15,6 +15,7 @@ import { checkAuthorizedAgents, revokeAgent } from "./actions";
 import { agentOptions, setupFor, type Agent, type SetupValue } from "./agent-setup";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
 import type { AuthorizedClient } from "@/lib/mcp/authorizations";
+import { authorizationRefreshDelay, sameAuthorizations } from "@/lib/mcp/authorization-refresh";
 import styles from "./mcp-connection.module.css";
 
 function CopyableValue({ value, copyLabel }: SetupValue) {
@@ -173,11 +174,10 @@ function Connections({
     let disposed = false;
     let inFlight = false;
     let timer: ReturnType<typeof setTimeout>;
+    const settingUp = () => copied && (!access.current.clients.length || adding);
+    let delay = authorizationRefreshDelay(0, { settingUp: settingUp(), changed: true });
     const schedule = () => {
-      timer = setTimeout(
-        () => void refresh(),
-        copied && (!access.current.clients.length || adding) ? 5000 : 15000,
-      );
+      timer = setTimeout(() => void refresh(), delay);
     };
     async function refresh() {
       if (inFlight || disposed) return;
@@ -190,23 +190,30 @@ function Connections({
       const generation = access.current.generation;
       try {
         const result = await checkAuthorizedAgents();
-        if (!disposed && generation === access.current.generation && result.clients) {
-          const previous = new Set(access.current.clients.map((client) => client.clientId));
-          if (
-            !previous.size &&
-            result.clients.length &&
-            !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-          ) {
-            setLeavingSetup({ copied });
+        if (!disposed && generation === access.current.generation) {
+          const changed = Boolean(
+            result.clients && !sameAuthorizations(access.current.clients, result.clients),
+          );
+          if (result.clients) {
+            const previous = new Set(access.current.clients.map((client) => client.clientId));
+            if (
+              !previous.size &&
+              result.clients.length &&
+              !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+            ) {
+              setLeavingSetup({ copied });
+            }
+            if (result.clients.some((client) => !previous.has(client.clientId))) {
+              setAdding(false);
+            }
+            access.current.clients = result.clients;
+            if (changed) setClients(result.clients);
           }
-          if (result.clients.some((client) => !previous.has(client.clientId))) {
-            setAdding(false);
-          }
-          access.current.clients = result.clients;
-          setClients(result.clients);
+          delay = authorizationRefreshDelay(delay, { settingUp: settingUp(), changed });
         }
       } catch {
         // Keep the last known authorization state when a background refresh fails.
+        delay = authorizationRefreshDelay(delay, { settingUp: settingUp(), changed: false });
       } finally {
         inFlight = false;
         if (!disposed) schedule();
