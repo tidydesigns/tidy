@@ -13,6 +13,7 @@ import { EMPTY_PRESENCE, type Presence, type RoomMessage } from "@/lib/realtime/
 import { PresenceStore } from "@/lib/realtime/presence-store";
 import { AgentActivityStore } from "@/lib/realtime/agent-activity";
 import { appErrorReporter } from "@/lib/posthog-client";
+import { fetchWithRateLimitRetry } from "@/lib/retry-after";
 
 type Snapshot = { revision: number; content: DesignDocument };
 export type ConnectionState = "connecting" | "live" | "reconnecting" | "unavailable";
@@ -309,20 +310,24 @@ export function useFileRoom({
           const reportSaveError = appErrorReporter("file_save");
           for (let attempt = 0; !controller.signal.aborted; attempt++) {
             try {
-              const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/changes`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  operationId,
-                  patch: canonicalPatch,
-                  conditional,
-                  sourceNodeId,
-                  expectedSequence,
-                  allowedSequences,
-                  baseRevision: base.revision,
-                }),
-                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
-              });
+              const response = await fetchWithRateLimitRetry(
+                () =>
+                  fetch(`/api/files/${encodeURIComponent(fileId)}/changes`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      operationId,
+                      patch: canonicalPatch,
+                      conditional,
+                      sourceNodeId,
+                      expectedSequence,
+                      allowedSequences,
+                      baseRevision: base.revision,
+                    }),
+                    signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
+                  }),
+                controller.signal,
+              );
               if (response.status >= 500) throw new Error("Server unavailable");
               const payload = (await response
                 .json()

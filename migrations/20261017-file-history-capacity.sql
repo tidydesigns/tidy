@@ -1,5 +1,5 @@
--- Apply after file-version history and account privacy. Existing versions are
--- preserved, including workspaces already above these hosted safety ceilings.
+-- Apply after file-version history and account privacy. Backfill preserves existing
+-- versions; later admissions roll older unnamed history within these ceilings.
 begin;
 create table "organizationHistoryUsage" (
   "organizationId" text primary key references "organization" ("id") on delete cascade,
@@ -13,14 +13,21 @@ create table "fileHistoryUsage" (
 alter table "designFileVersion" add column "byteSize" bigint
   generated always as (octet_length("content"::text)::bigint + 512) stored;
 
+-- A derived workspace key makes bounded rolling-history selection indexable.
+alter table "designFileVersion" add column "organizationId" text;
+update "designFileVersion" v set "organizationId"=f."organizationId" from "designFile" f where f."id"=v."fileId";
+alter table "designFileVersion" alter column "organizationId" set not null;
+create index "file_history_rolling" on "designFileVersion" ("fileId", "sequence") where "kind" <> 'named';
+create index "workspace_history_rolling" on "designFileVersion" ("organizationId", "sequence") where "kind" <> 'named';
+
 insert into "fileHistoryUsage" ("fileId", "versions", "bytes")
   select "fileId", count(*)::integer, sum("byteSize") from "designFileVersion" group by "fileId";
 insert into "organizationHistoryUsage" ("organizationId", "bytes")
   select f."organizationId", sum(v."byteSize") from "designFileVersion" v
     join "designFile" f on f."id"=v."fileId" group by f."organizationId";
 
--- Serialize admission on dedicated accounting rows. Do not lock unrelated files
--- or rely on a sum query's snapshot after waiting for another transaction.
+-- Serialize admission on dedicated accounting rows, using their current values
+-- after waiting. Workspace pruning skips files held by another editor.
 create function "admitFileVersion"() returns trigger language plpgsql as $$
 declare
   organization_id text;
@@ -28,16 +35,48 @@ declare
   file_bytes bigint;
   file_versions integer;
   incoming_bytes bigint := octet_length(NEW."content"::text)::bigint + 512;
+  victim record;
+  removed integer := 0;
+  protected_versions uuid[] := coalesce(nullif(current_setting('tidy.history_protected_versions', true), '')::uuid[], '{}');
 begin
   select "organizationId" into strict organization_id from "designFile" where "id"=NEW."fileId" for share;
+  NEW."organizationId" := organization_id;
   insert into "organizationHistoryUsage" ("organizationId") values (organization_id) on conflict do nothing;
   select "bytes" into workspace_bytes from "organizationHistoryUsage"
     where "organizationId"=organization_id for update;
   insert into "fileHistoryUsage" ("fileId") values (NEW."fileId") on conflict do nothing;
   select "versions", "bytes" into file_versions, file_bytes from "fileHistoryUsage"
     where "fileId"=NEW."fileId" for update;
-  -- Keep in sync with FILE_HISTORY_LIMITS. Automatic checkpoints must never stop
-  -- an otherwise valid edit. Named and pre-restore checkpoints fail atomically.
+  -- An idempotent insert must not prune anything before ON CONFLICT resolves it.
+  if exists (select 1 from "designFileVersion" where "id"=NEW."id") then return NEW; end if;
+  -- Keep in sync with FILE_HISTORY_LIMITS. Named versions are never evicted.
+  -- Roll automatic/pre-restore versions oldest first, with bounded work per call.
+  while incoming_bytes <= 128000000 and removed < 200 and
+    (file_versions >= 200 or file_bytes + incoming_bytes > 128000000
+      or workspace_bytes + incoming_bytes > 1000000000) loop
+    if file_versions >= 200 or file_bytes + incoming_bytes > 128000000 then
+      select v."id",v."fileId",v."byteSize" into victim from "designFileVersion" v
+        where v."fileId"=NEW."fileId" and v."kind" <> 'named'
+          and v."id" <> all(protected_versions)
+        order by v."sequence" limit 1 for update of v skip locked;
+    else
+      -- Other editors may hold their file locks while awaiting this workspace's
+      -- accounting row. Skip those files and versions instead of reversing locks.
+      select v."id",v."fileId",v."byteSize" into victim from "designFileVersion" v
+        join "designFile" f on f."id"=v."fileId"
+        where v."organizationId"=organization_id and v."kind" <> 'named'
+          and v."id" <> all(protected_versions)
+        order by v."sequence" limit 1 for share of f skip locked for update of v skip locked;
+    end if;
+    exit when not found;
+    delete from "designFileVersion" where "id"=victim."id";
+    workspace_bytes := workspace_bytes-victim."byteSize";
+    if victim."fileId"=NEW."fileId" then
+      file_versions := file_versions-1;
+      file_bytes := file_bytes-victim."byteSize";
+    end if;
+    removed := removed+1;
+  end loop;
   if file_versions >= 200 or file_bytes + incoming_bytes > 128000000
     or workspace_bytes + incoming_bytes > 1000000000 then
     if NEW."kind"='automatic' then return null; end if;
@@ -71,7 +110,8 @@ create trigger "account_file_version" after insert or delete on "designFileVersi
 
 create function "immutableFileVersionContent"() returns trigger language plpgsql as $$
 begin
-  if NEW."fileId" is distinct from OLD."fileId" or NEW."content" is distinct from OLD."content" then
+  if NEW."fileId" is distinct from OLD."fileId" or NEW."content" is distinct from OLD."content"
+    or NEW."organizationId" is distinct from (select "organizationId" from "designFile" where "id"=NEW."fileId") then
     raise exception 'File version content is immutable';
   end if;
   return NEW;
@@ -121,4 +161,14 @@ end;
 $$;
 create trigger "transfer_file_history" before update of "organizationId" on "designFile"
   for each row execute function "transferFileHistory"();
+create function "moveFileHistoryIndex"() returns trigger language plpgsql as $$
+begin
+  if NEW."organizationId" is distinct from OLD."organizationId" then
+    update "designFileVersion" set "organizationId"=NEW."organizationId" where "fileId"=NEW."id";
+  end if;
+  return NEW;
+end;
+$$;
+create trigger "move_file_history_index" after update of "organizationId" on "designFile"
+  for each row execute function "moveFileHistoryIndex"();
 commit;

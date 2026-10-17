@@ -85,10 +85,18 @@ without deleting existing versions. Each file is limited to 200 versions and
 128 MB; each workspace to 1 GB of historical document JSON including per-row
 allowance. These are safety limits, independent of the R2 storage plan.
 
-Named checkpoints and restores reject new storage at capacity. Automatic
-checkpoints stop accumulating at capacity while edits continue; existing history
-remains readable. Existing over-limit files/workspaces are preserved and cannot
-grow further through version creation. This migration does not implement automatic
-pruning or delete user checkpoints. Review retention policy separately before
-removing existing history. Run `bun test:versions:db` and `bun test:runtime:db` using
-the disposable local fixtures. Production migration requires explicit approval.
+Admissions replace the oldest automatic and pre-restore checkpoints when needed
+for the file or workspace allowance. Named checkpoints are never pruned. The
+active restore target and its new safety checkpoint are protected until commit.
+Each admission prunes at most 200 versions and skips other files currently locked
+by an editor; it may temporarily reject a checkpoint or skip an automatic one if
+capacity cannot safely be made available. Normal document edits still continue.
+
+The migration itself preserves existing versions. Older automatic/pre-restore
+history can be replaced on subsequent writes, including in existing over-limit
+workspaces. Restore receipts and asset references follow the lifetime of their
+versions. If named checkpoints alone fill the allowance, new checkpoints and
+restores return a capacity error; increasing the allowance or explicitly removing
+named history requires a separate product/operator decision. Run
+`bun test:versions:db` and `bun test:runtime:db` using disposable local fixtures.
+Production migration requires explicit approval.

@@ -49,7 +49,8 @@ export function versionFailure(error: unknown) {
   if (isHistoryCapacityError(error))
     return Response.json(
       {
-        error: "File history has reached its storage limit. Existing versions are still available.",
+        error:
+          "File history is full or temporarily busy. Existing versions are still available. Try again shortly.",
       },
       { status: 409, headers: versionHeaders },
     );

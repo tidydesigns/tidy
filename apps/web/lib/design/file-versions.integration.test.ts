@@ -340,7 +340,7 @@ integration(
       await client.query(
         `insert into "designFileVersion" ("fileId","revision","content","name","kind","createdBy")
       select d."fileId",d."revision",d."content",'Checkpoint '||n,'named',$2
-      from "designDocument" d cross join generate_series(1,199) n where d."fileId"=$1`,
+      from "designDocument" d cross join generate_series(1,200) n where d."fileId"=$1`,
         [limited, actor],
       );
       await expect(versions.createFileVersion(actor, limited, "Overflow", 1)).rejects.toThrow(
@@ -403,7 +403,7 @@ integration(
 );
 
 integration(
-  "concurrent files share one workspace history byte allowance and failed inserts do not charge it",
+  "concurrent files roll workspace history within one byte allowance and duplicate inserts do not charge it",
   async () => {
     const concurrent = `concurrent-${fixture}`;
     await client.query(
@@ -433,8 +433,7 @@ integration(
         versions.createFileVersion(actor, file, "Racing A", current.revision),
         versions.createFileVersion(actor, concurrent, "Racing B", 1),
       ]);
-      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
-      expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
       const usage = Number(
         (
           await client.query(
@@ -497,6 +496,14 @@ integration("workspace moves transfer history usage and respect destination capa
     await client.query('update "designFile" set "organizationId"=$2 where "id"=$1', [file, other]);
     expect(await usage(organization)).toBe(before - bytes);
     expect(await usage(other)).toBe(destination + bytes);
+    expect(
+      (
+        await client.query(
+          'select distinct "organizationId" from "designFileVersion" where "fileId"=$1',
+          [file],
+        )
+      ).rows,
+    ).toEqual([{ organizationId: other }]);
     await client.query('update "designFile" set "organizationId"=$2 where "id"=$1', [
       file,
       organization,
@@ -533,6 +540,7 @@ integration(
           [organization],
         )
       ).rows[0].bytes;
+      await client.query(`update "designFileVersion" set "kind"='named' where "fileId"=$1`, [file]);
       await client.query('update "fileHistoryUsage" set "bytes"=128000000 where "fileId"=$1', [
         file,
       ]);
@@ -574,5 +582,130 @@ integration("workspace deletion cascades history and its accounting together", a
     }
   } finally {
     await client.query("rollback");
+  }
+});
+
+integration(
+  "rolling history preserves named checkpoints and both ends of an active restore",
+  async () => {
+    const rolling = `rolling-${fixture}`;
+    await client.query(
+      'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,\'Rolling\',$3)',
+      [rolling, organization, actor],
+    );
+    await client.query('insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)', [
+      rolling,
+      JSON.stringify(initial()),
+    ]);
+    try {
+      const target = (await versions.listFileVersions(actor, rolling)).versions[0];
+      const named = await versions.createFileVersion(actor, rolling, "Keep this", 1);
+      await client.query(
+        `insert into "designFileVersion" ("fileId","revision","content","kind")
+      select "fileId","revision","content",case when n%2=0 then 'automatic' else 'beforeRestore' end
+      from "designDocument" cross join generate_series(1,198) n where "fileId"=$1`,
+        [rolling],
+      );
+      const oldestRolling = (
+        await client.query(
+          `select "id" from "designFileVersion" where "fileId"=$1 and "id"<>$2 and "kind"<>'named' order by "sequence" limit 1`,
+          [rolling, target.id],
+        )
+      ).rows[0].id;
+      await client.query(
+        'update "designFileVersion" set "createdAt"=now()-interval \'6 minutes\' where "fileId"=$1',
+        [rolling],
+      );
+      const operation = crypto.randomUUID();
+      await commands.commitDocumentPatch(
+        actor,
+        rolling,
+        operation,
+        1,
+        [],
+        false,
+        undefined,
+        undefined,
+        undefined,
+        { versionId: target.id, expectedRevision: 1 },
+      );
+      const receipt = (
+        await client.query(
+          'select "beforeVersionId" from "designFileRestore" where "fileId"=$1 and "operationId"=$2',
+          [rolling, operation],
+        )
+      ).rows[0];
+      expect(receipt).toBeTruthy();
+      for (const id of [target.id, named, receipt.beforeVersionId])
+        expect((await versions.readFileVersion(actor, rolling, id)).version.id).toBe(id);
+      expect(
+        (await client.query('select 1 from "designFileVersion" where "id"=$1', [oldestRolling]))
+          .rowCount,
+      ).toBe(0);
+      const latest = (await versions.listFileVersions(actor, rolling)).versions[0];
+      expect(latest.kind).toBe("automatic");
+      expect(latest.revision).toBe(2);
+      const usage = (
+        await client.query(
+          `select u."versions",u."bytes",count(v.*)::int as actual_count,sum(v."byteSize") as actual_bytes
+      from "fileHistoryUsage" u join "designFileVersion" v on v."fileId"=u."fileId" where u."fileId"=$1 group by u."fileId"`,
+          [rolling],
+        )
+      ).rows[0];
+      expect(usage.versions).toBe(200);
+      expect(usage.versions).toBe(usage.actual_count);
+      expect(usage.bytes).toBe(usage.actual_bytes);
+    } finally {
+      await client.query('delete from "designFile" where "id"=$1', [rolling]);
+    }
+  },
+);
+
+integration("workspace rolling skips a file locked by another editor", async () => {
+  const org = `rolling-lock-${fixture}`,
+    older = `${org}-a`,
+    newer = `${org}-b`;
+  const locker = new pg.Client({ connectionString: process.env.VERSION_SETUP_DATABASE_URL ?? url });
+  await locker.connect();
+  try {
+    await client.query(
+      'insert into "organization" ("id","name","slug","createdAt","createdByUserId") values ($1,$1,$1,now(),$2)',
+      [org, peer],
+    );
+    for (const id of [older, newer]) {
+      await client.query(
+        'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,$1,$3)',
+        [id, org, actor],
+      );
+      await client.query(
+        'insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)',
+        [id, JSON.stringify(initial())],
+      );
+    }
+    await locker.query("begin");
+    await locker.query('select 1 from "designFile" where "id"=$1 for update', [older]);
+    await client.query("begin");
+    await client.query("set local lock_timeout='250ms'");
+    await client.query(
+      'update "organizationHistoryUsage" set "bytes"=1000000000 where "organizationId"=$1',
+      [org],
+    );
+    await client.query(
+      `insert into "designFileVersion" ("fileId","revision","content","kind","name")
+      select "fileId","revision","content",'named','Current' from "designDocument" where "fileId"=$1`,
+      [newer],
+    );
+    expect(
+      (await client.query('select 1 from "designFileVersion" where "fileId"=$1', [older])).rowCount,
+    ).toBe(1);
+    expect(
+      (await client.query('select "kind" from "designFileVersion" where "fileId"=$1', [newer]))
+        .rows,
+    ).toEqual([{ kind: "named" }]);
+  } finally {
+    await client.query("rollback");
+    await locker.query("rollback");
+    await locker.end();
+    await client.query('delete from "organization" where "id"=$1', [org]);
   }
 });

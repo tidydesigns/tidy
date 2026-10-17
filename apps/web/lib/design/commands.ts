@@ -131,6 +131,11 @@ export async function commitDocumentPatch(
         commentPages: current.content.commentPages,
       };
       beforeVersionId = randomUUID();
+      // Rolling history must retain both ends of this restore until its receipt
+      // and document update commit, including any automatic checkpoint trigger.
+      await client.query("select set_config('tidy.history_protected_versions', $1, true)", [
+        `{${restore.versionId},${beforeVersionId}}`,
+      ]);
       await client.query(
         'insert into "designFileVersion" ("id","fileId","revision","content","name","kind","createdBy","createdByName") values ($1,$2,$3,$4::jsonb,$5,\'beforeRestore\',$6,(select "name" from "user" where "id"=$6))',
         [
