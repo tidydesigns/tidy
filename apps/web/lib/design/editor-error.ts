@@ -1,4 +1,34 @@
 import { ZodError } from "zod";
+import { ComponentStructureError } from "./component-structure-error";
+import type { DesignDocument } from "./document";
+import { isLayerLocked } from "./edit-document";
+
+export type EditorErrorNotice = {
+  message: string;
+  detach?: { instanceId: string; componentId: string };
+};
+
+export function editorErrorNotice(error: unknown, fallback: string): EditorErrorNotice {
+  return {
+    message: editorErrorMessage(error, fallback),
+    ...(error instanceof ComponentStructureError
+      ? { detach: { instanceId: error.instanceId, componentId: error.componentId } }
+      : {}),
+  };
+}
+
+/** A stale warning must never detach a different, swapped, or locked instance. */
+export function editorErrorInstance(document: DesignDocument, notice: EditorErrorNotice) {
+  const target = notice.detach;
+  if (!target) return undefined;
+  const node = document.nodes.find((node) => node.id === target.instanceId);
+  return node &&
+    node.instanceOf === target.componentId &&
+    node.componentSourceId === target.componentId &&
+    !isLayerLocked(document.nodes, node.id)
+    ? node
+    : undefined;
+}
 
 /** Keep validation payloads out of the canvas while preserving useful edit conflicts. */
 export function editorErrorMessage(error: unknown, fallback: string): string {

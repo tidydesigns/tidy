@@ -4,6 +4,8 @@ import type { DesignNode } from "./document";
 import { resolveVariantNodes } from "./component-variants";
 import { equalJsonValues as equal } from "./json-value";
 
+import { ComponentStructureError } from "./component-structure-error";
+
 const identity = new Set([
   "id",
   "parentId",
@@ -261,7 +263,11 @@ export function reconcileComponentStructure(
       if (id !== rootId) {
         const child = byId.get(id)!;
         if (!localIds.has(id) && (!child.componentSourceId || child.instanceOf !== master.id))
-          throw new Error("Detach the instance before adding or reparenting its children.");
+          throw new ComponentStructureError(
+            "Detach the instance before adding or reparenting its children.",
+            rootId,
+            master.id,
+          );
       }
     const previousRoot = old.get(rootId);
     if (previousRoot?.instanceOf === master.id) {
@@ -277,13 +283,21 @@ export function reconcileComponentStructure(
         const priorCopy = priorCopies.get(source.id);
         const priorSource = old.get(source.id);
         if (priorCopy && !existing && priorSource?.parentId === source.parentId)
-          throw new Error("Detach the instance before deleting or moving its children.");
+          throw new ComponentStructureError(
+            "Detach the instance before deleting or moving its children.",
+            rootId,
+            master.id,
+          );
         if (
           existing &&
           existing.parentId !== ids.get(source.parentId!) &&
           priorSource?.parentId === source.parentId
         )
-          throw new Error("Detach the instance before reparenting its children.");
+          throw new ComponentStructureError(
+            "Detach the instance before reparenting its children.",
+            rootId,
+            master.id,
+          );
       }
       for (const source of sourceNodes) {
         const parent = ids.get(source.id)!;
@@ -299,7 +313,11 @@ export function reconcileComponentStructure(
           ) &&
           equal(order(before, source.id), order(nodes, source.id))
         )
-          throw new Error("Detach the instance before reordering its children.");
+          throw new ComponentStructureError(
+            "Detach the instance before reordering its children.",
+            rootId,
+            master.id,
+          );
       }
     }
     // Keep the instance root's place in its siblings and emit children in source order.

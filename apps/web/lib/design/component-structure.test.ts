@@ -13,6 +13,8 @@ import {
   reparentLayer,
 } from "./document-operations";
 import { editLayers, trackDocumentChanges } from "./edit-document";
+import { editorErrorInstance, editorErrorNotice } from "./editor-error";
+import { ComponentStructureError } from "./component-structure-error";
 import { reconcileComponentStructure } from "./component-structure";
 import { owningInstance, resetInstance, detachInstance, swapInstance } from "./component-instance";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
@@ -396,4 +398,46 @@ test("linked text can be cleared; explicit detach enables deletion and both acti
   expect(applyDocumentPatch(restored, invertPatch(diffDocument(cleared, detached)), true)).toEqual(
     cleared,
   );
+});
+
+test("structure warnings retain the blocked instance and reject stale detach targets", () => {
+  const before = fixture();
+  let id = 0;
+  const document = createComponentInstance(before, "master", () => `second-${id++}`).document;
+  let failure: unknown;
+  try {
+    commit(document, removeLayers(document, ["second-1"]));
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(ComponentStructureError);
+  const notice = editorErrorNotice(failure, "Could not change layers.");
+  expect(notice.detach).toEqual({ instanceId: "second-0", componentId: "master" });
+  expect(editorErrorInstance(document, notice)?.id).toBe("second-0");
+  const detached = commit(
+    document,
+    detachInstance(document, editorErrorInstance(document, notice)!.id),
+  );
+  expect(detached.nodes.find((node) => node.id === "copy-0")?.instanceOf).toBe("master");
+  expect(editorErrorInstance(detached, notice)).toBeUndefined();
+  expect(editorErrorInstance(removeLayers(document, ["second-0"]), notice)).toBeUndefined();
+  const locked = {
+    ...document,
+    nodes: document.nodes.map((node) =>
+      node.id === "second-0" ? { ...node, locked: true } : node,
+    ),
+  };
+  expect(editorErrorInstance(locked, notice)).toBeUndefined();
+  const swapped = {
+    ...document,
+    nodes: document.nodes.map((node) =>
+      node.id === "second-0"
+        ? { ...node, instanceOf: "other-component", componentSourceId: "other-component" }
+        : node,
+    ),
+  };
+  expect(editorErrorInstance(swapped, notice)).toBeUndefined();
+  expect(
+    editorErrorInstance(document, editorErrorNotice(new Error("Other error"), "Failed")),
+  ).toBeUndefined();
 });
