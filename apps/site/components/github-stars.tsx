@@ -13,10 +13,15 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
 
     const [, owner, name] = repository;
     const controller = new AbortController();
+    let requestInFlight = false;
+    let lastSuccessfulRefresh: number | null = null;
 
     async function refreshStars() {
-      if (document.visibilityState === "hidden") return;
+      if (controller.signal.aborted || document.visibilityState === "hidden" || requestInFlight) {
+        return;
+      }
 
+      requestInFlight = true;
       try {
         const response = await fetch(
           `https://api.github.com/repos/${owner}/${name.replace(/\.git$/, "")}`,
@@ -33,17 +38,30 @@ export function GitHubStars({ repositoryUrl }: { repositoryUrl: string }) {
           Number.isSafeInteger(data?.stargazers_count) &&
           data.stargazers_count >= 0
         ) {
+          lastSuccessfulRefresh = Date.now();
           setStars(data.stargazers_count);
         }
       } catch {
         // Keep the link and any last known count usable if GitHub is unavailable.
+      } finally {
+        requestInFlight = false;
+      }
+    }
+
+    function refreshIfStale() {
+      if (lastSuccessfulRefresh === null || Date.now() - lastSuccessfulRefresh >= refreshInterval) {
+        void refreshStars();
       }
     }
 
     void refreshStars();
+    document.addEventListener("visibilitychange", refreshIfStale);
+    window.addEventListener("online", refreshIfStale);
     const interval = window.setInterval(refreshStars, refreshInterval);
     return () => {
       controller.abort();
+      document.removeEventListener("visibilitychange", refreshIfStale);
+      window.removeEventListener("online", refreshIfStale);
       window.clearInterval(interval);
     };
   }, [repositoryUrl]);
