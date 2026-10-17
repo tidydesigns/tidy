@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import type { DesignNode, DesignStrokePaint } from "@bella/design/document";
+import type { DesignNode, DesignStrokePaint } from "@tidy/design/document";
 import { paintDefinition } from "./paints";
 export { paintDefinition } from "./paints";
 type Style = DesignNode["style"];

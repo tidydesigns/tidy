@@ -7,7 +7,7 @@ import {
   prototypeFrameNodes,
   prototypeInteractions,
   type PrototypeInteraction,
-} from "@bella/design/prototype";
+} from "@tidy/design/prototype";
 import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
 import { copyLayers, pasteLayers, readDesignClipboard } from "./clipboard";
 import { duplicateNodeTree } from "./duplicate-node";

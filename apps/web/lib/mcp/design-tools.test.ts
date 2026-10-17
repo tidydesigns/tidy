@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { designNodeSchema } from "@bella/design/document";
+import { designNodeSchema } from "@tidy/design/document";
 import { registerDesignTools, buttonExample } from "./design-tools";
 import { componentTreeSchema, composeComponent } from "@/lib/design/compose-component";
 import { syncComponentEdit } from "@/lib/design/component-sync";

@@ -1,7 +1,7 @@
-import { nativeShapePath } from "@bella/design/native-shapes";
+import { nativeShapePath } from "@tidy/design/native-shapes";
 import type { CSSProperties } from "react";
-import { booleanPaintBounds } from "@bella/design/vector-boolean";
-import type { DesignNode, DesignStrokePaint } from "@bella/design/document";
+import { booleanPaintBounds } from "@tidy/design/vector-boolean";
+import type { DesignNode, DesignStrokePaint } from "@tidy/design/document";
 import { nodePaints, paintDefinition } from "./paints";
 import { nodeStrokePaints, vectorOutset } from "./strokes";
 

@@ -1,4 +1,4 @@
-import type { FigmaImport, FigmaPage } from "@bella/design/figma";
+import type { FigmaImport, FigmaPage } from "@tidy/design/figma";
 type Input = {
   bytes?: Uint8Array;
   html?: string;

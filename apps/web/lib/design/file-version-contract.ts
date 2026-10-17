@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { designDocumentSchema } from "@bella/design/document";
+import { designDocumentSchema } from "@tidy/design/document";
 
 export const fileVersionSchema = z.object({
   id: z.string(),

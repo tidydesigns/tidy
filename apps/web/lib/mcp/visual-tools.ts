@@ -1,7 +1,7 @@
 import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { documentAssetIds } from "@bella/design/document";
+import { documentAssetIds } from "@tidy/design/document";
 import { getDocument } from "@/lib/design/document-service";
 import { getFileImage } from "@/lib/design/file-image";
 import { packagePreviewFonts } from "@/lib/design/visual-preview-fonts";

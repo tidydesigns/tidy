@@ -1,5 +1,5 @@
 import type { DesignNode } from "./document";
-import type { VectorPoint } from "@bella/design/vector-geometry";
+import type { VectorPoint } from "@tidy/design/vector-geometry";
 
 export function renderedNodeBox(element: HTMLElement): DesignNode["box"] {
   const style = getComputedStyle(element);

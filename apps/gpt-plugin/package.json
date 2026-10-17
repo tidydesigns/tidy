@@ -20,7 +20,7 @@
     "test:browser": "bun scripts/check-browser.ts"
   },
   "dependencies": {
-    "@bella/design": "workspace:*",
+    "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",
     "@tidy/ui": "workspace:*",
     "react": "19.2.8",

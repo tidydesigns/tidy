@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { blankDesignDocument, parseDesignDocument, type DesignNode } from "@bella/design/document";
+import { blankDesignDocument, parseDesignDocument, type DesignNode } from "@tidy/design/document";
 import { mergeImport } from "@/lib/design/merge-import";
 import { importWebCapture } from "./import";
 

@@ -1,7 +1,7 @@
-import { captureElement } from "@bella/design/browser-capture";
-import { MAX_CAPTURE_BYTES } from "@bella/design/capture-source";
-import type { WebCapture } from "@bella/design/web-capture";
-import type { CaptureViewport } from "@bella/design/capture-effects";
+import { captureElement } from "@tidy/design/browser-capture";
+import { MAX_CAPTURE_BYTES } from "@tidy/design/capture-source";
+import type { WebCapture } from "@tidy/design/web-capture";
+import type { CaptureViewport } from "@tidy/design/capture-effects";
 
 export async function captureSelection(
   elements: Element[],

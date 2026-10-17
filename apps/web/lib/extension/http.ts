@@ -1,5 +1,5 @@
-import { DEVELOPMENT_EXTENSION_ID } from "@bella/design/extension";
-import { MAX_CAPTURE_BYTES } from "@bella/design/web-capture";
+import { DEVELOPMENT_EXTENSION_ID } from "@tidy/design/extension";
+import { MAX_CAPTURE_BYTES } from "@tidy/design/web-capture";
 import { themeFromCookies } from "@/lib/theme";
 import { PublicActionError } from "@/lib/security/public-error";
 import { ZodError } from "zod";

@@ -1,5 +1,5 @@
 import { traceLimits, type RasterPixels, type RasterTrace } from "./contract";
-import { serializeContours } from "@bella/design/vector-geometry";
+import { serializeContours } from "@tidy/design/vector-geometry";
 
 type Paint = NonNullable<RasterTrace["paths"][number]["fill"]>;
 type Sample = { x: number; y: number; rgb: number[] };

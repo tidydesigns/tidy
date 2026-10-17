@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { FIGMA_LIMITS } from "@bella/design/figma-input";
-import type { FigmaImport, FigmaPage } from "@bella/design/figma";
+import { FIGMA_LIMITS } from "@tidy/design/figma-input";
+import type { FigmaImport, FigmaPage } from "@tidy/design/figma";
 import { inspectFigma, readFigma } from "@/lib/design/figma-client";
 import { Dialog } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";

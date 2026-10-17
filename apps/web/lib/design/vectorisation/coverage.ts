@@ -1,4 +1,4 @@
-import type { VectorContour } from "@bella/design/vector-geometry";
+import type { VectorContour } from "@tidy/design/vector-geometry";
 
 /** Fit outer coverage edges at subpixel precision. Thresholding both 50%-covered
  * sides of a thin stroke would otherwise turn a 3px stroke into a 4px outline.

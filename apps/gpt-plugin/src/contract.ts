@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { designDocumentSchema } from "@bella/design/document";
+import { designDocumentSchema } from "@tidy/design/document";
 
 export const previewSummarySchema = z.object({
   fileId: z.string().min(1),

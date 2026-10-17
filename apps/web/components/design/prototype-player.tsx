@@ -1,13 +1,13 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TidyDesign } from "@tidy/design-renderer/design";
-import { resolvedDocumentNodes } from "@bella/design/design-tokens";
+import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
 import {
   playInteraction,
   prototypeFrameNodes,
   prototypeInteractions,
   startPrototype,
-} from "@bella/design/prototype";
+} from "@tidy/design/prototype";
 import { documentAssetIds, nodePageId, type DesignDocument } from "@/lib/design/document";
 import { useDocumentFonts } from "@/lib/design/fonts/use-document-fonts";
 import { SelectMenu } from "@/components/ui/select-menu";

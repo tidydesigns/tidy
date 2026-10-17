@@ -2,7 +2,7 @@ import {
   parsePathContours,
   type VectorContour,
   type VectorPoint,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 
 /** Propose clean geometry in its own orientation. The caller still verifies the
  * final image; a fit is a candidate, not evidence of object identity. */

@@ -6,7 +6,7 @@ import {
   replacePlainText,
   textFontSegments,
   type RichText,
-} from "@bella/design/rich-text";
+} from "@tidy/design/rich-text";
 import {
   blankDesignDocument,
   buildDrawnNode,

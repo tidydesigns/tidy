@@ -1,6 +1,6 @@
 "use client";
 import { useState, useSyncExternalStore } from "react";
-import { textLinkSchema } from "@bella/design/rich-text";
+import { textLinkSchema } from "@tidy/design/rich-text";
 
 type Command =
   | "bold"

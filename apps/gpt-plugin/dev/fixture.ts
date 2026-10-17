@@ -1,4 +1,4 @@
-import { blankDesignDocument, designNodeSchema } from "@bella/design/document";
+import { blankDesignDocument, designNodeSchema } from "@tidy/design/document";
 import type { DesignPreview } from "../src/contract";
 
 const frame = (id: string, name: string) =>

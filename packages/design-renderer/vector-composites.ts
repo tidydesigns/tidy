@@ -1,17 +1,17 @@
 import type { CSSProperties } from "react";
-import type { DesignNode } from "@bella/design/document";
-import { childrenByParent } from "@bella/design/node-hierarchy";
+import type { DesignNode } from "@tidy/design/document";
+import { childrenByParent } from "@tidy/design/node-hierarchy";
 import {
   authoredPathBounds,
   booleanRenderNode,
   nodeAffine,
   pathAffine,
   type Affine,
-} from "@bella/design/vector-boolean";
-import { effectCss } from "@bella/design/effects";
+} from "@tidy/design/vector-boolean";
+import { effectCss } from "@tidy/design/effects";
 import { strokeWidths, vectorOutset } from "./strokes";
 import { vectorSvg } from "./vector-path";
-import { imageMaskPaint } from "@bella/design/vector-relationships";
+import { imageMaskPaint } from "@tidy/design/vector-relationships";
 
 export { booleanRenderNode };
 const transform = (matrix: Affine) => `matrix(${matrix.join(" ")})`;

@@ -745,7 +745,7 @@ const privateFigma = enabled && process.env.FIGMA_TEST_FILE ? test : test.skip;
 privateFigma(
   "large operator-supplied Figma page publishes images and native layers in the disposable database",
   async () => {
-    const { importFigma, decodeFigma, figmaPages } = await import("@bella/design/figma");
+    const { importFigma, decodeFigma, figmaPages } = await import("@tidy/design/figma");
     const { publishFigmaImport } = await import("./figma-import-service");
     const { putAsset, getDocument } = await import("./document-service");
     const input = new Uint8Array(await Bun.file(process.env.FIGMA_TEST_FILE!).arrayBuffer());
@@ -797,7 +797,7 @@ privateFigma(
 privateFigma(
   "complete operator-supplied Figma file retains every page and layer",
   async () => {
-    const { importFigma } = await import("@bella/design/figma");
+    const { importFigma } = await import("@tidy/design/figma");
     const { publishFigmaImport } = await import("./figma-import-service");
     const { putAsset, getDocument } = await import("./document-service");
     const result = importFigma(

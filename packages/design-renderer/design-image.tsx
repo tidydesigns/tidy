@@ -1,6 +1,6 @@
 "use client";
-import { hasImageAdjustments, imageAdjustmentFilter } from "@bella/design/image-adjustments";
-import type { DesignNode } from "@bella/design/document";
+import { hasImageAdjustments, imageAdjustmentFilter } from "@tidy/design/image-adjustments";
+import type { DesignNode } from "@tidy/design/document";
 import { imageStyle } from "./node-style";
 import { vectorImageStyle, vectorSvg } from "./vector-path";
 import { useId, useState } from "react";

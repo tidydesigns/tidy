@@ -10,7 +10,7 @@ import {
   nodeShadows,
   shadowStyle,
   type Shadow,
-} from "@bella/design/effects";
+} from "@tidy/design/effects";
 import { Choice, ColorField, Section, applyColor, shared, type Patch } from "./inspector-controls";
 import { PropertyField } from "./property-field";
 

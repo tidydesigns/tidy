@@ -1,5 +1,5 @@
-import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
-import { remapInteractions } from "@bella/design/prototype";
+import { DESIGN_DOCUMENT_LIMITS } from "@tidy/design/document-limits";
+import { remapInteractions } from "@tidy/design/prototype";
 import type { DesignNode } from "./document";
 import { resolveVariantNodes } from "./component-variants";
 import { equalJsonValues as equal } from "./json-value";

@@ -9,7 +9,7 @@ import { createDesignFile } from "./actions";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
 import { FigmaFileImport } from "./figma-file-import";
-import type { FigmaImport } from "@bella/design/figma";
+import type { FigmaImport } from "@tidy/design/figma";
 
 let editorCode: Promise<unknown> | undefined;
 function preloadEditor() {

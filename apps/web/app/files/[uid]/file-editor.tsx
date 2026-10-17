@@ -1,5 +1,5 @@
 "use client";
-import { isFigmaClipboard } from "@bella/design/figma-input";
+import { isFigmaClipboard } from "@tidy/design/figma-input";
 import { readFigma, remapFigmaAssets } from "@/lib/design/figma-client";
 import {
   editorErrorMessage,
@@ -28,9 +28,9 @@ import {
   isShapeKind,
   shapeKinds,
   type NativeShape,
-} from "@bella/design/native-shapes";
+} from "@tidy/design/native-shapes";
 import { DesignImage } from "@/components/design/design-image";
-import type { TextContent } from "@bella/design/rich-text";
+import type { TextContent } from "@tidy/design/rich-text";
 import { AssetBrowser, type BrowserAsset } from "./asset-browser";
 import { fitImageBounds } from "@/lib/design/image-sizing";
 import { imageViewport } from "@/lib/design/image-viewport";
@@ -186,7 +186,7 @@ import {
   parsePathContours,
   serializeContours,
   type VectorContour,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 import { SelectionInspector } from "./selection-inspector";
 import { storedConstraintBox } from "@/lib/design/constraints";
 import { renderedNodeBox, renderedParentSize } from "@/lib/design/canvas-geometry";

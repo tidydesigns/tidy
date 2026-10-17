@@ -7,7 +7,7 @@ import { nodeStyle } from "./node-style";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
 import { ThumbnailRenderer } from "@/app/files/thumbnail-renderer";
 import { DesignSnapshot } from "@/components/github/design-snapshot";
-import { webCaptureSchema } from "@bella/design/web-capture";
+import { webCaptureSchema } from "@tidy/design/web-capture";
 
 const wideId = "00000000-0000-4000-8000-000000000201";
 const narrowId = "00000000-0000-4000-8000-000000000202";

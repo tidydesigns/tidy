@@ -1,1 +1,1 @@
-export * from "@bella/design/document";
+export * from "@tidy/design/document";

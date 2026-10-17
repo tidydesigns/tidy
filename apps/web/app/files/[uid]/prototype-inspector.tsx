@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
-import { componentFamily } from "@bella/design/component-variants";
-import type { PrototypeInteraction, PrototypeState } from "@bella/design/prototype";
+import { componentFamily } from "@tidy/design/component-variants";
+import type { PrototypeInteraction, PrototypeState } from "@tidy/design/prototype";
 import type { DesignDocument, DesignNode } from "@/lib/design/document";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { PropertyField } from "./property-field";

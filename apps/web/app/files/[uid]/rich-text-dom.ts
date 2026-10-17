@@ -3,8 +3,8 @@ import {
   richTextPlain,
   type RichText,
   type TextRun,
-} from "@bella/design/rich-text-runtime";
-import { textLinkSchema } from "@bella/design/rich-text";
+} from "@tidy/design/rich-text-runtime";
+import { textLinkSchema } from "@tidy/design/rich-text";
 
 const ignored = new Set([
   "SCRIPT",

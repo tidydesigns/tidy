@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { parseDesignDocument } from "@bella/design/document";
-import { webImportSchema } from "@bella/design/web-capture";
+import { parseDesignDocument } from "@tidy/design/document";
+import { webImportSchema } from "@tidy/design/web-capture";
 import { getDesignFile } from "@/lib/design/service";
 import {
   abortImport,

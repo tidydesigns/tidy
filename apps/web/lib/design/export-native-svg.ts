@@ -1,8 +1,8 @@
-import { hasImageAdjustments, imageAdjustmentFilter } from "@bella/design/image-adjustments";
+import { hasImageAdjustments, imageAdjustmentFilter } from "@tidy/design/image-adjustments";
 import type { DesignNode } from "./document";
 import { nodePaints } from "./paints";
 import { cornerPath, paintDefinition, strokeSvg, strokeOutsets } from "./strokes";
-import { nodeEffects } from "@bella/design/effects";
+import { nodeEffects } from "@tidy/design/effects";
 import { xml } from "./export-dom";
 import type { ExportBounds } from "./export-plan";
 

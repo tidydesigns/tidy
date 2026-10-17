@@ -17,7 +17,7 @@ import {
   splitVectorSegment,
   type VectorContour,
   type VectorPoint,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 
 export function VectorEditor({
   node,

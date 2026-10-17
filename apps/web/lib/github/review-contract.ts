@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { designDocumentSchema } from "@bella/design/document";
+import { designDocumentSchema } from "@tidy/design/document";
 
 const timestamp = z.union([
   z.date(),

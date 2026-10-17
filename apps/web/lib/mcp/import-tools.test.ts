@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
-import { blankDesignDocument } from "@bella/design/document";
+import { blankDesignDocument } from "@tidy/design/document";
 import { registerImportTools } from "./import-tools";
 
 type Tool = {

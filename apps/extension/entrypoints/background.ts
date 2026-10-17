@@ -9,7 +9,7 @@ import {
   readExtensionReply,
   captureViewportSchema,
   parseExtensionResponse,
-} from "@bella/design/web-capture";
+} from "@tidy/design/web-capture";
 import { BELLA_URL } from "../lib/config";
 import type { ImportJob } from "../lib/messages";
 

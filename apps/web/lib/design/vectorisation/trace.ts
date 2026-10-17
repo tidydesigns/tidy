@@ -3,7 +3,7 @@ import {
   serializeContours,
   type VectorAnchor,
   type VectorContour,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 import { recoverRasterOcclusion } from "./occlusion";
 import { refineRasterCoverage } from "./coverage";
 import { fitRasterShape } from "./shape-fit";

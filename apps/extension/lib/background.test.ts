@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { ImportJob } from "./messages";
-import { blankDesignDocument } from "@bella/design/document";
+import { blankDesignDocument } from "@tidy/design/document";
 
 type Sender = {
   id: string;

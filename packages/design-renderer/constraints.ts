@@ -1,4 +1,4 @@
-import type { DesignNode } from "@bella/design/document";
+import type { DesignNode } from "@tidy/design/document";
 
 export function innerSize(node: DesignNode) {
   const border = node.style.borderWidth ?? 0;

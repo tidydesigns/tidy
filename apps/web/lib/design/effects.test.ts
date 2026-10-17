@@ -8,14 +8,14 @@ import {
   effectStyle,
   shadowStyle,
   moveEffect,
-} from "@bella/design/effects";
+} from "@tidy/design/effects";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
 import { DocumentPreview } from "@/app/files/thumbnail-renderer";
 import { DesignSnapshot } from "@/components/github/design-snapshot";
 import { TidyDesign } from "./code-runtime";
 import { nodeStyle } from "./node-style";
 import { scaleLayers } from "./layout-operations";
-import { webCaptureSchema } from "@bella/design/web-capture";
+import { webCaptureSchema } from "@tidy/design/web-capture";
 
 const frame = {
   ...buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 200, height: 200 }),

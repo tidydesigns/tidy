@@ -1,7 +1,7 @@
 "use client";
 import { useLayoutEffect, useRef, type ClipboardEvent } from "react";
 import type { DesignNode } from "@/lib/design/document";
-import { richTextSchema, textParagraphs, type TextContent } from "@bella/design/rich-text";
+import { richTextSchema, textParagraphs, type TextContent } from "@tidy/design/rich-text";
 import { renderFontFamily } from "@/lib/design/fonts/family";
 import { readEditableRichText, richTextElements, sanitizeRichPaste } from "./rich-text-dom";
 import { registerRichTextSelection, applyTextCommand } from "./rich-text-selection";

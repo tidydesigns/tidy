@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import sharp from "sharp";
 import { renderToStaticMarkup } from "react-dom/server";
-import { buildNativeShape, nativeShapePath, shapeKinds } from "@bella/design/native-shapes";
+import { buildNativeShape, nativeShapePath, shapeKinds } from "@tidy/design/native-shapes";
 import {
   blankDesignDocument,
   parseDesignDocument,

@@ -3,7 +3,7 @@ import type { DesignNode, DesignDocument } from "./document";
 import { materializeChangedBindings, tokenBindingExclusions } from "./design-tokens";
 import { applyResizeConstraints, innerSize } from "./constraints";
 import { changePaths, mergeNodeChanges } from "./component-variants";
-import { remapInteractions } from "@bella/design/prototype";
+import { remapInteractions } from "@tidy/design/prototype";
 
 type Changes = DesignNodeChanges;
 

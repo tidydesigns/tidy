@@ -1,8 +1,8 @@
-import type { DesignDocument } from "@bella/design/document";
+import type { DesignDocument } from "@tidy/design/document";
 import { documentFontReferences } from "./fonts/recovery";
 import { fontFamilies, genericFonts, webFontByName } from "./fonts/catalog";
 import { fontCssForText } from "./fonts/export-css";
-import { resolvedDocumentNodes } from "@bella/design/design-tokens";
+import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
 
 export type PreviewFonts = { css: string; warnings: string[] };
 export const VISUAL_PREVIEW_MAX_BYTES = 512_000;

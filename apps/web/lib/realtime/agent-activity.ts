@@ -1,4 +1,4 @@
-import { DESIGN_DOCUMENT_LIMITS } from "@bella/design/document-limits";
+import { DESIGN_DOCUMENT_LIMITS } from "@tidy/design/document-limits";
 import { z } from "zod";
 
 export const activityPhaseSchema = z.enum([

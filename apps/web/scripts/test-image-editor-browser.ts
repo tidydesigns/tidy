@@ -1,4 +1,4 @@
-import { imageAdjustmentFilter } from "@bella/design/image-adjustments";
+import { imageAdjustmentFilter } from "@tidy/design/image-adjustments";
 import assert from "node:assert/strict";
 import { mkdir, readFile } from "node:fs/promises";
 import { join } from "node:path";

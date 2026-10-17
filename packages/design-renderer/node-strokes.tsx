@@ -1,6 +1,6 @@
 "use client";
 import { useLayoutEffect, useRef } from "react";
-import type { DesignNode } from "@bella/design/document";
+import type { DesignNode } from "@tidy/design/document";
 import { customStroke, strokeStyle } from "./strokes";
 
 /** Refine the shared SSR border image to the actual fill/hug size without adding layout wrappers. */

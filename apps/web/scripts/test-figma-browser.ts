@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chromium, type Page } from "playwright";
 import sharp from "sharp";
 import { fidelityFixture } from "../../../packages/design/figma-fidelity-fixture";
-import type { DesignDocument } from "@bella/design/document";
+import type { DesignDocument } from "@tidy/design/document";
 
 const base = process.env.FIGMA_TEST_BASE_URL ?? "http://localhost:3057";
 if (!["localhost", "127.0.0.1"].includes(new URL(base).hostname))

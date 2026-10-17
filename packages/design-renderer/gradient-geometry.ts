@@ -1,4 +1,4 @@
-import type { DesignPaint, DesignNode } from "@bella/design/document";
+import type { DesignPaint, DesignNode } from "@tidy/design/document";
 export type GradientPaint = Extract<DesignPaint, { type: "linear" | "radial" }>;
 export type Point = { x: number; y: number };
 export type Size = { width: number; height: number };

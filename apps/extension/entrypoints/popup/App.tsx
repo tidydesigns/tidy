@@ -7,7 +7,7 @@ import {
   type ExtensionAccount,
   readExtensionReply,
   parseExtensionResponse,
-} from "@bella/design/web-capture";
+} from "@tidy/design/web-capture";
 import type { ImportJob } from "../../lib/messages";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";

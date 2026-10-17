@@ -7,8 +7,8 @@ import {
 } from "./document";
 import { resolvedDocumentNodes } from "./design-tokens";
 import { isLayerLocked, isLayerVisible } from "./edit-document";
-import { transformedBox, type VectorBoolean } from "@bella/design/vector-boolean";
-import { vectorMaskSource, vectorOperand } from "@bella/design/vector-relationships";
+import { transformedBox, type VectorBoolean } from "@tidy/design/vector-boolean";
+import { vectorMaskSource, vectorOperand } from "@tidy/design/vector-relationships";
 
 function sources(document: DesignDocument, ids: string[]) {
   const selected = resolvedDocumentNodes(document).filter((n) => ids.includes(n.id));

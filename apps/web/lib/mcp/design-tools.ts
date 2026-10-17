@@ -9,7 +9,7 @@ import {
   variantNameSchema,
   documentAssetIds,
   parseDesignDocument,
-} from "@bella/design/document";
+} from "@tidy/design/document";
 import { componentTreeSchema, composeComponent } from "@/lib/design/compose-component";
 import { layoutReport } from "@/lib/design/layout-diagnostics";
 import { exportComponent, componentExportDocument } from "@/lib/design/code-export";

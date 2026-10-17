@@ -9,7 +9,7 @@ import {
   remapComponentProperties,
   remapComponentVariants,
 } from "./component-variants";
-import { remapInteractions } from "@bella/design/prototype";
+import { remapInteractions } from "@tidy/design/prototype";
 
 export function duplicateNodeTree(
   document: DesignDocument,

@@ -1,6 +1,6 @@
 import { expect, test, mock } from "bun:test";
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
-import { blankDesignDocument, buildDrawnNode } from "@bella/design/document";
+import { blankDesignDocument, buildDrawnNode } from "@tidy/design/document";
 mock.module("server-only", () => ({}));
 const { registerPluginTools } = await import("./plugin-tools");
 

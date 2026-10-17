@@ -4,7 +4,7 @@ import { readJsonResponse } from "./json-response";
 import { fileVersionListSchema } from "../design/file-version-contract";
 import { reviewListSchema } from "../github/review-contract";
 import { reviewContextSchema } from "../github/review-contract";
-import { blankDesignDocument } from "@bella/design/document";
+import { blankDesignDocument } from "@tidy/design/document";
 import type { ReviewContext } from "../github/reviews";
 
 test("browser JSON boundaries preserve public errors and reject missing success fields", async () => {

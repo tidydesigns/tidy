@@ -7,7 +7,7 @@ import {
   type VectorAnchor,
   type VectorContour,
   type VectorPoint,
-} from "@bella/design/vector-geometry";
+} from "@tidy/design/vector-geometry";
 import { canvasElements } from "./canvas-elements";
 import { elementPlane } from "@/lib/design/canvas-geometry";
 import { useEditorEvent } from "./use-editor-event";

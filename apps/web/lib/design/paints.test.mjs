@@ -10,7 +10,7 @@ import { nodePaints, paintStyle, paintBackground, convertPaint } from "./paints"
 import { nodeStyle } from "./node-style";
 import { renameColorToken, removeColorToken } from "./tokens";
 import { copyProperties, pasteProperties, readDesignClipboard } from "./clipboard";
-import { webCaptureSchema } from "@bella/design/web-capture";
+import { webCaptureSchema } from "@tidy/design/web-capture";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { NodeFills } from "@/components/design/node-fills";

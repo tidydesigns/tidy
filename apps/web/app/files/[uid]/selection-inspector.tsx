@@ -1,6 +1,6 @@
 "use client";
 import { proportionalImageSize } from "@/lib/design/image-sizing";
-import { nativeShapePath } from "@bella/design/native-shapes";
+import { nativeShapePath } from "@tidy/design/native-shapes";
 import { InstanceControls } from "./instance-controls";
 import { owningInstance } from "@/lib/design/component-instance";
 import { HandoffInspector } from "./handoff-inspector";
@@ -16,8 +16,8 @@ import {
   vectorMaskSource,
   vectorMaskSources,
   vectorOperand,
-} from "@bella/design/vector-relationships";
-import type { VectorBoolean } from "@bella/design/vector-boolean";
+} from "@tidy/design/vector-relationships";
+import type { VectorBoolean } from "@tidy/design/vector-boolean";
 import { ComponentPropertiesInspector } from "./component-properties-inspector";
 import { ReusableStylesInspector } from "./reusable-styles-inspector";
 import { ExportControls } from "./export-controls";
