@@ -8,6 +8,7 @@ import {
   type EditorErrorNotice,
 } from "@/lib/design/editor-error";
 import { detachInstance, owningInstance } from "@/lib/design/component-instance";
+import { EditorNotification } from "./editor-notification";
 import { ImageEditor } from "./image-editor";
 import {
   applyRasterTrace,
@@ -402,6 +403,7 @@ export function FileEditor({
   const [marquee, setMarquee] = useState<Marquee | null>(null);
   const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
   const [spacingCues, setSpacingCues] = useState<SpacingCue[]>([]);
+  const [notificationRoot, setNotificationRoot] = useState<HTMLDivElement | null>(null);
   const [errorNotice, setErrorNotice] = useState<EditorErrorNotice>({ message: "" });
   const error = errorNotice.message;
   const setError = useCallback((message: string) => setErrorNotice({ message }), []);
@@ -4069,6 +4071,7 @@ export function FileEditor({
             <div hidden={!viewPreferences.comments}>
               <CanvasComments
                 ref={commentsRef}
+                notificationRoot={viewPreferences.comments ? notificationRoot : null}
                 fileId={fileId}
                 pageId={currentPageId}
                 view={view}
@@ -4625,52 +4628,40 @@ export function FileEditor({
               />
             </div>
           )}
-          {(visibleError || exportError) && (
-            <div
-              role="alert"
-              data-canvas-control
-              onPointerDown={(event) => event.stopPropagation()}
-              onKeyDown={(event) => event.stopPropagation()}
-              className="absolute bottom-4 right-4 z-30 max-w-[min(20rem,calc(100%-2rem))] rounded-lg bg-surface p-3 text-xs shadow-sm"
-            >
-              <div className="flex items-start gap-2">
-                <p className="min-w-0 flex-1">
-                  {visibleError && errorInstance
+          <div className="pointer-events-none absolute bottom-4 right-4 z-30 flex max-h-[calc(100%-2rem)] w-80 max-w-[calc(100%-2rem)] flex-col gap-2 overflow-y-auto">
+            <div ref={setNotificationRoot} className="contents" />
+            {(visibleError || exportError) && (
+              <EditorNotification
+                message={
+                  visibleError && errorInstance
                     ? `“${errorInstance.name}” is a component instance. Detach it to change its layers. It will stop receiving component updates.`
-                    : visibleError || exportError}
-                </p>
-                <button
-                  data-ph-public
-                  type="button"
-                  aria-label="Dismiss notification"
-                  className="-m-1 flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
-                  onClick={() => {
-                    setError("");
-                    setExportError("");
-                    viewport.current?.focus({ preventScroll: true });
-                  }}
-                >
-                  <Icon name="xmark" size={14} />
-                </button>
-              </div>
-              {visibleError && errorInstance && (
-                <button
-                  data-ph-public
-                  type="button"
-                  className="mt-2 rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
-                  onClick={() => {
-                    void changeDocument((content) => {
-                      const instance = editorErrorInstance(content, errorNotice);
-                      return instance ? detachInstance(content, instance.id) : content;
-                    });
-                    viewport.current?.focus({ preventScroll: true });
-                  }}
-                >
-                  Detach instance
-                </button>
-              )}
-            </div>
-          )}
+                    : visibleError || exportError
+                }
+                onDismiss={() => {
+                  setError("");
+                  setExportError("");
+                  viewport.current?.focus({ preventScroll: true });
+                }}
+              >
+                {visibleError && errorInstance && (
+                  <button
+                    data-ph-public
+                    type="button"
+                    className="mt-2 rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
+                    onClick={() => {
+                      void changeDocument((content) => {
+                        const instance = editorErrorInstance(content, errorNotice);
+                        return instance ? detachInstance(content, instance.id) : content;
+                      });
+                      viewport.current?.focus({ preventScroll: true });
+                    }}
+                  >
+                    Detach instance
+                  </button>
+                )}
+              </EditorNotification>
+            )}
+          </div>
         </div>
       </div>
       {editedImage && imageTarget && (

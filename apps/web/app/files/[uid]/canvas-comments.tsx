@@ -1,5 +1,7 @@
 "use client";
 
+import { createPortal } from "react-dom";
+import { EditorNotification } from "./editor-notification";
 import { mergeCommentPages } from "@/lib/design/comment-pages";
 import { Dialog } from "@/components/ui/dialog";
 import {
@@ -268,9 +270,19 @@ export const CanvasComments = forwardRef<
     readOnly?: boolean;
     liveVersion?: number;
     toolbarControls?: ReactNode;
+    notificationRoot: HTMLElement | null;
   }
 >(function CanvasComments(
-  { fileId, pageId = "page-1", view, viewport, readOnly = false, liveVersion = 0, toolbarControls },
+  {
+    fileId,
+    pageId = "page-1",
+    view,
+    viewport,
+    readOnly = false,
+    liveVersion = 0,
+    toolbarControls,
+    notificationRoot,
+  },
   ref,
 ) {
   const [threads, setThreads] = useState<CommentThread[]>([]);
@@ -794,14 +806,20 @@ export const CanvasComments = forwardRef<
           )}
         </section>
       )}
-      {(error || loadError) && !point && (
-        <p
-          role="alert"
-          className="pointer-events-auto absolute bottom-16 left-4 rounded-md bg-surface p-2 text-xs text-danger shadow"
-        >
-          {error || loadError}
-        </p>
-      )}
+      {(error || loadError) &&
+        !point &&
+        notificationRoot &&
+        createPortal(
+          <EditorNotification
+            message={error || loadError}
+            onDismiss={() => {
+              setError("");
+              setLoadError("");
+              viewport.current?.focus({ preventScroll: true });
+            }}
+          />,
+          notificationRoot,
+        )}
     </div>
   );
 });
