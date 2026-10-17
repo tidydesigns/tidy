@@ -16,7 +16,13 @@ import { editLayers, trackDocumentChanges } from "./edit-document";
 import { editorErrorInstance, editorErrorNotice } from "./editor-error";
 import { ComponentStructureError } from "./component-structure-error";
 import { reconcileComponentStructure } from "./component-structure";
-import { owningInstance, resetInstance, detachInstance, swapInstance } from "./component-instance";
+import {
+  componentInstanceSources,
+  owningInstance,
+  resetInstance,
+  detachInstance,
+  swapInstance,
+} from "./component-instance";
 import { diffDocument, applyDocumentPatch, invertPatch } from "./document-patch";
 import { resolveVariantNodes, standaloneVariants } from "./component-variants";
 import { mergeImport } from "./merge-import";
@@ -440,4 +446,58 @@ test("structure warnings retain the blocked instance and reject stale detach tar
   expect(
     editorErrorInstance(document, editorErrorNotice(new Error("Other error"), "Failed")),
   ).toBeUndefined();
+});
+
+test("component choices exclude owning ancestors and include unrelated sources on other pages", () => {
+  const document = fixture();
+  const nodes = [
+    { ...layer("ancestor"), isComponent: true },
+    ...document.nodes.map((node) =>
+      node.id === "copy-0" ? { ...node, parentId: "ancestor" } : node,
+    ),
+    { ...layer("remote-source"), isComponent: true, pageId: "page-2" },
+  ];
+  expect(componentInstanceSources(nodes, "copy-0").map((node) => node.id)).toEqual([
+    "master",
+    "remote-source",
+  ]);
+  const moved = nodes.map((node) => (node.id === "copy-0" ? { ...node, parentId: null } : node));
+  expect(componentInstanceSources(moved, "copy-0").map((node) => node.id)).toEqual([
+    "ancestor",
+    "master",
+    "remote-source",
+  ]);
+  expect(owningInstance(moved, "copy-1")?.id).toBe("copy-0");
+  const detached = moved.map((node) =>
+    node.id.startsWith("copy-")
+      ? { ...node, instanceOf: undefined, componentSourceId: undefined }
+      : node,
+  );
+  expect(owningInstance(detached, "copy-1")).toBeUndefined();
+});
+
+test("instance recovery respects ancestor locks and rejects stale metadata", () => {
+  const document = fixture();
+  const notice = editorErrorNotice(
+    new ComponentStructureError("Detach", "copy-0", "master"),
+    "Failed",
+  );
+  const locked = {
+    ...document,
+    nodes: [
+      { ...layer("locked-parent"), locked: true },
+      ...document.nodes.map((node) =>
+        node.id === "copy-0" ? { ...node, parentId: "locked-parent" } : node,
+      ),
+    ],
+  };
+  expect(editorErrorInstance(locked, notice)).toBeUndefined();
+  expect(() => detachInstance(locked, "copy-0")).toThrow("unlocked");
+  const altered = {
+    ...document,
+    nodes: document.nodes.map((node) =>
+      node.id === "copy-0" ? { ...node, componentSourceId: "label" } : node,
+    ),
+  };
+  expect(editorErrorInstance(altered, notice)).toBeUndefined();
 });

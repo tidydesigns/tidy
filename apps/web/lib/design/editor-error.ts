@@ -2,6 +2,7 @@ import { ZodError } from "zod";
 import { ComponentStructureError } from "./component-structure-error";
 import type { DesignDocument } from "./document";
 import { isLayerLocked } from "./edit-document";
+import { nodeIndex } from "./node-index";
 
 export type EditorErrorNotice = {
   message: string;
@@ -21,7 +22,7 @@ export function editorErrorNotice(error: unknown, fallback: string): EditorError
 export function editorErrorInstance(document: DesignDocument, notice: EditorErrorNotice) {
   const target = notice.detach;
   if (!target) return undefined;
-  const node = document.nodes.find((node) => node.id === target.instanceId);
+  const node = nodeIndex(document.nodes).get(target.instanceId);
   return node &&
     node.instanceOf === target.componentId &&
     node.componentSourceId === target.componentId &&

@@ -21,7 +21,9 @@ export function EditorNotification({
       className="pointer-events-auto rounded-lg bg-surface p-3 text-xs shadow-sm"
     >
       <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 break-words">{message}</p>
+        <p data-ph-private className="min-w-0 flex-1 break-words">
+          {message}
+        </p>
         <button
           data-ph-public
           type="button"

@@ -88,7 +88,7 @@ const EditorThumbnail = dynamic(
 );
 import type { Review } from "@/lib/github/reviews";
 import { CanvasComments, type CanvasCommentsHandle } from "./canvas-comments";
-import { LayerContextMenu, layerMenuPosition, type LayerMenuItem } from "./layer-context-menu";
+import { LayerContextMenu, type LayerMenuItem } from "./layer-context-menu";
 import { renameDesignFile } from "../actions";
 import { useFileRoom } from "./use-file-room";
 import { CollaboratorOverlay } from "./collaborator-overlay";
@@ -2270,31 +2270,15 @@ export function FileEditor({
       const seen = new Set([nodeId]);
       for (const element of document.elementsFromPoint(event.clientX, event.clientY)) {
         const id = element.closest("[data-node-id]")?.getAttribute("data-node-id");
-        if (id && !seen.has(id) && nodes.some((node) => node.id === id)) {
+        if (id && !seen.has(id) && nodesById.has(id)) {
           seen.add(id);
           behindIds.push(id);
         }
       }
     }
-    const node = nodes.find((item) => item.id === nodeId);
-    const selectionCount = selectedIds.includes(nodeId) ? selectedIds.length : 1;
-    const itemCount =
-      9 +
-      Number(node?.type !== "artboard") +
-      Number(node?.type === "container") +
-      Number(Boolean(node && !node.isComponent && !node.instanceOf && node.type !== "artboard")) +
-      Number(Boolean(node?.isComponent)) +
-      Number(Boolean(owningInstance(snapshotRef.current.content.nodes, nodeId))) +
-      Number(
-        selectionCount === 1 &&
-          Boolean(
-            node &&
-            ["artboard", "container"].includes(node.type) &&
-            nodes.some((child) => child.parentId === node.id && child.visible),
-          ),
-      );
     setContextMenu({
-      ...layerMenuPosition(event.clientX, event.clientY, itemCount + behindIds.length),
+      x: event.clientX,
+      y: event.clientY,
       nodeId,
       behindIds,
     });
@@ -3876,7 +3860,8 @@ export function FileEditor({
                             if (readOnly) return;
                             event.preventDefault();
                             setPageMenu({
-                              ...layerMenuPosition(event.clientX, event.clientY, 5),
+                              x: event.clientX,
+                              y: event.clientY,
                               pageId: page.id,
                             });
                           }}
@@ -3894,7 +3879,8 @@ export function FileEditor({
                           title="Page options"
                           onClick={(event) =>
                             setPageMenu({
-                              ...layerMenuPosition(event.clientX, event.clientY, 5),
+                              x: event.clientX,
+                              y: event.clientY,
                               pageId: page.id,
                             })
                           }

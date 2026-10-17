@@ -3,7 +3,6 @@ import { remapInteractions } from "@bella/design/prototype";
 import type { DesignNode } from "./document";
 import { resolveVariantNodes } from "./component-variants";
 import { equalJsonValues as equal } from "./json-value";
-
 import { ComponentStructureError } from "./component-structure-error";
 
 const identity = new Set([

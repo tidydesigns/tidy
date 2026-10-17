@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 export type LayerMenuItem = {
   label: string;
@@ -10,13 +10,6 @@ export type LayerMenuItem = {
   danger?: boolean;
   onSelect: () => void;
 };
-
-export function layerMenuPosition(x: number, y: number, itemCount: number) {
-  return {
-    x: Math.max(8, Math.min(x, window.innerWidth - 232)),
-    y: Math.max(8, Math.min(y, window.innerHeight - itemCount * 40 - 24)),
-  };
-}
 
 export function LayerContextMenu({
   x,
@@ -32,6 +25,15 @@ export function LayerContextMenu({
   label?: string;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Measure the actual menu before paint; callers only provide the click point.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+  }, [x, y, items.length]);
 
   useEffect(() => {
     menuRef.current

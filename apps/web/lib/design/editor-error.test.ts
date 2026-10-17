@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { editorErrorMessage } from "./editor-error";
+import { editorErrorMessage, editorErrorNotice } from "./editor-error";
 
 test("validation details do not appear in editor errors, including serialized server issues", () => {
   const result = z
@@ -44,4 +44,22 @@ test("instance structure restrictions explain where to find the recovery control
     expect(message).toContain("component instance");
     expect(message).toContain("Detach instance in the Component section");
   }
+});
+
+test("server error text and forged names cannot create a detach action", () => {
+  const message = "Detach the instance before deleting or moving its children.";
+  expect(editorErrorNotice(new Error(message), "Failed").detach).toBeUndefined();
+  expect(
+    editorErrorNotice(
+      Object.assign(new Error(message), {
+        name: "ComponentStructureError",
+        instanceId: "other-instance",
+        componentId: "master",
+      }),
+      "Failed",
+    ).detach,
+  ).toBeUndefined();
+  expect(
+    editorErrorNotice({ message, instanceId: "other-instance", componentId: "master" }, "Failed"),
+  ).toEqual({ message: "Failed" });
 });

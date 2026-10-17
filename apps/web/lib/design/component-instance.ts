@@ -2,10 +2,11 @@ import { parseDesignDocument, type DesignDocument, type DesignNode } from "./doc
 import { componentSubtreeIds, resolveVariantNodes } from "./component-variants";
 import { instanceChildId, reconcileComponentStructure } from "./component-structure";
 import { isLayerLocked } from "./edit-document";
+import { nodeIndex } from "./node-index";
 
 /** Resolve the owning instance for a selected root or linked child. */
 export function owningInstance(nodes: readonly DesignNode[], id: string): DesignNode | undefined {
-  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const byId = nodeIndex(nodes);
   const sourceId = byId.get(id)?.instanceOf;
   if (!sourceId) return undefined;
   const visited = new Set<string>();
@@ -18,8 +19,20 @@ export function owningInstance(nodes: readonly DesignNode[], id: string): Design
   return undefined;
 }
 
+/** A source may be anywhere except the instance itself or one of its ancestors. */
+export function componentInstanceSources(nodes: readonly DesignNode[], id: string) {
+  const byId = nodeIndex(nodes);
+  const ancestors = new Set<string>();
+  let node = byId.get(id);
+  while (node && !ancestors.has(node.id)) {
+    ancestors.add(node.id);
+    node = byId.get(node.parentId ?? "");
+  }
+  return nodes.filter((node) => node.isComponent && !ancestors.has(node.id));
+}
+
 function linkedRoot(document: DesignDocument, id: string) {
-  const root = document.nodes.find((node) => node.id === id);
+  const root = nodeIndex(document.nodes).get(id);
   if (
     !root?.instanceOf ||
     root.componentSourceId !== root.instanceOf ||
