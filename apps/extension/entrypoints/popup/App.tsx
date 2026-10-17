@@ -13,7 +13,7 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";
 import { Avatar } from "@tidy/ui/avatar";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
-import { BELLA_URL } from "../../lib/config";
+import { TIDY_URL } from "../../lib/config";
 import { applyTheme } from "../../lib/theme";
 
 async function send(message: object): Promise<unknown> {
@@ -112,7 +112,7 @@ export function App() {
             title={account.user.name}
           >
             <Avatar
-              image={account.user.image ? new URL(account.user.image, BELLA_URL).href : null}
+              image={account.user.image ? new URL(account.user.image, TIDY_URL).href : null}
               name={account.user.name}
               className="profile-avatar"
             />

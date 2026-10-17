@@ -1,5 +1,5 @@
 {
-  "name": "bella",
+  "name": "tidy",
   "private": true,
   "packageManager": "bun@1.3.14",
   "workspaces": [
@@ -7,13 +7,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev --filter=@bella/web",
+    "dev": "turbo run dev --filter=@tidy/web",
     "dev:site": "turbo run dev --filter=@tidy/site",
-    "dev:extension": "turbo run dev --filter=@bella/extension",
+    "dev:extension": "turbo run dev --filter=@tidy/extension",
     "build": "turbo run build",
-    "build:web": "turbo run build --filter=@bella/web",
+    "build:web": "turbo run build --filter=@tidy/web",
     "build:site": "turbo run build --filter=@tidy/site",
-    "build:extension": "turbo run build --filter=@bella/extension",
+    "build:extension": "turbo run build --filter=@tidy/extension",
     "build:worker": "bun run --cwd apps/web build:worker",
     "deploy:worker": "bun run --cwd apps/web deploy:worker",
     "preview:worker": "bun run --cwd apps/web preview:worker",

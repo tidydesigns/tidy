@@ -10,7 +10,7 @@ import {
   captureViewportSchema,
   parseExtensionResponse,
 } from "@tidy/design/web-capture";
-import { BELLA_URL } from "../lib/config";
+import { TIDY_URL } from "../lib/config";
 import type { ImportJob } from "../lib/messages";
 
 export default defineBackground(() => {
@@ -28,7 +28,7 @@ export default defineBackground(() => {
   let starting = false;
   let finishingSelection = false;
   const api = async (path: string, body?: unknown): Promise<unknown> => {
-    const response = await fetch(`${BELLA_URL}/api/extension/${path}`, {
+    const response = await fetch(`${TIDY_URL}/api/extension/${path}`, {
       method: body ? "POST" : "GET",
       credentials: "include",
       redirect: "error",
@@ -115,7 +115,7 @@ export default defineBackground(() => {
           capture,
         }),
       );
-      const importedUrl = new URL(`/files/${result.fileId}`, BELLA_URL);
+      const importedUrl = new URL(`/files/${result.fileId}`, TIDY_URL);
       if (result.nodeIds?.[0]) importedUrl.searchParams.set("node", result.nodeIds[0]);
       await setJob({
         state: "done",
@@ -159,7 +159,7 @@ export default defineBackground(() => {
       if (message.type === "bella:account")
         return parseExtensionResponse(extensionAccountSchema, await api("account"));
       if (message.type === "bella:login") {
-        await browser.tabs.create({ url: `${BELLA_URL}/login` });
+        await browser.tabs.create({ url: `${TIDY_URL}/login` });
         return true;
       }
       if (message.type === "bella:cancel") {
