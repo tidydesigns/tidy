@@ -1,83 +1,681 @@
-import { useState, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
+import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
+import { TidyDesign } from "@tidy/design-renderer/design";
+import { summarizeThread } from "../../shared/contracts";
+import type {
+  DesignSummary,
+  HarnessConnection,
+  HarnessId,
+  LocalDesign,
+  Project,
+  ProjectSnapshot,
+  Thread,
+} from "../../shared/contracts";
 
-const workspaces = [
-  { id: "design", label: "Design", description: "Your local design workspace." },
-  { id: "code", label: "Code", description: "Your local coding workspace." },
+const modes = [
+  { id: "design", label: "Design" },
+  { id: "code", label: "Code" },
 ] as const;
-
-type Workspace = (typeof workspaces)[number]["id"];
+type Mode = (typeof modes)[number]["id"];
+type Draft = { text: string; harness: HarnessId; designIds: string[] };
+const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
+const errorText = (error: unknown) =>
+  error instanceof Error ? error.message : "The operation could not be completed.";
 
 export function App() {
-  const [workspace, setWorkspace] = useState<Workspace>("design");
+  const api = window.tidy;
+  const [mode, setMode] = useState<Mode>("design");
+  const [loading, setLoading] = useState(true);
+  const [opening, setOpening] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
+  const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
+  const [threads, setThreads] = useState<Record<string, Thread>>({});
+  const [selectedThreads, setSelectedThreads] = useState<Record<string, string | null>>({});
+  const [selectedDesigns, setSelectedDesigns] = useState<Record<string, string | null>>({});
+  const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [sending, setSending] = useState<Record<string, boolean>>({});
+  const [error, setError] = useState<{ projectId?: string; text: string } | null>(null);
+  const navigation = useRef(0);
+  const threadSelection = useRef<Record<string, number>>({});
+  const transcript = useRef<HTMLDivElement>(null);
+  const followOutput = useRef(true);
+  const snapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
+  const project = snapshot?.project;
+  const selectedThreadId = project ? selectedThreads[project.id] : null;
+  const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
+  const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
+  const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
+  const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const selectedDesignId = project ? selectedDesigns[project.id] : null;
+  const design =
+    selectedDesignId && snapshot?.designs.some((item) => item.id === selectedDesignId)
+      ? designs[selectedDesignId]
+      : undefined;
+  const running = thread?.status === "running";
+  const busy = Boolean(sending[draftKey]);
+
+  function updateDraft(patch: Partial<Draft>) {
+    setDrafts((current) => ({ ...current, [draftKey]: { ...draft, ...patch } }));
+  }
+
+  function selectThread(projectId: string, threadId: string | null) {
+    threadSelection.current[projectId] = (threadSelection.current[projectId] ?? 0) + 1;
+    setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
+  }
+
+  function applySnapshot(value: ProjectSnapshot) {
+    setSnapshots((current) => {
+      const summaries = new Map(value.threads.map((item) => [item.id, item]));
+      for (const item of current[value.project.id]?.threads ?? []) {
+        if ((summaries.get(item.id)?.revision ?? -1) < item.revision) summaries.set(item.id, item);
+      }
+      return {
+        ...current,
+        [value.project.id]: {
+          ...value,
+          threads: [...summaries.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        },
+      };
+    });
+    setProjects((current) => [
+      value.project,
+      ...current.filter((item) => item.id !== value.project.id),
+    ]);
+    setActiveProjectId(value.project.id);
+  }
+
+  useEffect(() => {
+    if (!api) {
+      setLoading(false);
+      return;
+    }
+    let mounted = true;
+    const unsubscribe = api.onEvent((event) => {
+      if (event.type === "thread") {
+        const value = event.thread;
+        setThreads((current) => ({
+          ...current,
+          [value.id]:
+            (current[value.id]?.revision ?? -1) > value.revision ? current[value.id] : value,
+        }));
+        setSnapshots((current) => {
+          const entry = current[value.projectId];
+          if (!entry) return current;
+          const summary = summarizeThread(value);
+          return {
+            ...current,
+            [value.projectId]: {
+              ...entry,
+              threads: [summary, ...entry.threads.filter((item) => item.id !== value.id)].sort(
+                (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+              ),
+            },
+          };
+        });
+      } else {
+        setSnapshots((current) => {
+          const entry = current[event.projectId];
+          return entry
+            ? { ...current, [event.projectId]: { ...entry, designs: event.designs } }
+            : current;
+        });
+        setDesigns((current) => {
+          const next = { ...current };
+          for (const item of event.designs)
+            if (next[item.id]?.updatedAt !== item.updatedAt) delete next[item.id];
+          return next;
+        });
+      }
+    });
+    void api
+      .bootstrap()
+      .then((value) => {
+        if (!mounted) return;
+        setProjects(value.projects);
+        setHarnesses(value.harnesses);
+        if (value.activeProject) {
+          setSnapshots({ [value.activeProject.project.id]: value.activeProject });
+          setActiveProjectId(value.activeProject.project.id);
+        }
+      })
+      .catch((value) => {
+        if (mounted) setError({ text: errorText(value) });
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+      unsubscribe();
+    };
+  }, [api]);
+
+  useEffect(() => {
+    if (!api || !project || !selectedThreadId || threads[selectedThreadId]) return;
+    let active = true;
+    void api
+      .readThread(project.id, selectedThreadId)
+      .then((value) => {
+        if (active)
+          setThreads((current) => ({ ...current, [value.id]: current[value.id] ?? value }));
+      })
+      .catch((value) => {
+        if (active) setError({ projectId: project.id, text: errorText(value) });
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, project, selectedThreadId, threads]);
+
+  useEffect(() => {
+    if (
+      !api ||
+      !project ||
+      !selectedDesignId ||
+      designs[selectedDesignId] ||
+      !snapshot?.designs.some((item) => item.id === selectedDesignId)
+    )
+      return;
+    let active = true;
+    void api
+      .readDesign(project.id, selectedDesignId)
+      .then((value) => {
+        if (active) setDesigns((current) => ({ ...current, [value.id]: value }));
+      })
+      .catch((value) => {
+        if (active) setError({ projectId: project.id, text: errorText(value) });
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, project, selectedDesignId, designs, snapshot?.designs]);
+
+  useEffect(() => {
+    followOutput.current = true;
+    transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
+  }, [selectedThreadId, activeProjectId]);
+  useEffect(() => {
+    if (followOutput.current)
+      transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
+  }, [thread?.messages, thread?.activity]);
+
+  async function chooseProject(projectId?: string) {
+    if (!api || opening) return;
+    const generation = ++navigation.current;
+    setOpening(true);
+    setError(null);
+    try {
+      const value = projectId ? await api.selectProject(projectId) : await api.openProject();
+      if (value && navigation.current === generation) applySnapshot(value);
+    } catch (value) {
+      setError({ text: errorText(value) });
+    } finally {
+      if (navigation.current === generation) setOpening(false);
+    }
+  }
+
+  async function createDesign(importing = false) {
+    if (!api || !project) return;
+    const projectId = project.id;
+    try {
+      const value = importing
+        ? await api.importDesign(projectId)
+        : await api.createDesign(projectId);
+      if (!value) return;
+      setDesigns((current) => ({ ...current, [value.id]: value }));
+      setSelectedDesigns((current) => ({ ...current, [projectId]: value.id }));
+    } catch (value) {
+      setError({ projectId, text: errorText(value) });
+    }
+  }
+
+  async function send() {
+    if (!api || !project || !draft.text.trim() || busy || running) return;
+    const projectId = project.id;
+    const key = draftKey;
+    const submitted = draft.text;
+    const selection = threadSelection.current[projectId] ?? 0;
+    setSending((current) => ({ ...current, [key]: true }));
+    setDrafts((current) => ({ ...current, [key]: { ...draft, text: "" } }));
+    setError(null);
+    try {
+      const value = selectedThreadId
+        ? await api.sendMessage({ projectId, threadId: selectedThreadId, text: submitted })
+        : await api.startThread({
+            projectId,
+            harness: draft.harness,
+            prompt: submitted,
+            designIds: draft.designIds,
+          });
+      setThreads((current) => ({
+        ...current,
+        [value.id]:
+          (current[value.id]?.revision ?? -1) > value.revision ? current[value.id] : value,
+      }));
+      if ((threadSelection.current[projectId] ?? 0) === selection)
+        setSelectedThreads((current) => ({ ...current, [projectId]: value.id }));
+      followOutput.current = true;
+    } catch (value) {
+      setDrafts((current) => ({
+        ...current,
+        [key]: current[key]?.text ? current[key] : { ...draft, text: submitted },
+      }));
+      setError({ projectId, text: errorText(value) });
+    } finally {
+      setSending((current) => ({ ...current, [key]: false }));
+    }
+  }
+
+  async function stop() {
+    if (!api || !project || !thread) return;
+    try {
+      await api.stopThread(project.id, thread.id);
+    } catch (value) {
+      setError({ projectId: project.id, text: errorText(value) });
+    }
+  }
+
+  async function refreshHarnesses() {
+    if (!api) return;
+    try {
+      setHarnesses(await api.checkHarnesses());
+    } catch (value) {
+      setError({ text: errorText(value) });
+    }
+  }
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    const nextIndex =
+    const next =
       event.key === "ArrowRight"
-        ? (index + 1) % workspaces.length
+        ? (index + 1) % modes.length
         : event.key === "ArrowLeft"
-          ? (index - 1 + workspaces.length) % workspaces.length
+          ? (index + modes.length - 1) % modes.length
           : event.key === "Home"
             ? 0
             : event.key === "End"
-              ? workspaces.length - 1
+              ? modes.length - 1
               : -1;
-
-    if (nextIndex === -1) return;
+    if (next < 0) return;
     event.preventDefault();
-    const nextWorkspace = workspaces[nextIndex].id;
-    setWorkspace(nextWorkspace);
-    document.getElementById(`workspace-tab-${nextWorkspace}`)?.focus();
+    setMode(modes[next].id);
+    document.getElementById(`workspace-tab-${modes[next].id}`)?.focus();
   }
+
+  const visibleError = error && (!error.projectId || error.projectId === activeProjectId);
+  const selectedHarness = thread?.harness ?? draft.harness;
+  const harnessReady = harnesses.some(
+    (item) => item.id === selectedHarness && item.status === "ready",
+  );
 
   return (
     <div className="desktop">
       <header className="workspace-header">
-        <div
-          role="tablist"
-          aria-label="Workspace"
-          aria-orientation="horizontal"
-          className="workspace-tabs"
-        >
-          {workspaces.map((item, index) => (
+        <div className="project-picker">
+          {project && (
+            <SelectMenu
+              value={project.id}
+              options={[
+                ...projects.map((item) => ({ value: item.id, label: item.name })),
+                { value: "open", label: "Open project…" },
+              ]}
+              label="Project"
+              disabled={opening}
+              onChange={(value) => void chooseProject(value === "open" ? undefined : value)}
+              triggerClassName="project-trigger"
+            />
+          )}
+        </div>
+        <div role="tablist" aria-label="Workspace" className="workspace-tabs">
+          {modes.map((item, index) => (
             <Button
               key={item.id}
               id={`workspace-tab-${item.id}`}
               type="button"
               role="tab"
-              aria-selected={workspace === item.id}
+              aria-selected={mode === item.id}
               aria-controls={`workspace-panel-${item.id}`}
-              tabIndex={workspace === item.id ? 0 : -1}
+              tabIndex={mode === item.id ? 0 : -1}
               className="workspace-tab"
-              onClick={() => setWorkspace(item.id)}
+              onClick={() => setMode(item.id)}
               onKeyDown={(event) => onTabKeyDown(event, index)}
             >
               {item.label}
             </Button>
           ))}
         </div>
+        <div className="header-spacer" />
       </header>
+      {visibleError && (
+        <div className="error-banner" role="alert">
+          <span>{error.text}</span>
+          <Button className="quiet-button" onClick={() => setError(null)}>
+            Dismiss
+          </Button>
+        </div>
+      )}
       <main className="workspace">
-        {workspaces.map((item) => (
-          <section
-            key={item.id}
-            id={`workspace-panel-${item.id}`}
-            role="tabpanel"
-            aria-labelledby={`workspace-tab-${item.id}`}
-            hidden={workspace !== item.id}
-            tabIndex={0}
-            className="workspace-panel"
-          >
-            <div className="welcome">
-              <h1 aria-label="Tidy">
-                <TidyLogo className="tidy-logo" />
-              </h1>
-              <p>{item.description}</p>
-            </div>
-          </section>
-        ))}
+        {!project ? (
+          <div className="project-home">
+            <h1 aria-label="Tidy">
+              <TidyLogo className="tidy-logo" />
+            </h1>
+            {loading ? (
+              <p>Opening workspace…</p>
+            ) : api ? (
+              <>
+                <p>Designs and engineering threads, together in your project.</p>
+                <Button
+                  className="primary-button"
+                  disabled={opening}
+                  onClick={() => void chooseProject()}
+                >
+                  {opening ? "Opening…" : "Open project"}
+                </Button>
+                {projects.length > 0 && (
+                  <div className="recent-projects">
+                    {projects.map((item) => (
+                      <Button
+                        key={item.id}
+                        className="recent-project"
+                        disabled={opening}
+                        onClick={() => void chooseProject(item.id)}
+                      >
+                        <span>{item.name}</span>
+                        <small>{item.path}</small>
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <p>Open Tidy desktop to work with local projects.</p>
+            )}
+          </div>
+        ) : (
+          <>
+            <section
+              id="workspace-panel-design"
+              role="tabpanel"
+              aria-labelledby="workspace-tab-design"
+              hidden={mode !== "design"}
+              className="project-workspace"
+            >
+              <aside className="project-sidebar">
+                <div className="sidebar-heading">
+                  <span>Designs</span>
+                  <Button className="quiet-button" onClick={() => void createDesign()}>
+                    New design
+                  </Button>
+                </div>
+                <div className="sidebar-list">
+                  {snapshot.designs.map((item) => (
+                    <Button
+                      key={item.id}
+                      className={`sidebar-item ${selectedDesignId === item.id ? "selected" : ""}`}
+                      onClick={() =>
+                        setSelectedDesigns((current) => ({ ...current, [project.id]: item.id }))
+                      }
+                    >
+                      {item.name}
+                    </Button>
+                  ))}
+                </div>
+                <Button
+                  className="quiet-button sidebar-footer"
+                  onClick={() => void createDesign(true)}
+                >
+                  Import design
+                </Button>
+              </aside>
+              <div className="design-workspace">
+                {design && (
+                  <>
+                    <div className="content-heading">
+                      <h1>{design.name}</h1>
+                      <span className="muted">Preview</span>
+                    </div>
+                    <DesignPreview design={design} />
+                  </>
+                )}
+              </div>
+            </section>
+            <section
+              id="workspace-panel-code"
+              role="tabpanel"
+              aria-labelledby="workspace-tab-code"
+              hidden={mode !== "code"}
+              className="project-workspace"
+            >
+              <aside className="project-sidebar">
+                <div className="sidebar-heading">
+                  <span>Threads</span>
+                  <Button className="quiet-button" onClick={() => selectThread(project.id, null)}>
+                    New thread
+                  </Button>
+                </div>
+                <div className="sidebar-list">
+                  {snapshot.threads.map((item) => (
+                    <Button
+                      key={item.id}
+                      className={`sidebar-item thread-item ${selectedThreadId === item.id ? "selected" : ""}`}
+                      onClick={() => selectThread(project.id, item.id)}
+                    >
+                      <span>{item.title}</span>
+                      <small>
+                        {item.harness === "codex" ? "Codex" : "Claude Code"}
+                        {item.status === "running" ? " · Running" : ""}
+                      </small>
+                    </Button>
+                  ))}
+                </div>
+              </aside>
+              <div className="thread-workspace">
+                <div className="content-heading">
+                  <h1>{thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}</h1>
+                </div>
+                <div
+                  className="transcript"
+                  ref={transcript}
+                  onScroll={(event) => {
+                    const element = event.currentTarget;
+                    followOutput.current =
+                      element.scrollHeight - element.scrollTop - element.clientHeight < 80;
+                  }}
+                >
+                  {thread?.designIds.length ? (
+                    <div className="thread-references">
+                      {thread.designIds.map((designId) => (
+                        <span key={designId} className="reference-chip">
+                          {snapshot.designs.find((item) => item.id === designId)?.name ??
+                            "Design reference"}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {thread?.messages.map((message) => (
+                    <article key={message.id} className={`message message-${message.role}`}>
+                      <span className="message-author">
+                        {message.role === "user"
+                          ? "You"
+                          : thread.harness === "codex"
+                            ? "Codex"
+                            : "Claude Code"}
+                      </span>
+                      <div>{message.text}</div>
+                    </article>
+                  ))}
+                  {running && (
+                    <p className="thread-activity" role="status">
+                      {thread.activity ?? "Working"}
+                    </p>
+                  )}
+                  {thread?.error && (
+                    <p className="thread-error" role="alert">
+                      {thread.error}
+                    </p>
+                  )}
+                  {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
+                </div>
+                <form
+                  className="composer"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void send();
+                  }}
+                >
+                  {!thread && snapshot.designs.length > 0 && (
+                    <DesignReferences
+                      designs={snapshot.designs}
+                      selected={draft.designIds}
+                      onChange={(designIds) => updateDraft({ designIds })}
+                    />
+                  )}
+                  <label className="sr-only" htmlFor="thread-prompt">
+                    Message
+                  </label>
+                  <textarea
+                    id="thread-prompt"
+                    value={draft.text}
+                    onChange={(event) => updateDraft({ text: event.target.value })}
+                    placeholder={
+                      thread ? "Continue this thread…" : "What would you like to work on?"
+                    }
+                    maxLength={32_000}
+                    rows={3}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                        event.preventDefault();
+                        void send();
+                      }
+                    }}
+                  />
+                  <div className="composer-actions">
+                    {thread ? (
+                      <span className="harness-label">
+                        {thread.harness === "codex" ? "Codex" : "Claude Code"}
+                      </span>
+                    ) : (
+                      <SelectMenu
+                        label="Coding harness"
+                        value={draft.harness}
+                        options={harnesses.map((item) => ({
+                          value: item.id,
+                          label:
+                            item.status === "ready"
+                              ? item.name
+                              : `${item.name} · ${item.status === "signed-out" ? "Sign in required" : "Not installed"}`,
+                        }))}
+                        onChange={(value) => updateDraft({ harness: value as HarnessId })}
+                        triggerClassName="harness-trigger"
+                        placement="top"
+                      />
+                    )}
+                    <span className="composer-spacer" />
+                    {running ? (
+                      <Button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => void stop()}
+                      >
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        type="submit"
+                        className="primary-button"
+                        disabled={
+                          !draft.text.trim() ||
+                          busy ||
+                          !harnessReady ||
+                          Boolean(selectedThreadId && !thread)
+                        }
+                      >
+                        {busy ? "Starting…" : thread ? "Send" : "Start thread"}
+                      </Button>
+                    )}
+                  </div>
+                  {!harnessReady && (
+                    <div className="connection-help">
+                      <span>
+                        {harnesses.find((item) => item.id === selectedHarness)?.name ??
+                          "Your harness"}{" "}
+                        needs to be installed and signed in locally. Run{" "}
+                        <code>
+                          {selectedHarness === "codex" ? "codex login" : "claude auth login"}
+                        </code>{" "}
+                        in your terminal.
+                      </span>
+                      <Button
+                        type="button"
+                        className="quiet-button"
+                        onClick={() => void refreshHarnesses()}
+                      >
+                        Check connection
+                      </Button>
+                    </div>
+                  )}
+                </form>
+              </div>
+            </section>
+          </>
+        )}
       </main>
+    </div>
+  );
+}
+
+function DesignReferences({
+  designs,
+  selected,
+  onChange,
+}: {
+  designs: DesignSummary[];
+  selected: string[];
+  onChange: (value: string[]) => void;
+}) {
+  return (
+    <details className="design-references">
+      <summary>Design references{selected.length ? ` (${selected.length})` : ""}</summary>
+      <div className="reference-options">
+        {designs.map((design) => (
+          <Button
+            key={design.id}
+            type="button"
+            aria-pressed={selected.includes(design.id)}
+            className="reference-option"
+            disabled={!selected.includes(design.id) && selected.length >= 20}
+            onClick={() =>
+              onChange(
+                selected.includes(design.id)
+                  ? selected.filter((id) => id !== design.id)
+                  : [...selected, design.id],
+              )
+            }
+          >
+            <span>{design.name}</span>
+            <span aria-hidden="true">{selected.includes(design.id) ? "✓" : "+"}</span>
+          </Button>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function DesignPreview({ design }: { design: LocalDesign }) {
+  const roots = design.document.nodes.filter((node) => node.parentId === null && node.visible);
+  return (
+    <div className="design-preview">
+      {roots.map((node) => (
+        <div key={node.id} className="design-artboard">
+          <span className="artboard-name">{node.name}</span>
+          <TidyDesign document={design.document} rootId={node.id} assets={{}} readOnly />
+        </div>
+      ))}
     </div>
   );
 }

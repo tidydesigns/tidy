@@ -1,5 +1,11 @@
 import { app, BrowserWindow, nativeTheme, session } from "electron";
 import { join } from "node:path";
+import { ProjectStore } from "./project-store";
+import { WorkspaceService } from "./workspace-service";
+import { registerWorkspaceIPC } from "./ipc";
+
+let service: WorkspaceService | undefined;
+let quitting = false;
 
 async function createWindow() {
   const window = new BrowserWindow({
@@ -11,6 +17,7 @@ async function createWindow() {
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#202020" : "#fafafa",
     show: false,
     webPreferences: {
+      preload: join(import.meta.dirname, "../preload/index.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
@@ -30,10 +37,23 @@ async function createWindow() {
 }
 
 app.setName("Tidy");
+const ownsWorkspace = app.requestSingleInstanceLock();
+if (!ownsWorkspace) app.quit();
+app.on("second-instance", () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (window?.isMinimized()) window.restore();
+  window?.focus();
+});
 
 app
   .whenReady()
   .then(async () => {
+    if (!ownsWorkspace) return;
+    const store = new ProjectStore(join(app.getPath("userData"), "workspace"));
+    await store.initialize();
+    await store.recover();
+    service = new WorkspaceService(store);
+    registerWorkspaceIPC(service);
     session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
       callback(false);
     });
@@ -54,4 +74,11 @@ app
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", (event) => {
+  if (quitting || !service) return;
+  event.preventDefault();
+  quitting = true;
+  void service.close().finally(() => app.quit());
 });

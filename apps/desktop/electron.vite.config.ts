@@ -1,12 +1,27 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";
+import tailwindcss from "@tailwindcss/vite";
+
+const licenceBanner = (chunk: { modules: Record<string, unknown> }) =>
+  bundleLicenseBannerForInputs(Object.keys(chunk.modules));
 
 export default defineConfig({
-  main: {},
+  main: {
+    build: {
+      externalizeDeps: false,
+      rolldownOptions: { output: { banner: licenceBanner } },
+    },
+  },
+  preload: {
+    build: {
+      rolldownOptions: { output: { format: "cjs", entryFileNames: "index.cjs" } },
+    },
+  },
   renderer: {
     plugins: [
       react(),
+      tailwindcss(),
       {
         name: "desktop-development-csp",
         apply: "serve",

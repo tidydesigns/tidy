@@ -6,14 +6,52 @@ or environment configuration. Its purpose is a local-first control pane for codi
 harnesses, with Tidy's design canvas available for agents to design and iterate
 before implementing UI.
 
-This first scaffold includes the desktop runtime and branded React shell. Harness
-connections, local document persistence and the editable canvas are not implemented
-yet. These should share the existing document and canvas code rather than introduce
-a separate desktop design format.
+Open a local directory as a project. Tidy restores the last opened project and
+keeps its design materials and engineering threads together. No cloud account or
+database is needed for project storage.
 
 The top-level Design and Code tabs switch between separate workspace views, with
-Design selected initially. Both views stay mounted while switching so future canvas
-and harness state can be retained. The tabs support arrow keys, Home and End.
+Design selected initially. Both views stay mounted while switching, and each project
+retains its selected thread, design and composer drafts during the app session.
+The tabs support arrow keys, Home and End.
+
+## Projects and threads
+
+1. Open a project directory, or choose a recent project from the top-left picker.
+2. In Design, create a design or import a Tidy design JSON document. Documents use
+   the web app's shared schema and renderer. The canvas currently previews designs;
+   the full visual editing tools and web image asset downloads are not implemented.
+3. In Code, choose Codex or Claude Code, optionally attach design references, and
+   start a thread. The harness runs in the project root and receives the attached
+   design file paths. Follow-up messages resume that thread's exact harness session.
+4. Stop cancels the active process and its commands. Closing the app stops active
+   runs; an interrupted run is never silently restarted. Send a message to continue.
+
+Tidy uses the installed CLIs and their existing sign-ins. Install and sign in to
+Codex (`codex login`) or Claude Code (`claude auth login`), then use Check connection
+in the composer. Credentials remain owned by each CLI and are never read or copied
+by Tidy. The current integration uses Codex JSON events and Claude Code streaming
+JSON; tests exercise both protocols with fixture executables, without paid inference.
+
+Codex runs with the workspace-write sandbox and rejects operations requiring an
+approval. Claude Code uses its `acceptEdits` permission mode; tools requiring further
+permission are denied by the headless CLI and surfaced in the thread. Tidy does not
+enable unrestricted permission bypasses. Existing CLI project instructions apply.
+
+Project-owned files are stored in:
+
+```text
+your-project/
+  .tidy/
+    project.json       # Stable local project identity, retained when moving the folder
+    designs/<id>.json  # { id, name, document: DesignDocument }
+    threads/<id>.json  # Transcript, native session ID, harness and design references
+    .gitignore        # Ignores local identity and private thread history
+```
+
+Design files can be versioned with the project. Thread history stays on disk locally
+and is ignored by Git. The app's private user-data directory stores only recent
+project locations. Agent changes to design JSON refresh the affected previews.
 
 Use Bun 1.3.14 and Node.js 22.12+ (Node.js 24 recommended). From the repository root:
 
@@ -43,11 +81,15 @@ configured when distribution is needed.
 `src/main/index.ts` owns the native window and application lifecycle.
 `src/renderer/` contains the browser-only React interface. The renderer is sandboxed,
 with context isolation and no Node.js integration. Navigation, new windows and
-permissions are denied. No preload bridge or IPC is exposed; add narrowly scoped,
-typed APIs when a desktop feature needs native access. Keep database access and
-server credentials in `apps/web`.
+permissions are denied. The sandboxed preload exposes only typed project, design
+and thread operations. Native IPC validates the main-frame sender and every input;
+paths come from the native directory/file dialogs and are subsequently addressed
+by project and document IDs. Filesystem and harness subprocess access stays in the
+main process. Keep web database access and server credentials in `apps/web`.
 
 The root `bun typecheck`, `bun lint` and `bun run build` commands include this app.
+`bun test apps/desktop/src/main` checks project persistence, project boundaries,
+session resumption, reference context, process cancellation and event parsing.
 Renderer bundles carry the repository's reviewed third-party licence notices;
 packaged apps also include the project licence, bundled notices and font licences.
 

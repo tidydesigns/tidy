@@ -13,15 +13,21 @@
     "package": "bun run build && bun scripts/package.ts",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json",
     "lint": "eslint .",
+    "test": "bun test src/main",
     "postinstall": "install-electron"
   },
   "dependencies": {
+    "@bella/design": "workspace:*",
+    "@tidy/design-renderer": "workspace:*",
     "@tidy/ui": "workspace:*",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
+    "@tailwindcss/vite": "^4",
+    "@types/bun": "^1.3.14",
     "@types/node": "^24",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -31,6 +37,7 @@
     "eslint": "^9",
     "typescript": "^5",
     "typescript-eslint": "^8.0.0",
+    "tailwindcss": "^4",
     "vite": "^8.3.4"
   }
 }
