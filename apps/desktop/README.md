@@ -41,6 +41,19 @@ action to move it into the collapsed Done section at the bottom of the sidebar.
 Completed threads remain readable; click Done again to reopen one and continue
 its original harness session. A harness finishing a turn does not mark a thread Done.
 
+Press Enter to send; Shift+Enter adds a new line. Cmd/Ctrl+Enter also sends.
+Use the paperclip to attach files, drop them onto the composer, or paste an image.
+Attachments have previews and can be removed before sending. A message can contain
+attachments without text. Images use Codex's native image flag or Claude's
+structured streaming image input; other files are supplied as local paths for the
+harness's file tools. New and resumed sessions support attachments.
+
+Up to 10 attachments are accepted per message, totaling 25 MB. Each raster image
+(PNG, JPEG, WebP or GIF) is limited to 5 MB; other files are limited to 20 MB. SVGs
+are treated as source files. Selected files are copied into private project storage
+and sent to the selected harness only when the message is sent. Sent messages keep
+their attachment references and restore image previews after reopening the thread.
+
 The composer uses the same Codex and Claude marks as the web app. Choose a model
 and supported effort level from the connected CLI's catalog. Settings persist per
 thread and apply to its next message while retaining its native session. Leave
@@ -68,7 +81,8 @@ your-project/
     designs/<id>.json  # { id, name, folderId, document: DesignDocument }
     folders/<id>.json  # { id, name }; project-local design organization
     assets/<id>.json   # Local image data, referenced by designs
-    threads/<id>.json  # Transcript, native session ID, harness and design references
+    attachments/      # Private copied files and metadata, ignored by Git
+    threads/<id>.json  # Transcript, native session ID, harness and attachment references
     .gitignore        # Ignores local identity and private thread history
 ```
 

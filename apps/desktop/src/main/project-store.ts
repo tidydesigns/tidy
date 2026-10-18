@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  appendFile,
   lstat,
   mkdir,
   readdir,
@@ -9,9 +10,15 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, extname, join } from "node:path";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "@tidy/design/document";
 import { z } from "zod";
+import {
+  attachmentSchema,
+  MAX_ATTACHMENT_BYTES,
+  MAX_IMAGE_BYTES,
+  type AttachedFile,
+} from "../shared/attachments";
 import { harnessSettingsSchema, tokenUsageSchema } from "../shared/harness-settings";
 import type {
   DesignFolder,
@@ -27,6 +34,7 @@ const messageSchema = z.object({
   id,
   role: z.enum(["user", "assistant"]),
   text: z.string().max(1_000_000),
+  attachments: z.array(attachmentSchema).max(10).optional(),
 });
 export const threadSchema = z.object({
   revision: z.number().int().min(0).default(0),
@@ -137,7 +145,7 @@ export class ProjectStore {
   private async prepare(project: Project) {
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
-    for (const name of ["", "threads", "designs", "assets", "folders"]) {
+    for (const name of ["", "threads", "designs", "assets", "folders", "attachments"]) {
       const path = join(project.path, ".tidy", name);
       try {
         await mkdir(path, { mode: 0o700 });
@@ -149,18 +157,28 @@ export class ProjectStore {
         throw new Error("Project .tidy storage must be a real directory.");
     }
     try {
-      await writeFile(join(project.path, ".tidy", ".gitignore"), "/threads/\n/project.json\n", {
-        flag: "wx",
-        mode: 0o600,
-      });
+      await writeFile(
+        join(project.path, ".tidy", ".gitignore"),
+        "/threads/\n/attachments/\n/project.json\n",
+        {
+          flag: "wx",
+          mode: 0o600,
+        },
+      );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const ignorePath = join(project.path, ".tidy", ".gitignore");
+      const info = await lstat(ignorePath);
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error("Project ignore rules must be a regular file.");
+      if (!(await readFile(ignorePath, "utf8")).split(/\r?\n/).includes("/attachments/"))
+        await appendFile(ignorePath, "\n/attachments/\n");
     }
   }
 
   async storagePath(
     projectId: string,
-    kind: "threads" | "designs" | "assets" | "folders",
+    kind: "threads" | "designs" | "assets" | "folders" | "attachments",
     fileId?: string,
   ) {
     const project = this.project(projectId);
@@ -189,6 +207,95 @@ export class ProjectStore {
     if ((await stat(path)).size > 16 * 1024 * 1024)
       throw new Error("The local project file is too large.");
     return JSON.parse(await readFile(path, "utf8")) as unknown;
+  }
+
+  async addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile> {
+    const safeName = z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .parse(name)
+      .replace(/[\x00-\x1f\x7f/\\]/g, "_");
+    const match = /^data:([^;,]*);base64,([A-Za-z0-9+/]*={0,2})$/.exec(dataUrl);
+    if (!match || dataUrl.length > Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 200)
+      throw new Error("Choose a file under 20 MB.");
+    const bytes = Buffer.from(match[2], "base64");
+    if (bytes.length > MAX_ATTACHMENT_BYTES || bytes.toString("base64") !== match[2])
+      throw new Error("This attachment could not be read, or exceeds 20 MB.");
+    let mimeType = "application/octet-stream";
+    if (bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+      mimeType = "image/png";
+    else if (bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) mimeType = "image/jpeg";
+    else if (["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString())) mimeType = "image/gif";
+    else if (
+      bytes.subarray(0, 4).toString() === "RIFF" &&
+      bytes.subarray(8, 12).toString() === "WEBP"
+    )
+      mimeType = "image/webp";
+    if (mimeType.startsWith("image/") && bytes.length > MAX_IMAGE_BYTES)
+      throw new Error("Choose an image under 5 MB.");
+    const suffix =
+      (
+        {
+          "image/png": "png",
+          "image/jpeg": "jpg",
+          "image/webp": "webp",
+          "image/gif": "gif",
+        } as Record<string, string>
+      )[mimeType] ??
+      (/^[a-z0-9]{1,12}$/i.test(extname(safeName).slice(1))
+        ? extname(safeName).slice(1).toLowerCase()
+        : "bin");
+    const attachment = { id: randomUUID(), name: safeName, mimeType, size: bytes.length };
+    const directory = await this.storagePath(projectId, "attachments");
+    await writeFile(join(directory, `${attachment.id}.file.${suffix}`), bytes, {
+      mode: 0o600,
+      flag: "wx",
+    });
+    await this.atomicWrite(() => this.storagePath(projectId, "attachments", attachment.id), {
+      ...attachment,
+      suffix,
+    });
+    return {
+      ...attachment,
+      ...(mimeType.startsWith("image/")
+        ? { previewUrl: `data:${mimeType};base64,${match[2]}` }
+        : {}),
+    };
+  }
+
+  async resolveAttachment(projectId: string, attachmentId: string) {
+    const metadataPath = await this.storagePath(projectId, "attachments", attachmentId);
+    const data = attachmentSchema
+      .extend({ suffix: z.string().regex(/^[a-z0-9]{1,12}$/) })
+      .parse(await this.read(metadataPath));
+    if (data.id !== attachmentId) throw new Error("Attachment ID does not match its filename.");
+    const directory = await this.storagePath(projectId, "attachments");
+    const path = join(directory, `${data.id}.file.${data.suffix}`);
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink())
+      throw new Error("Attachments must be regular files.");
+    if (info.size !== data.size || info.size > MAX_ATTACHMENT_BYTES)
+      throw new Error("This attachment changed on disk. Attach it again.");
+    if (
+      ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(data.mimeType) &&
+      data.size > MAX_IMAGE_BYTES
+    )
+      throw new Error("Choose an image under 5 MB.");
+    return { ...attachmentSchema.parse(data), path };
+  }
+
+  async readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile> {
+    const file = await this.resolveAttachment(projectId, attachmentId);
+    const { path, ...value } = file;
+    if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(value.mimeType))
+      return value;
+    if (value.size > MAX_IMAGE_BYTES) throw new Error("Choose an image under 5 MB.");
+    return {
+      ...value,
+      previewUrl: `data:${value.mimeType};base64,${(await readFile(path)).toString("base64")}`,
+    };
   }
 
   async readThread(projectId: string, threadId: string) {

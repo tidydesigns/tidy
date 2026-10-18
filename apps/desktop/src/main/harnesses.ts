@@ -232,6 +232,7 @@ export function startHarness(input: {
   prompt: string;
   sessionId?: string;
   settings?: HarnessSettings;
+  images?: Array<{ path: string; mimeType: string; data: string }>;
   onUpdate: (update: HarnessUpdate) => void;
 }): RunningHarness {
   const args =
@@ -262,6 +263,11 @@ export function startHarness(input: {
     if (input.harness === "codex")
       args.push("-c", `model_reasoning_effort=${JSON.stringify(input.settings.effort)}`);
     else args.push("--effort", input.settings.effort);
+  }
+  if (input.images?.length) {
+    if (input.harness === "codex")
+      for (const image of input.images) args.push("--image", image.path);
+    else args.push("--input-format", "stream-json");
   }
   const child: ChildProcessWithoutNullStreams = spawn(input.executable, args, {
     cwd: input.cwd,
@@ -350,7 +356,25 @@ export function startHarness(input: {
         );
       else resolve();
     });
-    child.stdin.end(input.prompt);
+    child.stdin.end(
+      input.harness === "claude" && input.images?.length
+        ? JSON.stringify({
+            type: "user",
+            session_id: input.sessionId ?? "",
+            parent_tool_use_id: null,
+            message: {
+              role: "user",
+              content: [
+                { type: "text", text: input.prompt },
+                ...input.images.map((image) => ({
+                  type: "image",
+                  source: { type: "base64", media_type: image.mimeType, data: image.data },
+                })),
+              ],
+            },
+          }) + "\n"
+        : input.prompt,
+    );
   });
   return { done, stop };
 }

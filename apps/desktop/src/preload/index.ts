@@ -22,6 +22,10 @@ const api: DesktopAPI = {
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
   startThread: (input) => request("start-thread", input),
   sendMessage: (input) => request("send-message", input),
+  addAttachment: (projectId, name, dataUrl) =>
+    request("add-attachment", { projectId, name, dataUrl }),
+  readAttachment: (projectId, attachmentId) =>
+    request("read-attachment", { projectId, attachmentId }),
   setThreadDone: (projectId, threadId, done) =>
     request("set-thread-done", { projectId, threadId, done }),
   stopThread: (projectId, threadId) => request("stop-thread", { projectId, threadId }),

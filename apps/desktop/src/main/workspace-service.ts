@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
 import type { DesktopEvent, HarnessId, Thread } from "../shared/contracts";
 import { findHarness, startHarness, type HarnessUpdate, type RunningHarness } from "./harnesses";
+import {
+  attachmentSchema,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_TOTAL_BYTES,
+} from "../shared/attachments";
 import type { HarnessSettings } from "../shared/harness-settings";
 import { validateHarnessSettings } from "./harness-details";
 import { ProjectStore } from "./project-store";
@@ -129,6 +135,7 @@ export class WorkspaceService {
     prompt: string;
     designIds: string[];
     settings?: HarnessSettings;
+    attachmentIds?: string[];
   }) {
     const thread: Thread = {
       revision: 0,
@@ -143,10 +150,15 @@ export class WorkspaceService {
       updatedAt: new Date().toISOString(),
     };
     for (const designId of input.designIds) await this.store.readDesign(input.projectId, designId);
-    return this.run(thread, input.prompt);
+    return this.run(thread, input.prompt, input.attachmentIds);
   }
 
-  async sendMessage(input: { projectId: string; threadId: string; text: string }) {
+  async sendMessage(input: {
+    projectId: string;
+    threadId: string;
+    text: string;
+    attachmentIds?: string[];
+  }) {
     if (this.starting.has(input.threadId) || this.jobs.has(input.threadId))
       throw new Error("This thread is already running.");
     this.starting.add(input.threadId);
@@ -154,16 +166,37 @@ export class WorkspaceService {
       return await this.run(
         await this.store.readThread(input.projectId, input.threadId),
         input.text,
+        input.attachmentIds,
       );
     } finally {
       this.starting.delete(input.threadId);
     }
   }
 
-  private async run(thread: Thread, prompt: string) {
+  private async run(thread: Thread, prompt: string, attachmentIds: string[] = []) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
     const project = this.store.project(thread.projectId);
+    z.array(z.string().uuid()).max(MAX_ATTACHMENTS).parse(attachmentIds);
+    if (!prompt.trim() && !attachmentIds.length)
+      throw new Error("Write a message or attach a file.");
+    const attachments = await Promise.all(
+      [...new Set(attachmentIds)].map((id) => this.store.resolveAttachment(project.id, id)),
+    );
+    if (attachments.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES)
+      throw new Error("Keep attachments under 25 MB per message.");
+    const images = await Promise.all(
+      attachments
+        .filter((file) =>
+          ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.mimeType),
+        )
+        .map(async (file) => ({
+          path: file.path,
+          mimeType: file.mimeType,
+          data: (await readFile(file.path)).toString("base64"),
+        })),
+    );
+    if (!thread.title) thread.title = attachments[0]?.name.slice(0, 80) ?? "New thread";
     await this.configure(thread.harness, project.path, thread.settings);
     const executable = await this.locate(thread.harness);
     if (!executable)
@@ -183,11 +216,24 @@ export class WorkspaceService {
             ...references.map((design) => `${design.name}: ${design.path}`),
           ]
         : []),
+      ...(attachments.length
+        ? [
+            "The user attached these local files. Image attachments are also included as image input; read other files with your file tools as needed:",
+            ...attachments.map((file) => `${JSON.stringify(file.name)}: ${file.path}`),
+          ]
+        : []),
       "User request:",
-      prompt,
+      prompt || "Review the attached files.",
     ].join("\n\n");
     if (this.closing) throw new Error("Tidy is closing.");
-    thread.messages.push({ id: randomUUID(), role: "user", text: prompt });
+    thread.messages.push({
+      id: randomUUID(),
+      role: "user",
+      text: prompt,
+      ...(attachments.length
+        ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }
+        : {}),
+    });
     thread.status = "running";
     thread.revision++;
     thread.error = undefined;
@@ -224,6 +270,7 @@ export class WorkspaceService {
         prompt: context,
         sessionId: thread.sessionId,
         settings: thread.settings,
+        images,
         onUpdate: (update) => this.update(job, update),
       });
       if (job.stopped) job.process.stop();

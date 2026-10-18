@@ -314,3 +314,62 @@ test("model settings persist and resume the same session; usage respects per-tur
     costUSD: 0.1,
   });
 });
+
+test("attachment-only turns keep files with the message and send images to the harness", async () => {
+  const { store, service, project, runs } = await fixture();
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+  const image = await store.addAttachment(
+    project.id,
+    "Screenshot.png",
+    `data:image/png;base64,${png}`,
+  );
+  const file = await store.addAttachment(
+    project.id,
+    "Notes.txt",
+    `data:text/plain;base64,${Buffer.from("Project notes").toString("base64")}`,
+  );
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "",
+    designIds: [],
+    attachmentIds: [image.id, file.id],
+  });
+  expect(thread.title).toBe("Screenshot.png");
+  expect(thread.messages[0].attachments?.map((file) => file.name)).toEqual([
+    "Screenshot.png",
+    "Notes.txt",
+  ]);
+  expect(JSON.stringify(thread)).not.toContain(png);
+  expect(runs[0].input.images?.[0].data).toBe(png);
+  expect(runs[0].input.prompt).toContain((await store.resolveAttachment(project.id, file.id)).path);
+  const complete = finished(service, thread.id);
+  runs[0].complete();
+  await complete;
+  const next = await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Continue without new attachments",
+  });
+  expect(next.messages.filter((message) => message.role === "user")[1].attachments).toBeUndefined();
+  expect(runs[1].input.images).toEqual([]);
+  expect((await store.readThread(project.id, thread.id)).messages[0].attachments?.length).toBe(2);
+});
+
+test("missing attachments and empty turns cannot launch a harness", async () => {
+  const { service, project, runs } = await fixture();
+  await expect(
+    service.startThread({ projectId: project.id, harness: "codex", prompt: "", designIds: [] }),
+  ).rejects.toThrow("Write a message");
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Missing",
+      designIds: [],
+      attachmentIds: [randomUUID()],
+    }),
+  ).rejects.toThrow();
+  expect(runs.length).toBe(0);
+});

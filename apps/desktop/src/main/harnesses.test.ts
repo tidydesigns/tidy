@@ -128,3 +128,39 @@ test("Claude startup failures cannot erase a resumed thread's recorded usage", (
   expect(updates.some((update) => update.type === "usage")).toBe(false);
   expect(updates.some((update) => update.type === "error")).toBe(true);
 });
+
+test("images reach both native harness protocols on new and resumed turns", async () => {
+  const { directory, executable } = await fixture();
+  const imagePath = join(directory, "image with spaces;literal.png");
+  const data =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+  for (const harness of ["codex", "claude"] as const)
+    for (const sessionId of [undefined, "b56ba7bb-00aa-4a56-a64c-593c3c377dcc"]) {
+      await startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: "Describe this image",
+        sessionId,
+        images: [{ path: imagePath, mimeType: "image/png", data }],
+        onUpdate: () => {},
+      }).done;
+      const invocation = JSON.parse(
+        await readFile(join(directory, "harness-invocation.json"), "utf8"),
+      );
+      if (harness === "codex") {
+        expect(invocation.args.slice(-2)).toEqual(["--image", imagePath]);
+        expect(invocation.prompt).toBe("Describe this image");
+      } else {
+        expect(invocation.args.slice(-2)).toEqual(["--input-format", "stream-json"]);
+        const message = JSON.parse(invocation.prompt);
+        expect(message.type).toBe("user");
+        expect(message.session_id).toBe(sessionId ?? "");
+        expect(message.message.content).toEqual([
+          { type: "text", text: "Describe this image" },
+          { type: "image", source: { type: "base64", media_type: "image/png", data } },
+        ]);
+      }
+      if (sessionId) expect(invocation.args).toContain(sessionId);
+    }
+});

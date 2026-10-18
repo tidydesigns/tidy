@@ -269,3 +269,77 @@ test("folders obey project boundaries and reject symbolic links and invalid dest
   expect(await store.folders(project.id)).toEqual([]);
   await expect(store.createFolder(project.id, " ")).rejects.toThrow();
 });
+
+test("attachments persist privately, retain literal bytes and cannot escape their project", async () => {
+  const { directory, root, store } = await fixture();
+  const project = (await store.open(root)).project;
+  const bytes = Buffer.from("Read this source literally: $(touch injected)\n");
+  const file = await store.addAttachment(
+    project.id,
+    "../plan.txt",
+    `data:text/plain;base64,${bytes.toString("base64")}`,
+  );
+  expect(file.name).not.toContain("/");
+  expect(file.previewUrl).toBeUndefined();
+  const resolved = await store.resolveAttachment(project.id, file.id);
+  expect(await readFile(resolved.path)).toEqual(bytes);
+  expect(resolved.path.startsWith(join(project.path, ".tidy/attachments/"))).toBe(true);
+  expect(await readFile(join(root, ".tidy/.gitignore"), "utf8")).toContain("/attachments/");
+  const json = await store.addAttachment(
+    project.id,
+    "settings.json",
+    `data:application/json;base64,${Buffer.from('{"theme":"dark"}').toString("base64")}`,
+  );
+  expect(await readFile((await store.resolveAttachment(project.id, json.id)).path, "utf8")).toBe(
+    '{"theme":"dark"}',
+  );
+  const reopened = new ProjectStore(join(directory, "app-data"));
+  await reopened.initialize();
+  expect((await reopened.readAttachment(project.id, file.id)).name).toBe(file.name);
+  const otherRoot = join(directory, "other");
+  await mkdir(otherRoot);
+  const other = (await store.open(otherRoot)).project;
+  await expect(store.resolveAttachment(other.id, file.id)).rejects.toThrow();
+  await rm(resolved.path);
+  await symlink(join(root, ".tidy/project.json"), resolved.path);
+  await expect(store.resolveAttachment(project.id, file.id)).rejects.toThrow("regular files");
+});
+
+test("image attachments use verified raster MIME types and reject invalid or oversized data", async () => {
+  const { root, store } = await fixture();
+  const project = (await store.open(root)).project;
+  const png =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+  const image = await store.addAttachment(
+    project.id,
+    "screenshot.png",
+    `data:application/octet-stream;base64,${png}`,
+  );
+  expect(image.mimeType).toBe("image/png");
+  expect((await store.readAttachment(project.id, image.id)).previewUrl).toBe(
+    `data:image/png;base64,${png}`,
+  );
+  const svg = Buffer.from('<svg onload="alert(1)"></svg>').toString("base64");
+  const source = await store.addAttachment(
+    project.id,
+    "icon.svg",
+    `data:image/svg+xml;base64,${svg}`,
+  );
+  expect(source.previewUrl).toBeUndefined();
+  expect(source.mimeType).toBe("application/octet-stream");
+  await expect(
+    store.addAttachment(project.id, "bad.txt", "https://example.com/secret"),
+  ).rejects.toThrow();
+  await expect(
+    store.addAttachment(project.id, "bad.txt", "data:text/plain;base64,%%%"),
+  ).rejects.toThrow();
+  const oversized = Buffer.alloc(5 * 1024 * 1024 + 1);
+  Buffer.from(png, "base64").copy(oversized);
+  await expect(
+    store.addAttachment(
+      project.id,
+      "big.png",
+      `data:image/png;base64,${oversized.toString("base64")}`,
+    ),
+  ).rejects.toThrow("5 MB");
+});

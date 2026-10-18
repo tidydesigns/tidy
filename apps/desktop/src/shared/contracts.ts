@@ -1,3 +1,4 @@
+import type { Attachment, AttachedFile } from "./attachments";
 import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
 
@@ -8,7 +9,12 @@ export type HarnessConnection = {
   status: "ready" | "signed-out" | "not-installed";
 };
 export type Project = { id: string; name: string; path: string; openedAt: string };
-export type Message = { id: string; role: "user" | "assistant"; text: string };
+export type Message = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+  attachments?: Attachment[];
+};
 export type Thread = {
   revision: number;
   id: string;
@@ -102,8 +108,16 @@ export type DesktopAPI = {
     prompt: string;
     designIds: string[];
     settings?: HarnessSettings;
+    attachmentIds?: string[];
   }): Promise<Thread>;
-  sendMessage(input: { projectId: string; threadId: string; text: string }): Promise<Thread>;
+  sendMessage(input: {
+    projectId: string;
+    threadId: string;
+    text: string;
+    attachmentIds?: string[];
+  }): Promise<Thread>;
+  addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;
+  readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
   createDesign(projectId: string, folderId?: string | null): Promise<LocalDesign>;

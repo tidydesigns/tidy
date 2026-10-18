@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { readHarnessDetails } from "./harness-details";
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/attachments";
 import { harnessSettingsSchema } from "../shared/harness-settings";
 import { checkHarnesses } from "./harnesses";
 import { WorkspaceService } from "./workspace-service";
@@ -12,7 +13,6 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
   const store = service.store;
   const uuid = z.string().uuid();
   const projectId = uuid;
-  const prompt = z.string().trim().min(1).max(32_000);
   const rendererFile = pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
 
   function authorize(event: IpcMainInvokeEvent) {
@@ -117,15 +117,39 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
       .object({
         projectId,
         harness: z.enum(["codex", "claude"]),
-        prompt,
+        prompt: z.string().trim().max(32_000),
+        attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
         designIds: z.array(uuid).max(20),
         settings: harnessSettingsSchema.optional(),
       })
       .strict(),
     (value) => service.startThread(value),
   );
-  handle("send-message", z.object({ projectId, threadId: uuid, text: prompt }).strict(), (value) =>
-    service.sendMessage(value),
+  handle(
+    "send-message",
+    z
+      .object({
+        projectId,
+        threadId: uuid,
+        text: z.string().trim().max(32_000),
+        attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
+      })
+      .strict(),
+    (value) => service.sendMessage(value),
+  );
+  handle(
+    "add-attachment",
+    z
+      .object({
+        projectId,
+        name: z.string().trim().min(1).max(200),
+        dataUrl: z.string().max(Math.ceil((MAX_ATTACHMENT_BYTES * 4) / 3) + 200),
+      })
+      .strict(),
+    (value) => store.addAttachment(value.projectId, value.name, value.dataUrl),
+  );
+  handle("read-attachment", z.object({ projectId, attachmentId: uuid }).strict(), (value) =>
+    store.readAttachment(value.projectId, value.attachmentId),
   );
   handle(
     "set-thread-done",

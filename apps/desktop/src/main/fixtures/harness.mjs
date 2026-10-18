@@ -9,13 +9,18 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
   process.exit(0);
 }
 
+let structuredInput;
 const metadataArgs = process.argv.slice(2);
 if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format")) {
   const codex = metadataArgs[0] === "app-server";
   const methods = [];
   for await (const line of createInterface({ input: process.stdin })) {
-    const value = JSON.parse(line),
-      method = codex ? value.method : value.request?.subtype;
+    const value = JSON.parse(line);
+    if (value.type === "user") {
+      structuredInput = value;
+      break;
+    }
+    const method = codex ? value.method : value.request?.subtype;
     methods.push(method);
     writeFileSync("capability-invocation.json", JSON.stringify({ methods, cwd: process.cwd() }));
     const reply = (result) =>
@@ -79,10 +84,10 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
       reply({ account: { type: "chatgpt", email: "private@example.invalid" } });
     else if (method !== "initialized") throw Error("Unexpected capability request: " + method);
   }
-  process.exit(0);
+  if (!structuredInput) process.exit(0);
 }
 
-let prompt = "";
+let prompt = structuredInput ? JSON.stringify(structuredInput) + "\n" : "";
 for await (const chunk of process.stdin) prompt += chunk;
 const args = process.argv.slice(2);
 writeFileSync(

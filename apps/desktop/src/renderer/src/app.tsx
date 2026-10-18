@@ -3,6 +3,14 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
+import { AttachmentList, MessageAttachments } from "./message-attachments";
+import {
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_IMAGE_BYTES,
+  MAX_ATTACHMENT_TOTAL_BYTES,
+  type AttachedFile,
+} from "../../shared/attachments";
 import { ProjectFiles } from "./project-files";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
 import { HarnessControls } from "./harness-controls";
@@ -25,7 +33,13 @@ const modes = [
   { id: "code", label: "Code" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
-type Draft = { text: string; harness: HarnessId; designIds: string[]; settings?: HarnessSettings };
+type Draft = {
+  text: string;
+  harness: HarnessId;
+  designIds: string[];
+  settings?: HarnessSettings;
+  attachments?: AttachedFile[];
+};
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "The operation could not be completed.";
@@ -52,6 +66,12 @@ export function App() {
   const [now, setNow] = useState(Date.now);
   const [updatingDone, setUpdatingDone] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
+  const sendingKeys = useRef(new Set<string>());
+  const [uploading, setUploading] = useState<Record<string, number>>({});
+  const uploads = useRef<Record<string, Promise<void>>>({});
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+  const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<{ projectId?: string; text: string } | null>(null);
   const navigation = useRef(0);
   const threadSelection = useRef<Record<string, number>>({});
@@ -362,11 +382,76 @@ export function App() {
     });
   }
 
+  function attachFiles(files: File[]) {
+    if (!api || !project || thread?.doneAt || busy || !files.length) return;
+    const projectId = project.id,
+      key = draftKey,
+      fallback = draft;
+    setUploading((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
+    const queued = (uploads.current[key] ?? Promise.resolve())
+      .then(async () => {
+        const attached = [...(draftsRef.current[key]?.attachments ?? fallback.attachments ?? [])];
+        const errors: string[] = [];
+        for (const file of files) {
+          if (attached.length >= MAX_ATTACHMENTS) {
+            errors.push("Attach up to 10 files per message.");
+            break;
+          }
+          const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type);
+          if (file.size > (image ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES)) {
+            errors.push(
+              `${file.name}: choose ${image ? "an image under 5 MB" : "a file under 20 MB"}.`,
+            );
+            continue;
+          }
+          if (
+            attached.reduce((total, value) => total + value.size, file.size) >
+            MAX_ATTACHMENT_TOTAL_BYTES
+          ) {
+            errors.push("Keep attachments under 25 MB per message.");
+            continue;
+          }
+          try {
+            const dataUrl = await new Promise<string>((resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(String(reader.result));
+              reader.onerror = () => reject(new Error("Could not read this file."));
+              reader.readAsDataURL(file);
+            });
+            const value = await api.addAttachment(
+              projectId,
+              file.name.slice(0, 200) || "Pasted image.png",
+              dataUrl,
+            );
+            attached.push(value);
+            setDrafts((current) => ({
+              ...current,
+              [key]: {
+                ...(current[key] ?? fallback),
+                attachments: [...(current[key]?.attachments ?? fallback.attachments ?? []), value],
+              },
+            }));
+          } catch (cause) {
+            errors.push(errorText(cause));
+          }
+        }
+        if (errors.length) setError({ projectId, text: [...new Set(errors)].join(" ") });
+      })
+      .finally(() => {
+        setUploading((current) => ({ ...current, [key]: Math.max(0, (current[key] ?? 1) - 1) }));
+      });
+    uploads.current[key] = queued.catch(() => {});
+  }
+
   async function send() {
     if (
       !api ||
       !project ||
-      !draft.text.trim() ||
+      (!draft.text.trim() && !draft.attachments?.length) ||
+      !harnessReady ||
+      (selectedThreadId && !thread) ||
+      sendingKeys.current.has(draftKey) ||
+      uploading[draftKey] ||
       busy ||
       running ||
       thread?.doneAt ||
@@ -377,18 +462,25 @@ export function App() {
     const key = draftKey;
     const submitted = draft.text;
     const selection = threadSelection.current[projectId] ?? 0;
+    sendingKeys.current.add(key);
     setSending((current) => ({ ...current, [key]: true }));
-    setDrafts((current) => ({ ...current, [key]: { ...draft, text: "" } }));
+    setDrafts((current) => ({ ...current, [key]: { ...draft, text: "", attachments: [] } }));
     setError(null);
     try {
       const value = selectedThreadId
-        ? await api.sendMessage({ projectId, threadId: selectedThreadId, text: submitted })
+        ? await api.sendMessage({
+            projectId,
+            threadId: selectedThreadId,
+            text: submitted,
+            attachmentIds: draft.attachments?.map((file) => file.id),
+          })
         : await api.startThread({
             projectId,
             harness: draft.harness,
             prompt: submitted,
             designIds: draft.designIds,
             settings: draft.settings,
+            attachmentIds: draft.attachments?.map((file) => file.id),
           });
       setThreads((current) => ({
         ...current,
@@ -401,10 +493,17 @@ export function App() {
     } catch (value) {
       setDrafts((current) => ({
         ...current,
-        [key]: current[key]?.text ? current[key] : { ...draft, text: submitted },
+        [key]: {
+          ...(current[key] ?? draft),
+          text: [submitted, current[key]?.text].filter(Boolean).join("\n\n"),
+          attachments: [...(draft.attachments ?? []), ...(current[key]?.attachments ?? [])].filter(
+            (file, index, all) => all.findIndex((item) => item.id === file.id) === index,
+          ),
+        },
       }));
       setError({ projectId, text: errorText(value) });
     } finally {
+      sendingKeys.current.delete(key);
       setSending((current) => ({ ...current, [key]: false }));
     }
   }
@@ -739,6 +838,13 @@ export function App() {
                         )}
                       </span>
                       <div>{message.text}</div>
+                      {message.attachments?.length && api ? (
+                        <MessageAttachments
+                          api={api}
+                          projectId={project.id}
+                          files={message.attachments}
+                        />
+                      ) : null}
                     </article>
                   ))}
                   {running && (
@@ -755,6 +861,16 @@ export function App() {
                 </div>
                 <form
                   className="composer"
+                  onDragOver={(event) => {
+                    if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
+                      event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    if (event.dataTransfer.files.length) {
+                      event.preventDefault();
+                      attachFiles(Array.from(event.dataTransfer.files));
+                    }
+                  }}
                   onSubmit={(event) => {
                     event.preventDefault();
                     void send();
@@ -767,6 +883,33 @@ export function App() {
                       onChange={(designIds) => updateDraft({ designIds })}
                     />
                   )}
+                  <AttachmentList
+                    files={draft.attachments ?? []}
+                    onRemove={
+                      thread?.doneAt
+                        ? undefined
+                        : (id) =>
+                            updateDraft({
+                              attachments: draft.attachments?.filter((file) => file.id !== id),
+                            })
+                    }
+                  />
+                  {Boolean(uploading[draftKey]) && (
+                    <span className="attachment-progress" role="status">
+                      Adding attachments…
+                    </span>
+                  )}
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    multiple
+                    hidden
+                    aria-label="Attach files"
+                    onChange={(event) => {
+                      attachFiles(Array.from(event.currentTarget.files ?? []));
+                      event.currentTarget.value = "";
+                    }}
+                  />
                   <label className="sr-only" htmlFor="thread-prompt">
                     Message
                   </label>
@@ -774,6 +917,13 @@ export function App() {
                     id="thread-prompt"
                     value={draft.text}
                     onChange={(event) => updateDraft({ text: event.target.value })}
+                    onPaste={(event) => {
+                      const files = Array.from(event.clipboardData.files);
+                      if (files.length) {
+                        event.preventDefault();
+                        attachFiles(files);
+                      }
+                    }}
                     placeholder={
                       thread?.doneAt
                         ? "Reopen this thread to continue…"
@@ -781,17 +931,47 @@ export function App() {
                           ? "Continue this thread…"
                           : "What would you like to work on?"
                     }
-                    disabled={Boolean(thread?.doneAt)}
+                    disabled={Boolean(thread?.doneAt) || busy}
                     maxLength={32_000}
                     rows={3}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                      if (
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.altKey &&
+                        !event.nativeEvent.isComposing &&
+                        event.nativeEvent.keyCode !== 229
+                      ) {
                         event.preventDefault();
                         void send();
                       }
                     }}
                   />
                   <div className="composer-actions">
+                    <Button
+                      type="button"
+                      className="quiet-button attachment-button"
+                      aria-label="Attach files"
+                      title="Attach files"
+                      disabled={Boolean(thread?.doneAt) || busy}
+                      onClick={() => fileInput.current?.click()}
+                    >
+                      <svg
+                        aria-hidden="true"
+                        width="17"
+                        height="17"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                      >
+                        <path
+                          d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
+                          stroke="currentColor"
+                          strokeWidth="1.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </Button>
                     <HarnessControls
                       api={api!}
                       connections={harnesses}
@@ -827,7 +1007,8 @@ export function App() {
                         type="submit"
                         className="primary-button"
                         disabled={
-                          !draft.text.trim() ||
+                          (!draft.text.trim() && !draft.attachments?.length) ||
+                          Boolean(uploading[draftKey]) ||
                           busy ||
                           Boolean(thread && settingsPending[thread.id]) ||
                           Boolean(thread?.doneAt) ||
