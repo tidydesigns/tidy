@@ -3,6 +3,7 @@
 import { createPortal } from "react-dom";
 import { EditorNotification } from "./editor-notification";
 import { mergeCommentPages } from "@/lib/design/comment-pages";
+import { Icon } from "@/components/ui/icon";
 import { Dialog } from "@/components/ui/dialog";
 import {
   forwardRef,
@@ -322,6 +323,7 @@ export const CanvasComments = forwardRef<
   const [deleteTarget, setDeleteTarget] = useState<CommentThread | null>(null);
   const deleteDialog = useRef<HTMLDialogElement>(null);
   const postingRef = useRef(false);
+  const createdThreadRef = useRef<{ id: string; interaction: number } | null>(null);
   const interactionRef = useRef(0);
   const mutationRef = useRef<{ thread: CommentThread; resolved: boolean | null } | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
@@ -355,25 +357,27 @@ export const CanvasComments = forwardRef<
             message: "Could not load comments.",
           });
         };
+        const selected = ensureThreadId ?? focusedThread.current;
+        // The list and focused thread are independent reads; do not make posting wait for both in sequence.
+        const [firstPage, detail] = await Promise.all([
+          read(new URLSearchParams({ pageId })),
+          selected ? read(new URLSearchParams({ pageId, threadId: selected })) : null,
+        ]);
         for (let index = 0; index < loadedPages.current; index++) {
           const query = new URLSearchParams({ pageId });
           if (cursor) query.set("cursor", cursor);
-          result = await read(query);
+          result = index === 0 ? firstPage : await read(query);
           if (version !== refreshVersion.current) return;
           pages.push(result.threads);
           cursor = result.nextCursor ?? null;
           if (!cursor) break;
         }
-        const selected = ensureThreadId ?? focusedThread.current;
-        if (selected) {
-          const detail = await read(new URLSearchParams({ pageId, threadId: selected }));
-          if (version !== refreshVersion.current) return;
-          pages.push(detail.threads);
-        }
+        if (detail) pages.push(detail.threads);
         if (!result || version !== refreshVersion.current) return;
         const mutation = mutationRef.current;
+        const merged = mergeCommentPages(pages);
         setThreads(
-          mergeCommentPages(pages).flatMap((thread) =>
+          merged.flatMap((thread) =>
             thread.id !== mutation?.thread.id
               ? [thread]
               : mutation.resolved === null
@@ -381,6 +385,15 @@ export const CanvasComments = forwardRef<
                 : [{ ...thread, resolved: mutation.resolved }],
           ),
         );
+        const created = createdThreadRef.current;
+        if (created && merged.some((thread) => thread.id === created.id)) {
+          createdThreadRef.current = null;
+          if (created.interaction === interactionRef.current) {
+            // Hand off the draft in the same render that supplies the saved thread.
+            setActiveId(created.id);
+            setDraft(null);
+          }
+        }
         setNextCursor(cursor);
         setViewerId(result.viewerId);
         setReactionsAvailable(result.reactionsAvailable);
@@ -464,8 +477,9 @@ export const CanvasComments = forwardRef<
       if (interaction === interactionRef.current) {
         setBody("");
         if (result.kind === "created") {
-          setActiveId(result.id);
-          setDraft(null);
+          createdThreadRef.current = { id: result.id, interaction };
+          // Keep subsequent live refreshes focused on the new thread, including after a failed read.
+          focusedThread.current = result.id;
         }
       }
       await refresh(result.kind === "created" ? result.id : (activeId ?? undefined));
@@ -724,9 +738,9 @@ export const CanvasComments = forwardRef<
                     aria-expanded={optionsOpen}
                     disabled={changing || posting}
                     onClick={() => setOptionsOpen((open) => !open)}
-                    className="rounded px-2 text-secondary-ink hover:bg-primary-grey/20"
+                    className="flex size-7 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/20 disabled:opacity-50"
                   >
-                    …
+                    <Icon name="more" size={16} />
                   </button>
                 </>
               )}
@@ -742,9 +756,9 @@ export const CanvasComments = forwardRef<
                   setOptionsOpen(false);
                   setError("");
                 }}
-                className="rounded px-2 text-lg text-secondary-ink hover:bg-primary-grey/20"
+                className="flex size-7 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/20"
               >
-                ×
+                <Icon name="xmark" size={16} />
               </button>
             </div>
             {optionsOpen && active && canManageActive && (
@@ -807,7 +821,7 @@ export const CanvasComments = forwardRef<
                   onClick={() => void post()}
                   className="rounded-md bg-strong-action px-3 py-1.5 text-xs font-medium text-on-strong-action disabled:opacity-40"
                 >
-                  Post
+                  {posting ? "Posting…" : "Post"}
                 </button>
               </div>
             </div>
