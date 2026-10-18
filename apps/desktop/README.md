@@ -33,8 +33,8 @@ The tabs support arrow keys, Home and End.
 Tidy uses the installed CLIs and their existing sign-ins. Install and sign in to
 Codex (`codex login`) or Claude Code (`claude auth login`), then use Check connection
 in the composer. Credentials remain owned by each CLI and are never read or copied
-by Tidy. The current integration uses Codex JSON events and Claude Code streaming
-JSON; tests exercise both protocols with fixture executables, without paid inference.
+by Tidy. The current integration uses Codex App Server over stdio and Claude Code
+bidirectional streaming JSON; tests exercise both protocols with fixture executables, without paid inference.
 
 Tool activity appears inline with the conversation in collapsed groups. Expand a
 group and a step to inspect commands, searches, reads, file changes, tool inputs
@@ -61,7 +61,7 @@ its original harness session. A harness finishing a turn does not mark a thread 
 Press Enter to send; Shift+Enter adds a new line. Cmd/Ctrl+Enter also sends.
 Use the paperclip to attach files, drop them onto the composer, or paste an image.
 Attachments have previews and can be removed before sending. A message can contain
-attachments without text. Images use Codex's native image flag or Claude's
+attachments without text. Images use Codex's native local-image input or Claude's
 structured streaming image input; other files are supplied as local paths for the
 harness's file tools. New and resumed sessions support attachments.
 
@@ -84,10 +84,36 @@ Reported API cost is an estimate, not a subscription charge or billing statement
 Hover or keyboard-focus a sidebar thread to see its title, latest reply, model,
 effort, design references, activity and recorded usage without opening it.
 
-Codex runs with the workspace-write sandbox and rejects operations requiring an
-approval. Claude Code uses its `acceptEdits` permission mode; tools requiring further
-permission are denied by the headless CLI and surfaced in the thread. Tidy does not
-enable unrestricted permission bypasses. Existing CLI project instructions apply.
+The composer's Permissions menu applies to the selected thread and its next run.
+Existing threads use Codex Default or Claude Accept edits unless explicitly changed.
+Changing the model retains the permission selection. Settings cannot change while
+the harness is running.
+
+- Codex Default uses the workspace-write sandbox with on-request approvals routed
+  to the user. Read only uses the read-only sandbox with on-request approvals.
+- Claude Default prompts for actions needing permission; Accept edits allows file
+  edits; Plan explores and asks before changes.
+- Auto — Full access explicitly selects Codex's danger-full-access sandbox with
+  approval policy never, or Claude's bypassPermissions with the required opt-in
+  flag. Tidy's Auto label means full access, rather than Claude's separate native
+  classifier-based auto mode. Native administrator requirements, deny rules and
+  mandatory confirmation checks still apply; Tidy never silently answers prompts.
+
+When a harness requests permission, its command/input, reason and supplied paths
+appear above the composer. Allow once or Deny answers only that live request.
+Codex also offers Allow for session where supported. Explicit network/filesystem
+permission grants use Allow for turn or Allow for session, matching their native
+scope. Claude approvals do not create persistent rules or echo rule suggestions.
+Requests are marked in the thread sidebar and remain available after a renderer
+reload or project switch. They expire on native cancellation, stopping, completion
+or app shutdown, and are never replayed from stored transcripts. Unsupported
+interactive forms/questions return a protocol error rather than granting access.
+
+The native mode mappings and approval protocol follow the
+[Codex App Server documentation](https://developers.openai.com/codex/app-server)
+and [Claude Agent SDK permission documentation](https://code.claude.com/docs/en/agent-sdk/permissions).
+Installed harness sign-ins, project instructions, tools and native sessions remain
+owned by the harness. Legacy Codex exec session IDs resume through App Server.
 
 Project-owned files are stored in:
 

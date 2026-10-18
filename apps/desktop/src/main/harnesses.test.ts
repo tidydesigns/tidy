@@ -18,6 +18,143 @@ async function fixture() {
 }
 
 for (const harness of ["codex", "claude"] as const) {
+  for (const decision of [
+    "allow",
+    "deny",
+    ...(harness === "codex" ? ["allow-session" as const] : []),
+  ] as const) {
+    test(`${harness} waits for an explicit ${decision} decision before a protected action`, async () => {
+      const { directory, executable } = await fixture();
+      let received!: (request: Extract<HarnessUpdate, { type: "approval" }>["request"]) => void;
+      const approval = new Promise<Extract<HarnessUpdate, { type: "approval" }>["request"]>(
+        (resolve) => {
+          received = resolve;
+        },
+      );
+      const updates: HarnessUpdate[] = [];
+      const run = startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: "permission-fixture",
+        settings: { permissionMode: "default" },
+        onUpdate: (update) => {
+          updates.push(update);
+          if (update.type === "approval") received(update.request);
+        },
+      });
+      try {
+        const request = await approval;
+        expect(request.details).toContain("touch approved.txt");
+        expect(request.reason).toBe("This action needs permission.");
+        await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+        expect(run.respondToApproval!("stale-id", "allow")).toBe(false);
+        if (harness === "claude")
+          expect(run.respondToApproval!(request.id, "allow-session")).toBe(false);
+        expect(run.respondToApproval!(request.id, decision)).toBe(true);
+        expect(run.respondToApproval!(request.id, "allow")).toBe(false);
+        await run.done;
+        if (decision === "deny")
+          await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+        else expect(await readFile(join(directory, "approved.txt"), "utf8")).toBe("approved");
+        expect(
+          updates.some((update) => update.type === "approval-resolved" && update.id === request.id),
+        ).toBe(true);
+        const response = JSON.parse(
+          await readFile(join(directory, "permission-response.json"), "utf8"),
+        );
+        expect(
+          harness === "codex" ? response.result.decision : response.response.response.behavior,
+        ).toBe(
+          harness === "codex"
+            ? decision === "allow"
+              ? "accept"
+              : decision === "allow-session"
+                ? "acceptForSession"
+                : "decline"
+            : decision === "deny"
+              ? "deny"
+              : "allow",
+        );
+      } finally {
+        run.stop();
+        await run.done.catch(() => {});
+      }
+    });
+  }
+  test(`${harness} Auto explicitly enables full access; native prompts still require a decision`, async () => {
+    const { directory, executable } = await fixture();
+    const updates: HarnessUpdate[] = [];
+    await startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "permission-fixture",
+      settings: { permissionMode: "auto" },
+      onUpdate: (update) => updates.push(update),
+    }).done;
+    expect(await readFile(join(directory, "approved.txt"), "utf8")).toBe("approved");
+    expect(updates.some((update) => update.type === "approval")).toBe(false);
+    const invocation = JSON.parse(
+      await readFile(join(directory, "harness-invocation.json"), "utf8"),
+    );
+    if (harness === "codex")
+      expect(invocation.threadParams).toMatchObject({
+        approvalPolicy: "never",
+        sandbox: "danger-full-access",
+        approvalsReviewer: "user",
+      });
+    else {
+      expect(invocation.args).toContain("bypassPermissions");
+      expect(invocation.args).toContain("--allow-dangerously-skip-permissions");
+    }
+    let resolve!: () => void;
+    const asked = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "permission-fixture force-ask",
+      settings: { permissionMode: "auto" },
+      onUpdate: (update) => {
+        if (update.type === "approval") resolve();
+      },
+    });
+    await asked;
+    run.stop();
+    await run.done;
+  });
+  test(`${harness} stopping or native cancellation invalidates an unanswered permission request`, async () => {
+    const { directory, executable } = await fixture();
+    for (const cancel of [false, true]) {
+      let resolve!: () => void,
+        id = "";
+      const asked = new Promise<void>((done) => {
+        resolve = done;
+      });
+      const run = startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: `permission-fixture${cancel ? " cancel-request" : ""}`,
+        onUpdate: (update) => {
+          if (update.type === "approval") {
+            id = update.request.id;
+            if (!cancel) resolve();
+          }
+          if (cancel && update.type === "approval-resolved") resolve();
+        },
+      });
+      await asked;
+      if (cancel) expect(run.respondToApproval!(id, "allow")).toBe(false);
+      run.stop();
+      await run.done;
+      expect(run.respondToApproval!(id, "allow")).toBe(false);
+      await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+    }
+  });
   test(`${harness} streams inspectable tool activity without treating a failed test as a failed turn`, async () => {
     const { directory, executable } = await fixture();
     const updates: HarnessUpdate[] = [];
@@ -66,7 +203,11 @@ for (const harness of ["codex", "claude"] as const) {
       await readFile(join(directory, "harness-invocation.json"), "utf8"),
     );
     expect(invocation.cwd).toBe(directory);
-    expect(invocation.prompt).toBe(prompt);
+    expect(
+      harness === "codex"
+        ? invocation.prompt
+        : JSON.parse(invocation.prompt).message.content[0].text,
+    ).toBe(prompt);
     expect(invocation.inheritedElectron).toBeUndefined();
     expect(invocation.database).toBeUndefined();
     expect(updates.some((value) => value.type === "session")).toBe(true);
@@ -82,7 +223,8 @@ for (const harness of ["codex", "claude"] as const) {
       onUpdate: () => {},
     }).done;
     const resumed = JSON.parse(await readFile(join(directory, "harness-invocation.json"), "utf8"));
-    expect(resumed.args).toContain(sessionId);
+    if (harness === "codex") expect(resumed.threadParams.threadId).toBe(sessionId);
+    else expect(resumed.args).toContain(sessionId);
     expect(resumed.args).not.toContain("--last");
     expect(resumed.args).not.toContain("--dangerously-skip-permissions");
     expect(resumed.args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
@@ -120,7 +262,7 @@ test("invalid harness output fails instead of completing an empty thread", async
   await expect(run.done).rejects.toThrow("invalid event");
 });
 
-test("model and effort are passed to the selected CLI as literal arguments", async () => {
+test("model and effort reach the native harness protocol literally", async () => {
   const { directory, executable } = await fixture();
   for (const harness of ["codex", "claude"] as const) {
     const updates: HarnessUpdate[] = [];
@@ -135,11 +277,12 @@ test("model and effort are passed to the selected CLI as literal arguments", asy
     const invocation = JSON.parse(
       await readFile(join(directory, "harness-invocation.json"), "utf8"),
     );
-    expect(invocation.args.slice(-4)).toEqual(
-      harness === "codex"
-        ? ["--model", "fixture-codex", "-c", 'model_reasoning_effort="high"']
-        : ["--model", "fixture-claude", "--effort", "high"],
-    );
+    if (harness === "codex") {
+      expect(invocation.threadParams.model).toBe("fixture-codex");
+      expect(invocation.threadParams.config.model_reasoning_effort).toBe("high");
+      expect(invocation.turnParams.effort).toBe("high");
+    } else
+      expect(invocation.args.slice(-4)).toEqual(["--model", "fixture-claude", "--effort", "high"]);
     const usage = updates.find((update) => update.type === "usage");
     expect(usage?.type === "usage" ? usage.usage.inputTokens : undefined).toBe(
       harness === "codex" ? 120 : 125,
@@ -181,10 +324,11 @@ test("images reach both native harness protocols on new and resumed turns", asyn
         await readFile(join(directory, "harness-invocation.json"), "utf8"),
       );
       if (harness === "codex") {
-        expect(invocation.args.slice(-2)).toEqual(["--image", imagePath]);
+        expect(invocation.turnParams.input[1]).toEqual({ type: "localImage", path: imagePath });
         expect(invocation.prompt).toBe("Describe this image");
       } else {
-        expect(invocation.args.slice(-2)).toEqual(["--input-format", "stream-json"]);
+        expect(invocation.args).toContain("--input-format");
+        expect(invocation.args).toContain("--permission-prompt-tool");
         const message = JSON.parse(invocation.prompt);
         expect(message.type).toBe("user");
         expect(message.session_id).toBe(sessionId ?? "");
@@ -193,6 +337,9 @@ test("images reach both native harness protocols on new and resumed turns", asyn
           { type: "image", source: { type: "base64", media_type: "image/png", data } },
         ]);
       }
-      if (sessionId) expect(invocation.args).toContain(sessionId);
+      if (sessionId) {
+        if (harness === "codex") expect(invocation.threadParams.threadId).toBe(sessionId);
+        else expect(invocation.args).toContain(sessionId);
+      }
     }
 });

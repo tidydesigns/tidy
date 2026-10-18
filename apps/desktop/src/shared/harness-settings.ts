@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { permissionModeSchema } from "./permissions";
 export const harnessSettingsSchema = z
   .object({
+    permissionMode: permissionModeSchema.optional(),
     model: z.string().trim().min(1).max(200).optional(),
     effort: z
       .string()

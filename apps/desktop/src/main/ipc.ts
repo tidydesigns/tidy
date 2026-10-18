@@ -1,3 +1,4 @@
+import { approvalDecisionSchema } from "../shared/permissions";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -50,11 +51,17 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     });
   }
 
+  function liveSnapshot(snapshot: Awaited<ReturnType<typeof store.snapshot>>) {
+    return {
+      ...snapshot,
+      threads: service.withLiveThreads(snapshot.project.id, snapshot.threads),
+    };
+  }
   handle("bootstrap", z.undefined(), async () => {
     let activeProject = null;
     if (store.activeProjectId) {
       try {
-        activeProject = await store.snapshot(store.activeProjectId);
+        activeProject = liveSnapshot(await store.snapshot(store.activeProjectId));
         await service.observe(store.activeProjectId);
       } catch {
         /* The recent project may be on an unavailable volume. */
@@ -71,12 +78,12 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     if (result.canceled || !result.filePaths[0]) return null;
     const snapshot = await store.open(result.filePaths[0]);
     await service.observe(snapshot.project.id);
-    return snapshot;
+    return liveSnapshot(snapshot);
   });
   handle("select-project", projectId, async (value) => {
     const snapshot = await store.select(value);
     await service.observe(value);
-    return snapshot;
+    return liveSnapshot(snapshot);
   });
   handle(
     "harness-details",
@@ -155,6 +162,14 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     "set-thread-done",
     z.object({ projectId, threadId: uuid, done: z.boolean() }).strict(),
     (value) => service.setThreadDone(value.projectId, value.threadId, value.done),
+  );
+  handle(
+    "respond-approval",
+    z
+      .object({ projectId, threadId: uuid, approvalId: uuid, decision: approvalDecisionSchema })
+      .strict(),
+    (value) =>
+      service.respondToApproval(value.projectId, value.threadId, value.approvalId, value.decision),
   );
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),

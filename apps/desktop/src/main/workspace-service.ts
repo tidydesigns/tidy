@@ -1,8 +1,15 @@
+import { approvalDecisionSchema, type ApprovalDecision } from "../shared/permissions";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
-import type { DesktopEvent, HarnessId, Thread } from "../shared/contracts";
+import {
+  summarizeThread,
+  type DesktopEvent,
+  type HarnessId,
+  type Thread,
+  type ThreadSummary,
+} from "../shared/contracts";
 import { findHarness, startHarness, type HarnessUpdate, type RunningHarness } from "./harnesses";
 import {
   attachmentSchema,
@@ -52,6 +59,13 @@ export class WorkspaceService {
     for (const listener of this.listeners) listener(structuredClone(event));
   }
 
+  withLiveThreads(projectId: string, threads: ThreadSummary[]) {
+    return threads.map((summary) => {
+      const active = this.jobs.get(summary.id)?.thread;
+      return active?.projectId === projectId ? summarizeThread(active) : summary;
+    });
+  }
+
   async observe(projectId: string) {
     if (this.watchers.has(projectId)) return;
     const directories = await Promise.all(
@@ -89,7 +103,7 @@ export class WorkspaceService {
       this.emit({ type: "designs", projectId, designs, folders });
   }
 
-  async readThread(projectId: string, threadId: string) {
+  async readThread(projectId: string, threadId: string): Promise<Thread> {
     const active = this.jobs.get(threadId)?.thread;
     if (active) {
       if (active.projectId !== projectId)
@@ -297,7 +311,22 @@ export class WorkspaceService {
     if (job.stopped) return;
     const thread = job.thread;
     thread.revision++;
-    if (update.type === "tool") {
+    if (update.type === "approval") {
+      thread.pendingApprovals = [
+        ...(thread.pendingApprovals ?? []).filter((request) => request.id !== update.request.id),
+        update.request,
+      ];
+      thread.activity = "Needs permission";
+      this.emit({ type: "thread", thread });
+      return;
+    } else if (update.type === "approval-resolved") {
+      thread.pendingApprovals = thread.pendingApprovals?.filter(
+        (request) => request.id !== update.id,
+      );
+      thread.activity = thread.pendingApprovals?.length ? "Needs permission" : "Working";
+      this.emit({ type: "thread", thread });
+      return;
+    } else if (update.type === "tool") {
       const activities = thread.toolActivities ?? (thread.toolActivities = []);
       const existing = activities.find((tool) => tool.id === job.tools.get(update.tool.id));
       const now = new Date().toISOString();
@@ -376,6 +405,7 @@ export class WorkspaceService {
         tool.endedAt = new Date().toISOString();
       }
     job.thread.activity = undefined;
+    job.thread.pendingApprovals = undefined;
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();
     try {
@@ -388,6 +418,31 @@ export class WorkspaceService {
     await this.refreshDesigns(job.thread.projectId).catch(() => {});
   }
 
+  async respondToApproval(
+    projectId: string,
+    threadId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ) {
+    approvalDecisionSchema.parse(decision);
+    const job = this.jobs.get(threadId);
+    if (!job || job.stopped || this.closing)
+      throw new Error("This permission request is no longer active.");
+    if (job.thread.projectId !== projectId)
+      throw new Error("This thread belongs to another project.");
+    const request = job.thread.pendingApprovals?.find((request) => request.id === approvalId);
+    if (!request || !request.choices.includes(decision))
+      throw new Error("This permission response is no longer available.");
+    if (!job.process?.respondToApproval?.(approvalId, decision))
+      throw new Error("This permission request is no longer active.");
+    job.thread.pendingApprovals = job.thread.pendingApprovals?.filter(
+      (request) => request.id !== approvalId,
+    );
+    job.thread.revision++;
+    this.emit({ type: "thread", thread: job.thread });
+    return structuredClone(job.thread);
+  }
+
   async stopThread(projectId: string, threadId: string) {
     const job = this.jobs.get(threadId);
     if (!job) return;
@@ -395,6 +450,7 @@ export class WorkspaceService {
       throw new Error("This thread belongs to another project.");
     job.stopped = true;
     job.thread.activity = "Stopping";
+    job.thread.pendingApprovals = undefined;
     job.thread.revision++;
     job.process?.stop();
     this.emit({ type: "thread", thread: job.thread });

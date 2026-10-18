@@ -28,6 +28,8 @@ const api: DesktopAPI = {
     request("read-attachment", { projectId, attachmentId }),
   setThreadDone: (projectId, threadId, done) =>
     request("set-thread-done", { projectId, threadId, done }),
+  respondToApproval: (projectId, threadId, approvalId, decision) =>
+    request("respond-approval", { projectId, threadId, approvalId, decision }),
   stopThread: (projectId, threadId) => request("stop-thread", { projectId, threadId }),
   createDesign: (projectId, folderId) => request("create-design", { projectId, folderId }),
   importDesign: (projectId, folderId) => request("import-design", { projectId, folderId }),

@@ -1338,3 +1338,75 @@ summary:focus-visible {
     padding-left: 8px;
   }
 }
+
+.approval-requests {
+  flex-shrink: 0;
+  width: calc(100% - 56px);
+  max-width: 760px;
+  max-height: min(36vh, 300px, calc(100vh - 340px));
+  overflow: auto;
+  margin: 0 auto;
+  display: grid;
+  gap: 10px;
+  overscroll-behavior: contain;
+}
+.approval-request {
+  display: flex;
+  flex-direction: column;
+  max-height: min(36vh, 300px, calc(100vh - 340px));
+  overflow: hidden;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  background: var(--desktop-surface);
+  border-radius: 10px;
+  font-size: 12px;
+}
+.approval-request strong {
+  flex-shrink: 0;
+  font-weight: 500;
+  color: var(--color-ink);
+}
+.approval-body {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.approval-request p {
+  margin: 8px 0;
+  color: var(--color-muted-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval-request pre {
+  font:
+    11px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  margin: 10px 0;
+}
+.approval-request small {
+  color: var(--color-muted-ink);
+}
+.approval-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.approval-actions button {
+  font-size: 12px;
+  padding: 6px 10px;
+  min-height: 30px;
+}
+
+@media (max-width: 800px) {
+  .approval-requests {
+    width: calc(100% - 32px);
+  }
+}

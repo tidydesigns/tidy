@@ -25,6 +25,7 @@ async function fixture() {
     input: Parameters<typeof startHarness>[0];
     complete: () => void;
     stopped: boolean;
+    decisions: Array<{ id: string; decision: string }>;
   }> = [];
   const service = new WorkspaceService(
     store,
@@ -33,10 +34,20 @@ async function fixture() {
       const done = new Promise<void>((resolve) => {
         complete = resolve;
       });
-      const run = { input, complete, stopped: false };
+      const run = {
+        input,
+        complete,
+        stopped: false,
+        decisions: [] as Array<{ id: string; decision: string }>,
+      };
       runs.push(run);
       return {
         done,
+        respondToApproval(id, decision) {
+          if (run.stopped) return false;
+          run.decisions.push({ id, decision });
+          return true;
+        },
         stop() {
           run.stopped = true;
           complete();
@@ -486,4 +497,87 @@ test("long tool histories are bounded by count and text size with an explicit tr
     result.toolActivities!.reduce((sum, value) => sum + toolLogSize(value), 0),
   ).toBeLessThanOrEqual(MAX_TOOL_LOG_CHARACTERS);
   expect(result.toolActivities!.at(-1)!.output).toHaveLength(32_000);
+});
+
+test("permission replies are scoped to the live project, thread and request and cannot be replayed", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+    settings: { permissionMode: "default" },
+  });
+  const id = randomUUID();
+  runs[0].input.onUpdate({ type: "session", id: randomUUID() });
+  runs[0].input.onUpdate({
+    type: "approval",
+    request: { id, title: "Allow command?", details: "bun test", choices: ["allow", "deny"] },
+  });
+  const active = await service.readThread(project.id, thread.id);
+  expect(active.pendingApprovals?.[0].id).toBe(id);
+  // Live requests are deliberately not durable authorizations.
+  await store.writeThread(active);
+  const live = service.withLiveThreads(project.id, (await store.snapshot(project.id)).threads);
+  expect(live[0].pendingApprovalCount).toBe(1);
+  expect(live[0]).not.toHaveProperty("pendingApprovals");
+  expect(await store.readThread(project.id, thread.id)).not.toHaveProperty("pendingApprovals");
+  await expect(service.respondToApproval(randomUUID(), thread.id, id, "allow")).rejects.toThrow(
+    "another project",
+  );
+  await expect(
+    service.respondToApproval(project.id, thread.id, randomUUID(), "allow"),
+  ).rejects.toThrow("no longer");
+  await expect(
+    service.respondToApproval(project.id, thread.id, id, "allow-session"),
+  ).rejects.toThrow("no longer");
+  expect(runs[0].decisions).toHaveLength(0);
+  const result = await service.respondToApproval(project.id, thread.id, id, "allow");
+  expect(result.pendingApprovals).toEqual([]);
+  expect(runs[0].decisions).toEqual([{ id, decision: "allow" }]);
+  await expect(service.respondToApproval(project.id, thread.id, id, "allow")).rejects.toThrow(
+    "no longer",
+  );
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
+  await expect(service.respondToApproval(project.id, thread.id, id, "allow")).rejects.toThrow(
+    "no longer",
+  );
+  const nextId = randomUUID();
+  runs[1].input.onUpdate({
+    type: "approval",
+    request: { id: nextId, title: "Allow command?", choices: ["allow", "deny"] },
+  });
+  await service.stopThread(project.id, thread.id);
+  await expect(service.respondToApproval(project.id, thread.id, nextId, "allow")).rejects.toThrow(
+    "no longer",
+  );
+  expect(runs[1].decisions).toHaveLength(0);
+});
+
+test("permission modes persist for follow-ups while live requests disappear on completion", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Work",
+    designIds: [],
+    settings: { permissionMode: "auto" },
+  });
+  runs[0].input.onUpdate({ type: "session", id: randomUUID() });
+  runs[0].input.onUpdate({
+    type: "approval",
+    request: { id: randomUUID(), title: "Native restriction", choices: ["allow", "deny"] },
+  });
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  expect((await completed).pendingApprovals).toBeUndefined();
+  await service.setThreadSettings(project.id, thread.id, { permissionMode: "plan" });
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Plan instead" });
+  expect(runs[1].input.settings?.permissionMode).toBe("plan");
+  await expect(
+    service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" }),
+  ).rejects.toThrow("finish");
 });

@@ -1,9 +1,11 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile } from "node:child_process";
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
+import { startInteractiveHarness } from "./interactive-harness";
+import type { ApprovalRequest, ApprovalDecision } from "../shared/permissions";
 import { createToolEventParser } from "./tool-events";
 import type { ToolActivityUpdate } from "../shared/tool-activity";
 import type { HarnessSettings, TokenUsage } from "../shared/harness-settings";
@@ -12,6 +14,8 @@ import type { HarnessConnection, HarnessId } from "../shared/contracts";
 const execute = promisify(execFile);
 const names = { codex: "Codex", claude: "Claude Code" };
 export type HarnessUpdate =
+  | { type: "approval"; request: ApprovalRequest }
+  | { type: "approval-resolved"; id: string }
   | { type: "tool"; tool: ToolActivityUpdate }
   | { type: "usage"; usage: TokenUsage; cumulative: boolean }
   | { type: "model"; model: string }
@@ -19,7 +23,11 @@ export type HarnessUpdate =
   | { type: "message"; id: string; text: string; append?: boolean }
   | { type: "activity"; text: string }
   | { type: "error"; text: string };
-export type RunningHarness = { done: Promise<void>; stop(): void };
+export type RunningHarness = {
+  done: Promise<void>;
+  stop(): void;
+  respondToApproval?(id: string, decision: ApprovalDecision): boolean;
+};
 const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
@@ -222,12 +230,6 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         });
       else if (text(value.result))
         emit({ type: "message", id: claudeMessageId, text: text(value.result) });
-      if (Array.isArray(value.permission_denials) && value.permission_denials.length) {
-        emit({
-          type: "error",
-          text: "Claude Code needs permission for a tool. Review the CLI's project permissions before continuing.",
-        });
-      }
     }
   };
 }
@@ -242,146 +244,5 @@ export function startHarness(input: {
   images?: Array<{ path: string; mimeType: string; data: string }>;
   onUpdate: (update: HarnessUpdate) => void;
 }): RunningHarness {
-  const args =
-    input.harness === "codex"
-      ? [
-          "exec",
-          ...(input.sessionId ? ["resume", input.sessionId] : []),
-          "--json",
-          "--skip-git-repo-check",
-          "-c",
-          'approval_policy="never"',
-          "-c",
-          'sandbox_mode="workspace-write"',
-          "-",
-        ]
-      : [
-          "-p",
-          "--output-format",
-          "stream-json",
-          "--verbose",
-          "--include-partial-messages",
-          "--permission-mode",
-          "acceptEdits",
-          ...(input.sessionId ? ["--resume", input.sessionId] : []),
-        ];
-  if (input.settings?.model) args.push("--model", input.settings.model);
-  if (input.settings?.effort) {
-    if (input.harness === "codex")
-      args.push("-c", `model_reasoning_effort=${JSON.stringify(input.settings.effort)}`);
-    else args.push("--effort", input.settings.effort);
-  }
-  if (input.images?.length) {
-    if (input.harness === "codex")
-      for (const image of input.images) args.push("--image", image.path);
-    else args.push("--input-format", "stream-json");
-  }
-  const child: ChildProcessWithoutNullStreams = spawn(input.executable, args, {
-    cwd: input.cwd,
-    env: harnessEnvironment(),
-    stdio: "pipe",
-    shell: false,
-    windowsHide: true,
-    detached: process.platform !== "win32",
-  });
-  let buffer = "";
-  let stopped = false;
-  let failure: string | undefined;
-  let completed = false;
-  let force: ReturnType<typeof setTimeout> | undefined;
-  const parser = createHarnessParser(input.harness, (update) => {
-    if (stopped) return;
-    if (update.type === "error") failure = update.text.slice(0, 4000);
-    input.onUpdate(update);
-  });
-  function consume(line: string) {
-    const value: unknown = JSON.parse(line);
-    const type = record(value).type;
-    if (type === "turn.completed" || type === "result") completed = true;
-    parser(value);
-  }
-  function signal(value: NodeJS.Signals) {
-    if (!child.pid) return;
-    try {
-      if (process.platform !== "win32") process.kill(-child.pid, value);
-      else child.kill(value);
-    } catch {
-      /* The process already exited. */
-    }
-  }
-  function stop() {
-    if (stopped) return;
-    stopped = true;
-    signal("SIGTERM");
-    force = setTimeout(() => signal("SIGKILL"), 2000);
-    force.unref();
-  }
-  const done = new Promise<void>((resolve, reject) => {
-    child.stdout.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      if (stopped) return;
-      buffer += chunk;
-      if (Buffer.byteLength(buffer) > 4 * 1024 * 1024) {
-        failure = "The harness output exceeded the message limit.";
-        stop();
-        return;
-      }
-      let end: number;
-      while ((end = buffer.indexOf("\n")) >= 0) {
-        const line = buffer.slice(0, end);
-        buffer = buffer.slice(end + 1);
-        if (!line.trim()) continue;
-        try {
-          consume(line);
-        } catch {
-          failure = "The harness returned an invalid event.";
-          stop();
-          return;
-        }
-      }
-    });
-    child.stderr.resume();
-    child.stdin.on("error", () => {});
-    child.once("error", () => {
-      reject(new Error(`Could not start ${names[input.harness]}. Check its installation.`));
-    });
-    child.once("close", (code) => {
-      clearTimeout(force);
-      if (buffer.trim() && !stopped) {
-        try {
-          consume(buffer);
-        } catch {
-          failure = "The harness returned an invalid event.";
-        }
-      }
-      if (failure) reject(new Error(failure));
-      else if ((code !== 0 || !completed) && !stopped)
-        reject(
-          new Error(
-            `${names[input.harness]} exited before completing the turn. Check its CLI sign-in and project permissions.`,
-          ),
-        );
-      else resolve();
-    });
-    child.stdin.end(
-      input.harness === "claude" && input.images?.length
-        ? JSON.stringify({
-            type: "user",
-            session_id: input.sessionId ?? "",
-            parent_tool_use_id: null,
-            message: {
-              role: "user",
-              content: [
-                { type: "text", text: input.prompt },
-                ...input.images.map((image) => ({
-                  type: "image",
-                  source: { type: "base64", media_type: image.mimeType, data: image.data },
-                })),
-              ],
-            },
-          }) + "\n"
-        : input.prompt,
-    );
-  });
-  return { done, stop };
+  return startInteractiveHarness(input);
 }

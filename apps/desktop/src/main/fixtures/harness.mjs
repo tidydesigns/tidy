@@ -9,13 +9,18 @@ if (process.argv.includes("auth") && process.argv.includes("status")) {
   process.exit(0);
 }
 
-let structuredInput;
+let structuredInput, threadParams, turnParams;
+const lines = createInterface({ input: process.stdin })[Symbol.asyncIterator]();
+const session = "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
+const turn = "fixture-turn";
 const metadataArgs = process.argv.slice(2);
 if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format")) {
   const codex = metadataArgs[0] === "app-server";
   const methods = [];
-  for await (const line of createInterface({ input: process.stdin })) {
-    const value = JSON.parse(line);
+  while (true) {
+    const line = await lines.next();
+    if (line.done) break;
+    const value = JSON.parse(line.value);
     if (value.type === "user") {
       structuredInput = value;
       break;
@@ -34,7 +39,14 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
               },
         ),
       );
-    if (method === "initialize")
+    if (method === "thread/start" || method === "thread/resume") {
+      threadParams = value.params;
+      reply({ thread: { id: session }, model: "fixture-codex" });
+    } else if (method === "turn/start") {
+      turnParams = value.params;
+      reply({ turn: { id: turn } });
+      break;
+    } else if (method === "initialize")
       reply(
         codex
           ? {}
@@ -84,27 +96,225 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
       reply({ account: { type: "chatgpt", email: "private@example.invalid" } });
     else if (method !== "initialized") throw Error("Unexpected capability request: " + method);
   }
-  if (!structuredInput) process.exit(0);
+  if (!structuredInput && !turnParams) process.exit(0);
 }
 
-let prompt = structuredInput ? JSON.stringify(structuredInput) + "\n" : "";
-for await (const chunk of process.stdin) prompt += chunk;
+let prompt = structuredInput
+  ? JSON.stringify(structuredInput) + "\n"
+  : turnParams
+    ? turnParams.input.find((item) => item.type === "text").text
+    : "";
 const args = process.argv.slice(2);
 writeFileSync(
   "harness-invocation.json",
   JSON.stringify({
     cwd: process.cwd(),
     args,
+    threadParams,
+    turnParams,
     prompt,
     inheritedElectron: process.env.ELECTRON_RUN_AS_NODE,
     database: process.env.DATABASE_URL,
   }),
 );
-const session = "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
-const send = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
-const codex = args[0] === "exec";
+const codex = args[0] === "exec" || args[0] === "app-server";
+const rawSend = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
+const outputs = new Map();
+const send = (value) => {
+  if (!turnParams) {
+    rawSend(value);
+    return;
+  }
+  const params = { threadId: session, turnId: turn };
+  if (value.type === "thread.started") return;
+  if (value.type === "turn.completed") {
+    const usage = value.usage ?? {},
+      total = {
+        inputTokens: usage.input_tokens ?? 0,
+        cachedInputTokens: usage.cached_input_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+      };
+    rawSend({
+      method: "thread/tokenUsage/updated",
+      params: { ...params, tokenUsage: { total, last: total } },
+    });
+    rawSend({
+      method: "turn/completed",
+      params: { threadId: session, turn: { id: turn, status: "completed" } },
+    });
+    return;
+  }
+  if (value.type?.startsWith("item.")) {
+    const item = value.item,
+      types = {
+        agent_message: "agentMessage",
+        command_execution: "commandExecution",
+        file_change: "fileChange",
+        web_search: "webSearch",
+        mcp_tool_call: "mcpToolCall",
+      };
+    if (value.type === "item.updated" && item.type === "command_execution") {
+      const previous = outputs.get(item.id) ?? "";
+      outputs.set(item.id, item.aggregated_output);
+      rawSend({
+        method: "item/commandExecution/outputDelta",
+        params: {
+          ...params,
+          itemId: item.id,
+          delta: item.aggregated_output.slice(previous.length),
+        },
+      });
+      return;
+    }
+    rawSend({
+      method: value.type === "item.started" ? "item/started" : "item/completed",
+      params: {
+        ...params,
+        item: {
+          ...item,
+          type: types[item.type] ?? item.type,
+          status: item.status ?? (value.type === "item.started" ? "inProgress" : "completed"),
+          aggregatedOutput: item.aggregated_output,
+          exitCode: item.exit_code,
+          changes: item.changes?.map((c) => ({ ...c, kind: { type: c.kind }, diff: c.diff ?? "" })),
+        },
+      },
+    });
+    return;
+  }
+  rawSend(value);
+};
 if (prompt.includes("invalid-event")) {
   process.stdout.write("not-json\n");
+  process.exit(0);
+}
+if (prompt.includes("permission-fixture")) {
+  if (codex)
+    send({
+      type: "item.started",
+      item: { id: "permission-command", type: "command_execution", command: "touch approved.txt" },
+    });
+  else
+    send({
+      type: "assistant",
+      message: {
+        id: "permission-message",
+        content: [
+          {
+            type: "tool_use",
+            id: "permission-command",
+            name: "Bash",
+            input: { command: "touch approved.txt" },
+          },
+        ],
+      },
+    });
+  const auto = codex
+    ? threadParams.approvalPolicy === "never" && threadParams.sandbox === "danger-full-access"
+    : args.includes("bypassPermissions");
+  let allowed = auto,
+    response;
+  if (!auto || prompt.includes("force-ask")) {
+    rawSend(
+      codex
+        ? {
+            id: "fixture-approval",
+            method: "item/commandExecution/requestApproval",
+            params: {
+              threadId: session,
+              turnId: turn,
+              itemId: "permission-command",
+              command: "touch approved.txt",
+              cwd: process.cwd(),
+              reason: "This action needs permission.",
+            },
+          }
+        : {
+            type: "control_request",
+            request_id: "fixture-approval",
+            request: {
+              subtype: "can_use_tool",
+              tool_name: "Bash",
+              tool_use_id: "permission-command",
+              input: { command: "touch approved.txt" },
+              decision_reason: "This action needs permission.",
+            },
+          },
+    );
+    writeFileSync("permission-waiting.json", "{}");
+    if (prompt.includes("cancel-request")) {
+      rawSend(
+        codex
+          ? {
+              method: "serverRequest/resolved",
+              params: { threadId: session, requestId: "fixture-approval" },
+            }
+          : { type: "control_cancel_request", request_id: "fixture-approval" },
+      );
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    }
+    while (true) {
+      const next = await lines.next();
+      if (next.done) process.exit(1);
+      response = JSON.parse(next.value);
+      if (
+        codex
+          ? response.id === "fixture-approval"
+          : response.response?.request_id === "fixture-approval"
+      )
+        break;
+    }
+    writeFileSync("permission-response.json", JSON.stringify(response));
+    allowed = codex
+      ? ["accept", "acceptForSession"].includes(response.result?.decision)
+      : response.response?.response?.behavior === "allow";
+  }
+  if (allowed) writeFileSync("approved.txt", "approved");
+  if (codex)
+    send({
+      type: "item.completed",
+      item: {
+        id: "permission-command",
+        type: "command_execution",
+        command: "touch approved.txt",
+        aggregated_output: allowed ? "Created approved.txt" : "Action denied",
+        exit_code: allowed ? 0 : 1,
+      },
+    });
+  else
+    send({
+      type: "user",
+      message: {
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "permission-command",
+            content: allowed ? "Created approved.txt" : "Action denied",
+            is_error: !allowed,
+          },
+        ],
+      },
+    });
+  send(
+    codex
+      ? {
+          type: "item.completed",
+          item: {
+            id: "response",
+            type: "agent_message",
+            text: allowed ? "Action approved." : "Action declined.",
+          },
+        }
+      : {
+          type: "assistant",
+          message: {
+            id: "response",
+            content: [{ type: "text", text: allowed ? "Action approved." : "Action declined." }],
+          },
+        },
+  );
+  send(codex ? { type: "turn.completed" } : { type: "result" });
   process.exit(0);
 }
 if (prompt.includes("tool-activity-fixture")) {

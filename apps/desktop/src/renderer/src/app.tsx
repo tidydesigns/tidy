@@ -4,6 +4,7 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
 import { ToolActivityGroup } from "./tool-activity";
+import { ApprovalRequests } from "./approval-requests";
 import { AttachmentList, MessageAttachments } from "./message-attachments";
 import {
   MAX_ATTACHMENTS,
@@ -861,6 +862,7 @@ export function App() {
                     </Fragment>
                   ))}
                   {running &&
+                    !thread?.pendingApprovals?.length &&
                     !thread?.toolActivities?.some((tool) => tool.status === "running") && (
                       <p className="thread-activity" role="status">
                         {thread.activity ?? "Working"}
@@ -873,6 +875,27 @@ export function App() {
                   )}
                   {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
                 </div>
+                {thread?.pendingApprovals?.length && api ? (
+                  <ApprovalRequests
+                    key={thread.id}
+                    requests={thread.pendingApprovals}
+                    onRespond={async (id, decision) => {
+                      const value = await api.respondToApproval(
+                        project.id,
+                        thread.id,
+                        id,
+                        decision,
+                      );
+                      setThreads((current) => ({
+                        ...current,
+                        [value.id]:
+                          (current[value.id]?.revision ?? -1) > value.revision
+                            ? current[value.id]
+                            : value,
+                      }));
+                    }}
+                  />
+                ) : null}
                 <form
                   className="composer"
                   onDragOver={(event) => {

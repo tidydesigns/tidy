@@ -1,4 +1,5 @@
 import type { ToolActivity } from "./tool-activity";
+import type { ApprovalRequest, ApprovalDecision } from "./permissions";
 import type { Attachment, AttachedFile } from "./attachments";
 import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
@@ -33,10 +34,16 @@ export type Thread = {
   activity?: string;
   toolActivities?: ToolActivity[];
   toolActivityTruncated?: boolean;
+  /** Live requests only. Never serialized to thread storage or replayed after restart. */
+  pendingApprovals?: ApprovalRequest[];
   error?: string;
   updatedAt: string;
 };
-export type ThreadSummary = Omit<Thread, "messages" | "sessionId" | "toolActivities"> & {
+export type ThreadSummary = Omit<
+  Thread,
+  "messages" | "sessionId" | "toolActivities" | "pendingApprovals"
+> & {
+  pendingApprovalCount?: number;
   preview?: string;
   messageCount?: number;
 };
@@ -60,6 +67,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     designIds: thread.designIds,
     status: thread.status,
     activity: thread.activity,
+    pendingApprovalCount: thread.pendingApprovals?.length,
     error: thread.error,
     updatedAt: thread.updatedAt,
   };
@@ -123,6 +131,12 @@ export type DesktopAPI = {
   readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  respondToApproval(
+    projectId: string,
+    threadId: string,
+    approvalId: string,
+    decision: ApprovalDecision,
+  ): Promise<Thread>;
   createDesign(projectId: string, folderId?: string | null): Promise<LocalDesign>;
   importDesign(projectId: string, folderId?: string | null): Promise<LocalDesign | null>;
   createDesignFolder(projectId: string, name: string): Promise<DesignFolder>;

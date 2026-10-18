@@ -97,7 +97,9 @@ export function ThreadCard({
             aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
           >
             <HarnessIcon harness={thread.harness} size={14} />
-            {thread.status === "running" && <span>Running</span>}
+            {thread.status === "running" && (
+              <span>{thread.pendingApprovalCount ? "Needs permission" : "Running"}</span>
+            )}
           </span>
           <time dateTime={thread.updatedAt} title={new Date(thread.updatedAt).toLocaleString()}>
             {relativeThreadTime(thread.updatedAt, now)}

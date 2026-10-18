@@ -1,3 +1,4 @@
+import { validatePermissionMode } from "../shared/permissions";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { findHarness, harnessEnvironment } from "./harnesses";
@@ -309,6 +310,7 @@ export async function validateHarnessSettings(
   settings?: HarnessSettings,
   load = readHarnessDetails,
 ) {
+  validatePermissionMode(harness, settings?.permissionMode);
   if (!settings?.model && !settings?.effort) return;
   const details = await load(harness, cwd);
   const model = details.models.find(

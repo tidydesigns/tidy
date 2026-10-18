@@ -4,6 +4,11 @@ import { Button } from "@tidy/ui/button";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
 import type { DesktopAPI, HarnessConnection, HarnessId } from "../../shared/contracts";
 import type { HarnessDetails, HarnessSettings, TokenUsage } from "../../shared/harness-settings";
+import {
+  permissionModes,
+  effectivePermissionMode,
+  type PermissionMode,
+} from "../../shared/permissions";
 
 const number = (value: number) => value.toLocaleString();
 export function TokenUsageDetails({ usage }: { usage: TokenUsage }) {
@@ -135,6 +140,7 @@ export function HarnessControls({
         ]}
         onChange={(value) =>
           onSettingsChange({
+            ...settings,
             model: value || undefined,
             effort: value
               ? details?.models.find((model) => model.id === value)?.defaultEffort
@@ -159,6 +165,26 @@ export function HarnessControls({
           onChange={(value) => onSettingsChange({ ...settings, effort: value || undefined })}
         />
       )}
+      <div
+        className="permission-control"
+        title={
+          permissionModes[harness].find(
+            (option) => option.value === effectivePermissionMode(harness, settings.permissionMode),
+          )?.description
+        }
+      >
+        <SelectMenu
+          label="Permissions"
+          placement="top"
+          value={effectivePermissionMode(harness, settings.permissionMode)}
+          disabled={disabled}
+          triggerClassName="harness-setting-trigger"
+          options={permissionModes[harness]}
+          onChange={(value) =>
+            onSettingsChange({ ...settings, permissionMode: value as PermissionMode })
+          }
+        />
+      </div>
       <Button
         ref={button}
         type="button"
