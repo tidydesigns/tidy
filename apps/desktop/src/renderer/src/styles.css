@@ -657,7 +657,9 @@ summary:focus-visible {
   overflow-wrap: anywhere;
 }
 .thread-preview-status {
-  display: block;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
   margin-top: 7px;
   color: var(--color-muted-ink);
   font-size: 11px;

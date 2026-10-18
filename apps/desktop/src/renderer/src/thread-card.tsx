@@ -142,14 +142,16 @@ export function ThreadCard({
               {thread.settings?.effort ? ` · ${thread.settings.effort} effort` : ""}
             </span>
           </div>
-          <span className="thread-preview-status">
-            {thread.doneAt
-              ? "Done"
-              : thread.status === "completed"
-                ? "Ready"
-                : thread.status.charAt(0).toUpperCase() + thread.status.slice(1)}{" "}
-            · {thread.messageCount ?? 0} messages
-          </span>
+          <div className="thread-preview-status">
+            <span>
+              {thread.doneAt
+                ? "Done"
+                : thread.status === "completed"
+                  ? "Ready"
+                  : thread.status.charAt(0).toUpperCase() + thread.status.slice(1)}
+            </span>
+            <span>{thread.messageCount ?? 0} messages</span>
+          </div>
           {thread.preview && <p className="thread-preview-message">{thread.preview}</p>}
           {designNames.length > 0 && (
             <p className="thread-preview-designs">Designs: {designNames.join(", ")}</p>
