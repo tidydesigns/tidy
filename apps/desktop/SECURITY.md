@@ -84,7 +84,8 @@ The native security smoke uses synthetic projects and fixture harnesses, without
 real model inference, provider accounts or credentials. It checks the actual
 preload/IPC boundary, CSP and protocol, canvas, approvals, stale-response rejection,
 private persistence, navigation and popup blocking. Linux CI runs it under Xvfb
-with Chromium sandboxing enabled. CI also packages macOS and Linux artifacts.
+with Chromium sandboxing enabled and configures the pinned sandbox helper's
+required ownership and permissions. CI also packages macOS and Linux artifacts.
 Report vulnerabilities using the repository's [security policy](../../SECURITY.md).
 
 The controls follow Electron's [security recommendations](https://www.electronjs.org/docs/latest/tutorial/security),
