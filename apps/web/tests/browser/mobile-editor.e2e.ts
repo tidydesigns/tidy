@@ -37,6 +37,10 @@ for (const preference of ["left", "bottom"]) {
       expect(required(await select.boundingBox()).height).toBeGreaterThanOrEqual(44);
 
       // The full tool set stays reachable on short screens without wrapping.
+      const imageTool = tools.getByRole("button", { name: "Add image", exact: true });
+      await imageTool.scrollIntoViewIfNeeded();
+      const imageBox = required(await imageTool.boundingBox());
+      expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(viewport.height);
       const comment = tools.getByRole("button", { name: "Comment tool", exact: true });
       await comment.scrollIntoViewIfNeeded();
       await comment.tap();
@@ -55,9 +59,14 @@ for (const preference of ["left", "bottom"]) {
       await expect(page.getByRole("tab", { name: "Layers", exact: true })).toBeHidden();
       await expect(page.getByLabel("Inspector", { exact: true })).toBeVisible();
       expect(await canvas.boundingBox()).toEqual(canvasBox);
+      await expect
+        .poll(async () => {
+          const box = required(await page.getByLabel("Inspector", { exact: true }).boundingBox());
+          return Math.round(box.x + box.width);
+        })
+        .toBeLessThanOrEqual(viewport.width);
       const inspector = required(await page.getByLabel("Inspector", { exact: true }).boundingBox());
       expect(inspector.x).toBeGreaterThanOrEqual(0);
-      expect(inspector.x + inspector.width).toBeLessThanOrEqual(viewport.width);
       await page.getByRole("button", { name: "Close inspector", exact: true }).click();
       await expect(tools).toBeVisible();
       const cookies = await page.context().cookies();
