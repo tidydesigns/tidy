@@ -4,9 +4,9 @@ import {
   lstat,
   mkdir,
   readdir,
-  readFile,
   realpath,
   rename,
+  rm,
   stat,
   writeFile,
 } from "node:fs/promises";
@@ -29,6 +29,8 @@ import type {
   Thread,
 } from "../shared/contracts";
 import { summarizeThread } from "../shared/contracts";
+import { ThreadAuthority } from "./thread-authority";
+import { readLocalFile } from "./local-files";
 
 const id = z.string().uuid();
 const messageSchema = z.object({
@@ -77,13 +79,17 @@ export class ProjectStore {
   };
   private writes = Promise.resolve();
 
-  constructor(private directory: string) {}
+  private authority: ThreadAuthority;
+  constructor(private directory: string) {
+    this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+  }
 
   async initialize() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    await this.authority.initialize();
     try {
       this.registry = registrySchema.parse(
-        JSON.parse(await readFile(join(this.directory, "projects.json"), "utf8")),
+        JSON.parse((await readLocalFile(join(this.directory, "projects.json"))).toString("utf8")),
       );
     } catch (error) {
       if (!missing(error)) throw new Error("The local project registry could not be read.");
@@ -125,6 +131,18 @@ export class ProjectStore {
       if (!info.isFile() || info.isSymbolicLink())
         throw new Error("Project metadata must be a regular file.");
       project.id = z.object({ version: z.literal(1), id }).parse(await this.read(metadataPath)).id;
+    }
+    const previous = this.projects.find((item) => item.id === project.id);
+    if (previous && previous.path !== path) {
+      const previousPath = await realpath(previous.path).catch((error) => {
+        if (missing(error)) return null;
+        throw error;
+      });
+      if (previousPath && previousPath !== path) {
+        // A copied identity must not redirect a registered project's active jobs or data.
+        project.id = randomUUID();
+        await this.atomicWrite(metadataPath, { version: 1, id: project.id });
+      }
     }
     this.registry.projects = [
       project,
@@ -172,10 +190,13 @@ export class ProjectStore {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const ignorePath = join(project.path, ".tidy", ".gitignore");
       const info = await lstat(ignorePath);
-      if (!info.isFile() || info.isSymbolicLink())
+      if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1)
         throw new Error("Project ignore rules must be a regular file.");
-      if (!(await readFile(ignorePath, "utf8")).split(/\r?\n/).includes("/attachments/"))
-        await appendFile(ignorePath, "\n/attachments/\n");
+      const required = ["/threads/", "/attachments/", "/project.json"];
+      const rules = (await readLocalFile(ignorePath, 64 * 1024)).toString("utf8").split(/\r?\n/);
+      // Append protections last so earlier negation rules cannot override them.
+      if (rules.slice(-4).join("\n") !== [...required, ""].join("\n"))
+        await appendFile(ignorePath, `\n${required.join("\n")}\n`);
     }
   }
 
@@ -207,9 +228,7 @@ export class ProjectStore {
   }
 
   private async read(path: string) {
-    if ((await stat(path)).size > 16 * 1024 * 1024)
-      throw new Error("The local project file is too large.");
-    return JSON.parse(await readFile(path, "utf8")) as unknown;
+    return JSON.parse((await readLocalFile(path)).toString("utf8")) as unknown;
   }
 
   async addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile> {
@@ -297,7 +316,7 @@ export class ProjectStore {
     if (value.size > MAX_IMAGE_BYTES) throw new Error("Choose an image under 5 MB.");
     return {
       ...value,
-      previewUrl: `data:${value.mimeType};base64,${(await readFile(path)).toString("base64")}`,
+      previewUrl: `data:${value.mimeType};base64,${(await readLocalFile(path, MAX_IMAGE_BYTES)).toString("base64")}`,
     };
   }
 
@@ -318,12 +337,33 @@ export class ProjectStore {
     );
     if (thread.projectId !== projectId || thread.id !== threadId)
       throw new Error("This thread belongs to another project.");
+    const authority = await this.authority.read(this.project(projectId).path, thread);
+    if (authority && authority.harness !== thread.harness)
+      throw new Error("This thread's harness changed on disk. Start a new thread.");
+    thread.sessionId = authority?.sessionId;
+    const settings = { ...thread.settings };
+    delete settings.permissionMode;
+    thread.settings =
+      authority?.permissionMode || Object.keys(settings).length
+        ? { ...settings, permissionMode: authority?.permissionMode }
+        : undefined;
     return thread;
   }
 
   writeThread(thread: Thread) {
     const value = threadSchema.parse(thread);
-    return this.atomicWrite(() => this.storagePath(value.projectId, "threads", value.id), value);
+    const portable = { ...value };
+    delete portable.sessionId;
+    if (portable.settings) {
+      const settings = { ...portable.settings };
+      delete settings.permissionMode;
+      portable.settings = Object.keys(settings).length ? settings : undefined;
+    }
+    return this.atomicWrite(async () => {
+      const path = await this.storagePath(value.projectId, "threads", value.id);
+      await this.authority.write(this.project(value.projectId).path, value);
+      return path;
+    }, portable);
   }
 
   async readDesign(
@@ -579,8 +619,12 @@ export class ProjectStore {
     if (Buffer.byteLength(json) > 16 * 1024 * 1024)
       throw new Error("The local project file reached its size limit.");
     const temporary = `${path}.${randomUUID()}.tmp`;
-    await writeFile(temporary, json, { mode: 0o600, flag: "wx" });
-    await rename(temporary, path);
+    try {
+      await writeFile(temporary, json, { mode: 0o600, flag: "wx" });
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 
   private atomicWrite(target: string | (() => Promise<string>), value: unknown) {

@@ -34,6 +34,84 @@ function thread(projectId: string): Thread {
   };
 }
 
+test("project files cannot grant permissions or replace a native session, including after restart", async () => {
+  const { directory, root, store } = await fixture();
+  const { project } = await store.open(root);
+  const original = thread(project.id);
+  original.settings = { model: "fixture-codex", permissionMode: "read-only" };
+  await store.writeThread(original);
+  const path = await store.storagePath(project.id, "threads", original.id);
+  const portable = JSON.parse(await readFile(path, "utf8"));
+  expect(portable.sessionId).toBeUndefined();
+  expect(portable.settings.permissionMode).toBeUndefined();
+  await writeFile(
+    path,
+    JSON.stringify({
+      ...portable,
+      sessionId: randomUUID(),
+      settings: { ...portable.settings, permissionMode: "auto" },
+    }),
+  );
+  const reopened = new ProjectStore(join(directory, "app-data"));
+  await reopened.initialize();
+  const trusted = await reopened.readThread(project.id, original.id);
+  expect(trusted.settings?.permissionMode).toBe("read-only");
+  expect(trusted.sessionId).toBe(original.sessionId);
+  expect(trusted.settings?.model).toBe("fixture-codex");
+
+  const imported = { ...original, id: randomUUID(), settings: { permissionMode: "auto" } };
+  await writeFile(
+    await store.storagePath(project.id, "threads", imported.id),
+    JSON.stringify(imported),
+  );
+  const untrusted = await reopened.readThread(project.id, imported.id);
+  expect(untrusted.settings?.permissionMode).toBeUndefined();
+  expect(untrusted.sessionId).toBeUndefined();
+
+  await writeFile(path, JSON.stringify({ ...original, harness: "claude" }));
+  await expect(reopened.readThread(project.id, original.id)).rejects.toThrow("harness changed");
+
+  const moved = join(directory, "moved");
+  await rename(root, moved);
+  await reopened.open(moved);
+  expect(
+    (await reopened.readThread(project.id, imported.id)).settings?.permissionMode,
+  ).toBeUndefined();
+});
+
+test("existing ignore rules cannot leave private threads and attachments exposed", async () => {
+  const { root, store } = await fixture();
+  await mkdir(join(root, ".tidy"));
+  const path = join(root, ".tidy/.gitignore");
+  await writeFile(path, "/threads/\n!/threads/\n!/attachments/\n!/project.json\n");
+  await store.open(root);
+  const protectedRules = await readFile(path, "utf8");
+  expect(protectedRules.endsWith("/threads/\n/attachments/\n/project.json\n")).toBe(true);
+  await store.open(root);
+  expect(await readFile(path, "utf8")).toBe(protectedRules);
+});
+
+test("a copied project identity cannot redirect the original project's data", async () => {
+  const { directory, root, store } = await fixture();
+  const original = (await store.open(root)).project;
+  const conversation = thread(original.id);
+  await store.writeThread(conversation);
+  const copiedRoot = join(directory, "copy");
+  await mkdir(join(copiedRoot, ".tidy"), { recursive: true });
+  await writeFile(
+    join(copiedRoot, ".tidy/project.json"),
+    JSON.stringify({ version: 1, id: original.id }),
+  );
+  const copy = (await store.open(copiedRoot)).project;
+  expect(copy.id).not.toBe(original.id);
+  expect(store.project(original.id).path).toBe(original.path);
+  expect((await store.readThread(original.id, conversation.id)).sessionId).toBe(
+    conversation.sessionId,
+  );
+  expect((await store.open(copiedRoot)).project.id).toBe(copy.id);
+  await expect(store.readThread(copy.id, conversation.id)).rejects.toThrow();
+});
+
 test("project designs and threads survive restart and moving the directory", async () => {
   const { directory, root, store } = await fixture();
   const first = await store.open(root);

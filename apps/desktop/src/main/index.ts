@@ -1,8 +1,20 @@
-import { app, BrowserWindow, nativeTheme, session } from "electron";
+import { app, BrowserWindow, nativeTheme, net, protocol, session } from "electron";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { registerWorkspaceIPC } from "./ipc";
+import {
+  APP_SCHEME,
+  rendererURL,
+  rendererAssetPath,
+  trustedRendererURL,
+} from "./renderer-security";
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
+const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 
 let service: WorkspaceService | undefined;
 let quitting = false;
@@ -21,6 +33,8 @@ async function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
+      webSecurity: true,
+      webviewTag: false,
     },
   });
 
@@ -28,12 +42,9 @@ async function createWindow() {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());
   window.webContents.on("will-redirect", (event) => event.preventDefault());
-
-  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
-    await window.loadURL(process.env.ELECTRON_RENDERER_URL);
-  } else {
-    await window.loadFile(join(import.meta.dirname, "../renderer/index.html"));
-  }
+  window.webContents.on("will-frame-navigate", (event) => event.preventDefault());
+  window.webContents.on("will-attach-webview", (event) => event.preventDefault());
+  await window.loadURL(entryURL);
 }
 
 app.setName("Tidy");
@@ -53,19 +64,32 @@ app
     await store.initialize();
     await store.recover();
     service = new WorkspaceService(store);
-    registerWorkspaceIPC(service);
+    registerWorkspaceIPC(service, entryURL);
+    protocol.handle(APP_SCHEME, async (request) => {
+      try {
+        if (request.method !== "GET" && request.method !== "HEAD")
+          return new Response(null, { status: 405 });
+        const path = rendererAssetPath(join(import.meta.dirname, "../renderer"), request.url);
+        return await net.fetch(pathToFileURL(path).href);
+      } catch {
+        return new Response(null, { status: 404 });
+      }
+    });
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) => {
         callback(
           permission === "local-fonts" &&
             details.isMainFrame &&
+            trustedRendererURL(contents.mainFrame.url, entryURL) &&
             Boolean(BrowserWindow.fromWebContents(contents)),
         );
       },
     );
     session.defaultSession.setPermissionCheckHandler(
-      (contents, permission) =>
+      (contents, permission, _origin, details) =>
         permission === "local-fonts" &&
+        details.isMainFrame &&
+        Boolean(contents && trustedRendererURL(contents.mainFrame.url, entryURL)) &&
         Boolean(contents && BrowserWindow.fromWebContents(contents)),
     );
 

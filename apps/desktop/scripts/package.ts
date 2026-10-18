@@ -1,4 +1,5 @@
 import { packager } from "@electron/packager";
+import { flipFuses, FuseV1Options, FuseVersion } from "@electron/fuses";
 import { cp, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,7 +54,27 @@ try {
     overwrite: true,
     prune: false,
   });
-  for (const path of paths) console.info(`Packaged Tidy: ${path}`);
+  for (const path of paths) {
+    const executable =
+      process.platform === "darwin"
+        ? join(path, "Tidy.app")
+        : join(path, process.platform === "win32" ? "Tidy.exe" : "Tidy");
+    await flipFuses(executable, {
+      version: FuseVersion.V1,
+      resetAdHocDarwinSignature: process.platform === "darwin",
+      strictlyRequireAllFuses: true,
+      [FuseV1Options.RunAsNode]: false,
+      [FuseV1Options.EnableCookieEncryption]: true,
+      [FuseV1Options.EnableNodeOptionsEnvironmentVariable]: false,
+      [FuseV1Options.EnableNodeCliInspectArguments]: false,
+      [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: process.platform !== "linux",
+      [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      [FuseV1Options.LoadBrowserProcessSpecificV8Snapshot]: false,
+      [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
+      [FuseV1Options.WasmTrapHandlers]: true,
+    });
+    console.info(`Packaged Tidy: ${path}`);
+  }
 } finally {
   await rm(stagingDirectory, { recursive: true, force: true });
 }

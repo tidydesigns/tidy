@@ -1,6 +1,9 @@
-import { approvalDecisionSchema, type ApprovalDecision } from "../shared/permissions";
+import {
+  approvalDecisionSchema,
+  validatePermissionMode,
+  type ApprovalDecision,
+} from "../shared/permissions";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
 import {
@@ -15,11 +18,10 @@ import {
   attachmentSchema,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_TOTAL_BYTES,
+  MAX_IMAGE_BYTES,
 } from "../shared/attachments";
-import type { HarnessSettings } from "../shared/harness-settings";
 import { validateHarnessSettings } from "./harness-details";
-import { harnessSettingsSchema } from "../shared/harness-settings";
-import { validatePermissionMode } from "../shared/permissions";
+import { harnessSettingsSchema, type HarnessSettings } from "../shared/harness-settings";
 import {
   toolActivitySchema,
   toolLogSize,
@@ -27,6 +29,7 @@ import {
   MAX_TOOL_LOG_CHARACTERS,
 } from "../shared/tool-activity";
 import { ProjectStore } from "./project-store";
+import { readLocalFile } from "./local-files";
 
 type Job = {
   thread: Thread;
@@ -245,7 +248,7 @@ export class WorkspaceService {
         .map(async (file) => ({
           path: file.path,
           mimeType: file.mimeType,
-          data: (await readFile(file.path)).toString("base64"),
+          data: (await readLocalFile(file.path, MAX_IMAGE_BYTES)).toString("base64"),
         })),
     );
     if (!thread.title) thread.title = attachments[0]?.name.slice(0, 80) ?? "New thread";

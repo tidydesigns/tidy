@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, join } from "node:path";
+import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import { startInteractiveHarness } from "./interactive-harness";
 import type { ApprovalRequest, ApprovalDecision } from "../shared/permissions";
@@ -71,7 +71,7 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
       "/bin",
     ]),
   ]
-    .filter(Boolean)
+    .filter((directory) => isAbsolute(directory))
     .join(delimiter);
   environment.NO_COLOR = "1";
   return environment;
@@ -80,11 +80,13 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
 export async function findHarness(id: HarnessId, environment = harnessEnvironment()) {
   const extensions = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
   for (const directory of (environment.PATH ?? "").split(delimiter).filter(Boolean)) {
+    if (!isAbsolute(directory)) continue;
     for (const extension of extensions) {
       const path = join(directory, `${id}${extension}`);
       try {
         await access(path, constants.X_OK);
-        return path;
+        if (!(await stat(path)).isFile()) continue;
+        return await realpath(path);
       } catch {
         /* Try the next executable location. */
       }

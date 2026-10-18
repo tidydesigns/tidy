@@ -26,7 +26,7 @@ The tabs support arrow keys, Home and End.
    immediately to local project storage. Web asset downloads are not yet an import path.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
    start a thread. The harness runs in the project root and receives the attached
-   design file paths. Follow-up messages resume that thread's exact harness session.
+   design file paths. Follow-up messages resume the locally bound native harness session.
 4. Stop cancels the active process and its commands. Closing the app stops active
    runs; an interrupted run is never silently restarted. Send a message to continue.
 
@@ -88,9 +88,10 @@ their attachment references and restore image previews after reopening the threa
 
 The composer uses the same Codex and Claude marks as the web app. Choose a model
 and supported effort level from the connected CLI's catalog. Settings persist per
-thread and apply to its next message while retaining its native session. Leave
-the model or effort on Default to use the CLI's configuration. Settings cannot
-change during a run. Checking models and limits never starts an inference turn.
+thread and apply to its next message while retaining its native session. The
+composer shows the resolved model name and effort. If the harness does not report
+a value, choose it from the menu. Settings cannot change during a run. Checking
+models and limits never starts an inference turn.
 
 Usage shows Codex account limits when available and recorded thread token counts
 for either harness. Claude Code does not expose live account limits through its
@@ -100,13 +101,13 @@ Hover or keyboard-focus a sidebar thread to see its title, latest reply, model,
 effort, design references, activity and recorded usage without opening it.
 
 The composer's Permissions menu applies to the selected thread and its next run.
-Existing threads use Codex Default or Claude Accept edits unless explicitly changed.
+Threads use Codex Project access or Claude Accept edits unless explicitly changed.
 Changing the model retains the permission selection. Settings cannot change while
 the harness is running.
 
-- Codex Default uses the workspace-write sandbox with on-request approvals routed
+- Codex Project access uses the workspace-write sandbox with on-request approvals routed
   to the user. Read only uses the read-only sandbox with on-request approvals.
-- Claude Default prompts for actions needing permission; Accept edits allows file
+- Claude Ask before changes prompts for actions needing permission; Accept edits allows file
   edits; Plan explores and asks before changes.
 - Auto — Full access explicitly selects Codex's danger-full-access sandbox with
   approval policy never, or Claude's bypassPermissions with the required opt-in
@@ -140,7 +141,7 @@ your-project/
     folders/<id>.json  # { id, name }; project-local design organization
     assets/<id>.json   # Local image data, referenced by designs
     attachments/      # Private copied files and metadata, ignored by Git
-    threads/<id>.json  # Transcript, tool logs, native session ID and attachment references
+    threads/<id>.json  # Transcript, tool logs and attachment references
     .gitignore        # Ignores local identity and private thread history
 ```
 
@@ -148,8 +149,12 @@ Design files and folder metadata can be versioned with the project. Moving a des
 between folders retains its file path and existing thread references. Existing files
 without folder metadata remain in Files.
 
-Thread history stays on disk locally and is ignored by Git. The app's private user-data directory stores only recent
-project locations. Agent changes to design JSON refresh the open canvas. Local
+Thread history stays on disk locally and is ignored by Git. The app's private
+user-data directory stores recent project locations and authoritative thread
+permissions/native session IDs, bound to a project location and harness. Project
+JSON cannot grant access or replace those native sessions. Moving or importing
+thread history starts a new native session with standard permissions. Agent
+changes to design JSON refresh the open canvas. Local
 commits check the last disk version so an older edit cannot overwrite those changes.
 
 Use Bun 1.3.14 and Node.js 22.12+ (Node.js 24 recommended). From the repository root:
@@ -175,7 +180,8 @@ Packaging uses Electron Packager to create an unsigned app for the current platf
 and architecture. It stages only compiled output, package metadata and licence
 notices; source code and local environment files are excluded. Packaging is separate
 from the monorepo build. Release icons, installers, signing and notarization can be
-configured when distribution is needed.
+configured before public distribution. Packaging enables the Electron security
+fuses described in [desktop security](SECURITY.md).
 
 `src/main/index.ts` owns the native window and application lifecycle.
 `src/renderer/` contains the browser-only React interface. The renderer is sandboxed,
@@ -191,6 +197,9 @@ The root `bun typecheck`, `bun lint` and `bun run build` commands include this a
 session resumption, reference context, process cancellation and event parsing.
 Renderer bundles carry the repository's reviewed third-party licence notices;
 packaged apps also include the project licence, bundled notices and font licences.
+`bun run --cwd apps/desktop test:security` checks the built app in a real Electron
+process, using only synthetic projects and fixture harnesses. On headless Linux,
+run it with `xvfb-run --auto-servernum`.
 
 ## Shared foundations
 

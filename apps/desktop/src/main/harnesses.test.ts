@@ -2,7 +2,31 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, copyFile, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHarnessParser, startHarness, type HarnessUpdate } from "./harnesses";
+import {
+  createHarnessParser,
+  findHarness,
+  harnessEnvironment,
+  startHarness,
+  type HarnessUpdate,
+} from "./harnesses";
+import { delimiter, dirname, isAbsolute } from "node:path";
+import { harnessSettingsSchema } from "../shared/harness-settings";
+
+test("executable discovery ignores relative PATH entries and resolves an absolute executable", async () => {
+  expect(
+    await findHarness("codex", { PATH: [".", "node_modules/.bin", ""].join(delimiter) }),
+  ).toBeNull();
+  const { executable } = await fixture();
+  const codex = join(dirname(executable), "codex");
+  await copyFile(executable, codex);
+  await chmod(codex, 0o700);
+  expect(await findHarness("codex", { PATH: [".", dirname(executable)].join(delimiter) })).toBe(
+    await realpath(codex),
+  );
+  expect(harnessEnvironment().PATH!.split(delimiter).every(isAbsolute)).toBe(true);
+  for (const model of ["--dangerously-skip-permissions", "-x", "bad\nmodel", "\0model"])
+    expect(harnessSettingsSchema.safeParse({ model }).success).toBe(false);
+});
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -18,6 +42,43 @@ async function fixture() {
 }
 
 for (const harness of ["codex", "claude"] as const) {
+  for (const variant of ["oversized-approval", "bidi-approval"])
+    test(`${harness} cannot approve hidden truncated actions and displays directional controls literally: ${variant}`, async () => {
+      const { directory, executable } = await fixture();
+      let received!: (request: Extract<HarnessUpdate, { type: "approval" }>["request"]) => void;
+      const approval = new Promise<Extract<HarnessUpdate, { type: "approval" }>["request"]>(
+        (resolve) => {
+          received = resolve;
+        },
+      );
+      const run = startHarness({
+        harness,
+        executable,
+        cwd: directory,
+        prompt: `permission-fixture ${variant}`,
+        onUpdate: (event) => {
+          if (event.type === "approval") received(event.request);
+        },
+      });
+      try {
+        const request = await approval;
+        if (variant === "oversized-approval") {
+          expect(request.shortened).toBe(true);
+          expect(request.choices).toEqual(["deny"]);
+          expect(run.respondToApproval!(request.id, "allow")).toBe(false);
+          expect(run.respondToApproval!(request.id, "allow-session")).toBe(false);
+        } else {
+          expect(request.details).toContain("\\u202e");
+          expect(request.details).not.toContain("\u202e");
+        }
+        expect(run.respondToApproval!(request.id, "deny")).toBe(true);
+        await run.done;
+        await expect(stat(join(directory, "approved.txt"))).rejects.toThrow();
+      } finally {
+        run.stop();
+        await run.done.catch(() => {});
+      }
+    });
   for (const decision of [
     "allow",
     "deny",

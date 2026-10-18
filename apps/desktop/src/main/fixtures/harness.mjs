@@ -193,10 +193,15 @@ if (prompt.includes("invalid-event")) {
   process.exit(0);
 }
 if (prompt.includes("permission-fixture")) {
+  const command = prompt.includes("oversized-approval")
+    ? `echo ${"x".repeat(17_000)}`
+    : prompt.includes("bidi-approval")
+      ? "echo \u202espoof\u202c"
+      : "touch approved.txt";
   if (codex)
     send({
       type: "item.started",
-      item: { id: "permission-command", type: "command_execution", command: "touch approved.txt" },
+      item: { id: "permission-command", type: "command_execution", command },
     });
   else
     send({
@@ -208,7 +213,7 @@ if (prompt.includes("permission-fixture")) {
             type: "tool_use",
             id: "permission-command",
             name: "Bash",
-            input: { command: "touch approved.txt" },
+            input: { command },
           },
         ],
       },
@@ -228,7 +233,7 @@ if (prompt.includes("permission-fixture")) {
               threadId: session,
               turnId: turn,
               itemId: "permission-command",
-              command: "touch approved.txt",
+              command,
               cwd: process.cwd(),
               reason: "This action needs permission.",
             },
@@ -240,7 +245,7 @@ if (prompt.includes("permission-fixture")) {
               subtype: "can_use_tool",
               tool_name: "Bash",
               tool_use_id: "permission-command",
-              input: { command: "touch approved.txt" },
+              input: { command },
               decision_reason: "This action needs permission.",
             },
           },
@@ -281,7 +286,7 @@ if (prompt.includes("permission-fixture")) {
       item: {
         id: "permission-command",
         type: "command_execution",
-        command: "touch approved.txt",
+        command,
         aggregated_output: allowed ? "Created approved.txt" : "Action denied",
         exit_code: allowed ? 0 : 1,
       },

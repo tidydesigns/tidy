@@ -1,20 +1,19 @@
 import { approvalDecisionSchema } from "../shared/permissions";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
-import { readFile, stat } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { basename } from "node:path";
 import { z } from "zod";
 import { readHarnessDetails } from "./harness-details";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/attachments";
 import { harnessSettingsSchema } from "../shared/harness-settings";
 import { checkHarnesses } from "./harnesses";
 import { WorkspaceService } from "./workspace-service";
+import { trustedRendererURL } from "./renderer-security";
+import { readLocalFile } from "./local-files";
 
-export function registerWorkspaceIPC(service: WorkspaceService) {
+export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: string) {
   const store = service.store;
   const uuid = z.string().uuid();
   const projectId = uuid;
-  const rendererFile = pathToFileURL(join(import.meta.dirname, "../renderer/index.html")).href;
 
   function authorize(event: IpcMainInvokeEvent) {
     if (
@@ -22,12 +21,7 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
       event.senderFrame !== event.sender.mainFrame
     )
       throw new Error("Untrusted desktop request.");
-    const url = event.senderFrame?.url;
-    const devURL = process.env.ELECTRON_RENDERER_URL;
-    if (
-      url !== rendererFile &&
-      !(devURL && new URL(url ?? "about:blank").origin === new URL(devURL).origin)
-    )
+    if (!trustedRendererURL(event.senderFrame.url, rendererURL))
       throw new Error("Untrusted desktop request.");
   }
 
@@ -238,9 +232,7 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
       });
       const file = result.filePaths[0];
       if (result.canceled || !file) return null;
-      if ((await stat(file)).size > 16 * 1024 * 1024)
-        throw new Error("This design file is too large.");
-      const imported: unknown = JSON.parse(await readFile(file, "utf8"));
+      const imported: unknown = JSON.parse((await readLocalFile(file)).toString("utf8"));
       const wrapped = z
         .object({ name: z.string().optional(), document: z.unknown() })
         .safeParse(imported);
@@ -259,7 +251,11 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
 
   return service.subscribe((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) window.webContents.send("tidy:event", event);
+      if (
+        !window.isDestroyed() &&
+        trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
+      )
+        window.webContents.send("tidy:event", event);
     }
   });
 }

@@ -19,6 +19,11 @@ const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 const key = (id: unknown) => `${typeof id}:${String(id)}`;
+const approvalText = (value: string) =>
+  plainToolText(value).replace(
+    /[\u202a-\u202e\u2066-\u2069]/g,
+    (character) => `\\u${character.charCodeAt(0).toString(16)}`,
+  );
 
 /** One native harness turn, with an open duplex connection for explicit approvals. */
 export function startInteractiveHarness(input: Parameters<typeof startHarness>[0]): RunningHarness {
@@ -68,7 +73,7 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  const filePreviews = new Map<string, unknown>();
+  const filePreviews = new Map<string, string>();
   const approvals = new Map<
     string,
     { nativeId: unknown; choices: ApprovalDecision[]; result(decision: ApprovalDecision): unknown }
@@ -184,7 +189,7 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
     if ([...approvals.values()].some((approval) => key(approval.nativeId) === key(nativeId)))
       return;
     const id = randomUUID();
-    const preview = plainToolText(
+    const preview = approvalText(
       typeof details === "string"
         ? details
         : (JSON.stringify(
@@ -198,16 +203,20 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
             2,
           ) ?? ""),
     );
-    approvals.set(id, { nativeId, choices, result });
+    const shortened = preview.length > 16_000;
+    const available: ApprovalDecision[] = shortened ? ["deny"] : choices;
+    approvals.set(id, { nativeId, choices: available, result });
     emit({
       type: "approval",
       request: {
         id,
-        title: plainToolText(title).slice(0, 240),
-        reason: plainToolText(reason).slice(0, 4000) || undefined,
+        title: approvalText(title).slice(0, 240),
+        reason: shortened
+          ? "This request is too large to review here. Ask the harness to split it into smaller actions."
+          : approvalText(reason).slice(0, 4000) || undefined,
         details: preview.slice(0, 16_000) || undefined,
-        shortened: preview.length > 16_000,
-        choices,
+        shortened,
+        choices: available,
         scope,
       },
     });
@@ -275,9 +284,7 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
             text(params.reason),
             [
               command,
-              filePreviews.has(text(params.itemId))
-                ? JSON.stringify(filePreviews.get(text(params.itemId)), null, 2)
-                : "",
+              filePreviews.has(text(params.itemId)) ? filePreviews.get(text(params.itemId))! : "",
               text(params.cwd) && `Directory: ${text(params.cwd)}`,
               text(params.grantRoot) && `Write access: ${text(params.grantRoot)}`,
               network.host && JSON.stringify(network),
@@ -319,7 +326,10 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
       if (method === "turn/started") turnId = text(object(params.turn).id) || turnId;
       const item = object(params.item);
       if (method === "item/started" && item.type === "fileChange" && filePreviews.size < 1000)
-        filePreviews.set(text(item.id), item.changes);
+        filePreviews.set(
+          text(item.id),
+          plainToolText(JSON.stringify(item.changes) ?? "").slice(0, 16_001),
+        );
       codexEvent(method, params);
       if (method === "item/completed") filePreviews.delete(text(item.id));
       if (method === "error" && !params.willRetry)

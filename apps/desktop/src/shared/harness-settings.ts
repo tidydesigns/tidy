@@ -3,7 +3,13 @@ import { permissionModeSchema } from "./permissions";
 export const harnessSettingsSchema = z
   .object({
     permissionMode: permissionModeSchema.optional(),
-    model: z.string().trim().min(1).max(200).optional(),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .regex(/^[^-\s\x00-\x1f\x7f][^\x00-\x1f\x7f]*$/)
+      .optional(),
     effort: z
       .string()
       .regex(/^[a-z][a-z0-9_-]{0,29}$/)

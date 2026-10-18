@@ -10,6 +10,9 @@ lockfile current and run `bun run audit:dependencies`. Public source does not
 certify a particular deployment or replace review of its credentials, privileges,
 provider configuration, abuse controls and backups.
 
+The local Electron application's renderer, project storage, native harness and
+release boundaries are documented in [desktop security](apps/desktop/SECURITY.md).
+
 Tenant authorization lives in server services and is tested with separate actors,
 role changes and revocation. The shared runtime database credential can access
 multiple tenants; keep it server-side and use the restricted grants documented in
