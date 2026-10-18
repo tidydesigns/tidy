@@ -13,6 +13,74 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-17",
+    features: [
+      {
+        title: "Connect your agent with a prompt",
+        details:
+          "Copy a setup prompt into your coding agent to connect it to Tidy, with guided sign-in and connection checks. Agent setup is now available during onboarding too.",
+      },
+      {
+        title: "Workspace navigation on smaller screens",
+        details:
+          "Access workspace navigation from a collapsible menu on smaller screens, with keyboard controls and screen reader support.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Finish onboarding when your agent connects",
+        details:
+          "Onboarding now detects when your agent connects and lets you continue into your workspace.",
+      },
+      {
+        title: "Clearer component instance editing",
+        details:
+          "Linked instances now explain which edits require detaching. Detach directly from the canvas context menu or from the notification when an edit is blocked.",
+      },
+      {
+        title: "Dismiss editor notifications",
+        details:
+          "Editor alerts now appear together in the bottom-right corner and can be dismissed.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-16",
+    features: [
+      {
+        title: "Turn images into editable vectors",
+        details:
+          "Vectorise raster images into editable canvas shapes and paths, with support for gradients and fine details.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Start new files faster",
+        details:
+          "Creating a file opens the editor immediately, with less waiting for the document to load.",
+      },
+      {
+        title: "Faster file previews",
+        details:
+          "File previews prioritise thumbnails visible on screen and reuse existing previews, reducing loading and rendering work.",
+      },
+      {
+        title: "Faster selection exports",
+        details:
+          "Exporting selected layers takes less preparation time, especially in large documents.",
+      },
+      {
+        title: "Quicker Settings and agent setup",
+        details:
+          "Settings and MCP setup show their main content while secondary details load. Navigation also recovers more reliably from failed page preloads.",
+      },
+      {
+        title: "Keep features available with analytics turned off",
+        details: "Optional product features no longer depend on accepting analytics cookies.",
+      },
+    ],
+  },
+  {
     date: "2026-10-15",
     fixes: [
       {
