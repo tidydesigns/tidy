@@ -49,7 +49,7 @@ export function EditorSkeleton({
         Loading file…
       </span>
       {panelsOpen && (
-        <div aria-hidden="true" className="flex shrink-0">
+        <div aria-hidden="true" className="hidden shrink-0 md:flex">
           <div className="flex w-64 flex-col border-r border-primary-grey/70 bg-primary-white">
             <div className="flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3">
               <div className="size-8 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
@@ -66,28 +66,29 @@ export function EditorSkeleton({
               ))}
             </div>
           </div>
-          <div className="w-[53px] border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
+          <div
+            data-skeleton-docked-tools
+            className="w-[53px] border-r border-primary-grey/70 bg-primary-white px-1.5 py-3"
+          >
             <Tools />
           </div>
         </div>
       )}
       <div aria-hidden="true" className="relative min-w-0 flex-1">
-        {!panelsOpen && (
-          <>
-            <div data-skeleton-file-bar className={minimisedFileBarClass}>
-              <div className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
-              <div className="h-6 w-px shrink-0 bg-primary-grey/65" />
-              <div className="mx-2 h-4 w-28 rounded bg-subtle-fill motion-safe:animate-pulse" />
-              <div className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
-            </div>
-            <div className={minimisedToolbarClass(placement)}>
-              <Tools horizontal={placement === "bottom"} />
-            </div>
-          </>
-        )}
+        <div className={panelsOpen ? "md:hidden" : "contents"}>
+          <div data-skeleton-file-bar className={minimisedFileBarClass}>
+            <div className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
+            <div className="h-6 w-px shrink-0 bg-primary-grey/65" />
+            <div className="mx-2 h-4 w-28 rounded bg-subtle-fill motion-safe:animate-pulse" />
+            <div className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
+          </div>
+          <div className={minimisedToolbarClass(placement)}>
+            <Tools horizontal={placement === "bottom"} />
+          </div>
+        </div>
         <div
           data-skeleton-zoom
-          className="absolute right-4 top-4 flex h-8 items-center gap-2 rounded-md border border-primary-grey/80 bg-surface px-2.5"
+          className="absolute right-4 top-20 flex h-8 md:top-4 items-center gap-2 rounded-md border border-primary-grey/80 bg-surface px-2.5"
         >
           <div className="h-3 w-7 rounded bg-subtle-fill motion-safe:animate-pulse" />
           <div className="size-2.5 rounded bg-subtle-fill motion-safe:animate-pulse" />

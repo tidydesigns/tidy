@@ -158,6 +158,70 @@ html:has(dialog[data-workspace-navigation][open]) {
   }
 }
 
+@media (width < 48rem) {
+  .editor-floating-tools {
+    position: fixed;
+    left: max(0.75rem, env(safe-area-inset-left));
+    top: max(6rem, calc(50% - 14rem));
+    bottom: auto;
+    width: max-content;
+    max-width: calc(100% - 1.5rem);
+    max-height: calc(100dvh - 6rem - max(0.75rem, env(safe-area-inset-bottom)));
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    scrollbar-width: none;
+  }
+
+  .editor-floating-tools > div {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+  }
+
+  .editor-floating-tools button,
+  .editor-floating-tools [data-skeleton-tools] > div {
+    flex-shrink: 0;
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+
+  .editor-workspace > .editor-panel {
+    position: absolute;
+    inset-block: 0;
+    z-index: 30;
+    max-width: calc(100% - 1.5rem);
+    transition: none;
+  }
+
+  .editor-workspace > .editor-panel[data-side="left"] {
+    left: 0;
+  }
+
+  .editor-workspace > .editor-panel[data-side="right"] {
+    right: 0;
+  }
+
+  .editor-workspace > .editor-panel > aside {
+    width: 100%;
+  }
+
+  .editor-workspace > .editor-panel[data-kind="tools"],
+  .editor-workspace[data-mobile-panels-open="false"] > .editor-panel[data-kind="layers"] {
+    display: none;
+  }
+
+  .editor-compact-chrome[data-mobile-visible="true"] > [data-canvas-control] {
+    opacity: 1;
+    visibility: visible;
+  }
+
+  .editor-compact-chrome[data-mobile-visible="false"] > [data-canvas-control] {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .editor-panel,
   .editor-panel > aside,

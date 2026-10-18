@@ -75,6 +75,7 @@ import { Icon } from "@/components/ui/icon";
 import { ComponentLibraryPanel } from "./component-library-panel";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { useEditorToolbarPlacement } from "@/components/ui/editor-toolbar-preference";
+import { useMobileEditor } from "@/components/files/use-mobile-editor";
 import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
 import {
   canvasToolsClass,
@@ -351,7 +352,9 @@ export function FileEditor({
 }) {
   // Archived snapshots use the static viewer: no live room, comments or writes.
   const preview = previewMode || archived;
-  const toolbarPlacement = useEditorToolbarPlacement(initialToolbarPlacement);
+  const mobileLayout = useMobileEditor();
+  const savedToolbarPlacement = useEditorToolbarPlacement(initialToolbarPlacement);
+  const toolbarPlacement = mobileLayout ? "left" : savedToolbarPlacement;
   const [agents, setAgents] = useState<ThreadsWorkspaceProps | undefined>(() =>
     initialAgents && !("then" in initialAgents) ? initialAgents : undefined,
   );
@@ -402,7 +405,9 @@ export function FileEditor({
   const [sidebarTab, setSidebarTab] = useState<"layers" | "tokens">("layers");
   const [layerQuery, setLayerQuery] = useState("");
   const [view, setView] = useState<View>({ zoom: 1, x: 0, y: 0 });
-  const [panelsOpen, setPanelsOpen] = useState(initialPanelsOpen);
+  const [desktopPanelsOpen, setPanelsOpen] = useState(initialPanelsOpen);
+  const [mobilePanelsOpen, setMobilePanelsOpen] = useState(false);
+  const panelsOpen = mobileLayout ? mobilePanelsOpen : desktopPanelsOpen;
   const [inspectorDismissed, setInspectorDismissed] = useState(false);
   const [tool, setTool] = useState<CanvasTool>("select");
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -743,6 +748,7 @@ export function FileEditor({
     multiScaleIds.length > 1 &&
     multiScaleIds.every((id) => nodesById.get(id)?.parentId === multiScaleParent);
   const inspectorOpen =
+    !(mobileLayout && mobilePanelsOpen) &&
     !prototypeMode &&
     selected !== null &&
     inspectorSelection.length > 0 &&
@@ -904,10 +910,12 @@ export function FileEditor({
 
   function togglePanels() {
     setInspectorDismissed(true);
-    setPanelsOpen((open) => !open);
+    if (mobileLayout) setMobilePanelsOpen((open) => !open);
+    else setPanelsOpen((open) => !open);
   }
 
   function selectNode(id: string, additive = false) {
+    if (mobileLayout) setMobilePanelsOpen(false);
     const next = additive
       ? selectedIds.includes(id)
         ? selectedIds.filter((item) => item !== id)
@@ -3689,7 +3697,10 @@ export function FileEditor({
   );
 
   return (
-    <main className="relative flex h-dvh w-full overflow-hidden bg-surface text-primary-black">
+    <main
+      data-mobile-panels-open={mobilePanelsOpen}
+      className="editor-workspace relative flex h-dvh w-full overflow-hidden bg-surface text-primary-black"
+    >
       {!preview && !local && (
         <EditorThumbnail
           fileId={fileId}
@@ -3722,7 +3733,7 @@ export function FileEditor({
           event.currentTarget.value = "";
         }}
       />
-      <EditorPanel open={panelsOpen && !prototypeMode} width={256}>
+      <EditorPanel open={panelsOpen && !prototypeMode} width={256} kind="layers">
         <aside className="z-10 flex h-full w-64 shrink-0 flex-col border-r border-primary-grey/70 bg-primary-white">
           <div className="editor-panel-heading flex h-16 shrink-0 items-center gap-2 border-b border-primary-grey/70 px-3 text-sm">
             <Link
@@ -3923,7 +3934,7 @@ export function FileEditor({
           </div>
         </aside>
       </EditorPanel>
-      <EditorPanel open={panelsOpen && !prototypeMode} width={53}>
+      <EditorPanel open={!mobileLayout && panelsOpen && !prototypeMode} width={53} kind="tools">
         <aside className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
           {toolRail()}
         </aside>
@@ -4033,7 +4044,6 @@ export function FileEditor({
                 viewport={viewport}
                 liveVersion={room.commentsVersion}
                 toolbarControls={!prototypeMode ? canvasControls : undefined}
-                compactToolbar={!panelsOpen}
               />
             </div>
           )}
@@ -4529,10 +4539,7 @@ export function FileEditor({
             );
           })}
           {!prototypeMode && (preview || local || !viewPreferences.comments) && (
-            <div
-              data-canvas-control
-              className={`absolute right-4 z-20 ${panelsOpen ? "top-4" : "top-20 sm:top-4"}`}
-            >
+            <div data-canvas-control className="absolute right-4 top-20 z-20 md:top-4">
               {canvasControls}
             </div>
           )}
@@ -4548,7 +4555,10 @@ export function FileEditor({
               }}
             />
           )}
-          <EditorChrome visible={!panelsOpen || prototypeMode}>
+          <EditorChrome
+            visible={(!panelsOpen || prototypeMode) && !(mobileLayout && inspectorOpen)}
+            mobileVisible={(!mobilePanelsOpen || prototypeMode) && !inspectorOpen}
+          >
             <div data-canvas-control className={minimisedFileBarClass}>
               <Link
                 href={backHref}
@@ -4564,7 +4574,10 @@ export function FileEditor({
               {!prototypeMode && <PanelToggle expanded={false} onClick={togglePanels} />}
             </div>
           </EditorChrome>
-          <EditorChrome visible={!panelsOpen && !prototypeMode}>
+          <EditorChrome
+            visible={!panelsOpen && !prototypeMode && !(mobileLayout && inspectorOpen)}
+            mobileVisible={!mobilePanelsOpen && !prototypeMode && !inspectorOpen}
+          >
             <div data-canvas-control className={minimisedToolbarClass(toolbarPlacement)}>
               {toolRail(toolbarPlacement === "bottom")}
             </div>
@@ -4650,7 +4663,7 @@ export function FileEditor({
           }}
         />
       )}
-      <EditorPanel open={inspectorOpen} width={296} side="right">
+      <EditorPanel open={inspectorOpen} width={296} side="right" kind="inspector">
         <aside
           data-ph-public-label
           aria-label="Inspector"
@@ -4683,6 +4696,17 @@ export function FileEditor({
                 className={`rounded-md px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-40 ${prototypeInspectorOpen ? "bg-primary-grey/25 text-primary-black" : "text-secondary-ink"}`}
               >
                 Prototype
+              </button>
+              <button
+                type="button"
+                aria-label="Close inspector"
+                onClick={() => {
+                  setInspectorDismissed(true);
+                  viewport.current?.focus({ preventScroll: true });
+                }}
+                className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-secondary-ink hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange md:hidden"
+              >
+                <span aria-hidden="true">×</span>
               </button>
             </div>
           )}

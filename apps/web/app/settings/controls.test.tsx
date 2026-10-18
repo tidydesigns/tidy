@@ -177,7 +177,7 @@ test("profile renders editable identity, password and other session controls wit
   expect(html).not.toContain("Connect Linear");
   expect(html).not.toContain('id="settings-tab-settings"');
   expect(html).not.toContain("Editor panels");
-  expect(html).not.toContain("Minimised toolbar");
+  expect(html).not.toContain("Minimised desktop toolbar");
   expect(html).toContain("This session");
   expect(html).toContain("End session");
   expect(html).not.toContain('id="settings-tab-billing"');
@@ -195,7 +195,7 @@ test("preferences keep appearance and editor controls outside profile and respec
   expect(html).toContain('aria-haspopup="menu"');
   expect(html).toContain("Editor panels");
   expect(html).toContain("Open by default");
-  expect(html).toContain("Minimised toolbar");
+  expect(html).toContain("Minimised desktop toolbar");
   expect(html).toContain("Bottom (horizontal)");
   expect(html).not.toContain("Change password");
 });

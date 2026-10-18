@@ -5,11 +5,13 @@ export function EditorPanel({
   open,
   width,
   side = "left",
+  kind,
   children,
 }: {
   open: boolean;
   width: number;
   side?: "left" | "right";
+  kind?: "layers" | "tools" | "inspector";
   children: ReactNode;
 }) {
   const [visited, setVisited] = useState(open);
@@ -22,6 +24,7 @@ export function EditorPanel({
       className="editor-panel"
       data-open={open}
       data-side={side}
+      data-kind={kind}
       data-animate-enter={animateEnter}
       aria-hidden={!open || undefined}
       inert={!open}
@@ -33,8 +36,16 @@ export function EditorPanel({
 }
 
 // CSS handles the handoff without timers that could race a subsequent toggle.
-export function EditorChrome({ visible, children }: { visible: boolean; children: ReactNode }) {
-  const [visited, setVisited] = useState(visible);
+export function EditorChrome({
+  visible,
+  mobileVisible,
+  children,
+}: {
+  visible: boolean;
+  mobileVisible?: boolean;
+  children: ReactNode;
+}) {
+  const [visited, setVisited] = useState(visible || mobileVisible);
   const [animateEnter] = useState(!visible);
   if (visible && !visited) setVisited(true);
   if (!visible && !visited) return null;
@@ -43,6 +54,7 @@ export function EditorChrome({ visible, children }: { visible: boolean; children
     <div
       className="editor-compact-chrome"
       data-visible={visible}
+      data-mobile-visible={mobileVisible}
       data-animate-enter={animateEnter}
       aria-hidden={!visible || undefined}
       inert={!visible}

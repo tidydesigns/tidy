@@ -47,14 +47,14 @@ export function EditorToolbarPreferenceControl({
   return (
     <div className="text-sm font-medium">
       <span data-ph-public id={labelId}>
-        Minimised toolbar
+        Minimised desktop toolbar
       </span>
       <SelectMenu
         replayOptions
         replayLabel
         value={placement}
         options={choices}
-        label="Minimised toolbar"
+        label="Minimised desktop toolbar"
         labelledBy={labelId}
         onChange={(next) => {
           if (next !== "left" && next !== "bottom") return;
