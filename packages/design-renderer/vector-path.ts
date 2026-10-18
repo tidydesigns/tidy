@@ -4,6 +4,7 @@ import { booleanPaintBounds } from "@tidy/design/vector-boolean";
 import type { DesignNode, DesignStrokePaint } from "@tidy/design/document";
 import { nodePaints, paintDefinition } from "./paints";
 import { nodeStrokePaints, vectorOutset } from "./strokes";
+import { xml } from "./xml";
 
 export { vectorOutset } from "./strokes";
 /** Edited anchors may extend beyond the original viewport without resizing the layer. */
@@ -60,10 +61,10 @@ export function vectorSvg(node: DesignNode, tokens: Record<string, string>) {
                 // Use the same paint server as the path; IDs are local to this self-contained SVG image.
                 const body =
                   kind === "circle"
-                    ? `<circle cx="0" cy="0" r="1.5" fill="${fill}"/>`
+                    ? `<circle cx="0" cy="0" r="1.5" fill="${xml(fill)}"/>`
                     : kind === "triangle"
-                      ? `<path d="M-3 -1.5L0 0L-3 1.5Z" fill="${fill}"/>`
-                      : `<path d="M-2.5 -1.5L0 0L-2.5 1.5" fill="none" stroke="${fill}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
+                      ? `<path d="M-3 -1.5L0 0L-3 1.5Z" fill="${xml(fill)}"/>`
+                      : `<path d="M-2.5 -1.5L0 0L-2.5 1.5" fill="none" stroke="${xml(fill)}" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>`;
                 definitions.push(
                   `<marker id="${markerId}" markerUnits="strokeWidth" markerWidth="8" markerHeight="8" viewBox="-4 -4 8 8" refX="0" refY="0" orient="auto-start-reverse" overflow="visible">${body}</marker>`,
                 );
@@ -77,7 +78,7 @@ export function vectorSvg(node: DesignNode, tokens: Record<string, string>) {
             : node.style.borderStyle === "dotted"
               ? ` stroke-dasharray="0 ${strokeWidth * 2}"`
               : "";
-        return `<g opacity="${paint.opacity}" style="mix-blend-mode:${paint.blendMode ?? "normal"}"><path d="${path.d}" fill-rule="${path.fillRule}" ${stroke ? `fill="none" stroke="${fill}" stroke-width="${strokeWidth}" stroke-linecap="${node.style.borderStyle === "dotted" ? "round" : (node.style.strokeCap ?? "butt")}" stroke-linejoin="${node.style.strokeJoin ?? "miter"}" stroke-miterlimit="4"${dash}${markers}` : `fill="${fill}"`}/></g>`;
+        return `<g opacity="${xml(paint.opacity)}" style="mix-blend-mode:${xml(paint.blendMode ?? "normal")}"><path d="${xml(path.d)}" fill-rule="${xml(path.fillRule)}" ${stroke ? `fill="none" stroke="${xml(fill)}" stroke-width="${xml(strokeWidth)}" stroke-linecap="${xml(node.style.borderStyle === "dotted" ? "round" : (node.style.strokeCap ?? "butt"))}" stroke-linejoin="${xml(node.style.strokeJoin ?? "miter")}" stroke-miterlimit="4"${dash}${markers}` : `fill="${xml(fill)}"`}/></g>`;
       })
       .join("");
   const fills = draw(
@@ -85,5 +86,5 @@ export function vectorSvg(node: DesignNode, tokens: Record<string, string>) {
       false,
     ),
     strokes = strokeWidth ? draw(nodeStrokePaints(node), true) : "";
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${viewport.width}" height="${viewport.height}" viewBox="${viewport.x} ${viewport.y} ${viewport.width} ${viewport.height}" preserveAspectRatio="none"><defs>${definitions.join("")}</defs><g style="isolation:isolate">${fills}${strokes}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${xml(viewport.width)}" height="${xml(viewport.height)}" viewBox="${xml(viewport.x)} ${xml(viewport.y)} ${xml(viewport.width)} ${xml(viewport.height)}" preserveAspectRatio="none"><defs>${definitions.join("")}</defs><g style="isolation:isolate">${fills}${strokes}</g></svg>`;
 }

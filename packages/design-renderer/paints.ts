@@ -1,5 +1,6 @@
 import type { DesignNode, DesignPaint, DesignStrokePaint } from "@tidy/design/document";
 import { linearGradientLine, linearGradientMapping, type Size } from "./gradient-geometry";
+import { xml } from "./xml";
 export function nodePaints(node: DesignNode): DesignPaint[] {
   if (node.style.paints) return node.style.paints;
   if (node.style.gradientFrom && node.style.gradientTo)
@@ -62,7 +63,7 @@ export function paintBackground(
   if (paint.type === "radial" && paint.rotation) {
     const { definition, fill } = paintDefinition(paint, "g", size, tokens);
     // A transformed unit circle preserves rotated ellipses without rotating/clipping the fill rectangle.
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size.width}" height="${size.height}" viewBox="0 0 ${size.width} ${size.height}" preserveAspectRatio="none"><defs>${definition}</defs><rect width="100%" height="100%" fill="${fill}"/></svg>`;
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${xml(size.width)}" height="${xml(size.height)}" viewBox="0 0 ${xml(size.width)} ${xml(size.height)}" preserveAspectRatio="none"><defs>${definition}</defs><rect width="100%" height="100%" fill="${xml(fill)}"/></svg>`;
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
   }
   const mapping =
@@ -96,19 +97,19 @@ export function paintDefinition(
     .sort((a, b) => a.position - b.position)
     .map(
       (stop) =>
-        `<stop offset="${stop.position}" stop-color="${stop.token ? (tokens[stop.token] ?? stop.color) : stop.color}"/>`,
+        `<stop offset="${xml(stop.position)}" stop-color="${xml(stop.token ? (tokens[stop.token] ?? stop.color) : stop.color)}"/>`,
     )
     .join("");
   if (paint.type === "linear") {
     const { start, end } = linearGradientLine(paint, size);
     return {
       fill: `url(#${id})`,
-      definition: `<linearGradient id="${id}" gradientUnits="userSpaceOnUse" x1="${origin.x + start.x * size.width}" y1="${origin.y + start.y * size.height}" x2="${origin.x + end.x * size.width}" y2="${origin.y + end.y * size.height}">${stops}</linearGradient>`,
+      definition: `<linearGradient id="${xml(id)}" gradientUnits="userSpaceOnUse" x1="${xml(origin.x + start.x * size.width)}" y1="${xml(origin.y + start.y * size.height)}" x2="${xml(origin.x + end.x * size.width)}" y2="${xml(origin.y + end.y * size.height)}">${stops}</linearGradient>`,
     };
   }
   return {
     fill: `url(#${id})`,
-    definition: `<radialGradient id="${id}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${origin.x + paint.centerX * size.width} ${origin.y + paint.centerY * size.height})${paint.rotation ? ` rotate(${paint.rotation})` : ""} scale(${paint.radiusX * size.width} ${paint.radiusY * size.height})">${stops}</radialGradient>`,
+    definition: `<radialGradient id="${xml(id)}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(${xml(origin.x + paint.centerX * size.width)} ${xml(origin.y + paint.centerY * size.height)})${paint.rotation ? ` rotate(${xml(paint.rotation)})` : ""} scale(${xml(paint.radiusX * size.width)} ${xml(paint.radiusY * size.height)})">${stops}</radialGradient>`,
   };
 }
 export function mapPaintTokens<T extends DesignPaint>(

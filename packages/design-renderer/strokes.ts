@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import type { DesignNode, DesignStrokePaint } from "@tidy/design/document";
 import { paintDefinition } from "./paints";
+import { xml } from "./xml";
 export { paintDefinition } from "./paints";
 type Style = DesignNode["style"];
 type Size = { width: number; height: number };
@@ -183,7 +184,7 @@ export function strokeSvg(node: DesignNode, tokens: Record<string, string>, size
     { outset, widths, inset } = geometry;
   const paints = nodeStrokePaints(node).filter((paint) => paint.visible);
   const definitions: string[] = [
-    `<clipPath id="ring"><path d="${geometry.outer}${geometry.inner}" clip-rule="evenodd"/></clipPath>`,
+    `<clipPath id="ring"><path d="${xml(geometry.outer)}${xml(geometry.inner)}" clip-rule="evenodd"/></clipPath>`,
   ];
   const vertices = [
     [-outset[3], -outset[0]],
@@ -200,7 +201,7 @@ export function strokeSvg(node: DesignNode, tokens: Record<string, string>, size
   for (let side = 0; side < 4; side++) {
     const next = (side + 1) % 4;
     definitions.push(
-      `<clipPath id="side-${side}"><polygon points="${[vertices[side], vertices[next], inner[next], inner[side]].map((point) => point.join(",")).join(" ")}"/></clipPath>`,
+      `<clipPath id="side-${side}"><polygon points="${xml([vertices[side], vertices[next], inner[next], inner[side]].map((point) => point.join(",")).join(" "))}"/></clipPath>`,
     );
   }
   const layers = [...paints]
@@ -210,12 +211,12 @@ export function strokeSvg(node: DesignNode, tokens: Record<string, string>, size
       definitions.push(definition);
       const body =
         !node.style.borderStyle || node.style.borderStyle === "solid"
-          ? `<path d="${geometry.outer}${geometry.inner}" fill="${fill}" fill-rule="evenodd"/>`
-          : `<g clip-path="url(#ring)">${widths.map((width, side) => (width ? `<path d="${geometry.center}" clip-path="url(#side-${side})" fill="none" stroke="${fill}" stroke-width="${width}" stroke-linecap="${node.style.borderStyle === "dotted" ? "round" : "butt"}" stroke-dasharray="${node.style.borderStyle === "dotted" ? `0 ${width * 2}` : `${width * 3} ${width * 2}`}"/>` : "")).join("")}</g>`;
-      return `<g opacity="${paint.opacity}" style="mix-blend-mode:${paint.blendMode ?? "normal"}">${body}</g>`;
+          ? `<path d="${xml(geometry.outer)}${xml(geometry.inner)}" fill="${xml(fill)}" fill-rule="evenodd"/>`
+          : `<g clip-path="url(#ring)">${widths.map((width, side) => (width ? `<path d="${xml(geometry.center)}" clip-path="url(#side-${side})" fill="none" stroke="${xml(fill)}" stroke-width="${xml(width)}" stroke-linecap="${node.style.borderStyle === "dotted" ? "round" : "butt"}" stroke-dasharray="${node.style.borderStyle === "dotted" ? `0 ${width * 2}` : `${width * 3} ${width * 2}`}"/>` : "")).join("")}</g>`;
+      return `<g opacity="${xml(paint.opacity)}" style="mix-blend-mode:${xml(paint.blendMode ?? "normal")}">${body}</g>`;
     })
     .join("");
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${geometry.width}" height="${geometry.height}" viewBox="${-outset[3]} ${-outset[0]} ${geometry.width} ${geometry.height}"><defs>${definitions.join("")}</defs><g style="isolation:isolate">${layers}</g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${xml(geometry.width)}" height="${xml(geometry.height)}" viewBox="${-outset[3]} ${-outset[0]} ${xml(geometry.width)} ${xml(geometry.height)}"><defs>${definitions.join("")}</defs><g style="isolation:isolate">${layers}</g></svg>`;
 }
 export function strokeStyle(
   node: DesignNode,

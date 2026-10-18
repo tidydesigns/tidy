@@ -1,4 +1,6 @@
 import type { DesignDocument, DesignNode } from "./document";
+import { xml } from "@tidy/design-renderer/xml";
+export { xml } from "@tidy/design-renderer/xml";
 import { authoredPathBounds, booleanRenderNode } from "@tidy/design/vector-boolean";
 import { strokeOutsets } from "./strokes";
 import { nodeEffects, parseCssShadows } from "@tidy/design/effects";
@@ -169,13 +171,6 @@ export function exportClone(
   clone.style.opacity = String(node.style.opacity ?? 1);
   clone.querySelectorAll("button, textarea, [data-stroke-measure]").forEach((e) => e.remove());
   return clone;
-}
-export function xml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 export function foreignObjectSvg(
   clones: readonly HTMLElement[],

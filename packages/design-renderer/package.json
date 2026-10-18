@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./xml": "./xml.ts",
     "./node-style": "./node-style.ts",
     "./paints": "./paints.ts",
     "./gradient-geometry": "./gradient-geometry.ts",

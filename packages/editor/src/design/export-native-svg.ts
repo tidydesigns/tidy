@@ -106,19 +106,19 @@ function filterSvg(node: DesignNode, id: string) {
         input = source;
       source = result;
       if (effect.type === "blur")
-        return `<feGaussianBlur in="${input}" stdDeviation="${effect.amount}" result="${result}"/>`;
+        return `<feGaussianBlur in="${input}" stdDeviation="${xml(effect.amount)}" result="${result}"/>`;
       if (
         effect.type === "hueRotate" ||
         effect.type === "saturation" ||
         effect.type === "grayscale"
       )
-        return `<feColorMatrix in="${input}" type="${effect.type === "hueRotate" ? "hueRotate" : "saturate"}" values="${effect.type === "hueRotate" ? effect.amount : effect.type === "grayscale" ? 1 - effect.amount / 100 : effect.amount / 100}" result="${result}"/>`;
+        return `<feColorMatrix in="${input}" type="${effect.type === "hueRotate" ? "hueRotate" : "saturate"}" values="${xml(effect.type === "hueRotate" ? effect.amount : effect.type === "grayscale" ? 1 - effect.amount / 100 : effect.amount / 100)}" result="${result}"/>`;
       const slope = effect.amount / 100,
         intercept = effect.type === "contrast" ? 0.5 * (1 - slope) : 0;
       return `<feComponentTransfer in="${input}" result="${result}">${["R", "G", "B"].map((channel) => `<feFunc${channel} type="linear" slope="${slope}" intercept="${intercept}"/>`).join("")}</feComponentTransfer>`;
     })
     .join("");
-  return `<filter id="${id}" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB">${body}</filter>`;
+  return `<filter id="${xml(id)}" x="-100%" y="-100%" width="300%" height="300%" color-interpolation-filters="sRGB">${body}</filter>`;
 }
 /** Measure actual wrapped paragraphs without transforms, preserving line breaks and font metrics. */
 function textSvg(clone: HTMLElement) {
@@ -278,7 +278,7 @@ export function nativeSvg(
                 objectPositionY: paint.positionY,
               },
             };
-            return `<g clip-path="url(#${prefix}clip)" opacity="${paint.opacity}" style="mix-blend-mode:${paint.blendMode ?? "normal"}">${imageSvg(image, imageNode, w, h, `${prefix}paint${index}-`)}</g>`;
+            return `<g clip-path="url(#${prefix}clip)" opacity="${xml(paint.opacity)}" style="mix-blend-mode:${xml(paint.blendMode ?? "normal")}">${imageSvg(image, imageNode, w, h, `${prefix}paint${index}-`)}</g>`;
           }
           const definition = paintDefinition(
             paint,
@@ -287,7 +287,7 @@ export function nativeSvg(
             tokens,
           );
           defs.push(definition.definition);
-          return `<path d="${path}" fill="${xml(definition.fill)}" opacity="${paint.opacity}" style="mix-blend-mode:${paint.blendMode ?? "normal"}"/>`;
+          return `<path d="${xml(path)}" fill="${xml(definition.fill)}" opacity="${xml(paint.opacity)}" style="mix-blend-mode:${xml(paint.blendMode ?? "normal")}"/>`;
         })
         .join("");
       if (node.type === "text") body += textSvg(clone);
@@ -339,11 +339,11 @@ export function nativeSvg(
         body = `<g mask="url(#${prefix}mask)">${body}</g>`;
       } else unsupported.push(`${node.name}: external masks`);
     }
-    return `<g transform="matrix(${matrix})" opacity="${root ? (node.style.opacity ?? 1) : clone.style.opacity || 1}" style="mix-blend-mode:${node.style.blendMode ?? "normal"};isolation:isolate"${filter ? ` filter="url(#${prefix}filter)"` : ""}><defs>${defs.join("")}</defs>${body}</g>`;
+    return `<g transform="matrix(${xml(matrix)})" opacity="${xml(root ? (node.style.opacity ?? 1) : clone.style.opacity || 1)}" style="mix-blend-mode:${xml(node.style.blendMode ?? "normal")};isolation:isolate"${filter ? ` filter="url(#${prefix}filter)"` : ""}><defs>${defs.join("")}</defs>${body}</g>`;
   };
   const body = clones.map((c) => draw(c, true)).join("");
   return {
-    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${bounds.width} ${bounds.height}"><style>${xml(fontCss)}</style>${body}</svg>`,
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${xml(width)}" height="${xml(height)}" viewBox="0 0 ${xml(bounds.width)} ${xml(bounds.height)}"><style>${xml(fontCss)}</style>${body}</svg>`,
     unsupported: [...new Set(unsupported)],
   };
 }
