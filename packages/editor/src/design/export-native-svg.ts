@@ -5,6 +5,7 @@ import { cornerPath, paintDefinition, strokeSvg, strokeOutsets } from "./strokes
 import { nodeEffects } from "@tidy/design/effects";
 import { xml } from "./export-dom";
 import type { ExportBounds } from "./export-plan";
+import { vectorSvg } from "@tidy/design-renderer/vector-path";
 
 function roundedPath(node: DesignNode, width: number, height: number) {
   const radius = node.style.radius ?? 0;
@@ -26,20 +27,6 @@ function roundedPath(node: DesignNode, width: number, height: number) {
     ],
     node.style.cornerSmoothing,
   );
-}
-function svgSource(source: string) {
-  // The caller supplies renderer-generated vector markup from validated nodes.
-  // This detached XML document is serialized for export, never mounted as HTML.
-  if (!source.startsWith("data:image/svg+xml")) return null;
-  const comma = source.indexOf(","),
-    header = source.slice(0, comma),
-    data = source.slice(comma + 1);
-  const svg = new DOMParser().parseFromString(
-    header.includes(";base64") ? atob(data) : decodeURIComponent(data),
-    "image/svg+xml",
-  );
-  if (svg.querySelector("parsererror")) throw new Error("An SVG image in this export is invalid.");
-  return svg.documentElement;
 }
 function namespace(svg: Element, prefix: string) {
   for (const element of [svg, ...svg.querySelectorAll("*")])
@@ -64,8 +51,11 @@ function nestedSvg(
   width: number,
   height: number,
 ) {
-  const svg = svgSource(source);
-  if (!svg) throw new Error("Expected native vector geometry.");
+  // Only accept markup generated from design geometry, never image URLs read from the DOM.
+  const parsed = new DOMParser().parseFromString(source, "image/svg+xml");
+  if (parsed.querySelector("parsererror"))
+    throw new Error("An SVG image in this export is invalid.");
+  const svg = parsed.documentElement;
   namespace(svg, prefix);
   svg.setAttribute("x", String(x));
   svg.setAttribute("y", String(y));
@@ -89,13 +79,6 @@ function imageSvg(
     svg.setAttribute("width", String(width));
     svg.setAttribute("height", String(height));
     return new XMLSerializer().serializeToString(svg);
-  }
-  if (image.hasAttribute("data-vector-path")) {
-    const [top, right, bottom, left] = strokeOutsets({
-      ...node,
-      box: { ...node.box, width, height },
-    });
-    return nestedSvg(image.src, prefix, -left, -top, width + left + right, height + top + bottom);
   }
   const naturalWidth = Number(image.dataset.exportNaturalWidth) || width,
     naturalHeight = Number(image.dataset.exportNaturalHeight) || height;
@@ -254,8 +237,20 @@ export function nativeSvg(
     if (filter) defs.push(filter);
     const vector = clone.querySelector<HTMLImageElement>(":scope > img[data-vector-path]");
     let body = "";
-    if (vector) body = imageSvg(vector, { ...node, vectorPath: node.vectorPath }, w, h, prefix);
-    else {
+    if (vector && node.vectorPath) {
+      const [top, right, bottom, left] = strokeOutsets({
+        ...node,
+        box: { ...node.box, width: w, height: h },
+      });
+      body = nestedSvg(
+        vectorSvg(node, tokens),
+        prefix,
+        -left,
+        -top,
+        w + left + right,
+        h + top + bottom,
+      );
+    } else {
       const fills = [...nodePaints(node)].reverse().filter((p) => p.visible);
       body = fills
         .map((paint, index) => {
@@ -308,7 +303,7 @@ export function nativeSvg(
         height: h,
       });
       body += nestedSvg(
-        `data:image/svg+xml,${encodeURIComponent(stroke)}`,
+        stroke,
         `${prefix}stroke-`,
         ...(() => {
           const [top, right, bottom, left] = strokeOutsets({

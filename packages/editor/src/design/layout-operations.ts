@@ -517,7 +517,7 @@ export function scaleLayers(
     for (const key of ["shadow", "innerShadow"] as const)
       if (node.style[key]) {
         const value = node.style[key]!.replace(
-          /(-?\d*\.?\d+)px\b/g,
+          /(?<![\d.])(-?(?:\d+(?:\.\d+)?|\.\d+))px\b/g,
           (_, value) => `${Math.round(Number(value) * factor * 1000) / 1000}px`,
         );
         if (value !== current.style[key]) style[key] = value;

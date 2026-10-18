@@ -76,3 +76,17 @@ test("document weights support the full variable font range without changing old
       }).nodes[0].style.fontWeight,
     ).toBe(weight);
 });
+
+test("font exports finish promptly on repeated unterminated font-face blocks", () => {
+  const face = "@font-face {font-weight:400;src:url(latin.woff2);}";
+  const malformed = "@font-face{{".repeat(100_000);
+  const start = performance.now();
+  expect(fontCssForText(face + malformed, 400, false, "Hello")).toBe(face);
+  expect(performance.now() - start).toBeLessThan(1000);
+});
+
+test("font exports preserve multiple blocks and ignore incomplete trailing declarations", () => {
+  const first = "@font-face\n {font-weight:400;src:url(first.woff2);}";
+  const second = "@font-face{font-weight:700;src:url(second.woff2);}";
+  expect(fontCssForText(`/* fonts */${first}${second}@font-face {`, 400, false, "Hi")).toBe(first);
+});

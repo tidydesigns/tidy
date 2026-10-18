@@ -82,7 +82,8 @@ bun run package:desktop
 
 The native security smoke uses synthetic projects and fixture harnesses, without
 real model inference, provider accounts or credentials. It checks the actual
-preload/IPC boundary, CSP and protocol, canvas, approvals, stale-response rejection,
+preload/IPC boundary, CSP and protocol, canvas, native SVG export injection rejection,
+approvals, stale-response rejection,
 private persistence, navigation and popup blocking. Linux CI runs it under Xvfb
 with Chromium sandboxing enabled and configures the pinned sandbox helper's
 required ownership and permissions. CI also packages macOS and Linux artifacts.

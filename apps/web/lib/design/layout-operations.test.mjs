@@ -227,6 +227,32 @@ test("scaling an instance leaves unrelated appearance and content linked to its 
   expect(instance.instanceOverrides).not.toContain("style.fill");
   expect(instance.instanceOverrides).not.toContain("style.shadows");
 });
+
+test("scaling legacy CSS shadows preserves signs, decimals, colors and multiple shadows", async () => {
+  const { scaleLayers } = await import("./layout-operations");
+  const before = doc([
+    {
+      ...node("shadow"),
+      style: {
+        shadow: "-.5px 1.25px 3px #000000, 2px -3px .75px #ffffff",
+        innerShadow: "inset -2.5px .5px 0px #000000",
+      },
+    },
+  ]);
+  const after = scaleLayers(before, ["shadow"], 2).nodes[0];
+  expect(after.style.shadow).toBe("-1px 2.5px 6px #000000, 4px -6px 1.5px #ffffff");
+  expect(after.style.innerShadow).toBe("inset -5px 1px 0px #000000");
+});
+
+test("scaling rejects oversized numeric shadow input without stalling", async () => {
+  const { scaleLayers } = await import("./layout-operations");
+  const before = doc([node("shadow")]);
+  // Exercise the library boundary before schema validation, as an import can.
+  before.nodes[0].style.shadow = "0".repeat(100_000);
+  const start = performance.now();
+  expect(() => scaleLayers(before, ["shadow"], 2)).toThrow("limits");
+  expect(performance.now() - start).toBeLessThan(1000);
+});
 test("multi-selection resize changes geometry without scaling appearance and respects locked ancestry", () => {
   const parent = node("parent", 0, 0, 400, 300),
     a = { ...node("a", 10, 20, 50, 30, "parent"), style: { radius: 8 } },

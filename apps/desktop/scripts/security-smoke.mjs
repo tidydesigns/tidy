@@ -12,10 +12,25 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { app, BrowserWindow } from "electron";
 
 // Synthetic projects and harnesses only. No developer credentials or model inference.
 const temporary = await mkdtemp(join(tmpdir(), "tidy-security-smoke-"));
+const exportProbe = join(temporary, "native-svg.js");
+execFileSync(
+  "bun",
+  [
+    "build",
+    fileURLToPath(new URL("./fixtures/native-svg.mjs", import.meta.url)),
+    "--target=browser",
+    "--format=iife",
+    "--outfile",
+    exportProbe,
+  ],
+  { stdio: "pipe" },
+);
 const projectId = randomUUID();
 const root = join(temporary, "project");
 const data = join(temporary, "user-data");
@@ -94,6 +109,17 @@ app.on("browser-window-created", (_event, window) => {
       await wait("document.querySelector('[aria-label=\"New file options\"]')!==null");
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(await evaluate("typeof window.tidy.invoke"), "undefined");
+      const exported = await evaluate(
+        `${await readFile(exportProbe, "utf8")};globalThis.__tidyExportSecurityResult`,
+      );
+      assert.equal(exported.length, 4);
+      for (const { svg, unsupported } of exported) {
+        assert.deepEqual(unsupported, []);
+        assert.match(svg, /M0 0L100 0L100 50Z/);
+        assert.match(svg, /stroke-width="2"/);
+        assert.match(svg, /fill="#ff0000"/);
+        assert.doesNotMatch(svg, /script|onload|onerror|foreignObject|parsererror/);
+      }
       assert.equal(
         await evaluate(
           "document.querySelector('meta[http-equiv=Content-Security-Policy]').content.includes(\"frame-src 'none'\")",
@@ -218,7 +244,7 @@ app.on("browser-window-created", (_event, window) => {
       assert.equal(page.getURL(), "tidy://app/index.html");
       foreign.destroy();
       console.info(
-        "PASS: sandbox, protocol resources, canvas, IPC authorization and validation, event confidentiality, model controls, Enter to send, native approvals, replay rejection, private runtime state, navigation and popup denial.",
+        "PASS: sandbox, protocol resources, canvas, native SVG export injection rejection, IPC authorization and validation, event confidentiality, model controls, Enter to send, native approvals, replay rejection, private runtime state, navigation and popup denial.",
       );
       clearTimeout(deadline);
       result = 0;
