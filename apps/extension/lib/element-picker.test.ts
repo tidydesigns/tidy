@@ -115,6 +115,18 @@ test("picker starts at prior focus, restores it on Escape and leaves page activa
     ),
   ).toBe(false);
   expect(targetButton().getAttribute("aria-pressed")).toBe("true");
+  win.document.documentElement.dispatchEvent(
+    new win.PointerEvent("pointermove", { bubbles: true, composed: true }),
+  );
+  expect(targetButton().textContent).toContain("a: Continue");
+  expect(
+    win.document.documentElement.dispatchEvent(
+      new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),
+    ),
+  ).toBe(false);
+  expect(targetButton().textContent).toContain("a: Continue");
+  expect(targetButton().getAttribute("aria-pressed")).toBe("true");
+  expect(pickerShadow.querySelector('[role="status"]')?.textContent).toBe("1 element selected.");
   key("Escape");
   expect(onCancel).toHaveBeenCalledTimes(1);
   expect(win.document.activeElement).toBe(link);

@@ -68,7 +68,7 @@ test("Tab and menu navigation keep focus and artwork independent", async ({ page
 });
 
 test("file tabs and the layer tree provide coherent keyboard navigation", async ({ page }) => {
-  await openEditor(page);
+  const canvas = await openEditor(page);
   const layers = page.getByRole("tab", { name: "Layers", exact: true });
   const tokens = page.getByRole("tab", { name: "Tokens", exact: true });
   await layers.focus();
@@ -113,7 +113,17 @@ test("file tabs and the layer tree provide coherent keyboard navigation", async 
   await expect(secondCard).toBeFocused();
   await secondCard.press("Enter");
   await secondCard.press("ControlOrMeta+d");
-  await expect(tree.getByRole("treeitem", { name: "Second card copy", exact: true })).toBeVisible();
+  const copy = tree.getByRole("treeitem", { name: "Second card copy", exact: true });
+  await expect(copy).toBeVisible();
+  for (const key of ["Delete", "Backspace"]) {
+    await copy.focus();
+    await copy.press("Enter");
+    await copy.press(key);
+    await expect(copy).toHaveCount(0);
+    await expect(canvas).toBeFocused();
+    await canvas.press("ControlOrMeta+z");
+    await expect(copy).toBeVisible();
+  }
 });
 
 test("keyboard insertion works in an empty file and can be undone", async ({ page }) => {

@@ -240,6 +240,7 @@ describe("rendered webpage capture", () => {
     const listener = [...listeners][0];
     listener({ type: "bella:pick" }, { id: "bella-test" }, () => {});
     const link = win.document.querySelector("a")!;
+    bounds(link as unknown as Element, 10, 10, 120, 32);
     link.dispatchEvent(new win.PointerEvent("pointermove", { bubbles: true, composed: true }));
     const navigated = link.dispatchEvent(
       new win.MouseEvent("click", { bubbles: true, composed: true, cancelable: true }),

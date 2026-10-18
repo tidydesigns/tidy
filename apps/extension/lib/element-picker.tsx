@@ -251,20 +251,24 @@ export function startElementPicker({
   const suppress = (event: Event) => {
     if (!inToolbar(event)) consume(event);
   };
+  const pageTarget = (event: Event) =>
+    event
+      .composedPath()
+      .find((node): node is Element => node instanceof Element && selectable(node));
   const move = (event: PointerEvent) => {
     if (inToolbar(event)) return;
-    const next = event.composedPath().find((node) => node instanceof Element) as
-      | Element
-      | undefined;
-    if (next === target) return;
+    const next = pageTarget(event);
+    if (!next || next === target) return;
     target = next;
     render();
   };
   const click = (event: MouseEvent) => {
     if (inToolbar(event)) return;
     suppress(event);
+    const next = pageTarget(event);
+    if (!next) return;
     // Return keyboard control to selection after interacting with the toolbar.
-    target = event.composedPath().find((node) => node instanceof Element) as Element | undefined;
+    target = next;
     toggleTarget();
     (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();
   };

@@ -2300,10 +2300,11 @@ export function FileEditor({
 
   useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      const fromLayerRow =
+        event.target instanceof Element && Boolean(event.target.closest("[data-layer-row]"));
       const layerCommand =
-        (event.metaKey || event.ctrlKey) &&
-        event.target instanceof Element &&
-        Boolean(event.target.closest("[data-layer-row]"));
+        fromLayerRow &&
+        (event.metaKey || event.ctrlKey || event.key === "Delete" || event.key === "Backspace");
       if (
         readOnly ||
         prototypeMode ||
@@ -2435,6 +2436,7 @@ export function FileEditor({
       if (event.metaKey || event.ctrlKey || (event.key !== "Backspace" && event.key !== "Delete"))
         return;
       event.preventDefault();
+      if (fromLayerRow) viewport.current?.focus({ preventScroll: true });
       void removeSelection();
     }
     selectionKeyHandler.current = onKeyDown;
