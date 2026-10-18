@@ -1,6 +1,6 @@
 import { PublicActionError } from "@/lib/security/public-error";
-import { consumeMutationRateLimit } from "@/lib/auth/guard-client";
-import type { RateDecision, RateRule } from "@/lib/auth/guard-store";
+import { consumeMutationRateLimit, consumeMutationRateLimitPair } from "@/lib/auth/guard-client";
+import type { RateDecision, RateRule, RateCheck } from "@/lib/auth/guard-store";
 
 export class MutationBudgetError extends PublicActionError {
   constructor(readonly retryAfter: number) {
@@ -10,13 +10,26 @@ export class MutationBudgetError extends PublicActionError {
 type Consume = (key: string, rule: RateRule) => Promise<RateDecision>;
 
 /** Conservative reservations: failures and deletions do not refund consumed capacity. */
-export async function consumeCommentBudget(userId: string, consume: Consume) {
+export async function consumeCommentBudget(
+  userId: string,
+  consume: Consume,
+  consumePair?: (first: RateCheck, second: RateCheck) => Promise<RateDecision>,
+) {
   const rules: [string, RateRule][] = [
     [`comments:user:minute:${userId}`, { window: 60, max: 60 }],
     [`comments:user:hour:${userId}`, { window: 3600, max: 600 }],
     ["comments:workspace:minute", { window: 60, max: 300 }],
     ["comments:workspace:hour", { window: 3600, max: 3000 }],
   ];
+  if (consumePair) {
+    for (let index = 0; index < rules.length; index += 2) {
+      const [key, rule] = rules[index];
+      const [nextKey, nextRule] = rules[index + 1];
+      const result = await consumePair({ key, rule }, { key: nextKey, rule: nextRule });
+      if (!result.allowed) throw new MutationBudgetError(result.retryAfter ?? 60);
+    }
+    return;
+  }
   for (const [key, rule] of rules) {
     const result = await consume(key, rule);
     if (!result.allowed) throw new MutationBudgetError(result.retryAfter ?? 60);
@@ -27,8 +40,10 @@ export async function reserveCommentMutation(userId: string, organizationId: str
   // This is the hosted Worker limiter. Other deployments need a shared adapter;
   // local Node fixtures still exercise transactional persistent-capacity limits.
   if (typeof navigator === "undefined" || navigator.userAgent !== "Cloudflare-Workers") return;
-  await consumeCommentBudget(userId, (key, rule) =>
-    consumeMutationRateLimit(organizationId, key, rule),
+  await consumeCommentBudget(
+    userId,
+    (key, rule) => consumeMutationRateLimit(organizationId, key, rule),
+    (first, second) => consumeMutationRateLimitPair(organizationId, first, second),
   );
 }
 

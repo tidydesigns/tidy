@@ -56,3 +56,46 @@ test("Worker presence does not block MCP; terminal delivery starts only after co
     else globals[key] = previous;
   }
 });
+
+test("committed comment relay uses Worker lifetime and does not wait for a stalled room", async () => {
+  const { publishFileChangesInBackground } = await import("./server");
+  const key = Symbol.for("__cloudflare-context__");
+  const globals = globalThis as unknown as Record<symbol, unknown>;
+  const previous = globals[key];
+  const pending: Promise<unknown>[] = [];
+  let calls = 0;
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  globals[key] = {
+    env: {
+      FILE_ROOMS: {
+        getByName: () => ({
+          sync: () => {
+            calls++;
+            return held;
+          },
+        }),
+      },
+    },
+    ctx: { waitUntil: (task: Promise<unknown>) => pending.push(task) },
+  };
+  try {
+    await publishFileChangesInBackground("fixture");
+    expect(calls).toBe(1);
+    expect(pending).toHaveLength(1);
+    const scoped = await inDatabaseScope({} as PoolClient, () =>
+      publishFileChangesInBackground("fixture"),
+    );
+    expect(calls).toBe(1);
+    await scoped.afterCommit();
+    expect(calls).toBe(2);
+    expect(pending).toHaveLength(2);
+  } finally {
+    release();
+    await Promise.all(pending);
+    if (previous === undefined) delete globals[key];
+    else globals[key] = previous;
+  }
+});

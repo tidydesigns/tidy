@@ -2,12 +2,13 @@ import {
   commentCreatedSchema,
   commentUpdatedSchema,
   type CommentMutation,
+  type CommentMessage,
 } from "@/lib/design/comment-contract";
 import { readJsonResponse } from "@/lib/http/json-response";
 
 type CommentResult =
-  | { kind: "created"; id: string }
-  | { kind: "updated" }
+  | { kind: "created"; id: string; message?: CommentMessage }
+  | { kind: "updated"; message?: CommentMessage }
   | { kind: "error"; error: string };
 async function mutate({
   fileId,
@@ -25,12 +26,12 @@ async function mutate({
     const message = "Could not update comment. Check your connection and try again.";
     if (input.action === "create") {
       const result = await readJsonResponse({ response, schema: commentCreatedSchema, message });
-      return { kind: "created", id: result.id };
+      return { kind: "created", id: result.id, message: result.message };
     }
-    await readJsonResponse({ response, schema: commentUpdatedSchema, message });
-    return { kind: "updated" };
+    const result = await readJsonResponse({ response, schema: commentUpdatedSchema, message });
+    return { kind: "updated", message: result.message };
   } catch (error) {
-    // Do not retry automatically: posting and reaction toggles are not idempotent.
+    // Keep retries intentional: legacy posts and reaction toggles are not idempotent.
     return {
       kind: "error",
       error: error instanceof Error ? error.message : "Could not update comment. Try again.",

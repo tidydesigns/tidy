@@ -1,3 +1,4 @@
+import { after } from "next/server";
 import { fileEventsQuery } from "./events";
 import { requestWork } from "@/lib/request-work";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
@@ -115,5 +116,24 @@ export async function publishFileChanges(fileId: string) {
     }
   } catch {
     console.error("Live file relay failed; durable events remain available.");
+  }
+}
+
+/** A committed comment must not wait for the room or hold its database connection during delivery. */
+export async function publishFileChangesInBackground(fileId: string): Promise<void> {
+  if (afterDatabaseCommit(`file:${fileId}`, () => publishFileChangesInBackground(fileId))) return;
+  let context;
+  try {
+    context = getCloudflareContext();
+  } catch {}
+  if (context) {
+    context.ctx.waitUntil(publishFileChanges(fileId));
+    return;
+  }
+  try {
+    after(() => publishFileChanges(fileId));
+  } catch {
+    // CLI and database fixtures have no request lifetime; keep their delivery awaited.
+    await publishFileChanges(fileId);
   }
 }

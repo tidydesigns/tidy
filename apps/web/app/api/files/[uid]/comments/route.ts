@@ -5,7 +5,7 @@ import { auth } from "@/lib/auth";
 import {
   CommentCapacityError,
   CommentCursorError,
-  createComment,
+  createCommentWithMessage,
   deleteCommentThread,
   editComment,
   replyToComment,
@@ -35,7 +35,11 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
   }
   if (!comments) return new Response(null, { status: 404 });
   return Response.json(
-    { ...comments, viewerId: session.user.id },
+    {
+      ...comments,
+      viewerId: session.user.id,
+      viewer: { name: session.user.name, image: session.user.image ?? null },
+    },
     { headers: { "Cache-Control": "private, no-store" } },
   );
 }
@@ -54,12 +58,24 @@ async function post(request: Request, { params }: RouteContext<"/api/files/[uid]
   const data = input.data;
   try {
     let createdId: string | undefined;
+    let message: Awaited<ReturnType<typeof replyToComment>> | undefined;
     switch (data.action) {
-      case "create":
-        createdId = await createComment(uid, userId, data.x, data.y, data.body, data.pageId);
+      case "create": {
+        const created = await createCommentWithMessage(
+          uid,
+          userId,
+          data.x,
+          data.y,
+          data.body,
+          data.pageId,
+          data,
+        );
+        createdId = created.id;
+        message = created.message;
         break;
+      }
       case "reply":
-        await replyToComment(uid, data.threadId, userId, data.body);
+        message = await replyToComment(uid, data.threadId, userId, data.body, data.messageId);
         break;
       case "edit":
         await editComment(uid, data.messageId, userId, data.previousBody, data.body);
@@ -78,9 +94,24 @@ async function post(request: Request, { params }: RouteContext<"/api/files/[uid]
         throw new Error(`Unhandled comment action: ${exhaustive}`);
       }
     }
-    return Response.json(createdId ? { id: createdId } : {}, {
-      headers: { "Cache-Control": "private, no-store" },
-    });
+    return Response.json(
+      {
+        ...(createdId ? { id: createdId } : {}),
+        ...(message
+          ? {
+              message: {
+                ...message,
+                authorName: session.user.name,
+                authorImage: session.user.image ?? null,
+                reactions: [],
+              },
+            }
+          : {}),
+      },
+      {
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
   } catch (error) {
     if (error instanceof MutationBudgetError)
       return Response.json(

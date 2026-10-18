@@ -370,3 +370,29 @@ test("global telemetry denial creates no identity counters", async () => {
     expect(scopes).toEqual([expectedScope]);
   }
 });
+
+test("paired comment reservations preserve limits and stop on denial with two guard calls", async () => {
+  const guard = limiter();
+  const seen: string[][] = [];
+  const pair = async (first: RateCheck, second: RateCheck) => {
+    seen.push([first.key, second.key]);
+    const result = await guard.consume(first.key, first.rule);
+    return result.allowed ? guard.consume(second.key, second.rule) : result;
+  };
+  await consumeCommentBudget("paired", guard.consume, pair);
+  expect(seen).toEqual([
+    ["comments:user:minute:paired", "comments:user:hour:paired"],
+    ["comments:workspace:minute", "comments:workspace:hour"],
+  ]);
+  for (let i = 1; i < 60; i++) await consumeCommentBudget("paired", guard.consume, pair);
+  seen.length = 0;
+  await expect(consumeCommentBudget("paired", guard.consume, pair)).rejects.toBeInstanceOf(
+    MutationBudgetError,
+  );
+  expect(seen).toHaveLength(1);
+  await expect(
+    consumeCommentBudget("new", guard.consume, async () => {
+      throw new Error("offline");
+    }),
+  ).rejects.toThrow("offline");
+});

@@ -5190,3 +5190,59 @@ integration(
     }
   },
 );
+
+integration(
+  "comment receipts preserve stable IDs and explicit retries do not duplicate or overwrite messages",
+  async () => {
+    const { createCommentWithMessage, replyToComment, listComments } =
+      await import("../design/comments");
+    const { createDesignFileForUser } = await import("../design/service");
+    const { ensureEditorDocument } = await import("../design/document-service");
+    const file = await createDesignFileForUser(ownerId, orgId, "Comment receipts");
+    await ensureEditorDocument(ownerId, file.id);
+    const ids = { threadId: crypto.randomUUID(), messageId: crypto.randomUUID() };
+    const created = await createCommentWithMessage(
+      file.id,
+      ownerId,
+      10,
+      20,
+      "First",
+      "page-1",
+      ids,
+    );
+    expect(created.id).toBe(ids.threadId);
+    expect(created.message.id).toBe(ids.messageId);
+    expect(Number.isFinite(Date.parse(created.message.createdAt))).toBe(true);
+    const retried = await createCommentWithMessage(
+      file.id,
+      ownerId,
+      10,
+      20,
+      "First",
+      "page-1",
+      ids,
+    );
+    expect(retried).toEqual(created);
+    const replyId = crypto.randomUUID();
+    const replies = await Promise.all([
+      replyToComment(file.id, created.id, ownerId, "Reply", replyId),
+      replyToComment(file.id, created.id, ownerId, "Reply", replyId),
+    ]);
+    expect(replies[0]).toEqual(replies[1]);
+    expect(replies[0].id).toBe(replyId);
+    await expect(
+      replyToComment(file.id, created.id, ownerId, "Overwrite", replyId),
+    ).rejects.toThrow();
+    await expect(
+      replyToComment(file.id, created.id, invitedId, "Reply", replyId),
+    ).rejects.toThrow();
+    const other = await createDesignFileForUser(ownerId, orgId, "Other comment file");
+    await ensureEditorDocument(ownerId, other.id);
+    await expect(
+      createCommentWithMessage(other.id, ownerId, 10, 20, "First", "page-1", ids),
+    ).rejects.toThrow();
+    const page = (await listComments(file.id, ownerId))!;
+    expect(page.threads).toHaveLength(1);
+    expect(page.threads[0].messages.map((message) => message.body)).toEqual(["First", "Reply"]);
+  },
+);

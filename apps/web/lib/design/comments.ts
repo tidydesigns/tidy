@@ -1,6 +1,6 @@
 import { PublicActionError } from "@/lib/security/public-error";
 import { reserveCommentMutation } from "@/lib/security/mutation-budget";
-import { publishFileChanges } from "@/lib/realtime/server";
+import { publishFileChangesInBackground } from "@/lib/realtime/server";
 import { randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
 import type { PoolClient } from "pg";
@@ -32,14 +32,19 @@ async function withCommentFile<T>(
   write: boolean,
   operation: (client: PoolClient, role: string) => Promise<T>,
 ): Promise<T | null> {
-  if (write) {
-    const access = await db.query<{ organizationId: string }>(commentAccessQuery, [fileId, userId]);
-    if (!access.rows[0]) throw new PublicActionError("File not found or access denied.");
-    await reserveCommentMutation(userId, access.rows[0].organizationId);
-  }
   const client = await db.connect();
+  let begun = false;
   try {
+    if (write) {
+      const access = await client.query<{ organizationId: string }>(commentAccessQuery, [
+        fileId,
+        userId,
+      ]);
+      if (!access.rows[0]) throw new PublicActionError("File not found or access denied.");
+      await reserveCommentMutation(userId, access.rows[0].organizationId);
+    }
     await client.query("begin");
+    begun = true;
     const access = await client.query<{ role: string }>(
       `${commentAccessQuery}
       ${write ? "for update of f for share of m, u" : "for share of f, m, u"}`,
@@ -52,10 +57,10 @@ async function withCommentFile<T>(
     }
     const result = await operation(client, access.rows[0].role);
     await client.query("commit");
-    if (write) await publishFileChanges(fileId);
+    if (write) await publishFileChangesInBackground(fileId);
     return result;
   } catch (error) {
-    await client.query("rollback");
+    if (begun) await client.query("rollback");
     throw error;
   } finally {
     client.release();
@@ -233,6 +238,18 @@ export async function createComment(
   body: string,
   pageId = "page-1",
 ) {
+  return (await createCommentWithMessage(fileId, userId, x, y, body, pageId)).id;
+}
+
+export async function createCommentWithMessage(
+  fileId: string,
+  userId: string,
+  x: number,
+  y: number,
+  body: string,
+  pageId = "page-1",
+  ids: { threadId?: string; messageId?: string } = {},
+) {
   if (
     !Number.isInteger(x) ||
     x < -100000 ||
@@ -254,21 +271,41 @@ export async function createComment(
       !documentPages(document.rows[0].content).some((page) => page.id === pageId)
     )
       throw new PublicActionError("Page not found.");
-    const threadId = randomUUID();
-    await client.query(
-      `insert into "designCommentThread" ("id", "fileId", "x", "y", "createdBy") values ($1,$2,$3,$4,$5)`,
+    const threadId = ids.threadId ?? randomUUID();
+    if (
+      document.rows[0].content.commentPages?.[threadId] &&
+      document.rows[0].content.commentPages[threadId] !== pageId
+    )
+      throw new PublicActionError("Comment thread already exists on another page.");
+    const inserted = await client.query(
+      `insert into "designCommentThread" ("id", "fileId", "x", "y", "createdBy") values ($1,$2,$3,$4,$5)
+      on conflict ("id") do update set "x" = "designCommentThread"."x"
+      where "designCommentThread"."fileId" = excluded."fileId" and "designCommentThread"."createdBy" = excluded."createdBy"
+        and "designCommentThread"."x" = excluded."x" and "designCommentThread"."y" = excluded."y"
+      returning "id"`,
       [threadId, fileId, x, y, userId],
     );
-    await client.query(
-      `insert into "designCommentMessage" ("id", "threadId", "authorId", "body") values ($1,$2,$3,$4)`,
-      [randomUUID(), threadId, userId, text],
+    if (!inserted.rowCount) throw new PublicActionError("Comment thread already exists.");
+    const message = await client.query<{
+      id: string;
+      authorId: string;
+      body: string;
+      createdAt: string;
+    }>(
+      `insert into "designCommentMessage" ("id", "threadId", "authorId", "body") values ($1,$2,$3,$4)
+      on conflict ("id") do update set "body" = "designCommentMessage"."body"
+      where "designCommentMessage"."threadId" = excluded."threadId" and "designCommentMessage"."authorId" = excluded."authorId"
+        and "designCommentMessage"."body" = excluded."body"
+      returning "id", "authorId", "body", to_char("createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt"`,
+      [ids.messageId ?? randomUUID(), threadId, userId, text],
     );
+    if (!message.rowCount) throw new PublicActionError("Comment message already exists.");
     const commentPages = { ...document.rows[0].content.commentPages, [threadId]: pageId };
     await client.query(
       `update "designDocument" set "content" = jsonb_set("content", '{commentPages}', $2::jsonb) where "fileId" = $1`,
       [fileId, JSON.stringify(commentPages)],
     );
-    return threadId;
+    return { id: threadId, message: message.rows[0] };
   }))!;
 }
 
@@ -277,19 +314,30 @@ export async function replyToComment(
   threadId: string,
   userId: string,
   body: string,
+  messageId: string = randomUUID(),
 ) {
   const text = cleanBody(body);
-  await withCommentFile(fileId, userId, true, async (client) => {
+  return (await withCommentFile(fileId, userId, true, async (client) => {
     await admitComment(client, fileId, threadId);
-    const result = await client.query(
+    const result = await client.query<{
+      id: string;
+      authorId: string;
+      body: string;
+      createdAt: string;
+    }>(
       `insert into "designCommentMessage" ("id", "threadId", "authorId", "body")
       select $1, t."id", $2, $3 from "designCommentThread" t join "designFile" f on f."id" = t."fileId"
       join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2
-      where t."id" = $4 and t."fileId" = $5 returning "id"`,
-      [randomUUID(), userId, text, threadId, fileId],
+      where t."id" = $4 and t."fileId" = $5
+      on conflict ("id") do update set "body" = "designCommentMessage"."body"
+      where "designCommentMessage"."threadId" = excluded."threadId" and "designCommentMessage"."authorId" = excluded."authorId"
+        and "designCommentMessage"."body" = excluded."body"
+      returning "id", "authorId", "body", to_char("createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt"`,
+      [messageId, userId, text, threadId, fileId],
     );
     if (!result.rowCount) throw new PublicActionError("Comment thread not found.");
-  });
+    return result.rows[0];
+  }))!;
 }
 
 export async function editComment(
