@@ -41,27 +41,39 @@ export class WorkspaceService {
 
   async observe(projectId: string) {
     if (this.watchers.has(projectId)) return;
-    const directory = await this.store.storagePath(projectId, "designs");
+    const directories = await Promise.all(
+      ["designs", "folders"].map((kind) =>
+        this.store.storagePath(projectId, kind as "designs" | "folders"),
+      ),
+    );
     let refresh: ReturnType<typeof setTimeout> | undefined;
-    const watcher = watch(directory, () => {
-      clearTimeout(refresh);
-      refresh = setTimeout(() => {
-        void this.refreshDesigns(projectId).catch(() => {});
-      }, 150);
+    const watchers = directories.map((directory) =>
+      watch(directory, () => {
+        clearTimeout(refresh);
+        refresh = setTimeout(() => {
+          void this.refreshDesigns(projectId).catch(() => {});
+        }, 150);
+      }),
+    );
+    watchers.forEach((watcher, index) => {
+      const key = index === 0 ? projectId : `${projectId}:folders`;
+      watcher.on("error", () => {
+        watcher.close();
+        this.watchers.delete(key);
+      });
+      this.watchers.set(key, watcher);
     });
-    watcher.on("error", () => {
-      watcher.close();
-      this.watchers.delete(projectId);
-    });
-    this.watchers.set(projectId, watcher);
   }
 
   async refreshDesigns(projectId: string) {
     const generation = (this.designGenerations.get(projectId) ?? 0) + 1;
     this.designGenerations.set(projectId, generation);
-    const designs = await this.store.designs(projectId);
+    const [designs, folders] = await Promise.all([
+      this.store.designs(projectId),
+      this.store.folders(projectId),
+    ]);
     if (this.designGenerations.get(projectId) === generation)
-      this.emit({ type: "designs", projectId, designs });
+      this.emit({ type: "designs", projectId, designs, folders });
   }
 
   async readThread(projectId: string, threadId: string) {
@@ -164,7 +176,7 @@ export class WorkspaceService {
     );
     const context = [
       "You are working in a local Tidy project. The working directory is the project root.",
-      "Project designs live in .tidy/designs/*.json. Each file contains { id, name, document }; document uses Tidy's shared DesignDocument schema (schemaVersion 1). Preserve this format when editing designs.",
+      "Project designs live in .tidy/designs/*.json. Each file contains { id, name, folderId, document }; folderId is a local design-folder ID or null. Preserve id, name and folderId when editing document content. Folder metadata lives in .tidy/folders/<id>.json and design paths remain stable when files move between folders. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Preserve this format when editing designs.",
       ...(references.length
         ? [
             "The user attached these design files (read them before implementing their UI):",

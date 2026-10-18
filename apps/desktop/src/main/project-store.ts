@@ -13,7 +13,13 @@ import { basename, join } from "node:path";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "@tidy/design/document";
 import { z } from "zod";
 import { harnessSettingsSchema, tokenUsageSchema } from "../shared/harness-settings";
-import type { LocalDesign, Project, ProjectSnapshot, Thread } from "../shared/contracts";
+import type {
+  DesignFolder,
+  LocalDesign,
+  Project,
+  ProjectSnapshot,
+  Thread,
+} from "../shared/contracts";
 import { summarizeThread } from "../shared/contracts";
 
 const id = z.string().uuid();
@@ -131,7 +137,7 @@ export class ProjectStore {
   private async prepare(project: Project) {
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
-    for (const name of ["", "threads", "designs", "assets"]) {
+    for (const name of ["", "threads", "designs", "assets", "folders"]) {
       const path = join(project.path, ".tidy", name);
       try {
         await mkdir(path, { mode: 0o700 });
@@ -152,7 +158,11 @@ export class ProjectStore {
     }
   }
 
-  async storagePath(projectId: string, kind: "threads" | "designs" | "assets", fileId?: string) {
+  async storagePath(
+    projectId: string,
+    kind: "threads" | "designs" | "assets" | "folders",
+    fileId?: string,
+  ) {
     const project = this.project(projectId);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
@@ -202,13 +212,20 @@ export class ProjectStore {
   ): Promise<LocalDesign> {
     const path = await this.storagePath(projectId, "designs", designId);
     const data = z
-      .object({ id, name: z.string().min(1).max(120), document: z.unknown() })
+      .object({
+        id,
+        name: z.string().min(1).max(120),
+        document: z.unknown(),
+        folderId: id.nullable().optional(),
+      })
       .parse(await this.read(path));
     if (data.id !== designId) throw new Error("Design ID does not match its filename.");
     const document = parseDesignDocument(data.document);
     return {
       id: data.id,
       name: data.name,
+      folderId: data.folderId ?? null,
+      nodeCount: document.nodes.length,
       path,
       updatedAt: (await stat(path)).mtime.toISOString(),
       document,
@@ -230,7 +247,12 @@ export class ProjectStore {
     };
   }
 
-  async createDesign(projectId: string, imported?: { name: string; document: unknown }) {
+  async createDesign(
+    projectId: string,
+    imported?: { name: string; document: unknown },
+    folderId: string | null = null,
+  ) {
+    if (folderId !== null) await this.readFolder(projectId, folderId);
     const document = imported ? parseDesignDocument(imported.document) : blankDesignDocument();
     if (!imported) {
       document.nodes.push({
@@ -252,6 +274,7 @@ export class ProjectStore {
     await this.atomicWrite(await this.storagePath(projectId, "designs", designId), {
       id: designId,
       name,
+      folderId,
       document: parseDesignDocument(document),
     });
     return this.readDesign(projectId, designId);
@@ -263,6 +286,7 @@ export class ProjectStore {
     expectedVersion: string;
     document?: unknown;
     name?: string;
+    folderId?: string | null;
   }) {
     const document = input.document === undefined ? undefined : parseDesignDocument(input.document);
     const name =
@@ -274,8 +298,11 @@ export class ProjectStore {
         throw new Error(
           "This design changed on disk. The latest version has been loaded; try your edit again.",
         );
+      if (input.folderId !== undefined && input.folderId !== null)
+        await this.readFolder(input.projectId, input.folderId);
       const data = {
         id: current.id,
+        folderId: input.folderId === undefined ? (current.folderId ?? null) : input.folderId,
         name: name ?? current.name,
         document: document ?? current.document,
       };
@@ -311,6 +338,8 @@ export class ProjectStore {
           return {
             id: design.id,
             name: design.name,
+            folderId: design.folderId,
+            nodeCount: design.document.nodes.length,
             path: design.path,
             updatedAt: design.updatedAt,
           };
@@ -322,6 +351,50 @@ export class ProjectStore {
     return designs
       .filter((value) => value !== null)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async readFolder(projectId: string, folderId: string): Promise<DesignFolder> {
+    const path = await this.storagePath(projectId, "folders", folderId);
+    const data = z
+      .object({ id, name: z.string().trim().min(1).max(120) })
+      .parse(await this.read(path));
+    if (data.id !== folderId) throw new Error("Folder ID does not match its filename.");
+    return { ...data, updatedAt: (await stat(path)).mtime.toISOString() };
+  }
+
+  async folders(projectId: string): Promise<DesignFolder[]> {
+    const directory = await this.storagePath(projectId, "folders");
+    const files = (await readdir(directory)).filter(
+      (name) => name.endsWith(".json") && id.safeParse(name.slice(0, -5)).success,
+    );
+    const folders = await Promise.all(
+      files.map(async (name) => {
+        try {
+          return await this.readFolder(projectId, name.slice(0, -5));
+        } catch {
+          return null;
+        }
+      }),
+    );
+    return folders
+      .filter((value) => value !== null)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async createFolder(projectId: string, name: string) {
+    const folderId = randomUUID();
+    const value = { id: folderId, name: z.string().trim().min(1).max(120).parse(name) };
+    await this.atomicWrite(() => this.storagePath(projectId, "folders", folderId), value);
+    return this.readFolder(projectId, folderId);
+  }
+
+  async renameFolder(projectId: string, folderId: string, name: string) {
+    const value = { id: folderId, name: z.string().trim().min(1).max(120).parse(name) };
+    await this.atomicWrite(async () => {
+      await this.readFolder(projectId, folderId);
+      return this.storagePath(projectId, "folders", folderId);
+    }, value);
+    return this.readFolder(projectId, folderId);
   }
 
   async snapshot(projectId: string): Promise<ProjectSnapshot> {
@@ -345,6 +418,7 @@ export class ProjectStore {
         .filter((value) => value !== null)
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
       designs: await this.designs(projectId),
+      folders: await this.folders(projectId),
     };
   }
 

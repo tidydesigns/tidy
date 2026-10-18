@@ -25,8 +25,11 @@ const api: DesktopAPI = {
   setThreadDone: (projectId, threadId, done) =>
     request("set-thread-done", { projectId, threadId, done }),
   stopThread: (projectId, threadId) => request("stop-thread", { projectId, threadId }),
-  createDesign: (projectId) => request("create-design", projectId),
-  importDesign: (projectId) => request("import-design", projectId),
+  createDesign: (projectId, folderId) => request("create-design", { projectId, folderId }),
+  importDesign: (projectId, folderId) => request("import-design", { projectId, folderId }),
+  createDesignFolder: (projectId, name) => request("create-design-folder", { projectId, name }),
+  renameDesignFolder: (projectId, folderId, name) =>
+    request("rename-design-folder", { projectId, folderId, name }),
   readDesign: (projectId, designId) => request("read-design", { projectId, designId }),
   updateDesign: (input) => request("update-design", input),
   uploadDesignAsset: (projectId, dataUrl) => request("upload-design-asset", { projectId, dataUrl }),

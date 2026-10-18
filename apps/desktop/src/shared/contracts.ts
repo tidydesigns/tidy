@@ -55,7 +55,15 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     updatedAt: thread.updatedAt,
   };
 }
-export type DesignSummary = { id: string; name: string; path: string; updatedAt: string };
+export type DesignFolder = { id: string; name: string; updatedAt: string };
+export type DesignSummary = {
+  id: string;
+  name: string;
+  path: string;
+  updatedAt: string;
+  folderId?: string | null;
+  nodeCount?: number;
+};
 export type LocalDesign = DesignSummary & {
   document: DesignDocument;
   version: string;
@@ -65,6 +73,7 @@ export type ProjectSnapshot = {
   project: Project;
   threads: ThreadSummary[];
   designs: DesignSummary[];
+  folders: DesignFolder[];
 };
 export type Bootstrap = {
   projects: Project[];
@@ -73,7 +82,7 @@ export type Bootstrap = {
 };
 export type DesktopEvent =
   | { type: "thread"; thread: Thread }
-  | { type: "designs"; projectId: string; designs: DesignSummary[] };
+  | { type: "designs"; projectId: string; designs: DesignSummary[]; folders: DesignFolder[] };
 export type DesktopAPI = {
   bootstrap(): Promise<Bootstrap>;
   openProject(): Promise<ProjectSnapshot | null>;
@@ -97,8 +106,10 @@ export type DesktopAPI = {
   sendMessage(input: { projectId: string; threadId: string; text: string }): Promise<Thread>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
-  createDesign(projectId: string): Promise<LocalDesign>;
-  importDesign(projectId: string): Promise<LocalDesign | null>;
+  createDesign(projectId: string, folderId?: string | null): Promise<LocalDesign>;
+  importDesign(projectId: string, folderId?: string | null): Promise<LocalDesign | null>;
+  createDesignFolder(projectId: string, name: string): Promise<DesignFolder>;
+  renameDesignFolder(projectId: string, folderId: string, name: string): Promise<DesignFolder>;
   readDesign(projectId: string, designId: string): Promise<LocalDesign>;
   updateDesign(input: {
     projectId: string;
@@ -106,6 +117,7 @@ export type DesktopAPI = {
     expectedVersion: string;
     document?: DesignDocument;
     name?: string;
+    folderId?: string | null;
   }): Promise<LocalDesign>;
   uploadDesignAsset(projectId: string, dataUrl: string): Promise<{ assetId: string; url: string }>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;

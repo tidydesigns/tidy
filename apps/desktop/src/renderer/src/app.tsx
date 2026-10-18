@@ -3,6 +3,7 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
+import { ProjectFiles } from "./project-files";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
 import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
@@ -241,7 +242,10 @@ export function App() {
         setSnapshots((current) => {
           const entry = current[event.projectId];
           return entry
-            ? { ...current, [event.projectId]: { ...entry, designs: event.designs } }
+            ? {
+                ...current,
+                [event.projectId]: { ...entry, designs: event.designs, folders: event.folders },
+              }
             : current;
         });
       }
@@ -333,19 +337,29 @@ export function App() {
     }
   }
 
-  async function createDesign(importing = false) {
-    if (!api || !project) return;
-    const projectId = project.id;
-    try {
-      const value = importing
-        ? await api.importDesign(projectId)
-        : await api.createDesign(projectId);
-      if (!value) return;
-      setDesigns((current) => ({ ...current, [value.id]: value }));
-      setSelectedDesigns((current) => ({ ...current, [projectId]: value.id }));
-    } catch (value) {
-      setError({ projectId, text: errorText(value) });
-    }
+  function updateLocalDesign(value: LocalDesign) {
+    setDesigns((current) => ({ ...current, [value.id]: value }));
+    setSnapshots((current) => {
+      const entry = current[activeProjectId!];
+      if (!entry) return current;
+      const summary: DesignSummary = {
+        id: value.id,
+        name: value.name,
+        path: value.path,
+        updatedAt: value.updatedAt,
+        folderId: value.folderId,
+        nodeCount: value.nodeCount,
+      };
+      return {
+        ...current,
+        [entry.project.id]: {
+          ...entry,
+          designs: [summary, ...entry.designs.filter((item) => item.id !== value.id)].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt),
+          ),
+        },
+      };
+    });
   }
 
   async function send() {
@@ -614,35 +628,8 @@ export function App() {
               role="tabpanel"
               aria-labelledby="workspace-tab-design"
               hidden={mode !== "design"}
-              className={`project-workspace ${design ? "canvas-open" : ""}`}
+              className="project-workspace canvas-open"
             >
-              <aside className="project-sidebar" hidden={Boolean(design)}>
-                <div className="sidebar-heading">
-                  <span>Designs</span>
-                  <Button className="quiet-button" onClick={() => void createDesign()}>
-                    New design
-                  </Button>
-                </div>
-                <div className="sidebar-list">
-                  {snapshot.designs.map((item) => (
-                    <Button
-                      key={item.id}
-                      className={`sidebar-item ${selectedDesignId === item.id ? "selected" : ""}`}
-                      onClick={() =>
-                        setSelectedDesigns((current) => ({ ...current, [project.id]: item.id }))
-                      }
-                    >
-                      {item.name}
-                    </Button>
-                  ))}
-                </div>
-                <Button
-                  className="quiet-button sidebar-footer"
-                  onClick={() => void createDesign(true)}
-                >
-                  Import design
-                </Button>
-              </aside>
               <div className="design-workspace">
                 {design && (
                   <LocalCanvas
@@ -654,10 +641,40 @@ export function App() {
                     onBack={() =>
                       setSelectedDesigns((current) => ({ ...current, [project.id]: null }))
                     }
-                    onUpdate={(value) =>
-                      setDesigns((current) => ({ ...current, [value.id]: value }))
-                    }
+                    onUpdate={updateLocalDesign}
                   />
+                )}
+                {api && (
+                  <div className="project-files-container" hidden={Boolean(design)}>
+                    <ProjectFiles
+                      key={project.id}
+                      api={api}
+                      snapshot={snapshot}
+                      onOpen={(id) =>
+                        setSelectedDesigns((current) => ({ ...current, [project.id]: id }))
+                      }
+                      onCreated={(value) => {
+                        updateLocalDesign(value);
+                        setSelectedDesigns((current) => ({ ...current, [project.id]: value.id }));
+                      }}
+                      onUpdate={updateLocalDesign}
+                      onFolderUpdate={(folder) =>
+                        setSnapshots((current) => {
+                          const entry = current[project.id];
+                          return {
+                            ...current,
+                            [project.id]: {
+                              ...entry,
+                              folders: [
+                                folder,
+                                ...(entry.folders ?? []).filter((item) => item.id !== folder.id),
+                              ],
+                            },
+                          };
+                        })
+                      }
+                    />
+                  </div>
                 )}
               </div>
             </section>

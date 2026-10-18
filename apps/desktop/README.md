@@ -18,7 +18,10 @@ The tabs support arrow keys, Home and End.
 ## Projects and threads
 
 1. Open a project directory, or choose a recent project from the top-left picker.
-2. In Design, create a design or import a Tidy design JSON document. Documents use
+2. Design opens the project's Files browser, with the same cards, view switcher and
+   preview renderer as web. Create files and folders, rename items, or move files
+   between folders. Grid view opens folders; list view expands their preloaded
+   contents immediately. New file's menu imports a Tidy design JSON document. Documents use
    the same full editor as the web app. Edits, names and placed images persist
    immediately to local project storage. Web asset downloads are not yet an import path.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
@@ -62,14 +65,18 @@ Project-owned files are stored in:
 your-project/
   .tidy/
     project.json       # Stable local project identity, retained when moving the folder
-    designs/<id>.json  # { id, name, document: DesignDocument }
+    designs/<id>.json  # { id, name, folderId, document: DesignDocument }
+    folders/<id>.json  # { id, name }; project-local design organization
     assets/<id>.json   # Local image data, referenced by designs
     threads/<id>.json  # Transcript, native session ID, harness and design references
     .gitignore        # Ignores local identity and private thread history
 ```
 
-Design files can be versioned with the project. Thread history stays on disk locally
-and is ignored by Git. The app's private user-data directory stores only recent
+Design files and folder metadata can be versioned with the project. Moving a design
+between folders retains its file path and existing thread references. Existing files
+without folder metadata remain in Files.
+
+Thread history stays on disk locally and is ignored by Git. The app's private user-data directory stores only recent
 project locations. Agent changes to design JSON refresh the open canvas. Local
 commits check the last disk version so an older edit cannot overwrite those changes.
 

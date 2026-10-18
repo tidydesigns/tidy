@@ -171,3 +171,101 @@ test("canvas commits preserve local images across restart and reject stale on-di
     "Agent's change",
   );
 });
+
+test("local design folders persist with stable design paths and thread references", async () => {
+  const { directory, root, store } = await fixture();
+  const project = (await store.open(root)).project;
+  const folder = await store.createFolder(project.id, "Explorations");
+  const file = await store.createDesign(project.id, undefined, folder.id);
+  const conversation = thread(project.id);
+  conversation.designIds = [file.id];
+  await store.writeThread(conversation);
+  const moved = await store.updateDesign({
+    projectId: project.id,
+    designId: file.id,
+    expectedVersion: file.version,
+    folderId: null,
+  });
+  expect(moved.path).toBe(file.path);
+  expect(moved.folderId).toBeNull();
+  const renamed = await store.updateDesign({
+    projectId: project.id,
+    designId: file.id,
+    expectedVersion: moved.version,
+    name: "Homepage",
+    folderId: folder.id,
+  });
+  expect(renamed.folderId).toBe(folder.id);
+  await store.renameFolder(project.id, folder.id, "Website");
+  const reopened = new ProjectStore(join(directory, "app-data"));
+  await reopened.initialize();
+  const snapshot = await reopened.select(project.id);
+  expect(snapshot.folders[0].name).toBe("Website");
+  expect(snapshot.designs[0].folderId).toBe(folder.id);
+  expect(snapshot.designs[0].nodeCount).toBe(1);
+  expect(snapshot.threads[0].designIds).toEqual([file.id]);
+  expect((await reopened.readDesign(project.id, file.id)).path).toBe(file.path);
+});
+
+test("legacy design files remain readable and folder membership survives canvas edits", async () => {
+  const { root, store } = await fixture();
+  const project = (await store.open(root)).project;
+  const original = await store.createDesign(project.id);
+  const legacyPath = await store.storagePath(project.id, "designs", original.id);
+  await writeFile(
+    legacyPath,
+    JSON.stringify({ id: original.id, name: original.name, document: original.document }),
+  );
+  const legacy = await store.readDesign(project.id, original.id);
+  expect(legacy.folderId).toBeNull();
+  const folder = await store.createFolder(project.id, "Screens");
+  const moved = await store.updateDesign({
+    projectId: project.id,
+    designId: legacy.id,
+    expectedVersion: legacy.version,
+    folderId: folder.id,
+  });
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: legacy.id,
+      expectedVersion: legacy.version,
+      document: legacy.document,
+    }),
+  ).rejects.toThrow("changed on disk");
+  const edited = await store.updateDesign({
+    projectId: project.id,
+    designId: legacy.id,
+    expectedVersion: moved.version,
+    document: moved.document,
+    name: "Updated canvas",
+  });
+  expect(edited.folderId).toBe(folder.id);
+  expect((await store.readDesign(project.id, legacy.id)).folderId).toBe(folder.id);
+});
+
+test("folders obey project boundaries and reject symbolic links and invalid destinations", async () => {
+  const { directory, root, store } = await fixture();
+  const project = (await store.open(root)).project;
+  const other = join(directory, "other-project");
+  await mkdir(other);
+  const otherProject = (await store.open(other)).project;
+  const folder = await store.createFolder(otherProject.id, "Other");
+  await expect(store.createDesign(project.id, undefined, folder.id)).rejects.toThrow();
+  const design = await store.createDesign(project.id);
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: design.id,
+      expectedVersion: design.version,
+      folderId: folder.id,
+    }),
+  ).rejects.toThrow();
+  await expect(store.renameFolder(project.id, folder.id, "Invalid")).rejects.toThrow();
+  const outside = join(directory, "outside.json");
+  await writeFile(outside, JSON.stringify({ id: folder.id, name: "Private" }));
+  await symlink(outside, join(root, ".tidy/folders", `${folder.id}.json`));
+  await expect(store.readFolder(project.id, folder.id)).rejects.toThrow("symbolic links");
+  expect(await store.folders(project.id)).toEqual([]);
+  await expect(store.createFolder(project.id, " ")).rejects.toThrow();
+});

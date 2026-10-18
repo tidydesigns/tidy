@@ -1,4 +1,9 @@
 "use client";
+import {
+  FileCard,
+  FileViewToggle,
+  folderCardClass as folderCard,
+} from "@tidy/editor/components/files/file-browser-ui";
 
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { filesHeader, filesGrid } from "@/components/workspace/page-layout";
@@ -50,8 +55,6 @@ type RenameTarget = { kind: "file"; file: File } | { kind: "folder"; folder: Fol
 
 const menuItem =
   "block w-full rounded px-3 py-2 text-left text-sm hover:bg-primary-grey/25 focus-visible:bg-hover-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink disabled:opacity-50";
-const folderCard =
-  "flex h-24 items-center gap-4 rounded-xl border border-primary-grey/70 px-5 pr-12 transition-colors hover:border-primary-grey hover:bg-surface/40";
 const listColumns =
   "grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_110px_32px] lg:grid-cols-[minmax(0,1fr)_110px_110px_150px_32px] xl:grid-cols-[minmax(0,1fr)_110px_110px_150px_100px_32px]";
 
@@ -619,61 +622,7 @@ export function FilesBrowser({
               )}
             </>
           )}
-          <div
-            data-ph-public-label
-            data-ph-public
-            role="group"
-            aria-label="File view"
-            className="flex rounded-lg border border-primary-grey/70 p-1"
-          >
-            <button
-              data-ph-public-label
-              type="button"
-              aria-label="Grid view"
-              aria-pressed={view === "grid"}
-              onClick={() => changeView("grid")}
-              className={`rounded-md p-2 focus-visible:outline-2 focus-visible:outline-primary-orange ${view === "grid" ? "bg-primary-grey/35" : "text-secondary-ink hover:bg-primary-grey/20"}`}
-            >
-              <svg
-                data-ph-public
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 18 18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-              >
-                <rect x="2" y="2" width="5" height="5" rx="1" />
-                <rect x="11" y="2" width="5" height="5" rx="1" />
-                <rect x="2" y="11" width="5" height="5" rx="1" />
-                <rect x="11" y="11" width="5" height="5" rx="1" />
-              </svg>
-            </button>
-            <button
-              data-ph-public-label
-              type="button"
-              aria-label="List view"
-              aria-pressed={view === "list"}
-              onClick={() => changeView("list")}
-              className={`rounded-md p-2 focus-visible:outline-2 focus-visible:outline-primary-orange ${view === "list" ? "bg-primary-grey/35" : "text-secondary-ink hover:bg-primary-grey/20"}`}
-            >
-              <svg
-                data-ph-public
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 18 18"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              >
-                <path d="M7 4h9M7 9h9M7 14h9" />
-                <path d="M2.5 4h1M2.5 9h1M2.5 14h1" />
-              </svg>
-            </button>
-          </div>
+          <FileViewToggle view={view} onChange={changeView} />
         </div>
       </div>
       {error && (
@@ -942,16 +891,18 @@ export function FilesBrowser({
                 className={`relative ${file.id.startsWith("pending-") ? "pointer-events-none opacity-60" : ""}`}
                 onContextMenu={(event) => onContextMenu(event, { kind: "file", file })}
               >
-                <div className="group relative overflow-hidden rounded-xl border border-primary-grey/70 transition-colors hover:border-primary-grey hover:bg-surface/40">
-                  {!(renaming?.kind === "file" && renaming.file.id === file.id) && (
-                    <Link
-                      prefetchOnIntent
-                      href={`/files/${encodeURIComponent(file.id)}`}
-                      aria-label={`Open ${renamedFiles[file.id] ?? file.name}`}
-                      className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-orange"
-                    />
-                  )}
-                  <div className="h-44 border-b border-primary-grey/45">
+                <FileCard
+                  openLink={
+                    !(renaming?.kind === "file" && renaming.file.id === file.id) && (
+                      <Link
+                        prefetchOnIntent
+                        href={`/files/${encodeURIComponent(file.id)}`}
+                        aria-label={`Open ${renamedFiles[file.id] ?? file.name}`}
+                        className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-orange"
+                      />
+                    )
+                  }
+                  preview={
                     <FileThumbnail
                       key={`${file.id}:${file.updatedAt}`}
                       fileId={file.id}
@@ -961,41 +912,40 @@ export function FilesBrowser({
                       cacheScope={thumbnailScope}
                       eager={index < 3}
                     />
-                  </div>
-                  <div className="p-4 pr-12">
-                    {renaming?.kind === "file" && renaming.file.id === file.id ? (
-                      <input
-                        data-ph-public-label
-                        aria-label="File name"
-                        autoFocus
-                        maxLength={120}
-                        value={renameDraft}
-                        onChange={(event) => setRenameDraft(event.target.value)}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onBlur={() => void finishRename()}
-                        onKeyDown={renameKeyDown}
-                        className="relative z-20 w-full min-w-0 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
-                      />
-                    ) : (
-                      <span className="block truncate text-sm font-medium group-hover:text-accent-ink">
-                        {renamedFiles[file.id] ?? file.name}
-                      </span>
-                    )}
-                    <p className="mt-1 text-xs text-secondary-ink">
-                      {file.nodeCount
-                        ? `${file.nodeCount} layers`
-                        : `${file.frameCount} ${file.frameCount === 1 ? "frame" : "frames"} · ${file.rectangleCount} ${file.rectangleCount === 1 ? "rectangle" : "rectangles"}`}{" "}
-                      <span data-ph-public style={{ display: "contents" }}>
-                        ·
-                      </span>{" "}
-                      {new Date(file.updatedAt).toLocaleDateString("en-IE", {
-                        day: "numeric",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </p>
-                  </div>
-                </div>
+                  }
+                >
+                  {renaming?.kind === "file" && renaming.file.id === file.id ? (
+                    <input
+                      data-ph-public-label
+                      aria-label="File name"
+                      autoFocus
+                      maxLength={120}
+                      value={renameDraft}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onFocus={(event) => event.currentTarget.select()}
+                      onBlur={() => void finishRename()}
+                      onKeyDown={renameKeyDown}
+                      className="relative z-20 w-full min-w-0 bg-transparent text-sm font-medium outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
+                    />
+                  ) : (
+                    <span className="block truncate text-sm font-medium group-hover:text-accent-ink">
+                      {renamedFiles[file.id] ?? file.name}
+                    </span>
+                  )}
+                  <p className="mt-1 text-xs text-secondary-ink">
+                    {file.nodeCount
+                      ? `${file.nodeCount} layers`
+                      : `${file.frameCount} ${file.frameCount === 1 ? "frame" : "frames"} · ${file.rectangleCount} ${file.rectangleCount === 1 ? "rectangle" : "rectangles"}`}{" "}
+                    <span data-ph-public style={{ display: "contents" }}>
+                      ·
+                    </span>{" "}
+                    {new Date(file.updatedAt).toLocaleDateString("en-IE", {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                    })}
+                  </p>
+                </FileCard>
                 <button
                   type="button"
                   aria-label={`Actions for ${file.name}`}

@@ -194,7 +194,9 @@
     "./editor/agent-activity-overlay.module.css": "./src/editor/agent-activity-overlay.module.css",
     "./design/text-formatting": "./src/design/text-formatting.ts",
     "./design/text-tool-style": "./src/design/text-tool-style.ts",
-    "./editor/tool-inspector": "./src/editor/tool-inspector.tsx"
+    "./editor/tool-inspector": "./src/editor/tool-inspector.tsx",
+    "./components/files/document-preview": "./src/components/files/document-preview.tsx",
+    "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

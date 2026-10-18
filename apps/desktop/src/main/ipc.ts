@@ -135,11 +135,33 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),
   );
-  handle("create-design", projectId, async (value) => {
-    const design = await store.createDesign(value);
-    await service.refreshDesigns(value);
-    return design;
-  });
+  handle(
+    "create-design",
+    z.object({ projectId, folderId: uuid.nullable().optional() }).strict(),
+    async (value) => {
+      const design = await store.createDesign(value.projectId, undefined, value.folderId);
+      await service.refreshDesigns(value.projectId);
+      return design;
+    },
+  );
+  handle(
+    "create-design-folder",
+    z.object({ projectId, name: z.string().trim().min(1).max(120) }).strict(),
+    async (value) => {
+      const folder = await store.createFolder(value.projectId, value.name);
+      await service.refreshDesigns(value.projectId);
+      return folder;
+    },
+  );
+  handle(
+    "rename-design-folder",
+    z.object({ projectId, folderId: uuid, name: z.string().trim().min(1).max(120) }).strict(),
+    async (value) => {
+      const folder = await store.renameFolder(value.projectId, value.folderId, value.name);
+      await service.refreshDesigns(value.projectId);
+      return folder;
+    },
+  );
   handle("read-design", z.object({ projectId, designId: uuid }).strict(), (value) =>
     store.readDesign(value.projectId, value.designId),
   );
@@ -152,6 +174,7 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
         expectedVersion: z.string().length(64),
         document: z.unknown().optional(),
         name: z.string().trim().min(1).max(120).optional(),
+        folderId: uuid.nullable().optional(),
       })
       .strict(),
     (value) => store.updateDesign(value),
@@ -161,28 +184,36 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     z.object({ projectId, dataUrl: z.string().max(3_000_000) }).strict(),
     (value) => store.uploadDesignAsset(value.projectId, value.dataUrl),
   );
-  handle("import-design", projectId, async (value, event) => {
-    store.project(value);
-    const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
-      title: "Import Tidy design",
-      properties: ["openFile"],
-      filters: [{ name: "Tidy design JSON", extensions: ["json"] }],
-    });
-    const file = result.filePaths[0];
-    if (result.canceled || !file) return null;
-    if ((await stat(file)).size > 16 * 1024 * 1024)
-      throw new Error("This design file is too large.");
-    const imported: unknown = JSON.parse(await readFile(file, "utf8"));
-    const wrapped = z
-      .object({ name: z.string().optional(), document: z.unknown() })
-      .safeParse(imported);
-    const design = await store.createDesign(value, {
-      name: wrapped.success && wrapped.data.name ? wrapped.data.name : basename(file, ".json"),
-      document: wrapped.success ? wrapped.data.document : imported,
-    });
-    await service.refreshDesigns(value);
-    return design;
-  });
+  handle(
+    "import-design",
+    z.object({ projectId, folderId: uuid.nullable().optional() }).strict(),
+    async (value, event) => {
+      store.project(value.projectId);
+      const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
+        title: "Import Tidy design",
+        properties: ["openFile"],
+        filters: [{ name: "Tidy design JSON", extensions: ["json"] }],
+      });
+      const file = result.filePaths[0];
+      if (result.canceled || !file) return null;
+      if ((await stat(file)).size > 16 * 1024 * 1024)
+        throw new Error("This design file is too large.");
+      const imported: unknown = JSON.parse(await readFile(file, "utf8"));
+      const wrapped = z
+        .object({ name: z.string().optional(), document: z.unknown() })
+        .safeParse(imported);
+      const design = await store.createDesign(
+        value.projectId,
+        {
+          name: wrapped.success && wrapped.data.name ? wrapped.data.name : basename(file, ".json"),
+          document: wrapped.success ? wrapped.data.document : imported,
+        },
+        value.folderId,
+      );
+      await service.refreshDesigns(value.projectId);
+      return design;
+    },
+  );
 
   return service.subscribe((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
