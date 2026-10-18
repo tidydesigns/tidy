@@ -102,7 +102,7 @@ test("horizontal protection preserves canvas panning, pinch zoom and sidebar scr
   }
   await expect(page).toHaveURL(url);
 
-  const layers = page.locator("#file-layers");
+  const layers = page.getByRole("tabpanel", { name: "Layers", exact: true });
   await expect
     .poll(() => layers.evaluate((element) => element.scrollHeight - element.clientHeight))
     .toBeGreaterThan(0);
