@@ -15,6 +15,7 @@ export type SelectMenuOption = {
   label: string;
   icon?: ReactNode;
   disabled?: boolean;
+  ariaLabel?: string;
 };
 
 export function SelectMenu({
@@ -32,10 +33,16 @@ export function SelectMenu({
   triggerContent,
   triggerClassName,
   actionMenu = false,
+  layout = "list",
+  align,
+  dismissOnScroll = false,
 }: {
   triggerContent?: ReactNode;
   triggerClassName?: string;
   actionMenu?: boolean;
+  layout?: "list" | "horizontal";
+  align?: "start" | "end";
+  dismissOnScroll?: boolean;
   value: string;
   options: SelectMenuOption[];
   onChange: (value: string) => void;
@@ -66,6 +73,10 @@ export function SelectMenu({
     popup.showPopover();
     function position(event?: Event) {
       if (event?.target instanceof Node && popup.contains(event.target)) return;
+      if ((event?.type === "scroll" || event?.type === "wheel") && dismissOnScroll) {
+        setOpen(false);
+        return;
+      }
       const bounds = anchor.getBoundingClientRect();
       const margin = 8,
         gap = 6;
@@ -77,7 +88,8 @@ export function SelectMenu({
         placement === "top" ? above >= height || above > below : below < height && above > below;
       popup.style.maxHeight = `${Math.max(0, Math.min(256, useTop ? above : below))}px`;
       const size = popup.getBoundingClientRect();
-      popup.style.left = `${Math.max(margin, Math.min(placement === "top" ? bounds.right - size.width : bounds.left, window.innerWidth - size.width - margin))}px`;
+      const alignRight = align ? align === "end" : placement === "top";
+      popup.style.left = `${Math.max(margin, Math.min(alignRight ? bounds.right - size.width : bounds.left, window.innerWidth - size.width - margin))}px`;
       const top = useTop ? bounds.top - gap - size.height : bounds.bottom + gap;
       popup.style.top = `${Math.max(margin, Math.min(top, window.innerHeight - size.height - margin))}px`;
     }
@@ -90,21 +102,25 @@ export function SelectMenu({
     if (active)
       popup.scrollTop = Math.max(0, active.offsetTop + active.offsetHeight - popup.clientHeight);
     document.addEventListener("scroll", position, true);
+    if (dismissOnScroll)
+      document.addEventListener("wheel", position, { capture: true, passive: true });
     window.addEventListener("resize", position);
     return () => {
       document.removeEventListener("scroll", position, true);
+      if (dismissOnScroll) document.removeEventListener("wheel", position, true);
       window.removeEventListener("resize", position);
       if (popup.matches(":popover-open")) popup.hidePopover();
     };
-  }, [visible, placement]);
+  }, [visible, placement, align, dismissOnScroll]);
 
   useEffect(() => {
     if (!visible) return;
     function dismiss(event: PointerEvent) {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     }
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
+    // Canvas controls stop bubbling pointer events; catch click-away before those handlers.
+    document.addEventListener("pointerdown", dismiss, true);
+    return () => document.removeEventListener("pointerdown", dismiss, true);
   }, [visible]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
@@ -112,15 +128,19 @@ export function SelectMenu({
       event.preventDefault();
       event.stopPropagation();
       setOpen(false);
-      trigger.current?.focus();
+      trigger.current?.focus({ preventScroll: true });
       return;
     }
     if (event.key === "Tab") {
-      trigger.current?.focus();
+      trigger.current?.focus({ preventScroll: true });
       setOpen(false);
       return;
     }
-    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const forward =
+      event.key === "ArrowDown" || (layout === "horizontal" && event.key === "ArrowRight");
+    const backward =
+      event.key === "ArrowUp" || (layout === "horizontal" && event.key === "ArrowLeft");
+    if (!forward && !backward && event.key !== "Home" && event.key !== "End") return;
     event.preventDefault();
     const items = [
       ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
@@ -133,7 +153,7 @@ export function SelectMenu({
         ? 0
         : event.key === "End"
           ? items.length - 1
-          : event.key === "ArrowDown"
+          : forward
             ? (current + 1) % items.length
             : (current - 1 + items.length) % items.length;
     items[next]?.focus();
@@ -199,11 +219,12 @@ export function SelectMenu({
           ref={menu}
           id={menuId}
           role="menu"
+          aria-orientation={layout === "horizontal" ? "horizontal" : undefined}
           popover="manual"
           data-ph-public-label={replayLabel || undefined}
           aria-label={label}
           onKeyDown={onMenuKeyDown}
-          className="fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl"
+          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl ${layout === "horizontal" ? "flex" : ""}`}
         >
           {options.map((option) => (
             <button
@@ -211,13 +232,14 @@ export function SelectMenu({
               type="button"
               role={actionMenu ? "menuitem" : "menuitemradio"}
               aria-checked={actionMenu ? undefined : value === option.value}
+              aria-label={option.ariaLabel}
               disabled={option.disabled}
               onClick={() => {
                 setOpen(false);
-                trigger.current?.focus();
+                trigger.current?.focus({ preventScroll: true });
                 if (actionMenu || option.value !== value) onChange(option.value);
               }}
-              className={`flex min-h-9 w-full items-center justify-between gap-2 rounded-lg px-2.5 text-left text-sm font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${value === option.value ? "bg-primary-grey/20" : ""}`}
+              className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
             >
               <span className="flex min-w-0 items-center gap-2">
                 {option.icon}
@@ -229,9 +251,11 @@ export function SelectMenu({
                   {option.label}
                 </span>
               </span>
-              <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
-                {!actionMenu && value === option.value ? "✓" : ""}
-              </span>
+              {layout !== "horizontal" && (
+                <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
+                  {!actionMenu && value === option.value ? "✓" : ""}
+                </span>
+              )}
             </button>
           ))}
         </div>

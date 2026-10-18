@@ -74,7 +74,6 @@ const ThreadMessage = memo(function ThreadMessage({
 }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.body);
-  const [pickerOpen, setPickerOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [reactionDraft, setReactionDraft] = useState<CommentReaction[] | null>(null);
   const [error, setError] = useState("");
@@ -148,7 +147,6 @@ const ThreadMessage = memo(function ThreadMessage({
             .filter((reaction) => reaction.count > 0)
         : [...message.reactions, { emoji, count: 1, reacted: true }],
     );
-    setPickerOpen(false);
     setPending(true);
     setError("");
     try {
@@ -239,38 +237,26 @@ const ThreadMessage = memo(function ThreadMessage({
                 {reaction.emoji} {reaction.count}
               </button>
             ))}
-            <button
-              data-ph-public
-              data-ph-public-label
-              type="button"
-              aria-label="Add emoji reaction"
-              aria-expanded={pickerOpen}
-              onClick={() => setPickerOpen((open) => !open)}
-              className="rounded-full border border-primary-grey px-2 py-0.5 text-xs text-secondary-ink hover:bg-primary-grey/20"
-            >
-              ☺
-            </button>
-          </div>
-        )}
-        {pickerOpen && (
-          <div
-            data-ph-public-label
-            role="group"
-            aria-label="Choose emoji reaction"
-            className="mt-1 flex flex-wrap gap-1 rounded-lg border border-primary-grey/70 bg-surface p-1 shadow-sm"
-          >
-            {COMMENT_EMOJIS.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                disabled={pending}
-                aria-label={`React with ${emoji}`}
-                onClick={() => void toggleReaction(emoji)}
-                className="rounded px-1.5 py-1 text-lg hover:bg-primary-grey/20 disabled:opacity-50"
-              >
-                {emoji}
-              </button>
-            ))}
+            <SelectMenu
+              label="Add emoji reaction"
+              replayLabel
+              replayOptions
+              actionMenu
+              layout="horizontal"
+              placement="top"
+              align="start"
+              dismissOnScroll
+              value=""
+              disabled={pending}
+              triggerContent="☺"
+              triggerClassName="rounded-full border border-primary-grey px-2 py-0.5 text-xs text-secondary-ink hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
+              options={COMMENT_EMOJIS.map((emoji) => ({
+                value: emoji,
+                label: emoji,
+                ariaLabel: `React with ${emoji}`,
+              }))}
+              onChange={(emoji) => void toggleReaction(emoji)}
+            />
           </div>
         )}
         {error && (
