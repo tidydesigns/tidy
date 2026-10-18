@@ -95,6 +95,11 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
   handle("send-message", z.object({ projectId, threadId: uuid, text: prompt }).strict(), (value) =>
     service.sendMessage(value),
   );
+  handle(
+    "set-thread-done",
+    z.object({ projectId, threadId: uuid, done: z.boolean() }).strict(),
+    (value) => service.setThreadDone(value.projectId, value.threadId, value.done),
+  );
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),
   );

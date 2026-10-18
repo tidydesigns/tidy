@@ -124,7 +124,6 @@ textarea {
   font-family: inherit;
 }
 button:focus-visible:not(.tidy-editor *),
-textarea:focus-visible:not(.tidy-editor *),
 summary:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
@@ -274,18 +273,84 @@ summary:focus-visible {
   background: var(--color-subtle-fill);
 }
 .thread-item {
+  position: relative;
+  padding: 0;
+}
+.thread-select {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.thread-item > span {
+.thread-title {
+  display: block;
+  padding-right: 54px;
+  width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-  width: 100%;
+  white-space: nowrap;
 }
-.thread-item small {
-  font-size: 11px;
+.thread-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
   color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.thread-meta time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.thread-done {
+  position: absolute;
+  top: 8px;
+  right: 6px;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  font-size: 10px;
+  cursor: pointer;
+}
+.thread-done:hover {
+  background: var(--color-hover-surface);
+  color: var(--color-ink);
+}
+.thread-done[aria-pressed="true"] {
+  color: var(--color-ink);
+}
+.done-threads {
+  flex-shrink: 0;
+  max-height: 45%;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.done-threads summary {
+  cursor: pointer;
+  padding: 10px 8px;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+}
+.done-thread-list {
+  overflow-y: auto;
+  max-height: 30vh;
+  padding-top: 4px;
+  overscroll-behavior: contain;
 }
 .sidebar-footer {
   align-self: flex-start;
@@ -372,6 +437,12 @@ summary:focus-visible {
   color: var(--color-ink);
   font-size: 14px;
   line-height: 1.5;
+}
+.composer textarea:focus {
+  outline: none;
+}
+.composer:focus-within {
+  border-color: var(--color-muted-ink);
 }
 .composer textarea::placeholder {
   color: var(--color-muted-ink);

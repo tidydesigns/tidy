@@ -28,6 +28,7 @@ export const threadSchema = z.object({
   title: z.string().max(120),
   harness: z.enum(["codex", "claude"]),
   sessionId: id.optional(),
+  doneAt: z.string().datetime().optional(),
   designIds: z.array(id).max(20),
   messages: z.array(messageSchema).max(1000),
   status: z.enum(["idle", "running", "completed", "stopped", "failed", "interrupted"]),

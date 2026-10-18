@@ -3,6 +3,7 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
+import { relativeThreadTime } from "../../shared/thread-time";
 import { summarizeThread } from "../../shared/contracts";
 import type {
   DesignSummary,
@@ -12,6 +13,7 @@ import type {
   Project,
   ProjectSnapshot,
   Thread,
+  ThreadSummary,
 } from "../../shared/contracts";
 
 const modes = [
@@ -38,6 +40,8 @@ export function App() {
   const [selectedDesigns, setSelectedDesigns] = useState<Record<string, string | null>>({});
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [now, setNow] = useState(Date.now);
+  const [updatingDone, setUpdatingDone] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<{ projectId?: string; text: string } | null>(null);
   const navigation = useRef(0);
@@ -58,6 +62,16 @@ export function App() {
       : undefined;
   const running = thread?.status === "running";
   const busy = Boolean(sending[draftKey]);
+
+  useEffect(() => {
+    const updateTime = () => setNow(Date.now());
+    const timer = window.setInterval(updateTime, 60_000);
+    window.addEventListener("focus", updateTime);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", updateTime);
+    };
+  }, []);
 
   function updateDraft(patch: Partial<Draft>) {
     setDrafts((current) => ({ ...current, [draftKey]: { ...draft, ...patch } }));
@@ -229,7 +243,7 @@ export function App() {
   }
 
   async function send() {
-    if (!api || !project || !draft.text.trim() || busy || running) return;
+    if (!api || !project || !draft.text.trim() || busy || running || thread?.doneAt) return;
     const projectId = project.id;
     const key = draftKey;
     const submitted = draft.text;
@@ -262,6 +276,74 @@ export function App() {
       setError({ projectId, text: errorText(value) });
     } finally {
       setSending((current) => ({ ...current, [key]: false }));
+    }
+  }
+
+  async function toggleThreadDone(item: ThreadSummary) {
+    if (!api || !project || updatingDone[item.id] || item.status === "running") return;
+    const projectId = project.id;
+    const next = {
+      ...item,
+      revision: item.revision + 1,
+      doneAt: item.doneAt ? undefined : new Date().toISOString(),
+    };
+    function apply(summary: ThreadSummary) {
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        if (!entry) return current;
+        return {
+          ...current,
+          [projectId]: {
+            ...entry,
+            threads: entry.threads.map((value) =>
+              value.id === summary.id && value.revision <= summary.revision ? summary : value,
+            ),
+          },
+        };
+      });
+      setThreads((current) => {
+        const value = current[summary.id];
+        return value && value.revision <= summary.revision
+          ? {
+              ...current,
+              [summary.id]: { ...value, doneAt: summary.doneAt, revision: summary.revision },
+            }
+          : current;
+      });
+    }
+    setUpdatingDone((current) => ({ ...current, [item.id]: true }));
+    apply(next);
+    try {
+      const value = await api.setThreadDone(projectId, item.id, Boolean(next.doneAt));
+      apply(summarizeThread(value));
+    } catch (cause) {
+      // Roll back only this optimistic change, without undoing a newer thread event.
+      const isOptimistic = (value: ThreadSummary) =>
+        value.revision === next.revision &&
+        value.doneAt === next.doneAt &&
+        value.status === next.status;
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        if (!entry) return current;
+        return {
+          ...current,
+          [projectId]: {
+            ...entry,
+            threads: entry.threads.map((value) =>
+              value.id === item.id && isOptimistic(value) ? item : value,
+            ),
+          },
+        };
+      });
+      setThreads((current) => {
+        const value = current[item.id];
+        return value && isOptimistic(value)
+          ? { ...current, [item.id]: { ...value, doneAt: item.doneAt, revision: item.revision } }
+          : current;
+      });
+      setError({ projectId, text: errorText(cause) });
+    } finally {
+      setUpdatingDone((current) => ({ ...current, [item.id]: false }));
     }
   }
 
@@ -300,6 +382,21 @@ export function App() {
     document.getElementById(`workspace-tab-${modes[next].id}`)?.focus();
   }
 
+  const activeThreads = snapshot?.threads.filter((item) => !item.doneAt) ?? [];
+  const doneThreads = (snapshot?.threads.filter((item) => item.doneAt) ?? []).sort((a, b) =>
+    b.doneAt!.localeCompare(a.doneAt!),
+  );
+  const renderThread = (item: ThreadSummary) => (
+    <ThreadCard
+      key={item.id}
+      thread={item}
+      selected={selectedThreadId === item.id}
+      now={now}
+      pending={Boolean(updatingDone[item.id])}
+      onSelect={() => selectThread(project!.id, item.id)}
+      onDone={() => void toggleThreadDone(item)}
+    />
+  );
   const visibleError = error && (!error.projectId || error.projectId === activeProjectId);
   const selectedHarness = thread?.harness ?? draft.harness;
   const harnessReady = harnesses.some(
@@ -458,21 +555,13 @@ export function App() {
                     New thread
                   </Button>
                 </div>
-                <div className="sidebar-list">
-                  {snapshot.threads.map((item) => (
-                    <Button
-                      key={item.id}
-                      className={`sidebar-item thread-item ${selectedThreadId === item.id ? "selected" : ""}`}
-                      onClick={() => selectThread(project.id, item.id)}
-                    >
-                      <span>{item.title}</span>
-                      <small>
-                        {item.harness === "codex" ? "Codex" : "Claude Code"}
-                        {item.status === "running" ? " · Running" : ""}
-                      </small>
-                    </Button>
-                  ))}
-                </div>
+                <div className="sidebar-list">{activeThreads.map(renderThread)}</div>
+                {doneThreads.length > 0 && (
+                  <details className="done-threads" key={project.id}>
+                    <summary>Done ({doneThreads.length})</summary>
+                    <div className="done-thread-list">{doneThreads.map(renderThread)}</div>
+                  </details>
+                )}
               </aside>
               <div className="thread-workspace">
                 <div className="content-heading">
@@ -543,8 +632,13 @@ export function App() {
                     value={draft.text}
                     onChange={(event) => updateDraft({ text: event.target.value })}
                     placeholder={
-                      thread ? "Continue this thread…" : "What would you like to work on?"
+                      thread?.doneAt
+                        ? "Reopen this thread to continue…"
+                        : thread
+                          ? "Continue this thread…"
+                          : "What would you like to work on?"
                     }
+                    disabled={Boolean(thread?.doneAt)}
                     maxLength={32_000}
                     rows={3}
                     onKeyDown={(event) => {
@@ -591,6 +685,7 @@ export function App() {
                         disabled={
                           !draft.text.trim() ||
                           busy ||
+                          Boolean(thread?.doneAt) ||
                           !harnessReady ||
                           Boolean(selectedThreadId && !thread)
                         }
@@ -625,6 +720,68 @@ export function App() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function ThreadCard({
+  thread,
+  selected,
+  now,
+  pending,
+  onSelect,
+  onDone,
+}: {
+  thread: ThreadSummary;
+  selected: boolean;
+  now: number;
+  pending: boolean;
+  onSelect(): void;
+  onDone(): void;
+}) {
+  return (
+    <div className={`sidebar-item thread-item ${selected ? "selected" : ""}`}>
+      <Button
+        className="thread-select"
+        aria-current={selected ? "true" : undefined}
+        onClick={onSelect}
+      >
+        <span className="thread-title">{thread.title}</span>
+        <span className="thread-meta">
+          <span>
+            {thread.harness === "codex" ? "Codex" : "Claude Code"}
+            {thread.status === "running" ? " · Running" : ""}
+          </span>
+          <time dateTime={thread.updatedAt} title={new Date(thread.updatedAt).toLocaleString()}>
+            {relativeThreadTime(thread.updatedAt, now)}
+          </time>
+        </span>
+      </Button>
+      <Button
+        className="thread-done"
+        aria-label={`${thread.doneAt ? "Reopen" : "Mark done:"} ${thread.title}`}
+        aria-pressed={Boolean(thread.doneAt)}
+        disabled={pending || thread.status === "running"}
+        title={
+          thread.status === "running"
+            ? "Wait for this run to finish"
+            : thread.doneAt
+              ? "Reopen thread"
+              : "Mark thread done"
+        }
+        onClick={onDone}
+      >
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none">
+          <path
+            d="m3 8 3 3 7-7"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        Done
+      </Button>
     </div>
   );
 }

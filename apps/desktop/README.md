@@ -33,6 +33,11 @@ in the composer. Credentials remain owned by each CLI and are never read or copi
 by Tidy. The current integration uses Codex JSON events and Claude Code streaming
 JSON; tests exercise both protocols with fixture executables, without paid inference.
 
+Each thread card shows its last activity as `3m`, `6h` or `2d`. Use its tick-and-Done
+action to move it into the collapsed Done section at the bottom of the sidebar.
+Completed threads remain readable; click Done again to reopen one and continue
+its original harness session. A harness finishing a turn does not mark a thread Done.
+
 Codex runs with the workspace-write sandbox and rejects operations requiring an
 approval. Claude Code uses its `acceptEdits` permission mode; tools requiring further
 permission are denied by the headless CLI and surfaced in the thread. Tidy does not

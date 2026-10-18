@@ -70,6 +70,26 @@ export class WorkspaceService {
     return this.store.readThread(projectId, threadId);
   }
 
+  async setThreadDone(projectId: string, threadId: string, done: boolean) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    if (this.starting.has(threadId) || this.jobs.has(threadId))
+      throw new Error("Wait for this run to finish before marking the thread done.");
+    this.starting.add(threadId);
+    try {
+      const thread = await this.store.readThread(projectId, threadId);
+      if (thread.status === "running")
+        throw new Error("Wait for this run to finish before marking the thread done.");
+      if (Boolean(thread.doneAt) === done) return thread;
+      thread.doneAt = done ? new Date().toISOString() : undefined;
+      thread.revision++;
+      await this.store.writeThread(thread);
+      this.emit({ type: "thread", thread });
+      return thread;
+    } finally {
+      this.starting.delete(threadId);
+    }
+  }
+
   async startThread(input: {
     projectId: string;
     harness: HarnessId;
@@ -107,6 +127,7 @@ export class WorkspaceService {
 
   private async run(thread: Thread, prompt: string) {
     if (this.closing) throw new Error("Tidy is closing.");
+    if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
     const project = this.store.project(thread.projectId);
     const executable = await this.locate(thread.harness);
     if (!executable)

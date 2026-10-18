@@ -191,3 +191,65 @@ test("stopping during the first disk checkpoint prevents process launch", async 
   expect(runs.length).toBe(0);
   expect((await store.readThread(project.id, thread.id)).status).toBe("stopped");
 });
+
+test("Done is an explicit persisted thread state, independent of a finished harness turn", async () => {
+  const { directory, service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Finish the design",
+    designIds: [],
+  });
+  const sessionId = randomUUID();
+  runs[0].input.onUpdate({ type: "session", id: sessionId });
+  await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toThrow("finish");
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  const completed = await completion;
+  expect(completed.status).toBe("completed");
+  expect(completed.doneAt).toBeUndefined();
+  const marked = await service.setThreadDone(project.id, thread.id, true);
+  expect(marked.doneAt).toBeDefined();
+  expect(marked.updatedAt).toBe(completed.updatedAt);
+  expect(marked.revision).toBe(completed.revision + 1);
+  expect((await service.setThreadDone(project.id, thread.id, true)).revision).toBe(marked.revision);
+  const reopenedStore = new ProjectStore(join(directory, "app"));
+  await reopenedStore.initialize();
+  expect((await reopenedStore.snapshot(project.id)).threads[0].doneAt).toBe(marked.doneAt);
+  await expect(
+    service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" }),
+  ).rejects.toThrow("Reopen");
+  expect(runs).toHaveLength(1);
+  await service.setThreadDone(project.id, thread.id, false);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
+  expect(runs[1].input.sessionId).toBe(sessionId);
+});
+
+test("thread completion rejects project mismatches and never publishes a failed disk write", async () => {
+  const { directory, service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "One task",
+    designIds: [],
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const otherRoot = join(directory, "other");
+  await mkdir(otherRoot);
+  const other = (await store.open(otherRoot)).project;
+  await expect(service.setThreadDone(other.id, thread.id, true)).rejects.toThrow();
+  const write = store.writeThread.bind(store);
+  store.writeThread = async () => {
+    throw new Error("Disk full");
+  };
+  const events: unknown[] = [];
+  const unsubscribe = service.subscribe((event) => events.push(event));
+  await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toThrow("Disk full");
+  expect(events).toHaveLength(0);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  store.writeThread = write;
+  unsubscribe();
+});

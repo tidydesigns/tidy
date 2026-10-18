@@ -15,6 +15,7 @@ export type Thread = {
   title: string;
   harness: HarnessId;
   sessionId?: string;
+  doneAt?: string;
   designIds: string[];
   messages: Message[];
   status: "idle" | "running" | "completed" | "stopped" | "failed" | "interrupted";
@@ -30,6 +31,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     projectId: thread.projectId,
     title: thread.title,
     harness: thread.harness,
+    doneAt: thread.doneAt,
     designIds: thread.designIds,
     status: thread.status,
     activity: thread.activity,
@@ -69,6 +71,7 @@ export type DesktopAPI = {
     designIds: string[];
   }): Promise<Thread>;
   sendMessage(input: { projectId: string; threadId: string; text: string }): Promise<Thread>;
+  setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
   createDesign(projectId: string): Promise<LocalDesign>;
   importDesign(projectId: string): Promise<LocalDesign | null>;
