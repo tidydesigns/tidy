@@ -1,0 +1,52 @@
+:root {
+  color-scheme: light dark;
+  --color-ink: light-dark(#424242, #d0d0d0);
+  --color-muted-ink: light-dark(#6e6e6e, #b7b7b7);
+  --color-panel: light-dark(#fafafa, #202020);
+  font-family: var(--font-instrument-sans);
+  color: var(--color-ink);
+  background: var(--color-panel);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+.workspace {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 32px;
+}
+
+.welcome {
+  text-align: center;
+}
+
+h1 {
+  margin: 0;
+  font-weight: 400;
+  line-height: 0.98;
+}
+
+.tidy-logo {
+  display: inline-block;
+  font-family: var(--font-instrument-serif);
+  font-size: 34px;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+}
+
+p {
+  margin: 12px 0 0;
+  color: var(--color-muted-ink);
+  font-size: 14px;
+  line-height: 1.5;
+}

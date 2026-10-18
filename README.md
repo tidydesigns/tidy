@@ -80,6 +80,20 @@ provider accounts. Do not use a production database URL for local commands.
 Stop the database with `docker compose down`. Adding `-v` also deletes its data.
 See [self-hosting](#self-hosting) before making a deployment public.
 
+## Desktop app
+
+The standalone Electron app has its own React interface and runs independently of
+the web app. It is the foundation for a local-first coding harness control pane and
+shared design canvas. Use Node.js 22.12+ alongside Bun.
+
+```sh
+bun dev:desktop
+bun run build:desktop
+bun run package:desktop
+```
+
+See [desktop development](apps/desktop/README.md) for architecture and packaging.
+
 ## Browser extension
 
 The extension captures webpages for use in Tidy.

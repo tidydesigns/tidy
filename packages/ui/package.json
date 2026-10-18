@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./fonts.css": "./fonts.css",
     "./privacy-policy": "./privacy-policy.tsx",
     "./privacy-policy.css": "./privacy-policy.css",
     "./avatar": "./avatar.tsx",

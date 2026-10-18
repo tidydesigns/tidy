@@ -19,9 +19,11 @@ and assets retain their original licenses and copyright notices.
   retained at `apps/web/public/icons/LICENSE.iconoir`.
 - **Instrument Serif**: SIL Open Font License 1.1, copyright the Instrument Serif
   Project Authors. Existing `OFL.txt` files accompany copies under `apps/web`,
-  `apps/site` and `apps/extension`.
+  `apps/site` and `apps/extension`. Shared offline fonts for desktop are accompanied
+  by `packages/ui/fonts/OFL-InstrumentSerif.txt`.
 - **Instrument Sans**: SIL Open Font License 1.1, copyright the Instrument Sans
-  Project Authors. Its license accompanies the site font as `OFL-InstrumentSans.txt`.
+  Project Authors. Its license accompanies the site font as `OFL-InstrumentSans.txt`
+  and the shared offline font as `packages/ui/fonts/OFL-InstrumentSans.txt`.
 - Provider logos and names (Google, GitHub, Linear, Codex, Claude and OpenCode) identify integrations.
   Their owners retain trademark rights. Follow the attribution and source notes
   in `apps/web/public/connectors/README.md` and `apps/web/public/agents/README.md`;
