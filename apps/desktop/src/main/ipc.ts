@@ -123,6 +123,8 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     z
       .object({
         projectId,
+        threadId: uuid.optional(),
+        messageId: uuid.optional(),
         harness: z.enum(["codex", "claude"]),
         prompt: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
@@ -138,6 +140,7 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
       .object({
         projectId,
         threadId: uuid,
+        messageId: uuid.optional(),
         text: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
       })

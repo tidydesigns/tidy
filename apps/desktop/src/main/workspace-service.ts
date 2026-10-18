@@ -18,6 +18,8 @@ import {
 } from "../shared/attachments";
 import type { HarnessSettings } from "../shared/harness-settings";
 import { validateHarnessSettings } from "./harness-details";
+import { harnessSettingsSchema } from "../shared/harness-settings";
+import { validatePermissionMode } from "../shared/permissions";
 import {
   toolActivitySchema,
   toolLogSize,
@@ -32,15 +34,19 @@ type Job = {
   stopped: boolean;
   messages: Map<string, string>;
   tools: Map<string, string>;
+  changedMessages: Set<string>;
+  changedTools: Set<string>;
   usageBase?: Thread["usage"];
   checkpoint?: ReturnType<typeof setTimeout>;
+  notification?: ReturnType<typeof setTimeout>;
 };
 
 export class WorkspaceService {
   private jobs = new Map<string, Job>();
   private watchers = new Map<string, FSWatcher>();
   private listeners = new Set<(event: DesktopEvent) => void>();
-  private starting = new Set<string>();
+  private starting = new Map<string, string>();
+  private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
   private closing = false;
 
@@ -117,7 +123,7 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       throw new Error("Wait for this run to finish before marking the thread done.");
-    this.starting.add(threadId);
+    this.starting.set(threadId, projectId);
     try {
       const thread = await this.store.readThread(projectId, threadId);
       if (thread.status === "running")
@@ -130,13 +136,14 @@ export class WorkspaceService {
       return thread;
     } finally {
       this.starting.delete(threadId);
+      this.cancelledStarts.delete(threadId);
     }
   }
 
   async setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
     if (this.closing || this.starting.has(threadId) || this.jobs.has(threadId))
       throw new Error("Wait for this run to finish before changing its settings.");
-    this.starting.add(threadId);
+    this.starting.set(threadId, projectId);
     try {
       const thread = await this.store.readThread(projectId, threadId);
       await this.configure(thread.harness, this.store.project(projectId).path, settings);
@@ -147,10 +154,13 @@ export class WorkspaceService {
       return thread;
     } finally {
       this.starting.delete(threadId);
+      this.cancelledStarts.delete(threadId);
     }
   }
 
   async startThread(input: {
+    threadId?: string;
+    messageId?: string;
     projectId: string;
     harness: HarnessId;
     prompt: string;
@@ -160,7 +170,7 @@ export class WorkspaceService {
   }) {
     const thread: Thread = {
       revision: 0,
-      id: randomUUID(),
+      id: input.threadId ?? randomUUID(),
       projectId: input.projectId,
       harness: input.harness,
       settings: input.settings,
@@ -170,11 +180,21 @@ export class WorkspaceService {
       status: "idle",
       updatedAt: new Date().toISOString(),
     };
-    for (const designId of input.designIds) await this.store.readDesign(input.projectId, designId);
-    return this.run(thread, input.prompt, input.attachmentIds);
+    if (this.starting.has(thread.id) || this.jobs.has(thread.id))
+      throw new Error("This thread is already running.");
+    this.starting.set(thread.id, input.projectId);
+    try {
+      if (input.threadId && (await this.store.threadExists(input.projectId, input.threadId)))
+        throw new Error("This thread already exists.");
+      return await this.run(thread, input.prompt, input.attachmentIds, input.messageId);
+    } finally {
+      this.starting.delete(thread.id);
+      this.cancelledStarts.delete(thread.id);
+    }
   }
 
   async sendMessage(input: {
+    messageId?: string;
     projectId: string;
     threadId: string;
     text: string;
@@ -182,22 +202,33 @@ export class WorkspaceService {
   }) {
     if (this.starting.has(input.threadId) || this.jobs.has(input.threadId))
       throw new Error("This thread is already running.");
-    this.starting.add(input.threadId);
+    this.starting.set(input.threadId, input.projectId);
     try {
       return await this.run(
         await this.store.readThread(input.projectId, input.threadId),
         input.text,
         input.attachmentIds,
+        input.messageId,
       );
     } finally {
       this.starting.delete(input.threadId);
+      this.cancelledStarts.delete(input.threadId);
     }
   }
 
-  private async run(thread: Thread, prompt: string, attachmentIds: string[] = []) {
+  private async run(
+    thread: Thread,
+    prompt: string,
+    attachmentIds: string[] = [],
+    messageId?: string,
+  ) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
     const project = this.store.project(thread.projectId);
+    if (messageId && thread.messages.some((message) => message.id === messageId))
+      throw new Error("This message was already sent.");
+    const settings = harnessSettingsSchema.parse(thread.settings ?? {});
+    validatePermissionMode(thread.harness, settings.permissionMode);
     z.array(z.string().uuid()).max(MAX_ATTACHMENTS).parse(attachmentIds);
     if (!prompt.trim() && !attachmentIds.length)
       throw new Error("Write a message or attach a file.");
@@ -206,7 +237,7 @@ export class WorkspaceService {
     );
     if (attachments.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES)
       throw new Error("Keep attachments under 25 MB per message.");
-    const images = await Promise.all(
+    const imagesPromise = Promise.all(
       attachments
         .filter((file) =>
           ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.mimeType),
@@ -218,16 +249,19 @@ export class WorkspaceService {
         })),
     );
     if (!thread.title) thread.title = attachments[0]?.name.slice(0, 80) ?? "New thread";
-    await this.configure(thread.harness, project.path, thread.settings);
-    const executable = await this.locate(thread.harness);
+    // Model and effort are already chosen from the catalog. The native harness validates
+    // them at launch; sending must never fetch account limits or refresh that catalog.
+    const [executable, references, images] = await Promise.all([
+      this.locate(thread.harness),
+      Promise.all(
+        thread.designIds.map((designId) => this.store.readDesign(project.id, designId, false)),
+      ),
+      imagesPromise,
+    ]);
     if (!executable)
       throw new Error(
         `Install ${thread.harness === "codex" ? "Codex" : "Claude Code"} and sign in with its CLI first.`,
       );
-    await this.store.storagePath(project.id, "threads");
-    const references = await Promise.all(
-      thread.designIds.map((designId) => this.store.readDesign(project.id, designId)),
-    );
     const context = [
       "You are working in a local Tidy project. The working directory is the project root.",
       "Project designs live in .tidy/designs/*.json. Each file contains { id, name, folderId, document }; folderId is a local design-folder ID or null. Preserve id, name and folderId when editing document content. Folder metadata lives in .tidy/folders/<id>.json and design paths remain stable when files move between folders. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Preserve this format when editing designs.",
@@ -248,7 +282,7 @@ export class WorkspaceService {
     ].join("\n\n");
     if (this.closing) throw new Error("Tidy is closing.");
     thread.messages.push({
-      id: randomUUID(),
+      id: messageId ?? randomUUID(),
       role: "user",
       text: prompt,
       ...(attachments.length
@@ -262,9 +296,11 @@ export class WorkspaceService {
     thread.updatedAt = new Date().toISOString();
     const job: Job = {
       thread,
-      stopped: false,
+      stopped: this.cancelledStarts.has(thread.id),
       messages: new Map(),
       tools: new Map(),
+      changedMessages: new Set(),
+      changedTools: new Set(),
       usageBase: thread.usage ? { ...thread.usage } : undefined,
     };
     this.jobs.set(thread.id, job);
@@ -343,6 +379,7 @@ export class WorkspaceService {
         activities.push(value);
         job.tools.set(update.tool.id, value.id);
       }
+      job.changedTools.add(value.id);
       let size = activities.reduce((total, tool) => total + toolLogSize(tool), 0);
       while (activities.length > MAX_TOOL_ACTIVITIES || size > MAX_TOOL_LOG_CHARACTERS) {
         size -= toolLogSize(activities.shift()!);
@@ -375,7 +412,25 @@ export class WorkspaceService {
         job.messages.set(update.id, message.id);
       }
       message.text = (update.append ? message.text + update.text : update.text).slice(0, 1_000_000);
+      job.changedMessages.add(message.id);
     }
+    // Painting and persistence are independent: stream promptly without serializing
+    // and writing the complete transcript on every UI update.
+    if (!job.notification)
+      job.notification = setTimeout(() => {
+        job.notification = undefined;
+        const { messages, toolActivities, ...metadata } = thread;
+        this.emit({
+          type: "thread-patch",
+          thread: metadata,
+          summary: summarizeThread(thread),
+          messages: messages.filter((message) => job.changedMessages.has(message.id)),
+          toolActivities: (toolActivities ?? []).filter((tool) => job.changedTools.has(tool.id)),
+          toolActivityIds: (toolActivities ?? []).map((tool) => tool.id),
+        });
+        job.changedMessages.clear();
+        job.changedTools.clear();
+      }, 32);
     if (!job.checkpoint)
       job.checkpoint = setTimeout(() => {
         job.checkpoint = undefined;
@@ -383,8 +438,7 @@ export class WorkspaceService {
           thread.error = "Thread changes could not be written to disk.";
           job.process?.stop();
         });
-        this.emit({ type: "thread", thread });
-      }, 60);
+      }, 250);
   }
 
   private async complete(job: Job) {
@@ -398,6 +452,7 @@ export class WorkspaceService {
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
     }
     clearTimeout(job.checkpoint);
+    clearTimeout(job.notification);
     const ownedTools = new Set(job.tools.values());
     for (const tool of job.thread.toolActivities ?? [])
       if (tool.status === "running" && ownedTools.has(tool.id)) {
@@ -445,7 +500,13 @@ export class WorkspaceService {
 
   async stopThread(projectId: string, threadId: string) {
     const job = this.jobs.get(threadId);
-    if (!job) return;
+    if (!job) {
+      const preparingProject = this.starting.get(threadId);
+      if (preparingProject && preparingProject !== projectId)
+        throw new Error("This thread belongs to another project.");
+      if (preparingProject) this.cancelledStarts.add(threadId);
+      return;
+    }
     if (job.thread.projectId !== projectId)
       throw new Error("This thread belongs to another project.");
     job.stopped = true;

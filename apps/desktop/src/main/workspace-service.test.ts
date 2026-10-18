@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import type { startHarness, HarnessUpdate } from "./harnesses";
-import type { Thread } from "../shared/contracts";
+import type { DesktopEvent, Thread } from "../shared/contracts";
 import { MAX_TOOL_ACTIVITIES, MAX_TOOL_LOG_CHARACTERS, toolLogSize } from "../shared/tool-activity";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -580,4 +580,144 @@ test("permission modes persist for follow-ups while live requests disappear on c
   await expect(
     service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" }),
   ).rejects.toThrow("finish");
+});
+
+test("client IDs reconcile one durable message and cannot overwrite a thread or replay a message", async () => {
+  const { service, store, project, runs } = await fixture();
+  const threadId = randomUUID(),
+    messageId = randomUUID();
+  const thread = await service.startThread({
+    projectId: project.id,
+    threadId,
+    messageId,
+    harness: "codex",
+    prompt: "Instant",
+    designIds: [],
+  });
+  expect(thread.id).toBe(threadId);
+  expect(thread.messages[0].id).toBe(messageId);
+  runs[0].input.onUpdate({ type: "session", id: randomUUID() });
+  const complete = finished(service, thread.id);
+  runs[0].complete();
+  await complete;
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      threadId,
+      harness: "claude",
+      prompt: "Overwrite",
+      designIds: [],
+    }),
+  ).rejects.toThrow("already exists");
+  await expect(
+    service.sendMessage({ projectId: project.id, threadId, messageId, text: "Replay" }),
+  ).rejects.toThrow("already sent");
+  expect((await store.readThread(project.id, threadId)).messages).toHaveLength(1);
+  expect(runs).toHaveLength(1);
+});
+
+test("sending does not wait for catalog or account usage, and references skip image asset loading", async () => {
+  const { store, project } = await fixture();
+  const design = await store.createDesign(project.id);
+  const readDesign = store.readDesign.bind(store),
+    reads: Array<boolean | undefined> = [];
+  store.readDesign = async (projectId, id, includeAssets) => {
+    reads.push(includeAssets);
+    return readDesign(projectId, id, includeAssets);
+  };
+  let configured = false,
+    prompt = "";
+  const service = new WorkspaceService(
+    store,
+    (input) => {
+      prompt = input.prompt;
+      return { done: Promise.resolve(), stop() {} };
+    },
+    async () => "/fixture/harness",
+    async () => {
+      configured = true;
+      throw new Error("Usage service unavailable");
+    },
+  );
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Send without waiting for usage",
+    settings: { model: "fixture-codex", effort: "high" },
+    designIds: [design.id],
+  });
+  expect(configured).toBe(false);
+  expect(prompt).toContain(design.path);
+  expect(reads).toEqual([false]);
+  expect(thread.messages[0].text).toBe("Send without waiting for usage");
+  await service.close();
+});
+
+test("Stop cancels a turn still preparing, including a new optimistic thread", async () => {
+  const { store, project } = await fixture();
+  let release!: () => void,
+    started!: () => void,
+    launched = false;
+  const preparing = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const service = new WorkspaceService(
+    store,
+    () => {
+      launched = true;
+      throw new Error("Must not launch");
+    },
+    async () => {
+      started();
+      await gate;
+      return "/fixture/harness";
+    },
+  );
+  const threadId = randomUUID();
+  const request = service.startThread({
+    projectId: project.id,
+    threadId,
+    messageId: randomUUID(),
+    harness: "codex",
+    prompt: "Cancel preparation",
+    designIds: [],
+  });
+  await preparing;
+  await expect(service.stopThread(randomUUID(), threadId)).rejects.toThrow("another project");
+  await service.stopThread(project.id, threadId);
+  release();
+  expect((await request).status).toBe("stopped");
+  expect(launched).toBe(false);
+  expect((await store.readThread(project.id, threadId)).status).toBe("stopped");
+  await service.close();
+});
+
+test("streaming transmits changed rows without replaying earlier conversation content", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Earlier task ".repeat(10) + "Private earlier request " + "x".repeat(20_000),
+    designIds: [],
+  });
+  const patches: Array<Extract<DesktopEvent, { type: "thread-patch" }>> = [];
+  const painted = new Promise<void>((resolve) =>
+    service.subscribe((event) => {
+      if (event.type === "thread-patch") {
+        patches.push(event);
+        resolve();
+      }
+    }),
+  );
+  runs[0].input.onUpdate({ type: "message", id: "assistant", text: "Streaming response" });
+  await painted;
+  expect(patches[0].messages.map((message) => message.text)).toEqual(["Streaming response"]);
+  expect(JSON.stringify(patches[0])).not.toContain("Private earlier request");
+  expect(JSON.stringify(patches[0]).length).toBeLessThan(2_000);
+  expect((await service.readThread(project.id, thread.id)).messages[0].text).toContain(
+    "Private earlier request",
+  );
 });

@@ -1,4 +1,12 @@
-import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
@@ -19,6 +27,7 @@ import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread } from "../../shared/contracts";
+import { applyThreadPatch } from "../../shared/thread-updates";
 import type {
   DesignSummary,
   HarnessConnection,
@@ -86,13 +95,20 @@ export function App() {
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const designSnapshot = useMemo(
+    () => (snapshot ? { ...snapshot, threads: [] } : undefined),
+    [snapshot?.project, snapshot?.designs, snapshot?.folders],
+  );
   const selectedDesignId = project ? selectedDesigns[project.id] : null;
+  const backToFiles = useCallback(() => {
+    if (project) setSelectedDesigns((current) => ({ ...current, [project.id]: null }));
+  }, [project?.id]);
   const design =
     selectedDesignId && snapshot?.designs.some((item) => item.id === selectedDesignId)
       ? designs[selectedDesignId]
       : undefined;
   const running = thread?.status === "running";
-  const busy = Boolean(sending[draftKey]);
+  const busy = Boolean(sending[draftKey] && !running);
 
   const selectedHarness = thread?.harness ?? draft.harness;
   const harnessReady = harnesses.some(
@@ -239,17 +255,28 @@ export function App() {
     }
     let mounted = true;
     const unsubscribe = api.onEvent((event) => {
-      if (event.type === "thread") {
+      if (event.type === "thread" || event.type === "thread-patch") {
         const value = event.thread;
-        setThreads((current) => ({
-          ...current,
-          [value.id]:
-            (current[value.id]?.revision ?? -1) > value.revision ? current[value.id] : value,
-        }));
+        setThreads((current) => {
+          const previous = current[value.id];
+          if (event.type === "thread-patch")
+            return previous
+              ? { ...current, [value.id]: applyThreadPatch(previous, event) }
+              : current;
+          return {
+            ...current,
+            [value.id]: (previous?.revision ?? -1) > value.revision ? previous : event.thread,
+          };
+        });
         setSnapshots((current) => {
           const entry = current[value.projectId];
           if (!entry) return current;
-          const summary = summarizeThread(value);
+          const summary =
+            event.type === "thread-patch" ? event.summary : summarizeThread(event.thread);
+          if (
+            (entry.threads.find((item) => item.id === value.id)?.revision ?? -1) > summary.revision
+          )
+            return current;
           return {
             ...current,
             [value.projectId]: {
@@ -359,30 +386,33 @@ export function App() {
     }
   }
 
-  function updateLocalDesign(value: LocalDesign) {
-    setDesigns((current) => ({ ...current, [value.id]: value }));
-    setSnapshots((current) => {
-      const entry = current[activeProjectId!];
-      if (!entry) return current;
-      const summary: DesignSummary = {
-        id: value.id,
-        name: value.name,
-        path: value.path,
-        updatedAt: value.updatedAt,
-        folderId: value.folderId,
-        nodeCount: value.nodeCount,
-      };
-      return {
-        ...current,
-        [entry.project.id]: {
-          ...entry,
-          designs: [summary, ...entry.designs.filter((item) => item.id !== value.id)].sort((a, b) =>
-            b.updatedAt.localeCompare(a.updatedAt),
-          ),
-        },
-      };
-    });
-  }
+  const updateLocalDesign = useCallback(
+    (value: LocalDesign) => {
+      setDesigns((current) => ({ ...current, [value.id]: value }));
+      setSnapshots((current) => {
+        const entry = current[activeProjectId!];
+        if (!entry) return current;
+        const summary: DesignSummary = {
+          id: value.id,
+          name: value.name,
+          path: value.path,
+          updatedAt: value.updatedAt,
+          folderId: value.folderId,
+          nodeCount: value.nodeCount,
+        };
+        return {
+          ...current,
+          [entry.project.id]: {
+            ...entry,
+            designs: [summary, ...entry.designs.filter((item) => item.id !== value.id)].sort(
+              (a, b) => b.updatedAt.localeCompare(a.updatedAt),
+            ),
+          },
+        };
+      });
+    },
+    [activeProjectId],
+  );
 
   function attachFiles(files: File[]) {
     if (!api || !project || thread?.doneAt || busy || !files.length) return;
@@ -464,20 +494,77 @@ export function App() {
     const key = draftKey;
     const submitted = draft.text;
     const selection = threadSelection.current[projectId] ?? 0;
+    const id = selectedThreadId ?? crypto.randomUUID();
+    const messageId = crypto.randomUUID();
+    const pendingKey = `${projectId}:${id}`;
+    const optimistic: Thread = {
+      ...(thread ?? {
+        id,
+        projectId,
+        harness: draft.harness,
+        settings: draft.settings,
+        title:
+          submitted.replace(/\s+/g, " ").slice(0, 80) ||
+          draft.attachments?.[0]?.name ||
+          "New thread",
+        designIds: draft.designIds,
+        messages: [],
+        revision: 0,
+      }),
+      revision: (thread?.revision ?? 0) + 1,
+      messages: [
+        ...(thread?.messages ?? []),
+        {
+          id: messageId,
+          role: "user",
+          text: submitted,
+          ...(draft.attachments?.length ? { attachments: draft.attachments } : {}),
+        },
+      ],
+      status: "running",
+      activity: "Starting",
+      error: undefined,
+      updatedAt: new Date().toISOString(),
+    };
     sendingKeys.current.add(key);
     setSending((current) => ({ ...current, [key]: true }));
-    setDrafts((current) => ({ ...current, [key]: { ...draft, text: "", attachments: [] } }));
+    setThreads((current) => ({ ...current, [id]: optimistic }));
+    setSnapshots((current) => {
+      const entry = current[projectId];
+      return entry
+        ? {
+            ...current,
+            [projectId]: {
+              ...entry,
+              threads: [
+                summarizeThread(optimistic),
+                ...entry.threads.filter((item) => item.id !== id),
+              ],
+            },
+          }
+        : current;
+    });
+    setDrafts((current) => ({
+      ...current,
+      [key]: { ...draft, text: "", attachments: [] },
+      ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
+    }));
+    setSelectedThreads((current) => ({ ...current, [projectId]: id }));
+    followOutput.current = true;
     setError(null);
     try {
       const value = selectedThreadId
         ? await api.sendMessage({
             projectId,
-            threadId: selectedThreadId,
+            threadId: id,
+            messageId,
             text: submitted,
             attachmentIds: draft.attachments?.map((file) => file.id),
           })
         : await api.startThread({
             projectId,
+            threadId: id,
+            messageId,
             harness: draft.harness,
             prompt: submitted,
             designIds: draft.designIds,
@@ -491,18 +578,61 @@ export function App() {
       }));
       if ((threadSelection.current[projectId] ?? 0) === selection)
         setSelectedThreads((current) => ({ ...current, [projectId]: value.id }));
-      followOutput.current = true;
     } catch (value) {
+      // Remove only this pending turn. Preserve navigation, newer drafts and native events.
+      setThreads((current) => {
+        if (
+          current[id]?.revision !== optimistic.revision ||
+          current[id]?.updatedAt !== optimistic.updatedAt
+        )
+          return current;
+        const next = { ...current };
+        if (thread) next[id] = thread;
+        else delete next[id];
+        return next;
+      });
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        if (!entry) return current;
+        return {
+          ...current,
+          [projectId]: {
+            ...entry,
+            threads: entry.threads.flatMap((item) =>
+              item.id !== id ||
+              item.revision !== optimistic.revision ||
+              item.updatedAt !== optimistic.updatedAt
+                ? [item]
+                : thread
+                  ? [summarizeThread(thread)]
+                  : [],
+            ),
+          },
+        };
+      });
       setDrafts((current) => ({
         ...current,
         [key]: {
-          ...(current[key] ?? draft),
-          text: [submitted, current[key]?.text].filter(Boolean).join("\n\n"),
-          attachments: [...(draft.attachments ?? []), ...(current[key]?.attachments ?? [])].filter(
-            (file, index, all) => all.findIndex((item) => item.id === file.id) === index,
-          ),
+          ...draft,
+          ...(current[key] ?? {}),
+          text: [
+            submitted,
+            current[key]?.text,
+            ...(pendingKey !== key ? [current[pendingKey]?.text] : []),
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+          attachments: [
+            ...(draft.attachments ?? []),
+            ...(current[key]?.attachments ?? []),
+            ...(pendingKey !== key ? (current[pendingKey]?.attachments ?? []) : []),
+          ].filter((file, index, all) => all.findIndex((item) => item.id === file.id) === index),
         },
       }));
+      if (!thread)
+        setSelectedThreads((current) =>
+          current[projectId] === id ? { ...current, [projectId]: null } : current,
+        );
       setError({ projectId, text: errorText(value) });
     } finally {
       sendingKeys.current.delete(key);
@@ -638,6 +768,73 @@ export function App() {
   );
   const visibleError = error && (!error.projectId || error.projectId === activeProjectId);
 
+  const projectFiles = useMemo(() => {
+    const project = designSnapshot?.project;
+    if (!api || !designSnapshot || !project) return null;
+    return (
+      <ProjectFiles
+        key={project.id}
+        api={api}
+        snapshot={designSnapshot}
+        onOpen={(id) => setSelectedDesigns((current) => ({ ...current, [project.id]: id }))}
+        onCreated={(value) => {
+          updateLocalDesign(value);
+          setSelectedDesigns((current) => ({ ...current, [project.id]: value.id }));
+        }}
+        onUpdate={updateLocalDesign}
+        onFolderUpdate={(folder) =>
+          setSnapshots((current) => {
+            const entry = current[project.id];
+            return {
+              ...current,
+              [project.id]: {
+                ...entry,
+                folders: [folder, ...(entry.folders ?? []).filter((item) => item.id !== folder.id)],
+              },
+            };
+          })
+        }
+      />
+    );
+  }, [api, designSnapshot, updateLocalDesign]);
+
+  const conversationMessages = useMemo(
+    () =>
+      thread?.messages.map((message) => (
+        <Fragment key={message.id}>
+          <article className={`message message-${message.role}`}>
+            <span className="message-author">
+              {message.role === "user" ? (
+                "You"
+              ) : (
+                <span
+                  role="img"
+                  aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                  title={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                >
+                  <HarnessIcon harness={thread.harness} size={15} />
+                </span>
+              )}
+            </span>
+            <div>{message.text}</div>
+            {message.attachments?.length && api ? (
+              <MessageAttachments
+                api={api}
+                projectId={thread.projectId}
+                files={message.attachments}
+              />
+            ) : null}
+          </article>
+          <ToolActivityGroup
+            activities={
+              thread.toolActivities?.filter((tool) => tool.afterMessageId === message.id) ?? []
+            }
+          />
+        </Fragment>
+      )),
+    [thread?.messages, thread?.toolActivities, thread?.harness, api, project?.id],
+  );
+
   return (
     <div className="desktop">
       <header className="workspace-header">
@@ -739,42 +936,13 @@ export function App() {
                     projectId={project.id}
                     initial={design}
                     active={mode === "design"}
-                    onBack={() =>
-                      setSelectedDesigns((current) => ({ ...current, [project.id]: null }))
-                    }
+                    onBack={backToFiles}
                     onUpdate={updateLocalDesign}
                   />
                 )}
                 {api && (
                   <div className="project-files-container" hidden={Boolean(design)}>
-                    <ProjectFiles
-                      key={project.id}
-                      api={api}
-                      snapshot={snapshot}
-                      onOpen={(id) =>
-                        setSelectedDesigns((current) => ({ ...current, [project.id]: id }))
-                      }
-                      onCreated={(value) => {
-                        updateLocalDesign(value);
-                        setSelectedDesigns((current) => ({ ...current, [project.id]: value.id }));
-                      }}
-                      onUpdate={updateLocalDesign}
-                      onFolderUpdate={(folder) =>
-                        setSnapshots((current) => {
-                          const entry = current[project.id];
-                          return {
-                            ...current,
-                            [project.id]: {
-                              ...entry,
-                              folders: [
-                                folder,
-                                ...(entry.folders ?? []).filter((item) => item.id !== folder.id),
-                              ],
-                            },
-                          };
-                        })
-                      }
-                    />
+                    {projectFiles}
                   </div>
                 )}
               </div>
@@ -827,40 +995,7 @@ export function App() {
                   {thread?.toolActivityTruncated && (
                     <p className="tool-log-notice">Earlier tool activity omitted</p>
                   )}
-                  {thread?.messages.map((message) => (
-                    <Fragment key={message.id}>
-                      <article className={`message message-${message.role}`}>
-                        <span className="message-author">
-                          {message.role === "user" ? (
-                            "You"
-                          ) : (
-                            <span
-                              role="img"
-                              aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                              title={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                            >
-                              <HarnessIcon harness={thread.harness} size={15} />
-                            </span>
-                          )}
-                        </span>
-                        <div>{message.text}</div>
-                        {message.attachments?.length && api ? (
-                          <MessageAttachments
-                            api={api}
-                            projectId={project.id}
-                            files={message.attachments}
-                          />
-                        ) : null}
-                      </article>
-                      <ToolActivityGroup
-                        activities={
-                          thread.toolActivities?.filter(
-                            (tool) => tool.afterMessageId === message.id,
-                          ) ?? []
-                        }
-                      />
-                    </Fragment>
-                  ))}
+                  {conversationMessages}
                   {running &&
                     !thread?.pendingApprovals?.length &&
                     !thread?.toolActivities?.some((tool) => tool.status === "running") && (

@@ -58,6 +58,21 @@ action to move it into the collapsed Done section at the bottom of the sidebar.
 Completed threads remain readable; click Done again to reopen one and continue
 its original harness session. A harness finishing a turn does not mark a thread Done.
 
+Sending paints the user message and thread immediately, before native preparation
+or disk acknowledgement. Client-generated thread/message IDs are reconciled with
+the native records so acknowledgement and streaming cannot duplicate a turn.
+Failures restore the submitted text and attachments alongside any new draft text;
+navigating to another thread is preserved. Stop also cancels a turn still preparing.
+
+Sending does not refresh model catalogs or account usage. Settings changes still
+validate against the connected catalog; the native harness validates model/effort
+at launch. Reference files are read once without loading their image assets.
+The hidden canvas, file overview and transcript are isolated from composer typing.
+Streaming sends changed messages and tool rows instead of copying full thread
+history on each update. Notifications are coalesced separately from disk checkpoints, with an
+immediate durable write before launch and a final flush on completion/shutdown.
+Harness process startup and provider generation time still determine response latency.
+
 Press Enter to send; Shift+Enter adds a new line. Cmd/Ctrl+Enter also sends.
 Use the paperclip to attach files, drop them onto the composer, or paste an image.
 Attachments have previews and can be removed before sending. A message can contain

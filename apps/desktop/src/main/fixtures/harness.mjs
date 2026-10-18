@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 
@@ -26,6 +26,10 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
       break;
     }
     const method = codex ? value.method : value.request?.subtype;
+    if (method === "model/list" && existsSync("metadata-delay-ms"))
+      await new Promise((resolve) =>
+        setTimeout(resolve, Number(readFileSync("metadata-delay-ms", "utf8"))),
+      );
     methods.push(method);
     writeFileSync("capability-invocation.json", JSON.stringify({ methods, cwd: process.cwd() }));
     const reply = (result) =>

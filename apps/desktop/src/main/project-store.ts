@@ -301,6 +301,17 @@ export class ProjectStore {
     };
   }
 
+  async threadExists(projectId: string, threadId: string) {
+    const path = await this.storagePath(projectId, "threads", threadId);
+    try {
+      await lstat(path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
   async readThread(projectId: string, threadId: string) {
     const thread = threadSchema.parse(
       await this.read(await this.storagePath(projectId, "threads", threadId)),

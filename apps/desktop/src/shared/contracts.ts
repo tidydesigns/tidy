@@ -1,4 +1,5 @@
 import type { ToolActivity } from "./tool-activity";
+import type { ThreadPatch } from "./thread-updates";
 import type { ApprovalRequest, ApprovalDecision } from "./permissions";
 import type { Attachment, AttachedFile } from "./attachments";
 import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
@@ -98,6 +99,7 @@ export type Bootstrap = {
   harnesses: HarnessConnection[];
 };
 export type DesktopEvent =
+  | ({ type: "thread-patch" } & ThreadPatch)
   | { type: "thread"; thread: Thread }
   | { type: "designs"; projectId: string; designs: DesignSummary[]; folders: DesignFolder[] };
 export type DesktopAPI = {
@@ -114,6 +116,8 @@ export type DesktopAPI = {
   ): Promise<Thread>;
   readThread(projectId: string, threadId: string): Promise<Thread>;
   startThread(input: {
+    threadId?: string;
+    messageId?: string;
     projectId: string;
     harness: HarnessId;
     prompt: string;
@@ -122,6 +126,7 @@ export type DesktopAPI = {
     attachmentIds?: string[];
   }): Promise<Thread>;
   sendMessage(input: {
+    messageId?: string;
     projectId: string;
     threadId: string;
     text: string;
