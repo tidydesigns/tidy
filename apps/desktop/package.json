@@ -17,12 +17,13 @@
     "postinstall": "install-electron"
   },
   "dependencies": {
-    "@bella/design": "workspace:*",
+    "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",
     "@tidy/ui": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "@tidy/editor": "workspace:*"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

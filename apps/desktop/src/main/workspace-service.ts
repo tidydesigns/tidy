@@ -255,5 +255,6 @@ export class WorkspaceService {
     // Final checkpoints are queued after child termination.
     for (const job of this.jobs.values())
       await this.store.writeThread({ ...job.thread, status: "interrupted", activity: undefined });
+    await this.store.flush();
   }
 }

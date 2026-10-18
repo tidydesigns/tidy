@@ -1,1 +1,1 @@
-export * from "@tidy/design-renderer/font-family";
+export * from "@tidy/editor/design/fonts/family";

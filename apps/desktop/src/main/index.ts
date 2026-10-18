@@ -54,10 +54,20 @@ app
     await store.recover();
     service = new WorkspaceService(store);
     registerWorkspaceIPC(service);
-    session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => {
-      callback(false);
-    });
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionRequestHandler(
+      (contents, permission, callback, details) => {
+        callback(
+          permission === "local-fonts" &&
+            details.isMainFrame &&
+            Boolean(BrowserWindow.fromWebContents(contents)),
+        );
+      },
+    );
+    session.defaultSession.setPermissionCheckHandler(
+      (contents, permission) =>
+        permission === "local-fonts" &&
+        Boolean(contents && BrowserWindow.fromWebContents(contents)),
+    );
 
     await createWindow();
 

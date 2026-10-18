@@ -1,2 +1,2 @@
 "use client";
-export * from "@tidy/design-renderer/node-strokes";
+export * from "@tidy/editor/components/design/node-strokes";

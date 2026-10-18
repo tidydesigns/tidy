@@ -25,7 +25,7 @@ const fonts = catalog.familyMetadataList
   .filter((font) => font.styles.length);
 if (fonts.length < 1000) throw new Error("The font catalog is unexpectedly incomplete.");
 await writeFile(
-  new URL("../lib/design/fonts/catalog.json", import.meta.url),
+  new URL("../../../packages/editor/src/design/fonts/catalog.json", import.meta.url),
   JSON.stringify({ source, updatedAt: new Date().toISOString().slice(0, 10), fonts }) + "\n",
 );
 console.log(`Updated ${fonts.length} font families.`);

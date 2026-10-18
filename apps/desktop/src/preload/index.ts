@@ -21,6 +21,8 @@ const api: DesktopAPI = {
   createDesign: (projectId) => request("create-design", projectId),
   importDesign: (projectId) => request("import-design", projectId),
   readDesign: (projectId, designId) => request("read-design", { projectId, designId }),
+  updateDesign: (input) => request("update-design", input),
+  uploadDesignAsset: (projectId, dataUrl) => request("upload-design-asset", { projectId, dataUrl }),
   onEvent(listener) {
     const receive = (_event: Electron.IpcRendererEvent, value: DesktopEvent) => listener(value);
     ipcRenderer.on("tidy:event", receive);

@@ -1,2 +1,2 @@
 "use client";
-export * from "@tidy/ui/select-menu";
+export * from "@tidy/editor/components/ui/select-menu";

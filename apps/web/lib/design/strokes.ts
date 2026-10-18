@@ -1,1 +1,1 @@
-export * from "@tidy/design-renderer/strokes";
+export * from "@tidy/editor/design/strokes";

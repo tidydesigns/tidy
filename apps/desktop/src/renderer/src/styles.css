@@ -1,14 +1,8 @@
 @import "tailwindcss";
+@import "@tidy/editor/theme.css";
+@import "@tidy/editor/chrome.css";
+@source "../../../../../packages/editor/src";
 @source "../../../node_modules/@tidy/ui";
-
-@theme inline {
-  --color-primary-black: var(--color-ink);
-  --color-primary-grey: var(--color-border);
-  --color-primary-orange: var(--color-ink);
-  --color-secondary-ink: var(--color-muted-ink);
-  --color-accent-ink: var(--color-ink);
-  --color-surface: var(--desktop-surface);
-}
 
 :root {
   color-scheme: light dark;
@@ -98,7 +92,8 @@ body {
   min-height: 0;
 }
 
-h1 {
+.project-home h1,
+.content-heading h1 {
   margin: 0;
   font-weight: 400;
   line-height: 0.98;
@@ -112,14 +107,15 @@ h1 {
   letter-spacing: -0.02em;
 }
 
-p {
+.project-home p,
+.code-workspace p {
   margin: 12px 0 0;
   color: var(--color-muted-ink);
   font-size: 14px;
   line-height: 1.5;
 }
 
-button:disabled {
+button:disabled:not(.tidy-editor *) {
   cursor: default;
   opacity: 0.45;
 }
@@ -127,8 +123,8 @@ button,
 textarea {
   font-family: inherit;
 }
-button:focus-visible,
-textarea:focus-visible,
+button:focus-visible:not(.tidy-editor *),
+textarea:focus-visible:not(.tidy-editor *),
 summary:focus-visible {
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
@@ -308,6 +304,7 @@ summary:focus-visible {
   gap: 16px;
   padding: 20px 28px 12px;
 }
+.content-heading .project-home h1,
 .content-heading h1 {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -458,22 +455,6 @@ summary:focus-visible {
   min-width: 0;
   min-height: 0;
 }
-.design-preview {
-  flex: 1;
-  overflow: auto;
-  padding: 40px;
-  background: light-dark(#f3f3f3, #262626);
-}
-.design-artboard {
-  width: fit-content;
-  margin: 0 0 40px;
-}
-.artboard-name {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 11px;
-  color: var(--color-muted-ink);
-}
 .error-banner {
   display: flex;
   align-items: center;
@@ -516,4 +497,11 @@ summary:focus-visible {
   .connection-help {
     flex-direction: column;
   }
+}
+
+.project-workspace.canvas-open {
+  grid-template-columns: minmax(0, 1fr);
+}
+.project-sidebar[hidden] {
+  display: none;
 }

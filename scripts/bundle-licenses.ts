@@ -38,9 +38,13 @@ export async function bundleLicenseBannerForInputs(inputs: Iterable<string>) {
       reviewed[name as keyof typeof reviewed];
     const notice = (
       await readFile(new URL(`../licenses/bundled/${entry.notice}`, import.meta.url), "utf8")
-    ).trim();
+    )
+      .replaceAll("\r\n", "\n")
+      .trim();
     if (entry.source) {
-      const upstream = (await readFile(resolve(root, entry.source), "utf8")).trim();
+      const upstream = (await readFile(resolve(root, entry.source), "utf8"))
+        .replaceAll("\r\n", "\n")
+        .trim();
       if (upstream !== notice)
         throw new Error(`Bundled licence for ${id} changed; review and update ${entry.notice}.`);
     } else if (!entry.versions?.includes(version) || license !== "MIT") {

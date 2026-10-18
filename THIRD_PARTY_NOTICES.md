@@ -15,8 +15,13 @@ and assets retain their original licenses and copyright notices.
   as author. It omits a standalone license file; the declaration and MIT terms
   are retained in `licenses/bundled/OpenFig.txt`, with that limitation recorded.
 
+- **pdf-lib**, **@pdf-lib/standard-fonts** and **@pdf-lib/upng**: MIT. Their upstream
+  notices are retained in `licenses/bundled/`. **pako** retains its MIT and Zlib
+  notices in `licenses/bundled/pako.txt`; **tslib** retains its 0BSD notice there.
+- **ImageTracerJS**: Unlicense; retained in `licenses/bundled/imagetracerjs.txt`.
 - **Iconoir** icons: MIT, copyright Iconoir contributors. The full license is
-  retained at `apps/web/public/icons/LICENSE.iconoir`.
+  retained at `apps/web/public/icons/LICENSE.iconoir` and beside the shared editor
+  icons in `packages/editor/src/assets/icons/LICENSE.iconoir`.
 - **Instrument Serif**: SIL Open Font License 1.1, copyright the Instrument Serif
   Project Authors. Existing `OFL.txt` files accompany copies under `apps/web`,
   `apps/site` and `apps/extension`. Shared offline fonts for desktop are accompanied

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
   mkdir,
@@ -10,7 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { blankDesignDocument, parseDesignDocument } from "@bella/design/document";
+import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "@tidy/design/document";
 import { z } from "zod";
 import type { LocalDesign, Project, ProjectSnapshot, Thread } from "../shared/contracts";
 import { summarizeThread } from "../shared/contracts";
@@ -126,7 +126,7 @@ export class ProjectStore {
   private async prepare(project: Project) {
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
-    for (const name of ["", "threads", "designs"]) {
+    for (const name of ["", "threads", "designs", "assets"]) {
       const path = join(project.path, ".tidy", name);
       try {
         await mkdir(path, { mode: 0o700 });
@@ -147,7 +147,7 @@ export class ProjectStore {
     }
   }
 
-  async storagePath(projectId: string, kind: "threads" | "designs", fileId?: string) {
+  async storagePath(projectId: string, kind: "threads" | "designs" | "assets", fileId?: string) {
     const project = this.project(projectId);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
@@ -190,18 +190,38 @@ export class ProjectStore {
     return this.atomicWrite(() => this.storagePath(value.projectId, "threads", value.id), value);
   }
 
-  async readDesign(projectId: string, designId: string): Promise<LocalDesign> {
+  async readDesign(
+    projectId: string,
+    designId: string,
+    includeAssets = true,
+  ): Promise<LocalDesign> {
     const path = await this.storagePath(projectId, "designs", designId);
     const data = z
       .object({ id, name: z.string().min(1).max(120), document: z.unknown() })
       .parse(await this.read(path));
     if (data.id !== designId) throw new Error("Design ID does not match its filename.");
+    const document = parseDesignDocument(data.document);
     return {
       id: data.id,
       name: data.name,
       path,
       updatedAt: (await stat(path)).mtime.toISOString(),
-      document: parseDesignDocument(data.document),
+      document,
+      version: createHash("sha256").update(JSON.stringify(data)).digest("hex"),
+      assets: Object.fromEntries(
+        await Promise.all(
+          (includeAssets ? [...documentAssetIds(document)] : []).map(async (assetId) => {
+            try {
+              const asset = z
+                .object({ dataUrl: z.string() })
+                .parse(await this.read(await this.storagePath(projectId, "assets", assetId)));
+              return [assetId, asset.dataUrl];
+            } catch {
+              return [assetId, ""];
+            }
+          }),
+        ),
+      ),
     };
   }
 
@@ -232,6 +252,48 @@ export class ProjectStore {
     return this.readDesign(projectId, designId);
   }
 
+  async updateDesign(input: {
+    projectId: string;
+    designId: string;
+    expectedVersion: string;
+    document?: unknown;
+    name?: string;
+  }) {
+    const document = input.document === undefined ? undefined : parseDesignDocument(input.document);
+    const name =
+      input.name === undefined ? undefined : z.string().trim().min(1).max(120).parse(input.name);
+    let result!: LocalDesign;
+    const next = this.writes.then(async () => {
+      const current = await this.readDesign(input.projectId, input.designId, false);
+      if (current.version !== input.expectedVersion)
+        throw new Error(
+          "This design changed on disk. The latest version has been loaded; try your edit again.",
+        );
+      const data = {
+        id: current.id,
+        name: name ?? current.name,
+        document: document ?? current.document,
+      };
+      const path = await this.storagePath(input.projectId, "designs", input.designId);
+      await this.writeAtomicFile(path, JSON.stringify(data, null, 2));
+      result = await this.readDesign(input.projectId, input.designId);
+    });
+    this.writes = next.catch(() => {});
+    await next;
+    return result;
+  }
+
+  async uploadDesignAsset(projectId: string, dataUrl: string) {
+    if (
+      !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
+      dataUrl.length > 3_000_000
+    )
+      throw new Error("Choose a PNG, JPEG, WebP or SVG image under 2 MB.");
+    const assetId = randomUUID();
+    await this.atomicWrite(() => this.storagePath(projectId, "assets", assetId), { dataUrl });
+    return { assetId, url: dataUrl };
+  }
+
   async designs(projectId: string) {
     const directory = await this.storagePath(projectId, "designs");
     const files = (await readdir(directory)).filter(
@@ -240,7 +302,7 @@ export class ProjectStore {
     const designs = await Promise.all(
       files.map(async (file) => {
         try {
-          const design = await this.readDesign(projectId, file.slice(0, -5));
+          const design = await this.readDesign(projectId, file.slice(0, -5), false);
           return {
             id: design.id,
             name: design.name,
@@ -284,6 +346,7 @@ export class ProjectStore {
   async recover() {
     for (const project of this.projects) {
       try {
+        await this.prepare(project);
         const snapshot = await this.snapshot(project.id);
         for (const summary of snapshot.threads) {
           if (summary.status !== "running") continue;
@@ -301,8 +364,20 @@ export class ProjectStore {
     }
   }
 
+  flush() {
+    return this.writes;
+  }
+
   private writeRegistry() {
     return this.atomicWrite(join(this.directory, "projects.json"), this.registry);
+  }
+
+  private async writeAtomicFile(path: string, json: string) {
+    if (Buffer.byteLength(json) > 16 * 1024 * 1024)
+      throw new Error("The local project file reached its size limit.");
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, json, { mode: 0o600, flag: "wx" });
+    await rename(temporary, path);
   }
 
   private atomicWrite(target: string | (() => Promise<string>), value: unknown) {
@@ -311,9 +386,7 @@ export class ProjectStore {
       return Promise.reject(new Error("The local project file reached its size limit."));
     const next = this.writes.then(async () => {
       const path = typeof target === "string" ? target : await target();
-      const temporary = `${path}.${randomUUID()}.tmp`;
-      await writeFile(temporary, json, { mode: 0o600, flag: "wx" });
-      await rename(temporary, path);
+      await this.writeAtomicFile(path, json);
     });
     this.writes = next.catch(() => {});
     return next;

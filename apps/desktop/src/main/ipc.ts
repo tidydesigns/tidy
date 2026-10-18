@@ -106,6 +106,24 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
   handle("read-design", z.object({ projectId, designId: uuid }).strict(), (value) =>
     store.readDesign(value.projectId, value.designId),
   );
+  handle(
+    "update-design",
+    z
+      .object({
+        projectId,
+        designId: uuid,
+        expectedVersion: z.string().length(64),
+        document: z.unknown().optional(),
+        name: z.string().trim().min(1).max(120).optional(),
+      })
+      .strict(),
+    (value) => store.updateDesign(value),
+  );
+  handle(
+    "upload-design-asset",
+    z.object({ projectId, dataUrl: z.string().max(3_000_000) }).strict(),
+    (value) => store.uploadDesignAsset(value.projectId, value.dataUrl),
+  );
   handle("import-design", projectId, async (value, event) => {
     store.project(value);
     const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {

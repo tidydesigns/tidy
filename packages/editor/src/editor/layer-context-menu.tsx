@@ -1,0 +1,129 @@
+"use client";
+
+import { useEffect, useLayoutEffect, useRef } from "react";
+
+export type LayerMenuItem = {
+  label: string;
+  replayLabel?: boolean;
+  shortcut?: string;
+  disabled?: boolean;
+  danger?: boolean;
+  onSelect: () => void;
+};
+
+export function LayerContextMenu({
+  x,
+  y,
+  items,
+  onClose,
+  label = "Layer actions",
+}: {
+  x: number;
+  y: number;
+  items: LayerMenuItem[];
+  onClose: () => void;
+  label?: string;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const invoker = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    menu?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+    return () => {
+      const active = document.activeElement;
+      if (active !== document.body && active?.isConnected && !menu?.contains(active)) return;
+      const destination =
+        invoker?.isConnected &&
+        invoker !== document.body &&
+        !invoker.matches(":disabled") &&
+        !invoker.closest("[inert]")
+          ? invoker
+          : document.querySelector<HTMLElement>('[role="region"][aria-label="Design canvas"]');
+      destination?.focus({ preventScroll: true });
+    };
+  }, []);
+
+  // Measure the actual menu before paint; callers only provide the click point.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+  }, [x, y, items.length]);
+
+  useEffect(() => {
+    function onPointerDown(event: globalThis.PointerEvent) {
+      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) onClose();
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onClose);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onClose);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={label}
+      className="fixed z-50 max-h-[calc(100dvh-16px)] w-56 overflow-y-auto rounded-xl border border-primary-grey/70 bg-primary-white p-1.5 text-sm text-primary-black shadow-xl"
+      style={{ left: x, top: y }}
+      onKeyDown={(event) => {
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        const buttons = [
+          ...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"),
+        ];
+        if (!buttons.length) return;
+        event.preventDefault();
+        const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? buttons.length - 1
+              : event.key === "ArrowDown"
+                ? (current + 1) % buttons.length
+                : (current - 1 + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }}
+    >
+      {items.map((item) => (
+        <button
+          key={item.label}
+          type="button"
+          role="menuitem"
+          disabled={item.disabled}
+          onClick={() => {
+            onClose();
+            item.onSelect();
+          }}
+          className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left outline-none hover:bg-primary-grey/25 focus-visible:bg-primary-grey/25 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black disabled:cursor-not-allowed disabled:opacity-40 ${item.danger ? "text-danger" : ""}`}
+        >
+          <span
+            data-ph-public={item.replayLabel || undefined}
+            data-ph-private={!item.replayLabel || undefined}
+          >
+            {item.label}
+          </span>
+          {item.shortcut && (
+            <span data-ph-public aria-hidden="true" className="ml-3 text-xs text-secondary-ink">
+              {item.shortcut}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}

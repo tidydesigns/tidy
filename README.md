@@ -217,15 +217,17 @@ See [`package.json`](package.json) for available test commands.
 
 ### Repository layout
 
-| Directory                  | Contents                                 |
-| -------------------------- | ---------------------------------------- |
-| `apps/web`                 | Canvas app, server and Cloudflare Worker |
-| `apps/site`                | Website and changelog                    |
-| `apps/extension`           | Webpage capture extension                |
-| `apps/gpt-plugin`          | Agent plugin and design preview          |
-| `packages/design`          | Shared design and capture formats        |
-| `packages/design-renderer` | Editor, preview and export rendering     |
-| `packages/ui`              | Shared interface controls                |
+| Directory                  | Contents                                         |
+| -------------------------- | ------------------------------------------------ |
+| `apps/web`                 | Canvas app, server and Cloudflare Worker         |
+| `apps/site`                | Website and changelog                            |
+| `apps/extension`           | Webpage capture extension                        |
+| `apps/desktop`             | Local projects, design canvas and coding threads |
+| `apps/gpt-plugin`          | Agent plugin and design preview                  |
+| `packages/design`          | Shared design and capture formats                |
+| `packages/design-renderer` | Editor, preview and export rendering             |
+| `packages/editor`          | Shared canvas, editing tools and inspectors      |
+| `packages/ui`              | Shared interface controls                        |
 
 Use `bun dev:site` to run the website on port `3001`.
 

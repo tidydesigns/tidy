@@ -1,1 +1,1 @@
-export * from "@tidy/design/document";
+export * from "@tidy/editor/design/document";

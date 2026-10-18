@@ -1,1 +1,1 @@
-export const COMMENT_EMOJIS = ["👍", "❤️", "😂", "😮", "🎉", "👀"] as const;
+export * from "@tidy/editor/design/comment-emoji";

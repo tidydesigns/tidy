@@ -1,1 +1,1 @@
-export { responsiveNode, containingFrameWidth } from "@tidy/design/responsive-layout";
+export * from "@tidy/editor/design/responsive-layout";

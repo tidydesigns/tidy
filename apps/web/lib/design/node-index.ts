@@ -1,12 +1,1 @@
-import type { DesignNode } from "./document";
-
-// Documents are immutable; a WeakMap releases the index when a snapshot is retired.
-const indexes = new WeakMap<readonly DesignNode[], ReadonlyMap<string, DesignNode>>();
-export function nodeIndex(nodes: readonly DesignNode[]): ReadonlyMap<string, DesignNode> {
-  let index = indexes.get(nodes);
-  if (!index) {
-    index = new Map(nodes.map((node) => [node.id, node]));
-    indexes.set(nodes, index);
-  }
-  return index;
-}
+export * from "@tidy/editor/design/node-index";

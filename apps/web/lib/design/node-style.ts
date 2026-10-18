@@ -1,1 +1,1 @@
-export * from "@tidy/design-renderer/node-style";
+export * from "@tidy/editor/design/node-style";

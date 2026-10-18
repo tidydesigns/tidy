@@ -46,5 +46,29 @@
     "notice": "OpenFig.txt",
     "versions": ["0.4.1"],
     "upstream": "https://github.com/OpenFig-org/openfig-core/blob/main/package.json"
+  },
+  "pdf-lib": {
+    "source": "LICENSE.md",
+    "notice": "pdf-lib.txt"
+  },
+  "imagetracerjs": {
+    "source": "LICENSE",
+    "notice": "imagetracerjs.txt"
+  },
+  "tslib": {
+    "source": "LICENSE.txt",
+    "notice": "tslib.txt"
+  },
+  "@pdf-lib/standard-fonts": {
+    "source": "LICENSE.md",
+    "notice": "pdf-lib-standard-fonts.txt"
+  },
+  "@pdf-lib/upng": {
+    "source": "LICENSE",
+    "notice": "pdf-lib-upng.txt"
+  },
+  "pako": {
+    "source": "LICENSE",
+    "notice": "pako.txt"
   }
 }

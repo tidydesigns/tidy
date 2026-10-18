@@ -19,8 +19,8 @@ The tabs support arrow keys, Home and End.
 
 1. Open a project directory, or choose a recent project from the top-left picker.
 2. In Design, create a design or import a Tidy design JSON document. Documents use
-   the web app's shared schema and renderer. The canvas currently previews designs;
-   the full visual editing tools and web image asset downloads are not implemented.
+   the same full editor as the web app. Edits, names and placed images persist
+   immediately to local project storage. Web asset downloads are not yet an import path.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
    start a thread. The harness runs in the project root and receives the attached
    design file paths. Follow-up messages resume that thread's exact harness session.
@@ -45,13 +45,15 @@ your-project/
   .tidy/
     project.json       # Stable local project identity, retained when moving the folder
     designs/<id>.json  # { id, name, document: DesignDocument }
+    assets/<id>.json   # Local image data, referenced by designs
     threads/<id>.json  # Transcript, native session ID, harness and design references
     .gitignore        # Ignores local identity and private thread history
 ```
 
 Design files can be versioned with the project. Thread history stays on disk locally
 and is ignored by Git. The app's private user-data directory stores only recent
-project locations. Agent changes to design JSON refresh the affected previews.
+project locations. Agent changes to design JSON refresh the open canvas. Local
+commits check the last disk version so an older edit cannot overwrite those changes.
 
 Use Bun 1.3.14 and Node.js 22.12+ (Node.js 24 recommended). From the repository root:
 
@@ -81,7 +83,7 @@ configured when distribution is needed.
 `src/main/index.ts` owns the native window and application lifecycle.
 `src/renderer/` contains the browser-only React interface. The renderer is sandboxed,
 with context isolation and no Node.js integration. Navigation, new windows and
-permissions are denied. The sandboxed preload exposes only typed project, design
+permissions are denied except installed-font access for the font picker. The sandboxed preload exposes only typed project, design
 and thread operations. Native IPC validates the main-frame sender and every input;
 paths come from the native directory/file dialogs and are subsequently addressed
 by project and document IDs. Filesystem and harness subprocess access stays in the
@@ -99,10 +101,11 @@ packaged apps also include the project licence, bundled notices and font licence
   `@tidy/ui/fonts.css` bundles the existing Instrument Sans and Instrument Serif
   fonts locally, including their OFL licences. The interface uses Instrument Sans;
   the Tidy wordmark uses Instrument Serif. No network font requests are needed.
-- `@bella/design` owns the browser-safe design document model and operations.
+- `@tidy/design` owns the browser-safe design document model and operations.
 - `@tidy/design-renderer` owns the shared canvas rendering used by the web app.
-  The full editing interactions currently live in `apps/web` and need extraction
-  into a shared browser-safe package before the desktop editor can reuse them.
+  `@tidy/editor` contains the full canvas, editing interactions and inspectors used
+  by both web and desktop. Web supplies navigation, room synchronization and hosted
+  integrations; desktop supplies immediate local document, name and image writes.
 - Local workspace storage and coding harness processes belong in the Electron main
   process, exposed through narrow, validated preload APIs. The React renderer must
   not receive unrestricted filesystem, process execution or IPC access.

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const css = readFileSync(new URL("./globals.css", import.meta.url), "utf8");
+const css = readFileSync(new URL("../../../packages/editor/theme.css", import.meta.url), "utf8");
 
 function themeColors(name) {
   const match = css.match(

@@ -1,1 +1,1 @@
-export * from "@tidy/design-renderer/gradient-geometry";
+export * from "@tidy/editor/design/gradient-geometry";

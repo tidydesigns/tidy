@@ -1,4 +1,4 @@
-import type { DesignDocument } from "@bella/design/document";
+import type { DesignDocument } from "@tidy/design/document";
 
 export type HarnessId = "codex" | "claude";
 export type HarnessConnection = {
@@ -38,7 +38,11 @@ export function summarizeThread(thread: Thread): ThreadSummary {
   };
 }
 export type DesignSummary = { id: string; name: string; path: string; updatedAt: string };
-export type LocalDesign = DesignSummary & { document: DesignDocument };
+export type LocalDesign = DesignSummary & {
+  document: DesignDocument;
+  version: string;
+  assets: Record<string, string>;
+};
 export type ProjectSnapshot = {
   project: Project;
   threads: ThreadSummary[];
@@ -69,5 +73,13 @@ export type DesktopAPI = {
   createDesign(projectId: string): Promise<LocalDesign>;
   importDesign(projectId: string): Promise<LocalDesign | null>;
   readDesign(projectId: string, designId: string): Promise<LocalDesign>;
+  updateDesign(input: {
+    projectId: string;
+    designId: string;
+    expectedVersion: string;
+    document?: DesignDocument;
+    name?: string;
+  }): Promise<LocalDesign>;
+  uploadDesignAsset(projectId: string, dataUrl: string): Promise<{ assetId: string; url: string }>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;
 };

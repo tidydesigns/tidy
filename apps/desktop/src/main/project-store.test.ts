@@ -115,3 +115,59 @@ test("invalid imported documents do not become design records and ordered writes
   await Promise.all(writes);
   expect((await store.readThread(project.project.id, conversation.id)).messages[0].text).toBe("7");
 });
+
+test("canvas commits preserve local images across restart and reject stale on-disk edits", async () => {
+  const { directory, root, store } = await fixture();
+  const { project } = await store.open(root);
+  const original = await store.createDesign(project.id);
+  const image = await store.uploadDesignAsset(project.id, "data:image/png;base64,aGVsbG8=");
+  const document = structuredClone(original.document);
+  document.nodes[0].name = "Edited frame";
+  document.nodes.push({
+    id: randomUUID(),
+    type: "image",
+    parentId: document.nodes[0].id,
+    pageId: document.pages[0].id,
+    name: "Image",
+    visible: true,
+    locked: false,
+    box: { x: 10, y: 10, width: 100, height: 100 },
+    layout: "absolute",
+    style: {},
+    assetId: image.assetId,
+  });
+  const edited = await store.updateDesign({
+    projectId: project.id,
+    designId: original.id,
+    expectedVersion: original.version,
+    document,
+  });
+  const restarted = new ProjectStore(join(directory, "app-data"));
+  await restarted.initialize();
+  const loaded = await restarted.readDesign(project.id, original.id);
+  expect(loaded.document.nodes[0].name).toBe("Edited frame");
+  expect(loaded.assets[image.assetId]).toBe(image.url);
+  expect(loaded.version).toBe(edited.version);
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: original.id,
+      expectedVersion: original.version,
+      name: "Stale edit",
+    }),
+  ).rejects.toThrow("changed on disk");
+  const external = JSON.parse(await readFile(edited.path, "utf8"));
+  external.document.nodes[0].name = "Agent's change";
+  await writeFile(edited.path, JSON.stringify(external));
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: original.id,
+      expectedVersion: edited.version,
+      document,
+    }),
+  ).rejects.toThrow("changed on disk");
+  expect((await store.readDesign(project.id, original.id)).document.nodes[0].name).toBe(
+    "Agent's change",
+  );
+});

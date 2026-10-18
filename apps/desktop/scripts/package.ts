@@ -19,6 +19,10 @@ try {
   await cp(join(repository, "licenses/bundled"), join(stagingDirectory, "licenses/bundled"), {
     recursive: true,
   });
+  await cp(
+    join(repository, "packages/editor/src/assets/icons/LICENSE.iconoir"),
+    join(stagingDirectory, "licenses/LICENSE.iconoir"),
+  );
   for (const name of ["OFL-InstrumentSans.txt", "OFL-InstrumentSerif.txt"]) {
     await cp(join(repository, "packages/ui/fonts", name), join(stagingDirectory, "licenses", name));
   }

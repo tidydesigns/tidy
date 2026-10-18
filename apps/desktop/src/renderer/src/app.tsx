@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
-import { TidyDesign } from "@tidy/design-renderer/design";
+import { LocalCanvas } from "./local-canvas";
 import { summarizeThread } from "../../shared/contracts";
 import type {
   DesignSummary,
@@ -123,12 +123,6 @@ export function App() {
           return entry
             ? { ...current, [event.projectId]: { ...entry, designs: event.designs } }
             : current;
-        });
-        setDesigns((current) => {
-          const next = { ...current };
-          for (const item of event.designs)
-            if (next[item.id]?.updatedAt !== item.updatedAt) delete next[item.id];
-          return next;
         });
       }
     });
@@ -403,9 +397,9 @@ export function App() {
               role="tabpanel"
               aria-labelledby="workspace-tab-design"
               hidden={mode !== "design"}
-              className="project-workspace"
+              className={`project-workspace ${design ? "canvas-open" : ""}`}
             >
-              <aside className="project-sidebar">
+              <aside className="project-sidebar" hidden={Boolean(design)}>
                 <div className="sidebar-heading">
                   <span>Designs</span>
                   <Button className="quiet-button" onClick={() => void createDesign()}>
@@ -434,13 +428,19 @@ export function App() {
               </aside>
               <div className="design-workspace">
                 {design && (
-                  <>
-                    <div className="content-heading">
-                      <h1>{design.name}</h1>
-                      <span className="muted">Preview</span>
-                    </div>
-                    <DesignPreview design={design} />
-                  </>
+                  <LocalCanvas
+                    key={design.id}
+                    api={api!}
+                    projectId={project.id}
+                    initial={design}
+                    active={mode === "design"}
+                    onBack={() =>
+                      setSelectedDesigns((current) => ({ ...current, [project.id]: null }))
+                    }
+                    onUpdate={(value) =>
+                      setDesigns((current) => ({ ...current, [value.id]: value }))
+                    }
+                  />
                 )}
               </div>
             </section>
@@ -663,19 +663,5 @@ function DesignReferences({
         ))}
       </div>
     </details>
-  );
-}
-
-function DesignPreview({ design }: { design: LocalDesign }) {
-  const roots = design.document.nodes.filter((node) => node.parentId === null && node.visible);
-  return (
-    <div className="design-preview">
-      {roots.map((node) => (
-        <div key={node.id} className="design-artboard">
-          <span className="artboard-name">{node.name}</span>
-          <TidyDesign document={design.document} rootId={node.id} assets={{}} readOnly />
-        </div>
-      ))}
-    </div>
   );
 }

@@ -19,6 +19,7 @@ export default defineConfig({
     },
   },
   renderer: {
+    worker: { format: "es", rolldownOptions: { output: { banner: licenceBanner } } },
     plugins: [
       react(),
       tailwindcss(),
@@ -28,7 +29,6 @@ export default defineConfig({
         transformIndexHtml(html) {
           return html
             .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
-            .replace("style-src 'self'", "style-src 'self' 'unsafe-inline'")
             .replace("connect-src 'self'", "connect-src 'self' ws://127.0.0.1:5173");
         },
       },
