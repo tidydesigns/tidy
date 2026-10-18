@@ -41,6 +41,12 @@
   --font-serif: var(--font-instrument-serif);
 }
 
+/* Keep horizontal trackpad gestures from navigating history over canvas controls or panels. */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 :root {
   color-scheme: light dark;
   /* Keep page width steady when folder navigation toggles vertical overflow. */
