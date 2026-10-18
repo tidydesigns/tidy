@@ -11,6 +11,10 @@ connections, local document persistence and the editable canvas are not implemen
 yet. These should share the existing document and canvas code rather than introduce
 a separate desktop design format.
 
+The top-level Design and Code tabs switch between separate workspace views, with
+Design selected initially. Both views stay mounted while switching so future canvas
+and harness state can be retained. The tabs support arrow keys, Home and End.
+
 Use Bun 1.3.14 and Node.js 22.12+ (Node.js 24 recommended). From the repository root:
 
 ```sh
