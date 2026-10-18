@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { blankDesignDocument, buildDrawnNode, type DesignNode } from "@bella/design/document";
+import { blankDesignDocument, buildDrawnNode, type DesignNode } from "@tidy/design/document";
 import { TidyDesign } from "@tidy/design-renderer/design";
 
 function node(id: string, parentId: string | null = null, text?: string): DesignNode {
@@ -28,6 +28,12 @@ function render(nodes: DesignNode[], props: Partial<Parameters<typeof TidyDesign
   );
 }
 
+function openingTag(html: string, tag: string) {
+  const match = html.match(new RegExp(`<${tag}\\b[^>]*>`));
+  expect(match, `Expected a rendered ${tag} element`).not.toBeNull();
+  return match![0];
+}
+
 test("prototype buttons and links keep their visible content as the accessible name", () => {
   const root = {
     ...node("button"),
@@ -36,14 +42,16 @@ test("prototype buttons and links keep their visible content as the accessible n
   };
   const text = node("label", root.id, "Continue");
   const button = render([root, text]);
-  expect(button).toContain("<button");
+  const buttonTag = openingTag(button, "button");
   expect(button).toContain("Continue");
-  expect(button).not.toContain("aria-label=");
+  expect(buttonTag).not.toContain("aria-label=");
   const link = render([{ ...root, semantics: { element: "a", href: "/continue" } }, text]);
-  expect(link).toContain('href="/continue"');
-  expect(link).not.toContain("aria-label=");
-  expect(link).not.toContain('role="button"');
-  expect(link).not.toContain("tabindex=");
+  const linkTag = openingTag(link, "a");
+  expect(linkTag).toContain('href="/continue"');
+  expect(link).toContain("Continue");
+  expect(linkTag).not.toContain("aria-label=");
+  expect(linkTag).not.toContain('role="button"');
+  expect(linkTag).not.toContain("tabindex=");
 });
 
 test("explicit author and host labels survive, with fallback only for unnamed controls", () => {
@@ -52,31 +60,42 @@ test("explicit author and host labels survive, with fallback only for unnamed co
     name: "Primary CTA",
     semantics: { element: "button" as const },
   };
-  expect(render([root])).toContain('aria-label="Primary CTA"');
+  expect(openingTag(render([root]), "button")).toContain('aria-label="Primary CTA"');
   expect(
-    render([
-      { ...root, semantics: { element: "button", label: "Continue checkout" } },
-      node("text", root.id, "Continue"),
-    ]),
+    openingTag(
+      render([
+        { ...root, semantics: { element: "button", label: "Continue checkout" } },
+        node("text", root.id, "Continue"),
+      ]),
+      "button",
+    ),
   ).toContain('aria-label="Continue checkout"');
-  expect(render([root], { rootProps: { "aria-label": "Host action" } })).toContain(
-    'aria-label="Host action"',
+  expect(
+    openingTag(render([root], { rootProps: { "aria-label": "Host action" } }), "button"),
+  ).toContain('aria-label="Host action"');
+  const labelled = openingTag(
+    render([root], { rootProps: { "aria-labelledby": "host-label" } }),
+    "button",
   );
-  const labelled = render([root], { rootProps: { "aria-labelledby": "host-label" } });
   expect(labelled).toContain('aria-labelledby="host-label"');
   expect(labelled).not.toContain("aria-label=");
-  const titled = render([root], { rootProps: { title: "Continue checkout" } });
+  const titled = openingTag(
+    render([root], { rootProps: { title: "Continue checkout" } }),
+    "button",
+  );
   expect(titled).toContain('title="Continue checkout"');
   expect(titled).not.toContain("aria-label=");
   const replaced = render([root, node("text", root.id, "Continue")], { text: { text: "" } });
-  expect(replaced).toContain('aria-label="Primary CTA"');
+  expect(openingTag(replaced, "button")).toContain('aria-label="Primary CTA"');
 });
 
 test("semantically hidden containers retain their rendering and make the whole subtree inert", () => {
   const root = { ...node("hidden"), semantics: { element: "div" as const, hidden: true } };
   const button = { ...node("child", root.id), semantics: { element: "button" as const } };
   const html = render([root, button, node("label", button.id, "Continue")]);
-  expect(html).toContain('aria-hidden="true" inert=""');
+  const container = openingTag(html, "div");
+  expect(container).toContain('aria-hidden="true"');
+  expect(container).toContain('inert=""');
   expect(html).toContain("<button");
   expect(html).toContain("Continue");
   expect(html).not.toContain("display:none");
@@ -90,14 +109,13 @@ test("hover prototype controls are keyboard reachable without duplicating native
     transition: { type: "instant", duration: 0 },
   };
   const root = { ...node("hover"), interactions: [interaction] };
-  expect(render([root, node("text", root.id, "Show details")])).toContain(
-    'role="button" tabindex="0"',
+  const custom = openingTag(render([root, node("text", root.id, "Show details")]), "div");
+  expect(custom).toContain('role="button"');
+  expect(custom).toContain('tabindex="0"');
+  const button = openingTag(
+    render([{ ...root, semantics: { element: "button" } }, node("text", root.id, "Show details")]),
+    "button",
   );
-  const button = render([
-    { ...root, semantics: { element: "button" } },
-    node("text", root.id, "Show details"),
-  ]);
-  expect(button).toContain("<button");
   expect(button).not.toContain('role="button"');
   expect(button).not.toContain("tabindex=");
 });
@@ -110,8 +128,7 @@ test("image descriptions use authored semantics in ordinary, vector and cropped 
     semantics: { element: "div" as const, label: "Sunset over the sea" },
   };
   const standard = render([image], { assets: { asset: "https://example.test/photo.png" } });
-  expect(standard).toContain('alt="Sunset over the sea"');
-  expect(standard).not.toContain('alt="IMG_1234"');
+  expect(openingTag(standard, "img")).toContain('alt="Sunset over the sea"');
   const vector = render([
     {
       ...image,
@@ -123,7 +140,7 @@ test("image descriptions use authored semantics in ordinary, vector and cropped 
       },
     },
   ]);
-  expect(vector).toContain('alt="Sunset over the sea"');
+  expect(openingTag(vector, "img")).toContain('alt="Sunset over the sea"');
   const crop = render(
     [
       {
@@ -135,5 +152,7 @@ test("image descriptions use authored semantics in ordinary, vector and cropped 
     ],
     { assets: { asset: "https://example.test/photo.png" } },
   );
-  expect(crop).toContain('role="img" aria-label="Sunset over the sea"');
+  const croppedImage = openingTag(crop, "svg");
+  expect(croppedImage).toContain('role="img"');
+  expect(croppedImage).toContain('aria-label="Sunset over the sea"');
 });

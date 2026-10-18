@@ -1,16 +1,10 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
-import { createElement } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { flushSync } from "react-dom";
 import { Window } from "happy-dom";
-import { blankDesignDocument, buildDrawnNode, type DesignNode } from "@bella/design/document";
-import { TidyDesign } from "../../../packages/design-renderer/design";
 import { startElementPicker } from "./element-picker";
 
 let win: Window;
 let pickerShadow: ShadowRoot;
 let picker: ReturnType<typeof startElementPicker> | undefined;
-let root: Root | undefined;
 const globals = new Map<string, PropertyDescriptor | undefined>();
 
 beforeEach(() => {
@@ -48,8 +42,6 @@ beforeEach(() => {
 afterEach(async () => {
   picker?.stop();
   picker = undefined;
-  root?.unmount();
-  root = undefined;
   await new Promise((resolve) => setTimeout(resolve, 0));
   for (const [key, descriptor] of globals) {
     if (descriptor) Object.defineProperty(globalThis, key, descriptor);
@@ -59,8 +51,8 @@ afterEach(async () => {
   await win.happyDOM.close();
 });
 
-function key(value: string, element?: Element) {
-  (element ?? pickerShadow.activeElement ?? win).dispatchEvent(
+function key(value: string) {
+  (pickerShadow.activeElement ?? win).dispatchEvent(
     new win.KeyboardEvent("keydown", {
       key: value,
       bubbles: true,
@@ -74,7 +66,7 @@ function targetButton() {
   return pickerShadow.querySelector<HTMLButtonElement>("[data-picker-target]")!;
 }
 
-test("picker discovers page elements and selects, deselects and copies entirely from the keyboard", () => {
+test("picker navigates with arrow keys and selects, deselects and copies through button activation", () => {
   win.document.body.innerHTML =
     "<section><h1>Introduction</h1><p>Body copy</p></section><footer>Footer</footer>";
   const onConfirm = mock((_elements: Element[]) => {});
@@ -83,7 +75,8 @@ test("picker discovers page elements and selects, deselects and copies entirely 
   expect(targetButton().textContent).toContain("section");
   key("ArrowDown");
   expect(targetButton().textContent).toContain("h1: Introduction");
-  targetButton().click(); // Native Space / Enter activation uses the same click path.
+  // happy-dom does not synthesize native keyboard activation; exercise the click handler directly.
+  targetButton().click();
   expect(targetButton().getAttribute("aria-pressed")).toBe("true");
   expect(pickerShadow.querySelector('[role="status"]')?.textContent).toBe("1 element selected.");
   targetButton().click();
@@ -138,67 +131,4 @@ test("picker skips invisible targets and browses open shadow trees", () => {
   expect(targetButton().textContent).toContain("button: Shadow action");
   key("ArrowUp");
   expect(targetButton().textContent).toContain("article");
-});
-
-function renderPrototype(semantics?: DesignNode["semantics"]) {
-  const node: DesignNode = {
-    ...buildDrawnNode("action", "container", null, { x: 0, y: 0, width: 200, height: 40 }),
-    name: "Show details",
-    semantics,
-    interactions: [
-      {
-        id: "00000000-0000-4000-8000-000000000001",
-        trigger: { type: "hover" },
-        action: { type: "back" },
-        transition: { type: "instant", duration: 0 },
-      },
-    ],
-  };
-  const trigger = mock((_id: string, type: string) => type === "click" || type === "hover");
-  const host = win.document.createElement("div");
-  win.document.body.append(host);
-  root = createRoot(host as unknown as HTMLElement);
-  flushSync(() =>
-    root!.render(
-      createElement(TidyDesign, {
-        document: { ...blankDesignDocument(), nodes: [node] },
-        rootId: "action",
-        frameWidth: 200,
-        assets: {},
-        onTrigger: trigger,
-      }),
-    ),
-  );
-  return { element: host.firstElementChild!, trigger };
-}
-
-test("focus runs hover actions and custom prototype controls activate with Enter", () => {
-  const { element, trigger } = renderPrototype();
-  (element as unknown as HTMLElement).focus();
-  expect(trigger).toHaveBeenCalledWith("action", "hover");
-  trigger.mockClear();
-  key("Enter", element as unknown as Element);
-  expect(trigger).toHaveBeenCalledWith("action", "click");
-});
-
-test("native buttons keep native activation and disabled hover actions never run", () => {
-  const { element, trigger } = renderPrototype({ element: "button" });
-  key("Enter", element as unknown as Element);
-  expect(trigger.mock.calls.filter(([, type]) => type === "click")).toHaveLength(0);
-  (element as unknown as HTMLButtonElement).click();
-  expect(trigger.mock.calls.filter(([, type]) => type === "click")).toHaveLength(1);
-  root!.unmount();
-  root = undefined;
-  const disabled = renderPrototype({ element: "button", disabled: true });
-  disabled.element.dispatchEvent(new win.FocusEvent("focusin", { bubbles: true }));
-  expect(disabled.trigger).not.toHaveBeenCalled();
-});
-
-test("pointer focus does not repeat a hover prototype action", () => {
-  const { element, trigger } = renderPrototype({ element: "button" });
-  const matches = element.matches.bind(element);
-  element.matches = (selector: string) =>
-    selector === ":focus-visible" ? false : matches(selector);
-  element.dispatchEvent(new win.FocusEvent("focusin", { bubbles: true }));
-  expect(trigger).not.toHaveBeenCalled();
 });

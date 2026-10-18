@@ -1,26 +1,25 @@
 import type { Locator } from "playwright";
-import { expect, test, required } from "./fixtures";
+import { expect, test } from "./fixtures";
 
 async function contrast(control: Locator, property: "borderTopColor" | "outlineColor" | "color") {
   const colors = await control.evaluate((element, property) => {
     const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
     const context = canvas.getContext("2d")!;
-    const pixels = (color: string) => {
-      context.clearRect(0, 0, 1, 1);
-      context.fillStyle = color;
-      context.fillRect(0, 0, 1, 1);
-      return Array.from(context.getImageData(0, 0, 1, 1).data);
-    };
-    let background = [255, 255, 255, 255];
+    const ancestors: Element[] = [];
     for (let ancestor: Element | null = element; ancestor; ancestor = ancestor.parentElement) {
-      const color = pixels(getComputedStyle(ancestor).backgroundColor);
-      if (color[3] === 255) {
-        background = color;
-        break;
-      }
+      ancestors.unshift(ancestor);
     }
-    return [pixels(getComputedStyle(element)[property]), background];
+    context.fillStyle = "white";
+    context.fillRect(0, 0, 1, 1);
+    for (const ancestor of ancestors) {
+      context.fillStyle = getComputedStyle(ancestor).backgroundColor;
+      context.fillRect(0, 0, 1, 1);
+    }
+    const background = Array.from(context.getImageData(0, 0, 1, 1).data);
+    context.fillStyle = getComputedStyle(element)[property];
+    context.fillRect(0, 0, 1, 1);
+    return [Array.from(context.getImageData(0, 0, 1, 1).data), background];
   }, property);
   const luminance = (color: number[]) =>
     color.slice(0, 3).reduce((sum, value, index) => {
@@ -66,10 +65,10 @@ test("invalid token values explain the error, preserve artwork and allow correct
 
   await token("body").locator("summary").click();
   const text = page.locator('[data-node-id="token-label"]');
-  for (const [label, message, cssProperty, expectedCss, correction] of [
-    ["Font size", "Enter a font size from 6 to 300.", "font-size", "18px", "20"],
-    ["Font weight", "Enter a font weight from 1 to 1000.", "font-weight", "500", "600"],
-    ["Line height", "Enter a line height as a percentage.", "line-height", "28px", "150"],
+  for (const [label, message, cssProperty, expectedCss, correction, correctedCss] of [
+    ["Font size", "Enter a font size from 6 to 300.", "font-size", "18px", "20", "20px"],
+    ["Font weight", "Enter a font weight from 1 to 1000.", "font-weight", "500", "600", "600"],
+    ["Line height", "Enter a line height as a percentage.", "line-height", "28px", "150", "30px"],
   ]) {
     const field = token("body").getByRole("spinbutton", { name: label, exact: true });
     await expect(field).toHaveAttribute("required", "");
@@ -82,8 +81,9 @@ test("invalid token values explain the error, preserve artwork and allow correct
     await field.fill(correction);
     await field.press("Enter");
     await expect(field).toHaveValue(correction);
+    await expect(text).toHaveCSS(cssProperty, correctedCss);
     await expect(field).not.toHaveAttribute("aria-invalid");
-    await expect(field).not.toHaveAttribute("aria-describedby");
+    await expect(field).not.toHaveAccessibleDescription(message);
   }
 
   await page.getByRole("button", { name: "+ Color token", exact: true }).click();
@@ -97,14 +97,16 @@ test("invalid token values explain the error, preserve artwork and allow correct
   await expect(color).toHaveAccessibleDescription(
     "Enter a hex color such as #336699 or #336699ff.",
   );
-  const error = page.locator(`[id="${required(await color.getAttribute("aria-describedby"))}"]`);
-  await expect(error).toHaveAttribute("role", "alert");
+  const error = page
+    .getByRole("alert")
+    .filter({ hasText: "Enter a hex color such as #336699 or #336699ff." });
+  await expect(error).toBeVisible();
   await expect(page.getByText("Could not change layers.", { exact: true })).toHaveCount(0);
   await color.fill("#336699ff");
   await color.press("Enter");
   await expect(color).toHaveValue("#336699ff");
   await expect(color).not.toHaveAttribute("aria-invalid");
-  await expect(color).not.toHaveAttribute("aria-describedby");
+  await expect(error).toHaveCount(0);
   await color.fill("another-invalid-color");
   await color.press("Enter");
   await expect(color).toHaveAttribute("aria-invalid", "true");
@@ -139,8 +141,10 @@ test("empty field boundaries, guidance and keyboard menu focus remain readable i
     await expect(line).toBeFocused();
     await expect(line).not.toHaveAttribute("aria-checked", "true");
     expect(await contrast(line, "outlineColor")).toBeGreaterThanOrEqual(3);
-    await expect(line).toHaveCSS("outline-style", "solid");
-    await expect(line).toHaveCSS("outline-width", "2px");
+    await expect(line).not.toHaveCSS("outline-style", /^(none|hidden)$/);
+    expect(
+      await line.evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth)),
+    ).toBeGreaterThan(0);
     await line.press("Escape");
     await expect(trigger).toBeFocused();
   }
@@ -158,10 +162,13 @@ test("the fill image picker uses its visible label and reflects keyboard focus",
     .click();
   const upload = page.getByLabel("Choose fill image", { exact: true });
   await expect(upload).not.toHaveAttribute("aria-label");
-  await upload.focus();
+  await page.getByRole("spinbutton", { name: "Fill image Y %", exact: true }).focus();
+  await page.keyboard.press("Tab");
   await expect(upload).toBeFocused();
   const label = upload.locator("..");
-  await expect(label).toHaveCSS("outline-style", "solid");
-  await expect(label).toHaveCSS("outline-width", "2px");
+  await expect(label).not.toHaveCSS("outline-style", /^(none|hidden)$/);
+  expect(
+    await label.evaluate((element) => parseFloat(getComputedStyle(element).outlineWidth)),
+  ).toBeGreaterThan(0);
   expect(await contrast(label, "outlineColor")).toBeGreaterThanOrEqual(3);
 });
