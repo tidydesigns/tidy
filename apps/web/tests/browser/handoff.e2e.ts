@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test, required } from "./fixtures";
+import { test, expect, required } from "./fixtures";
 declare global {
   interface Window {
     handoffCopies: string[];
@@ -35,7 +35,11 @@ for (const viewer of [false, true]) {
       ),
     );
     await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
-    if (!viewer) await page.getByRole("button", { name: "Inspect mode", exact: true }).click();
+    if (!viewer)
+      await page
+        .getByRole("group", { name: "Canvas mode", exact: true })
+        .getByRole("button", { name: "Inspect", exact: true })
+        .click();
     const inspector = page.getByLabel("Inspector", { exact: true });
     await inspector.getByRole("button", { name: "Copy CSS", exact: true }).click();
     await page.getByRole("status").filter({ hasText: "CSS copied" }).waitFor();
@@ -49,7 +53,10 @@ for (const viewer of [false, true]) {
       await inspector.getByRole("spinbutton", { name: "Export scale", exact: true }).count(),
       "Inspection exposes only export configuration, with no layer editing controls",
     );
-    if (viewer) assert.equal(await inspector.getByRole("tab").count(), 0);
+    if (viewer) {
+      assert.equal(await inspector.getByRole("tab").count(), 0);
+      await expect(page.getByRole("group", { name: "Canvas mode" })).toHaveCount(0);
+    }
     const parity = await page.evaluate((css) => {
       const source = document.querySelector<HTMLElement>('[data-node-id="desktop-heading"]')!;
       const clone = source.cloneNode(true) as HTMLElement;
@@ -110,7 +117,10 @@ for (const viewer of [false, true]) {
     await inspector.getByRole("status").filter({ hasText: "Could not copy" }).waitFor();
     if (!viewer) {
       await canvas.click({ position: { x: 15, y: 15 } });
-      await page.getByRole("button", { name: "Inspect mode", exact: true }).click();
+      await page
+        .getByRole("group", { name: "Canvas mode", exact: true })
+        .getByRole("button", { name: "Design", exact: true })
+        .click();
       await page.getByRole("button", { name: "Rectangle tool", exact: true }).waitFor();
     }
 
@@ -119,3 +129,84 @@ for (const viewer of [false, true]) {
     );
   });
 }
+
+for (const placement of ["left", "bottom"] as const) {
+  test(`canvas modes preserve selection and position with ${placement} tools`, async ({ page }) => {
+    await page
+      .context()
+      .addCookies([
+        { name: "tidy-editor-toolbar", value: placement, url: "http://localhost:3391" },
+      ]);
+    await page.goto("/dev/import-preview?edit=1&compact=1&node=desktop-heading");
+    const modes = page.getByRole("group", { name: "Canvas mode", exact: true });
+    const design = modes.getByRole("button", { name: "Design", exact: true });
+    const inspect = modes.getByRole("button", { name: "Inspect", exact: true });
+    const canvas = page.getByLabel("Design canvas", { exact: true });
+    const heading = page.locator('[data-node-id="desktop-heading"]');
+    const tools = page.getByRole("toolbar", { name: "Canvas tools", exact: true });
+    await expect(design).toHaveAttribute("aria-pressed", "true");
+    await expect(tools).toHaveAttribute(
+      "aria-orientation",
+      placement === "left" ? "vertical" : "horizontal",
+    );
+    await heading.click();
+    await expect(page.getByLabel("Inspector", { exact: true })).toBeVisible();
+    const before = await heading.boundingBox();
+    const commonTools = ["Select tool", "Hand tool", "Comment tool"];
+    const positions = await Promise.all(
+      commonTools.map((name) => tools.getByRole("button", { name, exact: true }).boundingBox()),
+    );
+    await inspect.click();
+    await expect(inspect).toHaveAttribute("aria-pressed", "true");
+    await expect(design).toBeVisible();
+    await expect(tools.getByRole("button", { name: "Rectangle tool" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copy CSS", exact: true })).toBeVisible();
+    assert.deepEqual(await heading.boundingBox(), before, "switching does not move the canvas");
+    if (placement === "left") {
+      assert.deepEqual(
+        await Promise.all(
+          commonTools.map((name) => tools.getByRole("button", { name, exact: true }).boundingBox()),
+        ),
+        positions,
+        "common tools keep their positions when the rail shrinks",
+      );
+    }
+    await design.focus();
+    await page.keyboard.press("Enter");
+    await expect(design).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("button", { name: "Copy CSS", exact: true })).toHaveCount(0);
+    await expect(tools.getByRole("button", { name: "Rectangle tool" })).toBeVisible();
+    assert.deepEqual(
+      await heading.boundingBox(),
+      before,
+      "returning keeps the selected layer in place",
+    );
+    await canvas.focus();
+    await page.keyboard.press("ArrowRight");
+    await expect.poll(async () => (await heading.boundingBox())?.x).toBeGreaterThan(before!.x);
+
+    // The exit remains available with no selection and with the panels expanded.
+    await canvas.click({ position: { x: 15, y: 85 } });
+    await inspect.click();
+    await expect(design).toBeVisible();
+    await page.getByRole("button", { name: "Expand editor panels", exact: true }).click();
+    await expect(design).toBeVisible();
+    await design.click();
+    await expect(page.getByRole("button", { name: "Rectangle tool", exact: true })).toBeVisible();
+  });
+}
+
+test("canvas mode switch stays clear of the file bar on narrow screens", async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/dev/import-preview?edit=1&compact=1");
+  const modes = page.getByRole("group", { name: "Canvas mode", exact: true });
+  const fileBar = page.getByRole("link", { name: "Back to files", exact: true });
+  await expect(modes).toBeVisible();
+  const modeBox = required(await modes.boundingBox());
+  const fileBox = required(await fileBar.boundingBox());
+  assert.ok(modeBox.y > fileBox.y + fileBox.height, "the switch sits below the file bar");
+  assert.ok(modeBox.x >= 0 && modeBox.x + modeBox.width <= 375);
+  await modes.getByRole("button", { name: "Inspect", exact: true }).click();
+  await modes.getByRole("button", { name: "Design", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Rectangle tool", exact: true })).toBeVisible();
+});

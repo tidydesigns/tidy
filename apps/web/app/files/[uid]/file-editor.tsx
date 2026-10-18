@@ -84,6 +84,7 @@ import {
 import { PanelToggle } from "./panel-toggle";
 import { EditorChrome, EditorPanel } from "./editor-panel";
 import { CanvasViewMenu, type CanvasPreferences } from "./canvas-view-menu";
+import { CanvasModeSwitch } from "./canvas-mode-switch";
 import { EditorHeader, type EditorUser } from "./editor-header";
 import dynamic from "next/dynamic";
 const EditorReviewControl = dynamic(() =>
@@ -3133,33 +3134,6 @@ export function FileEditor({
       >
         <Icon name="select" />
       </CanvasToolButton>
-      {!permissionReadOnly && (
-        <CanvasToolButton
-          label="Inspect mode"
-          hint="Inspect · read-only handoff"
-          pressed={inspectorMode === "inspect"}
-          onClick={() => {
-            setInspectorMode((mode) => (mode === "inspect" ? "design" : "inspect"));
-            setTool("select");
-            setEditingTextId(null);
-            setCropId(null);
-            setGradientMode(null);
-          }}
-        >
-          <svg
-            data-ph-public
-            aria-hidden="true"
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-          >
-            <path d="m6 5-4 5 4 5m8-10 4 5-4 5M12 3 8 17" />
-          </svg>
-        </CanvasToolButton>
-      )}
       <CanvasToolButton
         label="Hand tool"
         hint="Hand · H or hold Space"
@@ -3168,6 +3142,16 @@ export function FileEditor({
       >
         <Icon name="hand" />
       </CanvasToolButton>
+      {!preview && (
+        <CanvasToolButton
+          label="Comment tool"
+          hint="Comment · C, then click"
+          pressed={tool === "comment"}
+          onClick={() => setTool("comment")}
+        >
+          <Icon name="comment" />
+        </CanvasToolButton>
+      )}
       {!readOnly && (
         <CanvasToolButton
           label="Frame tool"
@@ -3281,16 +3265,6 @@ export function FileEditor({
               strokeLinejoin="round"
             />
           </svg>
-        </CanvasToolButton>
-      )}
-      {!preview && (
-        <CanvasToolButton
-          label="Comment tool"
-          hint="Comment · C, then click"
-          pressed={tool === "comment"}
-          onClick={() => setTool("comment")}
-        >
-          <Icon name="comment" />
         </CanvasToolButton>
       )}
     </div>
@@ -3542,6 +3516,24 @@ export function FileEditor({
       onToggle={toggleViewPreference}
       onZoom={zoomView}
     />
+  );
+  const canvasControls = (
+    <div className="flex items-center gap-2">
+      {!permissionReadOnly && (
+        <CanvasModeSwitch
+          mode={inspectorMode}
+          onChange={(mode) => {
+            setInspectorMode(mode);
+            setTool("select");
+            setEditingTextId(null);
+            setCropId(null);
+            setGradientMode(null);
+            setVectorMode(null);
+          }}
+        />
+      )}
+      {viewMenu}
+    </div>
   );
   const threadControl = agents && (
     <button
@@ -4040,7 +4032,8 @@ export function FileEditor({
                 view={view}
                 viewport={viewport}
                 liveVersion={room.commentsVersion}
-                toolbarControls={!prototypeMode ? viewMenu : undefined}
+                toolbarControls={!prototypeMode ? canvasControls : undefined}
+                compactToolbar={!panelsOpen}
               />
             </div>
           )}
@@ -4536,8 +4529,11 @@ export function FileEditor({
             );
           })}
           {!prototypeMode && (preview || local || !viewPreferences.comments) && (
-            <div data-canvas-control className="absolute right-4 top-4 z-20">
-              {viewMenu}
+            <div
+              data-canvas-control
+              className={`absolute right-4 z-20 ${panelsOpen ? "top-4" : "top-20 sm:top-4"}`}
+            >
+              {canvasControls}
             </div>
           )}
           {marquee && (

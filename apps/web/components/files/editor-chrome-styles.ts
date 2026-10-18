@@ -7,7 +7,7 @@ export function minimisedToolbarClass(placement: EditorToolbarPlacement) {
   const position =
     placement === "bottom"
       ? "absolute bottom-5 left-1/2 w-max max-w-[calc(100%-9rem)] -translate-x-1/2"
-      : "fixed left-3 top-1/2 -translate-y-1/2";
+      : "fixed left-3 top-[max(6rem,calc(50%_-_12.5rem))]";
   return `${position} z-20 rounded-lg border border-primary-grey/65 bg-primary-white/95 p-1.5 shadow-sm`;
 }
 

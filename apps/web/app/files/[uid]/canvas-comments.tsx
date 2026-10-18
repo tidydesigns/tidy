@@ -289,6 +289,7 @@ export const CanvasComments = forwardRef<
     readOnly?: boolean;
     liveVersion?: number;
     toolbarControls?: ReactNode;
+    compactToolbar?: boolean;
     notificationRoot: HTMLElement | null;
   }
 >(function CanvasComments(
@@ -300,6 +301,7 @@ export const CanvasComments = forwardRef<
     readOnly = false,
     liveVersion = 0,
     toolbarControls,
+    compactToolbar = false,
     notificationRoot,
   },
   ref,
@@ -554,7 +556,7 @@ export const CanvasComments = forwardRef<
       })}
       {(pageThreads.length > 0 || nextCursor || toolbarControls) && (
         <div
-          className="absolute left-4 right-4 top-4 flex items-center justify-end gap-2"
+          className={`absolute left-4 right-4 flex items-center justify-end gap-2 ${compactToolbar ? "top-20 sm:top-4" : "top-4"}`}
           onPointerDown={(event) => event.stopPropagation()}
           onWheel={(event) => event.stopPropagation()}
         >
