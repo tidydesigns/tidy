@@ -11,8 +11,7 @@ async function canvasView(scene: Locator) {
 test("document horizontal overscroll policy covers routes and excluded canvas controls", async ({
   page,
 }) => {
-  // Chromium wheel input on Linux cannot reproduce macOS's native history swipe.
-  // Check the browser's computed prevention policy and ordinary input separately.
+  // Linux wheel tests don't exercise native macOS history gestures.
   async function expectPolicy() {
     for (const root of [page.locator("html"), page.locator("body")]) {
       await expect(root).toHaveCSS("overscroll-behavior-x", "none");
@@ -33,8 +32,6 @@ test("document horizontal overscroll policy covers routes and excluded canvas co
   const before = await canvasView(scene);
   const url = page.url();
 
-  // The compact toolbar sits inside data-canvas-control, which the canvas wheel
-  // handler deliberately leaves to native browser behavior.
   for (const deltaX of [240, -240]) {
     await select.hover();
     await select.evaluate((element) => {

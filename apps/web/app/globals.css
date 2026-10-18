@@ -41,7 +41,7 @@
   --font-serif: var(--font-instrument-serif);
 }
 
-/* Keep horizontal trackpad gestures from navigating history over canvas controls or panels. */
+/* Prevent browser history swipes over editor controls and panels. */
 html,
 body {
   overscroll-behavior-x: none;
