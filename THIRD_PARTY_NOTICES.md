@@ -32,7 +32,8 @@ and assets retain their original licenses and copyright notices.
 - Provider logos and names (Google, GitHub, Linear, Codex, Claude and OpenCode) identify integrations.
   Their owners retain trademark rights. Follow the attribution and source notes
   in `apps/web/public/connectors/README.md` and `apps/web/public/agents/README.md`;
-  do not imply provider endorsement.
+  desktop copies retain the notice in `packages/ui/harness-icons/README.md`,
+  packaged as `licenses/harness-marks.txt`. Do not imply provider endorsement.
 - Tidy branding and application icons are project assets. The Apache License 2.0
   does not grant rights to Tidy trademarks.
 

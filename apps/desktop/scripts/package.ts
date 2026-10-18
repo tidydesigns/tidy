@@ -23,6 +23,10 @@ try {
     join(repository, "packages/editor/src/assets/icons/LICENSE.iconoir"),
     join(stagingDirectory, "licenses/LICENSE.iconoir"),
   );
+  await cp(
+    join(repository, "packages/ui/harness-icons/README.md"),
+    join(stagingDirectory, "licenses/harness-marks.txt"),
+  );
   for (const name of ["OFL-InstrumentSans.txt", "OFL-InstrumentSerif.txt"]) {
     await cp(join(repository, "packages/ui/fonts", name), join(stagingDirectory, "licenses", name));
   }

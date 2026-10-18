@@ -3,7 +3,10 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
-import { relativeThreadTime } from "../../shared/thread-time";
+import { HarnessIcon } from "@tidy/ui/harness-icon";
+import { HarnessControls } from "./harness-controls";
+import { ThreadCard } from "./thread-card";
+import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread } from "../../shared/contracts";
 import type {
   DesignSummary,
@@ -21,7 +24,7 @@ const modes = [
   { id: "code", label: "Code" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
-type Draft = { text: string; harness: HarnessId; designIds: string[] };
+type Draft = { text: string; harness: HarnessId; designIds: string[]; settings?: HarnessSettings };
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 const errorText = (error: unknown) =>
   error instanceof Error ? error.message : "The operation could not be completed.";
@@ -40,6 +43,11 @@ export function App() {
   const [selectedDesigns, setSelectedDesigns] = useState<Record<string, string | null>>({});
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [harnessDetails, setHarnessDetails] = useState<
+    Record<string, { info?: HarnessDetails; error?: string; loading: boolean }>
+  >({});
+  const [settingsPending, setSettingsPending] = useState<Record<string, boolean>>({});
+  const detailRequests = useRef<Record<string, number>>({});
   const [now, setNow] = useState(Date.now);
   const [updatingDone, setUpdatingDone] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
@@ -62,6 +70,104 @@ export function App() {
       : undefined;
   const running = thread?.status === "running";
   const busy = Boolean(sending[draftKey]);
+
+  const selectedHarness = thread?.harness ?? draft.harness;
+  const harnessReady = harnesses.some(
+    (item) => item.id === selectedHarness && item.status === "ready",
+  );
+  const detailKey = `${project?.id ?? ""}:${selectedHarness}`;
+  const currentDetails = harnessDetails[detailKey];
+
+  async function loadHarnessDetails(projectId: string, harness: HarnessId, refresh = false) {
+    if (!api) return;
+    const key = `${projectId}:${harness}`;
+    const version = (detailRequests.current[key] ?? 0) + 1;
+    detailRequests.current[key] = version;
+    setHarnessDetails((current) => ({
+      ...current,
+      [key]: { ...current[key], loading: true, error: undefined },
+    }));
+    try {
+      const info = await api.harnessDetails(projectId, harness, refresh);
+      if (detailRequests.current[key] === version)
+        setHarnessDetails((current) => ({ ...current, [key]: { info, loading: false } }));
+    } catch (cause) {
+      if (detailRequests.current[key] === version)
+        setHarnessDetails((current) => ({
+          ...current,
+          [key]: { ...current[key], error: errorText(cause), loading: false },
+        }));
+    }
+  }
+  useEffect(() => {
+    if (api && project && harnessReady) void loadHarnessDetails(project.id, selectedHarness);
+  }, [api, project?.id, selectedHarness, harnessReady]);
+
+  async function changeSettings(settings: HarnessSettings) {
+    if (!thread) {
+      updateDraft({ settings });
+      return;
+    }
+    if (!api || !project || running || settingsPending[thread.id]) return;
+    const previous = thread,
+      projectId = project.id;
+    const optimistic = { ...thread, settings, revision: thread.revision + 1 };
+    const apply = (value: Thread) => {
+      setThreads((current) =>
+        (current[value.id]?.revision ?? -1) > value.revision
+          ? current
+          : { ...current, [value.id]: value },
+      );
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        return !entry
+          ? current
+          : {
+              ...current,
+              [projectId]: {
+                ...entry,
+                threads: entry.threads.map((item) =>
+                  item.id === value.id && item.revision <= value.revision
+                    ? summarizeThread(value)
+                    : item,
+                ),
+              },
+            };
+      });
+    };
+    setSettingsPending((current) => ({ ...current, [thread.id]: true }));
+    apply(optimistic);
+    try {
+      apply(await api.setThreadSettings(projectId, thread.id, settings));
+    } catch (cause) {
+      const matches = (value: ThreadSummary) =>
+        value.revision === optimistic.revision &&
+        value.status === optimistic.status &&
+        JSON.stringify(value.settings) === JSON.stringify(settings);
+      setThreads((current) =>
+        current[previous.id] && matches(current[previous.id])
+          ? { ...current, [previous.id]: previous }
+          : current,
+      );
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        return !entry
+          ? current
+          : {
+              ...current,
+              [projectId]: {
+                ...entry,
+                threads: entry.threads.map((item) =>
+                  item.id === previous.id && matches(item) ? summarizeThread(previous) : item,
+                ),
+              },
+            };
+      });
+      setError({ projectId, text: errorText(cause) });
+    } finally {
+      setSettingsPending((current) => ({ ...current, [previous.id]: false }));
+    }
+  }
 
   useEffect(() => {
     const updateTime = () => setNow(Date.now());
@@ -243,7 +349,16 @@ export function App() {
   }
 
   async function send() {
-    if (!api || !project || !draft.text.trim() || busy || running || thread?.doneAt) return;
+    if (
+      !api ||
+      !project ||
+      !draft.text.trim() ||
+      busy ||
+      running ||
+      thread?.doneAt ||
+      (thread && settingsPending[thread.id])
+    )
+      return;
     const projectId = project.id;
     const key = draftKey;
     const submitted = draft.text;
@@ -259,6 +374,7 @@ export function App() {
             harness: draft.harness,
             prompt: submitted,
             designIds: draft.designIds,
+            settings: draft.settings,
           });
       setThreads((current) => ({
         ...current,
@@ -392,16 +508,20 @@ export function App() {
       thread={item}
       selected={selectedThreadId === item.id}
       now={now}
-      pending={Boolean(updatingDone[item.id])}
+      pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
       onSelect={() => selectThread(project!.id, item.id)}
       onDone={() => void toggleThreadDone(item)}
+      modelName={
+        harnessDetails[`${project?.id}:${item.harness}`]?.info?.models.find(
+          (model) => model.id === (item.settings?.model ?? item.actualModel),
+        )?.name
+      }
+      designNames={item.designIds.map(
+        (id) => snapshot?.designs.find((design) => design.id === id)?.name ?? "Design reference",
+      )}
     />
   );
   const visibleError = error && (!error.projectId || error.projectId === activeProjectId);
-  const selectedHarness = thread?.harness ?? draft.harness;
-  const harnessReady = harnesses.some(
-    (item) => item.id === selectedHarness && item.status === "ready",
-  );
 
   return (
     <div className="desktop">
@@ -589,11 +709,17 @@ export function App() {
                   {thread?.messages.map((message) => (
                     <article key={message.id} className={`message message-${message.role}`}>
                       <span className="message-author">
-                        {message.role === "user"
-                          ? "You"
-                          : thread.harness === "codex"
-                            ? "Codex"
-                            : "Claude Code"}
+                        {message.role === "user" ? (
+                          "You"
+                        ) : (
+                          <span
+                            role="img"
+                            aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                            title={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                          >
+                            <HarnessIcon harness={thread.harness} size={15} />
+                          </span>
+                        )}
                       </span>
                       <div>{message.text}</div>
                     </article>
@@ -649,26 +775,27 @@ export function App() {
                     }}
                   />
                   <div className="composer-actions">
-                    {thread ? (
-                      <span className="harness-label">
-                        {thread.harness === "codex" ? "Codex" : "Claude Code"}
-                      </span>
-                    ) : (
-                      <SelectMenu
-                        label="Coding harness"
-                        value={draft.harness}
-                        options={harnesses.map((item) => ({
-                          value: item.id,
-                          label:
-                            item.status === "ready"
-                              ? item.name
-                              : `${item.name} · ${item.status === "signed-out" ? "Sign in required" : "Not installed"}`,
-                        }))}
-                        onChange={(value) => updateDraft({ harness: value as HarnessId })}
-                        triggerClassName="harness-trigger"
-                        placement="top"
-                      />
-                    )}
+                    <HarnessControls
+                      api={api!}
+                      connections={harnesses}
+                      harness={selectedHarness}
+                      settings={thread?.settings ?? draft.settings ?? {}}
+                      usage={thread?.usage}
+                      details={currentDetails?.info}
+                      error={currentDetails?.error}
+                      loading={Boolean(currentDetails?.loading)}
+                      disabled={Boolean(
+                        running || busy || (thread && settingsPending[thread.id]) || thread?.doneAt,
+                      )}
+                      onHarnessChange={
+                        thread ? undefined : (harness) => updateDraft({ harness, settings: {} })
+                      }
+                      onSettingsChange={(settings) => void changeSettings(settings)}
+                      onRefresh={() => {
+                        if (project && harnessReady)
+                          void loadHarnessDetails(project.id, selectedHarness, true);
+                      }}
+                    />
                     <span className="composer-spacer" />
                     {running ? (
                       <Button
@@ -685,6 +812,7 @@ export function App() {
                         disabled={
                           !draft.text.trim() ||
                           busy ||
+                          Boolean(thread && settingsPending[thread.id]) ||
                           Boolean(thread?.doneAt) ||
                           !harnessReady ||
                           Boolean(selectedThreadId && !thread)
@@ -720,68 +848,6 @@ export function App() {
           </>
         )}
       </main>
-    </div>
-  );
-}
-
-function ThreadCard({
-  thread,
-  selected,
-  now,
-  pending,
-  onSelect,
-  onDone,
-}: {
-  thread: ThreadSummary;
-  selected: boolean;
-  now: number;
-  pending: boolean;
-  onSelect(): void;
-  onDone(): void;
-}) {
-  return (
-    <div className={`sidebar-item thread-item ${selected ? "selected" : ""}`}>
-      <Button
-        className="thread-select"
-        aria-current={selected ? "true" : undefined}
-        onClick={onSelect}
-      >
-        <span className="thread-title">{thread.title}</span>
-        <span className="thread-meta">
-          <span>
-            {thread.harness === "codex" ? "Codex" : "Claude Code"}
-            {thread.status === "running" ? " · Running" : ""}
-          </span>
-          <time dateTime={thread.updatedAt} title={new Date(thread.updatedAt).toLocaleString()}>
-            {relativeThreadTime(thread.updatedAt, now)}
-          </time>
-        </span>
-      </Button>
-      <Button
-        className="thread-done"
-        aria-label={`${thread.doneAt ? "Reopen" : "Mark done:"} ${thread.title}`}
-        aria-pressed={Boolean(thread.doneAt)}
-        disabled={pending || thread.status === "running"}
-        title={
-          thread.status === "running"
-            ? "Wait for this run to finish"
-            : thread.doneAt
-              ? "Reopen thread"
-              : "Mark thread done"
-        }
-        onClick={onDone}
-      >
-        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 16 16" fill="none">
-          <path
-            d="m3 8 3 3 7-7"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-        Done
-      </Button>
     </div>
   );
 }

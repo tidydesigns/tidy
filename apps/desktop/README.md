@@ -38,6 +38,19 @@ action to move it into the collapsed Done section at the bottom of the sidebar.
 Completed threads remain readable; click Done again to reopen one and continue
 its original harness session. A harness finishing a turn does not mark a thread Done.
 
+The composer uses the same Codex and Claude marks as the web app. Choose a model
+and supported effort level from the connected CLI's catalog. Settings persist per
+thread and apply to its next message while retaining its native session. Leave
+the model or effort on Default to use the CLI's configuration. Settings cannot
+change during a run. Checking models and limits never starts an inference turn.
+
+Usage shows Codex account limits when available and recorded thread token counts
+for either harness. Claude Code does not expose live account limits through its
+connection; Open provider usage opens the appropriate provider page instead.
+Reported API cost is an estimate, not a subscription charge or billing statement.
+Hover or keyboard-focus a sidebar thread to see its title, latest reply, model,
+effort, design references, activity and recorded usage without opening it.
+
 Codex runs with the workspace-write sandbox and rejects operations requiring an
 approval. Claude Code uses its `acceptEdits` permission mode; tools requiring further
 permission are denied by the headless CLI and surfaced in the thread. Tidy does not
@@ -106,6 +119,9 @@ packaged apps also include the project licence, bundled notices and font licence
   `@tidy/ui/fonts.css` bundles the existing Instrument Sans and Instrument Serif
   fonts locally, including their OFL licences. The interface uses Instrument Sans;
   the Tidy wordmark uses Instrument Serif. No network font requests are needed.
+- `@tidy/ui/harness-icon` uses copies of the web app's approved provider SVGs in
+  `packages/ui/harness-icons`, with the original trademark notice included in
+  packaged apps.
 - `@tidy/design` owns the browser-safe design document model and operations.
 - `@tidy/design-renderer` owns the shared canvas rendering used by the web app.
   `@tidy/editor` contains the full canvas, editing interactions and inspectors used

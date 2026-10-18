@@ -1,8 +1,10 @@
-import { BrowserWindow, dialog, ipcMain, type IpcMainInvokeEvent } from "electron";
+import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { readFile, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
+import { readHarnessDetails } from "./harness-details";
+import { harnessSettingsSchema } from "../shared/harness-settings";
 import { checkHarnesses } from "./harnesses";
 import { WorkspaceService } from "./workspace-service";
 
@@ -76,6 +78,35 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
     await service.observe(value);
     return snapshot;
   });
+  handle(
+    "harness-details",
+    z
+      .object({ projectId, harness: z.enum(["codex", "claude"]), refresh: z.boolean().optional() })
+      .strict(),
+    (value) =>
+      readHarnessDetails(value.harness, store.project(value.projectId).path, value.refresh),
+  );
+  handle(
+    "harness-usage-page",
+    z
+      .object({ harness: z.enum(["codex", "claude"]), page: z.enum(["subscription", "api"]) })
+      .strict(),
+    (value) =>
+      shell.openExternal(
+        value.harness === "codex"
+          ? value.page === "api"
+            ? "https://platform.openai.com/usage"
+            : "https://chatgpt.com/codex/settings/usage"
+          : value.page === "api"
+            ? "https://platform.claude.com/usage"
+            : "https://claude.ai/settings/usage",
+      ),
+  );
+  handle(
+    "thread-settings",
+    z.object({ projectId, threadId: uuid, settings: harnessSettingsSchema }).strict(),
+    (value) => service.setThreadSettings(value.projectId, value.threadId, value.settings),
+  );
   handle("harnesses", z.undefined(), () => checkHarnesses());
   handle("read-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.readThread(value.projectId, value.threadId),
@@ -88,6 +119,7 @@ export function registerWorkspaceIPC(service: WorkspaceService) {
         harness: z.enum(["codex", "claude"]),
         prompt,
         designIds: z.array(uuid).max(20),
+        settings: harnessSettingsSchema.optional(),
       })
       .strict(),
     (value) => service.startThread(value),

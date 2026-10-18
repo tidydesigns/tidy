@@ -4,11 +4,14 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
+import type { HarnessSettings, TokenUsage } from "../shared/harness-settings";
 import type { HarnessConnection, HarnessId } from "../shared/contracts";
 
 const execute = promisify(execFile);
 const names = { codex: "Codex", claude: "Claude Code" };
 export type HarnessUpdate =
+  | { type: "usage"; usage: TokenUsage; cumulative: boolean }
+  | { type: "model"; model: string }
   | { type: "session"; id: string }
   | { type: "message"; id: string; text: string; append?: boolean }
   | { type: "activity"; text: string }
@@ -100,6 +103,19 @@ export async function checkHarnesses(): Promise<HarnessConnection[]> {
   );
 }
 
+const count = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+function readUsage(value: Record<string, unknown>, claude: boolean): TokenUsage | undefined {
+  if (!Object.keys(value).length) return;
+  const cached = count(claude ? value.cache_read_input_tokens : value.cached_input_tokens);
+  return {
+    inputTokens:
+      count(value.input_tokens) + (claude ? cached + count(value.cache_creation_input_tokens) : 0),
+    cachedInputTokens: cached,
+    outputTokens: count(value.output_tokens),
+  };
+}
+
 /** Normalize only visible messages and tool progress, never reasoning or credentials. */
 export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpdate) => void) {
   let claudeMessageId = "response";
@@ -122,6 +138,10 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
           emit({ type: "activity", text: "Updating project files" });
         else if (item.type !== "reasoning") emit({ type: "activity", text: "Working" });
       }
+      if (value.type === "turn.completed") {
+        const usage = readUsage(record(value.usage), false);
+        if (usage) emit({ type: "usage", usage, cumulative: false });
+      }
       if (value.type === "turn.failed" || value.type === "error")
         emit({
           type: "error",
@@ -132,6 +152,8 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         });
       return;
     }
+    if (value.type === "system" && typeof value.model === "string")
+      emit({ type: "model", model: value.model });
     if (typeof value.session_id === "string") emit({ type: "session", id: value.session_id });
     if (value.parent_tool_use_id) return;
     const event = record(value.event);
@@ -158,6 +180,34 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         if (block.type === "tool_use") emit({ type: "activity", text: text(block.name) });
     }
     if (value.type === "result") {
+      const byModel = Object.values(record(value.modelUsage)).map(record);
+      let usage: TokenUsage | undefined;
+      if (byModel.length)
+        usage = byModel.reduce<TokenUsage>(
+          (total, model) => ({
+            inputTokens:
+              total.inputTokens +
+              count(model.inputTokens) +
+              count(model.cacheReadInputTokens) +
+              count(model.cacheCreationInputTokens),
+            cachedInputTokens: total.cachedInputTokens + count(model.cacheReadInputTokens),
+            outputTokens: total.outputTokens + count(model.outputTokens),
+          }),
+          { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
+        );
+      else usage = readUsage(record(value.usage), true);
+      // Startup errors can report zeroed accounting even when resuming a used session.
+      if (value.is_error && usage && usage.inputTokens === 0 && usage.outputTokens === 0)
+        usage = undefined;
+      if (usage) {
+        if (
+          typeof value.total_cost_usd === "number" &&
+          Number.isFinite(value.total_cost_usd) &&
+          value.total_cost_usd >= 0
+        )
+          usage.costUSD = value.total_cost_usd;
+        emit({ type: "usage", usage, cumulative: byModel.length > 0 });
+      }
       if (value.is_error)
         emit({
           type: "error",
@@ -181,6 +231,7 @@ export function startHarness(input: {
   cwd: string;
   prompt: string;
   sessionId?: string;
+  settings?: HarnessSettings;
   onUpdate: (update: HarnessUpdate) => void;
 }): RunningHarness {
   const args =
@@ -206,6 +257,12 @@ export function startHarness(input: {
           "acceptEdits",
           ...(input.sessionId ? ["--resume", input.sessionId] : []),
         ];
+  if (input.settings?.model) args.push("--model", input.settings.model);
+  if (input.settings?.effort) {
+    if (input.harness === "codex")
+      args.push("-c", `model_reasoning_effort=${JSON.stringify(input.settings.effort)}`);
+    else args.push("--effort", input.settings.effort);
+  }
   const child: ChildProcessWithoutNullStreams = spawn(input.executable, args, {
     cwd: input.cwd,
     env: harnessEnvironment(),

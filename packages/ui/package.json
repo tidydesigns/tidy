@@ -10,7 +10,8 @@
     "./avatar": "./avatar.tsx",
     "./button": "./button.tsx",
     "./select-menu": "./select-menu.tsx",
-    "./tidy-logo": "./tidy-logo.tsx"
+    "./tidy-logo": "./tidy-logo.tsx",
+    "./harness-icon": "./harness-icon.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

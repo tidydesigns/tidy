@@ -1,10 +1,84 @@
 #!/usr/bin/env node
 import { writeFileSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { spawn } from "node:child_process";
 
 if (process.argv.includes("login") && process.argv.includes("status")) process.exit(0);
 if (process.argv.includes("auth") && process.argv.includes("status")) {
   console.log(JSON.stringify({ loggedIn: true }));
+  process.exit(0);
+}
+
+const metadataArgs = process.argv.slice(2);
+if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format")) {
+  const codex = metadataArgs[0] === "app-server";
+  const methods = [];
+  for await (const line of createInterface({ input: process.stdin })) {
+    const value = JSON.parse(line),
+      method = codex ? value.method : value.request?.subtype;
+    methods.push(method);
+    writeFileSync("capability-invocation.json", JSON.stringify({ methods, cwd: process.cwd() }));
+    const reply = (result) =>
+      console.log(
+        JSON.stringify(
+          codex
+            ? { id: value.id, result }
+            : {
+                type: "control_response",
+                response: { subtype: "success", request_id: value.request_id, response: result },
+              },
+        ),
+      );
+    if (method === "initialize")
+      reply(
+        codex
+          ? {}
+          : {
+              models: [
+                {
+                  value: "default",
+                  displayName: "Default Claude",
+                  supportsEffort: true,
+                  supportedEffortLevels: ["low", "high"],
+                },
+                {
+                  value: "fixture-claude",
+                  displayName: "Fixture Claude",
+                  supportsEffort: true,
+                  supportedEffortLevels: ["low", "high"],
+                },
+              ],
+              account: { email: "private@example.invalid", tokenSource: "oauth" },
+            },
+      );
+    else if (method === "model/list")
+      reply({
+        data: [
+          {
+            model: "fixture-codex",
+            displayName: "Fixture Codex",
+            isDefault: true,
+            defaultReasoningEffort: "medium",
+            supportedReasoningEfforts: [{ reasoningEffort: "medium" }, { reasoningEffort: "high" }],
+          },
+        ],
+        nextCursor: null,
+      });
+    else if (method === "config/read")
+      reply({
+        config: { model: "fixture-codex", model_reasoning_effort: "high", secret: "do-not-expose" },
+      });
+    else if (method === "account/rateLimits/read")
+      reply({
+        rateLimits: {
+          primary: { usedPercent: 25, windowDurationMins: 300, resetsAt: 2000000000 },
+          secondary: null,
+        },
+      });
+    else if (method === "account/read")
+      reply({ account: { type: "chatgpt", email: "private@example.invalid" } });
+    else if (method !== "initialized") throw Error("Unexpected capability request: " + method);
+  }
   process.exit(0);
 }
 
@@ -61,9 +135,12 @@ if (prompt.includes("wait-for-stop")) {
       text: "Ready to implement this project's design.",
     },
   });
-  send({ type: "turn.completed", usage: {} });
+  send({
+    type: "turn.completed",
+    usage: { input_tokens: 120, cached_input_tokens: 20, output_tokens: 40 },
+  });
 } else {
-  send({ type: "system", session_id: session });
+  send({ type: "system", session_id: session, model: "fixture-claude" });
   send({ type: "stream_event", event: { type: "message_start", message: { id: "response" } } });
   send({
     type: "stream_event",
@@ -83,5 +160,19 @@ if (prompt.includes("wait-for-stop")) {
       ],
     },
   });
-  send({ type: "result", session_id: session, result: "Hello project", is_error: false });
+  send({
+    type: "result",
+    session_id: session,
+    result: "Hello project",
+    is_error: false,
+    total_cost_usd: 0.05,
+    modelUsage: {
+      "fixture-claude": {
+        inputTokens: 100,
+        outputTokens: 40,
+        cacheReadInputTokens: 20,
+        cacheCreationInputTokens: 5,
+      },
+    },
+  });
 }

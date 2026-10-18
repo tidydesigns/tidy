@@ -43,6 +43,7 @@ async function fixture() {
       };
     },
     async () => "/fixture/harness",
+    async () => {},
   );
   cleanups.push(() => service.close());
   return { directory, store, service, project: snapshot.project, runs };
@@ -252,4 +253,64 @@ test("thread completion rejects project mismatches and never publishes a failed 
   expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
   store.writeThread = write;
   unsubscribe();
+});
+
+test("model settings persist and resume the same session; usage respects per-turn and cumulative reports", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First",
+    designIds: [],
+    settings: { model: "fixture-codex", effort: "high" },
+  });
+  expect(runs[0].input.settings).toEqual({ model: "fixture-codex", effort: "high" });
+  const sessionId = randomUUID();
+  runs[0].input.onUpdate({ type: "session", id: sessionId });
+  runs[0].input.onUpdate({
+    type: "usage",
+    usage: { inputTokens: 100, cachedInputTokens: 20, outputTokens: 10 },
+    cumulative: false,
+  });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  await service.setThreadSettings(project.id, thread.id, {
+    model: "another-model",
+    effort: "medium",
+  });
+  expect((await store.readThread(project.id, thread.id)).settings?.model).toBe("another-model");
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Second" });
+  expect(runs[1].input.sessionId).toBe(sessionId);
+  expect(runs[1].input.settings?.effort).toBe("medium");
+  await expect(
+    service.setThreadSettings(project.id, thread.id, { model: "third-model" }),
+  ).rejects.toThrow("finish");
+  runs[1].input.onUpdate({
+    type: "usage",
+    usage: { inputTokens: 150, cachedInputTokens: 30, outputTokens: 15 },
+    cumulative: false,
+  });
+  runs[1].input.onUpdate({
+    type: "usage",
+    usage: { inputTokens: 150, cachedInputTokens: 30, outputTokens: 15 },
+    cumulative: false,
+  });
+  expect((await service.readThread(project.id, thread.id)).usage?.inputTokens).toBe(250);
+  runs[1].input.onUpdate({
+    type: "usage",
+    usage: { inputTokens: 300, cachedInputTokens: 50, outputTokens: 30, costUSD: 0.1 },
+    cumulative: true,
+  });
+  runs[1].input.onUpdate({
+    type: "usage",
+    usage: { inputTokens: 300, cachedInputTokens: 50, outputTokens: 30, costUSD: 0.1 },
+    cumulative: true,
+  });
+  expect((await service.readThread(project.id, thread.id)).usage).toEqual({
+    inputTokens: 300,
+    cachedInputTokens: 50,
+    outputTokens: 30,
+    costUSD: 0.1,
+  });
 });

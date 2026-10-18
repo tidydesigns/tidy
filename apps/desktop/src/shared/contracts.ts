@@ -1,3 +1,4 @@
+import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
 
 export type HarnessId = "codex" | "claude";
@@ -14,6 +15,9 @@ export type Thread = {
   projectId: string;
   title: string;
   harness: HarnessId;
+  settings?: HarnessSettings;
+  usage?: TokenUsage;
+  actualModel?: string;
   sessionId?: string;
   doneAt?: string;
   designIds: string[];
@@ -23,7 +27,10 @@ export type Thread = {
   error?: string;
   updatedAt: string;
 };
-export type ThreadSummary = Omit<Thread, "messages" | "sessionId">;
+export type ThreadSummary = Omit<Thread, "messages" | "sessionId"> & {
+  preview?: string;
+  messageCount?: number;
+};
 export function summarizeThread(thread: Thread): ThreadSummary {
   return {
     revision: thread.revision,
@@ -32,6 +39,15 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     title: thread.title,
     harness: thread.harness,
     doneAt: thread.doneAt,
+    settings: thread.settings,
+    actualModel: thread.actualModel,
+    usage: thread.usage,
+    preview: thread.messages
+      .slice()
+      .reverse()
+      .find((message) => message.role === "assistant")
+      ?.text.slice(0, 320),
+    messageCount: thread.messages.length,
     designIds: thread.designIds,
     status: thread.status,
     activity: thread.activity,
@@ -63,12 +79,20 @@ export type DesktopAPI = {
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
   checkHarnesses(): Promise<HarnessConnection[]>;
+  harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
+  openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;
+  setThreadSettings(
+    projectId: string,
+    threadId: string,
+    settings: HarnessSettings,
+  ): Promise<Thread>;
   readThread(projectId: string, threadId: string): Promise<Thread>;
   startThread(input: {
     projectId: string;
     harness: HarnessId;
     prompt: string;
     designIds: string[];
+    settings?: HarnessSettings;
   }): Promise<Thread>;
   sendMessage(input: { projectId: string; threadId: string; text: string }): Promise<Thread>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;

@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { chmod, copyFile, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startHarness, type HarnessUpdate } from "./harnesses";
+import { createHarnessParser, startHarness, type HarnessUpdate } from "./harnesses";
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -86,4 +86,45 @@ test("invalid harness output fails instead of completing an empty thread", async
     onUpdate: () => {},
   });
   await expect(run.done).rejects.toThrow("invalid event");
+});
+
+test("model and effort are passed to the selected CLI as literal arguments", async () => {
+  const { directory, executable } = await fixture();
+  for (const harness of ["codex", "claude"] as const) {
+    const updates: HarnessUpdate[] = [];
+    await startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "Run with settings",
+      settings: { model: `fixture-${harness}`, effort: "high" },
+      onUpdate: (update) => updates.push(update),
+    }).done;
+    const invocation = JSON.parse(
+      await readFile(join(directory, "harness-invocation.json"), "utf8"),
+    );
+    expect(invocation.args.slice(-4)).toEqual(
+      harness === "codex"
+        ? ["--model", "fixture-codex", "-c", 'model_reasoning_effort="high"']
+        : ["--model", "fixture-claude", "--effort", "high"],
+    );
+    const usage = updates.find((update) => update.type === "usage");
+    expect(usage?.type === "usage" ? usage.usage.inputTokens : undefined).toBe(
+      harness === "codex" ? 120 : 125,
+    );
+  }
+});
+
+test("Claude startup failures cannot erase a resumed thread's recorded usage", () => {
+  const updates: HarnessUpdate[] = [];
+  createHarnessParser("claude", (update) => updates.push(update))({
+    type: "result",
+    is_error: true,
+    errors: ["Could not start"],
+    usage: { input_tokens: 0, output_tokens: 0 },
+    modelUsage: {},
+    total_cost_usd: 0,
+  });
+  expect(updates.some((update) => update.type === "usage")).toBe(false);
+  expect(updates.some((update) => update.type === "error")).toBe(true);
 });

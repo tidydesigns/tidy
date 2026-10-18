@@ -12,6 +12,7 @@ import {
 import { basename, join } from "node:path";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "@tidy/design/document";
 import { z } from "zod";
+import { harnessSettingsSchema, tokenUsageSchema } from "../shared/harness-settings";
 import type { LocalDesign, Project, ProjectSnapshot, Thread } from "../shared/contracts";
 import { summarizeThread } from "../shared/contracts";
 
@@ -28,6 +29,9 @@ export const threadSchema = z.object({
   title: z.string().max(120),
   harness: z.enum(["codex", "claude"]),
   sessionId: id.optional(),
+  settings: harnessSettingsSchema.optional(),
+  usage: tokenUsageSchema.optional(),
+  actualModel: z.string().max(200).optional(),
   doneAt: z.string().datetime().optional(),
   designIds: z.array(id).max(20),
   messages: z.array(messageSchema).max(1000),

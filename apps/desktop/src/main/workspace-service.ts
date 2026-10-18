@@ -3,6 +3,8 @@ import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
 import type { DesktopEvent, HarnessId, Thread } from "../shared/contracts";
 import { findHarness, startHarness, type HarnessUpdate, type RunningHarness } from "./harnesses";
+import type { HarnessSettings } from "../shared/harness-settings";
+import { validateHarnessSettings } from "./harness-details";
 import { ProjectStore } from "./project-store";
 
 type Job = {
@@ -10,6 +12,7 @@ type Job = {
   process?: RunningHarness;
   stopped: boolean;
   messages: Map<string, string>;
+  usageBase?: Thread["usage"];
   checkpoint?: ReturnType<typeof setTimeout>;
 };
 
@@ -25,6 +28,7 @@ export class WorkspaceService {
     readonly store: ProjectStore,
     private launch = startHarness,
     private locate = findHarness,
+    private configure = validateHarnessSettings,
   ) {}
 
   subscribe(listener: (event: DesktopEvent) => void) {
@@ -90,17 +94,36 @@ export class WorkspaceService {
     }
   }
 
+  async setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
+    if (this.closing || this.starting.has(threadId) || this.jobs.has(threadId))
+      throw new Error("Wait for this run to finish before changing its settings.");
+    this.starting.add(threadId);
+    try {
+      const thread = await this.store.readThread(projectId, threadId);
+      await this.configure(thread.harness, this.store.project(projectId).path, settings);
+      thread.settings = settings;
+      thread.revision++;
+      await this.store.writeThread(thread);
+      this.emit({ type: "thread", thread });
+      return thread;
+    } finally {
+      this.starting.delete(threadId);
+    }
+  }
+
   async startThread(input: {
     projectId: string;
     harness: HarnessId;
     prompt: string;
     designIds: string[];
+    settings?: HarnessSettings;
   }) {
     const thread: Thread = {
       revision: 0,
       id: randomUUID(),
       projectId: input.projectId,
       harness: input.harness,
+      settings: input.settings,
       title: input.prompt.replace(/\s+/g, " ").slice(0, 80),
       designIds: input.designIds,
       messages: [],
@@ -129,6 +152,7 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
     const project = this.store.project(thread.projectId);
+    await this.configure(thread.harness, project.path, thread.settings);
     const executable = await this.locate(thread.harness);
     if (!executable)
       throw new Error(
@@ -157,7 +181,12 @@ export class WorkspaceService {
     thread.error = undefined;
     thread.activity = "Starting";
     thread.updatedAt = new Date().toISOString();
-    const job: Job = { thread, stopped: false, messages: new Map() };
+    const job: Job = {
+      thread,
+      stopped: false,
+      messages: new Map(),
+      usageBase: thread.usage ? { ...thread.usage } : undefined,
+    };
     this.jobs.set(thread.id, job);
     try {
       await this.store.writeThread(thread);
@@ -182,6 +211,7 @@ export class WorkspaceService {
         cwd: project.path,
         prompt: context,
         sessionId: thread.sessionId,
+        settings: thread.settings,
         onUpdate: (update) => this.update(job, update),
       });
       if (job.stopped) job.process.stop();
@@ -200,7 +230,16 @@ export class WorkspaceService {
     if (job.stopped) return;
     const thread = job.thread;
     thread.revision++;
-    if (update.type === "session") {
+    if (update.type === "usage") {
+      const base = update.cumulative ? undefined : job.usageBase;
+      thread.usage = {
+        inputTokens: (base?.inputTokens ?? 0) + update.usage.inputTokens,
+        outputTokens: (base?.outputTokens ?? 0) + update.usage.outputTokens,
+        cachedInputTokens: (base?.cachedInputTokens ?? 0) + update.usage.cachedInputTokens,
+        costUSD: update.usage.costUSD ?? base?.costUSD,
+      };
+    } else if (update.type === "model") thread.actualModel = update.model.slice(0, 200);
+    else if (update.type === "session") {
       if (z.string().uuid().safeParse(update.id).success) thread.sessionId = update.id;
     } else if (update.type === "activity") thread.activity = update.text.slice(0, 500);
     else if (update.type === "error") thread.error = update.text.slice(0, 4000);
