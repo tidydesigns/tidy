@@ -11,13 +11,16 @@ test("file loading uses the saved toolbar placement in its initial server markup
   expect(bottom).toContain("Loading file");
 });
 
-test("open-by-default loading includes compact mobile chrome and docked desktop tools", () => {
-  const markup = renderToStaticMarkup(
-    <EditorSkeleton initialPanelsOpen initialToolbarPlacement="bottom" />,
-  );
-  expect(markup).toContain('data-orientation="vertical"');
-  expect(markup).toContain("data-skeleton-docked-tools");
-  expect(markup).toContain("hidden shrink-0 md:flex");
-  expect(markup).toContain("data-skeleton-file-bar");
-  expect(markup).toContain("editor-floating-tools");
-});
+for (const placement of ["left", "bottom"] as const) {
+  test(`open-by-default loading respects the ${placement} toolbar preference`, () => {
+    const markup = renderToStaticMarkup(
+      <EditorSkeleton initialPanelsOpen initialToolbarPlacement={placement} />,
+    );
+    expect(markup).toContain(
+      `data-orientation="${placement === "left" ? "vertical" : "horizontal"}"`,
+    );
+    expect(markup.includes("data-skeleton-docked-tools")).toBe(placement === "left");
+    expect(markup).toContain("data-skeleton-file-bar");
+    expect(markup).toContain("editor-floating-tools");
+  });
+}

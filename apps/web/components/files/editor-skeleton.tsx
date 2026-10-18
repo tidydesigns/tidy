@@ -66,12 +66,14 @@ export function EditorSkeleton({
               ))}
             </div>
           </div>
-          <div
-            data-skeleton-docked-tools
-            className="w-[53px] border-r border-primary-grey/70 bg-primary-white px-1.5 py-3"
-          >
-            <Tools />
-          </div>
+          {placement === "left" && (
+            <div
+              data-skeleton-docked-tools
+              className="w-[53px] border-r border-primary-grey/70 bg-primary-white px-1.5 py-3"
+            >
+              <Tools />
+            </div>
+          )}
         </div>
       )}
       <div aria-hidden="true" className="relative min-w-0 flex-1">
@@ -82,6 +84,8 @@ export function EditorSkeleton({
             <div className="mx-2 h-4 w-28 rounded bg-subtle-fill motion-safe:animate-pulse" />
             <div className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse" />
           </div>
+        </div>
+        <div className={panelsOpen && placement === "left" ? "md:hidden" : "contents"}>
           <div className={minimisedToolbarClass(placement)}>
             <Tools horizontal={placement === "bottom"} />
           </div>

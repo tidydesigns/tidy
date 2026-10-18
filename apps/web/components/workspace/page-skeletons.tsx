@@ -278,7 +278,7 @@ function SettingsPanelSkeleton({
             <Block className="mt-2 h-10 w-full max-w-xs" />
           </div>
           <div className="text-sm font-medium">
-            <span data-ph-public>Minimised desktop toolbar</span>
+            <span data-ph-public>Desktop toolbar position</span>
             <Block className="mt-2 h-10 w-full max-w-xs" />
           </div>
         </section>

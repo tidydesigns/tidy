@@ -3934,7 +3934,11 @@ export function FileEditor({
           </div>
         </aside>
       </EditorPanel>
-      <EditorPanel open={!mobileLayout && panelsOpen && !prototypeMode} width={53} kind="tools">
+      <EditorPanel
+        open={!mobileLayout && panelsOpen && toolbarPlacement === "left" && !prototypeMode}
+        width={53}
+        kind="tools"
+      >
         <aside className="editor-tool-rail z-10 h-full w-[53px] shrink-0 border-r border-primary-grey/70 bg-primary-white px-1.5 py-3">
           {toolRail()}
         </aside>
@@ -4575,7 +4579,11 @@ export function FileEditor({
             </div>
           </EditorChrome>
           <EditorChrome
-            visible={!panelsOpen && !prototypeMode && !(mobileLayout && inspectorOpen)}
+            visible={
+              (!panelsOpen || toolbarPlacement === "bottom") &&
+              !prototypeMode &&
+              !(mobileLayout && inspectorOpen)
+            }
             mobileVisible={!mobilePanelsOpen && !prototypeMode && !inspectorOpen}
           >
             <div data-canvas-control className={minimisedToolbarClass(toolbarPlacement)}>
