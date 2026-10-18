@@ -161,6 +161,98 @@ afterAll(async () => {
   const { db } = await import("@/lib/db");
   await db.end();
 });
+integration(
+  "committed edits and retries acknowledge while the realtime room is stalled",
+  async () => {
+    const services = await import("./document-service");
+    const id = `relay-${fixture}`;
+    const key = Symbol.for("__cloudflare-context__");
+    const globals = globalThis as unknown as Record<symbol, unknown>;
+    const previous = globals[key];
+    const deliveries: Promise<unknown>[] = [];
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let pending: Promise<unknown> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let relayed = 0;
+    try {
+      await client.query(
+        'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,$1,$3)',
+        [id, organization, actor],
+      );
+      await client.query(
+        'insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)',
+        [id, JSON.stringify(initial())],
+      );
+      globals[key] = {
+        env: {
+          HYPERDRIVE: { connectionString: url },
+          FILE_ROOMS: {
+            getByName: () => ({
+              sync: () => {
+                relayed++;
+                return held;
+              },
+            }),
+          },
+        },
+        ctx: { waitUntil: (task: Promise<unknown>) => deliveries.push(task) },
+      };
+      pending = (async () => {
+        const before = initial();
+        const patch = diffDocument(before, {
+          ...before,
+          nodes: before.nodes.map((node) =>
+            node.id === "text" ? { ...node, text: "Immediate receipt" } : node,
+          ),
+        });
+        const operation = crypto.randomUUID();
+        const first = await commands.commitDocumentPatch(actor, id, operation, 1, patch, false);
+        const retry = await commands.commitDocumentPatch(actor, id, operation, 1, patch, false);
+        expect(retry.snapshot.revision).toBe(first.snapshot.revision);
+        const next = await services.patchDocumentNode(actor, id, first.snapshot.revision, "text", {
+          text: "Next edit",
+        });
+        const stored = (
+          await client.query(
+            'select "revision","content" from "designDocument" where "fileId"=$1',
+            [id],
+          )
+        ).rows[0];
+        expect(stored.revision).toBe(next.revision);
+        expect(stored.content.nodes[1].text).toBe("Next edit");
+        expect(
+          (
+            await client.query(
+              'select count(*)::int as count from "designRealtimeOperation" where "fileId"=$1 and "operationId"=$2',
+              [id, operation],
+            )
+          ).rows[0].count,
+        ).toBe(1);
+        expect(relayed).toBe(3);
+        expect(deliveries).toHaveLength(3);
+        return "acknowledged";
+      })();
+      const result = await Promise.race([
+        pending,
+        new Promise<string>((resolve) => {
+          timer = setTimeout(() => resolve("waiting for relay"), 1500);
+        }),
+      ]);
+      expect(result).toBe("acknowledged");
+    } finally {
+      clearTimeout(timer);
+      release();
+      await pending?.catch(() => {});
+      await Promise.all(deliveries);
+      if (previous === undefined) delete globals[key];
+      else globals[key] = previous;
+      await client.query('delete from "designFile" where "id"=$1', [id]);
+    }
+  },
+);
 integration("automatic checkpoints cover direct writes and pin historical originals", async () => {
   const first = (await versions.listFileVersions(actor, file)).versions[0];
   expect(first.kind).toBe("automatic");

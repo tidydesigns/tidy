@@ -119,7 +119,7 @@ export async function publishFileChanges(fileId: string) {
   }
 }
 
-/** A committed comment must not wait for the room or hold its database connection during delivery. */
+/** A committed mutation must not wait for the room or hold its database connection during delivery. */
 export async function publishFileChangesInBackground(fileId: string): Promise<void> {
   if (afterDatabaseCommit(`file:${fileId}`, () => publishFileChangesInBackground(fileId))) return;
   let context;

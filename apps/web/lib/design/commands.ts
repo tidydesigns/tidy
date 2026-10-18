@@ -13,7 +13,7 @@ import { trackDocumentChanges } from "./edit-document";
 import { syncComponentEdit } from "./component-sync";
 import { designNodeChangesSchema, parseDesignDocument } from "./document";
 import type { DesignDocument } from "./document";
-import { publishFileChanges } from "@/lib/realtime/server";
+import { publishFileChangesInBackground } from "@/lib/realtime/server";
 
 export async function commitDocumentPatch(
   userId: string,
@@ -101,7 +101,7 @@ export async function commitDocumentPatch(
       if (prior.rows[0].userId !== userId || prior.rows[0].hash !== hash)
         throw new Error("Operation ID was already used for a different edit.");
       await client.query("commit");
-      await publishFileChanges(fileId);
+      await publishFileChangesInBackground(fileId);
       return {
         snapshot: current,
         patch: prior.rows[0].patch,
@@ -259,7 +259,7 @@ export async function commitDocumentPatch(
         [fileId, operationId, restore.versionId, beforeVersionId, userId, revision],
       );
     await client.query("commit");
-    await publishFileChanges(fileId);
+    await publishFileChangesInBackground(fileId);
     return {
       snapshot: { revision, content },
       patch: canonical,

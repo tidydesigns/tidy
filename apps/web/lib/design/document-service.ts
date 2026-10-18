@@ -12,7 +12,7 @@ import {
 } from "@/lib/storage/design-objects";
 import { EDIT_ROLES_SQL, VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 import { documentAssetIds } from "@/lib/design/document";
-import { publishFileChanges } from "@/lib/realtime/server";
+import { publishFileChangesInBackground } from "@/lib/realtime/server";
 import type { DesignNodeChanges } from "@/lib/design/document";
 import { createHash, randomUUID } from "node:crypto";
 import { db } from "@/lib/db";
@@ -258,7 +258,7 @@ async function readEditorDocument(userId: string, fileId: string) {
         [fileId, revision, JSON.stringify(content)],
       );
     await client.query("commit");
-    await publishFileChanges(fileId);
+    await publishFileChangesInBackground(fileId);
     return { revision, content };
   } catch (error) {
     await client.query("rollback");
@@ -329,7 +329,7 @@ export async function replaceDocumentForHistory(
     );
     await client.query(`update "designFile" set "updatedAt" = now() where "id" = $1`, [fileId]);
     await client.query("commit");
-    await publishFileChanges(fileId);
+    await publishFileChangesInBackground(fileId);
     return { revision };
   } catch (error) {
     await client.query("rollback");
@@ -719,7 +719,7 @@ export async function commitImport(
       [importId, fileId, revision],
     );
     await client.query("commit");
-    await publishFileChanges(fileId);
+    await publishFileChangesInBackground(fileId);
     const key = incoming.source
       ? `${incoming.source.project}:${incoming.source.route}`
       : incoming.nodes[0]?.importKey;
@@ -903,7 +903,7 @@ async function patchNodes(
       [fileId, revision, JSON.stringify(document)],
     );
     await client.query("commit");
-    await publishFileChanges(fileId);
+    await publishFileChangesInBackground(fileId);
     const byId = new Map(document.nodes.map((node) => [node.id, node]));
     return {
       revision,
