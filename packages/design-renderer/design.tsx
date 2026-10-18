@@ -172,6 +172,17 @@ function RenderNode(props: TreeProps) {
     : ((external as { href?: string }).href ?? node.semantics?.href);
   const nativeControl = tag === "button" || (tag === "a" && !!href);
   const hasHoverAction = node.interactions?.some((item) => item.trigger.type === "hover");
+  // Focus may preview paint states, but must not navigate, replace content, or disable a control.
+  const hoverRequiresActivation = node.interactions?.some(
+    ({ trigger, action }) =>
+      trigger.type === "hover" && (action.type !== "setState" || action.state === "disabled"),
+  );
+  function activate(includeHover: boolean) {
+    return (
+      props.onTrigger?.(node.id, "click") ||
+      (includeHover && hoverRequiresActivation && props.onTrigger?.(node.id, "hover"))
+    );
+  }
   const interactive =
     !!props.onTrigger &&
     (nativeControl ||
@@ -221,7 +232,7 @@ function RenderNode(props: TreeProps) {
           event.stopPropagation();
           return;
         }
-        if (!disabled && props.onTrigger(node.id, "click")) event.stopPropagation();
+        if (activate(event.detail === 0)) event.stopPropagation();
         return;
       }
       if (
@@ -265,7 +276,8 @@ function RenderNode(props: TreeProps) {
         event.target === event.currentTarget &&
         focusVisible &&
         !disabled &&
-        hasHoverAction
+        hasHoverAction &&
+        !hoverRequiresActivation
       )
         props.onTrigger?.(node.id, "hover");
     },
@@ -282,9 +294,7 @@ function RenderNode(props: TreeProps) {
         !event.repeat &&
         props.onTrigger &&
         (props.onTrigger(node.id, "key", event.key) ||
-          (!nativeControl &&
-            [" ", "Enter"].includes(event.key) &&
-            props.onTrigger(node.id, "click")))
+          (!nativeControl && [" ", "Enter"].includes(event.key) && activate(true)))
       ) {
         event.preventDefault();
         event.stopPropagation();
