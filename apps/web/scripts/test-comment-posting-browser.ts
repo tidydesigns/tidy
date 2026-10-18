@@ -182,25 +182,25 @@ try {
   await page.getByLabel("Write a comment").fill("First comment");
   holdPosts();
   const initialReads = reads;
-  const visibleMs = await page.evaluate(async () => {
-    const start = performance.now();
-    const button = [...document.querySelectorAll("button")].find(
-      (button) => button.textContent?.trim() === "Post",
-    )!;
-    button.click();
-    await new Promise(requestAnimationFrame);
-    if (
-      !document
-        .querySelector('[aria-label="Comment thread"]')
-        ?.textContent?.includes("First comment")
-    )
-      throw new Error("Comment did not appear on the next animation frame");
-    return performance.now() - start;
-  });
+  async function postOnNextFrame(expectedBody: string) {
+    return page.evaluate(async (expected) => {
+      const start = performance.now();
+      const button = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Post",
+      );
+      if (!button) throw new Error("Post button is unavailable");
+      button.click();
+      await new Promise(requestAnimationFrame);
+      if (!document.querySelector('[aria-label="Comment thread"]')?.textContent?.includes(expected))
+        throw new Error("Comment did not appear on the next animation frame");
+      return performance.now() - start;
+    }, expectedBody);
+  }
+  const visibleMs = await postOnNextFrame("First comment");
   await popup.getByText("First comment", { exact: true }).waitFor();
   assert.equal(await reply.inputValue(), "");
   await reply.fill("Quick reply one");
-  await post.click();
+  const replyVisibleMs = await postOnNextFrame("Quick reply one");
   await reply.fill("Quick reply two");
   await post.click();
   assert.equal(
@@ -337,7 +337,7 @@ try {
   }
   assert.deepEqual(errors, []);
   console.log(
-    `Comment performance checks passed. First visible frame: ${visibleMs.toFixed(1)}ms with POST held; slowest typing render with 120 history messages: ${typingRenderMs.toFixed(1)}ms; no post-send GETs. Burst replies, stale reads, failures, retry deduplication, long-thread scrolling, next-draft preservation and header alignment passed.`,
+    `Comment performance checks passed. First comment visible: ${visibleMs.toFixed(1)}ms; reply visible: ${replyVisibleMs.toFixed(1)}ms with POST held; slowest typing render with 120 history messages: ${typingRenderMs.toFixed(1)}ms; no post-send GETs. Burst replies, stale reads, failures, retry deduplication, long-thread scrolling, next-draft preservation and header alignment passed.`,
   );
 } finally {
   resumeReads();

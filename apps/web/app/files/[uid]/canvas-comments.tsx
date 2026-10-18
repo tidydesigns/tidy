@@ -273,10 +273,11 @@ type Submission = {
   fileId: string;
   thread: CommentThread;
   create: boolean;
-  state: "sending" | "sent" | "failed";
-  error?: string;
-  legacyReceipt?: boolean;
-};
+} & (
+  | { kind: "sending" }
+  | { kind: "sent"; legacyReceipt: boolean }
+  | { kind: "failed"; error: string }
+);
 
 export const CanvasComments = forwardRef<
   CanvasCommentsHandle,
@@ -325,7 +326,7 @@ export const CanvasComments = forwardRef<
   const [error, setError] = useState("");
   const [loadError, setLoadError] = useState("");
   const posting = submissions.some(
-    (submission) => submission.thread.id === activeId && submission.state === "sending",
+    (submission) => submission.thread.id === activeId && submission.kind === "sending",
   );
   const [changing, setChanging] = useState(false);
   const [canModerateThreads, setCanModerateThreads] = useState(false);
@@ -409,8 +410,8 @@ export const CanvasComments = forwardRef<
         setSubmissions((current) =>
           current.filter((submission) => {
             const legacyConfirmed =
+              submission.kind === "sent" &&
               submission.legacyReceipt &&
-              submission.state === "sent" &&
               detail?.threads.some((thread) => thread.id === submission.thread.id);
             if (!received.has(submission.thread.messages[0].id) && !legacyConfirmed) return true;
             if (submission.create) creationRequests.current.delete(submission.thread.id);
@@ -499,7 +500,7 @@ export const CanvasComments = forwardRef<
     !readOnly &&
     (canModerateThreads || viewerId === active.createdBy) &&
     !submissions.some(
-      (item) => item.create && item.thread.id === active.id && item.state !== "sent",
+      (item) => item.create && item.thread.id === active.id && item.kind !== "sent",
     ),
   );
   const point = draft ?? active ?? null;
@@ -566,7 +567,7 @@ export const CanvasComments = forwardRef<
               ? item
               : {
                   ...item,
-                  state: "sent",
+                  kind: "sent",
                   legacyReceipt: !result.message,
                   thread: {
                     ...item.thread,
@@ -589,7 +590,7 @@ export const CanvasComments = forwardRef<
               ? item
               : {
                   ...item,
-                  state: "failed",
+                  kind: "failed",
                   error: cause instanceof Error ? cause.message : "Could not post comment.",
                 },
           ),
@@ -628,7 +629,7 @@ export const CanvasComments = forwardRef<
           messages: [message],
         }
       : { ...active!, messages: [message] };
-    const submission: Submission = { fileId, thread, create: Boolean(draft), state: "sending" };
+    const submission: Submission = { fileId, thread, create: Boolean(draft), kind: "sending" };
     setSubmissions((current) => [...current, submission]);
     setBody("");
     setError("");
@@ -655,7 +656,7 @@ export const CanvasComments = forwardRef<
     if (
       mutationRef.current ||
       submissionsRef.current.some(
-        (submission) => submission.thread.id === thread.id && submission.state === "sending",
+        (submission) => submission.thread.id === thread.id && submission.kind === "sending",
       ) ||
       readOnly ||
       !(canModerateThreads || viewerId === thread.createdBy)
@@ -667,7 +668,7 @@ export const CanvasComments = forwardRef<
       current.flatMap((item) =>
         item.thread.id !== thread.id
           ? [item]
-          : resolved !== null && item.state === "failed"
+          : resolved !== null && item.kind === "failed"
             ? [{ ...item, thread: { ...item.thread, resolved } }]
             : [],
       ),
@@ -950,18 +951,18 @@ export const CanvasComments = forwardRef<
                     <ThreadMessage
                       message={message}
                       fileId={fileId}
-                      viewerId={submission && submission.state !== "sent" ? null : viewerId}
+                      viewerId={submission && submission.kind !== "sent" ? null : viewerId}
                       reactionsAvailable={
-                        reactionsAvailable && (!submission || submission.state === "sent")
+                        reactionsAvailable && (!submission || submission.kind === "sent")
                       }
                       refresh={refresh}
                     />
-                    {submission?.state === "sending" && (
+                    {submission?.kind === "sending" && (
                       <p role="status" className="ml-9 mt-1 text-xs text-secondary-ink">
                         Sending…
                       </p>
                     )}
-                    {submission?.state === "failed" && (
+                    {submission?.kind === "failed" && (
                       <div className="ml-9 mt-1 flex items-center gap-2 text-xs text-danger">
                         <p role="alert">{submission.error}</p>
                         <button
@@ -970,15 +971,13 @@ export const CanvasComments = forwardRef<
                           onClick={() => {
                             if (
                               !submissionsRef.current.some(
-                                (item) => item === submission && item.state === "failed",
+                                (item) => item === submission && item.kind === "failed",
                               )
                             )
                               return;
                             setSubmissions((current) =>
                               current.map((item) =>
-                                item === submission
-                                  ? { ...item, state: "sending", error: undefined }
-                                  : item,
+                                item === submission ? { ...item, kind: "sending" } : item,
                               ),
                             );
                             void send(submission);
