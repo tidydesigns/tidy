@@ -41,6 +41,16 @@ test("project designs and threads survive restart and moving the directory", asy
   const design = await store.createDesign(first.project.id);
   const conversation = thread(first.project.id);
   conversation.designIds = [design.id];
+  conversation.toolActivities = ["running", "completed", "failed"].map((status) => ({
+    id: randomUUID(),
+    afterMessageId: conversation.messages[0].id,
+    kind: "test",
+    title: "bun test",
+    toolName: "Shell",
+    status: status as "running" | "completed" | "failed",
+    startedAt: new Date().toISOString(),
+    output: "Recorded output",
+  }));
   await store.writeThread(conversation);
   const reopened = new ProjectStore(join(directory, "app-data"));
   await reopened.initialize();
@@ -50,6 +60,12 @@ test("project designs and threads survive restart and moving the directory", asy
   expect(recovered.status).toBe("interrupted");
   expect(recovered.sessionId).toBe(conversation.sessionId);
   expect(recovered.designIds).toEqual([design.id]);
+  expect(recovered.toolActivities?.map((tool) => tool.status)).toEqual([
+    "interrupted",
+    "completed",
+    "failed",
+  ]);
+  expect(recovered.toolActivities?.[0].output).toBe("Recorded output");
   expect((await reopened.readDesign(first.project.id, design.id)).document.schemaVersion).toBe(1);
   const moved = join(directory, "renamed-project");
   await rename(root, moved);

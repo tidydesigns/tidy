@@ -7,6 +7,7 @@ import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import type { startHarness, HarnessUpdate } from "./harnesses";
 import type { Thread } from "../shared/contracts";
+import { MAX_TOOL_ACTIVITIES, MAX_TOOL_LOG_CHARACTERS, toolLogSize } from "../shared/tool-activity";
 
 const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
@@ -372,4 +373,117 @@ test("missing attachments and empty turns cannot launch a harness", async () => 
     }),
   ).rejects.toThrow();
   expect(runs.length).toBe(0);
+});
+
+test("tool activity stays anchored, updates in place and persists independently of turn success", async () => {
+  const { directory, service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Fix tests",
+    designIds: [],
+  });
+  const update = runs[0].input.onUpdate;
+  update({ type: "session", id: randomUUID() });
+  update({ type: "message", id: "comment", text: "Checking the implementation." });
+  const tool = {
+    id: "native-tool",
+    kind: "test" as const,
+    title: "bun test",
+    toolName: "Shell",
+    status: "running" as const,
+    input: "bun test",
+  };
+  update({ type: "tool", tool });
+  update({ type: "tool", tool: { ...tool, output: "Running" } });
+  update({
+    type: "tool",
+    tool: { ...tool, status: "failed", output: "Running\n1 failed", exitCode: 1 },
+  });
+  update({ type: "message", id: "final", text: "Found the failing assertion." });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  const result = await completion;
+  expect(result.status).toBe("completed");
+  expect(result.error).toBeUndefined();
+  expect(result.toolActivities).toHaveLength(1);
+  const recorded = result.toolActivities![0];
+  expect(recorded.afterMessageId).toBe(result.messages[1].id);
+  expect(recorded).toMatchObject({ status: "failed", output: "Running\n1 failed", exitCode: 1 });
+  expect(recorded.endedAt).toBeDefined();
+  expect((await store.snapshot(project.id)).threads[0]).not.toHaveProperty("toolActivities");
+  const reopened = new ProjectStore(join(directory, "app"));
+  await reopened.initialize();
+  expect((await reopened.readThread(project.id, thread.id)).toolActivities).toEqual(
+    result.toolActivities,
+  );
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Try again" });
+  runs[1].input.onUpdate({ type: "tool", tool });
+  const resumed = await service.readThread(project.id, thread.id);
+  expect(resumed.toolActivities).toHaveLength(2);
+  expect(resumed.toolActivities![1].id).not.toBe(recorded.id);
+  expect(resumed.toolActivities![1].afterMessageId).toBe(resumed.messages.at(-1)!.id);
+});
+
+test("stopped and unfinished tools never appear completed and late output is fenced", async () => {
+  const { service, project, runs } = await fixture();
+  for (const stop of [false, true]) {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "Run a command",
+      designIds: [],
+    });
+    const run = runs.at(-1)!;
+    const tool = {
+      id: "command",
+      kind: "command" as const,
+      title: "build",
+      toolName: "Bash",
+      status: "running" as const,
+      output: "Building",
+    };
+    run.input.onUpdate({ type: "tool", tool });
+    const completion = finished(service, thread.id);
+    if (stop) await service.stopThread(project.id, thread.id);
+    else run.complete();
+    const result = await completion;
+    expect(result.toolActivities![0].status).toBe(stop ? "cancelled" : "interrupted");
+    expect(result.toolActivities![0].endedAt).toBeDefined();
+    run.input.onUpdate({ type: "tool", tool: { ...tool, status: "completed", output: "Late" } });
+    expect((await service.readThread(project.id, thread.id)).toolActivities![0].output).toBe(
+      "Building",
+    );
+  }
+});
+
+test("long tool histories are bounded by count and text size with an explicit truncation marker", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Many tools",
+    designIds: [],
+  });
+  const tool = {
+    kind: "command" as const,
+    title: "command",
+    toolName: "Shell",
+    status: "completed" as const,
+  };
+  for (let index = 0; index < MAX_TOOL_ACTIVITIES + 5; index++)
+    runs[0].input.onUpdate({ type: "tool", tool: { ...tool, id: String(index) } });
+  let result = await service.readThread(project.id, thread.id);
+  expect(result.toolActivities).toHaveLength(MAX_TOOL_ACTIVITIES);
+  expect(result.toolActivityTruncated).toBe(true);
+  for (let index = 0; index < 40; index++)
+    runs[0].input.onUpdate({
+      type: "tool",
+      tool: { ...tool, id: `large-${index}`, output: "x".repeat(32_000) },
+    });
+  result = await service.readThread(project.id, thread.id);
+  expect(
+    result.toolActivities!.reduce((sum, value) => sum + toolLogSize(value), 0),
+  ).toBeLessThanOrEqual(MAX_TOOL_LOG_CHARACTERS);
+  expect(result.toolActivities!.at(-1)!.output).toHaveLength(32_000);
 });

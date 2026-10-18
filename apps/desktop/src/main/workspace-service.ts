@@ -11,6 +11,12 @@ import {
 } from "../shared/attachments";
 import type { HarnessSettings } from "../shared/harness-settings";
 import { validateHarnessSettings } from "./harness-details";
+import {
+  toolActivitySchema,
+  toolLogSize,
+  MAX_TOOL_ACTIVITIES,
+  MAX_TOOL_LOG_CHARACTERS,
+} from "../shared/tool-activity";
 import { ProjectStore } from "./project-store";
 
 type Job = {
@@ -18,6 +24,7 @@ type Job = {
   process?: RunningHarness;
   stopped: boolean;
   messages: Map<string, string>;
+  tools: Map<string, string>;
   usageBase?: Thread["usage"];
   checkpoint?: ReturnType<typeof setTimeout>;
 };
@@ -243,6 +250,7 @@ export class WorkspaceService {
       thread,
       stopped: false,
       messages: new Map(),
+      tools: new Map(),
       usageBase: thread.usage ? { ...thread.usage } : undefined,
     };
     this.jobs.set(thread.id, job);
@@ -289,7 +297,30 @@ export class WorkspaceService {
     if (job.stopped) return;
     const thread = job.thread;
     thread.revision++;
-    if (update.type === "usage") {
+    if (update.type === "tool") {
+      const activities = thread.toolActivities ?? (thread.toolActivities = []);
+      const existing = activities.find((tool) => tool.id === job.tools.get(update.tool.id));
+      const now = new Date().toISOString();
+      const value = toolActivitySchema.parse({
+        ...existing,
+        ...update.tool,
+        id: existing?.id ?? randomUUID(),
+        afterMessageId: existing?.afterMessageId ?? thread.messages.at(-1)!.id,
+        startedAt: existing?.startedAt ?? now,
+        endedAt: update.tool.status === "running" ? undefined : (existing?.endedAt ?? now),
+      });
+      if (existing) Object.assign(existing, value);
+      else {
+        activities.push(value);
+        job.tools.set(update.tool.id, value.id);
+      }
+      let size = activities.reduce((total, tool) => total + toolLogSize(tool), 0);
+      while (activities.length > MAX_TOOL_ACTIVITIES || size > MAX_TOOL_LOG_CHARACTERS) {
+        size -= toolLogSize(activities.shift()!);
+        thread.toolActivityTruncated = true;
+      }
+      thread.activity = value.status === "running" ? value.title : undefined;
+    } else if (update.type === "usage") {
       const base = update.cumulative ? undefined : job.usageBase;
       thread.usage = {
         inputTokens: (base?.inputTokens ?? 0) + update.usage.inputTokens,
@@ -338,6 +369,12 @@ export class WorkspaceService {
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
     }
     clearTimeout(job.checkpoint);
+    const ownedTools = new Set(job.tools.values());
+    for (const tool of job.thread.toolActivities ?? [])
+      if (tool.status === "running" && ownedTools.has(tool.id)) {
+        tool.status = job.stopped ? "cancelled" : "interrupted";
+        tool.endedAt = new Date().toISOString();
+      }
     job.thread.activity = undefined;
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();

@@ -107,6 +107,121 @@ if (prompt.includes("invalid-event")) {
   process.stdout.write("not-json\n");
   process.exit(0);
 }
+if (prompt.includes("tool-activity-fixture")) {
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  send(
+    codex
+      ? { type: "thread.started", thread_id: session }
+      : { type: "system", session_id: session, model: "fixture-claude" },
+  );
+  const message = (id, text) =>
+    send(
+      codex
+        ? { type: "item.completed", item: { id, type: "agent_message", text } }
+        : { type: "assistant", message: { id, content: [{ type: "text", text }] } },
+    );
+  message("comment", "I’ll inspect the project and run its tests.");
+  if (codex) {
+    const command = {
+      id: "test",
+      type: "command_execution",
+      command: "bun test src/button.test.ts",
+    };
+    send({ type: "item.started", item: command });
+    await pause(100);
+    send({
+      type: "item.updated",
+      item: { ...command, aggregated_output: "Running button tests…\n" },
+    });
+    await pause(600);
+    send({
+      type: "item.updated",
+      item: {
+        ...command,
+        aggregated_output: "Running button tests…\nChecking keyboard interaction\n",
+      },
+    });
+    if (prompt.includes("hold")) {
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    }
+    await pause(600);
+    send({
+      type: "item.completed",
+      item: {
+        ...command,
+        aggregated_output:
+          "Running button tests…\nFAIL expected <button> to be enabled\n1 failed, 2 passed",
+        exit_code: 1,
+      },
+    });
+    send({
+      type: "item.completed",
+      item: {
+        id: "search",
+        type: "command_execution",
+        command: 'rg -n "disabled" src/button.tsx',
+        aggregated_output: "12: disabled={pending}",
+        exit_code: 0,
+      },
+    });
+    send({
+      type: "item.completed",
+      item: {
+        id: "edit",
+        type: "file_change",
+        changes: [{ path: "src/button.tsx", kind: "update" }],
+      },
+    });
+    send({
+      type: "item.completed",
+      item: {
+        id: "verify",
+        type: "command_execution",
+        command: "bun test src/button.test.ts",
+        aggregated_output: "3 passed\n0 failed",
+        exit_code: 0,
+      },
+    });
+  } else {
+    const start = (id, name, input) =>
+      send({
+        type: "assistant",
+        message: { id: "call-" + id, content: [{ type: "tool_use", id, name, input }] },
+      });
+    const result = (id, content, is_error = false) =>
+      send({
+        type: "user",
+        message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error }] },
+      });
+    start("test", "Bash", { command: "bun test src/button.test.ts" });
+    await pause(100);
+    send({ type: "tool_progress", tool_use_id: "test", tool_name: "Bash" });
+    if (prompt.includes("hold")) {
+      setInterval(() => {}, 1000);
+      await new Promise(() => {});
+    }
+    await pause(100);
+    result("test", "FAIL expected <button> to be enabled\n1 failed, 2 passed", true);
+    start("search", "Grep", { pattern: "disabled", path: "src/button.tsx" });
+    result("search", "12: disabled={pending}");
+    start("edit", "Edit", {
+      file_path: "src/button.tsx",
+      old_string: "disabled={pending}",
+      new_string: "disabled={pending && !ready}",
+    });
+    result("edit", "The file was updated successfully.");
+    start("verify", "Bash", { command: "bun test src/button.test.ts" });
+    result("verify", "3 passed\n0 failed");
+  }
+  message("final", "Fixed the button state. All three tests pass.");
+  send(
+    codex
+      ? { type: "turn.completed", usage: { input_tokens: 120, output_tokens: 40 } }
+      : { type: "result", usage: { input_tokens: 125, output_tokens: 45 } },
+  );
+  process.exit(0);
+}
 if (prompt.includes("wait-for-stop")) {
   spawn(
     process.execPath,

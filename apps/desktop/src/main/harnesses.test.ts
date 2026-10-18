@@ -18,6 +18,38 @@ async function fixture() {
 }
 
 for (const harness of ["codex", "claude"] as const) {
+  test(`${harness} streams inspectable tool activity without treating a failed test as a failed turn`, async () => {
+    const { directory, executable } = await fixture();
+    const updates: HarnessUpdate[] = [];
+    await startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "tool-activity-fixture",
+      onUpdate: (update) => updates.push(update),
+    }).done;
+    const tools = new Map(
+      updates
+        .filter((update) => update.type === "tool")
+        .map((update) => [update.tool.id, update.tool]),
+    );
+    expect([...tools.values()].map((tool) => tool.kind)).toEqual([
+      "test",
+      "search",
+      "edit",
+      "test",
+    ]);
+    expect(tools.get("test")).toMatchObject({
+      status: "failed",
+      output: expect.stringContaining("1 failed, 2 passed"),
+    });
+    expect(tools.get("verify")).toMatchObject({
+      status: "completed",
+      output: "3 passed\n0 failed",
+    });
+    expect(tools.get("edit")?.files?.[0].path).toBe("src/button.tsx");
+    expect(updates.some((update) => update.type === "error")).toBe(false);
+  });
   test(`${harness} uses the exact project cwd, pipes prompts literally and resumes its session`, async () => {
     const { directory, executable } = await fixture();
     const updates: HarnessUpdate[] = [];

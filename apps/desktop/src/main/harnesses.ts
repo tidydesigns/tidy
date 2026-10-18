@@ -4,12 +4,15 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
+import { createToolEventParser } from "./tool-events";
+import type { ToolActivityUpdate } from "../shared/tool-activity";
 import type { HarnessSettings, TokenUsage } from "../shared/harness-settings";
 import type { HarnessConnection, HarnessId } from "../shared/contracts";
 
 const execute = promisify(execFile);
 const names = { codex: "Codex", claude: "Claude Code" };
 export type HarnessUpdate =
+  | { type: "tool"; tool: ToolActivityUpdate }
   | { type: "usage"; usage: TokenUsage; cumulative: boolean }
   | { type: "model"; model: string }
   | { type: "session"; id: string }
@@ -119,8 +122,10 @@ function readUsage(value: Record<string, unknown>, claude: boolean): TokenUsage 
 /** Normalize only visible messages and tool progress, never reasoning or credentials. */
 export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpdate) => void) {
   let claudeMessageId = "response";
+  const tools = createToolEventParser(harness, (tool) => emit({ type: "tool", tool }));
   return (input: unknown) => {
     const value = record(input);
+    if (value.type !== "assistant" || value.parent_tool_use_id) tools(value);
     if (harness === "codex") {
       if (value.type === "thread.started" && text(value.thread_id))
         emit({ type: "session", id: text(value.thread_id) });
@@ -132,11 +137,17 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         const item = record(value.item);
         if (item.type === "agent_message")
           emit({ type: "message", id: text(item.id), text: text(item.text) });
-        else if (item.type === "command_execution")
-          emit({ type: "activity", text: text(item.command) || "Running a command" });
-        else if (item.type === "file_change")
-          emit({ type: "activity", text: "Updating project files" });
-        else if (item.type !== "reasoning") emit({ type: "activity", text: "Working" });
+        else if (
+          ![
+            "reasoning",
+            "command_execution",
+            "file_change",
+            "web_search",
+            "mcp_tool_call",
+            "dynamic_tool_call",
+          ].includes(text(item.type))
+        )
+          emit({ type: "activity", text: "Working" });
       }
       if (value.type === "turn.completed") {
         const usage = readUsage(record(value.usage), false);
@@ -163,9 +174,6 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
       const delta = record(event.delta);
       if (delta.type === "text_delta")
         emit({ type: "message", id: claudeMessageId, text: text(delta.text), append: true });
-      const block = record(event.content_block);
-      if (block.type === "tool_use")
-        emit({ type: "activity", text: text(block.name) || "Using a tool" });
     }
     if (value.type === "assistant") {
       const message = record(value.message);
@@ -176,8 +184,7 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         .join("\n");
       if (visible)
         emit({ type: "message", id: text(message.id) || claudeMessageId, text: visible });
-      for (const block of content)
-        if (block.type === "tool_use") emit({ type: "activity", text: text(block.name) });
+      tools(value);
     }
     if (value.type === "result") {
       const byModel = Object.values(record(value.modelUsage)).map(record);

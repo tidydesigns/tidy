@@ -1163,3 +1163,178 @@ summary:focus-visible {
   display: block;
   padding: 2px 8px 8px;
 }
+.tool-activity-group {
+  margin: 0 0 24px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.tool-activity-group > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.tool-activity-group > summary::-webkit-details-marker,
+.tool-call > summary::-webkit-details-marker {
+  display: none;
+}
+.activity-chevron {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  font-size: 18px;
+}
+.tool-activity-group[open] > summary .activity-chevron,
+.tool-call[open] > summary .activity-chevron {
+  transform: rotate(90deg);
+}
+.activity-summary-title,
+.tool-call-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-summary-title {
+  flex: 1;
+}
+.activity-count,
+.tool-status,
+.tool-duration {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.tool-activity-group svg,
+.tool-call svg {
+  flex-shrink: 0;
+}
+.tool-activity-list {
+  max-height: 420px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 2px 0 2px 18px;
+  border-left: 1px solid var(--color-border);
+  margin: 6px 0 0 6px;
+}
+.tool-call > summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  list-style: none;
+}
+.tool-call > summary:hover {
+  background: var(--color-hover-surface);
+}
+.tool-call-title {
+  flex: 1;
+  color: var(--color-ink);
+}
+.tool-call-nested {
+  margin-left: 12px;
+}
+.tool-status-failed {
+  color: light-dark(#a33f34, #e39788);
+  font-size: 11px;
+}
+.tool-status-cancelled,
+.tool-status-interrupted {
+  color: var(--color-muted-ink);
+}
+.tool-status-running {
+  color: var(--color-ink);
+}
+.tool-call-details {
+  padding: 8px 8px 12px 34px;
+}
+.tool-call-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-bottom: 10px;
+  font-size: 11px;
+}
+.tool-detail-section {
+  margin-top: 10px;
+}
+.tool-detail-section > span {
+  display: block;
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.tool-input,
+.tool-output {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  background: var(--desktop-surface);
+  color: var(--color-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.65;
+  tab-size: 2;
+}
+.tool-input {
+  max-height: 200px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool-output {
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.tool-detail-section small {
+  display: block;
+  margin-top: 5px;
+  font-size: 10px;
+}
+.tool-empty-output,
+.tool-log-notice {
+  margin: 10px 0;
+  font-size: 11px;
+  color: var(--color-muted-ink);
+}
+.tool-files {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tool-files li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+}
+.tool-files li > span {
+  flex-shrink: 0;
+  font-size: 10px;
+}
+.tool-files code {
+  color: var(--color-ink);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 700px) {
+  .tool-call > summary {
+    gap: 6px;
+  }
+  .tool-call-details {
+    padding-left: 12px;
+  }
+  .tool-activity-list {
+    padding-left: 8px;
+  }
+}

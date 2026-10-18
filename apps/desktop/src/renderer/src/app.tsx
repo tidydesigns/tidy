@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { LocalCanvas } from "./local-canvas";
+import { ToolActivityGroup } from "./tool-activity";
 import { AttachmentList, MessageAttachments } from "./message-attachments";
 import {
   MAX_ATTACHMENTS,
@@ -340,7 +341,7 @@ export function App() {
   useEffect(() => {
     if (followOutput.current)
       transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
-  }, [thread?.messages, thread?.activity]);
+  }, [thread?.messages, thread?.activity, thread?.toolActivities]);
 
   async function chooseProject(projectId?: string) {
     if (!api || opening) return;
@@ -822,36 +823,49 @@ export function App() {
                       ))}
                     </div>
                   ) : null}
-                  {thread?.messages.map((message) => (
-                    <article key={message.id} className={`message message-${message.role}`}>
-                      <span className="message-author">
-                        {message.role === "user" ? (
-                          "You"
-                        ) : (
-                          <span
-                            role="img"
-                            aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                            title={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                          >
-                            <HarnessIcon harness={thread.harness} size={15} />
-                          </span>
-                        )}
-                      </span>
-                      <div>{message.text}</div>
-                      {message.attachments?.length && api ? (
-                        <MessageAttachments
-                          api={api}
-                          projectId={project.id}
-                          files={message.attachments}
-                        />
-                      ) : null}
-                    </article>
-                  ))}
-                  {running && (
-                    <p className="thread-activity" role="status">
-                      {thread.activity ?? "Working"}
-                    </p>
+                  {thread?.toolActivityTruncated && (
+                    <p className="tool-log-notice">Earlier tool activity omitted</p>
                   )}
+                  {thread?.messages.map((message) => (
+                    <Fragment key={message.id}>
+                      <article className={`message message-${message.role}`}>
+                        <span className="message-author">
+                          {message.role === "user" ? (
+                            "You"
+                          ) : (
+                            <span
+                              role="img"
+                              aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                              title={thread.harness === "codex" ? "Codex" : "Claude Code"}
+                            >
+                              <HarnessIcon harness={thread.harness} size={15} />
+                            </span>
+                          )}
+                        </span>
+                        <div>{message.text}</div>
+                        {message.attachments?.length && api ? (
+                          <MessageAttachments
+                            api={api}
+                            projectId={project.id}
+                            files={message.attachments}
+                          />
+                        ) : null}
+                      </article>
+                      <ToolActivityGroup
+                        activities={
+                          thread.toolActivities?.filter(
+                            (tool) => tool.afterMessageId === message.id,
+                          ) ?? []
+                        }
+                      />
+                    </Fragment>
+                  ))}
+                  {running &&
+                    !thread?.toolActivities?.some((tool) => tool.status === "running") && (
+                      <p className="thread-activity" role="status">
+                        {thread.activity ?? "Working"}
+                      </p>
+                    )}
                   {thread?.error && (
                     <p className="thread-error" role="alert">
                       {thread.error}

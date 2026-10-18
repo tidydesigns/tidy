@@ -1,3 +1,4 @@
+import type { ToolActivity } from "./tool-activity";
 import type { Attachment, AttachedFile } from "./attachments";
 import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
@@ -30,10 +31,12 @@ export type Thread = {
   messages: Message[];
   status: "idle" | "running" | "completed" | "stopped" | "failed" | "interrupted";
   activity?: string;
+  toolActivities?: ToolActivity[];
+  toolActivityTruncated?: boolean;
   error?: string;
   updatedAt: string;
 };
-export type ThreadSummary = Omit<Thread, "messages" | "sessionId"> & {
+export type ThreadSummary = Omit<Thread, "messages" | "sessionId" | "toolActivities"> & {
   preview?: string;
   messageCount?: number;
 };

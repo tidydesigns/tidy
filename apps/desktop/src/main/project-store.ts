@@ -19,6 +19,7 @@ import {
   MAX_IMAGE_BYTES,
   type AttachedFile,
 } from "../shared/attachments";
+import { toolActivitySchema, MAX_TOOL_ACTIVITIES } from "../shared/tool-activity";
 import { harnessSettingsSchema, tokenUsageSchema } from "../shared/harness-settings";
 import type {
   DesignFolder,
@@ -51,6 +52,8 @@ export const threadSchema = z.object({
   messages: z.array(messageSchema).max(1000),
   status: z.enum(["idle", "running", "completed", "stopped", "failed", "interrupted"]),
   activity: z.string().max(500).optional(),
+  toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
+  toolActivityTruncated: z.boolean().optional(),
   error: z.string().max(4000).optional(),
   updatedAt: z.string().datetime(),
 });
@@ -541,6 +544,9 @@ export class ProjectStore {
             ...thread,
             status: "interrupted",
             activity: undefined,
+            toolActivities: thread.toolActivities?.map((tool) =>
+              tool.status === "running" ? { ...tool, status: "interrupted" as const } : tool,
+            ),
             error: "The app closed during this run. Send a message to continue.",
           });
         }

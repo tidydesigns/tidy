@@ -36,6 +36,23 @@ in the composer. Credentials remain owned by each CLI and are never read or copi
 by Tidy. The current integration uses Codex JSON events and Claude Code streaming
 JSON; tests exercise both protocols with fixture executables, without paid inference.
 
+Tool activity appears inline with the conversation in collapsed groups. Expand a
+group and a step to inspect commands, searches, reads, file changes, tool inputs
+and output, including test logs and reported exit codes. Output updates as the
+harness supplies events; native aggregate snapshots replace earlier output rather
+than duplicating it. Expansion stays under the user's control during streaming.
+A failed tool does not make the entire turn fail. Stopped and interrupted tools
+retain their partial output and are never labeled as successfully completed.
+
+Tool logs persist privately with the thread. Each input retains its first 8,000
+characters and each output its latest 32,000 characters. A thread retains up to
+250 steps and 1,000,000 characters of tool logs; shortened inputs, omitted output
+and older discarded steps are indicated. Existing transcripts remain readable,
+but activity discarded by earlier app versions cannot be recovered. File edits
+show the paths and patch/input details actually supplied by the harness: Codex
+JSON events can report paths without a patch. Test results display the harness's
+output; the app does not infer passed-test counts from exit codes.
+
 Each thread card shows its last activity as `3m`, `6h` or `2d`. Use its tick-and-Done
 action to move it into the collapsed Done section at the bottom of the sidebar.
 Completed threads remain readable; click Done again to reopen one and continue
@@ -82,7 +99,7 @@ your-project/
     folders/<id>.json  # { id, name }; project-local design organization
     assets/<id>.json   # Local image data, referenced by designs
     attachments/      # Private copied files and metadata, ignored by Git
-    threads/<id>.json  # Transcript, native session ID, harness and attachment references
+    threads/<id>.json  # Transcript, tool logs, native session ID and attachment references
     .gitignore        # Ignores local identity and private thread history
 ```
 
