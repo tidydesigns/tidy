@@ -1149,6 +1149,7 @@ export function App() {
                       connections={harnesses}
                       harness={selectedHarness}
                       settings={thread?.settings ?? draft.settings ?? {}}
+                      actualModel={thread?.actualModel}
                       usage={thread?.usage}
                       details={currentDetails?.info}
                       error={currentDetails?.error}

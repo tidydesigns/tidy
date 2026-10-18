@@ -29,7 +29,7 @@ export const permissionModes = {
   codex: [
     {
       value: "default",
-      label: "Default",
+      label: "Project access",
       description: "Work in this project. Ask for access beyond the sandbox.",
     },
     {
@@ -42,7 +42,7 @@ export const permissionModes = {
   claude: [
     {
       value: "default",
-      label: "Default",
+      label: "Ask before changes",
       description: "Ask before file edits and commands that need permission.",
     },
     {

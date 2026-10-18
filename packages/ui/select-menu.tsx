@@ -13,6 +13,7 @@ import {
 export type SelectMenuOption = {
   value: string;
   label: string;
+  description?: string;
   icon?: ReactNode;
   disabled?: boolean;
   ariaLabel?: string;
@@ -247,9 +248,14 @@ export function SelectMenu({
                 <span
                   data-ph-public={replayOptions || undefined}
                   data-ph-private={!replayOptions || undefined}
-                  className="truncate"
+                  className="min-w-0"
                 >
-                  {option.label}
+                  <span className="block truncate">{option.label}</span>
+                  {option.description && (
+                    <span className="mt-0.5 block whitespace-normal text-xs text-secondary-ink">
+                      {option.description}
+                    </span>
+                  )}
                 </span>
               </span>
               {layout !== "horizontal" && (

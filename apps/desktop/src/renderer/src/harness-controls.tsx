@@ -11,6 +11,7 @@ import {
 } from "../../shared/permissions";
 
 const number = (value: number) => value.toLocaleString();
+const effortLabel = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 export function TokenUsageDetails({ usage }: { usage: TokenUsage }) {
   return (
     <dl className="usage-statistics">
@@ -40,6 +41,7 @@ export function HarnessControls({
   connections,
   harness,
   settings,
+  actualModel,
   usage,
   details,
   error,
@@ -53,6 +55,7 @@ export function HarnessControls({
   connections: HarnessConnection[];
   harness: HarnessId;
   settings: HarnessSettings;
+  actualModel?: string;
   usage?: TokenUsage;
   details?: HarnessDetails;
   error?: string;
@@ -62,10 +65,12 @@ export function HarnessControls({
   onSettingsChange(settings: HarnessSettings): void;
   onRefresh(): void;
 }) {
-  const model = details?.models.find(
-    (model) => model.id === (settings.model ?? details.defaultModel),
-  );
+  const configuredModel = settings.model ?? actualModel ?? details?.defaultModel;
+  const modelId = configuredModel === "default" ? undefined : configuredModel;
+  const model = details?.models.find((model) => model.id === (modelId ?? "default"));
   const name = harness === "codex" ? "Codex" : "Claude Code";
+  const defaultEffort = details?.defaultEffort ?? model?.defaultEffort;
+  const effort = settings.effort ?? defaultEffort;
   const [usageOpen, setUsageOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null),
     popup = useRef<HTMLDivElement>(null);
@@ -123,47 +128,76 @@ export function HarnessControls({
           <HarnessIcon harness={harness} size={18} />
         </span>
       )}
-      <SelectMenu
-        label="Model"
-        placement="top"
-        value={settings.model ?? ""}
-        disabled={disabled || !details?.models.length}
-        triggerClassName="harness-setting-trigger"
-        options={[
-          { value: "", label: "Default model" },
-          ...(details?.models
-            .filter((model) => model.id !== "default")
-            .map((model) => ({ value: model.id, label: model.name })) ?? []),
-          ...(settings.model && !details?.models.some((model) => model.id === settings.model)
-            ? [{ value: settings.model, label: settings.model, disabled: true }]
-            : []),
-        ]}
-        onChange={(value) =>
-          onSettingsChange({
-            ...settings,
-            model: value || undefined,
-            effort: value
-              ? details?.models.find((model) => model.id === value)?.defaultEffort
-              : undefined,
-          })
-        }
-      />
+      {details?.models.length ? (
+        <div
+          title={
+            modelId
+              ? model?.description
+              : `${name} has not reported its configured model. Choose a model for this thread.`
+          }
+        >
+          <SelectMenu
+            label="Model"
+            placement="top"
+            value={modelId ?? ""}
+            disabled={disabled}
+            triggerClassName="harness-setting-trigger"
+            options={[
+              ...(!modelId ? [{ value: "", label: "Choose model", disabled: true }] : []),
+              ...(details?.models
+                .filter((model) => model.id !== "default")
+                .map((model) => ({ value: model.id, label: model.name })) ?? []),
+              ...(modelId && !details.models.some((model) => model.id === modelId)
+                ? [{ value: modelId, label: modelId, disabled: true }]
+                : []),
+            ]}
+            onChange={(value) =>
+              onSettingsChange({
+                ...settings,
+                model: value,
+                effort: details.models.find((model) => model.id === value)?.defaultEffort,
+              })
+            }
+          />
+        </div>
+      ) : (
+        <Button
+          type="button"
+          className="harness-setting-trigger"
+          disabled={loading || disabled}
+          title={error ?? "Load the connected harness's model choices."}
+          onClick={onRefresh}
+        >
+          {loading ? "Loading models…" : "Retry models"}
+        </Button>
+      )}
       {Boolean(model?.efforts.length) && (
-        <SelectMenu
-          label="Effort"
-          placement="top"
-          value={settings.effort ?? ""}
-          disabled={disabled}
-          triggerClassName="harness-setting-trigger"
-          options={[
-            { value: "", label: "Default effort" },
-            ...model!.efforts.map((value) => ({
-              value,
-              label: value.charAt(0).toUpperCase() + value.slice(1),
-            })),
-          ]}
-          onChange={(value) => onSettingsChange({ ...settings, effort: value || undefined })}
-        />
+        <div
+          title={
+            effort
+              ? "Reasoning effort for this thread."
+              : `${name} has not reported its configured effort. Choose an effort for this thread.`
+          }
+        >
+          <SelectMenu
+            label="Effort"
+            placement="top"
+            value={effort ?? ""}
+            disabled={disabled}
+            triggerClassName="harness-setting-trigger"
+            options={[
+              ...(!effort ? [{ value: "", label: "Choose effort", disabled: true }] : []),
+              ...model!.efforts.map((value) => ({
+                value,
+                label: effortLabel(value),
+              })),
+              ...(effort && !model!.efforts.includes(effort)
+                ? [{ value: effort, label: effortLabel(effort), disabled: true }]
+                : []),
+            ]}
+            onChange={(value) => onSettingsChange({ ...settings, effort: value })}
+          />
+        </div>
       )}
       <div
         className="permission-control"

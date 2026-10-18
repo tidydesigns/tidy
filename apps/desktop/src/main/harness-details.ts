@@ -223,7 +223,9 @@ export async function inspectHarness(
       .safeParse(config);
     if (parsedConfig.success) {
       defaultModel = parsedConfig.data.config.model ?? defaultModel;
-      defaultEffort = parsedConfig.data.config.model_reasoning_effort ?? defaultEffort;
+      defaultEffort =
+        parsedConfig.data.config.model_reasoning_effort ??
+        models.find((model) => model.id === defaultModel)?.defaultEffort;
     }
     let windows: UsageWindow[] = [],
       usageError: string | undefined;

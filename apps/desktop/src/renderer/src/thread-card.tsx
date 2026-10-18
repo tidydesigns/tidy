@@ -140,7 +140,7 @@ export function ThreadCard({
           <div className="thread-preview-model">
             <HarnessIcon harness={thread.harness} />
             <span>
-              {modelName ?? thread.settings?.model ?? thread.actualModel ?? "Default model"}
+              {modelName ?? thread.settings?.model ?? thread.actualModel ?? "Model not reported"}
               {thread.settings?.effort ? ` · ${thread.settings.effort} effort` : ""}
             </span>
           </div>
