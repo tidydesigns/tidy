@@ -65,6 +65,11 @@ const threads: CommentThread[] = [
 ];
 const preview = process.argv.includes("--preview");
 let posts = 0;
+let reads = 0;
+let failReads = false;
+let failReaction = false;
+let reactionPostGate: Promise<void> | null = null;
+let readGate: Promise<void> | null = null;
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: preview ? 4390 : 0,
@@ -77,12 +82,15 @@ const server = Bun.serve({
       return new Response(Bun.file(resolve(root, "public", url.pathname.slice(1))));
     if (url.pathname === "/api/files/file/comments") {
       if (request.method === "GET") {
+        reads++;
+        if (failReads) return Response.json({ error: "Read unavailable" }, { status: 503 });
         const snapshot = structuredClone(
           threads.filter(
             (thread) =>
               !url.searchParams.has("threadId") || thread.id === url.searchParams.get("threadId"),
           ),
         );
+        if (readGate) await readGate;
         if (preview) await Bun.sleep(500);
         return Response.json({
           threads: snapshot,
@@ -127,10 +135,13 @@ const server = Bun.serve({
         return Response.json({ message: existing ?? message });
       }
       if (input.action === "react") {
+        if (reactionPostGate) await reactionPostGate;
+        if (failReaction)
+          return Response.json({ error: "Reaction limit reached" }, { status: 409 });
         const message = threads[0].messages.find((message) => message.id === input.messageId)!;
-        message.reactions = message.reactions.length
-          ? []
-          : [{ emoji: input.emoji, count: 1, reacted: true }];
+        message.reactions = message.reactions.some((reaction) => reaction.emoji === input.emoji)
+          ? message.reactions.filter((reaction) => reaction.emoji !== input.emoji)
+          : [...message.reactions, { emoji: input.emoji, count: 1, reacted: true }];
       }
       return Response.json({});
     }
@@ -310,6 +321,112 @@ try {
     "Tab proceeds to the reply field",
   );
 
+  // A successful toggle must survive a failed confirmation read without flickering.
+  await load(1);
+  failReads = true;
+  const beforeFailedRead = posts;
+  await triggers.first().click();
+  await picker.getByRole("menuitem", { name: "React with 👍", exact: true }).click();
+  await until(async () => posts === beforeFailedRead + 1 && (await triggers.first().isEnabled()));
+  assert.equal(
+    await reaction.count(),
+    1,
+    "A failed read must not undo a saved optimistic reaction",
+  );
+  assert.equal(await reaction.evaluate((element) => getComputedStyle(element).opacity), "1");
+  assert.equal(await reply.inputValue(), "Keep this reply draft");
+  failReads = false;
+  const refreshButton = page.getByRole("button", { name: "Refresh comments", exact: true });
+  let beforeRead = reads;
+  await refreshButton.click();
+  await until(() => reads >= beforeRead + 2);
+  await reaction.waitFor();
+  // Once confirmed, another client's update must replace the local overlay.
+  threads[0].messages[0].reactions = [];
+  await refreshButton.click();
+  await reaction.waitFor({ state: "hidden" });
+
+  // An older read arriving around acknowledgement must never erase the selected emoji.
+  let releasePost!: () => void;
+  let releaseRead!: () => void;
+  reactionPostGate = new Promise<void>((resolve) => {
+    releasePost = resolve;
+  });
+  readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  await triggers.first().click();
+  await picker.getByRole("menuitem", { name: "React with 👍", exact: true }).click();
+  await reaction.waitFor();
+  assert.equal(
+    await reaction.evaluate((element) => getComputedStyle(element).opacity),
+    "1",
+    "Pending reactions retain full contrast",
+  );
+  beforeRead = reads;
+  await refreshButton.click();
+  await until(() => reads >= beforeRead + 2);
+  const staleResponse = page.waitForResponse(
+    (response) => response.url().includes("/comments?") && response.ok(),
+  );
+  releaseRead();
+  readGate = null;
+  await staleResponse;
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  assert.equal(
+    await reaction.count(),
+    1,
+    "A pre-commit snapshot cannot erase the pending reaction",
+  );
+  readGate = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+  releasePost();
+  reactionPostGate = null;
+  await until(async () => await triggers.first().isEnabled());
+  assert.equal(await reaction.count(), 1, "Acknowledgement does not wait for the blocked refresh");
+  await triggers.first().click();
+  await picker.getByRole("menuitem", { name: "React with 👀", exact: true }).click();
+  await until(async () => await triggers.first().isEnabled());
+  assert.equal(
+    await reaction.count(),
+    1,
+    "A second emoji preserves the first unconfirmed reaction",
+  );
+  assert.equal(
+    await popup.getByRole("button", { name: "👀 reaction, 1, remove yours", exact: true }).count(),
+    1,
+  );
+  releaseRead();
+  readGate = null;
+  await until(async () => (await reaction.getAttribute("aria-pressed")) === "true");
+  assert.equal(await reply.inputValue(), "Keep this reply draft");
+
+  // Failed additions and removals restore the prior reaction and leave the composer usable.
+  failReaction = true;
+  reactionPostGate = new Promise<void>((resolve) => {
+    releasePost = resolve;
+  });
+  await reaction.click();
+  await reaction.waitFor({ state: "hidden" });
+  await reply.fill("Draft typed while reaction failed");
+  releasePost();
+  reactionPostGate = null;
+  await popup.getByRole("alert").filter({ hasText: "Reaction limit reached" }).waitFor();
+  await reaction.waitFor();
+  await until(async () => await reaction.isEnabled());
+  const beforeFailure = posts;
+  await triggers.first().click();
+  await picker.getByRole("menuitem", { name: "React with ❤️", exact: true }).click();
+  await until(async () => posts === beforeFailure + 1 && (await triggers.first().isEnabled()));
+  assert.equal(
+    await popup.getByRole("button", { name: "❤️ reaction, 1, remove yours", exact: true }).count(),
+    0,
+  );
+  assert.equal(await reaction.count(), 1, "Another reaction is not removed on failure");
+  assert.equal(await reply.inputValue(), "Draft typed while reaction failed");
+  failReaction = false;
+
   await load(12);
   const scroller = popup.locator("div.min-h-0.space-y-3");
   await triggers.last().scrollIntoViewIfNeeded();
@@ -341,7 +458,7 @@ try {
   await page.getByRole("button", { name: "Comment status: Resolved (0)", exact: true }).waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    `Reaction picker usability checks passed: ${layouts} short/long-thread layouts, all six choices visible above the composer, no layout/scroll shift, Escape, Tab, arrows, click-away, single picker, scroll dismissal, reaction toggle and list-menu keyboard regression.`,
+    `Reaction picker usability checks passed: ${layouts} short/long-thread layouts, all six choices visible above the composer, no layout/scroll shift, Escape, Tab, arrows, click-away, single picker, scroll dismissal, reaction reconciliation, failed-write rollback and list-menu keyboard regression.`,
   );
 } finally {
   await browser.close();

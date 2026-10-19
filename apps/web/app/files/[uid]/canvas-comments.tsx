@@ -32,7 +32,6 @@ import {
   commentPageSchema,
   type CommentPage,
   type CommentMessage,
-  type CommentReaction,
   type CommentThread,
 } from "@/lib/design/comment-contract";
 import { readJsonResponse } from "@/lib/http/json-response";
@@ -59,23 +58,45 @@ function Avatar({ name, image, size = 32 }: { name: string; image: string | null
   );
 }
 
+function SendingStatus() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setVisible(true), 300);
+    return () => window.clearTimeout(timer);
+  }, []);
+  return (
+    <p role="status" className="ml-9 mt-1 h-4 text-xs text-secondary-ink">
+      <span className={visible ? undefined : "sr-only"}>Sending…</span>
+    </p>
+  );
+}
+
+type ReactionDraft = {
+  emoji: (typeof COMMENT_EMOJIS)[number];
+  reacted: boolean;
+} & ({ kind: "sending" } | { kind: "sent"; ackVersion: number });
+
 const ThreadMessage = memo(function ThreadMessage({
   message,
   fileId,
   viewerId,
   reactionsAvailable,
   refresh,
+  readVersion,
+  latestReadVersion,
 }: {
   message: CommentMessage;
   fileId: string;
   viewerId: string | null;
   reactionsAvailable: boolean;
   refresh: () => Promise<void>;
+  readVersion: number;
+  latestReadVersion: () => number;
 }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(message.body);
   const [pending, setPending] = useState(false);
-  const [reactionDraft, setReactionDraft] = useState<CommentReaction[] | null>(null);
+  const [reactionDrafts, setReactionDrafts] = useState<ReactionDraft[]>([]);
   const [error, setError] = useState("");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
@@ -123,6 +144,30 @@ const ThreadMessage = memo(function ThreadMessage({
     }
   }
 
+  // A read started before acknowledgement cannot retire the local intent.
+  const activeReactions = reactionDrafts.filter(
+    (draft) => draft.kind === "sending" || readVersion <= draft.ackVersion,
+  );
+  let reactions = message.reactions;
+  for (const activeReaction of activeReactions) {
+    const existing = reactions.find((reaction) => reaction.emoji === activeReaction.emoji);
+    reactions = existing
+      ? reactions
+          .map((reaction) =>
+            reaction.emoji === activeReaction.emoji
+              ? {
+                  ...reaction,
+                  count: reaction.count + Number(activeReaction.reacted) - Number(reaction.reacted),
+                  reacted: activeReaction.reacted,
+                }
+              : reaction,
+          )
+          .filter((reaction) => reaction.count > 0)
+      : activeReaction.reacted
+        ? [...reactions, { emoji: activeReaction.emoji, count: 1, reacted: true }]
+        : reactions;
+  }
+
   async function toggleReaction(value: string) {
     if (pending) return;
     const parsed = commentEmojiSchema.safeParse(value);
@@ -131,35 +176,31 @@ const ThreadMessage = memo(function ThreadMessage({
       return;
     }
     const emoji = parsed.data;
-    const existing = message.reactions.find((reaction) => reaction.emoji === emoji);
-    setReactionDraft(
-      existing
-        ? message.reactions
-            .map((reaction) =>
-              reaction.emoji === emoji
-                ? {
-                    ...reaction,
-                    count: reaction.count + (reaction.reacted ? -1 : 1),
-                    reacted: !reaction.reacted,
-                  }
-                : reaction,
-            )
-            .filter((reaction) => reaction.count > 0)
-        : [...message.reactions, { emoji, count: 1, reacted: true }],
-    );
+    const existing = reactions.find((reaction) => reaction.emoji === emoji);
+    const previousDrafts = reactionDrafts;
+    const change = { emoji, reacted: !existing?.reacted };
+    setReactionDrafts([
+      ...activeReactions.filter((draft) => draft.emoji !== emoji),
+      { ...change, kind: "sending" },
+    ]);
     setPending(true);
     setError("");
     try {
       const result = await reactToComment({ fileId, messageId: message.id, emoji });
-      if (result.kind === "error") {
-        setError(result.error);
-        return;
-      }
-      await refresh();
-    } catch {
-      setError("Could not update reaction. Try again.");
+      if (result.kind === "error") throw new Error(result.error);
+      const ackVersion = latestReadVersion();
+      setReactionDrafts((current) =>
+        current.map((draft) =>
+          draft.emoji === emoji ? { ...change, kind: "sent", ackVersion } : draft,
+        ),
+      );
+      void refresh();
+    } catch (cause) {
+      setReactionDrafts(previousDrafts);
+      setError(cause instanceof Error ? cause.message : "Could not update reaction. Try again.");
+      // A lost response may still have committed. Read the state without replaying a toggle.
+      void refresh();
     } finally {
-      setReactionDraft(null);
       setPending(false);
     }
   }
@@ -224,7 +265,7 @@ const ThreadMessage = memo(function ThreadMessage({
         )}
         {reactionsAvailable && (
           <div className="mt-2 flex flex-wrap items-center gap-1">
-            {(reactionDraft ?? message.reactions).map((reaction) => (
+            {reactions.map((reaction) => (
               <button
                 key={reaction.emoji}
                 type="button"
@@ -232,7 +273,7 @@ const ThreadMessage = memo(function ThreadMessage({
                 aria-label={`${reaction.emoji} reaction, ${reaction.count}${reaction.reacted ? ", remove yours" : ", add yours"}`}
                 aria-pressed={reaction.reacted}
                 onClick={() => void toggleReaction(reaction.emoji)}
-                className={`rounded-full border px-2 py-0.5 text-xs disabled:opacity-50 ${reaction.reacted ? "border-primary-orange bg-primary-orange/10" : "border-primary-grey hover:bg-primary-grey/20"}`}
+                className={`rounded-full border px-2 py-0.5 text-xs ${reaction.reacted ? "border-primary-orange bg-primary-orange/10" : "border-primary-grey hover:bg-primary-grey/20"}`}
               >
                 {reaction.emoji} {reaction.count}
               </button>
@@ -249,7 +290,7 @@ const ThreadMessage = memo(function ThreadMessage({
               value=""
               disabled={pending}
               triggerContent="☺"
-              triggerClassName="rounded-full border border-primary-grey px-2 py-0.5 text-xs text-secondary-ink hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
+              triggerClassName="rounded-full border border-primary-grey px-2 py-0.5 text-xs text-secondary-ink hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
               options={COMMENT_EMOJIS.map((emoji) => ({
                 value: emoji,
                 label: emoji,
@@ -343,6 +384,11 @@ export const CanvasComments = forwardRef<
   const mutationRef = useRef<{ thread: CommentThread; resolved: boolean | null } | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const refreshVersion = useRef(0);
+  const [confirmedRead, setConfirmedRead] = useState({
+    version: 0,
+    messageIds: new Set<string>(),
+  });
+  const latestReadVersion = useCallback(() => refreshVersion.current, []);
   const loadedPages = useRef(1);
   const focusedThread = useRef<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -430,6 +476,7 @@ export const CanvasComments = forwardRef<
             return false;
           }),
         );
+        setConfirmedRead({ version, messageIds: received });
         setNextCursor(cursor);
         setViewerId(result.viewerId);
         if (result.viewer) setViewer(result.viewer);
@@ -969,12 +1016,12 @@ export const CanvasComments = forwardRef<
                         reactionsAvailable && (!submission || submission.kind === "sent")
                       }
                       refresh={refresh}
+                      readVersion={
+                        confirmedRead.messageIds.has(message.id) ? confirmedRead.version : 0
+                      }
+                      latestReadVersion={latestReadVersion}
                     />
-                    {submission?.kind === "sending" && (
-                      <p role="status" className="ml-9 mt-1 text-xs text-secondary-ink">
-                        Sending…
-                      </p>
-                    )}
+                    {submission?.kind === "sending" && <SendingStatus />}
                     {submission?.kind === "failed" && (
                       <div className="ml-9 mt-1 flex items-center gap-2 text-xs text-danger">
                         <p role="alert">{submission.error}</p>

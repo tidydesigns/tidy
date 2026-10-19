@@ -193,6 +193,9 @@ try {
       await new Promise(requestAnimationFrame);
       if (!document.querySelector('[aria-label="Comment thread"]')?.textContent?.includes(expected))
         throw new Error("Comment did not appear on the next animation frame");
+      const status = [...document.querySelectorAll('[role="status"]')].at(-1);
+      if (status && performance.now() - start < 300 && !status.querySelector("span.sr-only"))
+        throw new Error("New sends should expose status accessibly without flashing visible text");
       return performance.now() - start;
     }, expectedBody);
   }
@@ -214,6 +217,7 @@ try {
     "Replies to a new thread wait for its creation, without blocking the composer",
   );
   assert.equal(reads, initialReads, "No post-send GET is needed");
+  await popup.locator('[role="status"] span:not(.sr-only)').first().waitFor();
   resumePosts();
   await until(async () => posts === 3 && (await popup.getByRole("status").count()) === 0);
   assert.deepEqual(
@@ -221,6 +225,25 @@ try {
     ["First comment", "Quick reply one", "Quick reply two"],
   );
   assert.equal(reads, initialReads, "Receipts confirm sends without reloading comments");
+
+  // Fast acknowledgements never flash a visible sending label, including after its timer.
+  await reply.fill("Fast acknowledgement");
+  await page.evaluate(() => {
+    const stats = window as unknown as { visibleSending?: boolean };
+    stats.visibleSending = false;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('[role="status"] span:not(.sr-only)')) stats.visibleSending = true;
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+    window.setTimeout(() => observer.disconnect(), 400);
+  });
+  await postOnNextFrame("Fast acknowledgement");
+  await until(async () => (await popup.getByRole("status").count()) === 0);
+  await Bun.sleep(400);
+  assert.equal(
+    await page.evaluate(() => (window as unknown as { visibleSending: boolean }).visibleSending),
+    false,
+  );
 
   // A stale live read must not erase an optimistic reply or duplicate it after acknowledgement.
   holdReads();
