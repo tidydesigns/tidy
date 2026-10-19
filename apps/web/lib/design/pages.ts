@@ -50,6 +50,7 @@ export function duplicatePage(
       {
         id: newPageId,
         name: `${source.name.slice(0, 115)} copy`,
+        ...(source.background ? { background: source.background } : {}),
         guides: source.guides?.map((guide) => ({ ...guide, id: newId() })),
       },
       ...pages.slice(index + 1),

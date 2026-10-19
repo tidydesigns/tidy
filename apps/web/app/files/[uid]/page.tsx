@@ -93,6 +93,13 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
                 : "/files"
           }
           initialDocument={document}
+          agentSetup={{
+            resourceUrl: new URL(
+              "/api/mcp",
+              process.env.BETTER_AUTH_URL || "http://localhost:3000",
+            ).toString(),
+            organizationId: file.organizationId,
+          }}
           initialPanelsOpen={initialPanelsOpen}
           initialToolbarPlacement={editorToolbarPlacement(
             cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,

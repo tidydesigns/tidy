@@ -17,7 +17,7 @@ export function shared<T>(nodes: DesignNode[], get: (node: DesignNode) => T): T 
     : undefined;
 }
 
-export function Choice({
+export function Choice<const T extends string>({
   label,
   replayLabel = false,
   replayOptions = false,
@@ -29,8 +29,8 @@ export function Choice({
   replayLabel?: boolean;
   replayOptions?: boolean;
   value: Value;
-  choices: [string, string][];
-  onChange: (value: string) => void;
+  choices: readonly (readonly [T, string])[];
+  onChange: (value: T) => void;
 }) {
   const labelId = useId();
   return (
@@ -46,7 +46,10 @@ export function Choice({
         size="sm"
         className="mt-1"
         value={value === undefined ? "__mixed" : String(value)}
-        onChange={onChange}
+        onChange={(value) => {
+          const option = choices.find(([key]) => key === value);
+          if (option) onChange(option[0]);
+        }}
         options={[
           ...(value === undefined ? [{ value: "__mixed", label: "Mixed", disabled: true }] : []),
           ...choices.map(([value, label]) => ({ value, label })),

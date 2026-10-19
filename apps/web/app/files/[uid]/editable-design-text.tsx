@@ -11,8 +11,10 @@ export function EditableDesignText({
   node,
   onFinish,
   onDraft,
+  selectAllOnMount = false,
 }: {
   node: DesignNode;
+  selectAllOnMount?: boolean;
   onDraft?: (value: TextContent) => void;
   onFinish: (value: TextContent | null) => void;
 }) {
@@ -32,14 +34,14 @@ export function EditableDesignText({
     callbacks.current = { onDraft, onFinish };
   });
   const dirty = useRef(false);
-  const cancelled = useRef(false),
-    finished = useRef(false);
+  const finished = useRef(false);
   const spacing = node.style.paragraphSpacing ?? 0,
     initialSpacing = useRef(spacing);
   const error = useRef<HTMLParagraphElement>(null);
   const initialFontFamily = useRef(
     node.style.fontFace ? renderFontFamily(node.style.fontFamily) : undefined,
   );
+  const initialSelectAll = useRef(selectAllOnMount);
   function draft() {
     dirty.current = true;
     if (ref.current) callbacks.current.onDraft?.(readEditableRichText(ref.current));
@@ -47,15 +49,15 @@ export function EditableDesignText({
   function finish() {
     if (finished.current || !ref.current) return;
     const value = readEditableRichText(ref.current);
-    if (!cancelled.current && !richTextSchema.safeParse(value.richText).success) {
+    if (!richTextSchema.safeParse(value.richText).success) {
       if (error.current)
         error.current.textContent =
           "Text supports at most 10,000 characters and 2,000 runs. Shorten the text to finish editing.";
-      ref.current.focus();
+      ref.current.focus({ preventScroll: true });
       return;
     }
     finished.current = true;
-    callbacks.current.onFinish(cancelled.current || !dirty.current ? null : value);
+    callbacks.current.onFinish(!dirty.current ? null : value);
   }
   const finishRef = useRef(finish);
   useLayoutEffect(() => {
@@ -67,11 +69,11 @@ export function EditableDesignText({
     root.replaceChildren(
       ...richTextElements(initial.current, initialSpacing.current, initialFontFamily.current),
     );
-    root.focus();
+    root.focus({ preventScroll: true });
     const range = document.createRange(),
       selection = window.getSelection();
     range.selectNodeContents(root);
-    range.collapse(false);
+    if (!initialSelectAll.current) range.collapse(false);
     selection?.removeAllRanges();
     selection?.addRange(range);
     const unregister = registerRichTextSelection(root, node.id, () => {
@@ -174,6 +176,7 @@ export function EditableDesignText({
         onCut={(event) => copy(event, true)}
         onKeyDown={(event) => {
           event.stopPropagation();
+          if (event.nativeEvent.isComposing) return;
           if (
             (event.metaKey || event.ctrlKey) &&
             ["b", "i", "u"].includes(event.key.toLowerCase())
@@ -189,8 +192,11 @@ export function EditableDesignText({
           }
           if (event.key === "Escape") {
             event.preventDefault();
-            cancelled.current = true;
             finish();
+            if (finished.current)
+              event.currentTarget
+                .closest<HTMLElement>('[aria-label="Design canvas"]')
+                ?.focus({ preventScroll: true });
           }
         }}
         onBlur={(event) => {

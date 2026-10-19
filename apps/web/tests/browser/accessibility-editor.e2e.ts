@@ -151,6 +151,11 @@ test("keyboard insertion works in an empty file and can be undone", async ({ pag
     await canvas.press("Escape");
     await canvas.press(shortcut);
     await canvas.press("Enter");
+    if (name === "Text") {
+      const editor = page.getByRole("textbox", { name: "Edit Text", exact: true });
+      await expect(editor).toBeFocused();
+      await editor.press("Escape");
+    }
     await expect(page.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue(name);
     await expect(canvas).toBeFocused();
   }

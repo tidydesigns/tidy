@@ -669,6 +669,7 @@ export const designDocumentSchema = z
           .object({
             id: z.string().min(1).max(120),
             name: z.string().trim().min(1).max(120),
+            background: color.optional(),
             guides: z
               .array(
                 z

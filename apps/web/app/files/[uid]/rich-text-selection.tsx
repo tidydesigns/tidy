@@ -1,30 +1,12 @@
 "use client";
 import { useState, useSyncExternalStore } from "react";
 import { textLinkSchema } from "@tidy/design/rich-text";
+import type { TextCommand, TextFormatting } from "@/lib/design/text-formatting";
 
-type Command =
-  | "bold"
-  | "italic"
-  | "underline"
-  | "strikeThrough"
-  | "insertUnorderedList"
-  | "insertOrderedList"
-  | "createLink"
-  | "unlink";
-type Snapshot = { nodeId: string; marks: Record<Command, boolean | "mixed">; href: string };
+type Snapshot = TextFormatting & { nodeId: string };
 let snapshot: Snapshot | null = null;
 let session: { root: HTMLElement; range?: Range; change: () => void } | null = null;
 const listeners = new Set<() => void>();
-const commands: Command[] = [
-  "bold",
-  "italic",
-  "underline",
-  "strikeThrough",
-  "insertUnorderedList",
-  "insertOrderedList",
-  "createLink",
-  "unlink",
-];
 const publish = () => {
   for (const listener of listeners) listener();
 };
@@ -40,7 +22,7 @@ export function useRichTextSelection() {
 }
 
 export function registerRichTextSelection(root: HTMLElement, nodeId: string, change: () => void) {
-  const active = { root, change, range: undefined as Range | undefined };
+  const active: NonNullable<typeof session> = { root, change };
   session = active;
   const update = () => {
     const selection = window.getSelection();
@@ -48,12 +30,18 @@ export function registerRichTextSelection(root: HTMLElement, nodeId: string, cha
     const range = selection.getRangeAt(0);
     if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return;
     active.range = range.cloneRange();
-    const marks = Object.fromEntries(
-      commands.map((command) => [
-        command,
-        document.queryCommandIndeterm(command) ? "mixed" : document.queryCommandState(command),
-      ]),
-    ) as Snapshot["marks"];
+    const mark = (command: TextCommand) =>
+      document.queryCommandIndeterm(command) ? "mixed" : document.queryCommandState(command);
+    const marks: Snapshot["marks"] = {
+      bold: mark("bold"),
+      italic: mark("italic"),
+      underline: mark("underline"),
+      strikeThrough: mark("strikeThrough"),
+      insertUnorderedList: mark("insertUnorderedList"),
+      insertOrderedList: mark("insertOrderedList"),
+      createLink: mark("createLink"),
+      unlink: mark("unlink"),
+    };
     const element =
       selection.anchorNode instanceof Element
         ? selection.anchorNode
@@ -79,10 +67,11 @@ export function registerRichTextSelection(root: HTMLElement, nodeId: string, cha
   };
 }
 
-export function applyTextCommand(command: Command, value?: string) {
+export function applyTextCommand(command: TextCommand, value?: string) {
   if (!session?.range || (command === "createLink" && !textLinkSchema.safeParse(value).success))
     return;
   const active = session,
+    range = session.range,
     selection = window.getSelection();
   const focused = document.activeElement;
   const liveRange = selection?.rangeCount ? selection.getRangeAt(0) : undefined;
@@ -92,9 +81,9 @@ export function applyTextCommand(command: Command, value?: string) {
     active.root.contains(liveRange.endContainer)
   )
     active.range = liveRange.cloneRange();
-  active.root.focus();
+  active.root.focus({ preventScroll: true });
   selection?.removeAllRanges();
-  selection?.addRange(active.range!);
+  selection?.addRange(active.range ?? range);
   document.execCommand(command, false, value);
   active.change();
   document.dispatchEvent(new Event("selectionchange"));
@@ -106,11 +95,30 @@ export function applyTextCommand(command: Command, value?: string) {
     focused.focus();
 }
 
-export function RichTextSelectionControls({ selection }: { selection: Snapshot }) {
-  const [href, setHref] = useState(selection.href);
+export function RichTextSelectionControls({
+  selection,
+  onCommand = applyTextCommand,
+  onFinishEditing,
+}: {
+  selection: Snapshot;
+  onCommand?: (command: TextCommand, value?: string) => void;
+  onFinishEditing?: () => void;
+}) {
+  const [draft, setDraft] = useState<{ source: string; value: string } | null>(null);
+  const href = draft?.source === selection.href ? draft.value : selection.href;
   const invalid = Boolean(href) && !textLinkSchema.safeParse(href).success;
   return (
-    <div data-rich-text-controls className="space-y-3">
+    <div
+      data-rich-text-controls
+      className="space-y-3"
+      onKeyDown={(event) => {
+        if (event.key !== "Escape" || event.nativeEvent.isComposing || !onFinishEditing) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setDraft(null);
+        onFinishEditing();
+      }}
+    >
       <div className="flex flex-wrap gap-1.5">
         {(
           [
@@ -128,7 +136,7 @@ export function RichTextSelectionControls({ selection }: { selection: Snapshot }
             aria-pressed={selection.marks[command]}
             className="rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs hover:bg-primary-grey/20"
             onPointerDown={(event) => event.preventDefault()}
-            onClick={() => applyTextCommand(command)}
+            onClick={() => onCommand(command)}
           >
             <span data-ph-public>{label}</span>
           </button>
@@ -146,9 +154,9 @@ export function RichTextSelectionControls({ selection }: { selection: Snapshot }
           className="mt-1 w-full rounded-md border border-primary-grey/70 px-2 py-1.5 text-xs"
           onChange={(event) => {
             const value = event.target.value;
-            setHref(value);
-            if (!value) applyTextCommand("unlink");
-            else if (textLinkSchema.safeParse(value).success) applyTextCommand("createLink", value);
+            setDraft({ source: selection.href, value });
+            if (!value) onCommand("unlink");
+            else if (textLinkSchema.safeParse(value).success) onCommand("createLink", value);
           }}
         />
       </label>
@@ -157,20 +165,19 @@ export function RichTextSelectionControls({ selection }: { selection: Snapshot }
           Use an http(s), mailto, tel, root-relative or fragment URL.
         </p>
       )}
-      {selection.href && (
-        <button
-          data-ph-public
-          type="button"
-          className="text-xs underline"
-          onPointerDown={(event) => event.preventDefault()}
-          onClick={() => {
-            setHref("");
-            applyTextCommand("unlink");
-          }}
-        >
-          Remove link
-        </button>
-      )}
+      <button
+        data-ph-public
+        type="button"
+        disabled={!selection.href && selection.marks.unlink === false}
+        className="text-xs underline disabled:opacity-40"
+        onPointerDown={(event) => event.preventDefault()}
+        onClick={() => {
+          setDraft({ source: selection.href, value: "" });
+          onCommand("unlink");
+        }}
+      >
+        Remove link
+      </button>
     </div>
   );
 }

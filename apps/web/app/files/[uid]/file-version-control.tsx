@@ -99,12 +99,14 @@ export function FileVersionControl({
   canEdit,
   disabled,
   onRestore,
+  variant = "floating",
 }: {
   fileId: string;
   revision: number;
   canEdit: boolean;
   disabled: boolean;
   onRestore: (versionId: string, expectedRevision: number) => Promise<void>;
+  variant?: "floating" | "sidebar";
 }) {
   const dialog = useRef<HTMLDialogElement>(null),
     requests = useRef(0);
@@ -248,8 +250,17 @@ export function FileVersionControl({
           { value: "history", label: "Version history", icon: <Icon name="history" size={18} /> },
           { value: "feedback", label: "Send feedback", icon: <Icon name="feedback" size={18} /> },
         ]}
-        triggerContent={<Icon name="more" size={18} />}
-        triggerClassName="flex size-10 items-center justify-center rounded-lg border border-primary-grey/70 bg-primary-white text-secondary-ink shadow-sm hover:bg-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.97]"
+        triggerContent={
+          <>
+            {variant === "sidebar" && <span>File actions</span>}
+            <Icon name="more" size={18} />
+          </>
+        }
+        triggerClassName={
+          variant === "sidebar"
+            ? "flex h-8 w-full items-center justify-between rounded-md px-2 text-xs text-secondary-ink hover:bg-primary-grey/20 hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange active:scale-[0.98]"
+            : "flex size-10 items-center justify-center rounded-lg border border-primary-grey/70 bg-primary-white text-secondary-ink shadow-sm hover:bg-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.97]"
+        }
         onChange={(action) => {
           if (action === "feedback") {
             openFeedback();

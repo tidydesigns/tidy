@@ -35,6 +35,13 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
       fileId={typeof query.file === "string" ? query.file.slice(0, 120) : "preview"}
       fileName={query.images === "1" ? "Coastal study" : "Login · import preview"}
       organizationName="Local preview"
+      agentSetup={{
+        resourceUrl: new URL(
+          "/api/mcp",
+          process.env.BETTER_AUTH_URL || "http://localhost:3000",
+        ).toString(),
+        organizationId: "00000000-0000-4000-8000-000000000001",
+      }}
       backHref="/login"
       initialDocument={{
         revision: 1,

@@ -10,6 +10,18 @@ import { deletePage, duplicatePage, pageNodes } from "./pages";
 import { moveLayer } from "./document-operations";
 
 describe("file pages", () => {
+  test("page backgrounds validate and survive duplication", () => {
+    const document = blankDesignDocument();
+    document.pages[0].background = "#e8edf4";
+    const copy = parseDesignDocument(duplicatePage(document, "page-1", "page-2", () => "unused"));
+    expect(copy.pages[1].background).toBe("#e8edf4");
+    expect(() =>
+      parseDesignDocument({
+        ...document,
+        pages: [{ ...document.pages[0], background: "red; display:none" }],
+      }),
+    ).toThrow();
+  });
   test("older documents open on Page 1", () => {
     const old: Partial<DesignDocument> = blankDesignDocument();
     delete old.pages;

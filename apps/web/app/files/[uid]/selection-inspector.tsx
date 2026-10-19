@@ -5,6 +5,7 @@ import { InstanceControls } from "./instance-controls";
 import { owningInstance } from "@/lib/design/component-instance";
 import { HandoffInspector } from "./handoff-inspector";
 import { useRichTextSelection, RichTextSelectionControls } from "./rich-text-selection";
+import { formatNodeText, nodeTextFormatting } from "@/lib/design/text-formatting";
 import { fontRegistry } from "@/lib/design/fonts/runtime";
 
 import {
@@ -306,12 +307,7 @@ export const SelectionInspector = memo(function SelectionInspector({
       />
     ) : null;
 
-  if (!inspect && richSelection && selected.some((item) => item.id === richSelection.nodeId))
-    return (
-      <Section replayTitle title="Text selection">
-        <RichTextSelectionControls key={richSelection.nodeId} selection={richSelection} />
-      </Section>
-    );
+  const editingSelection = !inspect && richSelection?.nodeId === node.id ? richSelection : null;
 
   const inspectorHeader = (
     <>
@@ -379,6 +375,289 @@ export const SelectionInspector = memo(function SelectionInspector({
       )}
     </Section>
   );
+  const dimensionsInspector = (
+    <div className="grid grid-cols-[1fr_1fr_32px] items-end gap-1.5">
+      {(["width", "height"] as const).map((axis) =>
+        numberField(
+          axis === "width" ? "Width" : "Height",
+          (item) => item.box[axis],
+          (value) => (item) => {
+            const locked = item.aspectRatioLocked && !cropping;
+            return {
+              box: locked ? proportionalImageSize(item.box, axis, value!) : { [axis]: value },
+              ...(locked
+                ? { widthMode: "fixed", heightMode: "fixed" }
+                : { [axis === "width" ? "widthMode" : "heightMode"]: "fixed" }),
+            };
+          },
+          1,
+          5000,
+        ),
+      )}
+      <button
+        data-ph-public
+        data-ph-public-label
+        type="button"
+        aria-label="Lock aspect ratio"
+        aria-pressed={common((item) => item.aspectRatioLocked ?? false) ?? false}
+        onClick={() =>
+          onPatch({ aspectRatioLocked: !common((item) => item.aspectRatioLocked ?? false) })
+        }
+        className={`${buttonClass} h-8 px-1`}
+      >
+        {common((item) => item.aspectRatioLocked ?? false) ? "↔" : "⌁"}
+      </button>
+    </div>
+  );
+  const scaleInspector = onScale && selected.every((item) => item.parentId === node.parentId) && (
+    <PropertyField
+      replayLabel
+      label="Scale by %"
+      value={100}
+      numeric
+      min={1}
+      max={10000}
+      step="any"
+      onCommit={(value) => {
+        if (value !== "") onScale(Number(value) / 100);
+      }}
+    />
+  );
+  const positionInspector = (
+    <Section replayTitle title={text ? "Layout" : "Position"}>
+      {selected.every((item) => item.type === "artboard") && (
+        <Choice
+          replayOptions
+          replayLabel
+          label="Frame preset"
+          value={common(
+            (item) =>
+              framePresets.find(
+                (preset) => preset.width === item.box.width && preset.height === item.box.height,
+              )?.id ?? "",
+          )}
+          choices={[
+            ["", "Custom"],
+            ...framePresets.map((preset): [string, string] => [preset.id, preset.label]),
+          ]}
+          onChange={(id) => {
+            const preset = framePresets.find((item) => item.id === id);
+            if (preset)
+              onPatch({
+                box: { width: preset.width, height: preset.height },
+                widthMode: "fixed",
+                heightMode: "fixed",
+              });
+          }}
+        />
+      )}
+      <div className="grid grid-cols-3 gap-1.5">
+        {numberField(
+          "X",
+          (item) => item.box.x,
+          (value) => ({ box: { x: value } }),
+          -100000,
+          100000,
+        )}
+        {numberField(
+          "Y",
+          (item) => item.box.y,
+          (value) => ({ box: { y: value } }),
+          -100000,
+          100000,
+        )}
+        {styleNumber("Rotation", "rotation", 0, -360, 360)}
+      </div>
+      {text && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {(["widthMode", "heightMode"] as const).map((key) => (
+            <Choice
+              replayOptions
+              replayLabel
+              key={key}
+              label={key === "widthMode" ? "Text width" : "Text height"}
+              value={common((item) => item[key] ?? "fixed")}
+              choices={[
+                ["fixed", "Fixed"],
+                ["hug", key === "widthMode" ? "Auto width" : "Auto height"],
+                ["fill", "Fill"],
+              ]}
+              onChange={(value) => onPatch({ [key]: value })}
+            />
+          ))}
+        </div>
+      )}
+      {text ? (
+        <details>
+          <summary className="cursor-pointer py-1 text-xs text-secondary-ink focus-visible:outline-2 focus-visible:outline-primary-orange">
+            Dimensions
+          </summary>
+          <div className="space-y-2 pt-2">
+            {dimensionsInspector}
+            {scaleInspector}
+          </div>
+        </details>
+      ) : (
+        dimensionsInspector
+      )}
+      {!text && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {(["widthMode", "heightMode"] as const).map((key) => (
+            <Choice
+              replayOptions
+              replayLabel
+              key={key}
+              label={key === "widthMode" ? "Width sizing" : "Height sizing"}
+              value={common((item) => item[key] ?? "fixed")}
+              choices={
+                selected.some((item) => item.vectorBoolean || item.mask)
+                  ? [["fixed", "Fixed"]]
+                  : [
+                      ["fixed", "Fixed"],
+                      ["fill", "Fill"],
+                      ["hug", "Hug"],
+                    ]
+              }
+              onChange={(value) => onPatch({ [key]: value })}
+            />
+          ))}
+        </div>
+      )}
+      {!text && scaleInspector}
+      {selected.every(
+        (item) =>
+          item.parentId && (item.positionMode === "absolute" || parentLayout(item) === "absolute"),
+      ) && (
+        <div className="grid grid-cols-2 gap-1.5">
+          <Choice
+            replayOptions
+            replayLabel
+            label="Horizontal constraint"
+            value={common((item) => item.horizontalConstraint ?? "start")}
+            choices={[
+              ["start", "Left"],
+              ["center", "Center"],
+              ["end", "Right"],
+              ["stretch", "Left & right"],
+              ["scale", "Scale"],
+            ]}
+            onChange={(value) =>
+              onPatch({
+                horizontalConstraint: value,
+                widthMode: "fixed",
+              })
+            }
+          />
+          <Choice
+            replayOptions
+            replayLabel
+            label="Vertical constraint"
+            value={common((item) => item.verticalConstraint ?? "start")}
+            choices={[
+              ["start", "Top"],
+              ["center", "Center"],
+              ["end", "Bottom"],
+              ["stretch", "Top & bottom"],
+              ["scale", "Scale"],
+            ]}
+            onChange={(value) =>
+              onPatch({
+                verticalConstraint: value,
+                heightMode: "fixed",
+              })
+            }
+          />
+        </div>
+      )}
+      {gridChild && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {numberField(
+            "Column span",
+            (item) => item.gridColumnSpan ?? 1,
+            (value) => ({ gridColumnSpan: value }),
+            1,
+            12,
+            false,
+            1,
+          )}
+          {numberField(
+            "Row span",
+            (item) => item.gridRowSpan ?? 1,
+            (value) => ({ gridRowSpan: value }),
+            1,
+            12,
+            false,
+            1,
+          )}
+        </div>
+      )}
+      {flowChild && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {numberField(
+            "Gap adjustment",
+            (item) => item.flowGapBefore ?? 0,
+            (value) => ({ flowGapBefore: value || undefined }),
+            -5000,
+            5000,
+          )}
+          {numberField(
+            "Cross offset",
+            (item) => item.flowCrossOffset ?? 0,
+            (value) => ({ flowCrossOffset: value || undefined }),
+            -5000,
+            5000,
+          )}
+        </div>
+      )}
+      {multi && (
+        <Choice
+          replayLabel
+          label="Align to"
+          value={keyObjectId}
+          choices={[
+            ["", "Selection bounds"],
+            ...selected.map((item): [string, string] => [item.id, item.name]),
+          ]}
+          onChange={setKeyObjectId}
+        />
+      )}
+      {(multi || node.parentId) && (
+        <div className="grid grid-cols-3 gap-1">
+          {(["left", "center-x", "right", "top", "center-y", "bottom"] as const).map((axis) => (
+            <button
+              key={axis}
+              type="button"
+              aria-label={`Align ${axis}`}
+              onClick={() => onAlign(axis, keyObjectId || undefined)}
+              className={buttonClass}
+            >
+              {axis.replace("center-x", "H center").replace("center-y", "V center")}
+            </button>
+          ))}
+        </div>
+      )}
+      {selected.length > 2 && (
+        <div className="flex gap-1.5">
+          <button
+            data-ph-public
+            type="button"
+            className={buttonClass}
+            onClick={() => onDistribute("horizontal")}
+          >
+            Distribute H
+          </button>
+          <button
+            data-ph-public
+            type="button"
+            className={buttonClass}
+            onClick={() => onDistribute("vertical")}
+          >
+            Distribute V
+          </button>
+        </div>
+      )}
+    </Section>
+  );
   if (inspect)
     return (
       <div>
@@ -394,6 +673,259 @@ export const SelectionInspector = memo(function SelectionInspector({
       {inspectorHeader}
       {componentControls}
       <fieldset disabled={readOnly} className="min-w-0">
+        {text && positionInspector}
+        {text && (
+          <Section replayTitle title="Text">
+            <FontPicker replayLabel selected={selected} onPatch={onPatch} />
+
+            <div className="grid grid-cols-3 gap-1.5">
+              {styleNumber("Font size", "fontSize", 16, 6, 300)}
+              <PropertyField
+                replayLabel
+                label={
+                  common(lineHeightMode) === "percent"
+                    ? "Line height %"
+                    : common(lineHeightMode) === "px"
+                      ? "Line height px"
+                      : "Line height"
+                }
+                numeric
+                placeholder="Auto"
+                min={common(lineHeightMode) === "percent" ? 0.01 : 0.1}
+                max={common(lineHeightMode) === "percent" ? 20000 : 1200}
+                value={common((item) =>
+                  lineHeightMode(item) === "auto"
+                    ? undefined
+                    : lineHeightMode(item) === "px"
+                      ? (item.style.lineHeightPx ?? lineHeightPx(item))
+                      : (item.style.lineHeight ?? 1.35) * 100,
+                )}
+                onCommit={(value) =>
+                  onPatch({
+                    style:
+                      value === ""
+                        ? { lineHeightMode: "auto", lineHeight: undefined, lineHeightPx: undefined }
+                        : common(lineHeightMode) === "percent"
+                          ? { lineHeightMode: "percent", lineHeight: Number(value) / 100 }
+                          : { lineHeightMode: "px", lineHeightPx: Number(value) },
+                  })
+                }
+              />
+              {styleNumber("Letter spacing", "letterSpacing", 0, -100, 100)}
+            </div>
+            <div className="grid grid-cols-2 gap-1.5">
+              <Choice
+                replayOptions
+                replayLabel
+                label="Text align"
+                value={common((item) => item.style.textAlign ?? "left")}
+                choices={[
+                  ["left", "Left"],
+                  ["center", "Center"],
+                  ["right", "Right"],
+                ]}
+                onChange={(value) => onPatch({ style: { textAlign: value } })}
+              />
+              <Choice
+                replayOptions
+                replayLabel
+                label="Text case"
+                value={common((item) => item.style.textCase ?? "none")}
+                choices={[
+                  ["none", "Original"],
+                  ["uppercase", "UPPERCASE"],
+                  ["lowercase", "lowercase"],
+                  ["capitalize", "Title Case"],
+                ]}
+                onChange={(value) => onPatch({ style: { textCase: value } })}
+              />
+            </div>
+            <details>
+              <summary className="cursor-pointer py-1 text-xs text-secondary-ink focus-visible:outline-2 focus-visible:outline-primary-orange">
+                More text settings
+              </summary>
+              <div className="mt-2 space-y-2">
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Choice
+                    replayOptions
+                    replayLabel
+                    label="Line height mode"
+                    value={common(lineHeightMode)}
+                    choices={[
+                      ["auto", "Auto"],
+                      ["percent", "%"],
+                      ["px", "px"],
+                    ]}
+                    onChange={(mode) =>
+                      onPatch((item) => {
+                        const pixels = lineHeightPx(item);
+                        const element = canvasElements(viewport?.current).get(item.id);
+                        const fontSize = element
+                          ? parseFloat(getComputedStyle(element).fontSize)
+                          : (item.style.fontSize ?? 16);
+                        return {
+                          style:
+                            mode === "auto"
+                              ? { lineHeightMode: "auto" }
+                              : mode === "px"
+                                ? {
+                                    lineHeightMode: "px",
+                                    lineHeightPx: Math.max(0.1, Math.min(1200, pixels)),
+                                  }
+                                : {
+                                    lineHeightMode: "percent",
+                                    lineHeight: Math.max(0.0001, Math.min(200, pixels / fontSize)),
+                                  },
+                        };
+                      })
+                    }
+                  />
+                </div>
+                {numberField(
+                  "Paragraph spacing",
+                  (item) => item.style.paragraphSpacing ?? 0,
+                  (value) => ({ style: { paragraphSpacing: value } }),
+                  0,
+                  1000,
+                )}
+                {selected.some((item) => item.heightMode !== "hug") && (
+                  <Choice
+                    replayOptions
+                    replayLabel
+                    label="Vertical align"
+                    value={common((item) => item.style.textVerticalAlign ?? "top")}
+                    choices={[
+                      ["top", "Top"],
+                      ["center", "Middle"],
+                      ["bottom", "Bottom"],
+                    ]}
+                    onChange={(value) =>
+                      onPatch({
+                        style: {
+                          textVerticalAlign: value,
+                        },
+                      })
+                    }
+                  />
+                )}
+                {multi && (
+                  <div className="flex gap-1.5">
+                    {(["underline", "line-through"] as const).map((decoration) => (
+                      <button
+                        data-ph-public
+                        key={decoration}
+                        type="button"
+                        aria-pressed={
+                          common((item) => item.style.textDecoration === decoration) ?? false
+                        }
+                        className={buttonClass}
+                        onClick={() =>
+                          onPatch({
+                            style: {
+                              textDecoration: common(
+                                (item) => item.style.textDecoration === decoration,
+                              )
+                                ? "none"
+                                : decoration,
+                            },
+                          })
+                        }
+                      >
+                        {decoration === "underline" ? "Underline" : "Strike"}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <Choice
+                  replayOptions
+                  replayLabel
+                  label="Text wrapping"
+                  value={common((item) => item.style.textWrap ?? "wrap")}
+                  choices={[
+                    ["wrap", "Wrap"],
+                    ["nowrap", "Single line"],
+                  ]}
+                  onChange={(value) => onPatch({ style: { textWrap: value } })}
+                />
+                {selected.every((item) => item.style.textWrap === "nowrap") && (
+                  <Choice
+                    replayOptions
+                    replayLabel
+                    label="Truncation"
+                    value={common((item) => item.style.textOverflow ?? "clip")}
+                    choices={[
+                      ["clip", "Clip"],
+                      ["ellipsis", "Ellipsis"],
+                    ]}
+                    onChange={(value) =>
+                      onPatch({
+                        style: { textOverflow: value },
+                      })
+                    }
+                  />
+                )}
+                {numberField(
+                  "Maximum lines",
+                  (item) => item.style.maxLines,
+                  (value) => ({ style: { maxLines: value } }),
+                  1,
+                  100,
+                  true,
+                )}
+              </div>
+            </details>
+            <ColorField
+              replayLabel
+              label="Text color"
+              nodes={selected}
+              tokens={tokens}
+              get={(item) =>
+                item.style.colorToken
+                  ? (tokens[item.style.colorToken] ?? item.style.color ?? "#1e1e1e")
+                  : (item.style.color ?? "#1e1e1e")
+              }
+              onChange={(value) =>
+                onPatch((item) => ({
+                  style: {
+                    color: applyColor(
+                      value,
+                      item.style.colorToken
+                        ? (tokens[item.style.colorToken] ?? item.style.color ?? "#1e1e1e")
+                        : (item.style.color ?? "#1e1e1e"),
+                    ),
+                    colorToken: undefined,
+                  },
+                }))
+              }
+            />
+            {tokenChoice("Text token", "colorToken")}
+            {!multi && (
+              <details data-rich-text-controls>
+                <summary className="cursor-pointer py-1 text-xs text-secondary-ink focus-visible:outline-2 focus-visible:outline-primary-orange">
+                  Formatting
+                </summary>
+                <div className="pt-2">
+                  <RichTextSelectionControls
+                    selection={editingSelection ?? { nodeId: node.id, ...nodeTextFormatting(node) }}
+                    onCommand={
+                      editingSelection
+                        ? undefined
+                        : (command, value) =>
+                            onPatch((item) => formatNodeText({ node: item, command, value }))
+                    }
+                    onFinishEditing={
+                      editingSelection
+                        ? () => viewport?.current?.focus({ preventScroll: true })
+                        : undefined
+                    }
+                  />
+                </div>
+              </details>
+            )}
+          </Section>
+        )}
+
         {!multi &&
           node.vectorPath?.shape &&
           (node.vectorPath.shape.kind === "polygon" || node.vectorPath.shape.kind === "star") && (
@@ -555,254 +1087,7 @@ export const SelectionInspector = memo(function SelectionInspector({
           document={document}
           onDocument={onDocument}
         />
-        <Section replayTitle title="Position">
-          {selected.every((item) => item.type === "artboard") && (
-            <Choice
-              replayOptions
-              replayLabel
-              label="Frame preset"
-              value={common(
-                (item) =>
-                  framePresets.find(
-                    (preset) =>
-                      preset.width === item.box.width && preset.height === item.box.height,
-                  )?.id ?? "",
-              )}
-              choices={[
-                ["", "Custom"],
-                ...framePresets.map((preset): [string, string] => [preset.id, preset.label]),
-              ]}
-              onChange={(id) => {
-                const preset = framePresets.find((item) => item.id === id);
-                if (preset)
-                  onPatch({
-                    box: { width: preset.width, height: preset.height },
-                    widthMode: "fixed",
-                    heightMode: "fixed",
-                  });
-              }}
-            />
-          )}
-          <div className="grid grid-cols-3 gap-1.5">
-            {numberField(
-              "X",
-              (item) => item.box.x,
-              (value) => ({ box: { x: value } }),
-              -100000,
-              100000,
-            )}
-            {numberField(
-              "Y",
-              (item) => item.box.y,
-              (value) => ({ box: { y: value } }),
-              -100000,
-              100000,
-            )}
-            {styleNumber("Rotation", "rotation", 0, -360, 360)}
-          </div>
-          <div className="grid grid-cols-[1fr_1fr_32px] items-end gap-1.5">
-            {(["width", "height"] as const).map((axis) =>
-              numberField(
-                axis === "width" ? "Width" : "Height",
-                (item) => item.box[axis],
-                (value) => (item) => {
-                  const locked = item.aspectRatioLocked && !cropping;
-                  return {
-                    box: locked ? proportionalImageSize(item.box, axis, value!) : { [axis]: value },
-                    ...(locked
-                      ? { widthMode: "fixed", heightMode: "fixed" }
-                      : { [axis === "width" ? "widthMode" : "heightMode"]: "fixed" }),
-                  };
-                },
-                1,
-                5000,
-              ),
-            )}
-            <button
-              data-ph-public
-              data-ph-public-label
-              type="button"
-              aria-label="Lock aspect ratio"
-              aria-pressed={common((item) => item.aspectRatioLocked ?? false) ?? false}
-              onClick={() =>
-                onPatch({ aspectRatioLocked: !common((item) => item.aspectRatioLocked ?? false) })
-              }
-              className={`${buttonClass} h-8 px-1`}
-            >
-              {common((item) => item.aspectRatioLocked ?? false) ? "↔" : "⌁"}
-            </button>
-          </div>
-          {!text && (
-            <div className="grid grid-cols-2 gap-1.5">
-              {(["widthMode", "heightMode"] as const).map((key) => (
-                <Choice
-                  replayOptions
-                  replayLabel
-                  key={key}
-                  label={key === "widthMode" ? "Width sizing" : "Height sizing"}
-                  value={common((item) => item[key] ?? "fixed")}
-                  choices={
-                    selected.some((item) => item.vectorBoolean || item.mask)
-                      ? [["fixed", "Fixed"]]
-                      : [
-                          ["fixed", "Fixed"],
-                          ["fill", "Fill"],
-                          ["hug", "Hug"],
-                        ]
-                  }
-                  onChange={(value) => onPatch({ [key]: value })}
-                />
-              ))}
-            </div>
-          )}
-          {onScale && selected.every((item) => item.parentId === node.parentId) && (
-            <PropertyField
-              replayLabel
-              label="Scale by %"
-              value={100}
-              numeric
-              min={1}
-              max={10000}
-              step="any"
-              onCommit={(value) => {
-                if (value !== "") onScale(Number(value) / 100);
-              }}
-            />
-          )}
-          {selected.every(
-            (item) =>
-              item.parentId &&
-              (item.positionMode === "absolute" || parentLayout(item) === "absolute"),
-          ) && (
-            <div className="grid grid-cols-2 gap-1.5">
-              <Choice
-                replayOptions
-                replayLabel
-                label="Horizontal constraint"
-                value={common((item) => item.horizontalConstraint ?? "start")}
-                choices={[
-                  ["start", "Left"],
-                  ["center", "Center"],
-                  ["end", "Right"],
-                  ["stretch", "Left & right"],
-                  ["scale", "Scale"],
-                ]}
-                onChange={(value) =>
-                  onPatch({
-                    horizontalConstraint: value as DesignNode["horizontalConstraint"],
-                    widthMode: "fixed",
-                  })
-                }
-              />
-              <Choice
-                replayOptions
-                replayLabel
-                label="Vertical constraint"
-                value={common((item) => item.verticalConstraint ?? "start")}
-                choices={[
-                  ["start", "Top"],
-                  ["center", "Center"],
-                  ["end", "Bottom"],
-                  ["stretch", "Top & bottom"],
-                  ["scale", "Scale"],
-                ]}
-                onChange={(value) =>
-                  onPatch({
-                    verticalConstraint: value as DesignNode["verticalConstraint"],
-                    heightMode: "fixed",
-                  })
-                }
-              />
-            </div>
-          )}
-          {gridChild && (
-            <div className="grid grid-cols-2 gap-1.5">
-              {numberField(
-                "Column span",
-                (item) => item.gridColumnSpan ?? 1,
-                (value) => ({ gridColumnSpan: value }),
-                1,
-                12,
-                false,
-                1,
-              )}
-              {numberField(
-                "Row span",
-                (item) => item.gridRowSpan ?? 1,
-                (value) => ({ gridRowSpan: value }),
-                1,
-                12,
-                false,
-                1,
-              )}
-            </div>
-          )}
-          {flowChild && (
-            <div className="grid grid-cols-2 gap-1.5">
-              {numberField(
-                "Gap adjustment",
-                (item) => item.flowGapBefore ?? 0,
-                (value) => ({ flowGapBefore: value || undefined }),
-                -5000,
-                5000,
-              )}
-              {numberField(
-                "Cross offset",
-                (item) => item.flowCrossOffset ?? 0,
-                (value) => ({ flowCrossOffset: value || undefined }),
-                -5000,
-                5000,
-              )}
-            </div>
-          )}
-          {multi && (
-            <Choice
-              replayLabel
-              label="Align to"
-              value={keyObjectId}
-              choices={[
-                ["", "Selection bounds"],
-                ...selected.map((item): [string, string] => [item.id, item.name]),
-              ]}
-              onChange={setKeyObjectId}
-            />
-          )}
-          {(multi || node.parentId) && (
-            <div className="grid grid-cols-3 gap-1">
-              {(["left", "center-x", "right", "top", "center-y", "bottom"] as const).map((axis) => (
-                <button
-                  key={axis}
-                  type="button"
-                  aria-label={`Align ${axis}`}
-                  onClick={() => onAlign(axis, keyObjectId || undefined)}
-                  className={buttonClass}
-                >
-                  {axis.replace("center-x", "H center").replace("center-y", "V center")}
-                </button>
-              ))}
-            </div>
-          )}
-          {selected.length > 2 && (
-            <div className="flex gap-1.5">
-              <button
-                data-ph-public
-                type="button"
-                className={buttonClass}
-                onClick={() => onDistribute("horizontal")}
-              >
-                Distribute H
-              </button>
-              <button
-                data-ph-public
-                type="button"
-                className={buttonClass}
-                onClick={() => onDistribute("vertical")}
-              >
-                Distribute V
-              </button>
-            </div>
-          )}
-        </Section>
+        {!text && positionInspector}
         {containers && (
           <Section replayTitle title="Layout">
             <Choice
@@ -1197,240 +1482,6 @@ export const SelectionInspector = memo(function SelectionInspector({
                 0,
                 100,
               )}
-          </Section>
-        )}
-        {text && (
-          <Section replayTitle title="Text">
-            {!multi && (
-              <PropertyField
-                replayLabel
-                label="Content"
-                value={node.text ?? ""}
-                multiline
-                onCommit={(value) => onPatch({ text: value })}
-              />
-            )}
-            <FontPicker replayLabel selected={selected} onPatch={onPatch} />
-            <div className="grid grid-cols-2 gap-1.5">
-              {(["widthMode", "heightMode"] as const).map((key) => (
-                <Choice
-                  replayOptions
-                  replayLabel
-                  key={key}
-                  label={key === "widthMode" ? "Text width" : "Text height"}
-                  value={common((item) => item[key] ?? "fixed")}
-                  choices={[
-                    ["fixed", "Fixed"],
-                    ["hug", key === "widthMode" ? "Auto width" : "Auto height"],
-                    ["fill", "Fill"],
-                  ]}
-                  onChange={(value) => onPatch({ [key]: value })}
-                />
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              {styleNumber("Font size", "fontSize", 16, 6, 300)}
-              {styleNumber("Letter spacing", "letterSpacing", 0, -100, 100)}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <Choice
-                replayOptions
-                replayLabel
-                label="Line height mode"
-                value={common(lineHeightMode)}
-                choices={[
-                  ["auto", "Auto"],
-                  ["percent", "%"],
-                  ["px", "px"],
-                ]}
-                onChange={(mode) =>
-                  onPatch((item) => {
-                    const pixels = lineHeightPx(item);
-                    const element = canvasElements(viewport?.current).get(item.id);
-                    const fontSize = element
-                      ? parseFloat(getComputedStyle(element).fontSize)
-                      : (item.style.fontSize ?? 16);
-                    return {
-                      style:
-                        mode === "auto"
-                          ? { lineHeightMode: "auto" }
-                          : mode === "px"
-                            ? {
-                                lineHeightMode: "px",
-                                lineHeightPx: Math.max(0.1, Math.min(1200, pixels)),
-                              }
-                            : {
-                                lineHeightMode: "percent",
-                                lineHeight: Math.max(0.0001, Math.min(200, pixels / fontSize)),
-                              },
-                    };
-                  })
-                }
-              />
-              {selected.some((item) => lineHeightMode(item) !== "auto") &&
-                (common(lineHeightMode) === "px"
-                  ? numberField(
-                      "Line height px",
-                      (item) => item.style.lineHeightPx ?? lineHeightPx(item),
-                      (value) => ({ style: { lineHeightMode: "px", lineHeightPx: value } }),
-                      0.1,
-                      1200,
-                    )
-                  : numberField(
-                      "Line height %",
-                      (item) =>
-                        item.style.lineHeightMode === "auto"
-                          ? undefined
-                          : (item.style.lineHeight ?? 1.35) * 100,
-                      (value) => ({
-                        style: {
-                          lineHeightMode: "percent",
-                          lineHeight: value === undefined ? undefined : value / 100,
-                        },
-                      }),
-                      0.01,
-                      20000,
-                    ))}
-            </div>
-            {numberField(
-              "Paragraph spacing",
-              (item) => item.style.paragraphSpacing ?? 0,
-              (value) => ({ style: { paragraphSpacing: value } }),
-              0,
-              1000,
-            )}
-            {selected.some((item) => item.heightMode !== "hug") && (
-              <Choice
-                replayOptions
-                replayLabel
-                label="Vertical align"
-                value={common((item) => item.style.textVerticalAlign ?? "top")}
-                choices={[
-                  ["top", "Top"],
-                  ["center", "Middle"],
-                  ["bottom", "Bottom"],
-                ]}
-                onChange={(value) =>
-                  onPatch({
-                    style: { textVerticalAlign: value as DesignNode["style"]["textVerticalAlign"] },
-                  })
-                }
-              />
-            )}
-            <div className="flex gap-1.5">
-              {["underline", "line-through"].map((decoration) => (
-                <button
-                  data-ph-public
-                  key={decoration}
-                  type="button"
-                  aria-pressed={common((item) => item.style.textDecoration === decoration) ?? false}
-                  className={buttonClass}
-                  onClick={() =>
-                    onPatch({
-                      style: {
-                        textDecoration: common((item) => item.style.textDecoration === decoration)
-                          ? "none"
-                          : (decoration as DesignNode["style"]["textDecoration"]),
-                      },
-                    })
-                  }
-                >
-                  {decoration === "underline" ? "Underline" : "Strike"}
-                </button>
-              ))}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5">
-              <Choice
-                replayOptions
-                replayLabel
-                label="Text align"
-                value={common((item) => item.style.textAlign ?? "left")}
-                choices={[
-                  ["left", "Left"],
-                  ["center", "Center"],
-                  ["right", "Right"],
-                ]}
-                onChange={(value) =>
-                  onPatch({ style: { textAlign: value as DesignNode["style"]["textAlign"] } })
-                }
-              />
-              <Choice
-                replayOptions
-                replayLabel
-                label="Text case"
-                value={common((item) => item.style.textCase ?? "none")}
-                choices={[
-                  ["none", "Original"],
-                  ["uppercase", "UPPERCASE"],
-                  ["lowercase", "lowercase"],
-                  ["capitalize", "Title Case"],
-                ]}
-                onChange={(value) =>
-                  onPatch({ style: { textCase: value as DesignNode["style"]["textCase"] } })
-                }
-              />
-            </div>
-            <Choice
-              replayOptions
-              replayLabel
-              label="Text wrapping"
-              value={common((item) => item.style.textWrap ?? "wrap")}
-              choices={[
-                ["wrap", "Wrap"],
-                ["nowrap", "Single line"],
-              ]}
-              onChange={(value) =>
-                onPatch({ style: { textWrap: value as DesignNode["style"]["textWrap"] } })
-              }
-            />
-            {selected.every((item) => item.style.textWrap === "nowrap") && (
-              <Choice
-                replayOptions
-                replayLabel
-                label="Truncation"
-                value={common((item) => item.style.textOverflow ?? "clip")}
-                choices={[
-                  ["clip", "Clip"],
-                  ["ellipsis", "Ellipsis"],
-                ]}
-                onChange={(value) =>
-                  onPatch({ style: { textOverflow: value as DesignNode["style"]["textOverflow"] } })
-                }
-              />
-            )}
-            {numberField(
-              "Maximum lines",
-              (item) => item.style.maxLines,
-              (value) => ({ style: { maxLines: value } }),
-              1,
-              100,
-              true,
-            )}
-            <ColorField
-              replayLabel
-              label="Text color"
-              nodes={selected}
-              tokens={tokens}
-              get={(item) =>
-                item.style.colorToken
-                  ? (tokens[item.style.colorToken] ?? item.style.color ?? "#1e1e1e")
-                  : (item.style.color ?? "#1e1e1e")
-              }
-              onChange={(value) =>
-                onPatch((item) => ({
-                  style: {
-                    color: applyColor(
-                      value,
-                      item.style.colorToken
-                        ? (tokens[item.style.colorToken] ?? item.style.color ?? "#1e1e1e")
-                        : (item.style.color ?? "#1e1e1e"),
-                    ),
-                    colorToken: undefined,
-                  },
-                }))
-              }
-            />
-            {tokenChoice("Text token", "colorToken")}
           </Section>
         )}
         {image && (

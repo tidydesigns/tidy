@@ -26,6 +26,7 @@ type Props = {
   prototypeArtboardId: string | null;
   cropId: string | null;
   editingTextId: string | null;
+  newTextId?: string | null;
   previewAssetUrls?: Record<string, string>;
   onMenu: (event: MouseEvent<HTMLElement>, id: string) => void;
   onDoubleClick: (node: DesignNode, event: MouseEvent<HTMLDivElement>) => void;
@@ -48,6 +49,7 @@ type Handlers = Pick<
   | "onPointerCancel"
   | "onTextFinish"
   | "onTextDraft"
+  | "newTextId"
 >;
 const ArtworkNode = memo(function ArtworkNode({
   branch,
@@ -107,6 +109,7 @@ const ArtworkNode = memo(function ArtworkNode({
         editing ? (
           <EditableDesignText
             node={node}
+            selectAllOnMount={handlers.newTextId === node.id}
             onDraft={(value) => handlers.onTextDraft(node, value)}
             onFinish={(value) => handlers.onTextFinish(node, value)}
           />
@@ -146,6 +149,7 @@ export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
     onPointerCancel,
     onTextDraft,
     onTextFinish,
+    newTextId,
   } = props;
   const handlers = useMemo(
     () => ({
@@ -158,6 +162,7 @@ export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
       onPointerCancel,
       onTextDraft,
       onTextFinish,
+      newTextId,
     }),
     [
       registerElement,
@@ -169,6 +174,7 @@ export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
       onPointerCancel,
       onTextDraft,
       onTextFinish,
+      newTextId,
     ],
   );
   return (

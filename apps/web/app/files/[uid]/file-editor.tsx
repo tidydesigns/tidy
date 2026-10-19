@@ -190,6 +190,11 @@ import {
   type VectorContour,
 } from "@tidy/design/vector-geometry";
 import { SelectionInspector } from "./selection-inspector";
+import { ToolInspector } from "./tool-inspector";
+import type { EditorAgentSetup } from "./editor-agent-connection";
+import { textToolStyle, type TextToolStyle } from "@/lib/design/text-tool-style";
+import { framePresets } from "@/lib/design/frame-presets";
+import type { Patch } from "./inspector-controls";
 import { storedConstraintBox } from "@/lib/design/constraints";
 import { renderedNodeBox, renderedParentSize } from "@/lib/design/canvas-geometry";
 import { GradientHandles } from "./gradient-handles";
@@ -244,7 +249,7 @@ type Point = { x: number; y: number };
 type Drawing = {
   start: Point;
   end: Point;
-  type: "artboard" | "container";
+  type: "artboard" | "container" | "text";
   shape?: NativeShape["kind"];
   parentId: string | null;
 };
@@ -326,6 +331,7 @@ export function FileEditor({
   viewerId,
   initialReviewId,
   initialFocusNodeId,
+  agentSetup,
   agents: initialAgents,
 }: {
   fileId: string;
@@ -348,6 +354,7 @@ export function FileEditor({
   viewerId?: string;
   initialReviewId?: string;
   initialFocusNodeId?: string;
+  agentSetup?: EditorAgentSetup;
   agents?: ThreadsWorkspaceProps | Promise<ThreadsWorkspaceProps | undefined>;
 }) {
   // Archived snapshots use the static viewer: no live room, comments or writes.
@@ -409,7 +416,21 @@ export function FileEditor({
   const [mobilePanelsOpen, setMobilePanelsOpen] = useState(false);
   const panelsOpen = mobileLayout ? mobilePanelsOpen : desktopPanelsOpen;
   const [inspectorDismissed, setInspectorDismissed] = useState(false);
-  const [tool, setTool] = useState<CanvasTool>("select");
+  const [mobileInspectorRequested, setMobileInspectorRequested] = useState(false);
+  const [mobileTextInspectorDismissedFor, setMobileTextInspectorDismissedFor] = useState<
+    string | null
+  >(null);
+  const [tool, setCurrentTool] = useState<CanvasTool>("select");
+  const setTool = useCallback(
+    (next: CanvasTool) => {
+      setCurrentTool(next);
+      if (next === "text" || next === "frame") {
+        setMobileInspectorRequested(false);
+        if (next === "frame") setInspectorDismissed(mobileLayout);
+      }
+    },
+    [mobileLayout, setInspectorDismissed, setCurrentTool, setMobileInspectorRequested],
+  );
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [panning, setPanning] = useState(false);
   const [drawing, setDrawing] = useState<Drawing | null>(null);
@@ -479,6 +500,15 @@ export function FileEditor({
     crop: ImageCrop;
   } | null>(null);
   const [editingTextId, setEditingTextId] = useState<string | null>(null);
+  const [newTextId, setNewTextId] = useState<string | null>(null);
+  const [textDefaults, setTextDefaults] = useState<TextToolStyle>({
+    fontSize: 16,
+    fontWeight: 400,
+    color: "#1e1e1e",
+  });
+  const [rememberedText, setRememberedText] = useState<{ id: string; signature: string } | null>(
+    null,
+  );
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -612,12 +642,12 @@ export function FileEditor({
         setDrawing(null);
         setCropId(null);
         setGradientMode(null);
-        setTool((current) =>
+        setCurrentTool((current) =>
           ["select", "hand", "comment"].includes(current) ? current : "select",
         );
       }
     },
-    [setPageMenu, setDrawing, setGradientMode, setTool, setVectorMode],
+    [setPageMenu, setDrawing, setGradientMode, setCurrentTool, setVectorMode],
   );
   const room = useFileRoom({
     fileId,
@@ -661,6 +691,27 @@ export function FileEditor({
     [renderedNodes],
   );
   const nodesById = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
+  const selectedText = selectedIds.length === 1 ? renderedById.get(selectedIds[0]) : undefined;
+  if (selectedText?.type === "text") {
+    const style = textToolStyle(selectedText);
+    const signature = JSON.stringify(style);
+    if (rememberedText?.id !== selectedText.id || rememberedText.signature !== signature) {
+      setRememberedText({ id: selectedText.id, signature });
+      setTextDefaults(style);
+    }
+  }
+  const textToolNode = useMemo(
+    () => ({
+      ...buildDrawnNode("text-defaults", "text", null, { x: 0, y: 0, width: 1, height: 24 }),
+      style: textDefaults,
+    }),
+    [textDefaults],
+  );
+  function patchTextDefaults(patch: Patch) {
+    const changes = typeof patch === "function" ? patch(textToolNode) : patch;
+    if (changes.style)
+      setTextDefaults((current) => textToolStyle({ style: { ...current, ...changes.style } }));
+  }
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const inspectorSelection = useMemo(
     () =>
@@ -747,12 +798,22 @@ export function FileEditor({
   const canScaleSelection =
     multiScaleIds.length > 1 &&
     multiScaleIds.every((id) => nodesById.get(id)?.parentId === multiScaleParent);
+  const toolInspectorActive = !readOnly && (tool === "frame" || tool === "text");
+  const hasInspectorSelection = selected !== null && inspectorSelection.length > 0;
   const inspectorOpen =
     !(mobileLayout && mobilePanelsOpen) &&
     !prototypeMode &&
-    selected !== null &&
-    inspectorSelection.length > 0 &&
-    (panelsOpen || !inspectorDismissed);
+    !(mobileLayout && editingTextId) &&
+    !(
+      mobileLayout &&
+      selected?.id === mobileTextInspectorDismissedFor &&
+      !mobileInspectorRequested
+    ) &&
+    ((!mobileLayout && panelsOpen) ||
+      ((hasInspectorSelection ||
+        (!readOnly && tool === "frame") ||
+        (mobileLayout && mobileInspectorRequested)) &&
+        !inspectorDismissed));
   const prototypeInspectorOpen = interactionMode && selectedIds.length === 1;
   const cropping = Boolean(
     cropId &&
@@ -909,12 +970,15 @@ export function FileEditor({
   );
 
   function togglePanels() {
+    setMobileInspectorRequested(false);
     setInspectorDismissed(true);
     if (mobileLayout) setMobilePanelsOpen((open) => !open);
     else setPanelsOpen((open) => !open);
   }
 
   function selectNode(id: string, additive = false) {
+    setMobileInspectorRequested(false);
+    setMobileTextInspectorDismissedFor(null);
     if (mobileLayout) setMobilePanelsOpen(false);
     const next = additive
       ? selectedIds.includes(id)
@@ -1664,6 +1728,7 @@ export function FileEditor({
     publishPresence,
     cropping,
     editingGradient,
+    setTool,
   ]);
 
   useLayoutEffect(() => {
@@ -1690,6 +1755,12 @@ export function FileEditor({
     return () => observer.disconnect();
   }, [initialDocument, currentPageId, initialFocusNodeId, viewportReady]);
 
+  const preserveViewportCenter = useEditorEvent((dx: number, dy: number) => {
+    // Keep text under the pointer/caret when its inspector opens or changes size.
+    if ((dx || dy) && !marqueeRef.current && drawingRef.current?.type !== "text" && !editingTextId)
+      flushSync(() => setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy })));
+  });
+
   useLayoutEffect(() => {
     const canvas = viewport.current;
     if (!canvas || !viewportReady) return;
@@ -1705,17 +1776,11 @@ export function FileEditor({
       // Preserve the current canvas centre throughout panel motion, including reversals.
       // Clearing selection can collapse the inspector during a marquee. Keep
       // artwork under the pointer instead of moving its hit bounds mid-drag.
-      if ((dx || dy) && !marqueeRef.current) {
-        // ResizeObserver runs before paint; commit now to avoid a stale canvas position
-        // being painted against the next panel width for one frame.
-        flushSync(() =>
-          setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy })),
-        );
-      }
+      preserveViewportCenter(dx, dy);
     });
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [viewportReady]);
+  }, [viewportReady, preserveViewportCenter]);
 
   useEffect(() => {
     const canvas = viewport.current;
@@ -2508,6 +2573,7 @@ export function FileEditor({
     parentId: string | null,
     box: DesignNode["box"],
     shape?: NativeShape,
+    textSizing: "auto" | "fixed" = "auto",
   ) {
     const id = crypto.randomUUID();
     const node = {
@@ -2515,8 +2581,44 @@ export function FileEditor({
         ? buildNativeShape(id, shape, parentId, box)
         : buildDrawnNode(id, type, parentId, box)),
       pageId: currentPageId,
+      ...(type === "text"
+        ? {
+            style: { ...textDefaults },
+            widthMode: textSizing === "auto" ? ("hug" as const) : ("fixed" as const),
+            heightMode: "hug" as const,
+            minWidth: 1,
+          }
+        : {}),
     };
-    await changeDocument((content) => ({ ...content, nodes: [...content.nodes, node] }), id);
+    const committed = changeDocument(
+      (content) => ({ ...content, nodes: [...content.nodes, node] }),
+      id,
+    );
+    // Enter editing with the optimistic insertion, before the server acknowledges it.
+    if (type === "text" && room.getSnapshot().content.nodes.some((item) => item.id === id)) {
+      setTool("select");
+      setNewTextId(id);
+      setEditingTextId(id);
+    }
+    await committed;
+  }
+
+  function insertFramePreset(preset: (typeof framePresets)[number]) {
+    const canvas = viewport.current;
+    if (!canvas || readOnly) return;
+    const bounds = canvas.getBoundingClientRect();
+    const center = worldPoint({
+      clientX: bounds.left + bounds.width / 2,
+      clientY: bounds.top + bounds.height / 2,
+    });
+    void createDrawnNode("artboard", null, {
+      x: Math.round(center.x - preset.width / 2),
+      y: Math.round(center.y - preset.height / 2),
+      width: preset.width,
+      height: preset.height,
+    });
+    setTool("select");
+    canvas.focus({ preventScroll: true });
   }
 
   function insertFromKeyboard() {
@@ -2533,8 +2635,8 @@ export function FileEditor({
       clientX: bounds.left + bounds.width / 2,
       clientY: bounds.top + bounds.height / 2,
     });
-    const width = tool === "text" ? 200 : tool === "frame" ? 400 : 100;
-    const height = tool === "text" ? 48 : tool === "frame" ? 300 : 100;
+    const width = tool === "text" ? 1 : tool === "frame" ? 400 : 100;
+    const height = tool === "text" ? 24 : tool === "frame" ? 300 : 100;
     const parentId =
       tool !== "frame" &&
       selected &&
@@ -2682,20 +2784,10 @@ export function FileEditor({
     }
     setError("");
     const start = worldPoint(event);
-    if (tool === "text") {
-      const parentPosition = parentId ? absoluteNodePosition(nodes, parentId) : { x: 0, y: 0 };
-      void createDrawnNode("text", parentId, {
-        x: start.x - parentPosition.x,
-        y: start.y - parentPosition.y,
-        width: 200,
-        height: 48,
-      });
-      return;
-    }
     drawingRef.current = {
       start,
       end: start,
-      type: tool === "frame" ? "artboard" : "container",
+      type: tool === "frame" ? "artboard" : tool === "text" ? "text" : "container",
       shape: isShapeKind(tool) ? tool : undefined,
       parentId,
     };
@@ -2778,6 +2870,15 @@ export function FileEditor({
     setDrawing(null);
     const end = worldPoint(event);
     const worldBox = drawingBox(gesture.start, end);
+    const pointText = gesture.type === "text" && worldBox.width * view.zoom < 3;
+    if (gesture.type === "text") {
+      if (pointText) {
+        worldBox.x = gesture.start.x;
+        worldBox.y = gesture.start.y;
+        worldBox.width = 1;
+      }
+      worldBox.height = 24;
+    }
     const line = gesture.shape === "line" || gesture.shape === "arrow";
     if (line && (worldBox.width >= 1 || worldBox.height >= 1)) {
       worldBox.width = Math.max(1, worldBox.width);
@@ -2807,6 +2908,7 @@ export function FileEditor({
             reverseY: end.y < gesture.start.y,
           }
         : undefined,
+      pointText ? "auto" : "fixed",
     );
   }
 
@@ -3064,6 +3166,7 @@ export function FileEditor({
         return;
       }
       const ids = selectedIds.includes(node.id) ? selectedIds : [node.id];
+      if (mobileTextInspectorDismissedFor === node.id) setMobileTextInspectorDismissedFor(null);
       if (!selectedIds.includes(node.id)) selectNode(node.id);
       if (readOnly) return;
       beginLayerDrag(event, ids, node.id);
@@ -3161,7 +3264,12 @@ export function FileEditor({
     });
   });
   const artworkTextFinish = useEditorEvent((node: DesignNode, value: TextContent | null) => {
+    if (mobileLayout) {
+      setMobileTextInspectorDismissedFor(node.id);
+      setMobileInspectorRequested(false);
+    }
     setEditingTextId(null);
+    setNewTextId(null);
     if (
       value !== null &&
       (value.text !== node.text || JSON.stringify(value.richText) !== JSON.stringify(node.richText))
@@ -3571,8 +3679,35 @@ export function FileEditor({
       onZoom={zoomView}
     />
   );
+  const sidebarFileActions = panelsOpen && !prototypeMode;
+  const fileActions = !preview && !local && (
+    <FileVersionControl
+      fileId={fileId}
+      revision={snapshot.revision}
+      canEdit={!readOnly && !prototypeMode}
+      disabled={busy || uploading || Boolean(editingTextId)}
+      onRestore={restoreFileVersion}
+      variant={sidebarFileActions ? "sidebar" : "floating"}
+    />
+  );
   const canvasControls = (
     <div className="flex items-center gap-2">
+      {mobileLayout &&
+        toolInspectorActive &&
+        !mobilePanelsOpen &&
+        !inspectorOpen &&
+        !editingTextId && (
+          <button
+            type="button"
+            onClick={() => {
+              setMobileInspectorRequested(true);
+              setInspectorDismissed(false);
+            }}
+            className="h-8 rounded-md border border-control-border bg-primary-white px-3 text-xs focus-visible:outline-2 focus-visible:outline-primary-orange"
+          >
+            Tool settings
+          </button>
+        )}
       {!permissionReadOnly && (
         <CanvasModeSwitch
           mode={inspectorMode}
@@ -4002,6 +4137,11 @@ export function FileEditor({
               />
             )}
           </div>
+          {sidebarFileActions && fileActions && (
+            <div className="shrink-0 border-t border-primary-grey/70 px-2 py-1.5">
+              {fileActions}
+            </div>
+          )}
         </aside>
       </EditorPanel>
       <EditorPanel
@@ -4020,6 +4160,7 @@ export function FileEditor({
         tabIndex={0}
         aria-label="Design canvas"
         aria-describedby={!readOnly && !prototypeMode ? "canvas-keyboard-help" : undefined}
+        style={{ backgroundColor: pages.find((page) => page.id === currentPageId)?.background }}
         onKeyDown={(event) => {
           if (
             event.target !== event.currentTarget ||
@@ -4122,7 +4263,7 @@ export function FileEditor({
           setDrawing(null);
           setMarquee(null);
         }}
-        className={`relative min-w-0 flex-1 overflow-hidden touch-none bg-canvas focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black ${tool === "hand" || spaceHeld ? (panning ? "cursor-grabbing" : "cursor-grab") : tool === "select" ? "cursor-default" : "cursor-crosshair"}`}
+        className={`relative min-w-0 flex-1 overflow-clip touch-none bg-canvas focus:outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black ${tool === "hand" || spaceHeld ? (panning ? "cursor-grabbing" : "cursor-grab") : tool === "select" ? "cursor-default" : "cursor-crosshair"}`}
       >
         {!readOnly && !prototypeMode && (
           <p id="canvas-keyboard-help" className="sr-only" data-ph-public>
@@ -4168,6 +4309,7 @@ export function FileEditor({
                 prototypeArtboardId={prototypeArtboardId}
                 cropId={cropping ? cropId : null}
                 editingTextId={editingTextId}
+                newTextId={newTextId}
                 previewAssetUrls={previewAssetUrls}
                 onMenu={panelMenu}
                 onDoubleClick={artworkDoubleClick}
@@ -4208,6 +4350,7 @@ export function FileEditor({
             tool === "select" &&
             !spaceHeld &&
             !editingGradient &&
+            !editingTextId &&
             vectorMode !== selected?.id && (
               <SelectionHandles
                 key={selected.id}
@@ -4774,7 +4917,7 @@ export function FileEditor({
           {editorHeader && (
             <div className="shrink-0 border-b border-primary-grey/70">{editorHeader}</div>
           )}
-          {selected && (
+          {(selected || mobileLayout) && (
             <div
               data-ph-public-label
               data-ph-public
@@ -4793,7 +4936,7 @@ export function FileEditor({
               <button
                 type="button"
                 aria-pressed={prototypeInspectorOpen}
-                disabled={selectedIds.length !== 1}
+                disabled={selectedIds.length !== 1 || toolInspectorActive}
                 onClick={() => setInteractionMode(true)}
                 className={`rounded-md px-2.5 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-40 ${prototypeInspectorOpen ? "bg-primary-grey/25 text-primary-black" : "text-secondary-ink"}`}
               >
@@ -4813,7 +4956,7 @@ export function FileEditor({
             </div>
           )}
           <div className="min-h-0 flex-1 overflow-y-auto">
-            {selected && prototypeInspectorOpen && (
+            {selected && !toolInspectorActive && prototypeInspectorOpen && (
               <PrototypeInspector
                 key={selected.id}
                 node={selected}
@@ -4823,51 +4966,74 @@ export function FileEditor({
                 onPreview={panelPrototype}
               />
             )}
-            {selected && !prototypeInspectorOpen && inspectorSelection.length > 0 && (
-              <SelectionInspector
-                key={[...selectedIds].sort().join(":")}
-                selected={inspectorSelection}
-                mode={readOnly ? "inspect" : inspectorMode}
-                document={snapshot.content}
-                viewport={viewport}
+            {selected &&
+              !toolInspectorActive &&
+              !prototypeInspectorOpen &&
+              inspectorSelection.length > 0 && (
+                <SelectionInspector
+                  key={[...selectedIds].sort().join(":")}
+                  selected={inspectorSelection}
+                  mode={readOnly ? "inspect" : inspectorMode}
+                  document={snapshot.content}
+                  viewport={viewport}
+                  readOnly={readOnly}
+                  onPatch={panelPatch}
+                  onDocument={panelDocument}
+                  onGoToMaster={panelGoToMaster}
+                  onExport={panelExport}
+                  exportPending={exportPending}
+                  exportWarnings={exportWarnings}
+                  editingGradientId={editingGradient ? gradientMode?.paintId : undefined}
+                  onGradientEdit={panelGradient}
+                  onUploadFill={panelUpload}
+                  onEditImage={openImageEditor}
+                  onReplaceImage={panelReplace}
+                  onCropImage={panelCrop}
+                  onFitImageBounds={panelFitImageBounds}
+                  cropping={cropping}
+                  editingVector={vectorMode === selected.id}
+                  onEditVector={panelVector}
+                  onAlign={panelAlign}
+                  onDistribute={panelDistribute}
+                  onGroup={panelGroup}
+                  onScale={panelScale}
+                />
+              )}
+            {(!selected || toolInspectorActive) && (
+              <ToolInspector
+                tool={tool === "frame" || tool === "text" ? tool : null}
+                textNode={textToolNode}
+                onTextPatch={patchTextDefaults}
+                onFrame={insertFramePreset}
+                pageNode={{
+                  ...buildDrawnNode("page-background", "container", null, {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                  }),
+                  style: {
+                    fill: pages.find((page) => page.id === currentPageId)?.background ?? "#f3f3f3",
+                  },
+                }}
+                onBackground={(background) =>
+                  void changeDocument((content) => ({
+                    ...content,
+                    pages: documentPages(content).map((page) =>
+                      page.id === currentPageId ? { ...page, background } : page,
+                    ),
+                  }))
+                }
+                agentSetup={agentSetup}
                 readOnly={readOnly}
-                onPatch={panelPatch}
-                onDocument={panelDocument}
-                onGoToMaster={panelGoToMaster}
-                onExport={panelExport}
-                exportPending={exportPending}
-                exportWarnings={exportWarnings}
-                editingGradientId={editingGradient ? gradientMode?.paintId : undefined}
-                onGradientEdit={panelGradient}
-                onUploadFill={panelUpload}
-                onEditImage={openImageEditor}
-                onReplaceImage={panelReplace}
-                onCropImage={panelCrop}
-                onFitImageBounds={panelFitImageBounds}
-                cropping={cropping}
-                editingVector={vectorMode === selected.id}
-                onEditVector={panelVector}
-                onAlign={panelAlign}
-                onDistribute={panelDistribute}
-                onGroup={panelGroup}
-                onScale={panelScale}
               />
             )}
           </div>
         </aside>
       </EditorPanel>
-      {!preview && !local && (
-        <div
-          data-canvas-control
-          className={`absolute z-30 ${panelsOpen && !prototypeMode ? "bottom-3 left-3" : "bottom-5 left-4"}`}
-        >
-          <FileVersionControl
-            fileId={fileId}
-            revision={snapshot.revision}
-            canEdit={!readOnly && !prototypeMode}
-            disabled={busy || uploading || Boolean(editingTextId)}
-            onRestore={restoreFileVersion}
-          />
+      {!sidebarFileActions && fileActions && (
+        <div data-canvas-control className="absolute bottom-5 left-4 z-30">
+          {fileActions}
         </div>
       )}
       {agents && threadsOpen && (
