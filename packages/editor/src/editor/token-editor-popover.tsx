@@ -70,9 +70,10 @@ export function TokenEditorPopover({
       const popup = panel.current;
       if (!(event.target instanceof Element) || !popup || popup.contains(event.target)) return;
       // Row clicks switch the editor directly, without a close/reopen race.
+      const anchorPanel = anchor.current?.closest('[role="tabpanel"]');
       if (
-        event.target.closest("[data-token-name]")?.closest('[role="tabpanel"]') ===
-        anchor.current?.closest('[role="tabpanel"]')
+        anchorPanel &&
+        event.target.closest("[data-token-name]")?.closest('[role="tabpanel"]') === anchorPanel
       )
         return;
       const focused = document.activeElement;

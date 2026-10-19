@@ -111,6 +111,7 @@ export function TokenPanel({
   const [searchOpen, setSearchOpen] = useState(false);
   const [active, setActive] = useState<string>();
   const anchor = useRef<HTMLButtonElement>(null);
+  const searchButton = useRef<HTMLButtonElement>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<DesignToken["type"]>>(new Set());
   const tokens = resolvedDesignTokens(document);
   const atLimit = tokens.size >= 1000;
@@ -151,6 +152,7 @@ export function TokenPanel({
           </span>
           <button
             type="button"
+            ref={searchButton}
             aria-label="Search tokens"
             aria-expanded={searchOpen}
             onClick={() => {
@@ -268,7 +270,10 @@ export function TokenPanel({
           name={active}
           title={typeLabel(activeToken.type)}
           readOnly={readOnly}
-          onRemove={() => onChange((content) => removeDesignToken(content, active))}
+          onRemove={() => {
+            onChange((content) => removeDesignToken(content, active));
+            searchButton.current?.focus({ preventScroll: true });
+          }}
           onClose={() => setActive(undefined)}
         >
           <DesignTokenEditor

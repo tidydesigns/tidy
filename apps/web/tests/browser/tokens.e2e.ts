@@ -51,6 +51,7 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   await page.getByRole("button", { name: "Remove token pill", exact: true }).click();
   await expect(page.getByRole("button", { name: "Edit token pill", exact: true })).toHaveCount(0);
   await expect(aliasRow).toHaveText("corner24");
+  await expect(page.getByRole("button", { name: "Search tokens", exact: true })).toBeFocused();
   assert.equal(
     await card.evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
     "24px",
@@ -351,4 +352,40 @@ test("canvas color picking handles empty space, gradients and cancellation witho
       return color;
     });
   expect(pickedText).toBe(inheritedText);
+});
+
+test("filtering out the active token still allows click-away dismissal", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Search tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Edit token rounded", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Radius token", exact: true });
+  await expect(dialog).toBeVisible();
+  await page.getByRole("searchbox", { name: "Find tokens", exact: true }).fill("body");
+  await expect(page.getByRole("button", { name: "Edit token rounded", exact: true })).toHaveCount(
+    0,
+  );
+  await expect(dialog).toBeVisible();
+  await page.getByLabel("Design canvas", { exact: true }).click({ position: { x: 800, y: 700 } });
+  await expect(dialog).toHaveCount(0);
+});
+
+test("canvas picking skips an unpainted container and uses the filled parent", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("button", { name: "Select Tokens frame", exact: true }).first().click();
+  const fill = page.getByRole("textbox", { name: "Fill color", exact: true });
+  await fill.fill("#227359");
+  await fill.press("Enter");
+  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  await page.getByRole("button", { name: "Remove fill", exact: true }).click();
+  const card = page.locator('[data-node-id="token-card"]');
+  await expect(card).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Color", exact: true }).click();
+  await page.getByRole("button", { name: "Open color palette", exact: true }).click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await card.click({ position: { x: 20, y: 20 } });
+  await expect(page.getByRole("dialog", { name: "Color token", exact: true })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Color", exact: true })).toHaveValue("#227359");
 });

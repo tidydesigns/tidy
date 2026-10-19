@@ -43,7 +43,8 @@ function layerColor(node: DesignNode, element: Element, tokens: Record<string, s
     (strokeWidths(node.style).some((width) => width > 0)
       ? nodeStrokePaints(node).find((paint) => paint.visible && paint.opacity > 0)
       : undefined);
-  return paint?.type === "solid"
+  if (!paint) return null;
+  return paint.type === "solid"
     ? normalizeColor(paint.token ? (tokens[paint.token] ?? paint.color) : paint.color)
     : undefined;
 }
@@ -108,12 +109,19 @@ export function CanvasColorPicker({
       if (!(event.target instanceof Element) || !surface.contains(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const element = document
-        .elementsFromPoint(event.clientX, event.clientY)
-        .find((element) => surface.contains(element) && element.closest("[data-node-id]"))
-        ?.closest<HTMLElement>("[data-node-id]");
-      const node = nodes.find((node) => node.id === element?.dataset.nodeId);
-      const color = node && element ? layerColor(node, element, tokens) : undefined;
+      const seen = new Set<string>();
+      let color: string | null | undefined;
+      for (const hit of document.elementsFromPoint(event.clientX, event.clientY)) {
+        if (!surface.contains(hit)) continue;
+        const element = hit.closest<HTMLElement>("[data-node-id]");
+        const id = element?.dataset.nodeId;
+        if (!element || !id || seen.has(id)) continue;
+        seen.add(id);
+        const node = nodes.find((candidate) => candidate.id === id);
+        if (!node) continue;
+        color = layerColor(node, element, tokens);
+        if (color !== null) break;
+      }
       if (!color) {
         setMessage("No solid colour here. Choose a solid fill or text, or press Esc.");
         return;
