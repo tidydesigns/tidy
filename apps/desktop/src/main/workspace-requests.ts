@@ -56,6 +56,7 @@ export function createWorkspaceRequests<Context>(
     await service.observe(snapshot.project.id);
     return liveSnapshot(snapshot);
   });
+  handle("project-snapshot", projectId, async (value) => liveSnapshot(await store.snapshot(value)));
   handle("select-project", projectId, async (value) => {
     const snapshot = await store.select(value);
     await service.observe(value);

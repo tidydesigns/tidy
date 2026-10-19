@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { applyThreadPatch, type ThreadPatch } from "../shared/thread-updates";
-import { summarizeThread, type Thread } from "../shared/contracts";
+import { applyProjectEvent, applyThreadPatch, type ThreadPatch } from "../shared/thread-updates";
+import { summarizeThread, type Thread, type ProjectSnapshot } from "../shared/contracts";
 
 test("stream patches preserve old message identities, append once and ignore stale or foreign updates", () => {
   const first = { id: randomUUID(), role: "user" as const, text: "Earlier request" };
@@ -107,4 +107,50 @@ test("tool patches update rows and remove pruned logs without replacing unchange
   });
   expect(unchanged.toolActivities).toBe(result.toolActivities);
   expect(unchanged.messages).toBe(previous.messages);
+});
+
+test("project summaries keep early stream updates when bootstrap finishes and reject stale or foreign events", () => {
+  const projectId = randomUUID();
+  const old: Thread = {
+    id: randomUUID(),
+    projectId,
+    revision: 1,
+    title: "Review",
+    harness: "codex",
+    status: "running",
+    designIds: [],
+    messages: [],
+    updatedAt: new Date().toISOString(),
+  };
+  const snapshot: ProjectSnapshot = {
+    project: { id: projectId, name: "Project", path: "/project", openedAt: old.updatedAt },
+    threads: [summarizeThread(old)],
+    designs: [],
+    folders: [],
+  };
+  const completed: Thread = {
+    ...old,
+    revision: 3,
+    status: "completed",
+    messages: [{ id: randomUUID(), role: "assistant", text: "Complete" }],
+  };
+  const ready = applyProjectEvent(snapshot, { type: "thread", thread: completed });
+  expect(ready.threads[0].revision).toBe(3);
+  expect(ready.threads[0].preview).toBe("Complete");
+  expect(applyProjectEvent(ready, { type: "thread", thread: old })).toBe(ready);
+  expect(
+    applyProjectEvent(ready, { type: "thread", thread: { ...completed, projectId: randomUUID() } }),
+  ).toBe(ready);
+  const newThread = { ...old, id: randomUUID() };
+  const added = applyProjectEvent(ready, { type: "thread", thread: newThread });
+  expect(added.threads.map((thread) => thread.id)).toEqual([newThread.id, old.id]);
+  const folder = { id: randomUUID(), name: "Explorations", updatedAt: old.updatedAt };
+  const latest = applyProjectEvent(added, {
+    type: "designs",
+    projectId,
+    folders: [folder],
+    designs: [],
+  });
+  expect(latest.folders).toEqual([folder]);
+  expect(latest.threads).toBe(added.threads);
 });

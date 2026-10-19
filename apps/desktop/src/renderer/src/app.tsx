@@ -20,8 +20,9 @@ import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread } from "../../shared/contracts";
-import { applyThreadPatch } from "../../shared/thread-updates";
+import { applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
+  DesktopEvent,
   DesignSummary,
   HarnessConnection,
   HarnessId,
@@ -262,7 +263,21 @@ export function App() {
       return;
     }
     let mounted = true;
+    let bootstrapping = true;
+    const initialEvents = new Map<string, DesktopEvent>();
     const unsubscribe = api.onEvent((event) => {
+      if (!mounted) return;
+      if (bootstrapping) {
+        const key = event.type === "designs" ? event.projectId : event.thread.id;
+        const previous = initialEvents.get(key);
+        if (
+          event.type === "designs" ||
+          !previous ||
+          previous.type === "designs" ||
+          previous.thread.revision <= event.thread.revision
+        )
+          initialEvents.set(key, event);
+      }
       if (event.type === "thread" || event.type === "thread-patch") {
         const value = event.thread;
         setThreads((current) => {
@@ -276,40 +291,12 @@ export function App() {
             [value.id]: (previous?.revision ?? -1) > value.revision ? previous : event.thread,
           };
         });
-        setSnapshots((current) => {
-          const entry = current[value.projectId];
-          if (!entry) return current;
-          const summary =
-            event.type === "thread-patch" ? event.summary : summarizeThread(event.thread);
-          if (
-            (entry.threads.find((item) => item.id === value.id)?.revision ?? -1) > summary.revision
-          )
-            return current;
-          return {
-            ...current,
-            [value.projectId]: {
-              ...entry,
-              threads: entry.threads.some((item) => item.id === value.id)
-                ? entry.threads.map((item) => (item.id === value.id ? summary : item))
-                : [summary, ...entry.threads],
-            },
-          };
-        });
-      } else {
-        setSnapshots((current) => {
-          const entry = current[event.projectId];
-          return entry
-            ? {
-                ...current,
-                [event.projectId]: {
-                  ...entry,
-                  designs: event.designs,
-                  folders: event.folders,
-                },
-              }
-            : current;
-        });
       }
+      const projectId = event.type === "designs" ? event.projectId : event.thread.projectId;
+      setSnapshots((current) => {
+        const entry = current[projectId];
+        return entry ? { ...current, [projectId]: applyProjectEvent(entry, event) } : current;
+      });
     });
     void api
       .bootstrap()
@@ -318,11 +305,15 @@ export function App() {
         setProjects(value.projects);
         setHarnesses(value.harnesses);
         if (value.activeProject) {
-          setSnapshots({
-            [value.activeProject.project.id]: value.activeProject,
-          });
+          const snapshot = [...initialEvents.values()].reduce(
+            applyProjectEvent,
+            value.activeProject,
+          );
+          setSnapshots((current) => ({ ...current, [snapshot.project.id]: snapshot }));
           setActiveProjectId(value.activeProject.project.id);
         }
+        bootstrapping = false;
+        initialEvents.clear();
       })
       .catch((value) => {
         if (mounted) setError({ text: errorText(value) });
@@ -1006,6 +997,7 @@ export function App() {
                   key={`${project.id}:${selectedThreadId ?? "draft"}`}
                   identity={`${project.id}:${selectedThreadId ?? "draft"}`}
                   thread={thread}
+                  active={mode === "code"}
                   api={api!}
                   references={
                     thread?.designIds.map(

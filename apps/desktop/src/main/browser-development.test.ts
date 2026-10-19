@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { parseWorkspaceResponse, type WorkspaceOperation } from "../shared/workspace-response";
+import { browserRecovery } from "../shared/browser-recovery";
+import { desktopEventSchema, storedThreadSchema } from "../shared/thread-schema";
+import type { DesktopEvent, ProjectSnapshot, Thread } from "../shared/contracts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
@@ -56,6 +61,7 @@ async function fixture() {
     origin,
     token,
     gateway,
+    service,
     store,
     directory,
     project,
@@ -208,4 +214,296 @@ test("directory responses reject malformed success and error payloads", () => {
     ok: false,
     error: "Folder not found",
   });
+});
+
+function conversation(projectId: string): Thread {
+  return {
+    id: randomUUID(),
+    projectId,
+    revision: 1,
+    title: "Review",
+    harness: "codex",
+    messages: [{ id: randomUUID(), role: "user", text: "Review this project" }],
+    designIds: [],
+    status: "completed",
+    updatedAt: new Date().toISOString(),
+  };
+}
+function deferred<T>() {
+  let complete: ((value: T) => void) | undefined;
+  const promise = new Promise<T>((resolve) => {
+    complete = resolve;
+  });
+  return {
+    promise,
+    resolve(value: T) {
+      complete?.(value);
+    },
+  };
+}
+
+test("recovery refreshes cached projects without selecting them and continues past unavailable projects", async () => {
+  const { store, service, directory, projectId } = await fixture();
+  const unavailable = join(directory, "unavailable");
+  await mkdir(unavailable);
+  const missing = await store.open(unavailable);
+  const other = join(directory, "second");
+  await mkdir(other);
+  const active = await store.open(other);
+  const originalThread = conversation(projectId);
+  const activeThread = conversation(active.project.id);
+  await store.writeThread(originalThread);
+  await store.writeThread(activeThread);
+  await rm(unavailable, { recursive: true });
+  const events: DesktopEvent[] = [];
+  const errors: unknown[] = [];
+  const recovery = browserRecovery({
+    bootstrap: async () => ({
+      projects: store.projects,
+      activeProject: await store.snapshot(active.project.id),
+      harnesses: [],
+    }),
+    snapshot: (id) => store.snapshot(id),
+    readThread: (id, threadId) => service.readThread(id, threadId),
+    listener: (event) => events.push(event),
+    onError: (error) => errors.push(error),
+  });
+  recovery.remember(missing);
+  recovery.remember(await store.snapshot(projectId));
+  await recovery.refresh();
+  expect(errors).toHaveLength(1);
+  expect(events.filter((event) => event.type === "thread").map((event) => event.thread.id)).toEqual(
+    [originalThread.id, activeThread.id],
+  );
+  expect(store.activeProjectId).toBe(active.project.id);
+  recovery.close();
+});
+
+test("unsubscribing suppresses delayed recovery and superseded recovery cannot overwrite a newer pass", async () => {
+  const { store, service, projectId } = await fixture();
+  const project = await store.snapshot(projectId);
+  const wait = deferred<ProjectSnapshot>();
+  const events: DesktopEvent[] = [];
+  let reads = 0;
+  const recovery = browserRecovery({
+    bootstrap: async () => ({ projects: store.projects, activeProject: project, harnesses: [] }),
+    snapshot: () => (++reads === 1 ? wait.promise : Promise.resolve(project)),
+    readThread: (id, threadId) => service.readThread(id, threadId),
+    listener: (event) => events.push(event),
+    onError: (error) => {
+      throw error;
+    },
+  });
+  const first = recovery.refresh();
+  await Promise.resolve();
+  await recovery.refresh();
+  expect(events).toHaveLength(1);
+  wait.resolve(project);
+  await first;
+  expect(events).toHaveLength(1);
+
+  const waiting = deferred<ProjectSnapshot>();
+  const closed = browserRecovery({
+    bootstrap: async () => ({ projects: store.projects, activeProject: project, harnesses: [] }),
+    snapshot: () => waiting.promise,
+    readThread: (id, threadId) => service.readThread(id, threadId),
+    listener: (event) => events.push(event),
+    onError: (error) => {
+      throw error;
+    },
+  });
+  const pending = closed.refresh();
+  await Promise.resolve();
+  closed.close();
+  waiting.resolve(project);
+  await pending;
+  expect(events).toHaveLength(1);
+  closed.receive({ type: "designs", projectId, designs: [], folders: [] });
+  expect(events).toHaveLength(1);
+  recovery.close();
+});
+
+test("live design events win over an older in-flight project snapshot", async () => {
+  const { store, service, projectId } = await fixture();
+  const project = await store.snapshot(projectId);
+  const wait = deferred<ProjectSnapshot>();
+  const events: DesktopEvent[] = [];
+  const recovery = browserRecovery({
+    bootstrap: async () => ({ projects: store.projects, activeProject: project, harnesses: [] }),
+    snapshot: () => wait.promise,
+    readThread: (id, threadId) => service.readThread(id, threadId),
+    listener: (event) => events.push(event),
+    onError: (error) => {
+      throw error;
+    },
+  });
+  const pending = recovery.refresh();
+  await Promise.resolve();
+  const file = await store.createDesign(projectId);
+  const live: DesktopEvent = { type: "designs", projectId, designs: [file], folders: [] };
+  recovery.receive(live);
+  wait.resolve(project);
+  await pending;
+  expect(events).toEqual([live]);
+  recovery.close();
+});
+
+test("stream schemas reject malformed events and keep live approvals out of persisted threads", async () => {
+  const { projectId } = await fixture();
+  const thread = conversation(projectId);
+  thread.pendingApprovals = [{ id: "approval", title: "Run tests", choices: ["allow", "deny"] }];
+  expect(desktopEventSchema.parse({ type: "thread", thread })).toEqual({ type: "thread", thread });
+  expect(storedThreadSchema.parse(thread)).not.toHaveProperty("pendingApprovals");
+  for (const value of [
+    null,
+    { type: "thread", thread: {} },
+    { type: "designs", projectId, designs: "invalid", folders: [] },
+    { type: "unknown" },
+  ])
+    expect(desktopEventSchema.safeParse(value).success).toBe(false);
+});
+
+test("project snapshot requests refresh an inactive project without changing selection", async () => {
+  const { origin, login, directory, store, projectId } = await fixture();
+  const other = join(directory, "second");
+  await mkdir(other);
+  const active = await store.open(other);
+  const file = await store.createDesign(projectId);
+  const response = await fetch(new URL("/__tidy/request", origin), {
+    method: "POST",
+    headers: { Cookie: await login(), Origin: origin.origin, "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "project-snapshot", input: projectId }),
+  });
+  expect(response.status).toBe(200);
+  const result: unknown = await response.json();
+  expect(result).toMatchObject({
+    ok: true,
+    data: { project: { id: projectId }, designs: [{ id: file.id }] },
+  });
+  expect(store.activeProjectId).toBe(active.project.id);
+});
+
+async function streamCursor(origin: URL, cookie: string, lastId?: string) {
+  const abort = new AbortController();
+  cleanups.push(async () => abort.abort());
+  const response = await fetch(new URL("/__tidy/events", origin), {
+    headers: { Cookie: cookie, ...(lastId ? { "Last-Event-ID": lastId } : {}) },
+    signal: abort.signal,
+  });
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No event stream.");
+  let text = "";
+  while (!/^id: /m.test(text)) {
+    const chunk = await reader.read();
+    if (chunk.done) throw new Error("Event stream ended without a cursor.");
+    text += new TextDecoder().decode(chunk.value);
+  }
+  const cursor = [...text.matchAll(/^id: (.+)$/gm)].at(-1)?.[1];
+  if (!cursor) throw new Error("No event cursor.");
+  await reader.cancel();
+  return { text, cursor };
+}
+
+test("reconnecting browsers replay missed thread events and request resync after a restart", async () => {
+  const { origin, login, store, service, projectId, restart } = await fixture();
+  const cookie = await login();
+  const thread = conversation(projectId);
+  await store.writeThread(thread);
+  await service.setThreadDone(projectId, thread.id, true);
+  const first = await streamCursor(origin, cookie);
+  await service.setThreadDone(projectId, thread.id, false);
+  const replay = await streamCursor(origin, cookie, first.cursor);
+  expect(replay.cursor).not.toBe(first.cursor);
+  const data = replay.text.match(/^data: (.+)$/m)?.[1];
+  if (!data) throw new Error("Missed thread event was not replayed.");
+  const event = desktopEventSchema.parse(JSON.parse(data));
+  expect(event.type).toBe("thread");
+  if (event.type === "thread") expect(event.thread.doneAt).toBeUndefined();
+  restart();
+  const restarted = await streamCursor(origin, cookie, replay.cursor);
+  expect(restarted.text).toContain("event: resync");
+  expect(restarted.cursor).not.toBe(replay.cursor);
+});
+
+test("browser and preload responses validate real file, folder, thread and attachment operations", async () => {
+  const { origin, login, store, projectId } = await fixture();
+  const cookie = await login();
+  async function request<Name extends WorkspaceOperation>(name: Name, input?: unknown) {
+    const response = await fetch(new URL("/__tidy/request", origin), {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, input }),
+    });
+    return parseWorkspaceResponse(name, await response.json());
+  }
+  const folder = await request("create-design-folder", { projectId, name: "Explorations" });
+  const renamed = await request("rename-design-folder", {
+    projectId,
+    folderId: folder.id,
+    name: "Product",
+  });
+  expect(renamed.name).toBe("Product");
+  const created = await request("create-design", { projectId, folderId: folder.id });
+  const updated = await request("update-design", {
+    projectId,
+    designId: created.id,
+    expectedVersion: created.version,
+    name: "Homepage",
+    folderId: null,
+  });
+  const read = await request("read-design", { projectId, designId: created.id });
+  expect(read).toEqual(updated);
+  expect(read.folderId).toBeNull();
+  const snapshot = await request("project-snapshot", projectId);
+  expect(snapshot.designs[0].name).toBe("Homepage");
+  expect(snapshot.folders[0].name).toBe("Product");
+  const thread = conversation(projectId);
+  await store.writeThread(thread);
+  const done = await request("set-thread-done", { projectId, threadId: thread.id, done: true });
+  expect(done.doneAt).toBeDefined();
+  const reopened = await request("set-thread-done", {
+    projectId,
+    threadId: thread.id,
+    done: false,
+  });
+  expect(reopened.doneAt).toBeUndefined();
+  expect(await request("read-thread", { projectId, threadId: thread.id })).toEqual(reopened);
+  expect(reopened.messages).toEqual(thread.messages);
+  expect(await request("stop-thread", { projectId, threadId: thread.id })).toBeUndefined();
+  const attached = await request("add-attachment", {
+    projectId,
+    name: "notes.txt",
+    dataUrl: "data:text/plain;base64,aGVsbG8=",
+  });
+  expect(await request("read-attachment", { projectId, attachmentId: attached.id })).toEqual(
+    attached,
+  );
+});
+
+test("response schemas reject malformed successes and preserve useful server errors", () => {
+  for (const value of [
+    null,
+    {},
+    { ok: "true", data: {} },
+    { ok: false, error: 42 },
+    { ok: true, data: {} },
+  ])
+    expect(() => parseWorkspaceResponse("bootstrap", value)).toThrow("Invalid desktop response.");
+  expect(() =>
+    parseWorkspaceResponse("read-thread", { ok: false, error: "Thread not found." }),
+  ).toThrow("Thread not found.");
+  expect(() =>
+    parseWorkspaceResponse("read-thread", {
+      ok: true,
+      data: { ...conversation(randomUUID()), messages: "invalid" },
+    }),
+  ).toThrow("Invalid desktop response.");
+  expect(() =>
+    parseWorkspaceResponse("upload-design-asset", {
+      ok: true,
+      data: { assetId: "asset", url: 42 },
+    }),
+  ).toThrow("Invalid desktop response.");
+  expect(parseWorkspaceResponse("stop-thread", { ok: true })).toBeUndefined();
+  expect(parseWorkspaceResponse("import-design", { ok: true, data: null })).toBeNull();
 });

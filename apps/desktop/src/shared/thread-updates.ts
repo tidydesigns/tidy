@@ -1,4 +1,11 @@
-import type { Thread, ThreadSummary, Message } from "./contracts";
+import {
+  summarizeThread,
+  type Thread,
+  type ThreadSummary,
+  type Message,
+  type ProjectSnapshot,
+  type DesktopEvent,
+} from "./contracts";
 import type { ToolActivity } from "./tool-activity";
 
 export type ThreadPatch = {
@@ -39,5 +46,21 @@ export function applyThreadPatch(previous: Thread, patch: ThreadPatch): Thread {
     ...patch.thread,
     messages: merge(previous.messages, patch.messages),
     toolActivities: nextTools,
+  };
+}
+
+export function applyProjectEvent(snapshot: ProjectSnapshot, event: DesktopEvent): ProjectSnapshot {
+  const projectId = event.type === "designs" ? event.projectId : event.thread.projectId;
+  if (projectId !== snapshot.project.id) return snapshot;
+  if (event.type === "designs")
+    return { ...snapshot, designs: event.designs, folders: event.folders };
+  const summary = event.type === "thread-patch" ? event.summary : summarizeThread(event.thread);
+  const previous = snapshot.threads.find((item) => item.id === summary.id);
+  if (previous && previous.revision > summary.revision) return snapshot;
+  return {
+    ...snapshot,
+    threads: previous
+      ? snapshot.threads.map((item) => (item.id === summary.id ? summary : item))
+      : [summary, ...snapshot.threads],
   };
 }

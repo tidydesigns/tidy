@@ -1,16 +1,22 @@
 import { chooseBrowserProject } from "./browser-project-picker";
-import type { Bootstrap, DesktopAPI, DesktopEvent } from "../../shared/contracts";
+import { desktopEventSchema } from "../../shared/thread-schema";
+import { browserRecovery } from "../../shared/browser-recovery";
+import {
+  parseWorkspaceResponse,
+  type WorkspaceOperation,
+  type WorkspaceResponse,
+} from "../../shared/workspace-response";
+import type { DesktopAPI, ProjectSnapshot } from "../../shared/contracts";
 
-// A previously authenticated browser can open the private link again.
 if (new URLSearchParams(location.hash.slice(1)).has("token"))
   history.replaceState(null, "", location.pathname + location.search);
 
-async function request<T>(
-  name: string,
+async function request<Name extends WorkspaceOperation>(
+  name: Name,
   input?: unknown,
   file?: { name: string; document: unknown },
   projectPath?: string,
-): Promise<T> {
+): Promise<WorkspaceResponse<Name>> {
   const response = await fetch("/__tidy/request", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -18,9 +24,7 @@ async function request<T>(
   });
   if (response.status === 401)
     throw new Error("Your development session expired. Open the development link again.");
-  const result = (await response.json()) as { ok: true; data: T } | { ok: false; error: string };
-  if (!result.ok) throw new Error(result.error);
-  return result.data;
+  return parseWorkspaceResponse(name, await response.json());
 }
 
 async function importDesign(projectId: string, folderId?: string | null) {
@@ -34,7 +38,7 @@ async function importDesign(projectId: string, folderId?: string | null) {
   });
   if (!file) return null;
   if (file.size > 16 * 1024 * 1024) throw new Error("The design file is too large.");
-  return request<Awaited<ReturnType<DesktopAPI["importDesign"]>>>(
+  return request(
     "import-design",
     { projectId, folderId },
     {
@@ -44,11 +48,25 @@ async function importDesign(projectId: string, folderId?: string | null) {
   );
 }
 
+const recoveries = new Set<ReturnType<typeof browserRecovery>>();
+function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
+  for (const recovery of recoveries) recovery.remember(snapshot);
+  return snapshot;
+}
+
 const api: DesktopAPI = {
-  bootstrap: () => request("bootstrap"),
+  bootstrap: async () => {
+    const value = await request("bootstrap");
+    remember(value.activeProject);
+    return value;
+  },
   openProject: () =>
-    chooseBrowserProject((path) => request("open-project", undefined, undefined, path)),
-  selectProject: (projectId) => request("select-project", projectId),
+    chooseBrowserProject(async (path) => {
+      const value = await request("open-project", undefined, undefined, path);
+      if (!value) throw new Error("No project was selected.");
+      return remember(value);
+    }),
+  selectProject: (projectId) => request("select-project", projectId).then(remember),
   harnessDetails: (projectId, harness, refresh) =>
     request("harness-details", { projectId, harness, refresh }),
   async openHarnessUsage(harness, page) {
@@ -89,25 +107,28 @@ const api: DesktopAPI = {
   uploadDesignAsset: (projectId, dataUrl) => request("upload-design-asset", { projectId, dataUrl }),
   onEvent(listener) {
     const events = new EventSource("/__tidy/events");
-    events.addEventListener("resync", () => {
-      void request<Bootstrap>("bootstrap")
-        .then(async ({ activeProject }) => {
-          if (!activeProject) return;
-          listener({
-            type: "designs",
-            projectId: activeProject.project.id,
-            designs: activeProject.designs,
-            folders: activeProject.folders,
-          });
-          for (const summary of activeProject.threads) {
-            const thread = await api.readThread(activeProject.project.id, summary.id);
-            listener({ type: "thread", thread });
-          }
-        })
-        .catch(console.error);
+    const recovery = browserRecovery({
+      bootstrap: () => request("bootstrap"),
+      snapshot: (id) => request("project-snapshot", id),
+      readThread: api.readThread,
+      listener,
+      onError: (error) => console.error("Browser project recovery failed", error),
     });
-    events.onmessage = (message) => listener(JSON.parse(message.data) as DesktopEvent);
-    return () => events.close();
+    recoveries.add(recovery);
+    events.onopen = () => void recovery.refresh();
+    events.onmessage = (message) => {
+      try {
+        recovery.receive(desktopEventSchema.parse(JSON.parse(message.data)));
+      } catch (error) {
+        console.error("Invalid browser workspace event", error);
+        void recovery.refresh();
+      }
+    };
+    return () => {
+      recovery.close();
+      recoveries.delete(recovery);
+      events.close();
+    };
   },
 };
 

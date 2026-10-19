@@ -56,6 +56,7 @@ function Output({ text, streaming }: { text: string; streaming: boolean }) {
       tabIndex={0}
       onScroll={(event) => {
         const element = event.currentTarget;
+        if (!element.clientHeight) return;
         following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
       }}
     >
@@ -87,9 +88,9 @@ function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
           {tool.parentToolId && <span>Agent tool</span>}
           {tool.exitCode !== undefined && <span>Exit {tool.exitCode}</span>}
         </div>
-        {Boolean(tool.files?.length) && (
+        {tool.files && tool.files.length > 0 && (
           <ul className="tool-files" aria-label="File changes">
-            {tool.files!.map((file, index) => (
+            {tool.files.map((file, index) => (
               <li key={index}>
                 <span>{file.kind.charAt(0).toUpperCase() + file.kind.slice(1)}</span>
                 <code>{file.path}</code>

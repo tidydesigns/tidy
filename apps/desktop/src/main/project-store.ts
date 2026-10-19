@@ -19,8 +19,6 @@ import {
   MAX_IMAGE_BYTES,
   type AttachedFile,
 } from "../shared/attachments";
-import { toolActivitySchema, MAX_TOOL_ACTIVITIES } from "../shared/tool-activity";
-import { harnessSettingsSchema, tokenUsageSchema } from "../shared/harness-settings";
 import type {
   DesignFolder,
   LocalDesign,
@@ -32,33 +30,10 @@ import { summarizeThread } from "../shared/contracts";
 import { ThreadAuthority } from "./thread-authority";
 import { readLocalFile } from "./local-files";
 
+import { storedThreadSchema as threadSchema } from "../shared/thread-schema";
+export { threadSchema };
+
 const id = z.string().uuid();
-const messageSchema = z.object({
-  id,
-  role: z.enum(["user", "assistant"]),
-  text: z.string().max(1_000_000),
-  attachments: z.array(attachmentSchema).max(10).optional(),
-});
-export const threadSchema = z.object({
-  revision: z.number().int().min(0).default(0),
-  id,
-  projectId: id,
-  title: z.string().max(120),
-  harness: z.enum(["codex", "claude"]),
-  sessionId: id.optional(),
-  settings: harnessSettingsSchema.optional(),
-  usage: tokenUsageSchema.optional(),
-  actualModel: z.string().max(200).optional(),
-  doneAt: z.string().datetime().optional(),
-  designIds: z.array(id).max(20),
-  messages: z.array(messageSchema).max(1000),
-  status: z.enum(["idle", "running", "completed", "stopped", "failed", "interrupted"]),
-  activity: z.string().max(500).optional(),
-  toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
-  toolActivityTruncated: z.boolean().optional(),
-  error: z.string().max(4000).optional(),
-  updatedAt: z.string().datetime(),
-});
 const registrySchema = z.object({
   version: z.literal(1),
   activeProjectId: z.string().nullable(),

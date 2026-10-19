@@ -1,12 +1,17 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { DesktopAPI, DesktopEvent } from "../shared/contracts";
+import {
+  parseWorkspaceResponse,
+  type WorkspaceOperation,
+  type WorkspaceResponse,
+} from "../shared/workspace-response";
+import { desktopEventSchema } from "../shared/thread-schema";
+import type { DesktopAPI } from "../shared/contracts";
 
-async function request<T>(name: string, input?: unknown): Promise<T> {
-  const response = (await ipcRenderer.invoke(`tidy:${name}`, input)) as
-    | { ok: true; data: T }
-    | { ok: false; error: string };
-  if (!response.ok) throw new Error(response.error);
-  return response.data;
+async function request<Name extends WorkspaceOperation>(
+  name: Name,
+  input?: unknown,
+): Promise<WorkspaceResponse<Name>> {
+  return parseWorkspaceResponse(name, await ipcRenderer.invoke(`tidy:${name}`, input));
 }
 
 const api: DesktopAPI = {
@@ -40,7 +45,8 @@ const api: DesktopAPI = {
   updateDesign: (input) => request("update-design", input),
   uploadDesignAsset: (projectId, dataUrl) => request("upload-design-asset", { projectId, dataUrl }),
   onEvent(listener) {
-    const receive = (_event: Electron.IpcRendererEvent, value: DesktopEvent) => listener(value);
+    const receive = (_event: Electron.IpcRendererEvent, value: unknown) =>
+      listener(desktopEventSchema.parse(value));
     ipcRenderer.on("tidy:event", receive);
     return () => ipcRenderer.removeListener("tidy:event", receive);
   },

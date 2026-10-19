@@ -1,8 +1,8 @@
-import type { ToolActivity } from "./tool-activity";
-import type { ThreadPatch } from "./thread-updates";
-import type { ApprovalRequest, ApprovalDecision } from "./permissions";
-import type { Attachment, AttachedFile } from "./attachments";
-import type { HarnessSettings, HarnessDetails, TokenUsage } from "./harness-settings";
+import type { z } from "zod";
+import type { liveThreadSchema, threadSummarySchema, desktopEventSchema } from "./thread-schema";
+import type { ApprovalDecision } from "./permissions";
+import type { AttachedFile } from "./attachments";
+import type { HarnessSettings, HarnessDetails } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
 
 export type HarnessId = "codex" | "claude";
@@ -12,42 +12,9 @@ export type HarnessConnection = {
   status: "ready" | "signed-out" | "not-installed";
 };
 export type Project = { id: string; name: string; path: string; openedAt: string };
-export type Message = {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-  attachments?: Attachment[];
-};
-export type Thread = {
-  revision: number;
-  id: string;
-  projectId: string;
-  title: string;
-  harness: HarnessId;
-  settings?: HarnessSettings;
-  usage?: TokenUsage;
-  actualModel?: string;
-  sessionId?: string;
-  doneAt?: string;
-  designIds: string[];
-  messages: Message[];
-  status: "idle" | "running" | "completed" | "stopped" | "failed" | "interrupted";
-  activity?: string;
-  toolActivities?: ToolActivity[];
-  toolActivityTruncated?: boolean;
-  /** Live requests only. Never serialized to thread storage or replayed after restart. */
-  pendingApprovals?: ApprovalRequest[];
-  error?: string;
-  updatedAt: string;
-};
-export type ThreadSummary = Omit<
-  Thread,
-  "messages" | "sessionId" | "toolActivities" | "pendingApprovals"
-> & {
-  pendingApprovalCount?: number;
-  preview?: string;
-  messageCount?: number;
-};
+export type Thread = z.infer<typeof liveThreadSchema>;
+export type Message = Thread["messages"][number];
+export type ThreadSummary = z.infer<typeof threadSummarySchema>;
 export function summarizeThread(thread: Thread): ThreadSummary {
   return {
     revision: thread.revision,
@@ -98,10 +65,7 @@ export type Bootstrap = {
   activeProject: ProjectSnapshot | null;
   harnesses: HarnessConnection[];
 };
-export type DesktopEvent =
-  | ({ type: "thread-patch" } & ThreadPatch)
-  | { type: "thread"; thread: Thread }
-  | { type: "designs"; projectId: string; designs: DesignSummary[]; folders: DesignFolder[] };
+export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
   bootstrap(): Promise<Bootstrap>;
   openProject(): Promise<ProjectSnapshot | null>;

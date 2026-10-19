@@ -36,17 +36,21 @@ export function Conversation({
   identity,
   api,
   references,
+  active,
 }: {
   thread?: Thread;
   identity: string;
   api: DesktopAPI;
   references: string[];
+  active: boolean;
 }) {
   const previewId = useId();
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(positions.get(identity)?.following ?? true);
   const initialized = useRef(false);
+  const visible = useRef(active);
+  visible.current = active;
   const lastUser = useRef<string | undefined>(undefined);
   const frame = useRef(0);
   const measureRef = useRef(() => {});
@@ -76,7 +80,7 @@ export function Conversation({
 
   function measure() {
     const element = viewport.current;
-    if (!element) return;
+    if (!element || !visible.current || !element.clientHeight) return;
     const end = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
     setAtEnd(end);
     const top = element.getBoundingClientRect().top + 48;
@@ -86,9 +90,13 @@ export function Conversation({
       if (node && node.getBoundingClientRect().top <= top) index = i;
     }
     setCurrent(index);
+    rememberPosition(element);
+  }
+  function rememberPosition(element: HTMLDivElement) {
     positions.delete(identity);
     positions.set(identity, { top: element.scrollTop, following: following.current });
-    if (positions.size > 100) positions.delete(positions.keys().next().value!);
+    const oldest = positions.keys().next();
+    if (positions.size > 100 && !oldest.done) positions.delete(oldest.value);
   }
   measureRef.current = measure;
   function latest() {
@@ -110,7 +118,7 @@ export function Conversation({
   }
 
   useLayoutEffect(() => {
-    if (!thread || !viewport.current) return;
+    if (!active || !thread || !viewport.current) return;
     const user = turns.at(-1)?.id;
     if (!initialized.current) {
       const saved = positions.get(identity);
@@ -121,14 +129,17 @@ export function Conversation({
       following.current = true;
     }
     lastUser.current = user;
+    const saved = positions.get(identity);
+    if (saved && !following.current) viewport.current.scrollTop = saved.top;
     if (following.current) viewport.current.scrollTop = viewport.current.scrollHeight;
     measure();
-  }, [thread?.messages, thread?.toolActivities, thread?.status]);
+  }, [active, thread?.messages, thread?.toolActivities, thread?.status]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => {
       cancelAnimationFrame(frame.current);
       frame.current = requestAnimationFrame(() => {
+        if (!visible.current) return;
         if (following.current && viewport.current)
           viewport.current.scrollTop = viewport.current.scrollHeight;
         measureRef.current();
@@ -160,9 +171,11 @@ export function Conversation({
         onKeyDown={(event) => {
           if (["ArrowUp", "PageUp", "Home"].includes(event.key)) following.current = false;
         }}
-        onScroll={() => {
-          const element = viewport.current!;
+        onScroll={(event) => {
+          if (!visible.current || !event.currentTarget.clientHeight) return;
+          const element = event.currentTarget;
           following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+          rememberPosition(element);
           cancelAnimationFrame(frame.current);
           frame.current = requestAnimationFrame(measure);
         }}
@@ -194,11 +207,11 @@ export function Conversation({
                 aria-label={message.role === "user" ? "Your message" : "Assistant message"}
               >
                 <MessageBody message={message} />
-                {Boolean(message.attachments?.length) && (
+                {message.attachments && message.attachments.length > 0 && (
                   <MessageAttachments
                     api={api}
                     projectId={thread.projectId}
-                    files={message.attachments!}
+                    files={message.attachments}
                   />
                 )}
               </article>
@@ -261,15 +274,15 @@ export function Conversation({
                   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
                     event.preventDefault();
                     const buttons =
-                      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
                         "button",
                       );
-                    buttons[
-                      Math.max(
-                        0,
-                        Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
-                      )
-                    ]?.focus();
+                    if (!buttons?.length) return;
+                    const next = Math.max(
+                      0,
+                      Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
+                    );
+                    buttons[next]?.focus();
                   }
                 }}
               >

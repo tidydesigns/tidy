@@ -44,7 +44,10 @@ export default defineConfig({
   },
   preload: {
     build: {
-      rolldownOptions: { output: { format: "cjs", entryFileNames: "index.cjs" } },
+      externalizeDeps: false,
+      rolldownOptions: {
+        output: { format: "cjs", entryFileNames: "index.cjs", banner: licenceBanner },
+      },
     },
   },
   renderer: rendererConfig,
