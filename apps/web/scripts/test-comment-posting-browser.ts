@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 import tailwindcss from "@tailwindcss/postcss";
-import type { CommentMutation, CommentThread } from "../lib/design/comment-contract";
+import { commentMutationSchema, type CommentThread } from "../lib/design/comment-contract";
 
 const postcss = createRequire(import.meta.resolve("@tailwindcss/postcss"))("postcss");
 const root = resolve(import.meta.dirname, "..");
@@ -104,7 +104,7 @@ const server = Bun.serve({
           canModerateThreads: true,
         });
       }
-      const input = (await request.json()) as CommentMutation;
+      const input = commentMutationSchema.parse(await request.json());
       posts++;
       if (postGate) await postGate;
       if (preview) await Bun.sleep(1500);
@@ -229,10 +229,10 @@ try {
   // Fast acknowledgements never flash a visible sending label, including after its timer.
   await reply.fill("Fast acknowledgement");
   await page.evaluate(() => {
-    const stats = window as unknown as { visibleSending?: boolean };
-    stats.visibleSending = false;
+    document.documentElement.dataset.visibleSending = "false";
     const observer = new MutationObserver(() => {
-      if (document.querySelector('[role="status"] span:not(.sr-only)')) stats.visibleSending = true;
+      if (document.querySelector('[role="status"] span:not(.sr-only)'))
+        document.documentElement.dataset.visibleSending = "true";
     });
     observer.observe(document.body, { childList: true, subtree: true, attributes: true });
     window.setTimeout(() => observer.disconnect(), 400);
@@ -241,7 +241,7 @@ try {
   await until(async () => (await popup.getByRole("status").count()) === 0);
   await Bun.sleep(400);
   assert.equal(
-    await page.evaluate(() => (window as unknown as { visibleSending: boolean }).visibleSending),
+    await page.evaluate(() => document.documentElement.dataset.visibleSending === "true"),
     false,
   );
 

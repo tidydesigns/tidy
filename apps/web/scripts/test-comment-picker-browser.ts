@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { chromium } from "playwright";
 import tailwindcss from "@tailwindcss/postcss";
-import type { CommentMutation, CommentThread } from "../lib/design/comment-contract";
+import { commentMutationSchema, type CommentThread } from "../lib/design/comment-contract";
 
 const postcss = createRequire(import.meta.resolve("@tailwindcss/postcss"))("postcss");
 const root = resolve(import.meta.dirname, "..");
@@ -100,7 +100,7 @@ const server = Bun.serve({
           canModerateThreads: true,
         });
       }
-      const input = (await request.json()) as CommentMutation;
+      const input = commentMutationSchema.parse(await request.json());
       posts++;
       if (preview) await Bun.sleep(1500);
       if (input.action === "create" || input.action === "reply") {
@@ -138,7 +138,8 @@ const server = Bun.serve({
         if (reactionPostGate) await reactionPostGate;
         if (failReaction)
           return Response.json({ error: "Reaction limit reached" }, { status: 409 });
-        const message = threads[0].messages.find((message) => message.id === input.messageId)!;
+        const message = threads[0].messages.find((message) => message.id === input.messageId);
+        if (!message) return Response.json({ error: "Comment not found" }, { status: 404 });
         message.reactions = message.reactions.some((reaction) => reaction.emoji === input.emoji)
           ? message.reactions.filter((reaction) => reaction.emoji !== input.emoji)
           : [...message.reactions, { emoji: input.emoji, count: 1, reacted: true }];

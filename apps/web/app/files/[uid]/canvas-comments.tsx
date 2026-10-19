@@ -384,10 +384,10 @@ export const CanvasComments = forwardRef<
   const mutationRef = useRef<{ thread: CommentThread; resolved: boolean | null } | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const refreshVersion = useRef(0);
-  const [confirmedRead, setConfirmedRead] = useState({
+  const [confirmedRead, setConfirmedRead] = useState(() => ({
     version: 0,
     messageIds: new Set<string>(),
-  });
+  }));
   const latestReadVersion = useCallback(() => refreshVersion.current, []);
   const loadedPages = useRef(1);
   const focusedThread = useRef<string | null>(null);
@@ -826,7 +826,9 @@ export const CanvasComments = forwardRef<
                 replayLabel
                 label="Comment status"
                 value={filter}
-                onChange={(value) => setFilter(value as "open" | "resolved")}
+                onChange={(value) => {
+                  if (value === "open" || value === "resolved") setFilter(value);
+                }}
                 options={[
                   { value: "open", label: `Open (${visibleThreads.length})` },
                   {
