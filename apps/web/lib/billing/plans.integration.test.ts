@@ -118,6 +118,7 @@ beforeAll(async () => {
     "20261006-document-history-bounds.sql",
     "20261007-file-version-history.sql",
     "20261017-file-history-capacity.sql",
+    "20261019-service-synchronization.sql",
   ]) {
     await db.query(
       await readFile(resolve(import.meta.dir, "../../../..", "migrations", migration), "utf8"),
@@ -1001,3 +1002,163 @@ integration(
     ).toEqual({});
   },
 );
+
+integration("concurrent subscription deliveries publish the current canonical state", async () => {
+  const client = billing.stripe();
+  const state = {
+    id: "sub_ordered",
+    metadata: { organizationId: org },
+    customer: "cus_ordered",
+    status: "active",
+    cancel_at_period_end: false,
+    items: {
+      data: [
+        { price: { id: "price_pro" }, current_period_end: Math.floor(Date.now() / 1000) + 86400 },
+      ],
+    },
+  } as unknown as Stripe.Subscription;
+  let announce!: () => void, release!: (value: Stripe.Response<Stripe.Subscription>) => void;
+  const started = new Promise<void>((resolve) => {
+    announce = resolve;
+  });
+  const delayed = new Promise<Stripe.Response<Stripe.Subscription>>((resolve) => {
+    release = resolve;
+  });
+  let reads = 0;
+  const retrieve = spyOn(client.subscriptions, "retrieve").mockImplementation(async () => {
+    if (++reads === 1) {
+      announce();
+      return delayed;
+    }
+    return structuredClone(state) as Stripe.Response<Stripe.Subscription>;
+  });
+  let first: Promise<void> | undefined;
+  try {
+    first = processBillingEvent({
+      type: "customer.subscription.updated",
+      data: { object: { id: state.id } },
+    } as Stripe.Event);
+    await started;
+    const previous = structuredClone(state) as Stripe.Response<Stripe.Subscription>;
+    state.status = "canceled";
+    await processBillingEvent({
+      type: "customer.subscription.deleted",
+      data: { object: { id: state.id } },
+    } as Stripe.Event);
+    release(previous);
+    await first;
+    expect((await usage()).tier).toBe("free");
+    expect(
+      (
+        await db.query(
+          'select "stripeStatus" from "organization_billing" where "organizationId"=$1',
+          [org],
+        )
+      ).rows[0].stripeStatus,
+    ).toBe("canceled");
+  } finally {
+    release(structuredClone(state) as Stripe.Response<Stripe.Subscription>);
+    await first?.catch(() => {});
+    retrieve.mockRestore();
+  }
+});
+
+integration(
+  "plan renewal grace is bounded and canonical checks recover missed updates",
+  async () => {
+    await subscription();
+    await db.query(
+      `update "organization_billing" set "stripeSubscriptionId"='sub_reconcile',"stripeCustomerId"='cus_reconcile',"currentPeriodEnd"=now()-interval '25 hours' where "organizationId"=$1`,
+      [org],
+    );
+    expect((await usage()).tier).toBe("free");
+    await db.query(
+      `update "organization_billing" set "currentPeriodEnd"=now()-interval '23 hours' where "organizationId"=$1`,
+      [org],
+    );
+    expect((await usage()).tier).toBe("pro");
+    const retrieve = spyOn(billing.stripe().subscriptions, "retrieve").mockResolvedValue({
+      id: "sub_reconcile",
+      metadata: { organizationId: org },
+      customer: "cus_reconcile",
+      status: "canceled",
+      cancel_at_period_end: false,
+      items: {
+        data: [
+          { price: { id: "price_pro" }, current_period_end: Math.floor(Date.now() / 1000) - 86400 },
+        ],
+      },
+    } as unknown as Stripe.Response<Stripe.Subscription>);
+    try {
+      const { reconcileBilling } = await import("./reconciliation");
+      expect(await reconcileBilling()).toEqual({ checked: 1, failed: 0 });
+      expect((await usage()).tier).toBe("free");
+      expect(await reconcileBilling()).toEqual({ checked: 0, failed: 0 });
+    } finally {
+      retrieve.mockRestore();
+    }
+  },
+);
+
+integration("reconciliation rotates failed checks and preserves existing data", async () => {
+  await subscription();
+  await db.query(
+    `update "organization_billing" set "stripeSubscriptionId"='sub_retry',"currentPeriodEnd"=now()+interval '1 day' where "organizationId"=$1`,
+    [org],
+  );
+  const retrieve = spyOn(billing.stripe().subscriptions, "retrieve").mockRejectedValue(
+    new Error("provider unavailable"),
+  );
+  try {
+    const { reconcileBilling } = await import("./reconciliation");
+    expect(await reconcileBilling()).toEqual({ checked: 1, failed: 1 });
+    expect(await reconcileBilling()).toEqual({ checked: 0, failed: 0 });
+    expect((await usage()).tier).toBe("pro");
+  } finally {
+    retrieve.mockRestore();
+  }
+});
+
+integration("scheduled subscription checks continue in bounded batches", async () => {
+  await db.query(
+    'insert into "organizationCreationPermission" ("userId","allowMultiple") values ($1,true) on conflict ("userId") do update set "allowMultiple"=true',
+    [owner.id],
+  );
+  const organizations = [org];
+  for (let i = 0; i < 10; i++)
+    organizations.push((await createOrganizationForUser(owner.id, `Workspace ${i}`)).id);
+  for (const [i, organizationId] of organizations.entries())
+    await db.query(
+      `insert into "organization_billing" ("organizationId","stripeCustomerId","stripeSubscriptionId","stripeStatus","stripePriceId","currentPeriodEnd")
+      values ($1,$2,$3,'active','price_pro',now()+interval '1 day')`,
+      [organizationId, `cus_batch_${i}`, `sub_batch_${i}`],
+    );
+  const retrieve = spyOn(billing.stripe().subscriptions, "retrieve").mockImplementation(
+    async (id) => {
+      const index = Number(id.split("_").at(-1));
+      return {
+        id,
+        customer: `cus_batch_${index}`,
+        metadata: { organizationId: organizations[index] },
+        status: "active",
+        cancel_at_period_end: false,
+        items: {
+          data: [
+            {
+              price: { id: "price_pro" },
+              current_period_end: Math.floor(Date.now() / 1000) + 86400,
+            },
+          ],
+        },
+      } as unknown as Stripe.Response<Stripe.Subscription>;
+    },
+  );
+  try {
+    const { reconcileBilling } = await import("./reconciliation");
+    expect(await reconcileBilling()).toEqual({ checked: 10, failed: 0 });
+    expect(await reconcileBilling()).toEqual({ checked: 1, failed: 0 });
+    expect(await reconcileBilling()).toEqual({ checked: 0, failed: 0 });
+  } finally {
+    retrieve.mockRestore();
+  }
+});

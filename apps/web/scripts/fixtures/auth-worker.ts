@@ -24,6 +24,7 @@ import {
   MutationBudgetError,
 } from "../../lib/security/mutation-budget";
 import { consumeEmailBudget } from "../../lib/auth/email-budget";
+import { consumeAuthEndpointRateLimit } from "../../lib/auth/guard-client";
 import { withRequestBodyLimit } from "../../lib/http/request-body";
 import { AuthGuard } from "../../lib/auth/guard";
 import { DurableObject } from "cloudflare:workers";
@@ -53,6 +54,13 @@ const worker = {
     const path = new URL(request.url).pathname;
     // Same context mechanism OpenNext supplies to the production guard client.
     Object.assign(globalThis, { [Symbol.for("__cloudflare-context__")]: { env } });
+    if (path === "/endpoint-limit") {
+      const ip = request.headers.get("cf-connecting-ip") || "unknown";
+      const endpoint = new URL(request.url).searchParams.get("path") ?? "/get-session";
+      return Response.json(
+        await consumeAuthEndpointRateLimit(`${ip}|${endpoint}`, { window: 60, max: 3 }),
+      );
+    }
     if (path === "/personal-attempts") {
       const url = new URL(request.url),
         kind = url.searchParams.get("kind");

@@ -1,6 +1,7 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { traceAuthOperation, requestSignal, waitForSignal } from "./request-lifecycle";
 import type { RateCheck, RateRule } from "./guard-store";
+import { authRateLimitKey } from "./rate-limit-key";
 
 export function authGuard() {
   const { env } = getCloudflareContext();
@@ -10,6 +11,11 @@ export function authGuard() {
 
 export function consumeAuthRateLimit(key: string, rule: RateRule) {
   return consumeRateLimit(key, rule);
+}
+
+export async function consumeAuthEndpointRateLimit(key: string, rule: RateRule) {
+  const counter = await authRateLimitKey(key, rule);
+  return consumeRateLimit(counter.key, rule, counter.scope);
 }
 
 /** Separate tenant shards keep application traffic from exhausting authentication counters. */

@@ -1,0 +1,33 @@
+type Environment = Pick<CloudflareEnv, "WORKER_SELF_REFERENCE"> & {
+  PRIVACY_CLEANUP_SECRET?: string;
+  BILLING_RECONCILIATION_SECRET?: string;
+};
+
+export async function runScheduledMaintenance(env: Environment) {
+  const jobs = [
+    { path: "/api/privacy/cleanup", secret: env.PRIVACY_CLEANUP_SECRET, required: true },
+    {
+      path: "/api/internal/billing/reconcile",
+      secret: env.BILLING_RECONCILIATION_SECRET,
+      required: false,
+    },
+  ];
+  const results = await Promise.allSettled(
+    jobs.map(async ({ path, secret, required }) => {
+      if (!required && !secret) return;
+      if (!secret || secret.length < 32 || !env.WORKER_SELF_REFERENCE)
+        throw new Error("Scheduled maintenance configuration is incomplete.");
+      const response = await env.WORKER_SELF_REFERENCE.fetch(
+        new Request(`https://maintenance.internal${path}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${secret}` },
+          signal: AbortSignal.timeout(20_000),
+        }),
+      );
+      await response.body?.cancel();
+      if (!response.ok) throw new Error("Scheduled maintenance did not complete.");
+    }),
+  );
+  if (results.some((result) => result.status === "rejected"))
+    throw new Error("Scheduled maintenance did not complete.");
+}

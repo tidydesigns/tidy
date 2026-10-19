@@ -1,6 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
-import { consumeMutationRateLimit, consumeMutationRateLimitPair } from "./guard-client";
+import {
+  consumeAuthEndpointRateLimit,
+  consumeAuthRateLimit,
+  consumeMutationRateLimit,
+  consumeMutationRateLimitPair,
+} from "./guard-client";
 import type { RateCheck, RateDecision, RateRule } from "./guard-store";
 import { consumeImageBudget } from "../design/image-budget";
 import { MutationBudgetError } from "../security/mutation-budget";
@@ -35,6 +40,19 @@ afterEach(() => {
   globals[symbol] = previous;
 });
 const admitted = { allowed: true, retryAfter: null };
+test("endpoint reservations are hashed separately from provider and delivery budgets", async () => {
+  const calls = fixture(async () => admitted);
+  await consumeAuthEndpointRateLimit("203.0.113.10|/unknown-one", { window: 60, max: 120 });
+  await consumeAuthEndpointRateLimit("203.0.113.10|/unknown-two", { window: 60, max: 120 });
+  await consumeAuthRateLimit("mail:recipient:minute:person|tag@example.com", {
+    window: 60,
+    max: 1,
+  });
+  expect(calls[0]).toEqual(calls[1]);
+  expect(calls[0]!.shard).not.toBe("mcp-auth-v1");
+  expect(calls[2]!.shard).toBe("mcp-auth-v1");
+  expect(JSON.stringify(calls)).not.toMatch(/203\.0\.113\.10|person/);
+});
 const reserve = () =>
   consumeImageBudget(
     "read",

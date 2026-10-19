@@ -33,7 +33,7 @@ import { planLimitMessage } from "@/lib/billing/plans";
 import { assertNoActiveBilling, OrganizationBillingDeletionError } from "@/lib/billing/server";
 import { authorizationVersion } from "@/lib/mcp/authorizations";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { consumeAuthRateLimit } from "@/lib/auth/guard-client";
+import { consumeAuthEndpointRateLimit } from "@/lib/auth/guard-client";
 import {
   assertRequestActive,
   requestSignal,
@@ -93,7 +93,7 @@ function createAuth() {
         "/oauth2/authorize": { window: 60, max: 30 },
         "/oauth2/token": { window: 60, max: 60 },
       },
-      ...(workerRuntime() ? { customStorage: { consume: consumeAuthRateLimit } } : {}),
+      ...(workerRuntime() ? { customStorage: { consume: consumeAuthEndpointRateLimit } } : {}),
     },
     user: {
       changeEmail: {

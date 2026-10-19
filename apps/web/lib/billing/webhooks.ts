@@ -10,14 +10,21 @@ function id(value: string | { id: string } | null) {
   return typeof value === "string" ? value : (value?.id ?? null);
 }
 
-async function syncSubscription(
-  subscription: Stripe.Subscription,
-  allowSwitch = false,
+function retrieveSubscription(subscriptionId: string) {
+  return stripe().subscriptions.retrieve(
+    subscriptionId,
+    {},
+    { timeout: 5000, maxNetworkRetries: 0 },
+  );
+}
+
+export async function syncSubscription(
+  organizationId: string,
+  subscriptionId: string,
   checkoutSessionId?: string,
+  expectedCustomerId?: string,
 ) {
-  const organizationId = subscription.metadata.organizationId;
-  const customerId = id(subscription.customer);
-  if (!organizationId || !customerId) return;
+  const allowSwitch = Boolean(checkoutSessionId);
   await requireRegisteredProPrice();
   const connection = await db.connect();
   try {
@@ -32,6 +39,21 @@ async function syncSubscription(
       await connection.query("commit");
       return;
     }
+    // Discovery is not a snapshot to publish. Fetch again only after acquiring
+    // the same organization fence used by checkout and entitlement writers.
+    const subscription = await retrieveSubscription(subscriptionId);
+    const customerId = id(subscription.customer);
+    if (
+      subscription.metadata.organizationId !== organizationId ||
+      !customerId ||
+      (expectedCustomerId && customerId !== expectedCustomerId)
+    )
+      throw new Error("Stripe subscription metadata changed.");
+    if (
+      checkoutSessionId &&
+      !subscription.items.data.some((item) => item.price.id === process.env.STRIPE_PRO_PRICE_ID)
+    )
+      throw new Error("Stripe checkout has the wrong Price.");
     await connection.query(
       'insert into "organization_billing" ("organizationId") values ($1) on conflict do nothing',
       [organizationId],
@@ -68,7 +90,7 @@ async function syncSubscription(
         await connection.query("commit");
         return;
       }
-      const previous = await stripe().subscriptions.retrieve(row.stripeSubscriptionId);
+      const previous = await retrieveSubscription(row.stripeSubscriptionId);
       if (
         !subscriptionEnded(previous.status) ||
         id(previous.customer) !== customerId ||
@@ -88,11 +110,17 @@ async function syncSubscription(
         ?.price.id ??
       subscription.items.data[0]?.price.id ??
       null;
+    if (
+      ["active", "trialing"].includes(subscription.status) &&
+      (!Number.isSafeInteger(periodEnd) || !periodEnd || periodEnd <= 0)
+    )
+      throw new Error("Stripe subscription period is unavailable.");
     await connection.query(
       `update "organization_billing" set
       "stripeCustomerId" = $2, "stripeSubscriptionId" = $3, "stripeStatus" = $4,
       "stripePriceId" = $5, "currentPeriodEnd" = $6, "cancelAtPeriodEnd" = $7,
-      "stripeCheckoutSessionId" = null, "firstMonthUsed" = "firstMonthUsed" or $8, "updatedAt" = now()
+      "stripeCheckoutSessionId" = null, "firstMonthUsed" = "firstMonthUsed" or $8,
+      "lastReconciledAt" = now(), "updatedAt" = now()
       where "organizationId" = $1`,
       [
         organizationId,
@@ -123,7 +151,7 @@ export async function processBillingEvent(event: Stripe.Event) {
     const session = event.data.object;
     if (session.mode !== "subscription" || !session.subscription || !session.client_reference_id)
       return;
-    const subscription = await stripe().subscriptions.retrieve(id(session.subscription)!);
+    const subscription = await retrieveSubscription(id(session.subscription)!);
     if (
       subscription.metadata.organizationId !== session.client_reference_id ||
       id(subscription.customer) !== id(session.customer)
@@ -132,13 +160,19 @@ export async function processBillingEvent(event: Stripe.Event) {
     }
     if (!subscription.items.data.some((item) => item.price.id === process.env.STRIPE_PRO_PRICE_ID))
       throw new Error("Stripe checkout has the wrong Price.");
-    await syncSubscription(subscription, true, session.id);
+    await syncSubscription(
+      session.client_reference_id,
+      subscription.id,
+      session.id,
+      id(session.customer)!,
+    );
   } else if (
     event.type === "customer.subscription.created" ||
     event.type === "customer.subscription.updated" ||
     event.type === "customer.subscription.deleted"
   ) {
-    const subscription = await stripe().subscriptions.retrieve(event.data.object.id);
-    await syncSubscription(subscription);
+    const subscription = await retrieveSubscription(event.data.object.id);
+    if (subscription.metadata.organizationId)
+      await syncSubscription(subscription.metadata.organizationId, subscription.id);
   }
 }

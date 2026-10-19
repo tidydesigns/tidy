@@ -25,7 +25,8 @@ export function ingressKind(request: Request): keyof typeof INGRESS_LIMITS | nul
   }
   // These endpoints already have independent global pre-database budgets.
   if (path === "/api/health" || path === "/api/t" || path.startsWith("/api/t/")) return null;
-  if (path === "/api/privacy/cleanup") return "cleanup";
+  if (path === "/api/privacy/cleanup" || path === "/api/internal/billing/reconcile")
+    return "cleanup";
   if (path.startsWith("/api/privacy/")) return "privacy";
   if (/^\/api\/(billing|github|linear)\/webhook$/.test(path)) return "webhook";
   if (path === "/api/auth/sign-up/email") return "registration";

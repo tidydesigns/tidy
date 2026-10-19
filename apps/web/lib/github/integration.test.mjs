@@ -849,6 +849,7 @@ integration("webhook deduplication, canonical head reconciliation and revocation
   const { reviewId } = await linked();
   head = sha2;
   await processWebhook("delivery-1", "pull_request", {
+    number: 7,
     installation: { id: 9 },
     repository: { id: 42 },
     pull_request: { head: { sha: sha1 } },
@@ -881,6 +882,7 @@ integration(
     globalThis.fetch = mock(async () => new Response(null, { status: 503 }));
     await expect(
       processWebhook("retry-delivery", "pull_request", {
+        number: 7,
         installation: { id: 9 },
         repository: { id: 42 },
       }),
@@ -892,6 +894,7 @@ integration(
     globalThis.fetch = fetchBeforeFailure;
     head = sha2;
     await processWebhook("retry-delivery", "pull_request", {
+      number: 7,
       installation: { id: 9 },
       repository: { id: 42 },
     });
@@ -1877,3 +1880,40 @@ integration(
     }
   },
 );
+
+integration("pull deliveries refresh only matching reviews with one canonical lookup", async () => {
+  const { reviewId } = await linked();
+  const before = globalThis.fetch.mock.calls.length;
+  await processWebhook("unrelated-pull", "pull_request", {
+    number: 999,
+    installation: { id: 9 },
+    repository: { id: 42 },
+  });
+  expect(globalThis.fetch.mock.calls.length).toBe(before);
+  await processWebhook("missing-pull", "pull_request", {
+    installation: { id: 9 },
+    repository: { id: 42 },
+  });
+  expect(globalThis.fetch.mock.calls.length).toBe(before);
+  // A second file may retain another view of the same provider PR.
+  await admin.query(
+    `insert into "designFile" ("id","organizationId","name","createdBy") values ('second-file','org','Second','alice')`,
+  );
+  await admin.query(
+    `insert into "githubReview" ("id","fileId","organizationId","createdBy","installationId","repositoryId","repository","number","title","url","state","branch","baseSha","headSha","linkedSha","revision","frameKey","content","frameIds")
+    select 'second-review','second-file',"organizationId","createdBy","installationId","repositoryId","repository","number","title","url","state","branch","baseSha","headSha","linkedSha","revision","frameKey","content","frameIds" from "githubReview" where "id"=$1`,
+    [reviewId],
+  );
+  head = sha2;
+  const fetchesBefore = globalThis.fetch.mock.calls.length;
+  await processWebhook("matching-pull", "pull_request", {
+    number: 7,
+    installation: { id: 9 },
+    repository: { id: 42 },
+  });
+  const requests = globalThis.fetch.mock.calls.slice(fetchesBefore).map((call) => String(call[0]));
+  expect(requests.filter((url) => url.endsWith("/pulls/7"))).toHaveLength(1);
+  const rows = (await admin.query('select "headSha" from "githubReview" order by "id"')).rows;
+  expect(rows).toHaveLength(2);
+  expect(rows.every((row) => row.headSha === sha2)).toBe(true);
+});

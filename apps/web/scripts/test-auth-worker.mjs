@@ -308,6 +308,29 @@ try {
   assert.equal(responses.filter((response) => response.allowed).length, 3);
   assert.equal(responses.filter((response) => !response.allowed).length, 17);
   console.log("PASS: 20 concurrent Worker requests share one atomic auth budget");
+  const endpointResponses = await Promise.all(
+    Array.from({ length: 20 }, async (_, i) =>
+      (
+        await worker.dispatchFetch(`https://auth.test/endpoint-limit?path=/endpoint-${i}`, {
+          headers: { "cf-connecting-ip": "203.0.113.10" },
+        })
+      ).json(),
+    ),
+  );
+  assert.equal(endpointResponses.filter((response) => response.allowed).length, 3);
+  assert.equal(
+    (
+      await (
+        await worker.dispatchFetch("https://auth.test/endpoint-limit?path=/sign-in/email", {
+          headers: { "cf-connecting-ip": "198.51.100.20" },
+        })
+      ).json()
+    ).allowed,
+    true,
+  );
+  console.log(
+    "PASS: hosted endpoint counters share default path capacity and preserve other identities",
+  );
   const emailResponses = await Promise.all(
     Array.from({ length: 20 }, async (_, index) =>
       (

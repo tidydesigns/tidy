@@ -129,6 +129,7 @@ beforeAll(async () => {
     "20261015-analytics-consent.sql",
     "20261016-mcp-analytics-consent.sql",
     "20261017-file-history-capacity.sql",
+    "20261019-service-synchronization.sql",
   ]) {
     if (file === "20261004-organization-creation-limit.sql") {
       await db.query(`update "billingDeployment" set "selfHosted"=true;
