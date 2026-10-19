@@ -501,6 +501,10 @@ summary:focus-visible {
   font-weight: 500;
   line-height: 1.5;
 }
+.muted {
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
 .conversation {
   position: relative;
   flex: 1;
