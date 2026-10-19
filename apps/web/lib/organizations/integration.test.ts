@@ -312,6 +312,63 @@ integration("failed creation rolls back its organisation, membership and allowan
   await create(invited, "Retry");
 });
 
+integration.each(["team", "files"] as const)(
+  "creation navigation commits the organisation and active session before redirecting to %s",
+  async (destination) => {
+    await db.query('update "billingDeployment" set "selfHosted"=false');
+    const nextHeaders = await import("next/headers");
+    const nextCache = await import("next/cache");
+    const { isRedirectError } = await import("next/dist/client/components/redirect-error");
+    const { getURLFromRedirectError } = await import("next/dist/client/components/redirect");
+    // Supply only the Next request context; database, authentication and redirect
+    // behavior are real. Browser benchmarks additionally exercise cache invalidation.
+    const requestHeaders = spyOn(nextHeaders, "headers").mockResolvedValue(invited);
+    const invalidate = spyOn(nextCache, "revalidatePath").mockImplementation(() => {});
+    try {
+      const { createOrganizationAndContinue } =
+        await import("../../app/onboarding/organization/actions");
+      expect(await createOrganizationAndContinue({ name: " ", destination })).toEqual({
+        error: "Enter an organization name.",
+      });
+      expect(invalidate).not.toHaveBeenCalled();
+
+      let redirectUrl: string | null = null;
+      try {
+        await createOrganizationAndContinue({ name: "Navigation organisation", destination });
+      } catch (error) {
+        if (!isRedirectError(error)) throw error;
+        redirectUrl = getURLFromRedirectError(error);
+      }
+      const organizations = await db.query<{ id: string }>(
+        'select "id" from "organization" where "createdByUserId"=$1',
+        [invitedId],
+      );
+      expect(organizations.rows).toHaveLength(1);
+      const organization = organizations.rows[0];
+      expect(redirectUrl).toBe(
+        destination === "team"
+          ? `/onboarding/team?organizationId=${encodeURIComponent(organization.id)}`
+          : "/files",
+      );
+      expect(invalidate).toHaveBeenCalledWith("/", "layout");
+      const session = await auth.api.getSession({ headers: invited });
+      expect(session?.session.activeOrganizationId).toBe(organization.id);
+
+      expect(
+        (await createOrganizationAndContinue({ name: "Second", destination })).error,
+      ).toContain("You can create one organization");
+      requestHeaders.mockResolvedValue(new Headers());
+      expect(await createOrganizationAndContinue({ name: "Anonymous", destination })).toEqual({
+        error: "Sign in to create an organization.",
+      });
+      expect(invalidate).toHaveBeenCalledTimes(1);
+    } finally {
+      requestHeaders.mockRestore();
+      invalidate.mockRestore();
+    }
+  },
+);
+
 integration(
   "the creation action uses the authenticated actor and rejects anonymous or forged input",
   async () => {

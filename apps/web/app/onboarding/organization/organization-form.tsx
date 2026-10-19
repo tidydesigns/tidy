@@ -1,10 +1,10 @@
 "use client";
 
 import { unstable_rethrow } from "next/navigation";
-import { navigateWithFreshSession } from "@/lib/navigation/actions";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { useRef, useTransition, useState, type FormEvent } from "react";
 import posthog from "@/lib/posthog-client";
-import { createOrganization } from "./actions";
+import { createOrganizationAndContinue } from "./actions";
 import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";
 import { TextField } from "@/components/ui/text-field";
@@ -34,21 +34,21 @@ export function OrganizationForm({
 
   async function submit(name: string) {
     try {
-      const result = await createOrganization(name);
-
-      if (result.error || !result.data) {
-        setError(result.error?.message || "Unable to create your organisation.");
-        return;
-      }
-
-      posthog.capture("organization_created", { invite_team: inviteTeam });
-      await navigateWithFreshSession(
-        inviteTeam
-          ? `/onboarding/team?organizationId=${encodeURIComponent(result.data.id)}`
-          : "/files",
-        false,
-      );
+      const result = await createOrganizationAndContinue({
+        name,
+        destination: inviteTeam ? "team" : "files",
+      });
+      setError(result.error);
     } catch (cause) {
+      if (isRedirectError(cause)) {
+        // Match file creation: count only committed mutations, and preserve the
+        // redirect even if optional analytics throws.
+        try {
+          posthog.capture("organization_created", { invite_team: inviteTeam });
+        } finally {
+          throw cause;
+        }
+      }
       unstable_rethrow(cause);
       setError("Unable to create your organisation. Please try again.");
     } finally {
