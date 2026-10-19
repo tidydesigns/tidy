@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { directoryResponseSchema } from "../shared/browser-directory";
 import { browserDevelopment } from "./browser-development";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
@@ -143,9 +144,10 @@ test("browser picker lists Linux folders and opens a different persisted project
   const cookie = await login();
   const listURL = new URL(`/__tidy/directories?path=${encodeURIComponent(directory)}`, origin);
   expect((await fetch(listURL)).status).toBe(401);
-  const list = (await (await fetch(listURL, { headers: { Cookie: cookie } })).json()) as {
-    data: { directories: { name: string }[] };
-  };
+  const list = directoryResponseSchema.parse(
+    await (await fetch(listURL, { headers: { Cookie: cookie } })).json(),
+  );
+  if (!list.ok) throw new Error(list.error);
   const names = list.data.directories.map((entry) => entry.name);
   expect(names).toContain("other-project");
   expect(names).not.toContain("ordinary-file");
@@ -183,4 +185,27 @@ test("browser sign-in survives development restarts and is revoked by token rota
   expect((await source()).status).toBe(200);
   restart("rotated-private-development-token");
   expect((await source()).status).toBe(401);
+});
+
+test("directory responses reject malformed success and error payloads", () => {
+  for (const value of [
+    null,
+    {},
+    { ok: true },
+    { ok: false, error: 42 },
+    {
+      ok: true,
+      data: {
+        path: "/tmp",
+        parent: null,
+        initialProject: "/tmp",
+        directories: [{ name: "project", path: 42 }],
+      },
+    },
+  ])
+    expect(directoryResponseSchema.safeParse(value).success).toBe(false);
+  expect(directoryResponseSchema.parse({ ok: false, error: "Folder not found" })).toEqual({
+    ok: false,
+    error: "Folder not found",
+  });
 });

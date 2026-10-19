@@ -7,7 +7,7 @@ import type { HarnessDetails, HarnessSettings, TokenUsage } from "../../shared/h
 import {
   permissionModes,
   effectivePermissionMode,
-  type PermissionMode,
+  permissionModeSchema,
 } from "../../shared/permissions";
 
 const number = (value: number) => value.toLocaleString();
@@ -120,7 +120,7 @@ export function HarnessControls({
           }))}
           onChange={(value) => {
             setUsageOpen(false);
-            onHarnessChange(value as HarnessId);
+            if (value === "codex" || value === "claude") onHarnessChange(value);
           }}
         />
       ) : (
@@ -171,7 +171,7 @@ export function HarnessControls({
           {loading ? "Loading models…" : "Retry models"}
         </Button>
       )}
-      {Boolean(model?.efforts.length) && (
+      {model && model.efforts.length > 0 && (
         <div
           title={
             effort
@@ -187,11 +187,11 @@ export function HarnessControls({
             triggerClassName="harness-setting-trigger"
             options={[
               ...(!effort ? [{ value: "", label: "Choose effort", disabled: true }] : []),
-              ...model!.efforts.map((value) => ({
+              ...model.efforts.map((value) => ({
                 value,
                 label: effortLabel(value),
               })),
-              ...(effort && !model!.efforts.includes(effort)
+              ...(effort && !model.efforts.includes(effort)
                 ? [{ value: effort, label: effortLabel(effort), disabled: true }]
                 : []),
             ]}
@@ -214,9 +214,10 @@ export function HarnessControls({
           disabled={disabled}
           triggerClassName="harness-setting-trigger"
           options={permissionModes[harness]}
-          onChange={(value) =>
-            onSettingsChange({ ...settings, permissionMode: value as PermissionMode })
-          }
+          onChange={(value) => {
+            const permissionMode = permissionModeSchema.parse(value);
+            onSettingsChange({ ...settings, permissionMode });
+          }}
         />
       </div>
       <Button

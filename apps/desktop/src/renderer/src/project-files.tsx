@@ -1,13 +1,10 @@
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import {
-  FileCard,
-  FileViewToggle,
-  folderCardClass,
-} from "@tidy/editor/components/files/file-browser-ui";
+import { FileCard, FileViewToggle } from "@tidy/editor/components/files/file-browser-ui";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import { filesGrid, filesHeader } from "@tidy/editor/components/workspace/page-layout";
 import type {
@@ -79,6 +76,7 @@ type Editing = { kind: "create" } | { kind: "folder" | "file"; id: string };
 export function ProjectFiles({
   api,
   snapshot,
+  navigationTarget,
   onOpen,
   onCreated,
   onUpdate,
@@ -86,6 +84,7 @@ export function ProjectFiles({
 }: {
   api: DesktopAPI;
   snapshot: ProjectSnapshot;
+  navigationTarget: HTMLElement | null;
   onOpen(id: string): void;
   onCreated(file: LocalDesign): void;
   onUpdate(file: LocalDesign): void;
@@ -107,7 +106,6 @@ export function ProjectFiles({
   const [renamed, setRenamed] = useState<Record<string, string>>({});
   const [moving, setMoving] = useState<string | null>(null);
   const [moves, setMoves] = useState<Record<string, string | null>>({});
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const finishing = useRef(false);
   const cancelled = useRef(false);
   const folders = snapshot.folders ?? [];
@@ -118,7 +116,13 @@ export function ProjectFiles({
     const id = Object.hasOwn(moves, file.id) ? moves[file.id] : file.folderId;
     return folders.some((folder) => folder.id === id) ? id : null;
   }
-  const files = snapshot.designs.filter((file) => fileFolder(file) === activeFolderId);
+  const files = currentFolder
+    ? snapshot.designs.filter((file) => fileFolder(file) === activeFolderId)
+    : snapshot.designs;
+  function folderName(file: DesignSummary) {
+    const folder = folders.find((folder) => folder.id === fileFolder(file));
+    return folder ? displayName(folder) : "Unfiled";
+  }
   const openFolder = (id: string | null) => {
     setFolderId(id);
     setError("");
@@ -146,8 +150,10 @@ export function ProjectFiles({
       setEditing(null);
     }
     try {
-      if (target.kind === "create") onFolderUpdate(await api.createDesignFolder(projectId, next));
-      else if (target.kind === "folder")
+      if (target.kind === "create") {
+        const folder = await api.createDesignFolder(projectId, next);
+        onFolderUpdate(folder);
+      } else if (target.kind === "folder")
         onFolderUpdate(await api.renameDesignFolder(projectId, target.id, next));
       else {
         const file = await api.readDesign(projectId, target.id);
@@ -282,7 +288,7 @@ export function ProjectFiles({
       />
     );
   }
-  function fileItem(file: DesignSummary, nested = false) {
+  function fileItem(file: DesignSummary) {
     const renaming = editing?.kind === "file" && editing.id === file.id;
     const title: ReactNode = renaming ? (
       nameField()
@@ -306,14 +312,16 @@ export function ProjectFiles({
         >
           {title}
           <div className="file-card-meta">
-            <span>{file.nodeCount ?? 0} layers</span>
+            <span title={!currentFolder ? folderName(file) : undefined}>
+              {currentFolder ? `${file.nodeCount ?? 0} layers` : folderName(file)}
+            </span>
             <time dateTime={file.updatedAt}>{date(file.updatedAt)}</time>
           </div>
         </FileCard>
         {fileMenu(file)}
       </li>
     ) : (
-      <li key={file.id} className={`local-file-row ${nested ? "nested" : ""}`}>
+      <li key={file.id} className="local-file-row">
         <div className="file-row-name">
           <Button
             className="file-row-preview"
@@ -327,6 +335,7 @@ export function ProjectFiles({
           ) : (
             <Button className="file-row-title" onClick={() => onOpen(file.id)}>
               {title}
+              {!currentFolder && <span className="file-row-location">{folderName(file)}</span>}
             </Button>
           )}
         </div>
@@ -338,161 +347,131 @@ export function ProjectFiles({
   }
   function folderItem(folder: DesignFolder) {
     const renaming = editing?.kind === "folder" && editing.id === folder.id;
-    const children = snapshot.designs.filter((file) => fileFolder(file) === folder.id);
-    const isExpanded = expanded.has(folder.id);
     return (
-      <li key={folder.id} className={`local-folder ${view === "list" ? "local-folder-list" : ""}`}>
-        <div className="relative">
-          {renaming ? (
-            <div className={view === "grid" ? folderCardClass : "folder-list-button"}>
-              <Icon name="folder" size={26} />
-              {nameField()}
-            </div>
-          ) : (
-            <Button
-              className={
-                view === "grid" ? `${folderCardClass} w-full text-left` : "folder-list-button"
-              }
-              aria-label={
-                view === "grid"
-                  ? `Open folder ${displayName(folder)}`
-                  : `${isExpanded ? "Collapse" : "Expand"} folder ${displayName(folder)}`
-              }
-              aria-expanded={view === "list" ? isExpanded : undefined}
-              onClick={() =>
-                view === "grid"
-                  ? openFolder(folder.id)
-                  : setExpanded((current) => {
-                      const next = new Set(current);
-                      if (next.has(folder.id)) next.delete(folder.id);
-                      else next.add(folder.id);
-                      return next;
-                    })
-              }
-            >
-              {view === "list" && (
-                <span
-                  className={`folder-chevron ${isExpanded ? "expanded" : ""}`}
-                  aria-hidden="true"
-                >
-                  ›
-                </span>
-              )}
-              <Icon name="folder" size={view === "grid" ? 26 : 22} />
-              <span className="truncate">{displayName(folder)}</span>
-            </Button>
-          )}
-          <SelectMenu
-            actionMenu
-            className="file-action-menu"
-            label={`Actions for ${displayName(folder)}`}
-            value=""
-            triggerClassName="file-actions folder-actions"
-            triggerContent={<Icon name="more" />}
-            disabled={pending}
-            options={[{ value: "rename", label: "Rename" }]}
-            onChange={() => edit({ kind: "folder", id: folder.id }, displayName(folder))}
-          />
-        </div>
-        {view === "list" &&
-          isExpanded &&
-          (children.length ? (
-            <ul className="folder-file-list">{children.map((file) => fileItem(file, true))}</ul>
-          ) : (
-            <p className="folder-empty">No files</p>
-          ))}
+      <li key={folder.id} className="design-folder-row">
+        {renaming ? (
+          <div className="design-folder-name-field">
+            <Icon name="folder" size={15} />
+            {nameField()}
+          </div>
+        ) : (
+          <Button
+            className={`sidebar-item design-folder-link ${activeFolderId === folder.id ? "selected" : ""}`}
+            aria-label={`Open folder ${displayName(folder)}`}
+            aria-current={activeFolderId === folder.id ? "page" : undefined}
+            title={displayName(folder)}
+            onClick={() => openFolder(folder.id)}
+          >
+            <Icon name="folder" size={15} />
+            <span>{displayName(folder)}</span>
+          </Button>
+        )}
+        <SelectMenu
+          actionMenu
+          className="design-folder-menu"
+          label={`Actions for ${displayName(folder)}`}
+          value=""
+          triggerClassName="design-folder-actions"
+          triggerContent={<Icon name="more" size={16} />}
+          disabled={pending}
+          options={[{ value: "rename", label: "Rename" }]}
+          onChange={() => edit({ kind: "folder", id: folder.id }, displayName(folder))}
+        />
       </li>
     );
   }
   const movingFile = snapshot.designs.find((file) => file.id === moving);
   return (
-    <div className="project-files">
-      {currentFolder && (
-        <Button className="files-back" onClick={() => openFolder(null)}>
-          <Icon name="back" size={16} />
-          Files
-        </Button>
-      )}
-      <div className={filesHeader}>
-        <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
-          {currentFolder ? displayName(currentFolder) : "Files"}
-        </h1>
-        <div className="file-browser-controls">
-          <div className="new-file-control">
-            <Button className="new-file-button" disabled={pending} onClick={() => void create()}>
-              + New file
+    <>
+      {navigationTarget &&
+        createPortal(
+          <>
+            <Button
+              className={`sidebar-item design-files-home ${!currentFolder ? "selected" : ""}`}
+              aria-current={!currentFolder ? "page" : undefined}
+              onClick={() => openFolder(null)}
+            >
+              <Icon name="folder" size={15} />
+              All files
             </Button>
-            <SelectMenu
-              actionMenu
-              label="New file options"
-              value=""
-              triggerClassName="new-file-options"
-              disabled={pending}
-              options={[{ value: "import", label: "Import design…" }]}
-              onChange={() => void create(true)}
+            <div className="sidebar-heading design-folders-heading">
+              <span>Folders</span>
+              <Button
+                className="quiet-button"
+                disabled={pending || Boolean(editing)}
+                onClick={() => edit({ kind: "create" })}
+              >
+                <span aria-hidden="true">+</span> New folder
+              </Button>
+            </div>
+            <ul className="design-folder-list">
+              {editing?.kind === "create" && (
+                <li className="design-folder-name-field">
+                  <Icon name="folder" size={15} />
+                  {nameField()}
+                </li>
+              )}
+              {folders.map(folderItem)}
+            </ul>
+          </>,
+          navigationTarget,
+        )}
+      <div className="project-files">
+        <div className={`design-browser-header ${filesHeader}`}>
+          <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
+            {currentFolder ? displayName(currentFolder) : "All files"}
+          </h1>
+          <div className="file-browser-controls">
+            <div className="new-file-control">
+              <Button className="new-file-button" disabled={pending} onClick={() => void create()}>
+                + New file
+              </Button>
+              <SelectMenu
+                actionMenu
+                label="New file options"
+                value=""
+                triggerClassName="new-file-options"
+                disabled={pending}
+                options={[{ value: "import", label: "Import design…" }]}
+                onChange={() => void create(true)}
+              />
+            </div>
+            <FileViewToggle
+              view={view}
+              onChange={(next) => {
+                setView(next);
+                try {
+                  localStorage.setItem("tidy:design-file-view", next);
+                } catch {}
+              }}
             />
           </div>
-          {!currentFolder && (
-            <Button
-              className="new-folder-button"
-              disabled={pending || Boolean(editing)}
-              onClick={() => edit({ kind: "create" })}
-            >
-              + New folder
-            </Button>
-          )}
-          <FileViewToggle
-            view={view}
-            onChange={(next) => {
-              setView(next);
-              try {
-                localStorage.setItem("tidy:design-file-view", next);
-              } catch {}
-            }}
-          />
         </div>
+        {error && (
+          <p className="file-browser-error" role="alert">
+            {error}
+          </p>
+        )}
+        {files.length > 0 ? (
+          <ul className={view === "grid" ? filesGrid : "local-file-rows"}>
+            {files.map((file) => fileItem(file))}
+          </ul>
+        ) : (
+          <p className="files-empty">
+            {currentFolder ? "No files in this folder" : "No design files yet"}
+          </p>
+        )}
+        {movingFile && (
+          <MoveDialog
+            file={movingFile}
+            folders={folders}
+            name={displayName(movingFile)}
+            onClose={() => setMoving(null)}
+            onMove={(id) => void move(movingFile, id)}
+          />
+        )}
       </div>
-      {error && (
-        <p className="file-browser-error" role="alert">
-          {error}
-        </p>
-      )}
-      {!currentFolder && (folders.length > 0 || editing?.kind === "create") && (
-        <ul className={view === "grid" ? filesGrid : "local-folder-rows"}>
-          {editing?.kind === "create" && (
-            <li>
-              <div className={view === "grid" ? folderCardClass : "folder-list-button"}>
-                <Icon name="folder" size={26} />
-                {nameField()}
-              </div>
-            </li>
-          )}
-          {folders.map(folderItem)}
-        </ul>
-      )}
-      {files.length > 0 ? (
-        <ul className={view === "grid" ? filesGrid : "local-file-rows"}>
-          {files.map((file) => fileItem(file))}
-        </ul>
-      ) : (
-        <p className="files-empty">
-          {currentFolder
-            ? "No files in this folder"
-            : folders.length
-              ? "No files outside folders"
-              : "No design files yet"}
-        </p>
-      )}
-      {movingFile && (
-        <MoveDialog
-          file={movingFile}
-          folders={folders}
-          name={displayName(movingFile)}
-          onClose={() => setMoving(null)}
-          onMove={(id) => void move(movingFile, id)}
-        />
-      )}
-    </div>
+    </>
   );
 }
 function MoveDialog({
@@ -529,7 +508,7 @@ function MoveDialog({
       <div className="file-move-targets">
         <Button className="file-move-target" disabled={!file.folderId} onClick={() => onMove(null)}>
           <Icon name="folder" />
-          Files
+          Unfiled
         </Button>
         {folders.map((folder) => (
           <Button

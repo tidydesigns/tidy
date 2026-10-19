@@ -70,5 +70,289 @@
   "pako": {
     "source": "LICENSE",
     "notice": "pako.txt"
+  },
+  "@ungap/structured-clone": {
+    "source": "LICENSE",
+    "notice": "ungap-structured-clone.txt"
+  },
+  "bail": {
+    "source": "license",
+    "notice": "bail.txt"
+  },
+  "ccount": {
+    "source": "license",
+    "notice": "bail.txt"
+  },
+  "comma-separated-tokens": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "decode-named-character-reference": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "devlop": {
+    "source": "license",
+    "notice": "devlop.txt"
+  },
+  "estree-util-is-identifier-name": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "extend": {
+    "source": "LICENSE",
+    "notice": "extend.txt"
+  },
+  "hast-util-to-jsx-runtime": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "hast-util-whitespace": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "html-url-attributes": {
+    "source": "license",
+    "notice": "html-url-attributes.txt"
+  },
+  "inline-style-parser": {
+    "source": "LICENSE",
+    "notice": "inline-style-parser.txt"
+  },
+  "is-plain-obj": {
+    "source": "license",
+    "notice": "is-plain-obj.txt"
+  },
+  "longest-streak": {
+    "source": "license",
+    "notice": "longest-streak.txt"
+  },
+  "markdown-table": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-find-and-replace": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-from-markdown": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-gfm": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-gfm-autolink-literal": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "mdast-util-gfm-footnote": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-gfm-strikethrough": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-gfm-table": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "mdast-util-gfm-task-list-item": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "mdast-util-phrasing": {
+    "source": "license",
+    "notice": "mdast-util-phrasing.txt"
+  },
+  "mdast-util-to-hast": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "mdast-util-to-markdown": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "mdast-util-to-string": {
+    "source": "license",
+    "notice": "bail.txt"
+  },
+  "micromark": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-core-commonmark": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-extension-gfm": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "micromark-extension-gfm-autolink-literal": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "micromark-extension-gfm-footnote": {
+    "source": "license",
+    "notice": "micromark-extension-gfm-footnote.txt"
+  },
+  "micromark-extension-gfm-strikethrough": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "micromark-extension-gfm-table": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-extension-gfm-task-list-item": {
+    "source": "license",
+    "notice": "estree-util-is-identifier-name.txt"
+  },
+  "micromark-factory-destination": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-factory-label": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-factory-space": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-factory-title": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-factory-whitespace": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-character": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-chunked": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-classify-character": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-combine-extensions": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-decode-numeric-character-reference": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-decode-string": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-edit-map": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-html-tag-name": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-normalize-identifier": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-resolve-all": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-sanitize-uri": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "micromark-util-subtokenize": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "property-information": {
+    "source": "license",
+    "notice": "parse-entities.txt"
+  },
+  "react-markdown": {
+    "source": "license",
+    "notice": "react-markdown.txt"
+  },
+  "remark-gfm": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "remark-parse": {
+    "source": "license",
+    "notice": "remark-parse.txt"
+  },
+  "remark-rehype": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "space-separated-tokens": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "style-to-js": {
+    "source": "LICENSE",
+    "notice": "style-to-js.txt"
+  },
+  "style-to-object": {
+    "source": "LICENSE",
+    "notice": "style-to-object.txt"
+  },
+  "trim-lines": {
+    "source": "license",
+    "notice": "longest-streak.txt"
+  },
+  "trough": {
+    "source": "license",
+    "notice": "trough.txt"
+  },
+  "unified": {
+    "source": "license",
+    "notice": "unified.txt"
+  },
+  "unist-util-is": {
+    "source": "license",
+    "notice": "unist-util-is.txt"
+  },
+  "unist-util-position": {
+    "source": "license",
+    "notice": "bail.txt"
+  },
+  "unist-util-stringify-position": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "unist-util-visit": {
+    "source": "license",
+    "notice": "bail.txt"
+  },
+  "unist-util-visit-parents": {
+    "source": "license",
+    "notice": "comma-separated-tokens.txt"
+  },
+  "vfile": {
+    "source": "license",
+    "notice": "unified.txt"
+  },
+  "vfile-message": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "escape-string-regexp": {
+    "source": "license",
+    "notice": "is-plain-obj.txt"
   }
 }

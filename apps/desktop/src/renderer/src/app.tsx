@@ -1,19 +1,13 @@
-import {
-  Fragment,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
+import { Icon } from "@tidy/editor/components/ui/icon";
 import { LocalCanvas } from "./local-canvas";
-import { ToolActivityGroup } from "./tool-activity";
+import { Conversation } from "./conversation";
+import { ThreadSidebar, type ThreadOrderControls } from "./thread-sidebar";
 import { ApprovalRequests } from "./approval-requests";
-import { AttachmentList, MessageAttachments } from "./message-attachments";
+import { AttachmentList } from "./message-attachments";
 import {
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
@@ -22,7 +16,6 @@ import {
   type AttachedFile,
 } from "../../shared/attachments";
 import { ProjectFiles } from "./project-files";
-import { HarnessIcon } from "@tidy/ui/harness-icon";
 import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
@@ -58,6 +51,7 @@ const errorText = (error: unknown) =>
 export function App() {
   const api = window.tidy;
   const [mode, setMode] = useState<Mode>("design");
+  const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
   const projectFocus = useRef<HTMLElement | null>(null);
@@ -90,11 +84,12 @@ export function App() {
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
   const fileInput = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<{ projectId?: string; text: string } | null>(null);
+  const [error, setError] = useState<{
+    projectId?: string;
+    text: string;
+  } | null>(null);
   const navigation = useRef(0);
   const threadSelection = useRef<Record<string, number>>({});
-  const transcript = useRef<HTMLDivElement>(null);
-  const followOutput = useRef(true);
   const snapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
   const project = snapshot?.project;
   const selectedThreadId = project ? selectedThreads[project.id] : null;
@@ -136,7 +131,10 @@ export function App() {
     try {
       const info = await api.harnessDetails(projectId, harness, refresh);
       if (detailRequests.current[key] === version)
-        setHarnessDetails((current) => ({ ...current, [key]: { info, loading: false } }));
+        setHarnessDetails((current) => ({
+          ...current,
+          [key]: { info, loading: false },
+        }));
     } catch (cause) {
       if (detailRequests.current[key] === version)
         setHarnessDetails((current) => ({
@@ -226,7 +224,10 @@ export function App() {
   }, []);
 
   function updateDraft(patch: Partial<Draft>) {
-    setDrafts((current) => ({ ...current, [draftKey]: { ...draft, ...patch } }));
+    setDrafts((current) => ({
+      ...current,
+      [draftKey]: { ...draft, ...patch },
+    }));
   }
 
   function selectThread(projectId: string, threadId: string | null) {
@@ -288,9 +289,9 @@ export function App() {
             ...current,
             [value.projectId]: {
               ...entry,
-              threads: [summary, ...entry.threads.filter((item) => item.id !== value.id)].sort(
-                (a, b) => b.updatedAt.localeCompare(a.updatedAt),
-              ),
+              threads: entry.threads.some((item) => item.id === value.id)
+                ? entry.threads.map((item) => (item.id === value.id ? summary : item))
+                : [summary, ...entry.threads],
             },
           };
         });
@@ -300,7 +301,11 @@ export function App() {
           return entry
             ? {
                 ...current,
-                [event.projectId]: { ...entry, designs: event.designs, folders: event.folders },
+                [event.projectId]: {
+                  ...entry,
+                  designs: event.designs,
+                  folders: event.folders,
+                },
               }
             : current;
         });
@@ -313,7 +318,9 @@ export function App() {
         setProjects(value.projects);
         setHarnesses(value.harnesses);
         if (value.activeProject) {
-          setSnapshots({ [value.activeProject.project.id]: value.activeProject });
+          setSnapshots({
+            [value.activeProject.project.id]: value.activeProject,
+          });
           setActiveProjectId(value.activeProject.project.id);
         }
       })
@@ -336,7 +343,10 @@ export function App() {
       .readThread(project.id, selectedThreadId)
       .then((value) => {
         if (active)
-          setThreads((current) => ({ ...current, [value.id]: current[value.id] ?? value }));
+          setThreads((current) => ({
+            ...current,
+            [value.id]: current[value.id] ?? value,
+          }));
       })
       .catch((value) => {
         if (active) setError({ projectId: project.id, text: errorText(value) });
@@ -368,15 +378,6 @@ export function App() {
       active = false;
     };
   }, [api, project, selectedDesignId, designs, snapshot?.designs]);
-
-  useEffect(() => {
-    followOutput.current = true;
-    transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
-  }, [selectedThreadId, activeProjectId]);
-  useEffect(() => {
-    if (followOutput.current)
-      transcript.current?.scrollTo({ top: transcript.current.scrollHeight });
-  }, [thread?.messages, thread?.activity, thread?.toolActivities]);
 
   async function chooseProject(projectId?: string) {
     if (!api || opening) return;
@@ -479,7 +480,10 @@ export function App() {
         if (errors.length) setError({ projectId, text: [...new Set(errors)].join(" ") });
       })
       .finally(() => {
-        setUploading((current) => ({ ...current, [key]: Math.max(0, (current[key] ?? 1) - 1) }));
+        setUploading((current) => ({
+          ...current,
+          [key]: Math.max(0, (current[key] ?? 1) - 1),
+        }));
       });
     uploads.current[key] = queued.catch(() => {});
   }
@@ -559,7 +563,6 @@ export function App() {
       ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
     }));
     setSelectedThreads((current) => ({ ...current, [projectId]: id }));
-    followOutput.current = true;
     setError(null);
     try {
       const value = selectedThreadId
@@ -586,7 +589,10 @@ export function App() {
           (current[value.id]?.revision ?? -1) > value.revision ? current[value.id] : value,
       }));
       if ((threadSelection.current[projectId] ?? 0) === selection)
-        setSelectedThreads((current) => ({ ...current, [projectId]: value.id }));
+        setSelectedThreads((current) => ({
+          ...current,
+          [projectId]: value.id,
+        }));
     } catch (value) {
       // Remove only this pending turn. Preserve navigation, newer drafts and native events.
       setThreads((current) => {
@@ -676,7 +682,11 @@ export function App() {
         return value && value.revision <= summary.revision
           ? {
               ...current,
-              [summary.id]: { ...value, doneAt: summary.doneAt, revision: summary.revision },
+              [summary.id]: {
+                ...value,
+                doneAt: summary.doneAt,
+                revision: summary.revision,
+              },
             }
           : current;
       });
@@ -708,7 +718,14 @@ export function App() {
       setThreads((current) => {
         const value = current[item.id];
         return value && isOptimistic(value)
-          ? { ...current, [item.id]: { ...value, doneAt: item.doneAt, revision: item.revision } }
+          ? {
+              ...current,
+              [item.id]: {
+                ...value,
+                doneAt: item.doneAt,
+                revision: item.revision,
+              },
+            }
           : current;
       });
       setError({ projectId, text: errorText(cause) });
@@ -752,14 +769,11 @@ export function App() {
     document.getElementById(`workspace-tab-${modes[next].id}`)?.focus();
   }
 
-  const activeThreads = snapshot?.threads.filter((item) => !item.doneAt) ?? [];
-  const doneThreads = (snapshot?.threads.filter((item) => item.doneAt) ?? []).sort((a, b) =>
-    b.doneAt!.localeCompare(a.doneAt!),
-  );
-  const renderThread = (item: ThreadSummary) => (
+  const renderThread = (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
     <ThreadCard
       key={item.id}
       thread={item}
+      orderControls={orderControls}
       selected={selectedThreadId === item.id}
       now={now}
       pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
@@ -785,10 +799,14 @@ export function App() {
         key={project.id}
         api={api}
         snapshot={designSnapshot}
+        navigationTarget={designNavigation}
         onOpen={(id) => setSelectedDesigns((current) => ({ ...current, [project.id]: id }))}
         onCreated={(value) => {
           updateLocalDesign(value);
-          setSelectedDesigns((current) => ({ ...current, [project.id]: value.id }));
+          setSelectedDesigns((current) => ({
+            ...current,
+            [project.id]: value.id,
+          }));
         }}
         onUpdate={updateLocalDesign}
         onFolderUpdate={(folder) =>
@@ -805,83 +823,91 @@ export function App() {
         }
       />
     );
-  }, [api, designSnapshot, updateLocalDesign]);
-
-  const conversationMessages = useMemo(
-    () =>
-      thread?.messages.map((message) => (
-        <Fragment key={message.id}>
-          <article className={`message message-${message.role}`}>
-            <span className="message-author">
-              {message.role === "user" ? (
-                "You"
-              ) : (
-                <span
-                  role="img"
-                  aria-label={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                  title={thread.harness === "codex" ? "Codex" : "Claude Code"}
-                >
-                  <HarnessIcon harness={thread.harness} size={15} />
-                </span>
-              )}
-            </span>
-            <div>{message.text}</div>
-            {message.attachments?.length && api ? (
-              <MessageAttachments
-                api={api}
-                projectId={thread.projectId}
-                files={message.attachments}
-              />
-            ) : null}
-          </article>
-          <ToolActivityGroup
-            activities={
-              thread.toolActivities?.filter((tool) => tool.afterMessageId === message.id) ?? []
-            }
-          />
-        </Fragment>
-      )),
-    [thread?.messages, thread?.toolActivities, thread?.harness, api, project?.id],
-  );
+  }, [api, designSnapshot, designNavigation, updateLocalDesign]);
 
   return (
-    <div className="desktop">
-      <header className="workspace-header">
-        <div className="project-picker" title={project?.name}>
-          {project && (
-            <SelectMenu
-              value={project.id}
-              options={[
-                ...projects.map((item) => ({ value: item.id, label: item.name })),
-                { value: "open", label: "Open project…" },
-              ]}
-              label="Project"
-              disabled={opening}
-              onChange={(value) => void chooseProject(value === "open" ? undefined : value)}
-              triggerClassName="project-trigger"
+    <div className={`desktop ${mode === "design" && design ? "desktop-canvas-focused" : ""}`}>
+      <aside
+        className="desktop-navigation"
+        aria-label="Project workspace"
+        hidden={mode === "design" && Boolean(design)}
+      >
+        <header className="workspace-header">
+          <div className="project-picker" title={project?.name}>
+            {project && (
+              <SelectMenu
+                value={project.id}
+                options={[
+                  ...projects.map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                  })),
+                  { value: "open", label: "Open project…" },
+                ]}
+                label="Project"
+                disabled={opening}
+                onChange={(value) => void chooseProject(value === "open" ? undefined : value)}
+                triggerClassName="project-trigger"
+              />
+            )}
+          </div>
+          <div role="tablist" aria-label="Workspace" className="workspace-tabs">
+            {modes.map((item, index) => (
+              <Button
+                key={item.id}
+                id={`workspace-tab-${item.id}`}
+                type="button"
+                role="tab"
+                aria-selected={mode === item.id}
+                aria-controls={`workspace-panel-${item.id}`}
+                tabIndex={mode === item.id ? 0 : -1}
+                className="workspace-tab"
+                onClick={() => setMode(item.id)}
+                onKeyDown={(event) => onTabKeyDown(event, index)}
+              >
+                {item.id === "design" ? (
+                  <Icon name="frame" size={14} />
+                ) : (
+                  <svg
+                    className="code-mode-icon"
+                    aria-hidden="true"
+                    width="14"
+                    height="14"
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m6 4-4 4 4 4m4-8 4 4-4 4" />
+                  </svg>
+                )}
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        </header>
+        {project && snapshot && (
+          <>
+            <div className="sidebar-mode-content" hidden={mode !== "code"}>
+              <ThreadSidebar
+                key={project.id}
+                projectId={project.id}
+                threads={snapshot.threads}
+                onNew={() => selectThread(project.id, null)}
+                renderThread={renderThread}
+              />
+            </div>
+            <nav
+              ref={setDesignNavigation}
+              className="design-navigation"
+              aria-label="Design folders"
+              hidden={mode !== "design"}
             />
-          )}
-        </div>
-        <div role="tablist" aria-label="Workspace" className="workspace-tabs">
-          {modes.map((item, index) => (
-            <Button
-              key={item.id}
-              id={`workspace-tab-${item.id}`}
-              type="button"
-              role="tab"
-              aria-selected={mode === item.id}
-              aria-controls={`workspace-panel-${item.id}`}
-              tabIndex={mode === item.id ? 0 : -1}
-              className="workspace-tab"
-              onClick={() => setMode(item.id)}
-              onKeyDown={(event) => onTabKeyDown(event, index)}
-            >
-              {item.label}
-            </Button>
-          ))}
-        </div>
-        <div className="header-spacer" />
-      </header>
+          </>
+        )}
+      </aside>
       {visibleError && (
         <div className="error-banner" role="alert">
           <span>{error.text}</span>
@@ -963,62 +989,32 @@ export function App() {
               hidden={mode !== "code"}
               className="project-workspace"
             >
-              <aside className="project-sidebar">
-                <div className="sidebar-heading">
-                  <span>Threads</span>
-                  <Button className="quiet-button" onClick={() => selectThread(project.id, null)}>
-                    New thread
-                  </Button>
-                </div>
-                <div className="sidebar-list">{activeThreads.map(renderThread)}</div>
-                {doneThreads.length > 0 && (
-                  <details className="done-threads" key={project.id}>
-                    <summary>Done ({doneThreads.length})</summary>
-                    <div className="done-thread-list">{doneThreads.map(renderThread)}</div>
-                  </details>
-                )}
-              </aside>
               <div className="thread-workspace">
                 <div className="content-heading">
                   <h1>{thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}</h1>
-                </div>
-                <div
-                  className="transcript"
-                  ref={transcript}
-                  onScroll={(event) => {
-                    const element = event.currentTarget;
-                    followOutput.current =
-                      element.scrollHeight - element.scrollTop - element.clientHeight < 80;
-                  }}
-                >
-                  {thread?.designIds.length ? (
-                    <div className="thread-references">
-                      {thread.designIds.map((designId) => (
-                        <span key={designId} className="reference-chip">
-                          {snapshot.designs.find((item) => item.id === designId)?.name ??
-                            "Design reference"}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                  {thread?.toolActivityTruncated && (
-                    <p className="tool-log-notice">Earlier tool activity omitted</p>
+                  {thread?.doneAt && (
+                    <Button
+                      className="quiet-button thread-heading-action"
+                      disabled={running || Boolean(updatingDone[thread.id])}
+                      onClick={() => void toggleThreadDone(thread)}
+                    >
+                      Reopen thread
+                    </Button>
                   )}
-                  {conversationMessages}
-                  {running &&
-                    !thread?.pendingApprovals?.length &&
-                    !thread?.toolActivities?.some((tool) => tool.status === "running") && (
-                      <p className="thread-activity" role="status">
-                        {thread.activity ?? "Working"}
-                      </p>
-                    )}
-                  {thread?.error && (
-                    <p className="thread-error" role="alert">
-                      {thread.error}
-                    </p>
-                  )}
-                  {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
                 </div>
+                <Conversation
+                  key={`${project.id}:${selectedThreadId ?? "draft"}`}
+                  identity={`${project.id}:${selectedThreadId ?? "draft"}`}
+                  thread={thread}
+                  api={api!}
+                  references={
+                    thread?.designIds.map(
+                      (id) =>
+                        snapshot.designs.find((design) => design.id === id)?.name ??
+                        "Design reference",
+                    ) ?? []
+                  }
+                />
                 {thread?.pendingApprovals?.length && api ? (
                   <ApprovalRequests
                     key={thread.id}

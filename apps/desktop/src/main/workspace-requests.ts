@@ -12,7 +12,6 @@ export type WorkspacePlatform<Context> = {
   openExternal(url: string): Promise<void>;
 };
 
-/** The same validated operations serve native IPC and the development browser. */
 export function createWorkspaceRequests<Context>(
   service: WorkspaceService,
   platform: WorkspacePlatform<Context>,

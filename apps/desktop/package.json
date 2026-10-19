@@ -21,11 +21,13 @@
   "dependencies": {
     "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",
+    "@tidy/editor": "workspace:*",
     "@tidy/ui": "workspace:*",
     "react": "19.2.8",
     "react-dom": "19.2.8",
-    "zod": "^4.6.5",
-    "@tidy/editor": "workspace:*"
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@electron/fuses": "2.1.3",

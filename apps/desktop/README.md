@@ -10,7 +10,7 @@ Open a local directory as a project. Tidy restores the last opened project and
 keeps its design materials and engineering threads together. No cloud account or
 database is needed for project storage.
 
-The top-level Design and Code tabs switch between separate workspace views, with
+The sidebar Design and Code tabs switch between separate workspace views, with
 Design selected initially. Both views stay mounted while switching, and each project
 retains its selected thread, design and composer drafts during the app session.
 The tabs support arrow keys, Home and End.
@@ -18,12 +18,13 @@ The tabs support arrow keys, Home and End.
 ## Projects and threads
 
 1. Open a project directory, or choose a recent project from the top-left picker.
-2. Design opens the project's Files browser, with the same cards, view switcher and
-   preview renderer as web. Create files and folders, rename items, or move files
-   between folders. Grid view opens folders; list view expands their preloaded
-   contents immediately. New file's menu imports a Tidy design JSON document. Documents use
-   the same full editor as the web app. Edits, names and placed images persist
-   immediately to local project storage. Web asset downloads are not yet an import path.
+2. Design lists folders in the sidebar and files in the main browser. All files
+   includes every design, labeled with its folder or Unfiled. New folder creates
+   folders inline in the sidebar. New file, import, and grid/list controls share
+   the browser header. New files belong to the selected folder. File menus support
+   renaming and moving. Documents use the same editor as web and persist edits
+   immediately. Opening a canvas hides the project sidebar; Back restores the
+   previous folder. Web asset downloads are not yet an import path.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
    start a thread. The harness runs in the project root and receives the attached
    design file paths. Follow-up messages resume the locally bound native harness session.
@@ -53,10 +54,13 @@ show the paths and patch/input details actually supplied by the harness: Codex
 JSON events can report paths without a patch. Test results display the harness's
 output; the app does not infer passed-test counts from exit codes.
 
-Each thread card shows its last activity as `3m`, `6h` or `2d`. Use its tick-and-Done
-action to move it into the collapsed Done section at the bottom of the sidebar.
-Completed threads remain readable; click Done again to reopen one and continue
-its original harness session. A harness finishing a turn does not mark a thread Done.
+Thread cards show activity as `3m`, `6h` or `2d`. Drag cards to reorder them, or
+use Alt + Up/Down. Hover or focus a card to mark it Done. Done stays at the bottom
+of the sidebar; expand it and choose Reopen to continue a thread's original session.
+Finishing a turn changes Working to Ready without marking the thread Done.
+
+Chat renders Markdown and code blocks. It follows streaming output until you
+scroll up; Latest resumes following. The left rail previews and jumps to turns.
 
 Sending paints the user message and thread immediately, before native preparation
 or disk acknowledgement. Client-generated thread/message IDs are reconciled with
@@ -147,7 +151,7 @@ your-project/
 
 Design files and folder metadata can be versioned with the project. Moving a design
 between folders retains its file path and existing thread references. Existing files
-without folder metadata remain in Files.
+without folder metadata appear as Unfiled in All files.
 
 Thread history stays on disk locally and is ignored by Git. The app's private
 user-data directory stores recent project locations and authoritative thread

@@ -1,4 +1,3 @@
-/** Compact elapsed time since a thread's latest message/run completion. */
 export function relativeThreadTime(updatedAt: string, now: number) {
   const updated = Date.parse(updatedAt);
   if (!Number.isFinite(updated)) return "";

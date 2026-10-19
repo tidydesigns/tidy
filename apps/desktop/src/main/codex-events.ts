@@ -14,12 +14,10 @@ export function createCodexEvents(emit: (update: HarnessUpdate) => void) {
     if (method === "thread/tokenUsage/updated") {
       // App Server reports native session totals, including resumed turns.
       const usage = object(object(params.tokenUsage).total);
-      const count = (key: string) =>
-        typeof usage[key] === "number" &&
-        Number.isSafeInteger(usage[key]) &&
-        (usage[key] as number) >= 0
-          ? (usage[key] as number)
-          : 0;
+      const count = (key: string) => {
+        const value = usage[key];
+        return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0;
+      };
       emit({
         type: "usage",
         usage: {

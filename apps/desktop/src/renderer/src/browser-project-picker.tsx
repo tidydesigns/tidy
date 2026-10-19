@@ -3,12 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Button } from "@tidy/ui/button";
 import type { ProjectSnapshot } from "../../shared/contracts";
 
-type Directory = {
-  path: string;
-  parent: string | null;
-  directories: { name: string; path: string }[];
-  initialProject: string;
-};
+import { directoryResponseSchema, type Directory } from "../../shared/browser-directory";
 
 function folderError(error: unknown, fallback: string) {
   const message = error instanceof Error ? error.message : fallback;
@@ -59,9 +54,7 @@ function ProjectPicker({
     if (existing) return existing;
     const request = fetch(`/__tidy/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`)
       .then(async (response) => {
-        const result = (await response.json()) as
-          | { ok: true; data: Directory }
-          | { ok: false; error: string };
+        const result = directoryResponseSchema.parse(await response.json());
         if (!result.ok) throw new Error(result.error);
         return result.data;
       })
@@ -98,7 +91,7 @@ function ProjectPicker({
   }
   function navigate(index: number) {
     if (!directory || !ready) return;
-    if (canGoUp && index === 0) browse(directory.parent!);
+    if (canGoUp && directory.parent !== null && index === 0) browse(directory.parent);
     else {
       const folder = folders[index - (canGoUp ? 1 : 0)];
       if (folder) browse(folder.path);
@@ -147,7 +140,8 @@ function ProjectPicker({
     void load(parent)
       .then((result) => {
         if (!cancelled) {
-          cache.current.set(result.path, cache.current.get(parent)!);
+          const request = cache.current.get(parent);
+          if (request) cache.current.set(result.path, request);
           setDirectory(result);
         }
       })
@@ -232,9 +226,9 @@ function ProjectPicker({
             } else if (event.key === "Tab" && !event.shiftKey && filter && folders.length) {
               event.preventDefault();
               navigate(highlighted === 0 && canGoUp ? 1 : highlighted);
-            } else if (event.key === "ArrowLeft" && event.altKey && canGoUp) {
+            } else if (event.key === "ArrowLeft" && event.altKey && canGoUp && directory?.parent) {
               event.preventDefault();
-              browse(directory!.parent!);
+              browse(directory.parent);
             }
           }}
         />
@@ -257,7 +251,9 @@ function ProjectPicker({
             tabIndex={-1}
             disabled={opening}
             onPointerMove={() => setActive(0)}
-            onClick={() => browse(directory.parent!)}
+            onClick={() => {
+              if (directory?.parent) browse(directory.parent);
+            }}
           >
             <span aria-hidden="true">↰</span>
             <span>Parent folder</span>

@@ -70,8 +70,8 @@ export function MessageAttachments({
       void api
         .readAttachment(projectId, id)
         .then((value) => {
-          if (current && value.previewUrl)
-            setPreviews((previous) => ({ ...previous, [id]: value.previewUrl! }));
+          const previewUrl = value.previewUrl;
+          if (current && previewUrl) setPreviews((previous) => ({ ...previous, [id]: previewUrl }));
         })
         .catch(() => {});
     return () => {

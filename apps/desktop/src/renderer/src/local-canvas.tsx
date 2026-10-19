@@ -4,7 +4,6 @@ import { EditorHostProvider } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../shared/contracts";
 
-/** The canvas owns gestures/history; this adapter owns only local persistence. */
 export const LocalCanvas = memo(function LocalCanvas({
   api,
   projectId,

@@ -1,0 +1,302 @@
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { Button } from "@tidy/ui/button";
+import type { DesktopAPI, Message, Thread } from "../../shared/contracts";
+import { MessageAttachments } from "./message-attachments";
+import { ToolActivityGroup } from "./tool-activity";
+
+const positions = new Map<string, { top: number; following: boolean }>();
+const markdownPlugins = [remarkGfm];
+const MessageBody = memo(function MessageBody({ message }: { message: Message }) {
+  return message.role === "user" ? (
+    <div className="message-text">{message.text}</div>
+  ) : (
+    <div className="message-markdown">
+      <Markdown
+        remarkPlugins={markdownPlugins}
+        skipHtml
+        components={{
+          a: ({ href, children }) => (
+            <a href={href} target="_blank" rel="noopener noreferrer">
+              {children}
+            </a>
+          ),
+          img: ({ alt }) => <span className="muted">{alt || "Image"}</span>,
+        }}
+      >
+        {message.text}
+      </Markdown>
+    </div>
+  );
+});
+
+export function Conversation({
+  thread,
+  identity,
+  api,
+  references,
+}: {
+  thread?: Thread;
+  identity: string;
+  api: DesktopAPI;
+  references: string[];
+}) {
+  const previewId = useId();
+  const viewport = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  const following = useRef(positions.get(identity)?.following ?? true);
+  const initialized = useRef(false);
+  const lastUser = useRef<string | undefined>(undefined);
+  const frame = useRef(0);
+  const measureRef = useRef(() => {});
+  const nodes = useRef(new Map<string, HTMLElement>());
+  const [atEnd, setAtEnd] = useState(true);
+  const [current, setCurrent] = useState(0);
+  const [preview, setPreview] = useState<number | null>(null);
+
+  const turns = useMemo(() => {
+    const result: { id: string; prompt: string; response: string }[] = [];
+    for (const message of thread?.messages ?? []) {
+      if (message.role === "user")
+        result.push({ id: message.id, prompt: message.text, response: "" });
+      else if (result.length) result[result.length - 1].response = message.text;
+    }
+    return result;
+  }, [thread?.messages]);
+  const toolsByMessage = useMemo(() => {
+    const result = new Map<string, NonNullable<Thread["toolActivities"]>>();
+    for (const tool of thread?.toolActivities ?? []) {
+      const list = result.get(tool.afterMessageId) ?? [];
+      list.push(tool);
+      result.set(tool.afterMessageId, list);
+    }
+    return result;
+  }, [thread?.toolActivities]);
+
+  function measure() {
+    const element = viewport.current;
+    if (!element) return;
+    const end = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+    setAtEnd(end);
+    const top = element.getBoundingClientRect().top + 48;
+    let index = 0;
+    for (let i = 0; i < turns.length; i++) {
+      const node = nodes.current.get(turns[i].id);
+      if (node && node.getBoundingClientRect().top <= top) index = i;
+    }
+    setCurrent(index);
+    positions.delete(identity);
+    positions.set(identity, { top: element.scrollTop, following: following.current });
+    if (positions.size > 100) positions.delete(positions.keys().next().value!);
+  }
+  measureRef.current = measure;
+  function latest() {
+    following.current = true;
+    const element = viewport.current;
+    if (element) element.scrollTop = element.scrollHeight;
+    measure();
+  }
+  function jump(index: number) {
+    const element = viewport.current;
+    const node = nodes.current.get(turns[index]?.id);
+    if (!element || !node) return;
+    following.current = false;
+    element.scrollTop +=
+      node.getBoundingClientRect().top - element.getBoundingClientRect().top - 20;
+    setCurrent(index);
+    setPreview(null);
+    measure();
+  }
+
+  useLayoutEffect(() => {
+    if (!thread || !viewport.current) return;
+    const user = turns.at(-1)?.id;
+    if (!initialized.current) {
+      const saved = positions.get(identity);
+      if (saved) viewport.current.scrollTop = saved.top;
+      else latest();
+      initialized.current = true;
+    } else if (user !== lastUser.current) {
+      following.current = true;
+    }
+    lastUser.current = user;
+    if (following.current) viewport.current.scrollTop = viewport.current.scrollHeight;
+    measure();
+  }, [thread?.messages, thread?.toolActivities, thread?.status]);
+
+  useEffect(() => {
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame.current);
+      frame.current = requestAnimationFrame(() => {
+        if (following.current && viewport.current)
+          viewport.current.scrollTop = viewport.current.scrollHeight;
+        measureRef.current();
+      });
+    });
+    if (content.current) observer.observe(content.current);
+    if (viewport.current) observer.observe(viewport.current);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame.current);
+    };
+  }, []);
+
+  const selected = preview === null ? null : turns[preview];
+  const running = thread?.status === "running";
+  return (
+    <div className="conversation">
+      <div
+        className="transcript"
+        ref={viewport}
+        tabIndex={0}
+        aria-label="Conversation"
+        onWheel={(event) => {
+          if (event.deltaY < 0) following.current = false;
+        }}
+        onTouchMove={() => {
+          following.current = false;
+        }}
+        onKeyDown={(event) => {
+          if (["ArrowUp", "PageUp", "Home"].includes(event.key)) following.current = false;
+        }}
+        onScroll={() => {
+          const element = viewport.current!;
+          following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+          cancelAnimationFrame(frame.current);
+          frame.current = requestAnimationFrame(measure);
+        }}
+      >
+        <div className="conversation-content" ref={content}>
+          {references.length > 0 && (
+            <div className="thread-references">
+              {references.map((name, i) => (
+                <span key={i} className="reference-chip">
+                  {name}
+                </span>
+              ))}
+            </div>
+          )}
+          {thread?.toolActivityTruncated && (
+            <p className="tool-log-notice">Earlier tool activity omitted</p>
+          )}
+          {thread?.messages.map((message) => (
+            <div
+              key={message.id}
+              className="conversation-entry"
+              ref={(node) => {
+                if (node) nodes.current.set(message.id, node);
+                else nodes.current.delete(message.id);
+              }}
+            >
+              <article
+                className={`message message-${message.role}`}
+                aria-label={message.role === "user" ? "Your message" : "Assistant message"}
+              >
+                <MessageBody message={message} />
+                {Boolean(message.attachments?.length) && (
+                  <MessageAttachments
+                    api={api}
+                    projectId={thread.projectId}
+                    files={message.attachments!}
+                  />
+                )}
+              </article>
+              <ToolActivityGroup activities={toolsByMessage.get(message.id) ?? []} />
+            </div>
+          ))}
+          {running &&
+            !thread.pendingApprovals?.length &&
+            !thread.toolActivities?.some((tool) => tool.status === "running") && (
+              <p className="thread-activity" role="status">
+                <span className="working-dot" />
+                {thread.activity ?? "Working"}
+              </p>
+            )}
+          {thread?.error && (
+            <p className="thread-error" role="alert">
+              {thread.error}
+            </p>
+          )}
+          {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
+        </div>
+      </div>
+      {turns.length > 1 && (
+        <nav
+          className="conversation-rail"
+          aria-label="Conversation turns"
+          onPointerLeave={() => setPreview(null)}
+          onWheel={(event) => {
+            if (viewport.current) {
+              following.current = false;
+              viewport.current.scrollTop += event.deltaY;
+            }
+          }}
+        >
+          <div
+            className="conversation-ticks"
+            style={{ height: Math.min(288, (turns.length - 1) * 8) }}
+          >
+            {turns.map((turn, index) => (
+              <Button
+                key={turn.id}
+                className={`conversation-tick ${preview === index ? "previewing" : ""}`}
+                aria-label={`Jump to turn ${index + 1}: ${turn.prompt.replace(/\s+/g, " ").slice(0, 100) || "Attachment"}`}
+                data-hover-distance={
+                  preview === null ? undefined : Math.min(3, Math.abs(index - preview))
+                }
+                aria-current={current === index ? "step" : undefined}
+                aria-describedby={preview === index ? previewId : undefined}
+                tabIndex={(preview ?? current) === index ? 0 : -1}
+                style={{
+                  top: `${turns.length <= 1 ? 0 : (index / (turns.length - 1)) * 100}%`,
+                  height: Math.min(8, 288 / (turns.length - 1)),
+                }}
+                onPointerEnter={() => setPreview(index)}
+                onFocus={() => setPreview(index)}
+                onBlur={() => setPreview(null)}
+                onClick={() => jump(index)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") setPreview(null);
+                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                    event.preventDefault();
+                    const buttons =
+                      event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>(
+                        "button",
+                      );
+                    buttons[
+                      Math.max(
+                        0,
+                        Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
+                      )
+                    ]?.focus();
+                  }
+                }}
+              >
+                <span />
+              </Button>
+            ))}
+            {selected && (
+              <div
+                className="conversation-turn-preview"
+                id={previewId}
+                role="tooltip"
+                style={{
+                  top: `${((preview ?? 0) / Math.max(1, turns.length - 1)) * 100}%`,
+                }}
+              >
+                <strong>{selected.prompt || "Attachment"}</strong>
+                {selected.response && <p>{selected.response.replace(/\s+/g, " ")}</p>}
+              </div>
+            )}
+          </div>
+        </nav>
+      )}
+      {thread?.messages.length && !atEnd ? (
+        <Button className="latest-message" onClick={latest} aria-label="Jump to latest message">
+          ↓ Latest
+        </Button>
+      ) : null}
+    </div>
+  );
+}
