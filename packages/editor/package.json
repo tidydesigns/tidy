@@ -50,6 +50,7 @@
     "./design/document-operations": "./src/design/document-operations.ts",
     "./design/figma.worker": "./src/design/figma.worker.ts",
     "./design/tokens": "./src/design/tokens.ts",
+    "./design/token-catalog": "./src/design/token-catalog.ts",
     "./design/strokes": "./src/design/strokes.ts",
     "./design/design-tokens": "./src/design/design-tokens.ts",
     "./design/resize-snapping": "./src/design/resize-snapping.ts",
@@ -148,7 +149,6 @@
     "./editor/property-field": "./src/editor/property-field.tsx",
     "./editor/fill-inspector": "./src/editor/fill-inspector.tsx",
     "./editor/vector-editor": "./src/editor/vector-editor.tsx",
-    "./editor/color-tokens": "./src/editor/color-tokens.tsx",
     "./editor/canvas-guides": "./src/editor/canvas-guides.tsx",
     "./editor/rich-text-dom": "./src/editor/rich-text-dom.ts",
     "./editor/import-notes": "./src/editor/import-notes.tsx",
@@ -196,8 +196,7 @@
     "./design/text-tool-style": "./src/design/text-tool-style.ts",
     "./editor/tool-inspector": "./src/editor/tool-inspector.tsx",
     "./components/files/document-preview": "./src/components/files/document-preview.tsx",
-    "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx",
-    "./design/token-catalog": "./src/design/token-catalog.ts"
+    "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

@@ -2,11 +2,7 @@
 
 import { memo, useCallback, useRef, useState, type RefObject } from "react";
 import { type DesignDocument } from "../design/document";
-import {
-  resolvedDesignTokens,
-  tokenTypeSchema,
-  type DesignToken,
-} from "../design/design-tokens";
+import { resolvedDesignTokens, tokenTypeSchema, type DesignToken } from "../design/design-tokens";
 import {
   availableTokenName,
   putDesignToken,
