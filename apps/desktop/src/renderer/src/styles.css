@@ -187,7 +187,16 @@ summary:focus-visible {
   font-size: 13px;
   cursor: pointer;
 }
+.project-trigger {
+  width: 100%;
+  min-width: 0;
+}
+.project-trigger > svg {
+  flex-shrink: 0;
+}
 .project-trigger > span {
+  min-width: 0;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1415,77 +1424,153 @@ summary:focus-visible {
   position: fixed;
   inset: 0;
   margin: auto;
-  height: fit-content;
-  width: min(560px, calc(100vw - 32px));
+  width: min(540px, calc(100vw - 32px));
   max-height: calc(100dvh - 48px);
-  padding: 24px;
+  padding: 0;
+  overflow: auto;
   border: 1px solid var(--color-border);
   border-radius: 12px;
   color: var(--color-ink);
   background: var(--desktop-surface);
+  box-shadow: 0 16px 64px #0003;
 }
 .browser-project-dialog::backdrop {
   background: #0006;
 }
-.browser-project-dialog h2 {
-  margin: 0 0 20px;
-  font-size: 18px;
+.browser-project-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px 8px;
+}
+.browser-project-heading h2 {
+  margin: 0;
+  font-size: 13px;
   font-weight: 500;
 }
-.browser-project-dialog label {
-  display: block;
-  margin-bottom: 8px;
-  font-size: 13px;
+.browser-project-heading > span {
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
-.browser-project-path {
+.browser-project-heading button {
+  margin-left: auto;
+  font-size: 20px;
+  line-height: 20px;
+}
+.browser-project-search {
   display: flex;
-  gap: 8px;
-}
-.browser-project-path input {
-  min-width: 0;
-  flex: 1;
-  padding: 9px 10px;
+  align-items: center;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 8px 10px;
   border: 1px solid var(--color-border);
   border-radius: 6px;
   background: var(--color-panel);
-  color: inherit;
-  font: inherit;
-  font-size: 13px;
 }
-.browser-project-navigation {
-  margin: 12px 0 8px;
+.browser-project-search:focus-within {
+  border-color: var(--color-muted-ink);
+}
+.browser-project-search > svg {
+  flex-shrink: 0;
+  color: var(--color-muted-ink);
+}
+.browser-project-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font:
+    13px/20px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
 }
 .browser-project-folders {
-  max-height: 40dvh;
-  min-height: 80px;
+  max-height: min(320px, 40dvh);
+  padding: 4px 8px;
   overflow: auto;
+  overscroll-behavior: contain;
+  border-block: 1px solid var(--color-border);
 }
 .browser-project-folder {
   display: flex;
-  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   width: 100%;
-  padding: 10px;
+  padding: 8px;
   border: 1px solid transparent;
   border-radius: 6px;
   background: transparent;
   color: inherit;
   text-align: left;
   font: inherit;
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
 }
-.browser-project-folder:hover {
+.browser-project-folder > svg,
+.browser-project-folder > span:first-child {
+  flex-shrink: 0;
+  width: 18px;
+  color: var(--color-muted-ink);
+}
+.browser-project-folder > span:nth-child(2) {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-project-folder > span:last-child {
+  color: var(--color-muted-ink);
+}
+.browser-project-folder[aria-selected="true"] {
   background: var(--color-hover-surface);
   border-color: var(--color-border);
 }
 .browser-project-folders p,
 .browser-project-error {
+  margin: 12px 8px;
   font-size: 13px;
   color: var(--color-muted-ink);
 }
+.browser-project-error {
+  padding: 0 8px;
+  overflow-wrap: anywhere;
+}
 .browser-project-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 20px;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+}
+.browser-project-actions > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.browser-project-actions > button {
+  flex-shrink: 0;
+}
+.browser-project-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 16px 12px;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.browser-project-hints kbd {
+  font: inherit;
+  padding: 0 2px;
 }

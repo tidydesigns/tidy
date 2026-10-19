@@ -838,7 +838,7 @@ export function App() {
   return (
     <div className="desktop">
       <header className="workspace-header">
-        <div className="project-picker">
+        <div className="project-picker" title={project?.name}>
           {project && (
             <SelectMenu
               value={project.id}

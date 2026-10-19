@@ -193,8 +193,10 @@ and hot reload all require that session; mutation requests also validate their o
 The server is a development tool, not a production hosting mode.
 
 The command initially opens the project specified on the host. Use the top-left
-project menu and **Open project…** to browse Linux folders or enter an absolute
-host path, then choose **Open folder**. Previously opened projects stay in the
+project menu and **Open project…** to browse Linux folders or type a path
+(`~/` starts at the host home folder). Results filter as you type; use arrow keys
+to navigate, Enter to browse, or Tab to complete a folder. Choose **Open folder**
+to open the path shown in the footer. Previously opened projects stay in the
 menu, and the last selected project is restored after restarting the server.
 This opens existing directories; it does not create a folder or clone a repository.
 Import uses your browser's file picker. Project data and
