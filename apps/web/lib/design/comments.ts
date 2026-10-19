@@ -261,7 +261,6 @@ export async function createCommentWithMessage(
     throw new PublicActionError("Invalid comment position.");
   const text = cleanBody(body);
   return (await withCommentFile(fileId, userId, true, async (client) => {
-    await admitComment(client, fileId);
     const document = await client.query<{ content: DesignDocument }>(
       `select "content" from "designDocument" where "fileId" = $1 for update`,
       [fileId],
@@ -277,13 +276,7 @@ export async function createCommentWithMessage(
       document.rows[0].content.commentPages[threadId] !== pageId
     )
       throw new PublicActionError("Comment thread already exists on another page.");
-    const inserted = await client.query(
-      `insert into "designCommentThread" ("id", "fileId", "x", "y", "createdBy") values ($1,$2,$3,$4,$5)
-      on conflict ("id") do nothing
-      returning "id"`,
-      [threadId, fileId, x, y, userId],
-    );
-    if (!inserted.rowCount) {
+    if (ids.threadId && ids.messageId) {
       const existing = await client.query<
         Pick<CommentMessage, "id" | "authorId" | "body" | "createdAt">
       >(
@@ -292,11 +285,18 @@ export async function createCommentWithMessage(
         from "designCommentThread" t join "designCommentMessage" c on c."threadId" = t."id"
         where t."id"=$1 and t."fileId"=$2 and t."createdBy"=$3 and t."x"=$4 and t."y"=$5
           and c."id"=$6 and c."authorId"=$3 and c."body"=$7`,
-        [threadId, fileId, userId, x, y, ids.messageId ?? null, text],
+        [threadId, fileId, userId, x, y, ids.messageId, text],
       );
-      if (!existing.rowCount) throw new PublicActionError("Comment thread already exists.");
-      return { id: threadId, message: existing.rows[0] };
+      if (existing.rowCount) return { id: threadId, message: existing.rows[0] };
     }
+    await admitComment(client, fileId);
+    const inserted = await client.query(
+      `insert into "designCommentThread" ("id", "fileId", "x", "y", "createdBy") values ($1,$2,$3,$4,$5)
+      on conflict ("id") do nothing
+      returning "id"`,
+      [threadId, fileId, x, y, userId],
+    );
+    if (!inserted.rowCount) throw new PublicActionError("Comment thread already exists.");
     const message = await client.query<{
       id: string;
       authorId: string;
@@ -325,10 +325,22 @@ export async function replyToComment(
   threadId: string,
   userId: string,
   body: string,
-  messageId: string = randomUUID(),
+  messageId?: string,
 ) {
   const text = cleanBody(body);
   return (await withCommentFile(fileId, userId, true, async (client) => {
+    if (messageId) {
+      const existing = await client.query<
+        Pick<CommentMessage, "id" | "authorId" | "body" | "createdAt">
+      >(
+        `select c."id", c."authorId", c."body",
+        to_char(c."createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt"
+        from "designCommentMessage" c join "designCommentThread" t on t."id"=c."threadId"
+        where c."id"=$1 and t."id"=$2 and t."fileId"=$3 and c."authorId"=$4 and c."body"=$5`,
+        [messageId, threadId, fileId, userId, text],
+      );
+      if (existing.rowCount) return existing.rows[0];
+    }
     await admitComment(client, fileId, threadId);
     const result = await client.query<{
       id: string;
@@ -344,7 +356,7 @@ export async function replyToComment(
       where "designCommentMessage"."threadId" = excluded."threadId" and "designCommentMessage"."authorId" = excluded."authorId"
         and "designCommentMessage"."body" = excluded."body"
       returning "id", "authorId", "body", to_char("createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt"`,
-      [messageId, userId, text, threadId, fileId],
+      [messageId ?? randomUUID(), userId, text, threadId, fileId],
     );
     if (!result.rowCount) throw new PublicActionError("Comment thread not found.");
     return result.rows[0];

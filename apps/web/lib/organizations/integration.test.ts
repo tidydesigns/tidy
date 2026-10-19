@@ -3348,7 +3348,10 @@ integration(
     );
     const attempts = await Promise.allSettled(
       Array.from({ length: 8 }, () =>
-        comments.createComment(file.id, invitedId, 0, 0, "Concurrent"),
+        comments.createCommentWithMessage(file.id, invitedId, 0, 0, "Concurrent", "page-1", {
+          threadId: crypto.randomUUID(),
+          messageId: crypto.randomUUID(),
+        }),
       ),
     );
     expect(attempts.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -3360,16 +3363,22 @@ integration(
         )
       ).rows[0].count,
     ).toBe(COMMENT_LIMITS.threadsPerFile);
-    const accepted = attempts.find(
-      (result) => result.status === "fulfilled",
-    ) as PromiseFulfilledResult<string>;
+    const accepted = attempts.find((result) => result.status === "fulfilled");
+    if (accepted?.status !== "fulfilled") throw new Error("Expected a comment to be admitted.");
+    const created = accepted.value;
+    expect(
+      await comments.createCommentWithMessage(file.id, invitedId, 0, 0, "Concurrent", "page-1", {
+        threadId: created.id,
+        messageId: created.message.id,
+      }),
+    ).toEqual(created);
     await db.query(
       `insert into "designCommentMessage" ("id","threadId","authorId","body") select 'reply-'||n,$1,$2,'Fixture' from generate_series(1,$3) n`,
-      [accepted.value, ownerId, COMMENT_LIMITS.messagesPerThread - 2],
+      [created.id, ownerId, COMMENT_LIMITS.messagesPerThread - 2],
     );
     const replies = await Promise.allSettled(
       Array.from({ length: 8 }, () =>
-        comments.replyToComment(file.id, accepted.value, invitedId, "Concurrent reply"),
+        comments.replyToComment(file.id, created.id, invitedId, "Concurrent reply"),
       ),
     );
     expect(replies.filter((result) => result.status === "fulfilled")).toHaveLength(1);
@@ -3377,14 +3386,31 @@ integration(
       (
         await db.query(
           'select count(*)::int as count from "designCommentMessage" where "threadId"=$1',
-          [accepted.value],
+          [created.id],
         )
       ).rows[0].count,
     ).toBe(COMMENT_LIMITS.messagesPerThread);
-    await comments.deleteCommentThread(file.id, accepted.value, invitedId);
+    const reply = replies.find((result) => result.status === "fulfilled");
+    if (reply?.status !== "fulfilled") throw new Error("Expected a reply to be admitted.");
     expect(
-      await comments.createComment(file.id, invitedId, 0, 0, "Capacity released"),
-    ).toBeTruthy();
+      await comments.replyToComment(
+        file.id,
+        created.id,
+        invitedId,
+        "Concurrent reply",
+        reply.value.id,
+      ),
+    ).toEqual(reply.value);
+    await comments.deleteCommentThread(file.id, created.id, invitedId);
+    const released = await comments.createCommentWithMessage(
+      file.id,
+      invitedId,
+      0,
+      0,
+      "Capacity released",
+      "page-1",
+      { threadId: crypto.randomUUID(), messageId: crypto.randomUUID() },
+    );
     await db.query(
       `insert into "designCommentMessage" ("id","threadId","authorId","body") select 'file-message-'||n,'capacity-'||(((n-1)%12)+1),$1,'Fixture' from generate_series(1,$2) n`,
       [ownerId, COMMENT_LIMITS.messagesPerFile - 2],
@@ -3403,6 +3429,31 @@ integration(
         )
       ).rows[0].count,
     ).toBe(COMMENT_LIMITS.messagesPerFile);
+    const fileReply = totalAttempts.find((result) => result.status === "fulfilled");
+    if (fileReply?.status !== "fulfilled") throw new Error("Expected a file reply to be admitted.");
+    expect(
+      await comments.replyToComment(
+        file.id,
+        "capacity-1",
+        invitedId,
+        "File capacity",
+        fileReply.value.id,
+      ),
+    ).toEqual(fileReply.value);
+    expect(
+      await comments.createCommentWithMessage(
+        file.id,
+        invitedId,
+        0,
+        0,
+        "Capacity released",
+        "page-1",
+        {
+          threadId: released.id,
+          messageId: released.message.id,
+        },
+      ),
+    ).toEqual(released);
   },
 );
 
