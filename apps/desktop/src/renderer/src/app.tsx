@@ -986,7 +986,7 @@ export function App() {
                     <Button
                       className="quiet-button thread-heading-action"
                       disabled={running || Boolean(updatingDone[thread.id])}
-                      onClick={() => void toggleThreadDone(thread)}
+                      onClick={() => void toggleThreadDone(summarizeThread(thread))}
                     >
                       Reopen thread
                     </Button>
