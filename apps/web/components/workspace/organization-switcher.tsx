@@ -5,7 +5,7 @@ import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { Avatar } from "@/components/ui/avatar";
 import { avatarPath } from "@/lib/avatars";
 import { Dialog } from "@/components/ui/dialog";
-import { useId, useRef, useState } from "react";
+import { useTransition, useId, useRef, useState } from "react";
 import posthog from "@/lib/posthog-client";
 import { authClient } from "@/lib/auth-client";
 import { SignOutButton } from "@/app/sign-out-button";
@@ -28,6 +28,7 @@ export function OrganizationSwitcher({
   const id = useId();
   const dropdown = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -119,7 +120,7 @@ export function OrganizationSwitcher({
             label="Organization"
             value={organizationId}
             options={currentOrganizations.map((org) => ({ value: org.id, label: org.name }))}
-            onChange={switchOrganization}
+            onChange={(id) => startTransition(() => switchOrganization(id))}
             disabled={pending}
             className="flex-1"
             placement="top"

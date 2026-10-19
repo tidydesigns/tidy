@@ -3,7 +3,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
-import { useState, type FormEvent } from "react";
+import { useTransition, useState, type FormEvent } from "react";
 import { passwordAuthClient, identifyPostHogUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";
@@ -27,6 +27,7 @@ export function LoginForm({
   initialError?: string;
   accountDeleted?: boolean;
 }) {
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(initialError);
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
@@ -90,7 +91,11 @@ export function LoginForm({
 
   return (
     <AuthShell title="Welcome back." description="Sign in to your Tidy account.">
-      <form method="post" onSubmit={handleSubmit} className="mt-10 space-y-5">
+      <form
+        method="post"
+        onSubmit={(event) => startTransition(() => handleSubmit(event))}
+        className="mt-10 space-y-5"
+      >
         {accountDeleted && (
           <FormMessage role="status">
             <span data-ph-public style={{ display: "contents" }}>

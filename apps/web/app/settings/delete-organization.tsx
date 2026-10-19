@@ -3,7 +3,7 @@
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { Dialog } from "@/components/ui/dialog";
-import { useId, useRef, useState, type FormEvent } from "react";
+import { useTransition, useId, useRef, useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
 import { organizationConfirmationHeader } from "@/lib/organizations/constants";
 import { TextField } from "@/components/ui/text-field";
@@ -19,6 +19,7 @@ export function DeleteOrganization({
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const [confirmation, setConfirmation] = useState("");
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [billingRequired, setBillingRequired] = useState(false);
@@ -85,7 +86,7 @@ export function DeleteOrganization({
           This permanently deletes the organization, its files, folders and team access for
           everyone. This cannot be undone.
         </p>
-        <form onSubmit={remove} className="mt-6 space-y-4">
+        <form onSubmit={(event) => startTransition(() => remove(event))} className="mt-6 space-y-4">
           <TextField
             id={`${id}-name`}
             label={`Enter "${organization.name}" to confirm`}

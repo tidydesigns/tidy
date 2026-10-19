@@ -2,7 +2,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import { Dialog } from "@/components/ui/dialog";
-import { useId, useRef, useState, type ReactNode } from "react";
+import { useTransition, useId, useRef, useState, type ReactNode } from "react";
 
 export function ConfirmAction({
   label,
@@ -25,6 +25,7 @@ export function ConfirmAction({
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -98,7 +99,7 @@ export function ConfirmAction({
           <button
             type="button"
             disabled={pending}
-            onClick={() => void confirm()}
+            onClick={() => startTransition(confirm)}
             className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
           >
             <span data-ph-public={replayLabel || undefined}>{pending ? "Working…" : label}</span>

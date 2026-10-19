@@ -2,7 +2,7 @@
 
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
-import { useState, type FormEvent } from "react";
+import { useTransition, useState, type FormEvent } from "react";
 import posthog from "@/lib/posthog-client";
 import { createOrganization } from "./actions";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ export function OrganizationForm({
   inviteTeam?: boolean;
   onPendingChange?: (pending: boolean) => void;
 }) {
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -51,7 +52,10 @@ export function OrganizationForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="mt-10 space-y-5">
+    <form
+      onSubmit={(event) => startTransition(() => handleSubmit(event))}
+      className="mt-10 space-y-5"
+    >
       <TextField
         replayLabel
         id="name"

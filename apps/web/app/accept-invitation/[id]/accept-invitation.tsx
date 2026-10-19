@@ -2,12 +2,13 @@
 
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
-import { useState } from "react";
+import { useTransition, useState } from "react";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 import { FormMessage } from "@/components/ui/form-message";
 
 export function AcceptInvitation({ invitationId }: { invitationId: string }) {
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -38,7 +39,7 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
   return (
     <div className="mt-10 space-y-5">
       {error && <FormMessage>{error}</FormMessage>}
-      <Button type="button" onClick={accept} disabled={pending}>
+      <Button type="button" onClick={() => startTransition(accept)} disabled={pending}>
         <span data-ph-public style={{ display: "contents" }}>
           {pending ? "Joining…" : "Accept invitation"}
         </span>
@@ -48,6 +49,7 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
 }
 
 export function SwitchAccountButton({ invitationId }: { invitationId: string }) {
+  const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -76,7 +78,7 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
       <button
         data-ph-public
         type="button"
-        onClick={switchAccount}
+        onClick={() => startTransition(switchAccount)}
         disabled={pending}
         className="text-sm font-medium underline decoration-primary-orange underline-offset-4 hover:text-accent-ink disabled:opacity-60"
       >

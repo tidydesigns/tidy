@@ -1,10 +1,12 @@
 "use client";
 
+import { useTransition } from "react";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
 
 export function SignOutButton() {
+  const [, startTransition] = useTransition();
   async function signOut() {
     await authClient.signOut({
       fetchOptions: {
@@ -17,7 +19,7 @@ export function SignOutButton() {
   }
 
   return (
-    <Button type="button" variant="text" onClick={signOut}>
+    <Button type="button" variant="text" onClick={() => startTransition(signOut)}>
       <span data-ph-public style={{ display: "contents" }}>
         Sign out
       </span>
