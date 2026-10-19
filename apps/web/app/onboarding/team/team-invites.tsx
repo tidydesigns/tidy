@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { NavigationLink } from "@/components/ui/navigation-link";
 import posthog from "@/lib/posthog-client";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
@@ -31,7 +31,6 @@ export function TeamInvites({
   actorRole: string;
   onboarding?: boolean;
 }) {
-  const router = useRouter();
   const [role, setRole] = useState<OrganizationRole>("viewer");
   const [addresses, setAddresses] = useState("");
   const [invites, setInvites] = useState(initialInvites);
@@ -39,11 +38,6 @@ export function TeamInvites({
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState("");
   const [cancellingId, setCancellingId] = useState("");
-
-  useEffect(() => {
-    if (onboarding)
-      router.prefetch(`/onboarding/mcp?organizationId=${encodeURIComponent(organizationId)}`);
-  }, [onboarding, organizationId, router]);
 
   async function cancelInvite(invite: Invite) {
     setCancellingId(invite.id);
@@ -123,11 +117,6 @@ export function TeamInvites({
     } catch {
       setError("Could not copy the link. Please try again.");
     }
-  }
-
-  function continueToMcp() {
-    posthog.capture("onboarding_team_completed", { invitation_count: invites.length });
-    router.replace(`/onboarding/mcp?organizationId=${encodeURIComponent(organizationId)}`);
   }
 
   return (
@@ -249,16 +238,20 @@ export function TeamInvites({
       )}
 
       {onboarding && (
-        <button
-          type="button"
-          onClick={continueToMcp}
+        <NavigationLink
+          href={`/onboarding/mcp?organizationId=${encodeURIComponent(organizationId)}`}
+          prefetch={true}
+          replace
+          onClick={() =>
+            posthog.capture("onboarding_team_completed", { invitation_count: invites.length })
+          }
           className="mt-8 inline-flex items-center gap-2 text-sm font-medium underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
         >
           <span data-ph-public style={{ display: "contents" }}>
             {invites.length ? "Continue" : "Continue on my own"}
           </span>
           <Icon name="arrowRight" size={18} />
-        </button>
+        </NavigationLink>
       )}
     </div>
   );
