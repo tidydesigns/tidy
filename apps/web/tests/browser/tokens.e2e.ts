@@ -40,7 +40,7 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   await set(tokenPanel, "Font size", 22);
   await expect(text).toHaveCSS("font-size", "22px");
   await editToken("rounded");
-  const rename = tokenPanel.getByRole("textbox", { name: "Token name", exact: true });
+  const rename = tokenPanel.getByRole("textbox", { name: "Name", exact: true });
   await rename.fill("pill");
   await rename.press("Enter");
   await page.getByRole("button", { name: "Remove token pill", exact: true }).click();
@@ -170,7 +170,7 @@ test("read-only tokens remain browsable without exposing mutation actions", asyn
   await expect(panel.getByRole("spinbutton", { name: "Value", exact: true })).toBeDisabled();
   await expect(
     panel.getByRole("button", { name: "Remove token rounded", exact: true }),
-  ).toBeDisabled();
+  ).toHaveCount(0);
   await panel.getByRole("button", { name: "Search tokens", exact: true }).click();
   await panel.getByRole("searchbox", { name: "Find tokens", exact: true }).fill("body");
   await expect(panel.getByRole("button", { name: "Edit token body", exact: true })).toBeVisible();
@@ -192,7 +192,7 @@ test("adding a token reveals a collapsed group and keeps rename validation local
   await expect(
     panel.getByRole("button", { name: "Edit token radius", exact: true }),
   ).toHaveAttribute("aria-expanded", "true");
-  const name = panel.getByRole("textbox", { name: "Token name", exact: true });
+  const name = panel.getByRole("textbox", { name: "Name", exact: true });
   await name.fill("rounded");
   await name.press("Enter");
   await expect(panel.getByRole("alert")).toHaveText("A token with that name already exists.");
@@ -202,4 +202,59 @@ test("adding a token reveals a collapsed group and keeps rename validation local
     panel.getByRole("button", { name: "Edit token radius-card", exact: true }),
   ).toHaveAttribute("aria-expanded", "true");
   await expect(panel.getByRole("spinbutton", { name: "Value", exact: true })).toHaveValue("8");
+});
+
+test("token popovers keep rows stable, commit click-away edits, and fit small viewports", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  const rounded = page.getByRole("button", { name: "Edit token rounded", exact: true });
+  const rowBefore = await rounded.boundingBox();
+  await rounded.click();
+  const popup = page.getByRole("dialog", { name: "Radius token", exact: true });
+  await expect(popup).toBeVisible();
+  expect(await rounded.boundingBox()).toEqual(rowBefore);
+  const name = popup.getByRole("textbox", { name: "Name", exact: true });
+  await name.fill("radius-card");
+  await page.getByRole("button", { name: "Edit token body", exact: true }).click();
+  const textPopup = page.getByRole("dialog", { name: "Text styles token", exact: true });
+  await expect(textPopup).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await expect(
+    page.getByRole("button", { name: "Edit token radius-card", exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 768, height: 480 });
+  const bounds = await textPopup.boundingBox();
+  assert.ok(
+    bounds &&
+      bounds.x >= 0 &&
+      bounds.y >= 0 &&
+      bounds.x + bounds.width <= 768 &&
+      bounds.y + bounds.height <= 480,
+  );
+  // The existing font picker must remain above, and inside, the floating editor.
+  await textPopup.getByRole("combobox", { name: "Font family", exact: true }).click();
+  await page.getByRole("textbox", { name: "Search fonts", exact: true }).fill("Arial");
+  await page.getByRole("option", { name: "Arial", exact: true }).click();
+  await expect(textPopup).toBeVisible();
+  await expect(page.locator('[data-node-id="token-label"]')).toHaveCSS(
+    "font-family",
+    "Arial, system-ui",
+  );
+  await textPopup.getByRole("button", { name: "Close token editor", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit token radius-card", exact: true }).click();
+  await page.getByRole("dialog").getByRole("spinbutton", { name: "Value", exact: true }).fill("28");
+  await page.getByRole("button", { name: "Search tokens", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator('[data-node-id="token-card"]')).toHaveCSS(
+    "border-top-left-radius",
+    "28px",
+  );
+  const trigger = page.getByRole("button", { name: "Edit token radius-card", exact: true });
+  await trigger.click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });

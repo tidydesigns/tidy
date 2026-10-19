@@ -122,6 +122,7 @@ export function FontPicker({
   const trigger = useRef<HTMLButtonElement>(null),
     popup = useRef<HTMLDivElement>(null),
     search = useRef<HTMLInputElement>(null);
+  const [portalContainer, setPortalContainer] = useState<Element | null>(null);
   const [open, setOpen] = useState(false),
     [query, setQuery] = useState(""),
     [active, setActive] = useState(0);
@@ -299,7 +300,7 @@ export function FontPicker({
     <div className="space-y-2">
       <label className="block text-[10px] text-secondary-ink">
         <span data-ph-public={replayLabel || undefined}>
-          {familyOnly ? "Replace throughout file" : label}
+          {familyOnly && onChoose ? "Replace throughout file" : label}
         </span>
         <button
           ref={trigger}
@@ -309,7 +310,8 @@ export function FontPicker({
           aria-haspopup="listbox"
           aria-expanded={open}
           aria-controls={`${id}-list`}
-          onClick={() => {
+          onClick={(event) => {
+            setPortalContainer(event.currentTarget.closest("[popover]"));
             setQuery("");
             setActive(0);
             setLimit(60);
@@ -319,7 +321,7 @@ export function FontPicker({
           className={`${control} mt-1 flex items-center justify-between text-left text-primary-black`}
         >
           <span className="truncate">
-            {familyOnly ? "Choose replacement…" : (family ?? "Mixed")}
+            {familyOnly && onChoose ? "Choose replacement…" : (family ?? "Mixed")}
           </span>
           <span data-ph-public aria-hidden="true">
             ⌄
@@ -548,7 +550,7 @@ export function FontPicker({
               </p>
             )}
           </div>,
-          document.body,
+          portalContainer ?? document.body,
         )}
     </div>
   );

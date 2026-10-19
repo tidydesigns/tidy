@@ -13,6 +13,7 @@ const inputClass =
 /** Keep the draft focused while other fields and network responses update. */
 export function PropertyField({
   label,
+  layout = "stacked",
   replayLabel = false,
   value,
   onCommit,
@@ -29,6 +30,7 @@ export function PropertyField({
   validate,
 }: {
   label: string;
+  layout?: "stacked" | "inline" | "embedded";
   replayLabel?: boolean;
   value: Value;
   onCommit: (value: string) => void;
@@ -105,8 +107,14 @@ export function PropertyField({
     },
   };
   return (
-    <div className="min-w-0 text-[10px] text-secondary-ink">
-      <label htmlFor={id} data-ph-public={replayLabel || undefined}>
+    <div
+      className={`min-w-0 text-[10px] text-secondary-ink ${layout === "inline" ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3" : ""}`}
+    >
+      <label
+        htmlFor={id}
+        data-ph-public={replayLabel || undefined}
+        className={layout === "embedded" ? "sr-only" : layout === "inline" ? "text-xs" : undefined}
+      >
         {label}
       </label>
       {multiline ? (
@@ -123,11 +131,15 @@ export function PropertyField({
           max={max}
           step={step}
           list={list}
-          className={`${inputClass} mt-1 ${error ? "border-danger" : ""}`}
+          className={`${inputClass} ${layout === "stacked" ? "mt-1" : ""} ${layout === "embedded" ? "border-transparent bg-transparent px-1 focus-visible:ring-inset" : ""} ${error ? "border-danger" : ""}`}
         />
       )}
       {error && (
-        <p id={`${id}-error`} role="alert" className="mt-1 text-danger">
+        <p
+          id={`${id}-error`}
+          role="alert"
+          className={`mt-1 text-danger ${layout === "inline" ? "col-start-2" : ""}`}
+        >
           {error}
         </p>
       )}
