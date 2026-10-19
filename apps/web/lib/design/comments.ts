@@ -152,16 +152,19 @@ export async function listComments(
       preview: NonNullable<CommentThread["preview"]>;
     }>(
       `
+      with comment_pages as materialized (
+        select "content"->'commentPages' as pages from "designDocument" where "fileId"=$1
+      )
       select c."id", c."threadId", c."authorId", u."name" as "authorName", u."image" as "authorImage", c."body",
         to_char(c."createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt",
-        t."x", t."y", t."createdBy", t."resolved", jsonb_build_object('authorName', preview.name, 'authorImage', preview.image, 'body', preview.body) as preview, coalesce(d."content"->'commentPages'->>t."id", 'page-1') as "pageId"
+        t."x", t."y", t."createdBy", t."resolved", jsonb_build_object('authorName', preview.name, 'authorImage', preview.image, 'body', preview.body) as preview, coalesce(d.pages->>t."id", 'page-1') as "pageId"
       from "designCommentMessage" c join "designCommentThread" t on t."id"=c."threadId"
-      join "user" u on u."id"=c."authorId" left join "designDocument" d on d."fileId"=t."fileId"
+      join "user" u on u."id"=c."authorId" left join comment_pages d on true
       join lateral (select first."body" as body, author."name" as name, author."image" as image
         from "designCommentMessage" first join "user" author on author."id"=first."authorId"
         where first."threadId"=t."id" order by first."createdAt", first."id" limit 1) preview on true
       where t."fileId"=$1 and ($2::text is null or t."id"=$2)
-        and ($6::text is null or coalesce(d."content"->'commentPages'->>t."id", 'page-1')=$6)
+        and ($6::text is null or coalesce(d.pages->>t."id", 'page-1')=$6)
         and ($3::timestamptz is null or (c."createdAt", c."id") ${backwards ? "<" : ">"} ($3::timestamptz,$4::text))
       order by c."createdAt" ${backwards ? "desc" : "asc"}, c."id" ${backwards ? "desc" : "asc"} limit $5`,
       [
