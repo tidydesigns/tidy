@@ -28,6 +28,11 @@ type Source =
   | { kind: "canvas"; x: number; y: number; hitId: string | null; direct: boolean }
   | { kind: "layer"; id: string };
 
+type ClipGroup = {
+  outlines: HoverOutline[];
+  children: Map<string, ClipGroup>;
+};
+
 export type CanvasHoverHandle = { previewLayer: (id: string | null) => void };
 
 /** Owns transient feedback; pointer movement never updates FileEditor or artwork props. */
@@ -262,6 +267,64 @@ export function CanvasHover({
     };
   }, [viewport, clear, refresh, schedule]);
 
+  const renderedOutlines = useMemo(() => {
+    const clips = new Map<string, string>();
+    const root: ClipGroup = { outlines: [], children: new Map() };
+    for (const outline of outlines) {
+      if (selection.has(outline.id)) continue;
+      let group = root;
+      for (let index = outline.clips.length - 1; index >= 0; index--) {
+        const points = outline.clips[index];
+        if (!clips.has(points)) clips.set(points, `${prefix}-${clips.size}`);
+        let child = group.children.get(points);
+        if (!child) {
+          child = { outlines: [], children: new Map() };
+          group.children.set(points, child);
+        }
+        group = child;
+      }
+      group.outlines.push(outline);
+    }
+    if (!root.outlines.length && !root.children.size) return null;
+    function render(group: ClipGroup): ReactNode {
+      return (
+        <>
+          {group.outlines.map((outline) => (
+            <polygon
+              key={outline.id}
+              data-hover-node-id={outline.id}
+              data-hover-kind={outline.kind}
+              points={outline.points}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1}
+              vectorEffect="non-scaling-stroke"
+              strokeDasharray={outline.kind === "child" ? "3 3" : undefined}
+              opacity={outline.kind === "child" ? 0.45 : 1}
+            />
+          ))}
+          {Array.from(group.children, ([points, child]) => (
+            <g key={points} clipPath={`url(#${clips.get(points)})`}>
+              {render(child)}
+            </g>
+          ))}
+        </>
+      );
+    }
+    return (
+      <>
+        <defs>
+          {Array.from(clips, ([points, id]) => (
+            <clipPath key={id} id={id}>
+              <polygon points={points} />
+            </clipPath>
+          ))}
+        </defs>
+        {render(root)}
+      </>
+    );
+  }, [outlines, selection, prefix]);
+
   return (
     <svg
       aria-hidden="true"
@@ -269,43 +332,7 @@ export function CanvasHover({
       className="pointer-events-none absolute inset-0 h-full w-full overflow-hidden"
       style={{ color: "var(--color-canvas-highlight)" }}
     >
-      <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>
-        {outlines
-          .filter((outline) => !selection.has(outline.id))
-          .map((outline, index) => {
-            const id = `${prefix}-${index}`;
-            const shape = (
-              <polygon
-                data-hover-node-id={outline.id}
-                data-hover-kind={outline.kind}
-                points={outline.points}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={1}
-                vectorEffect="non-scaling-stroke"
-                strokeDasharray={outline.kind === "child" ? "3 3" : undefined}
-                opacity={outline.kind === "child" ? 0.45 : 1}
-              />
-            );
-            return (
-              <g key={outline.id}>
-                <defs>
-                  {outline.clips.map((points, clip) => (
-                    <clipPath key={clip} id={`${id}-${clip}`}>
-                      <polygon points={points} />
-                    </clipPath>
-                  ))}
-                </defs>
-                {outline.clips.reduceRight<ReactNode>(
-                  (content, _, clip) => (
-                    <g clipPath={`url(#${id}-${clip})`}>{content}</g>
-                  ),
-                  shape,
-                )}
-              </g>
-            );
-          })}
-      </g>
+      <g transform={`translate(${view.x} ${view.y}) scale(${view.zoom})`}>{renderedOutlines}</g>
     </svg>
   );
 }
