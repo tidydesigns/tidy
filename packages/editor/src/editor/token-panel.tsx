@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { memo, useCallback, useRef, useState, type RefObject } from "react";
 import { type DesignDocument } from "../design/document";
 import {
   resolvedDesignTokens,
@@ -62,6 +62,49 @@ function TokenSwatch({ token }: { token: DesignToken }) {
   );
 }
 
+// Only the previous and next active rows need to render when switching editors.
+const TokenRow = memo(function TokenRow({
+  name,
+  token,
+  alias,
+  active,
+  anchor,
+  onSelect,
+}: {
+  name: string;
+  token: DesignToken;
+  alias: string | undefined;
+  active: boolean;
+  anchor: RefObject<HTMLButtonElement | null>;
+  onSelect: (name: string) => void;
+}) {
+  return (
+    <div>
+      <button
+        type="button"
+        aria-label={`Edit token ${name}`}
+        data-token-name={name}
+        ref={active ? anchor : undefined}
+        aria-haspopup="dialog"
+        aria-expanded={active}
+        onClick={() => onSelect(name)}
+        className={`flex min-h-9 w-full items-center gap-2.5 rounded-md py-1.5 pr-3 pl-6 text-left text-[13px] ${active ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
+        title={alias ? `${name} → ${alias}` : name}
+      >
+        <TokenSwatch token={token} />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span className="max-w-16 truncate text-[10px] text-secondary-ink">
+          {alias
+            ? `↳ ${alias}`
+            : "value" in token && typeof token.value === "number"
+              ? token.value
+              : ""}
+        </span>
+      </button>
+    </div>
+  );
+});
+
 export function TokenPanel({
   document,
   readOnly = false,
@@ -79,9 +122,11 @@ export function TokenPanel({
   const tokens = resolvedDesignTokens(document);
   const atLimit = tokens.size >= 1000;
   const activeToken = active ? tokens.get(active) : undefined;
-  const matches = [...tokens].filter(([name]) =>
-    name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  const search = query.trim().toLowerCase();
+  const matches = [...tokens].filter(([name]) => name.toLowerCase().includes(search));
+  const selectToken = useCallback((name: string) => {
+    setActive((current) => (current === name ? undefined : name));
+  }, []);
   const add = (value: string) => {
     const type = tokenTypeSchema.parse(value);
     const name = availableTokenName(document, type);
@@ -211,29 +256,15 @@ export function TokenPanel({
                 const definition = document.designTokens?.[name] ?? token;
                 const alias = "alias" in definition ? definition.alias : undefined;
                 return (
-                  <div key={name}>
-                    <button
-                      type="button"
-                      aria-label={`Edit token ${name}`}
-                      data-token-name={name}
-                      ref={active === name ? anchor : undefined}
-                      aria-haspopup="dialog"
-                      aria-expanded={active === name}
-                      onClick={() => setActive(active === name ? undefined : name)}
-                      className={`flex min-h-9 w-full items-center gap-2.5 rounded-md py-1.5 pr-3 pl-6 text-left text-[13px] ${active === name ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
-                      title={alias ? `${name} → ${alias}` : name}
-                    >
-                      <TokenSwatch token={token} />
-                      <span className="min-w-0 flex-1 truncate">{name}</span>
-                      <span className="max-w-16 truncate text-[10px] text-secondary-ink">
-                        {alias
-                          ? `↳ ${alias}`
-                          : "value" in token && typeof token.value === "number"
-                            ? token.value
-                            : ""}
-                      </span>
-                    </button>
-                  </div>
+                  <TokenRow
+                    key={name}
+                    name={name}
+                    token={token}
+                    alias={alias}
+                    active={active === name}
+                    anchor={anchor}
+                    onSelect={selectToken}
+                  />
                 );
               })}
             </div>
