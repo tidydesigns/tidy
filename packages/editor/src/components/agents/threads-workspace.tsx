@@ -34,6 +34,7 @@ export type ThreadsWorkspaceProps = {
   selectedNodeIds?: string[];
   onClose?: () => void;
   openThreadId?: string;
+  initialDraft?: { id: string; text: string };
 };
 const control =
   "inline-flex items-center justify-center rounded-lg border border-primary-grey px-3 py-2 text-sm hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
@@ -51,6 +52,7 @@ export function ThreadsWorkspace({
   selectedNodeIds = [],
   onClose,
   openThreadId,
+  initialDraft,
 }: ThreadsWorkspaceProps) {
   const [threads, setThreads] = useState(initialThreads),
     [snapshot, setSnapshot] = useState(initialSnapshot);
@@ -67,8 +69,14 @@ export function ThreadsWorkspace({
   const [target, setTarget] = useState(fileId ?? files[0]?.id ?? ""),
     [agentLimit, setAgentLimit] = useState("1");
   const [prompt, setPrompt] = useAgentDraft(
-    `tidy:agent-draft:${userId}:${organizationId}:${selected ?? fileId ?? "new"}`,
+    `tidy:agent-draft:${userId}:${organizationId}:${selected ?? initialDraft?.id ?? fileId ?? "new"}`,
   );
+  const seededDraft = useRef(false);
+  useEffect(() => {
+    if (!initialDraft || seededDraft.current) return;
+    seededDraft.current = true;
+    setPrompt(initialDraft.text);
+  }, [initialDraft, setPrompt]);
   const [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
   const [allowOrganizationChanges, setAllowOrganizationChanges] = useState(false);

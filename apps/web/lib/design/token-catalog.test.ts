@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
-import { createAndBindColor, putDesignToken, unboundPageColors } from "./token-catalog";
+import { mergeDesignTokens, putDesignToken } from "./token-catalog";
 import { removeDesignToken, renameDesignToken } from "./tokens";
 import { resolvedColorTokens } from "./design-tokens";
 
@@ -9,72 +9,7 @@ const layer = (id: string) => ({
   style: { fill: "#123456" },
 });
 
-describe("colors from design", () => {
-  test("links exact unbound fills, strokes, gradient stops and text without replacing existing roles", () => {
-    const document = parseDesignDocument({
-      ...blankDesignDocument(),
-      tokens: { existing: "#123456" },
-      nodes: [
-        layer("fill"),
-        {
-          ...layer("gradient"),
-          style: {
-            paints: [
-              {
-                id: "gradient",
-                type: "linear",
-                angle: 180,
-                stops: [
-                  { id: "a", position: 0, color: "#123456" },
-                  { id: "b", position: 1, color: "#abcdef80" },
-                ],
-              },
-            ],
-            borderWidth: 2,
-            borderColor: "#123456",
-          },
-        },
-        { ...layer("text"), type: "text", text: "Hello", style: { color: "#123456" } },
-        { ...layer("bound"), style: { fillToken: "existing" } },
-        {
-          ...layer("hidden-paint"),
-          style: { paints: [{ id: "hidden", type: "solid", color: "#123456", visible: false }] },
-        },
-        { ...layer("locked"), locked: true },
-        { ...layer("child"), parentId: "locked" },
-        { ...layer("hidden"), visible: false },
-        { ...layer("hidden-child"), parentId: "hidden" },
-        layer("out-of-scope"),
-      ],
-    });
-    const nodeIds = new Set(
-      document.nodes.filter((node) => node.id !== "out-of-scope").map((node) => node.id),
-    );
-    expect(unboundPageColors(document, nodeIds)).toEqual([
-      { color: "#123456", count: 3 },
-      { color: "#abcdef80", count: 1 },
-    ]);
-    const linked = createAndBindColor({ document, nodeIds, color: "#123456", name: "brand" });
-    const [fill, gradient, text, bound] = linked.nodes;
-    expect(fill?.style.paints?.[0]).toMatchObject({
-      type: "solid",
-      color: "#123456",
-      token: "brand",
-    });
-    expect(gradient?.style.paints?.[0]).toMatchObject({
-      stops: [{ token: "brand" }, { color: "#abcdef80" }],
-    });
-    expect(gradient?.style.strokePaints?.[0]).toMatchObject({ token: "brand" });
-    expect(text?.style.colorToken).toBe("brand");
-    expect(bound).toEqual(document.nodes[3]);
-    expect(linked.nodes.slice(4)).toEqual(document.nodes.slice(4));
-    expect(unboundPageColors(linked, nodeIds)).toEqual([{ color: "#abcdef80", count: 1 }]);
-    expect(document.nodes[0]?.style.paints).toBeUndefined();
-    expect(
-      createAndBindColor({ document: linked, nodeIds, color: "#123456", name: "unused" }),
-    ).toBe(linked);
-  });
-
+describe("token catalog", () => {
   test("legacy tokens keep their references when edited, renamed and removed", () => {
     const document = parseDesignDocument({
       ...blankDesignDocument(),
@@ -94,17 +29,30 @@ describe("colors from design", () => {
     expect(resolvedColorTokens(removed).text).toBe("#22735980");
   });
 
-  test("rejects name collisions and invalid colors without mutating the document", () => {
+  test("merges an agent palette without dropping existing definitions and rejects invalid alias graphs", () => {
     const document = parseDesignDocument({
       ...blankDesignDocument(),
-      tokens: { ink: "#123456" },
+      tokens: { ink: "#123456", paper: "#ffffff" },
+      designTokens: { border: { type: "color", alias: "ink" } },
       nodes: [layer("card")],
     });
-    const args = { document, nodeIds: new Set(["card"]), color: "#123456", name: "brand" };
-    expect(() => createAndBindColor({ ...args, name: "ink" })).toThrow("already exists");
-    expect(() => createAndBindColor({ ...args, name: "bad name" })).toThrow("Use a letter");
-    expect(() => createAndBindColor({ ...args, color: "red" })).toThrow("hex color");
-    expect(document.designTokens).toBeUndefined();
-    expect(document.nodes[0]?.style.fill).toBe("#123456");
+    const merged = mergeDesignTokens(document, {
+      ink: { type: "color", value: "#22735980" },
+      accent: { type: "color", value: "#aabbcc" },
+    });
+    expect(merged.tokens).toEqual({ paper: "#ffffff" });
+    expect(resolvedColorTokens(merged)).toEqual({
+      paper: "#ffffff",
+      ink: "#22735980",
+      border: "#22735980",
+      accent: "#aabbcc",
+    });
+    expect(() =>
+      mergeDesignTokens(document, {
+        ink: { type: "color", alias: "border" },
+      }),
+    ).toThrow();
+    expect(document.tokens.ink).toBe("#123456");
+    expect(document.designTokens?.accent).toBeUndefined();
   });
 });

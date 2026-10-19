@@ -1,25 +1,24 @@
 "use client";
 
-import { useId, useMemo, useRef, useState } from "react";
-import { type DesignDocument, nodePageId } from "../design/document";
+import { useRef, useState } from "react";
+import { type DesignDocument } from "../design/document";
 import {
   resolvedDesignTokens,
   tokenTypeSchema,
   type DesignToken,
 } from "../design/design-tokens";
-import { componentSubtreeIds } from "../design/component-variants";
 import {
   availableTokenName,
-  createAndBindColor,
   putDesignToken,
   tokenDefaults,
   tokenNameError,
-  unboundPageColors,
 } from "../design/token-catalog";
 import { SelectMenu } from "../components/ui/select-menu";
 import { DesignTokenEditor } from "./design-token-editor";
 import { TokenEditorPopover } from "./token-editor-popover";
 import { removeDesignToken } from "../design/tokens";
+
+import { TokensFromDesign, type TokenAgentRequest } from "./tokens-from-design";
 
 const groups = [
   ["color", "Color"],
@@ -67,12 +66,16 @@ function TokenSwatch({ token }: { token: DesignToken }) {
 
 export function TokenPanel({
   document,
+  fileId,
   pageId,
   selectedIds,
   readOnly = false,
   onChange,
+  onAskAgent,
 }: {
   document: DesignDocument;
+  fileId: string;
+  onAskAgent?: (request: TokenAgentRequest) => void;
   pageId: string;
   selectedIds: string[];
   readOnly?: boolean;
@@ -84,27 +87,14 @@ export function TokenPanel({
   const anchor = useRef<HTMLButtonElement>(null);
   const [discover, setDiscover] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<DesignToken["type"]>>(new Set());
-  const [scope, setScope] = useState<"page" | "selection">("page");
   const tokens = resolvedDesignTokens(document);
   const atLimit = tokens.size >= 1000;
   const activeToken = active ? tokens.get(active) : undefined;
-  const nodeIds = useMemo(() => {
-    const ids = new Set<string>();
-    if (scope === "selection") {
-      for (const id of selectedIds)
-        for (const child of componentSubtreeIds(document.nodes, id)) ids.add(child);
-    } else {
-      for (const node of document.nodes) if (nodePageId(node) === pageId) ids.add(node.id);
-    }
-    return ids;
-  }, [document.nodes, pageId, scope, selectedIds]);
-  const colors = useMemo(() => unboundPageColors(document, nodeIds), [document, nodeIds]);
   const matches = [...tokens].filter(([name]) =>
     name.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const add = (value: string) => {
     if (value === "discover") {
-      setScope(selectedIds.length ? "selection" : "page");
       setDiscover(true);
       setActive(undefined);
       return;
@@ -201,63 +191,20 @@ export function TokenPanel({
         )}
       </div>
       {discover && !readOnly && (
-        <section
-          aria-label="Colors from design"
-          className="mb-4 border-b border-primary-grey/60 pb-3"
-        >
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-xs font-medium">Colors from design</span>
-            <button
-              type="button"
-              aria-label="Close colors from design"
-              className={`rounded px-1 text-secondary-ink ${focusClass}`}
-              onClick={() => setDiscover(false)}
-            >
-              ×
-            </button>
-          </div>
-          <SelectMenu
-            replayLabel
-            replayOptions
-            label="Color source"
-            value={scope}
-            options={[
-              { value: "page", label: "Current page" },
-              {
-                value: "selection",
-                label: "Selection and children",
-                disabled: !selectedIds.length,
-              },
-            ]}
-            onChange={(value) => setScope(value === "selection" ? "selection" : "page")}
-          />
-          <p className="my-2 text-[10px] leading-relaxed text-secondary-ink">
-            Unlinked fills, strokes and text. Hidden and locked layers are excluded.
-          </p>
-          <div className="max-h-72 space-y-1 overflow-y-auto overscroll-contain">
-            {colors.map(({ color, count }) => (
-              <ColorCandidate
-                key={`${scope}-${color}`}
-                document={document}
-                color={color}
-                count={count}
-                disabled={atLimit}
-                onCreate={(name) =>
-                  onChange((content) =>
-                    createAndBindColor({ document: content, nodeIds, color, name }),
-                  )
+        <TokensFromDesign
+          fileId={fileId}
+          pageId={pageId}
+          selectedIds={selectedIds}
+          onAskAgent={
+            onAskAgent
+              ? (request) => {
+                  setDiscover(false);
+                  onAskAgent(request);
                 }
-              />
-            ))}
-          </div>
-          {!colors.length && (
-            <p className="py-2 text-xs text-secondary-ink">
-              {scope === "selection" && !selectedIds.length
-                ? "Select layers to find colors."
-                : "No unlinked colors in this source."}
-            </p>
-          )}
-        </section>
+              : undefined
+          }
+          onClose={() => setDiscover(false)}
+        />
       )}
       {groups.map(([type, title]) => {
         const entries = matches.filter(([, token]) => token.type === type);
@@ -349,70 +296,6 @@ export function TokenPanel({
         <p className="py-2 text-xs text-secondary-ink">
           {tokens.size ? "No matching tokens." : "No tokens yet."}
         </p>
-      )}
-    </div>
-  );
-}
-
-function ColorCandidate({
-  document,
-  color,
-  count,
-  disabled,
-  onCreate,
-}: {
-  document: DesignDocument;
-  color: string;
-  count: number;
-  disabled: boolean;
-  onCreate: (name: string) => void;
-}) {
-  const id = useId();
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(() => availableTokenName(document, `color-${color.slice(1)}`));
-  const error = tokenNameError(document, name);
-  return (
-    <div className="rounded border border-primary-grey/50">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-label={`Create token from ${color}`}
-        onClick={() => setOpen(!open)}
-        className={`flex min-h-9 w-full items-center gap-2 px-2 text-left text-xs hover:bg-primary-grey/15 ${focusClass}`}
-      >
-        <TokenSwatch token={{ type: "color", value: color }} />
-        <span className="flex-1">{color}</span>
-        <span className="text-[10px] text-secondary-ink">
-          {count} {count === 1 ? "layer" : "layers"}
-        </span>
-      </button>
-      {open && (
-        <div className="space-y-2 p-2 pt-0">
-          <div className="text-[10px] text-secondary-ink">
-            <label htmlFor={id}>New token name</label>
-            <input
-              id={id}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              aria-invalid={Boolean(error)}
-              aria-describedby={error ? `${id}-error` : undefined}
-              className={`mt-1 h-8 w-full rounded-md border border-control-border bg-surface px-2 text-xs text-primary-black ${focusClass}`}
-            />
-            {error && (
-              <p id={`${id}-error`} role="alert" className="mt-1 text-danger">
-                {error}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            disabled={disabled || Boolean(error)}
-            onClick={() => onCreate(name)}
-            className={`w-full rounded-md bg-primary-black px-2 py-2 text-xs text-surface disabled:opacity-40 ${focusClass}`}
-          >
-            Create and link {count} {count === 1 ? "layer" : "layers"}
-          </button>
-        </div>
       )}
     </div>
   );

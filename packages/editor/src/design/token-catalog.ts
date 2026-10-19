@@ -1,10 +1,5 @@
-import { parseDesignDocument, type DesignDocument, type DesignNode } from "./document";
-import { type DesignToken, tokenNameSchema } from "./design-tokens";
-import { isLayerLocked, isLayerVisible } from "./edit-document";
-import { nodePaints, paintStyle } from "./paints";
-import { nodeStrokePaints } from "./strokes";
-import { normalizeColor } from "./selection-colors";
-
+import { parseDesignDocument, type DesignDocument } from "./document";
+import { type DesignToken, type DesignTokens, tokenNameSchema } from "./design-tokens";
 export const tokenDefaults = {
   color: { type: "color", value: "#ff5d00" },
   radius: { type: "radius", value: 8 },
@@ -53,95 +48,13 @@ export function putDesignToken(document: DesignDocument, name: string, token: De
   });
 }
 
-/** Only visit bindable base-layer properties; never replace an existing token link. */
-function mapUnboundColors(
-  node: DesignNode,
-  map: (color: string) => string | undefined,
-): DesignNode {
-  const binding = (color: string, token?: string) => token || map(color);
-  const paints = nodePaints(node).map((paint) => {
-    if (!paint.visible || paint.opacity === 0) return paint;
-    if (paint.type === "solid") return { ...paint, token: binding(paint.color, paint.token) };
-    if (paint.type === "linear" || paint.type === "radial")
-      return {
-        ...paint,
-        stops: paint.stops.map((stop) => ({ ...stop, token: binding(stop.color, stop.token) })),
-      };
-    return paint;
+/** Merge named definitions; unrelated tokens and all existing references stay intact. */
+export function mergeDesignTokens(document: DesignDocument, definitions: DesignTokens) {
+  const tokens = { ...document.tokens };
+  for (const name of Object.keys(definitions)) delete tokens[name];
+  return parseDesignDocument({
+    ...document,
+    tokens,
+    designTokens: { ...document.designTokens, ...definitions },
   });
-  const strokes = nodeStrokePaints(node).map((paint) => {
-    if (!paint.visible || paint.opacity === 0) return paint;
-    if (paint.type === "solid") return { ...paint, token: binding(paint.color, paint.token) };
-    return {
-      ...paint,
-      stops: paint.stops.map((stop) => ({ ...stop, token: binding(stop.color, stop.token) })),
-    };
-  });
-  return {
-    ...node,
-    style: {
-      ...node.style,
-      ...(paints.length ? paintStyle(paints) : {}),
-      ...(strokes.length ? { strokePaints: strokes } : {}),
-      ...(node.type === "text" && node.style.color
-        ? { colorToken: binding(node.style.color, node.style.colorToken) }
-        : {}),
-    },
-  };
-}
-
-export function unboundPageColors(document: DesignDocument, nodeIds: ReadonlySet<string>) {
-  const colors = new Map<string, Set<string>>();
-  for (const node of document.nodes) {
-    if (
-      !nodeIds.has(node.id) ||
-      isLayerLocked(document.nodes, node.id) ||
-      !isLayerVisible(document.nodes, node.id)
-    )
-      continue;
-    mapUnboundColors(node, (value) => {
-      const color = normalizeColor(value);
-      if (color) {
-        const ids = colors.get(color) ?? new Set<string>();
-        ids.add(node.id);
-        colors.set(color, ids);
-      }
-      return undefined;
-    });
-  }
-  return [...colors].map(([color, ids]) => ({ color, count: ids.size }));
-}
-
-export function createAndBindColor({
-  document,
-  nodeIds,
-  color,
-  name,
-}: {
-  document: DesignDocument;
-  nodeIds: ReadonlySet<string>;
-  color: string;
-  name: string;
-}) {
-  const message = tokenNameError(document, name);
-  if (message) throw new Error(message);
-  if (!normalizeColor(color)) throw new Error("Enter a hex color.");
-  const matchingIds = new Set<string>();
-  const nodes = document.nodes.map((node) => {
-    if (
-      !nodeIds.has(node.id) ||
-      isLayerLocked(document.nodes, node.id) ||
-      !isLayerVisible(document.nodes, node.id)
-    )
-      return node;
-    const next = mapUnboundColors(node, (value) => {
-      if (normalizeColor(value) !== normalizeColor(color)) return undefined;
-      matchingIds.add(node.id);
-      return name;
-    });
-    return matchingIds.has(node.id) ? next : node;
-  });
-  // The canvas may have changed since the candidate was shown.
-  if (!matchingIds.size) return document;
-  return putDesignToken({ ...document, nodes }, name, { type: "color", value: color });
 }

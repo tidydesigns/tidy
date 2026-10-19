@@ -42,6 +42,28 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
         ).toString(),
         organizationId: "00000000-0000-4000-8000-000000000001",
       }}
+      agents={
+        query.agentTokens === "1"
+          ? {
+              organizationId: "token-preview",
+              userId: "token-preview",
+              canEdit: true,
+              canManage: false,
+              files: [{ id: "preview", name: "Token preview" }],
+              initialThreads: [],
+              initialSnapshot: null,
+              connection: {
+                configured: true,
+                planSharingConfigured: true,
+                provider: "codex",
+                status: "connected",
+                accountLabel: "Local browser fixture",
+                usageUrl: "https://example.invalid/usage",
+                helpUrl: "https://example.invalid/help",
+              },
+            }
+          : undefined
+      }
       backHref="/login"
       initialDocument={{
         revision: 1,
