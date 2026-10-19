@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import sharp from "sharp";
 import { chooseSelectMenu, selectMenuText } from "../../scripts/select-menu-controls.mjs";
-import { test, expect } from "./fixtures";
+import { test, expect, required } from "./fixtures";
 import type { Locator, Page } from "playwright";
 
 test("token edits, bindings, history and exported pixels", async ({ page, baseURL }) => {
@@ -124,6 +124,7 @@ test("read-only tokens remain browsable without exposing mutation actions", asyn
   await panel.getByRole("button", { name: "Search tokens", exact: true }).click();
   await panel.getByRole("searchbox", { name: "Find tokens", exact: true }).fill("body");
   await expect(panel.getByRole("button", { name: "Edit token body", exact: true })).toBeVisible();
+  await expect(panel.getByRole("button", { name: /^Edit token / })).toHaveCount(1);
 });
 
 test("adding a token reveals a collapsed group and keeps rename validation local", async ({
@@ -255,7 +256,7 @@ test("detaching paint tokens keeps resolved colors and alpha for fills, strokes 
   await expect(card).toHaveCSS("border-image-source", boundStroke);
 });
 
-test("pick a canvas layer into a color token without native eyedropper, selection changes or dragging", async ({
+test("picking an unselected layer copies alpha, blocks dragging and Delete, and preserves selection", async ({
   page,
 }) => {
   await page.addInitScript(() => Reflect.deleteProperty(window, "EyeDropper"));
@@ -265,7 +266,12 @@ test("pick a canvas layer into a color token without native eyedropper, selectio
   await fill.fill("#22735980");
   await fill.press("Enter");
   const card = page.locator('[data-node-id="token-card"]');
-  const before = await card.boundingBox();
+  const before = required(await card.boundingBox());
+  await page.getByRole("button", { name: "Select Second card", exact: true }).first().click();
+  const selectedName = page.getByRole("textbox", { name: "Layer name", exact: true });
+  await expect(selectedName).toHaveValue("Second card");
+  const second = page.locator('[data-node-id="token-second"]');
+  const selectedBefore = required(await second.boundingBox());
   await page.getByRole("tab", { name: "Tokens", exact: true }).click();
   await page.getByRole("button", { name: "Add token", exact: true }).click();
   await page.getByRole("menuitem", { name: "Color", exact: true }).click();
@@ -277,11 +283,15 @@ test("pick a canvas layer into a color token without native eyedropper, selectio
   await expect(card).toHaveCSS("cursor", "crosshair");
   await page.keyboard.press("Delete");
   await expect(card).toBeVisible();
-  await card.click();
+  await page.mouse.move(before.x + 20, before.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(before.x + 45, before.y + 35, { steps: 5 });
+  await page.mouse.up();
   await expect(dialog).toBeVisible();
   await expect(value).toHaveValue("#22735980");
-  await expect(page.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue("Card");
+  await expect(selectedName).toHaveValue("Second card");
   expect(await card.boundingBox()).toEqual(before);
+  expect(await second.boundingBox()).toEqual(selectedBefore);
   await page.getByLabel("Design canvas", { exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(value).toHaveValue("#ff5d00");
@@ -322,8 +332,17 @@ test("canvas color picking handles empty space, gradients and cancellation witho
   const inheritedText = await page
     .locator('[data-node-id="token-label"]')
     .evaluate((node) => getComputedStyle(node).color);
-  expect(inheritedText).toContain("rgb(");
-  await expect(page.getByRole("textbox", { name: "Color", exact: true })).not.toHaveValue(
-    "#ff5d00",
-  );
+  const pickedText = await page
+    .getByRole("textbox", { name: "Color", exact: true })
+    .evaluate((input) => {
+      if (!(input instanceof HTMLInputElement)) throw new Error("Expected a colour input");
+      const probe = document.createElement("span");
+      probe.style.color = input.value;
+      if (!probe.style.color) throw new Error("Picked token must contain a valid CSS colour");
+      document.body.appendChild(probe);
+      const color = getComputedStyle(probe).color;
+      probe.remove();
+      return color;
+    });
+  expect(pickedText).toBe(inheritedText);
 });
