@@ -4,6 +4,8 @@ import { designBucket } from "@/lib/storage/design-objects";
 import { avatarBytes, avatarObjectKey, avatarPath, type AvatarKind } from "@/lib/avatars";
 import { FeedbackError } from "@/lib/feedback/validation";
 import { can } from "@/lib/organizations/roles";
+import { reserveOperation, reserveWorkspaceOperation } from "./security/operation-budget";
+import { reserveAvatarStorage } from "./security/avatar-budget";
 
 export async function requireAvatarAccess(
   userId: string,
@@ -46,8 +48,11 @@ export async function updateAvatar(
   id: string,
   file: File | null,
 ) {
+  await reserveOperation("avatar-write", userId);
   await requireAvatarAccess(userId, kind, id, true);
+  if (kind === "organization") await reserveWorkspaceOperation("avatar-write", id);
   const bytes = file ? await avatarBytes(file) : null;
+  await reserveAvatarStorage("write");
   const bucket = designBucket();
   if (!bucket)
     throw new FeedbackError("Image uploads are unavailable. Please try again later.", 503);

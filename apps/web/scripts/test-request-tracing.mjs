@@ -77,6 +77,7 @@ try {
       import { route } from "./route-bundle.mjs";
       export default { fetch(request, env, ctx) {
         return observeRequest(request, () => handleRequest(request, route, 50), undefined, {
+          enabled: "1", sampleRate: 1, admitTrace: async () => true,
           key: "runtime-test-key", host: "https://posthog.invalid", release: "runtime-test",
           waitUntil: task => ctx.waitUntil(task),
         });

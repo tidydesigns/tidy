@@ -1,6 +1,28 @@
+import * as sampling from "./diagnostic-sampling";
+import { beforeEach, afterEach, spyOn as spySampling } from "bun:test";
+let samplingOverride: ReturnType<typeof spySampling>;
+beforeEach(() => {
+  samplingOverride = spySampling(sampling, "sampleDiagnostics").mockReturnValue(true);
+});
+afterEach(() => samplingOverride.mockRestore());
 import { expect, test } from "bun:test";
 import { normalizedRoute, observeRequest } from "./request-observability";
 import { startOperation, traceStorage } from "./trace-context";
+
+test("healthy unsampled streams keep their content without routine request logs", async () => {
+  samplingOverride.mockReturnValue(false);
+  const info = spySampling(console, "info").mockImplementation(() => {});
+  try {
+    const response = await observeRequest(
+      new Request("https://app.test/files", { headers: { "sec-fetch-dest": "document" } }),
+      async () => new Response("page", { headers: { "Content-Type": "text/html" } }),
+    );
+    expect(await response.text()).toBe("page");
+    expect(info).not.toHaveBeenCalled();
+  } finally {
+    info.mockRestore();
+  }
+});
 
 test("MCP SSE traces finish with the tool result, preserve chunks, and omit private content", async () => {
   const { spyOn } = await import("bun:test");

@@ -2,7 +2,9 @@ import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/oper
 import { requireOrganizationPermission } from "@/lib/organizations/authorization";
 import "server-only";
 import Stripe from "stripe";
+import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
+import { assertNoPendingSubscription, BillingWorkBudget } from "./work-budget";
 
 import {
   organizationPlanTier,
@@ -59,6 +61,8 @@ export function stripe() {
   if (!process.env.STRIPE_SECRET_KEY) throw new Error("Stripe billing is not configured.");
   return (stripeClient ??= new Stripe(process.env.STRIPE_SECRET_KEY, {
     httpClient: Stripe.createFetchHttpClient(),
+    timeout: 5000,
+    maxNetworkRetries: 0,
   }));
 }
 
@@ -125,9 +129,13 @@ export async function requireBillingOwner(userId: string, organizationId: string
   await requireOrganizationPermission(userId, organizationId, "own");
 }
 
-export async function validateCatalog(client: Stripe) {
-  const price = await client.prices.retrieve(process.env.STRIPE_PRO_PRICE_ID!);
-  const coupon = await client.coupons.retrieve(process.env.STRIPE_FIRST_MONTH_COUPON_ID!);
+export async function validateCatalog(client: Stripe, work = new BillingWorkBudget()) {
+  const price = await client.prices.retrieve(process.env.STRIPE_PRO_PRICE_ID!, {}, work.options());
+  const coupon = await client.coupons.retrieve(
+    process.env.STRIPE_FIRST_MONTH_COUPON_ID!,
+    {},
+    work.options(),
+  );
   if (
     !price.active ||
     price.currency !== "usd" ||
@@ -162,7 +170,7 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
     throw new Error("Billing is disabled for self-hosted workspaces.");
   if (!billingConfigured()) throw new Error("Stripe billing is not configured.");
   const client = stripe();
-  await validateCatalog(client);
+  const work = new BillingWorkBudget();
   await requireRegisteredProPrice();
   const connection = await db.connect();
   try {
@@ -183,7 +191,11 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
     if (row.stripeStatus && BLOCKED.has(row.stripeStatus))
       throw new Error("Manage the existing Pro subscription in Stripe.");
     if (row.stripeCheckoutSessionId) {
-      const existing = await client.checkout.sessions.retrieve(row.stripeCheckoutSessionId);
+      const existing = await client.checkout.sessions.retrieve(
+        row.stripeCheckoutSessionId,
+        {},
+        work.options(),
+      );
       if (existing.status === "open" && existing.url) {
         await connection.query("commit");
         return existing.url;
@@ -191,6 +203,7 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
       if (existing.status === "complete")
         throw new Error("Your checkout is processing. Return to Billing in a moment.");
     }
+    await validateCatalog(client, work);
     const customerId =
       row.stripeCustomerId ??
       (
@@ -199,29 +212,36 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
             email,
             metadata: { organizationId },
           },
-          { idempotencyKey: `tidy-pro-customer-${organizationId}` },
+          work.options({ idempotencyKey: `tidy-pro-customer-${organizationId}` }),
         )
       ).id;
     // An admin grant may exist in Stripe before its webhook reaches this row.
     // Check canonical subscriptions while holding the shared organization lock.
-    for await (const subscription of client.subscriptions.list({
-      customer: customerId,
-      status: "all",
-      limit: 100,
-    })) {
-      if (!["canceled", "incomplete_expired"].includes(subscription.status))
-        throw new Error("An existing subscription is processing. Return to Billing in a moment.");
-    }
-    const session = await client.checkout.sessions.create({
-      mode: "subscription",
-      customer: customerId,
-      client_reference_id: organizationId,
-      ...checkoutPricing(row.firstMonthUsed),
-      subscription_data: { metadata: { organizationId } },
-      metadata: { organizationId },
-      success_url: returnUrl(),
-      cancel_url: returnUrl(),
-    });
+    await assertNoPendingSubscription(client, customerId, work);
+    const session = await client.checkout.sessions.create(
+      {
+        mode: "subscription",
+        customer: customerId,
+        client_reference_id: organizationId,
+        ...checkoutPricing(row.firstMonthUsed),
+        subscription_data: { metadata: { organizationId } },
+        metadata: { organizationId },
+        success_url: returnUrl(),
+        cancel_url: returnUrl(),
+      },
+      work.options({
+        idempotencyKey: `tidy-pro-checkout-${createHash("sha256")
+          .update(
+            JSON.stringify([
+              organizationId,
+              row.stripeSubscriptionId,
+              row.stripeCheckoutSessionId,
+              row.firstMonthUsed,
+            ]),
+          )
+          .digest("hex")}`,
+      }),
+    );
     if (!session.url) throw new Error("Stripe did not provide a checkout URL.");
     await connection.query(
       'update "organization_billing" set "stripeCustomerId" = $2, "stripeCheckoutSessionId" = $3, "updatedAt" = now() where "organizationId" = $1',
@@ -249,10 +269,13 @@ export async function portalUrl(userId: string, organizationId: string) {
     )
   ).rows[0];
   if (!row?.stripeCustomerId) throw new Error("This organization has no Stripe billing account.");
-  const session = await stripe().billingPortal.sessions.create({
-    customer: row.stripeCustomerId,
-    return_url: returnUrl(),
-  });
+  const session = await stripe().billingPortal.sessions.create(
+    {
+      customer: row.stripeCustomerId,
+      return_url: returnUrl(),
+    },
+    new BillingWorkBudget().options(),
+  );
   return session.url;
 }
 

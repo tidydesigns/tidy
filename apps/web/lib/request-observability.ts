@@ -20,20 +20,20 @@ type ReportFailure = (
   },
 ) => Promise<void>;
 
-export function observeRequest(
+export async function observeRequest(
   request: Request,
   handle: () => Promise<Response>,
   report?: ReportFailure,
   runtime?: TracingRuntime,
 ): Promise<Response> {
-  const trace = createRequestTrace(request, runtime);
+  const trace = await createRequestTrace(request, runtime);
   return trace.run(() => observeTracedRequest(request, handle, trace, report));
 }
 
 async function observeTracedRequest(
   request: Request,
   handle: () => Promise<Response>,
-  trace: ReturnType<typeof createRequestTrace>,
+  trace: Awaited<ReturnType<typeof createRequestTrace>>,
   report?: ReportFailure,
 ): Promise<Response> {
   const started = performance.now();
@@ -102,12 +102,13 @@ async function observeTracedRequest(
       elapsedMs: elapsed(),
     });
     if (event.endsWith("failed")) console.error(record);
-    else console.info(record);
+    else if (trace.sampled) console.info(record);
   };
   const aborted = () => finish("request_aborted");
   request.signal.addEventListener("abort", aborted, { once: true });
   if (request.signal.aborted) aborted();
-  if (kind !== "other") console.info(JSON.stringify({ event: "request_started", ...details }));
+  if (kind !== "other" && trace.sampled)
+    console.info(JSON.stringify({ event: "request_started", ...details }));
   try {
     const response = await traceOperation("worker.routing", handle);
     status = response.status;
@@ -134,9 +135,10 @@ async function observeTracedRequest(
     }
     phase = "body";
     bodyOperation = startOperation("response.body");
-    console.info(
-      JSON.stringify({ event: "response_headers", ...details, status, elapsedMs: elapsed() }),
-    );
+    if (trace.sampled)
+      console.info(
+        JSON.stringify({ event: "response_headers", ...details, status, elapsedMs: elapsed() }),
+      );
     const reader = response.body!.getReader();
     const body = new ReadableStream<Uint8Array>(
       {

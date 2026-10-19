@@ -39,6 +39,7 @@ export type OperationSpan = {
   end(error?: unknown): void;
 };
 export type RequestTrace = {
+  sampled?: boolean;
   root?: Span;
   active: Set<OperationSpan>;
   closed: boolean;

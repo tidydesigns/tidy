@@ -1,4 +1,4 @@
-import { admitServerError } from "./lib/security/server-telemetry-budget";
+import { admitServerError, admitServerTrace } from "./lib/security/server-telemetry-budget";
 import { runScheduledMaintenance } from "./lib/scheduled-maintenance";
 // OpenNext generates this module during build:worker.
 import { ingressResponse } from "./lib/security/ingress-budget";
@@ -37,6 +37,7 @@ export default {
       environment: tracingEnv.NEXTJS_ENV ?? "production",
       waitUntil: (task: Promise<unknown>) => ctx.waitUntil(task),
       admit: (fingerprint: string) => admitServerError(env, fingerprint),
+      admitTrace: () => admitServerTrace(env),
     };
     const report = createErrorReporter(runtime);
     if (isAuthRequest(new URL(request.url).pathname)) {

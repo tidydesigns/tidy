@@ -26,7 +26,7 @@ test("the pause prevents all browser and server delivery even with configured cr
     expect(headers.get).not.toHaveBeenCalled();
     expect(await vaultEnabled("test-person")).toBe(false);
 
-    const trace = createRequestTrace(new Request("https://app.test/api/mcp"), runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/api/mcp"), runtime);
     const operation = trace.run(() => startOperation("database.query"));
     expect(trace.operations()).toEqual(["database.query"]);
     expect(trace.traceId()).toBeUndefined();

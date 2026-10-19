@@ -1,5 +1,5 @@
-import { operationFailure } from "@/lib/security/operation-budget";
-import { withRequestBodyLimit } from "@/lib/http/request-body";
+import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
+import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
 import { portalUrl } from "@/lib/billing/server";
 
@@ -15,10 +15,15 @@ async function post(request: Request) {
     return new Response(null, { status: 415 });
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  const denied = await operationBudgetResponse("billing-request", session.user.id);
+  if (denied) return denied;
   let organizationId: unknown;
   try {
-    organizationId = ((await request.json()) as { organizationId?: unknown }).organizationId;
-  } catch {
+    organizationId = (
+      (await (await boundedRequest(request)).json()) as { organizationId?: unknown }
+    ).organizationId;
+  } catch (error) {
+    if (error instanceof RequestBodyError) return requestBodyError(error);
     return new Response(null, { status: 400 });
   }
   if (typeof organizationId !== "string" || !organizationId)
@@ -36,4 +41,4 @@ async function post(request: Request) {
   }
 }
 
-export const POST = withRequestBodyLimit(post);
+export const POST = post;

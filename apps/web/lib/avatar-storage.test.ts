@@ -46,6 +46,16 @@ test("avatar HTTP endpoints enforce ownership, membership, origin, replacement a
     let session = { user: { id: "owner" } }, role = "owner", shared = true;
     let failPut = false, failUpdate = false, failCommit = false, failDelete = false;
     let gets = 0, puts = 0, snapshot;
+    let routeDenied = false, accountDenied = false, workspaceDenied = false, storageStatus = 0;
+    const charges = [];
+    const budgets = await import("./lib/security/operation-budget.ts");
+    mock.module("@/lib/security/operation-budget", () => ({
+      ...budgets,
+      operationBudgetResponse: async () => routeDenied ? budgets.operationFailure(new budgets.OperationBudgetError(429, 30)) : null,
+      reserveOperation: async (kind, user) => { charges.push([kind,user]); if (accountDenied) throw new budgets.OperationBudgetError(429,30); },
+      reserveWorkspaceOperation: async (kind, org) => { charges.push([kind,org]); if (workspaceDenied) throw new budgets.OperationBudgetError(429,30); },
+    }));
+    mock.module("@/lib/security/avatar-budget", () => ({ reserveAvatarStorage: async () => { if (storageStatus) throw new budgets.OperationBudgetError(storageStatus,30); } }));
     const rows = { user: "https://external.test/original.png", organization: null };
     const objects = new Map();
     const bucket = {
@@ -122,6 +132,27 @@ test("avatar HTTP endpoints enforce ownership, membership, origin, replacement a
     role = null; expect((await read(orgURL, "organization")).status).toBe(404);
     role = "owner"; expect((await remove("organization")).status).toBe(200);
     expect(rows.organization).toBeNull();
+    const beforeWrites = puts;
+    routeDenied = true;
+    const unread = new Request("https://app.test/api/avatars/user/owner", { method: "POST", headers: { origin: "https://app.test" }, body: "invalid multipart" });
+    expect((await POST(unread, context("user"))).status).toBe(429);
+    expect(unread.bodyUsed).toBe(false);
+    routeDenied = false; accountDenied = true;
+    expect((await upload()).status).toBe(429);
+    accountDenied = false; workspaceDenied = true;
+    expect((await upload("organization")).status).toBe(429);
+    workspaceDenied = false;
+    for (const status of [429,503]) { storageStatus = status; expect((await upload()).status).toBe(status); }
+    storageStatus = 0;
+    expect(puts).toBe(beforeWrites);
+    expect(charges.some(([kind,id]) => kind === "avatar-write" && id === "owner")).toBe(true);
+    expect(charges.some(([kind,id]) => kind === "avatar-write" && id === "org")).toBe(true);
+    expect((await upload()).status).toBe(200);
+    storageStatus = 429;
+    const readCount = gets;
+    const deniedRead = await read(rows.user);
+    expect(deniedRead.status).toBe(429); expect(deniedRead.headers.get("retry-after")).toBe("30");
+    expect(gets).toBe(readCount);
     console.log("PASS");
   `,
     ],

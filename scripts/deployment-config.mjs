@@ -149,6 +149,19 @@ export function assertRuntimeSafety(config, bindings) {
     throw new Error(
       "Configure an explicit CPU limit of at most 30000 ms; profile the default 10000 ms against your largest supported requests.",
     );
+  const observability = config.observability ?? {};
+  for (const [kind, ceiling] of [
+    ["logs", 0.1],
+    ["traces", 0.01],
+  ]) {
+    const settings = observability[kind] ?? {};
+    if (!(settings.enabled ?? (kind === "logs" ? observability.enabled : false) ?? false)) continue;
+    const rate = settings.head_sampling_rate ?? observability.head_sampling_rate ?? 1;
+    if (typeof rate !== "number" || !Number.isFinite(rate) || rate < 0 || rate > ceiling)
+      throw new Error(
+        `Configure ${kind} head_sampling_rate at most ${ceiling} in the private deployment config.`,
+      );
+  }
   if (
     !bindings.some(
       (binding) => binding.name === "BETTER_AUTH_SECRET" && binding.type === "secret_text",

@@ -1,5 +1,25 @@
+import * as sampling from "./diagnostic-sampling";
+import { beforeEach, afterEach, spyOn as spySampling } from "bun:test";
+let samplingOverride: ReturnType<typeof spySampling>;
+beforeEach(() => {
+  samplingOverride = spySampling(sampling, "sampleDiagnostics").mockReturnValue(true);
+});
+afterEach(() => samplingOverride.mockRestore());
 import { expect, spyOn, test } from "bun:test";
 import { observeOperation } from "./operation-observability";
+
+test("healthy unsampled operations preserve results without routine logs", async () => {
+  samplingOverride.mockReturnValue(false);
+  const info = spySampling(console, "info").mockImplementation(() => {});
+  try {
+    expect(await observeOperation(new Headers(), "files.session", async () => "result")).toBe(
+      "result",
+    );
+    expect(info).not.toHaveBeenCalled();
+  } finally {
+    info.mockRestore();
+  }
+});
 
 test("operation diagnostics identify a stalled dependency and preserve its eventual result", async () => {
   const logs: string[] = [];

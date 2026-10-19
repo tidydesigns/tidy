@@ -18,6 +18,10 @@ import { reserveImageOperation } from "../../lib/design/image-budget";
 import { reserveClientRegistration } from "../../lib/auth/client-registration-budget";
 import { reserveFeedbackUpload } from "../../lib/feedback/upload-budget";
 import { APIError } from "better-auth/api";
+import { reserveAvatarStorage } from "../../lib/security/avatar-budget";
+import { OperationBudgetError } from "../../lib/security/operation-budget";
+import { reserveRealtimeMessages } from "../../lib/realtime/message-budget";
+import { admitServerTrace } from "../../lib/security/server-telemetry-budget";
 import {
   reserveCommentMutation,
   reserveInvitationMutation,
@@ -50,10 +54,29 @@ export class LegacyAuthGuard extends DurableObject<CloudflareEnv> {
   }
 }
 const worker = {
-  async fetch(request: Request, env: { AUTH_GUARD: DurableObjectNamespace<AuthGuard> }) {
+  async fetch(request: Request, env: Pick<CloudflareEnv, "AUTH_GUARD" | "BETTER_AUTH_SECRET">) {
     const path = new URL(request.url).pathname;
     // Same context mechanism OpenNext supplies to the production guard client.
     Object.assign(globalThis, { [Symbol.for("__cloudflare-context__")]: { env } });
+    if (path === "/avatar-storage-budget") {
+      try {
+        await reserveAvatarStorage(
+          new URL(request.url).searchParams.get("kind") === "read" ? "read" : "write",
+        );
+        return new Response(null, { status: 204 });
+      } catch (error) {
+        if (error instanceof OperationBudgetError)
+          return new Response(null, { status: error.status });
+        throw error;
+      }
+    }
+    if (path === "/realtime-message-budget") {
+      return Response.json(
+        await reserveRealtimeMessages(env, new URL(request.url).searchParams.get("user") ?? "one"),
+      );
+    }
+    if (path === "/trace-export-budget")
+      return new Response(null, { status: (await admitServerTrace(env)) ? 204 : 429 });
     if (path === "/endpoint-limit") {
       const ip = request.headers.get("cf-connecting-ip") || "unknown";
       const endpoint = new URL(request.url).searchParams.get("path") ?? "/get-session";

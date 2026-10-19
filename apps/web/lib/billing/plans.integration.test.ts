@@ -609,12 +609,10 @@ integration(
       amount_off: null,
       duration: "once",
     } as Stripe.Response<Stripe.Coupon>);
-    const list = spyOn(client.subscriptions, "list").mockImplementation(
-      () =>
-        (async function* () {
-          yield { id: "sub_comp", status: "active" } as Stripe.Subscription;
-        })() as unknown as ReturnType<typeof client.subscriptions.list>,
-    );
+    const list = spyOn(client.subscriptions, "list").mockResolvedValue({
+      data: [{ id: "sub_comp", status: "active" }],
+      has_more: false,
+    } as Stripe.Response<Stripe.ApiList<Stripe.Subscription>>);
     const checkout = spyOn(client.checkout.sessions, "create");
     try {
       await db.query(

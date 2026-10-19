@@ -2,6 +2,8 @@ import { posthogCollectionEnabled } from "./posthog-policy";
 import { PostHog } from "posthog-node/edge";
 import type { Span, SpanRecord } from "posthog-node";
 import { normalizedRoute } from "./route-normalization";
+import { sampleDiagnostics } from "./diagnostic-sampling";
+import { waitForSignal } from "./request-lifecycle";
 import {
   safeErrorCode,
   traceStorage,
@@ -18,6 +20,8 @@ export type TracingRuntime = {
   enabled?: string;
   environment?: string;
   waitUntil?: (task: Promise<unknown>) => void;
+  sampleRate?: number;
+  admitTrace?: () => Promise<boolean>;
 };
 
 function markError(span: Span | undefined, error: unknown) {
@@ -26,7 +30,7 @@ function markError(span: Span | undefined, error: unknown) {
   if (code) span?.setAttribute("error.code", code);
 }
 
-export function createRequestTrace(request: Request, runtime: TracingRuntime = {}) {
+export async function createRequestTrace(request: Request, runtime: TracingRuntime = {}) {
   const started = Date.now();
   const route = normalizedRoute(request.url);
   const attributes = {
@@ -36,14 +40,30 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
     deployment_id: runtime.deploymentId ?? "",
     "app.version": runtime.release ?? "",
   };
-  const configured =
+  const sampled = sampleDiagnostics(runtime.sampleRate);
+  let configured = Boolean(
+    sampled &&
     posthogCollectionEnabled(request.headers.get("cookie"), "diagnostics") &&
     runtime.key &&
     runtime.host &&
     runtime.enabled === "1" &&
     !new URL(request.url).pathname.startsWith("/_next/") &&
     new URL(request.url).pathname !== "/api/t" &&
-    !new URL(request.url).pathname.startsWith("/api/t/");
+    !new URL(request.url).pathname.startsWith("/api/t/"),
+  );
+  if (configured) {
+    try {
+      configured = Boolean(
+        runtime.admitTrace &&
+        (await waitForSignal(
+          runtime.admitTrace(),
+          AbortSignal.any([request.signal, AbortSignal.timeout(250)]),
+        )),
+      );
+    } catch {
+      configured = false;
+    }
+  }
   const makeClient = () =>
     new PostHog(runtime.key!, {
       host: runtime.host,
@@ -95,12 +115,13 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
   let spanCount = 0;
   let dropped = 0;
   const trace: RequestTrace = {
+    sampled,
     root,
     active: new Set(),
     closed: false,
     start(name: TraceOperation, parent?: OperationSpan): OperationSpan {
       // Bound memory even if a request loops or fans out indefinitely.
-      if (spanCount++ >= 256) {
+      if (spanCount++ >= 64) {
         dropped++;
         return { name, parent, started: Date.now(), run: (work) => work(), end: () => {} };
       }
@@ -126,6 +147,7 @@ export function createRequestTrace(request: Request, runtime: TracingRuntime = {
   };
   let snapshotSent = false;
   return {
+    sampled,
     run<T>(work: () => T): T {
       return traceStorage.run({ trace }, work);
     },

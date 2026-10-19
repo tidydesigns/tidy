@@ -9,7 +9,7 @@ import {
 
 /** Separate product budgets; suppression never reports another billable error. */
 export async function consumeServerTelemetry(
-  kind: "errors" | "flags",
+  kind: "errors" | "flags" | "traces",
   fingerprint: string,
   consume: BudgetConsumer,
 ) {
@@ -21,8 +21,10 @@ export async function consumeServerTelemetry(
       );
       if (!duplicate.allowed) return false;
     }
-    const limits = kind === "errors" ? [30, 500] : [120, 3000];
-    return (await consume(`server-${kind}`, ...windowChecks("global", limits[0], limits[1])))
+    const limits = kind === "errors" ? [30, 500] : kind === "traces" ? [20, 200] : [120, 3000];
+    // Prepay the optional stalled snapshot alongside the ordinary trace.
+    const cost = kind === "traces" ? 2 : 1;
+    return (await consume(`server-${kind}`, ...windowChecks("global", limits[0], limits[1], cost)))
       .allowed;
   } catch {
     return false;
@@ -30,6 +32,9 @@ export async function consumeServerTelemetry(
 }
 export function admitServerError(env: BudgetEnvironment, fingerprint: string) {
   return consumeServerTelemetry("errors", fingerprint, workerBudgetConsumer(env));
+}
+export function admitServerTrace(env: BudgetEnvironment) {
+  return consumeServerTelemetry("traces", "global", workerBudgetConsumer(env));
 }
 export async function admitFlagEvaluation() {
   if (typeof navigator === "undefined" || navigator.userAgent !== "Cloudflare-Workers") return true;

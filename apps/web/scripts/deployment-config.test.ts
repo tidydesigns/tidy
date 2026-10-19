@@ -201,3 +201,39 @@ test("deployment can proceed with a warning when scheduled cleanup is not config
     warning.mockRestore();
   }
 });
+
+test("deployment preflight bounds enabled log and trace sampling", () => {
+  const settings = { workers_dev: false, preview_urls: false, limits: { cpu_ms: 10000 } };
+  const secrets = [
+    { name: "BETTER_AUTH_SECRET", type: "secret_text" },
+    { name: "PRIVACY_CLEANUP_SECRET", type: "secret_text" },
+  ];
+  for (const [kind, rate] of [
+    ["logs", 0.1],
+    ["traces", 0.01],
+  ] as const) {
+    expect(() =>
+      assertRuntimeSafety(
+        { ...settings, observability: { [kind]: { enabled: true, head_sampling_rate: rate } } },
+        secrets,
+      ),
+    ).not.toThrow();
+    for (const invalid of [undefined, 1, -1, NaN, "0.01"]) {
+      expect(() =>
+        assertRuntimeSafety(
+          {
+            ...settings,
+            observability: { [kind]: { enabled: true, head_sampling_rate: invalid } },
+          },
+          secrets,
+        ),
+      ).toThrow("head_sampling_rate");
+    }
+  }
+  expect(() =>
+    assertRuntimeSafety(
+      { ...settings, observability: { enabled: true, head_sampling_rate: 1 } },
+      secrets,
+    ),
+  ).toThrow("head_sampling_rate");
+});

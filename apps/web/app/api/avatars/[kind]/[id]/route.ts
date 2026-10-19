@@ -1,4 +1,9 @@
-import { operationBudgetResponse } from "@/lib/security/operation-budget";
+import {
+  operationBudgetResponse,
+  operationFailure,
+  reserveWorkspaceOperation,
+} from "@/lib/security/operation-budget";
+import { reserveAvatarStorage } from "@/lib/security/avatar-budget";
 import { auth } from "@/lib/auth";
 import { avatarObjectKey, MAX_IMAGE_BYTES, type AvatarKind } from "@/lib/avatars";
 import { currentAvatar, requireAvatarAccess, updateAvatar } from "@/lib/avatar-storage";
@@ -15,6 +20,8 @@ async function target(context: Context) {
 }
 
 function failure(error: unknown) {
+  const denied = operationFailure(error);
+  if (denied) return denied;
   if (error instanceof FeedbackError)
     return Response.json(
       { error: error.message },
@@ -35,12 +42,14 @@ export async function GET(request: Request, context: Context) {
     if (denied) return denied;
     const { kind, id } = await target(context);
     await requireAvatarAccess(session.user.id, kind, id, false);
+    if (kind === "organization") await reserveWorkspaceOperation("avatar-read", id);
     const url = await currentAvatar(kind, id);
     const key = avatarObjectKey(url, kind, id);
     if (!key || new URL(request.url).searchParams.get("v") !== key.split("/").at(-1))
       return new Response(null, { status: 404 });
     const bucket = designBucket();
     if (!bucket) return new Response(null, { status: 503 });
+    await reserveAvatarStorage("read");
     const object = await bucket.get(key);
     if (!object) return new Response(null, { status: 404 });
     return new Response(object.body, {
@@ -62,7 +71,7 @@ async function mutate(request: Request, context: Context, upload: boolean) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
     if (!session) return new Response(null, { status: 401 });
-    const denied = await operationBudgetResponse("avatar-write", session.user.id);
+    const denied = await operationBudgetResponse("avatar-request", session.user.id);
     if (denied) return denied;
     const { kind, id } = await target(context);
     await requireAvatarAccess(session.user.id, kind, id, true);

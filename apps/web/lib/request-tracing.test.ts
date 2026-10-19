@@ -45,6 +45,8 @@ function collector() {
   }) as typeof fetch);
   const runtime = {
     enabled: "1",
+    sampleRate: 1,
+    admitTrace: async () => true,
     key: "test-key",
     host: "https://posthog.invalid",
     release: "test-release",
@@ -73,11 +75,46 @@ function attr(span: ExportSpan, key: string) {
   return span.attributes.find((item) => item.key === key)?.value;
 }
 
+test("unsampled, denied, unavailable and missing trace admission never create an export", async () => {
+  const c = collector();
+  try {
+    for (const runtime of [
+      { ...c.runtime, sampleRate: 0 },
+      { ...c.runtime, admitTrace: undefined },
+      { ...c.runtime, admitTrace: async () => false },
+      {
+        ...c.runtime,
+        admitTrace: async () => {
+          throw new Error("Guard unavailable");
+        },
+      },
+    ]) {
+      const trace = await createRequestTrace(
+        new Request("https://app.test/files", {
+          headers: {
+            "cf-ray": "force-sampling",
+            traceparent: "00-11111111111111111111111111111111-1111111111111111-01",
+          },
+        }),
+        runtime,
+      );
+      trace.run(() => startOperation("database.query").end());
+      trace.snapshot();
+      trace.finish("request_failed", 503);
+      expect(trace.traceId()).toBeUndefined();
+    }
+    expect(c.transport).not.toHaveBeenCalled();
+    expect(c.tasks).toHaveLength(0);
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
 test("proxy requests never trace their own telemetry transport", async () => {
   const c = collector();
   try {
     for (const path of ["/api/t", "/api/t/e/", "/api/t/array/synthetic-key/config"]) {
-      const trace = createRequestTrace(new Request(`https://app.test${path}`), c.runtime);
+      const trace = await createRequestTrace(new Request(`https://app.test${path}`), c.runtime);
       expect(trace.traceId()).toBeUndefined();
       trace.snapshot();
       trace.finish("request_failed", 503, new Error("synthetic proxy failure"));
@@ -105,7 +142,7 @@ test("image failures distinguish capacity, quota and unavailable guards without 
       ],
       [new Error("private database detail"), "unexpected_error", 503],
     ] as const) {
-      const trace = createRequestTrace(
+      const trace = await createRequestTrace(
         new Request("https://app.test/api/assets/private-id"),
         c.runtime,
       );
@@ -133,13 +170,13 @@ test("image failures distinguish capacity, quota and unavailable guards without 
 test("edge SDK spans stay nested across await and concurrent requests without recording private input", async () => {
   const c = collector();
   try {
-    const a = createRequestTrace(
+    const a = await createRequestTrace(
       new Request("https://app.test/api/files/private-id/changes?token=secret", {
         headers: { "cf-ray": "ray-a", authorization: "private-bearer", cookie: "private-cookie" },
       }),
       c.runtime,
     );
-    const b = createRequestTrace(
+    const b = await createRequestTrace(
       new Request("https://app.test/api/mcp", { headers: { "cf-ray": "ray-b" } }),
       c.runtime,
     );
@@ -181,7 +218,7 @@ test("stalled spans export a snapshot before work settles and retain the eventua
   const c = collector();
   let release!: () => void;
   try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/files"), c.runtime);
     const pending = trace.run(() =>
       traceOperation("auth.api", () =>
         traceOperation(
@@ -223,7 +260,7 @@ test("stalled spans export a snapshot before work settles and retain the eventua
 test("work inside a completed connection callback attaches to the active caller", async () => {
   const c = collector();
   try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/files"), c.runtime);
     await trace.run(() =>
       traceOperation("auth.api", async () => {
         const connection = startOperation("database.connect");
@@ -247,20 +284,20 @@ test("work inside a completed connection callback attaches to the active caller"
 test("request fan-out is bounded and reports the dropped span count", async () => {
   const c = collector();
   try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/files"), c.runtime);
     trace.run(() => {
       for (let index = 0; index < 300; index++) startOperation("database.query");
     });
     expect(trace.operations()).toEqual(["database.query"]);
     trace.finish("request_aborted");
     const spans = await c.spans();
-    expect(spans).toHaveLength(257);
+    expect(spans).toHaveLength(65);
     expect(
       attr(
         spans.find((s) => s.name === "GET /files")!,
         "app.dropped_spans",
       )?.intValue,
-    ).toBe("44");
+    ).toBe("236");
   } finally {
     c.transport.mockRestore();
   }
@@ -270,7 +307,7 @@ test("failure codes reach spans while the original application error stays uncha
   const c = collector();
   const error = Object.assign(new Error("private SQL and token=secret"), { code: "ECONNRESET" });
   try {
-    const trace = createRequestTrace(new Request("https://app.test/api/mcp"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/api/mcp"), c.runtime);
     await expect(
       trace.run(() =>
         traceOperation("database.query", async () => {
@@ -291,7 +328,7 @@ test("failure codes reach spans while the original application error stays uncha
 test("trace completion marks still pending operations and does not duplicate later endings", async () => {
   const c = collector();
   try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/files"), c.runtime);
     const operation = trace.run(() => startOperation("auth.api"));
     trace.finish("request_aborted");
     const spans = await c.spans();
@@ -344,7 +381,7 @@ test.each([undefined, "0", "true"])(
   async (enabled) => {
     const c = collector();
     try {
-      const trace = createRequestTrace(new Request("https://app.test/files"), {
+      const trace = await createRequestTrace(new Request("https://app.test/files"), {
         ...c.runtime,
         enabled,
       });
@@ -453,7 +490,7 @@ test("database tracing preserves request cancellation and socket destruction", a
   const failure = new DOMException("private cancellation", "TimeoutError");
   let destroyed = false;
   try {
-    const trace = createRequestTrace(new Request("https://app.test/files"), c.runtime);
+    const trace = await createRequestTrace(new Request("https://app.test/files"), c.runtime);
     const raw = {
       query: () => new Promise(() => {}),
       release(error: boolean) {

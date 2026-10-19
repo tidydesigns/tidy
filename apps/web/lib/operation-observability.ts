@@ -1,5 +1,6 @@
 import { createErrorReporter } from "./posthog-server";
-import { traceOperation } from "./trace-context";
+import { traceOperation, traceStorage } from "./trace-context";
+import { sampleDiagnostics } from "./diagnostic-sampling";
 
 type Operation =
   | "workspace.session"
@@ -24,7 +25,8 @@ export async function observeOperation<T>(
   const report = createErrorReporter();
   const details = { operation, ray: headers.get("cf-ray") };
   const elapsed = () => Math.round(performance.now() - started);
-  console.info(JSON.stringify({ event: "operation_started", ...details }));
+  const sampled = traceStorage.getStore()?.trace.sampled ?? sampleDiagnostics();
+  if (sampled) console.info(JSON.stringify({ event: "operation_started", ...details }));
   const pending = setTimeout(() => {
     console.warn(JSON.stringify({ event: "operation_stalled", ...details, elapsedMs: elapsed() }));
     void report(new Error("operation_stalled"), {
@@ -36,9 +38,10 @@ export async function observeOperation<T>(
   }, 5000);
   try {
     const result = await traceOperation(operation, run);
-    console.info(
-      JSON.stringify({ event: "operation_completed", ...details, elapsedMs: elapsed() }),
-    );
+    if (sampled)
+      console.info(
+        JSON.stringify({ event: "operation_completed", ...details, elapsedMs: elapsed() }),
+      );
     return result;
   } catch (error) {
     console.error(JSON.stringify({ event: "operation_failed", ...details, elapsedMs: elapsed() }));

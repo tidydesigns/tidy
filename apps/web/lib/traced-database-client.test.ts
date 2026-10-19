@@ -5,7 +5,7 @@ import { tracedDatabaseClient } from "./traced-database-client";
 import { createRequestTrace } from "./request-tracing";
 
 test("database tracing preserves promise results, callback arguments, binding, and release", async () => {
-  const trace = createRequestTrace(new Request("https://app.test/files"));
+  const trace = await createRequestTrace(new Request("https://app.test/files"));
   const result: QueryResult = {
     rows: [{ secret: "private row" }],
     command: "SELECT",
@@ -49,7 +49,7 @@ test("database tracing preserves promise results, callback arguments, binding, a
 });
 
 test("database tracing retains synchronous throws and rejected query identity", async () => {
-  const trace = createRequestTrace(new Request("https://app.test/files"));
+  const trace = await createRequestTrace(new Request("https://app.test/files"));
   const failure = Object.assign(new Error("private parameters"), { code: "23505" });
   let sync = false;
   const raw = {
@@ -74,8 +74,8 @@ test("database tracing retains synchronous throws and rejected query identity", 
   trace.finish("request_failed", 500, failure);
 });
 
-test("Query objects keep their return identity and end the query span on completion", () => {
-  const trace = createRequestTrace(new Request("https://app.test/files"));
+test("Query objects keep their return identity and end the query span on completion", async () => {
+  const trace = await createRequestTrace(new Request("https://app.test/files"));
   const query = new EventEmitter();
   const client = tracedDatabaseClient({ query: () => query } as unknown as PoolClient);
   trace.run(() => {

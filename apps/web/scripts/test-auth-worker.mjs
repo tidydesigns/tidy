@@ -45,6 +45,47 @@ const worker = new Miniflare(
 );
 try {
   await worker.ready;
+  const avatarAttempts = await Promise.all(
+    Array.from({ length: 65 }, () =>
+      worker.dispatchFetch("https://auth.test/avatar-storage-budget"),
+    ),
+  );
+  assert.equal(
+    avatarAttempts.filter((r) => r.status === 204).length,
+    60,
+    "Avatar storage ceilings span callers",
+  );
+  const presenceAttempts = await Promise.all(
+    Array.from({ length: 365 }, () =>
+      worker
+        .dispatchFetch("https://auth.test/realtime-message-budget?user=presence-account")
+        .then((r) => r.json()),
+    ),
+  );
+  assert.equal(
+    presenceAttempts.filter((r) => r.allowed).length,
+    360,
+    "Prepaid presence batches share durable account capacity across invocations",
+  );
+  assert.equal(
+    (
+      await (
+        await worker.dispatchFetch(
+          "https://auth.test/realtime-message-budget?user=other-presence-account",
+        )
+      ).json()
+    ).allowed,
+    true,
+  );
+  const traceAttempts = await Promise.all(
+    Array.from({ length: 15 }, () => worker.dispatchFetch("https://auth.test/trace-export-budget")),
+  );
+  assert.equal(
+    traceAttempts.filter((r) => r.status === 204).length,
+    10,
+    "Trace and snapshot admission has one global ceiling",
+  );
+
   for (const [group, max] of [
     ["account", 10],
     ["workspace", 30],
