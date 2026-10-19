@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { type DesignDocument, nodePageId } from "../design/document";
 import {
   resolvedDesignTokens,
@@ -18,14 +18,16 @@ import {
 } from "../design/token-catalog";
 import { SelectMenu } from "../components/ui/select-menu";
 import { DesignTokenEditor } from "./design-token-editor";
+import { TokenEditorPopover } from "./token-editor-popover";
+import { removeDesignToken } from "../design/tokens";
 
 const groups = [
-  ["color", "Color", ""],
-  ["radius", "Radius", "▢"],
-  ["spacing", "Spacing", "↔"],
-  ["dimension", "Dimensions", "↗"],
-  ["number", "Numbers", "#"],
-  ["typography", "Text styles", "Aa"],
+  ["color", "Color"],
+  ["radius", "Radius"],
+  ["spacing", "Spacing"],
+  ["dimension", "Dimensions"],
+  ["number", "Numbers"],
+  ["typography", "Text styles"],
 ] as const;
 const typeLabel = (type: DesignToken["type"]) =>
   groups.find(([kind]) => kind === type)?.[1] ?? type;
@@ -38,9 +40,28 @@ function TokenSwatch({ token }: { token: DesignToken }) {
       style={{ backgroundColor: token.value }}
     />
   ) : (
-    <span className="w-5 shrink-0 text-center text-secondary-ink" aria-hidden="true">
-      {groups.find(([kind]) => kind === token.type)?.[2]}
-    </span>
+    <svg
+      className="h-5 w-5 shrink-0 text-secondary-ink"
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {token.type === "radius" ? (
+        <path d="M4 9V5a1 1 0 0 1 1-1h4m6 0h4a1 1 0 0 1 1 1v4m0 6v4a1 1 0 0 1-1 1h-4m-6 0H5a1 1 0 0 1-1-1v-4" />
+      ) : token.type === "spacing" ? (
+        <path d="M4 4v16m16-16v16M7 12h10m-7-3-3 3 3 3m4-6 3 3-3 3" />
+      ) : token.type === "dimension" ? (
+        <path d="M4 9V4h5m6 16h5v-5M4 4l16 16M9 4H4v5m11 11h5v-5" />
+      ) : token.type === "number" ? (
+        <path d="m10 4-4 16M18 4l-4 16M4 9h16M3 15h16" />
+      ) : (
+        <path d="M4 6h16M12 6v14M8 20h8M4 9V6m16 3V6" />
+      )}
+    </svg>
   );
 }
 
@@ -60,11 +81,13 @@ export function TokenPanel({
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [active, setActive] = useState<string>();
+  const anchor = useRef<HTMLButtonElement>(null);
   const [discover, setDiscover] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<DesignToken["type"]>>(new Set());
   const [scope, setScope] = useState<"page" | "selection">("page");
   const tokens = resolvedDesignTokens(document);
   const atLimit = tokens.size >= 1000;
+  const activeToken = active ? tokens.get(active) : undefined;
   const nodeIds = useMemo(() => {
     const ids = new Set<string>();
     if (scope === "selection") {
@@ -83,6 +106,7 @@ export function TokenPanel({
     if (value === "discover") {
       setScope(selectedIds.length ? "selection" : "page");
       setDiscover(true);
+      setActive(undefined);
       return;
     }
     const type = tokenTypeSchema.parse(value);
@@ -99,78 +123,83 @@ export function TokenPanel({
     <div
       className="p-3"
       onKeyDown={(event) => {
-        if (event.key === "Escape") {
+        if (
+          event.key === "Escape" &&
+          !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
+        ) {
           setActive(undefined);
           setDiscover(false);
           event.stopPropagation();
         }
       }}
     >
-      <div className="mb-3 flex h-7 items-center gap-1">
-        <span className="flex-1 text-xs text-secondary-ink" aria-live="polite">
-          {tokens.size} {tokens.size === 1 ? "token" : "tokens"}
-        </span>
-        <button
-          type="button"
-          aria-label="Search tokens"
-          aria-expanded={searchOpen}
-          onClick={() => {
-            setSearchOpen(!searchOpen);
-            setQuery("");
-          }}
-          className={`h-7 w-7 rounded text-secondary-ink hover:bg-primary-grey/20 ${focusClass}`}
-        >
-          <svg
-            viewBox="0 0 20 20"
-            className="mx-auto h-4 w-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
+      <div className="sticky top-0 z-10 -mx-3 -mt-3 mb-3 border-b border-primary-grey/50 bg-surface px-4 py-3">
+        <div className="flex h-7 items-center gap-1">
+          <span className="flex-1 text-xs text-secondary-ink" aria-live="polite">
+            {tokens.size} {tokens.size === 1 ? "token" : "tokens"}
+          </span>
+          <button
+            type="button"
+            aria-label="Search tokens"
+            aria-expanded={searchOpen}
+            onClick={() => {
+              setSearchOpen(!searchOpen);
+              setQuery("");
+            }}
+            className={`h-7 w-7 rounded text-secondary-ink hover:bg-primary-grey/20 ${focusClass}`}
           >
-            <circle cx="8.5" cy="8.5" r="5.5" />
-            <path d="m13 13 4 4" />
-          </svg>
-        </button>
-        {!readOnly && (
-          <SelectMenu
-            actionMenu
-            replayLabel
-            replayOptions
-            label="Add token"
-            value=""
-            triggerContent={
-              <span aria-hidden="true" className="text-xl font-light">
-                +
-              </span>
-            }
-            triggerClassName={`flex h-7 w-7 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/20 ${focusClass}`}
-            options={[
-              ...tokenTypeSchema.options.map((type) => ({
-                value: type,
-                label: typeLabel(type),
-                disabled: atLimit,
-              })),
-              { value: "discover", label: "From design…", disabled: atLimit },
-            ]}
-            onChange={add}
+            <svg
+              viewBox="0 0 20 20"
+              className="mx-auto h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              aria-hidden="true"
+            >
+              <circle cx="8.5" cy="8.5" r="5.5" />
+              <path d="m13 13 4 4" />
+            </svg>
+          </button>
+          {!readOnly && (
+            <SelectMenu
+              actionMenu
+              replayLabel
+              replayOptions
+              label="Add token"
+              value=""
+              triggerContent={
+                <span aria-hidden="true" className="text-xl font-light">
+                  +
+                </span>
+              }
+              triggerClassName={`flex h-7 w-7 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/20 ${focusClass}`}
+              options={[
+                ...tokenTypeSchema.options.map((type) => ({
+                  value: type,
+                  label: typeLabel(type),
+                  disabled: atLimit,
+                })),
+                { value: "discover", label: "From design…", disabled: atLimit },
+              ]}
+              onChange={add}
+            />
+          )}
+        </div>
+        {searchOpen && (
+          <input
+            autoFocus
+            aria-label="Find tokens"
+            type="search"
+            placeholder="Find tokens…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className={`mb-3 h-8 w-full rounded-md border border-control-border bg-surface px-2 text-xs ${focusClass}`}
           />
         )}
+        {atLimit && !readOnly && (
+          <p className="mb-3 text-xs text-secondary-ink">Token limit reached (1,000).</p>
+        )}
       </div>
-      {searchOpen && (
-        <input
-          autoFocus
-          aria-label="Find tokens"
-          type="search"
-          placeholder="Find tokens…"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          className={`mb-3 h-8 w-full rounded-md border border-control-border bg-surface px-2 text-xs ${focusClass}`}
-        />
-      )}
-      {atLimit && !readOnly && (
-        <p className="mb-3 text-xs text-secondary-ink">Token limit reached (1,000).</p>
-      )}
       {discover && !readOnly && (
         <section
           aria-label="Colors from design"
@@ -247,12 +276,24 @@ export function TokenPanel({
                 return next;
               });
             }}
-            className="mb-3"
+            className="group/token-group mb-4"
           >
-            <summary className={`cursor-pointer rounded py-1 text-xs font-medium ${focusClass}`}>
+            <summary
+              className={`flex cursor-pointer list-none items-center gap-2 rounded px-1 py-1.5 text-xs font-medium [&::-webkit-details-marker]:hidden ${focusClass}`}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 16 16"
+                className="h-3 w-3 text-secondary-ink group-open/token-group:rotate-90"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+              >
+                <path d="m6 4 4 4-4 4" />
+              </svg>
               {title}
             </summary>
-            <div className="mt-1 space-y-0.5">
+            <div className="mt-1">
               {entries.map(([name, token]) => {
                 const definition = document.designTokens?.[name] ?? token;
                 const alias = "alias" in definition ? definition.alias : undefined;
@@ -261,9 +302,12 @@ export function TokenPanel({
                     <button
                       type="button"
                       aria-label={`Edit token ${name}`}
+                      data-token-name={name}
+                      ref={active === name ? anchor : undefined}
+                      aria-haspopup="dialog"
                       aria-expanded={active === name}
                       onClick={() => setActive(active === name ? undefined : name)}
-                      className={`flex min-h-9 w-full items-center gap-2 rounded px-2 text-left text-xs ${active === name ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
+                      className={`flex min-h-9 w-full items-center gap-2.5 rounded-md py-1.5 pr-3 pl-6 text-left text-[13px] ${active === name ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
                       title={alias ? `${name} → ${alias}` : name}
                     >
                       <TokenSwatch token={token} />
@@ -276,20 +320,6 @@ export function TokenPanel({
                             : ""}
                       </span>
                     </button>
-                    {active === name && (
-                      <fieldset
-                        disabled={readOnly}
-                        className="my-2 max-h-96 min-w-0 overflow-y-auto overscroll-contain"
-                      >
-                        <DesignTokenEditor
-                          document={document}
-                          name={name}
-                          token={definition}
-                          onChange={onChange}
-                          onRename={setActive}
-                        />
-                      </fieldset>
-                    )}
                   </div>
                 );
               })}
@@ -297,6 +327,24 @@ export function TokenPanel({
           </details>
         );
       })}
+      {active && activeToken && (
+        <TokenEditorPopover
+          anchor={anchor}
+          name={active}
+          title={typeLabel(activeToken.type)}
+          readOnly={readOnly}
+          onRemove={() => onChange((content) => removeDesignToken(content, active))}
+          onClose={() => setActive(undefined)}
+        >
+          <DesignTokenEditor
+            document={document}
+            name={active}
+            token={document.designTokens?.[active] ?? activeToken}
+            onChange={onChange}
+            onRename={setActive}
+          />
+        </TokenEditorPopover>
+      )}
       {!matches.length && (
         <p className="py-2 text-xs text-secondary-ink">
           {tokens.size ? "No matching tokens." : "No tokens yet."}

@@ -121,6 +121,7 @@ function readRecentColors(snapshot: string): string[] {
 
 export function ColorField({
   label,
+  compact = false,
   replayLabel = false,
   nodes,
   get,
@@ -128,6 +129,7 @@ export function ColorField({
   tokens = {},
 }: {
   label: string;
+  compact?: boolean;
   replayLabel?: boolean;
   nodes: DesignNode[];
   get: (node: DesignNode) => string;
@@ -191,43 +193,57 @@ export function ColorField({
   );
   return (
     <div className="space-y-1.5">
-      <div className="grid grid-cols-[32px_1fr_64px] items-end gap-1.5">
-        <button
-          data-ph-private
-          type="button"
-          aria-label={`Open ${label.toLowerCase()} palette`}
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          className="h-8 w-8 rounded border border-primary-grey/70 focus-visible:outline-2 focus-visible:outline-primary-orange"
-          style={{ backgroundColor: color ?? "#ffffff" }}
-        />
-        <PropertyField
-          replayLabel={replayLabel}
-          label={label}
-          value={color}
-          validate={(value) =>
-            normalizeColor(value) ? undefined : "Enter a hex color such as #336699 or #336699ff."
+      <div className={compact ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3" : ""}>
+        {compact && <span className="text-xs text-secondary-ink">Value</span>}
+        <div
+          className={
+            compact
+              ? "grid grid-cols-[20px_minmax(0,1fr)_64px] items-center gap-1 rounded-md border border-control-border bg-surface px-2"
+              : "grid grid-cols-[32px_1fr_64px] items-end gap-1.5"
           }
-          onCommit={change}
-        />
-        <PropertyField
-          replayLabel={replayLabel}
-          label={`${label} alpha %`}
-          value={alpha}
-          numeric
-          min={0}
-          max={100}
-          onCommit={(value) => {
-            if (value === "") return;
-            change(
-              (current) =>
-                current.slice(0, 7) +
-                Math.round((Number(value) / 100) * 255)
-                  .toString(16)
-                  .padStart(2, "0"),
-            );
-          }}
-        />
+        >
+          <button
+            data-ph-private
+            type="button"
+            aria-label={`Open ${label.toLowerCase()} palette`}
+            aria-expanded={open}
+            onClick={() => setOpen(!open)}
+            className={`${compact ? "h-5 w-5" : "h-8 w-8"} rounded border border-primary-grey/70 focus-visible:outline-2 focus-visible:outline-primary-orange`}
+            style={{ backgroundColor: color ?? "#ffffff" }}
+          />
+          <PropertyField
+            replayLabel={replayLabel}
+            label={label}
+            layout={compact ? "embedded" : "stacked"}
+            value={color}
+            validate={(value) =>
+              normalizeColor(value) ? undefined : "Enter a hex color such as #336699 or #336699ff."
+            }
+            onCommit={change}
+          />
+          <div className={compact ? "flex items-center text-xs text-secondary-ink" : ""}>
+            <PropertyField
+              replayLabel={replayLabel}
+              layout={compact ? "embedded" : "stacked"}
+              label={`${label} alpha %`}
+              value={alpha}
+              numeric
+              min={0}
+              max={100}
+              onCommit={(value) => {
+                if (value === "") return;
+                change(
+                  (current) =>
+                    current.slice(0, 7) +
+                    Math.round((Number(value) / 100) * 255)
+                      .toString(16)
+                      .padStart(2, "0"),
+                );
+              }}
+            />
+            {compact && <span aria-hidden="true">%</span>}
+          </div>
+        </div>
       </div>
       {open && (
         <div className="space-y-2 rounded-md border border-primary-grey/70 bg-surface p-2 text-[10px]">
