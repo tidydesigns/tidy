@@ -79,29 +79,27 @@ const TokenRow = memo(function TokenRow({
   onSelect: (name: string) => void;
 }) {
   return (
-    <div>
-      <button
-        type="button"
-        aria-label={`Edit token ${name}`}
-        data-token-name={name}
-        ref={active ? anchor : undefined}
-        aria-haspopup="dialog"
-        aria-expanded={active}
-        onClick={() => onSelect(name)}
-        className={`flex min-h-9 w-full items-center gap-2.5 rounded-md py-1.5 pr-3 pl-6 text-left text-[13px] ${active ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
-        title={alias ? `${name} → ${alias}` : name}
-      >
-        <TokenSwatch token={token} />
-        <span className="min-w-0 flex-1 truncate">{name}</span>
-        <span className="max-w-16 truncate text-[10px] text-secondary-ink">
-          {alias
-            ? `↳ ${alias}`
-            : "value" in token && typeof token.value === "number"
-              ? token.value
-              : ""}
-        </span>
-      </button>
-    </div>
+    <button
+      type="button"
+      aria-label={`Edit token ${name}`}
+      data-token-name={name}
+      ref={active ? anchor : undefined}
+      aria-haspopup="dialog"
+      aria-expanded={active}
+      onClick={() => onSelect(name)}
+      className={`flex min-h-9 w-full items-center gap-2.5 rounded-md py-1.5 pr-3 pl-6 text-left text-[13px] ${active ? "bg-primary-grey/25" : "hover:bg-primary-grey/15"} ${focusClass}`}
+      title={alias ? `${name} → ${alias}` : name}
+    >
+      <TokenSwatch token={token} />
+      <span className="min-w-0 flex-1 truncate">{name}</span>
+      <span className="max-w-16 truncate text-[10px] text-secondary-ink">
+        {alias
+          ? `↳ ${alias}`
+          : "value" in token && typeof token.value === "number"
+            ? token.value
+            : ""}
+      </span>
+    </button>
   );
 });
 
@@ -191,13 +189,11 @@ export function TokenPanel({
                 </span>
               }
               triggerClassName={`flex h-7 w-7 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/20 ${focusClass}`}
-              options={[
-                ...tokenTypeSchema.options.map((type) => ({
-                  value: type,
-                  label: typeLabel(type),
-                  disabled: atLimit,
-                })),
-              ]}
+              options={tokenTypeSchema.options.map((type) => ({
+                value: type,
+                label: typeLabel(type),
+                disabled: atLimit,
+              }))}
               onChange={add}
             />
           )}
