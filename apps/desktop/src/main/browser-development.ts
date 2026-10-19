@@ -1,7 +1,7 @@
 import { readdir, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join } from "node:path";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect } from "vite";
 import { z } from "zod";
@@ -52,7 +52,13 @@ export function browserDevelopment(
   origin: URL,
   token: string,
 ) {
-  const session = randomBytes(32).toString("base64url");
+  // Keep browser access stable across restarts; rotating the private token revokes it.
+  const session = createHmac("sha256", token)
+    .update("tidy-development-session-v1\0")
+    .update(origin.origin)
+    .update("\0")
+    .update(projectPath)
+    .digest("base64url");
   const epoch = randomBytes(8).toString("hex");
   let sequence = 0,
     historyBytes = 0;
@@ -123,7 +129,7 @@ export function browserDevelopment(
         }
         response.setHeader(
           "Set-Cookie",
-          `${cookieName}=${session}; Path=/; HttpOnly; SameSite=Strict${origin.protocol === "https:" ? "; Secure" : ""}`,
+          `${cookieName}=${session}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800${origin.protocol === "https:" ? "; Secure" : ""}`,
         );
         json(response, 200, { ok: true });
         return;

@@ -31,7 +31,7 @@ async function fixture() {
   if (!address || typeof address === "string") throw new Error("No server address.");
   const origin = new URL(`http://127.0.0.1:${address.port}`);
   const token = "private-development-token";
-  const gateway = browserDevelopment(service, project, origin, token);
+  let gateway = browserDevelopment(service, project, origin, token);
   cleanups.push(async () => {
     gateway.close();
     await service.close();
@@ -48,6 +48,7 @@ async function fixture() {
     const cookie = response.headers.get("set-cookie")!;
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Strict");
+    expect(cookie).toContain("Max-Age=604800");
     return cookie.split(";")[0];
   }
   return {
@@ -59,6 +60,10 @@ async function fixture() {
     project,
     projectId: snapshot.project.id,
     login,
+    restart(nextToken = token) {
+      gateway.close();
+      gateway = browserDevelopment(service, project, origin, nextToken);
+    },
   };
 }
 
@@ -167,4 +172,15 @@ test("browser picker lists Linux folders and opens a different persisted project
   await restored.initialize();
   expect(restored.activeProjectId).toBe(opened.data.project.id);
   expect(restored.projects.map((project) => project.path)).toContain(project);
+});
+
+test("browser sign-in survives development restarts and is revoked by token rotation", async () => {
+  const { origin, login, restart } = await fixture();
+  const cookie = await login();
+  const source = () => fetch(new URL("/src/main.tsx", origin), { headers: { Cookie: cookie } });
+  expect((await source()).status).toBe(200);
+  restart();
+  expect((await source()).status).toBe(200);
+  restart("rotated-private-development-token");
+  expect((await source()).status).toBe(401);
 });

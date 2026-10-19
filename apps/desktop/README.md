@@ -185,8 +185,10 @@ bun dev:desktop:browser --project /absolute/path/to/project \
 Configure the private proxy separately to forward that origin to `127.0.0.1:5173`.
 Use HTTPS for remote browser access so clipboard, images and other browser APIs
 have a secure context. Keep the development link private: it authorizes access to
-project files and coding harnesses. Its token is exchanged for an HttpOnly session
-cookie and removed from the address bar. Source files, API requests, event streams
+project files and coding harnesses. Its token is removed from the address bar after
+being exchanged for an HttpOnly session cookie. Sign-in lasts seven days across
+server restarts. Rotating the token file and restarting revokes existing sessions.
+Source files, API requests, event streams
 and hot reload all require that session; mutation requests also validate their origin.
 The server is a development tool, not a production hosting mode.
 
@@ -202,7 +204,7 @@ separate from Electron, under `$XDG_STATE_HOME/tidy-browser` (by default
 The project itself still stores its files in `.tidy/` as described above.
 
 Renderer changes use Vite hot reload. Restart the command after backend changes;
-reopen the private link if the browser session expires. `--token-file` can select a
+reopen the private link if the seven-day browser session expires. `--token-file` can select a
 private token file for a managed development process. Native dialogs, window
 behavior, permissions and packaging still need Electron testing.
 
