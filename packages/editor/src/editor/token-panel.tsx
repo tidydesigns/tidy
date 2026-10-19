@@ -18,8 +18,6 @@ import { DesignTokenEditor } from "./design-token-editor";
 import { TokenEditorPopover } from "./token-editor-popover";
 import { removeDesignToken } from "../design/tokens";
 
-import { TokensFromDesign, type TokenAgentRequest } from "./tokens-from-design";
-
 const groups = [
   ["color", "Color"],
   ["radius", "Radius"],
@@ -66,18 +64,10 @@ function TokenSwatch({ token }: { token: DesignToken }) {
 
 export function TokenPanel({
   document,
-  fileId,
-  pageId,
-  selectedIds,
   readOnly = false,
   onChange,
-  onAskAgent,
 }: {
   document: DesignDocument;
-  fileId: string;
-  onAskAgent?: (request: TokenAgentRequest) => void;
-  pageId: string;
-  selectedIds: string[];
   readOnly?: boolean;
   onChange: (transform: (content: DesignDocument) => DesignDocument) => void;
 }) {
@@ -85,7 +75,6 @@ export function TokenPanel({
   const [searchOpen, setSearchOpen] = useState(false);
   const [active, setActive] = useState<string>();
   const anchor = useRef<HTMLButtonElement>(null);
-  const [discover, setDiscover] = useState(false);
   const [collapsed, setCollapsed] = useState<ReadonlySet<DesignToken["type"]>>(new Set());
   const tokens = resolvedDesignTokens(document);
   const atLimit = tokens.size >= 1000;
@@ -94,11 +83,6 @@ export function TokenPanel({
     name.toLowerCase().includes(query.trim().toLowerCase()),
   );
   const add = (value: string) => {
-    if (value === "discover") {
-      setDiscover(true);
-      setActive(undefined);
-      return;
-    }
     const type = tokenTypeSchema.parse(value);
     const name = availableTokenName(document, type);
     onChange((content) =>
@@ -118,7 +102,6 @@ export function TokenPanel({
           !(event.target instanceof Element && event.target.closest('[role="dialog"]'))
         ) {
           setActive(undefined);
-          setDiscover(false);
           event.stopPropagation();
         }
       }}
@@ -169,7 +152,6 @@ export function TokenPanel({
                   label: typeLabel(type),
                   disabled: atLimit,
                 })),
-                { value: "discover", label: "From design…", disabled: atLimit },
               ]}
               onChange={add}
             />
@@ -190,22 +172,6 @@ export function TokenPanel({
           <p className="mb-3 text-xs text-secondary-ink">Token limit reached (1,000).</p>
         )}
       </div>
-      {discover && !readOnly && (
-        <TokensFromDesign
-          fileId={fileId}
-          pageId={pageId}
-          selectedIds={selectedIds}
-          onAskAgent={
-            onAskAgent
-              ? (request) => {
-                  setDiscover(false);
-                  onAskAgent(request);
-                }
-              : undefined
-          }
-          onClose={() => setDiscover(false)}
-        />
-      )}
       {groups.map(([type, title]) => {
         const entries = matches.filter(([, token]) => token.type === type);
         if (!entries.length) return null;

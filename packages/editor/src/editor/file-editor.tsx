@@ -154,7 +154,6 @@ import {
   zoomImageCrop,
   type ImageCrop,
 } from "../design/image-crop";
-import type { TokenAgentRequest } from "./tokens-from-design";
 import { TokenPanel } from "./token-panel";
 import { resolvedColorTokens, resolvedDocumentNodes } from "../design/design-tokens";
 import { useEditorEvent } from "./use-editor-event";
@@ -388,11 +387,9 @@ export function FileEditor({
   }, [initialAgents]);
   const [threadsOpen, setThreadsOpen] = useState(false);
   const [openedThread, setOpenedThread] = useState<{ id: string; version: number }>();
-  const [tokenRequest, setTokenRequest] = useState<TokenAgentRequest & { id: string }>();
   const threadButton = useRef<HTMLButtonElement>(null);
   const closeThreads = () => {
     setThreadsOpen(false);
-    setTokenRequest(undefined);
     threadButton.current?.focus();
   };
   const [liveCanEdit, setLiveCanEdit] = useState(canEdit);
@@ -4012,19 +4009,7 @@ export function FileEditor({
           >
             {sidebarTab === "tokens" ? (
               <TokenPanel
-                fileId={fileId}
-                onAskAgent={
-                  agents
-                    ? (request) => {
-                        setOpenedThread(undefined);
-                        setTokenRequest({ ...request, id: crypto.randomUUID() });
-                        setThreadsOpen(true);
-                      }
-                    : undefined
-                }
                 document={snapshot.content}
-                pageId={currentPageId}
-                selectedIds={selectedIds}
                 readOnly={readOnly}
                 onChange={(transform) => void changeDocument(transform)}
               />
@@ -4769,7 +4754,6 @@ export function FileEditor({
               view={view}
               viewport={viewport}
               onOpen={(id) => {
-                setTokenRequest(undefined);
                 setOpenedThread((previous) => ({ id, version: (previous?.version ?? 0) + 1 }));
                 setThreadsOpen(true);
               }}
@@ -5114,15 +5098,11 @@ export function FileEditor({
           }}
         >
           <ThreadsWorkspace
-            key={tokenRequest?.id ?? openedThread?.version ?? fileId}
+            key={openedThread?.version ?? fileId}
             {...agents}
             canEdit={!readOnly}
             fileId={fileId}
-            selectedNodeIds={tokenRequest?.selectedIds ?? selectedIds}
-            initialSnapshot={tokenRequest ? null : agents.initialSnapshot}
-            initialDraft={
-              tokenRequest ? { id: tokenRequest.id, text: tokenRequest.prompt } : undefined
-            }
+            selectedNodeIds={selectedIds}
             openThreadId={openedThread?.id}
             onClose={closeThreads}
           />
