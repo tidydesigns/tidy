@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 import sharp from "sharp";
 import { chooseSelectMenu, selectMenuText } from "../../scripts/select-menu-controls.mjs";
-import { test } from "./fixtures";
+import { test, expect } from "./fixtures";
 import type { Locator, Page } from "playwright";
 
 test("token edits, bindings, history and exported pixels", async ({ page, baseURL }) => {
@@ -29,31 +29,20 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   };
   const tokenTab = page.getByRole("tab", { name: "Tokens", exact: true });
   await tokenTab.click();
-  const token = (name: string) =>
-    page
-      .locator("details")
-      .filter({ has: page.locator("summary").filter({ hasText: new RegExp(`^${name} ·`) }) });
-  await token("rounded").locator("summary").click();
-  await set(token("rounded"), "Value", 24);
-  await page.waitForFunction(
-    () =>
-      getComputedStyle(document.querySelector('[data-node-id="token-card"]')!)
-        .borderTopLeftRadius === "24px",
-  );
-  assert.equal(
-    await second.evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
-    "0px",
-  );
-  await token("body").locator("summary").click();
-  await set(token("body"), "Font size", 22);
-  await page.waitForFunction(
-    () =>
-      getComputedStyle(document.querySelector('[data-node-id="token-label"]')!).fontSize === "22px",
-  );
-  const rename = token("rounded").getByRole("textbox", { name: "Token name", exact: true });
+  const tokenPanel = page.getByRole("tabpanel", { name: "Tokens", exact: true });
+  const editToken = (name: string) =>
+    page.getByRole("button", { name: `Edit token ${name}`, exact: true }).click();
+  await editToken("rounded");
+  await set(tokenPanel, "Value", 24);
+  await expect(card).toHaveCSS("border-top-left-radius", "24px");
+  await expect(second).toHaveCSS("border-top-left-radius", "0px");
+  await editToken("body");
+  await set(tokenPanel, "Font size", 22);
+  await expect(text).toHaveCSS("font-size", "22px");
+  await editToken("rounded");
+  const rename = tokenPanel.getByRole("textbox", { name: "Token name", exact: true });
   await rename.fill("pill");
   await rename.press("Enter");
-  await token("pill").locator("summary").click();
   await page.getByRole("button", { name: "Remove token pill", exact: true }).click();
   assert.equal(
     await card.evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
@@ -120,4 +109,97 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   console.log(
     "PASS: live token and text-style edits, alias rename/delete, mixed bindings, literal detach, undo, and SVG/PNG/WebP exports.",
   );
+});
+
+test("discover colors in a selection, validate names, and undo live links", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  const card = page.locator('[data-node-id="token-card"]');
+  const second = page.locator('[data-node-id="token-second"]');
+  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  const panel = page.getByRole("tabpanel", { name: "Tokens", exact: true });
+  await panel.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "From design…", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "Color source: Selection and children", exact: true }),
+  ).toBeVisible();
+  await panel.getByRole("button", { name: "Create token from #123456", exact: true }).click();
+  const name = panel.getByRole("textbox", { name: "New token name", exact: true });
+  const create = panel.getByRole("button", { name: "Create and link 1 layer", exact: true });
+  await name.fill("rounded");
+  await expect(create).toBeDisabled();
+  await expect(panel.getByRole("alert")).toHaveText("A token with that name already exists.");
+  await name.fill("bad name");
+  await expect(create).toBeDisabled();
+  await name.fill("brand");
+  await create.click();
+  await expect(
+    panel.getByRole("button", { name: "Create token from #123456", exact: true }),
+  ).toHaveCount(0);
+  await panel.getByRole("button", { name: "Edit token brand", exact: true }).click();
+  const color = panel.getByRole("textbox", { name: "Color", exact: true });
+  await color.fill("#22735980");
+  await color.press("Enter");
+  await expect(card).toHaveCSS("background-color", "rgba(34, 115, 89, 0.5)");
+  await expect(second).toHaveCSS("background-color", "rgb(18, 52, 86)");
+  await panel.getByRole("button", { name: "Search tokens", exact: true }).click();
+  const search = panel.getByRole("searchbox", { name: "Find tokens", exact: true });
+  await search.fill("BRAND");
+  await expect(panel.getByRole("button", { name: /^Edit token / })).toHaveCount(1);
+  await search.fill("no-match");
+  await expect(panel.getByText("No matching tokens.")).toBeVisible();
+  await search.fill("");
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(card).toHaveCSS("background-color", "rgb(18, 52, 86)");
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(panel.getByRole("button", { name: "Edit token brand", exact: true })).toHaveCount(0);
+  await expect(
+    panel.getByRole("button", { name: "Create token from #123456", exact: true }),
+  ).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(panel.getByRole("button", { name: "Edit token brand", exact: true })).toBeVisible();
+});
+
+test("read-only tokens remain browsable without exposing mutation actions", async ({ page }) => {
+  await page.goto("/dev/import-preview?tokens=1&viewer=1");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  const panel = page.getByRole("tabpanel", { name: "Tokens", exact: true });
+  await expect(panel.getByRole("button", { name: "Add token", exact: true })).toHaveCount(0);
+  await panel.getByRole("button", { name: "Edit token rounded", exact: true }).click();
+  await expect(panel.getByRole("spinbutton", { name: "Value", exact: true })).toBeDisabled();
+  await expect(
+    panel.getByRole("button", { name: "Remove token rounded", exact: true }),
+  ).toBeDisabled();
+  await panel.getByRole("button", { name: "Search tokens", exact: true }).click();
+  await panel.getByRole("searchbox", { name: "Find tokens", exact: true }).fill("body");
+  await expect(panel.getByRole("button", { name: "Edit token body", exact: true })).toBeVisible();
+});
+
+test("adding a token reveals a collapsed group and keeps rename validation local", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  const panel = page.getByRole("tabpanel", { name: "Tokens", exact: true });
+  await panel
+    .locator("summary")
+    .filter({ hasText: /^Radius$/ })
+    .click();
+  await expect(panel.getByRole("button", { name: "Edit token rounded", exact: true })).toBeHidden();
+  await panel.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Radius", exact: true }).click();
+  await expect(
+    panel.getByRole("button", { name: "Edit token radius", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  const name = panel.getByRole("textbox", { name: "Token name", exact: true });
+  await name.fill("rounded");
+  await name.press("Enter");
+  await expect(panel.getByRole("alert")).toHaveText("A token with that name already exists.");
+  await name.fill("radius-card");
+  await name.press("Enter");
+  await expect(
+    panel.getByRole("button", { name: "Edit token radius-card", exact: true }),
+  ).toHaveAttribute("aria-expanded", "true");
+  await expect(panel.getByRole("spinbutton", { name: "Value", exact: true })).toHaveValue("8");
 });

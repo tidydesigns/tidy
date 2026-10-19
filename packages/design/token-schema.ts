@@ -2,7 +2,7 @@ import { bindingKinds, type TokenBinding } from "./token-bindings";
 export { bindingKinds, type TokenBinding } from "./token-bindings";
 import { z } from "zod";
 
-const tokenNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
+export const tokenNameSchema = z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/);
 const finite = z.number().finite();
 const typographyTokenValueSchema = z
   .object({
