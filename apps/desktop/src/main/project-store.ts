@@ -70,7 +70,7 @@ const registrySchema = z.object({
 function missing(error: unknown) {
   return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
-/** Paths are selected in a native dialog and then addressed exclusively by IDs. */
+/** Project directories are explicitly selected on the host, then addressed by IDs. */
 export class ProjectStore {
   private registry: z.infer<typeof registrySchema> = {
     version: 1,

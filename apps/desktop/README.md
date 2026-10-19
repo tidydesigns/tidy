@@ -164,6 +164,48 @@ bun install --frozen-lockfile
 bun dev:desktop
 ```
 
+### Browser development
+
+For remote UI development, run the same renderer and workspace backend without an
+Electron window:
+
+```sh
+bun dev:desktop:browser --project /absolute/path/to/project
+```
+
+Open the private link printed by the command in a browser. The server binds only to
+`127.0.0.1:5173`. For access from another machine, use an SSH tunnel or a private
+HTTPS proxy and pass its external origin, for example:
+
+```sh
+bun dev:desktop:browser --project /absolute/path/to/project \
+  --origin https://your-machine.your-tailnet.ts.net:8443
+```
+
+Configure the private proxy separately to forward that origin to `127.0.0.1:5173`.
+Use HTTPS for remote browser access so clipboard, images and other browser APIs
+have a secure context. Keep the development link private: it authorizes access to
+project files and coding harnesses. Its token is exchanged for an HttpOnly session
+cookie and removed from the address bar. Source files, API requests, event streams
+and hot reload all require that session; mutation requests also validate their origin.
+The server is a development tool, not a production hosting mode.
+
+The command initially opens the project specified on the host. Use the top-left
+project menu and **Open project…** to browse Linux folders or enter an absolute
+host path, then choose **Open folder**. Previously opened projects stay in the
+menu, and the last selected project is restored after restarting the server.
+This opens existing directories; it does not create a folder or clone a repository.
+Import uses your browser's file picker. Project data and
+harness processes stay on the host. Browser registry/session-authority state is
+separate from Electron, under `$XDG_STATE_HOME/tidy-browser` (by default
+`~/.local/state/tidy-browser`), so do not run both modes on the same project at once.
+The project itself still stores its files in `.tidy/` as described above.
+
+Renderer changes use Vite hot reload. Restart the command after backend changes;
+reopen the private link if the browser session expires. `--token-file` can select a
+private token file for a managed development process. Native dialogs, window
+behavior, permissions and packaging still need Electron testing.
+
 The development command starts the renderer on `127.0.0.1:5173` and opens Electron.
 React changes update through Vite HMR. Restart the command after main process changes.
 

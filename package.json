@@ -71,7 +71,8 @@
     "test:navigation:recovery": "NAVIGATION_RECOVERY=1 node apps/web/scripts/test-navigation-browser.mjs",
     "test:prototypes:local": "bun apps/web/scripts/run-prototype-browser.ts",
     "test:versions:local": "bun apps/web/scripts/run-file-version-history.ts",
-    "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts"
+    "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts",
+    "dev:desktop:browser": "bun run --cwd apps/desktop dev:browser"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

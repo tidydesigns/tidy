@@ -88,6 +88,7 @@ shared design canvas. Use Node.js 22.12+ alongside Bun.
 
 ```sh
 bun dev:desktop
+bun dev:desktop:browser --project /absolute/path/to/project
 bun run build:desktop
 bun run package:desktop
 ```

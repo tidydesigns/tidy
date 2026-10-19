@@ -6,6 +6,35 @@ import tailwindcss from "@tailwindcss/vite";
 const licenceBanner = (chunk: { modules: Record<string, unknown> }) =>
   bundleLicenseBannerForInputs(Object.keys(chunk.modules));
 
+export const rendererConfig = {
+  worker: { format: "es", rolldownOptions: { output: { banner: licenceBanner } } },
+  plugins: [
+    react(),
+    tailwindcss(),
+    {
+      name: "desktop-development-csp",
+      apply: "serve",
+      transformIndexHtml(html) {
+        return html
+          .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
+          .replace("connect-src 'self'", "connect-src 'self' ws://127.0.0.1:5173");
+      },
+    },
+  ],
+  server: {
+    host: "127.0.0.1",
+    port: 5173,
+    strictPort: true,
+  },
+  build: {
+    rolldownOptions: {
+      output: {
+        banner: (chunk) => bundleLicenseBannerForInputs(Object.keys(chunk.modules)),
+      },
+    },
+  },
+} satisfies import("vite").UserConfig;
+
 export default defineConfig({
   main: {
     build: {
@@ -18,32 +47,5 @@ export default defineConfig({
       rolldownOptions: { output: { format: "cjs", entryFileNames: "index.cjs" } },
     },
   },
-  renderer: {
-    worker: { format: "es", rolldownOptions: { output: { banner: licenceBanner } } },
-    plugins: [
-      react(),
-      tailwindcss(),
-      {
-        name: "desktop-development-csp",
-        apply: "serve",
-        transformIndexHtml(html) {
-          return html
-            .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
-            .replace("connect-src 'self'", "connect-src 'self' ws://127.0.0.1:5173");
-        },
-      },
-    ],
-    server: {
-      host: "127.0.0.1",
-      port: 5173,
-      strictPort: true,
-    },
-    build: {
-      rolldownOptions: {
-        output: {
-          banner: (chunk) => bundleLicenseBannerForInputs(Object.keys(chunk.modules)),
-        },
-      },
-    },
-  },
+  renderer: rendererConfig,
 });

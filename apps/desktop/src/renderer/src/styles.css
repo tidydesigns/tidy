@@ -1410,3 +1410,82 @@ summary:focus-visible {
     width: calc(100% - 32px);
   }
 }
+
+.browser-project-dialog {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  height: fit-content;
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  padding: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  color: var(--color-ink);
+  background: var(--desktop-surface);
+}
+.browser-project-dialog::backdrop {
+  background: #0006;
+}
+.browser-project-dialog h2 {
+  margin: 0 0 20px;
+  font-size: 18px;
+  font-weight: 500;
+}
+.browser-project-dialog label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.browser-project-path {
+  display: flex;
+  gap: 8px;
+}
+.browser-project-path input {
+  min-width: 0;
+  flex: 1;
+  padding: 9px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+.browser-project-navigation {
+  margin: 12px 0 8px;
+}
+.browser-project-folders {
+  max-height: 40dvh;
+  min-height: 80px;
+  overflow: auto;
+}
+.browser-project-folder {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.browser-project-folder:hover {
+  background: var(--color-hover-surface);
+  border-color: var(--color-border);
+}
+.browser-project-folders p,
+.browser-project-error {
+  font-size: 13px;
+  color: var(--color-muted-ink);
+}
+.browser-project-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 20px;
+}
