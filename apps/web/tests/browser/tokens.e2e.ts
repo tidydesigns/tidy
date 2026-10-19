@@ -35,6 +35,9 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   await editToken("rounded");
   await set(tokenPanel, "Value", 24);
   await expect(card).toHaveCSS("border-top-left-radius", "24px");
+  await expect(page.getByRole("button", { name: "Edit token rounded", exact: true })).toHaveText(
+    "rounded24",
+  );
   await expect(second).toHaveCSS("border-top-left-radius", "0px");
   await editToken("body");
   await set(tokenPanel, "Font size", 22);
@@ -43,7 +46,11 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   const rename = tokenPanel.getByRole("textbox", { name: "Name", exact: true });
   await rename.fill("pill");
   await rename.press("Enter");
+  const aliasRow = page.getByRole("button", { name: "Edit token corner", exact: true });
+  await expect(aliasRow).toHaveAttribute("title", "corner → pill");
   await page.getByRole("button", { name: "Remove token pill", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Edit token pill", exact: true })).toHaveCount(0);
+  await expect(aliasRow).toHaveText("corner24");
   assert.equal(
     await card.evaluate((element) => getComputedStyle(element).borderTopLeftRadius),
     "24px",
