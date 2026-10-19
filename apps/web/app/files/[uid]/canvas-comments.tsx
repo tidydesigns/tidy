@@ -61,7 +61,7 @@ function Avatar({ name, image, size = 32 }: { name: string; image: string | null
 function SendingStatus() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(true), 300);
+    const timer = window.setTimeout(() => setVisible(true), 1000);
     return () => window.clearTimeout(timer);
   }, []);
   return (
