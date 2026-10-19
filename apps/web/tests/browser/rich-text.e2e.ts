@@ -196,6 +196,7 @@ test("oversized text stays editable on Escape and commits once corrected", async
   await canvas.press("t");
   await canvas.press("Enter");
   const editor = page.getByRole("textbox", { name: "Edit Text", exact: true });
+  await expect(editor).toBeFocused();
   await page.keyboard.insertText("a".repeat(10_001));
   await editor.press("Escape");
   await expect(editor).toBeFocused();

@@ -41,10 +41,12 @@ for (const preference of ["left", "bottom"]) {
       await imageTool.scrollIntoViewIfNeeded();
       const imageBox = required(await imageTool.boundingBox());
       expect(imageBox.y + imageBox.height).toBeLessThanOrEqual(viewport.height);
-      const comment = tools.getByRole("button", { name: "Comment tool", exact: true });
-      await comment.scrollIntoViewIfNeeded();
-      await comment.tap();
-      await expect(comment).toHaveAttribute("aria-pressed", "true");
+      // Local editors omit cloud comments; exercise touch switching with the hand tool.
+      await expect(tools.getByRole("button", { name: "Comment tool", exact: true })).toHaveCount(0);
+      const hand = tools.getByRole("button", { name: "Hand tool", exact: true });
+      await hand.scrollIntoViewIfNeeded();
+      await hand.tap();
+      await expect(hand).toHaveAttribute("aria-pressed", "true");
       await select.scrollIntoViewIfNeeded();
       await select.click();
 

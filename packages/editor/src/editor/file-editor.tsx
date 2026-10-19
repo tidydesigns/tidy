@@ -9,6 +9,15 @@ import {
 } from "../design/editor-error";
 import { detachInstance, owningInstance } from "../design/component-instance";
 import { EditorNotification } from "./editor-notification";
+import { CanvasHover, type CanvasHoverHandle } from "./canvas-hover";
+import {
+  activateLayerDrag,
+  measureLayerDrag,
+  type LayerDrag,
+  type MovingLayerDrag,
+} from "./layer-drag";
+import { useSelectionOutlineScale } from "./use-selection-outline-scale";
+import { canvasSelectionTarget, selectionScope } from "../design/selection-target";
 import { isEditableTarget } from "./editable-target";
 import { ImageEditor } from "./image-editor";
 import {
@@ -467,7 +476,7 @@ export function FileEditor({
     snapPixels: true,
     snapObjects: true,
     guides: false,
-    deepSelection: true,
+    deepSelection: false,
     comments: true,
   });
   const [nudgeStep, setNudgeStep] = useState(() => {
@@ -526,6 +535,8 @@ export function FileEditor({
   } | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
   const viewport = useRef<HTMLDivElement>(null);
+  const hover = useRef<CanvasHoverHandle>(null);
+  const previewLayer = useEditorEvent((id: string | null) => hover.current?.previewLayer(id));
   const [elements] = useState(() => new Map<string, HTMLElement>());
   const registerElement = useCallback(
     (id: string, element: HTMLDivElement | null) => {
@@ -554,17 +565,7 @@ export function FileEditor({
   const [assetLoading, setAssetLoading] = useState(false);
   const [assetError, setAssetError] = useState("");
   const replaceImageInput = useRef<HTMLInputElement>(null);
-  const drag = useRef<{
-    pointerId: number;
-    id: string;
-    x: number;
-    y: number;
-    ids: string[];
-    before: Snapshot;
-    bounds: SnapBox | null;
-    candidates: SnapBox[];
-    parents: Map<string, { width: number; height: number }>;
-  } | null>(null);
+  const drag = useRef<LayerDrag | null>(null);
   const resize = useRef<{ ids: string[] } | null>(null);
   const multiScaleGesture = useRef<{
     ids: string[];
@@ -602,7 +603,7 @@ export function FileEditor({
     const reconciled = incoming.nodes.map((node) => {
       const old = oldNodes.get(node.id);
       if (!old) return node;
-      if (drag.current?.ids.includes(node.id))
+      if (drag.current?.kind === "moving" && drag.current.ids.includes(node.id))
         return { ...node, box: { ...node.box, x: old.box.x, y: old.box.y } };
       if (resize.current?.ids.includes(node.id)) return old;
       if (
@@ -730,6 +731,7 @@ export function FileEditor({
       setTextDefaults((current) => textToolStyle({ style: { ...current, ...changes.style } }));
   }
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  useSelectionOutlineScale({ viewport, selectedIds, zoom: view.zoom, nodes: renderedById });
   const inspectorSelection = useMemo(
     () =>
       renderedNodes.filter(
@@ -984,6 +986,11 @@ export function FileEditor({
         designTokens: snapshot.content.designTokens,
       }),
     [snapshot.content.tokens, snapshot.content.designTokens],
+  );
+
+  const canvasScope = useMemo(
+    () => selectionScope({ nodes: nodesById, selectedIds, children }),
+    [nodesById, selectedIds, children],
   );
 
   function togglePanels() {
@@ -1969,42 +1976,9 @@ export function FileEditor({
   }
 
   function snappingGeometry(rootIds: string[]) {
-    // Drag setup already resolved movable roots; avoid scanning the document again.
-    const roots = new Set(rootIds);
-    const descendants = new Set(roots);
-    for (const node of nodes) {
-      let parent = node.parentId;
-      while (parent) {
-        if (roots.has(parent)) {
-          descendants.add(node.id);
-          break;
-        }
-        parent = nodesById.get(parent)?.parentId ?? null;
-      }
-    }
-    const selectedBoxes: SnapBox[] = [],
-      candidates: SnapBox[] = [];
-    const parents = new Map<string, { width: number; height: number }>();
-    const rect = viewport.current?.getBoundingClientRect();
-    if (!rect) return { bounds: null, candidates, parents };
-    for (const element of canvasElements(viewport.current).values()) {
-      const id = element.dataset.nodeId!;
-      if (descendants.has(id) && !roots.has(id)) continue;
-      const box = element.getBoundingClientRect();
-      const bounds = {
-        x: (box.left - rect.left - view.x) / view.zoom,
-        y: (box.top - rect.top - view.y) / view.zoom,
-        width: box.width / view.zoom,
-        height: box.height / view.zoom,
-      };
-      if (roots.has(id)) {
-        selectedBoxes.push(bounds);
-        parents.set(id, renderedParentSize(element));
-      } else candidates.push(bounds);
-    }
-    if (candidates.length >= 128) prepareSnapIndex(candidates);
-    return { bounds: boundingBox(selectedBoxes), candidates, parents };
+    return measureLayerDrag({ rootIds, nodes, nodesById, canvas: viewport.current, view });
   }
+
   async function edit(id: string, changes: NodeChanges) {
     if (readOnly) return;
     await changeDocument(
@@ -2393,6 +2367,52 @@ export function FileEditor({
     });
   }
 
+  const artworkMoveFrame = useFrameEvent(
+    (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
+      const cropStart = cropDrag.current;
+      if (cropStart?.id === node.id) {
+        const before = room.getSnapshot();
+        setSnapshot({
+          ...before,
+          content: previewLayerChanges(before.content, [node.id], {
+            style: {
+              imageCrop: panImageCrop(cropStart.crop, cropStart.box, cropDelta(event, cropStart)),
+            },
+          }),
+        });
+        return;
+      }
+      const pending = drag.current;
+      if (pending?.id !== node.id || pending.pointerId !== event.pointerId) return;
+      const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
+      if (!start) return;
+      drag.current = start;
+      const { x, y, guides, spacing } = dragDelta(event, start);
+      setSnapGuides(guides);
+      setSpacingCues(spacing);
+      const latest = room.getSnapshot();
+      const content = previewMoveLayers(latest.content, start.ids, x, y, start.geometry.parents);
+      setSnapshot({ ...latest, content });
+      room.publishPresence({
+        action: "move",
+        preview: {
+          nodeId: node.id,
+          box: content.nodes.find((item) => item.id === node.id)!.box,
+        },
+      });
+    },
+  );
+  const artworkCancel = useEditorEvent(() => {
+    artworkMoveFrame.cancel();
+    cropDrag.current = null;
+    drag.current = null;
+    setSnapGuides([]);
+    setSpacingCues([]);
+    room.restore();
+    room.publishPresence({ preview: null, action: "select" }, true);
+    setSnapshot(room.getSnapshot());
+  });
+
   useLayoutEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (!activeRef.current) return;
@@ -2484,13 +2504,24 @@ export function FileEditor({
         if (selected?.type === "text") {
           setEditingTextId(selection);
         } else {
-          const child = nodes.find((node) => node.parentId === selection);
+          const child = children
+            .get(selection)
+            ?.find((node) => node.visible && (readOnly || !node.locked));
           if (child) selectNode(child.id);
         }
         return;
       }
       if (!command && event.key === "Escape") {
         event.preventDefault();
+        // Cancel the captured gesture before navigating the hierarchy. This
+        // handler runs before the general shortcut listener and consumes Escape.
+        const activeDrag = drag.current;
+        if (activeDrag) {
+          artworkCancel();
+          if (viewport.current?.hasPointerCapture(activeDrag.pointerId))
+            viewport.current.releasePointerCapture(activeDrag.pointerId);
+          return;
+        }
         if (selected?.parentId) selectNode(selected.parentId);
         else {
           setSelectedIds([]);
@@ -3063,25 +3094,34 @@ export function FileEditor({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function dragDelta(event: PointerEvent, start: NonNullable<typeof drag.current>) {
+  function dragDelta(event: PointerEvent, start: MovingLayerDrag) {
     const delta = {
       x: snapCoordinate((event.clientX - start.x) / view.zoom),
       y: snapCoordinate((event.clientY - start.y) / view.zoom),
     };
-    if (event.ctrlKey || event.metaKey || !start.bounds)
+    if (event.ctrlKey || event.metaKey || !start.geometry.bounds)
       return { ...delta, guides: [], spacing: [] };
     const snapped = viewPreferences.snapObjects
-      ? snapTranslation(start.bounds, delta, start.candidates, 6 / view.zoom)
+      ? snapTranslation(start.geometry.bounds, delta, start.geometry.candidates, 6 / view.zoom)
       : { ...delta, guides: [] };
     return {
       ...snapped,
-      spacing: equalSpacingCues(start.bounds, snapped, start.candidates, 1 / view.zoom),
+      spacing: equalSpacingCues(
+        start.geometry.bounds,
+        snapped,
+        start.geometry.candidates,
+        1 / view.zoom,
+      ),
     };
   }
 
   const artworkDoubleClick = useEditorEvent(
     (node: DesignNode, event: MouseEvent<HTMLDivElement>) => {
+      event.stopPropagation();
       if (readOnly || isLayerLocked(nodes, node.id)) return;
+      // The two pointerdowns already advanced the hierarchy. Editing must not
+      // jump past that selected level to a deeper DOM descendant.
+      if (selection !== node.id) return;
       if (node.vectorPath) {
         event.preventDefault();
         event.stopPropagation();
@@ -3111,13 +3151,12 @@ export function FileEditor({
     if (!movable.length) return;
     const movingIds = movable.map((node) => node.id);
     drag.current = {
+      kind: "pending",
       pointerId: event.pointerId,
       id: movingIds.includes(id) ? id : movingIds[0],
       x: event.clientX,
       y: event.clientY,
       ids: movingIds,
-      before: room.getSnapshot(),
-      ...snappingGeometry(movingIds),
     };
     // The viewport stays mounted even when artwork is culled or updated mid-drag.
     viewport.current?.setPointerCapture(event.pointerId);
@@ -3160,16 +3199,20 @@ export function FileEditor({
         return;
       }
       if (event.button !== 0) return;
-      if (
-        !viewPreferences.deepSelection &&
-        tool === "select" &&
-        !spaceHeld &&
-        node.parentId &&
-        nodes.find((item) => item.id === node.parentId)?.type === "container" &&
-        !selectedIds.includes(node.parentId) &&
-        !selectedIds.includes(node.id)
-      )
-        return;
+      if (tool === "select" && !spaceHeld && !prototypeMode) {
+        const target = canvasSelectionTarget({
+          hitId: node.id,
+          nodes: nodesById,
+          scope: canvasScope,
+          deep: viewPreferences.deepSelection || event.metaKey || event.ctrlKey,
+          readOnly,
+        });
+        if (!target) {
+          event.stopPropagation();
+          return;
+        }
+        node = target;
+      }
       event.stopPropagation();
       if (prototypeMode) {
         let target: DesignNode | undefined = node;
@@ -3204,38 +3247,6 @@ export function FileEditor({
       beginLayerDrag(event, ids, node.id);
     },
   );
-  const artworkMoveFrame = useFrameEvent(
-    (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
-      const cropStart = cropDrag.current;
-      if (cropStart?.id === node.id) {
-        const before = room.getSnapshot();
-        setSnapshot({
-          ...before,
-          content: previewLayerChanges(before.content, [node.id], {
-            style: {
-              imageCrop: panImageCrop(cropStart.crop, cropStart.box, cropDelta(event, cropStart)),
-            },
-          }),
-        });
-        return;
-      }
-      const start = drag.current;
-      if (start?.id !== node.id || start.pointerId !== event.pointerId) return;
-      const { x, y, guides, spacing } = dragDelta(event, start);
-      setSnapGuides(guides);
-      setSpacingCues(spacing);
-      const latest = room.getSnapshot();
-      const content = previewMoveLayers(latest.content, start.ids, x, y, start.parents);
-      setSnapshot({ ...latest, content });
-      room.publishPresence({
-        action: "move",
-        preview: {
-          nodeId: node.id,
-          box: content.nodes.find((item) => item.id === node.id)!.box,
-        },
-      });
-    },
-  );
   const artworkPointerMove = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
       if (
@@ -3257,18 +3268,22 @@ export function FileEditor({
         void edit(node.id, { style: { imageCrop: crop } });
         return;
       }
-      const start = drag.current;
-      if (start?.id !== node.id || start.pointerId !== event.pointerId) return;
+      const pending = drag.current;
+      if (pending?.id !== node.id || pending.pointerId !== event.pointerId) return;
+      const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
       drag.current = null;
       if (viewport.current?.hasPointerCapture(event.pointerId))
         viewport.current.releasePointerCapture(event.pointerId);
+      // A selection-only click produced no document preview to restore. Avoid
+      // rebuilding the document, derived resources and artwork on pointer-up.
+      if (!start) return;
       const { x, y } = dragDelta(event, start);
       setSnapGuides([]);
       setSpacingCues([]);
       if (x || y)
         void changeDocument((content) => ({
           ...content,
-          nodes: movedLayers(content, start.ids, x, y, start.parents),
+          nodes: movedLayers(content, start.ids, x, y, start.geometry.parents),
         }));
       else {
         room.restore();
@@ -3279,16 +3294,6 @@ export function FileEditor({
       }
     },
   );
-  const artworkCancel = useEditorEvent(() => {
-    artworkMoveFrame.cancel();
-    cropDrag.current = null;
-    drag.current = null;
-    setSnapGuides([]);
-    setSpacingCues([]);
-    room.restore();
-    room.publishPresence({ preview: null, action: "select" }, true);
-    setSnapshot(room.getSnapshot());
-  });
   const artworkTextDraft = useEditorEvent((node: DesignNode, value: TextContent) => {
     room.publishPresence({
       action: "typing",
@@ -4133,6 +4138,7 @@ export function FileEditor({
                     selectedIds={selectedIds}
                     query={layerQuery}
                     onSelect={panelSelect}
+                    onPreview={previewLayer}
                     onMenu={panelMenu}
                     onMove={panelMove}
                     onVisibility={panelVisibility}
@@ -4334,13 +4340,10 @@ export function FileEditor({
             </div>
           )}
           <div
-            style={
-              {
-                transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
-                transformOrigin: "top left",
-                "--canvas-zoom": view.zoom,
-              } as React.CSSProperties
-            }
+            style={{
+              transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
+              transformOrigin: "top left",
+            }}
             className="absolute left-0 top-0"
           >
             <ImageViewportProvider viewport={viewport} zoom={view.zoom} selectedIds={selectedIds}>
@@ -4369,6 +4372,28 @@ export function FileEditor({
               />
             </ImageViewportProvider>
           </div>
+          <CanvasHover
+            ref={hover}
+            viewport={viewport}
+            nodes={renderedById}
+            childrenById={children}
+            selectedIds={selectedIds}
+            scope={canvasScope}
+            deep={viewPreferences.deepSelection}
+            readOnly={readOnly}
+            enabled={
+              active &&
+              tool === "select" &&
+              !spaceHeld &&
+              !panning &&
+              !prototypeMode &&
+              !cropping &&
+              !vectorMode &&
+              !editingTextId &&
+              !editingGradient
+            }
+            view={view}
+          />
           {viewPreferences.guides && !readOnly && !prototypeMode && (
             <CanvasGuides
               guides={pages.find((page) => page.id === currentPageId)?.guides ?? []}

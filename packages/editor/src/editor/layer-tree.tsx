@@ -21,6 +21,7 @@ export const LayerTree = memo(function LayerTree({
   selectedIds,
   query,
   onSelect,
+  onPreview,
   onMenu,
   onMove,
   onVisibility,
@@ -32,6 +33,7 @@ export const LayerTree = memo(function LayerTree({
   selectedIds: string[];
   query: string;
   onSelect: (id: string, additive: boolean) => void;
+  onPreview?: (id: string | null) => void;
   onMenu: (event: MouseEvent<HTMLElement>, id: string) => void;
   onMove: (id: string, target: string, position: DropPosition) => void;
   onVisibility: (id: string) => void;
@@ -169,9 +171,26 @@ export const LayerTree = memo(function LayerTree({
       role="tree"
       aria-label="Layers"
       aria-multiselectable="true"
-      onFocusCapture={() => setFocusWithin(true)}
+      onPointerOver={(event) => {
+        if (event.pointerType === "touch" || event.buttons) return;
+        const target = event.target;
+        if (target instanceof Element)
+          onPreview?.(target.closest<HTMLElement>("[data-layer-row]")?.dataset.layerRow ?? null);
+      }}
+      onPointerLeave={() => onPreview?.(null)}
+      onWheelCapture={() => onPreview?.(null)}
+      onDragStart={() => onPreview?.(null)}
+      onFocusCapture={(event) => {
+        setFocusWithin(true);
+        const target = event.target;
+        if (target instanceof Element)
+          onPreview?.(target.closest<HTMLElement>("[data-layer-row]")?.dataset.layerRow ?? null);
+      }}
       onBlurCapture={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setFocusWithin(false);
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setFocusWithin(false);
+          onPreview?.(null);
+        }
       }}
       style={virtual ? { position: "relative", height: rows.length * rowHeight } : undefined}
     >

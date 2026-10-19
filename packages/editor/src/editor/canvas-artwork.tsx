@@ -1,7 +1,15 @@
 "use client";
 import type { TextContent } from "@tidy/design/rich-text";
 
-import { memo, useCallback, useMemo, useState, type MouseEvent, type PointerEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useState,
+  type MouseEvent,
+  type PointerEvent,
+  type ReactElement,
+} from "react";
 import type { DesignNode } from "../design/document";
 import { createArtworkBranches, type Branch } from "./artwork-branches";
 import { nodeStyle } from "../design/node-style";
@@ -56,11 +64,13 @@ const ArtworkNode = memo(function ArtworkNode({
   tokens,
   previewAssetUrls,
   handlers,
+  renderBranch,
 }: {
   branch: Branch;
   tokens: Props["tokens"];
   previewAssetUrls: Props["previewAssetUrls"];
   handlers: Handlers;
+  renderBranch: (branch: Branch) => ReactElement;
 }) {
   const { node, parent, viewportWidth, flowIndex, selected, cropping, editing, children } = branch;
   const register = useCallback(
@@ -79,11 +89,11 @@ const ArtworkNode = memo(function ArtworkNode({
     ...(editing ? { textDecoration: "none" } : {}),
     ...branch.composite,
     outline: selected
-      ? "calc(2px / var(--canvas-zoom, 1)) solid var(--color-primary-orange)"
+      ? "2px solid var(--color-primary-orange)"
       : node.style.outlineWidth
         ? `${node.style.outlineWidth}px solid ${node.style.outlineColor ?? "#000000"}`
         : undefined,
-    outlineOffset: selected ? "calc(1px / var(--canvas-zoom, 1))" : undefined,
+    outlineOffset: selected ? "1px" : undefined,
     cursor: cropping ? "move" : undefined,
   };
   return (
@@ -123,18 +133,42 @@ const ArtworkNode = memo(function ArtworkNode({
           src={previewAssetUrls?.[node.assetId ?? ""] ?? `/api/assets/${node.assetId}`}
         />
       ) : null}
-      {children.map((child) => (
-        <ArtworkNode
-          key={child.node.id}
-          branch={child}
-          tokens={tokens}
-          previewAssetUrls={previewAssetUrls}
-          handlers={handlers}
-        />
-      ))}
+      {children.map(renderBranch)}
     </div>
   );
 });
+
+/** Cache element identity as well as branch identity. A selection change must
+ * not allocate a fresh React element for every unchanged sibling in an artboard. */
+function createArtworkRenderer({
+  tokens,
+  previewAssetUrls,
+  handlers,
+}: {
+  tokens: Props["tokens"];
+  previewAssetUrls: Props["previewAssetUrls"];
+  handlers: Handlers;
+}) {
+  const elements = new WeakMap<Branch, ReactElement>();
+  function renderBranch(branch: Branch): ReactElement {
+    let element = elements.get(branch);
+    if (!element) {
+      element = (
+        <ArtworkNode
+          key={branch.node.id}
+          branch={branch}
+          tokens={tokens}
+          previewAssetUrls={previewAssetUrls}
+          handlers={handlers}
+          renderBranch={renderBranch}
+        />
+      );
+      elements.set(branch, element);
+    }
+    return element;
+  }
+  return renderBranch;
+}
 
 /** View movement leaves artwork untouched; edits render only affected branches. */
 export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
@@ -177,17 +211,18 @@ export const CanvasArtwork = memo(function CanvasArtwork(props: Props) {
       newTextId,
     ],
   );
+  const renderBranch = useMemo(
+    () =>
+      createArtworkRenderer({
+        tokens: props.tokens,
+        previewAssetUrls: props.previewAssetUrls,
+        handlers,
+      }),
+    [props.tokens, props.previewAssetUrls, handlers],
+  );
   return (
     <ImageMimeProvider types={props.assetMimeTypes}>
-      {build(props).map((branch) => (
-        <ArtworkNode
-          key={branch.node.id}
-          branch={branch}
-          tokens={props.tokens}
-          previewAssetUrls={props.previewAssetUrls}
-          handlers={handlers}
-        />
-      ))}
+      {build(props).map(renderBranch)}
     </ImageMimeProvider>
   );
 });

@@ -196,7 +196,8 @@
     "./design/text-tool-style": "./src/design/text-tool-style.ts",
     "./editor/tool-inspector": "./src/editor/tool-inspector.tsx",
     "./components/files/document-preview": "./src/components/files/document-preview.tsx",
-    "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx"
+    "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx",
+    "./design/selection-target": "./src/design/selection-target.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

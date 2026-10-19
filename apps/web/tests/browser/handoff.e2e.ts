@@ -152,7 +152,9 @@ for (const placement of ["left", "bottom"] as const) {
     await heading.click();
     await expect(page.getByLabel("Inspector", { exact: true })).toBeVisible();
     const before = await heading.boundingBox();
-    const commonTools = ["Select tool", "Hand tool", "Comment tool"];
+    // This fixture runs locally; cloud comments are unavailable in local editors.
+    await expect(tools.getByRole("button", { name: "Comment tool", exact: true })).toHaveCount(0);
+    const commonTools = ["Select tool", "Hand tool"];
     const positions = await Promise.all(
       commonTools.map((name) => tools.getByRole("button", { name, exact: true }).boundingBox()),
     );
