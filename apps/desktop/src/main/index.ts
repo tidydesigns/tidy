@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import { app, BrowserWindow, nativeTheme, net, protocol, session } from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -48,6 +49,7 @@ async function createWindow() {
 }
 
 app.setName("Tidy");
+app.setAboutPanelOptions({ applicationName: "Tidy", applicationVersion: version });
 const ownsWorkspace = app.requestSingleInstanceLock();
 if (!ownsWorkspace) app.quit();
 app.on("second-instance", () => {

@@ -64,9 +64,12 @@ protocol privileges. Embedded ASAR integrity is enabled on macOS and Windows;
 Electron does not support that validation on Linux. Packaging fails if a fuse is
 missing, so Electron upgrades require reviewing the fuse configuration.
 
-The current package is for local development. Public distribution still requires
-platform signing, macOS notarization, installer/update integrity and a maintained
-release process. An unsigned package is not a public-release artifact.
+The default package is for local development. The opt-in `release:desktop:mac`
+command signs, notarizes, staples and verifies a native-architecture macOS DMG
+using the operator's local signing identity and notarization Keychain profile.
+Public distribution still requires installer testing and a maintained release
+process; automatic updates and CI publishing are not configured. An unsigned
+package is not a public-release artifact.
 
 Run from the repository root:
 

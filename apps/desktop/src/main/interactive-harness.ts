@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -467,7 +468,7 @@ export function startInteractiveHarness(input: {
   void (async () => {
     if (codex) {
       await request("initialize", {
-        clientInfo: { name: "tidy_desktop", title: "Tidy", version: "0.1.0" },
+        clientInfo: { name: "tidy_desktop", title: "Tidy", version },
       });
       if (stopped || closed) return;
       write({ method: "initialized", params: {} });

@@ -1,3 +1,4 @@
+import { version } from "../../package.json";
 import { validatePermissionMode } from "../shared/permissions";
 import { spawn } from "node:child_process";
 import { z } from "zod";
@@ -183,7 +184,7 @@ export async function inspectHarness(
       };
     }
     await request("initialize", {
-      clientInfo: { name: "tidy_desktop", title: "Tidy", version: "0.1.0" },
+      clientInfo: { name: "tidy_desktop", title: "Tidy", version },
     });
     child.stdin.write(JSON.stringify({ method: "initialized", params: {} }) + "\n");
     const models: HarnessDetails["models"] = [];
