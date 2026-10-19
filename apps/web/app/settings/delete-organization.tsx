@@ -18,16 +18,22 @@ export function DeleteOrganization({
 }) {
   const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
+  const deleting = useRef(false);
   const [confirmation, setConfirmation] = useState("");
   const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [billingRequired, setBillingRequired] = useState(false);
 
-  async function remove(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pending || confirmation !== organization.name) return;
+    if (deleting.current || confirmation !== organization.name) return;
+    deleting.current = true;
     setPending(true);
+    startTransition(remove);
+  }
+
+  async function remove() {
     setError("");
     setBillingRequired(false);
     try {
@@ -45,6 +51,7 @@ export function DeleteOrganization({
       await navigateWithFreshSession(returnToAccount ? "/account/privacy" : "/files");
     } catch (error) {
       unstable_rethrow(error);
+      deleting.current = false;
       setError(error instanceof Error ? error.message : "Unable to delete organization.");
       setPending(false);
     }
@@ -56,6 +63,7 @@ export function DeleteOrganization({
         data-ph-public
         type="button"
         onClick={() => {
+          if (deleting.current) return;
           setConfirmation("");
           setError("");
           setBillingRequired(false);
@@ -70,7 +78,7 @@ export function DeleteOrganization({
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-description`}
         onCancel={(event) => {
-          if (pending) event.preventDefault();
+          if (deleting.current) event.preventDefault();
         }}
       >
         <h2 id={`${id}-title`} className="text-lg font-semibold">
@@ -86,7 +94,7 @@ export function DeleteOrganization({
           This permanently deletes the organization, its files, folders and team access for
           everyone. This cannot be undone.
         </p>
-        <form onSubmit={(event) => startTransition(() => remove(event))} className="mt-6 space-y-4">
+        <form onSubmit={submit} className="mt-6 space-y-4">
           <TextField
             id={`${id}-name`}
             label={`Enter "${organization.name}" to confirm`}
@@ -118,7 +126,9 @@ export function DeleteOrganization({
               data-ph-public
               type="button"
               disabled={pending}
-              onClick={() => dialog.current?.close()}
+              onClick={() => {
+                if (!deleting.current) dialog.current?.close();
+              }}
               className="rounded-lg px-4 py-2.5 text-sm hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
             >
               Cancel
