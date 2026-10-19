@@ -181,7 +181,4 @@ body {
   .file-name {
     flex-basis: 100%;
   }
-  .canvas {
-    padding: 24px;
-  }
 }

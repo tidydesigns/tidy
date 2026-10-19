@@ -7,8 +7,8 @@ import {
   type ExtensionAccount,
   readExtensionReply,
   parseExtensionResponse,
+  type ImportJob,
 } from "@tidy/design/web-capture";
-import type { ImportJob } from "../../lib/messages";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";
 import { Avatar } from "@tidy/ui/avatar";

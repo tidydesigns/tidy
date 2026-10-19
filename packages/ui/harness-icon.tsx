@@ -2,7 +2,6 @@ const icons = {
   codex: new URL("./harness-icons/codex.svg", import.meta.url).href,
   claude: new URL("./harness-icons/claude.svg", import.meta.url).href,
 };
-/** The same approved provider marks used by web onboarding, tinted with currentColor. */
 export function HarnessIcon({
   harness,
   size = 16,

@@ -65,7 +65,6 @@ const issueSchema = entity.extend({
   state: stateSchema,
   assignee: teamSchema.nullable(),
 });
-export type LinearIssue = z.infer<typeof issueSchema>;
 const pageSchema = <T extends z.ZodType>(item: T) =>
   z.object({
     nodes: z.array(item),

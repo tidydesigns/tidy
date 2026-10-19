@@ -14,10 +14,10 @@ import type { DesignNode } from "../design/document";
 import { createArtworkBranches, type Branch } from "./artwork-branches";
 import { nodeStyle } from "../design/node-style";
 import { responsiveNode } from "../design/responsive-layout";
-import { NodeStrokes } from "../components/design/node-strokes";
-import { NodeFills } from "../components/design/node-fills";
-import { DesignText } from "../components/design/design-text";
-import { DesignImage } from "../components/design/design-image";
+import { NodeStrokes } from "@tidy/design-renderer/node-strokes";
+import { NodeFills } from "@tidy/design-renderer/node-fills";
+import { DesignText } from "@tidy/design-renderer/design-text";
+import { DesignImage } from "@tidy/design-renderer/design-image";
 import { EditableDesignText } from "./editable-design-text";
 
 import { ImageMimeProvider } from "@tidy/design-renderer/image-context";

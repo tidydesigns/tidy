@@ -85,7 +85,6 @@ export const importResultSchema = z.object({
   nodeIds: z.array(z.string()).optional(),
   warnings: z.array(z.object({ message: z.string() })).optional(),
 });
-export type ImportResult = z.infer<typeof importResultSchema>;
 
 export const destinationSchema = z.object({
   organizationId: z.string().min(1),

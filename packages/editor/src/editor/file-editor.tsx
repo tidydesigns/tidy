@@ -38,7 +38,7 @@ import {
   shapeKinds,
   type NativeShape,
 } from "@tidy/design/native-shapes";
-import { DesignImage } from "../components/design/design-image";
+import { DesignImage } from "@tidy/design-renderer/design-image";
 import type { TextContent } from "@tidy/design/rich-text";
 import { AssetBrowser, type BrowserAsset } from "./asset-browser";
 import { fitImageBounds } from "../design/image-sizing";

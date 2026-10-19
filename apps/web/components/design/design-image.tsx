@@ -1,2 +1,2 @@
 "use client";
-export * from "@tidy/editor/components/design/design-image";
+export * from "@tidy/design-renderer/design-image";

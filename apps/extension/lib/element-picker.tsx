@@ -267,7 +267,6 @@ export function startElementPicker({
     suppress(event);
     const next = pageTarget(event);
     if (!next) return;
-    // Return keyboard control to selection after interacting with the toolbar.
     target = next;
     toggleTarget();
     (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();

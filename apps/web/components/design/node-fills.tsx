@@ -1,2 +1,2 @@
 "use client";
-export * from "@tidy/editor/components/design/node-fills";
+export * from "@tidy/design-renderer/node-fills";

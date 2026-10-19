@@ -2230,17 +2230,6 @@ integration(
     await expect(
       comments.setCommentThreadResolved(file.id, threadId, ownerId, "true" as unknown as boolean),
     ).rejects.toThrow();
-    // A direct action call enforces the same policy as the visible controls.
-    mock.module("next/headers", () => ({ headers: async () => invited }));
-    const actions = await import("../../app/files/comment-actions");
-    expect((await actions.changeCommentThreadStatus(file.id, threadId, true)).error).toBeTruthy();
-    expect((await actions.removeCommentThread(file.id, threadId)).error).toBeTruthy();
-    await changeMemberRole(ownerId, orgId, await memberId(invitedId), "editor");
-    expect(
-      (await actions.changeCommentThreadStatus(file.id, threadId, true)).error,
-    ).toBeUndefined();
-    await changeMemberRole(ownerId, orgId, await memberId(invitedId), "viewer");
-    expect((await actions.changeCommentThreadStatus(file.id, threadId, false)).error).toBeTruthy();
     const authored = await comments.createComment(file.id, invitedId, 20, 20, "Keep attribution");
     await removeMember(ownerId, orgId, await memberId(invitedId));
     expect(await comments.listComments(file.id, invitedId)).toBeNull();

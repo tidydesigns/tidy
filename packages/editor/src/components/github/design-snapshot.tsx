@@ -2,11 +2,11 @@
 import { ImageMimeProvider } from "@tidy/design-renderer/image-context";
 import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
 import { strokeOutsets } from "../../design/strokes";
-import { NodeStrokes } from "../design/node-strokes";
-import { NodeFills } from "../design/node-fills";
+import { NodeStrokes } from "@tidy/design-renderer/node-strokes";
+import { NodeFills } from "@tidy/design-renderer/node-fills";
 
-import { DesignText } from "../design/design-text";
-import { DesignImage } from "../design/design-image";
+import { DesignText } from "@tidy/design-renderer/design-text";
+import { DesignImage } from "@tidy/design-renderer/design-image";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { DesignDocument, DesignNode } from "../../design/document";
 import { childrenByParent } from "@tidy/design/node-hierarchy";

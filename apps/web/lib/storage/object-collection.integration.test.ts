@@ -268,7 +268,7 @@ describe.skipIf(!enabled)("local Postgres object collection", () => {
       },
     };
     const keys = ["live", "review", "capture", "thumbnail"].map(
-      (name, index) => `originals/${encodeURIComponent(id)}/${String(index + 1).repeat(64)}.png`,
+      (_, index) => `originals/${encodeURIComponent(id)}/${String(index + 1).repeat(64)}.png`,
     );
     await client.query('update "designAsset" set "objectKey"=$1 where "id"=$2', [keys[0], id]);
     await client.query(

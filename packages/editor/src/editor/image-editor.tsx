@@ -9,7 +9,7 @@ import {
 } from "@tidy/design/image-adjustments";
 import type { DesignNode } from "../design/document";
 import type { ImageEdit } from "../design/image-edit-target";
-import { DesignImage } from "../components/design/design-image";
+import { DesignImage } from "@tidy/design-renderer/design-image";
 import { SelectMenu } from "../components/ui/select-menu";
 import { Icon } from "../components/ui/icon";
 import type { TraceColors, TraceStage } from "../design/vectorisation/contract";

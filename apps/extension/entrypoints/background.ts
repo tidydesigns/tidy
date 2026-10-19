@@ -9,9 +9,9 @@ import {
   readExtensionReply,
   captureViewportSchema,
   parseExtensionResponse,
+  type ImportJob,
 } from "@tidy/design/web-capture";
 import { TIDY_URL } from "../lib/config";
-import type { ImportJob } from "../lib/messages";
 
 export default defineBackground(() => {
   const setJob = (job: ImportJob) => browser.storage.session.set({ job });

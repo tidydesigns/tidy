@@ -2,14 +2,11 @@ import { notFound } from "next/navigation";
 import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { FilesBrowser } from "@/app/files/files-browser";
 import { performanceDocument } from "@/lib/design/examples/performance";
-import { thumbnailVersion } from "@/lib/design/thumbnail-version";
-import { ThumbnailPrewarmFixture } from "./thumbnail-prewarm-fixture";
 export default async function PerformancePreview({
   searchParams,
 }: PageProps<"/dev/performance-preview">) {
   if (process.env.NODE_ENV !== "development") notFound();
   const query = await searchParams;
-  if (query.prewarm === "1") return <ThumbnailPrewarmFixture />;
   if (query.workspace === "1") {
     const count = Math.min(500, Math.max(1, Number(query.files) || 20));
     const timestamp = "2026-10-03T12:00:00.000Z";
@@ -25,12 +22,7 @@ export default async function PerformancePreview({
       rectangleCount: 0,
       nodeCount: 100,
       documentRevision: 1,
-      thumbnailVersion:
-        query.cached === "1"
-          ? thumbnailVersion(`1:${timestamp}`)
-          : query.cached === "legacy"
-            ? `1:${timestamp}`
-            : null,
+      thumbnailVersion: null,
     }));
     return (
       <main className="mx-auto max-w-6xl p-6">

@@ -1,5 +1,4 @@
 import { expect, mock, test } from "bun:test";
-import React from "react";
 import { renderToReadableStream, renderToStaticMarkup } from "react-dom/server";
 import { DeferredFeatureFlagsProvider } from "@/lib/use-feature-flag";
 
