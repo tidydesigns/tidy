@@ -14,6 +14,8 @@ const execute = promisify(execFile);
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const identity = process.env.TIDY_MAC_SIGN_IDENTITY?.trim();
 const profile = process.env.TIDY_NOTARY_PROFILE?.trim();
+const resume = process.argv.slice(2).join(" ") === "--resume";
+if (process.argv.length > 2 && !resume) throw new Error("Usage: release-mac.ts [--resume]");
 
 if (process.platform !== "darwin") throw new Error("macOS releases must be built on macOS.");
 if (!identity?.startsWith("Developer ID Application:"))
@@ -85,7 +87,9 @@ await run("xcrun", [
   "--output-format",
   "json",
 ]);
-const paths = await packageDesktop();
+const paths = resume
+  ? [join(appDirectory, "release", `Tidy-darwin-${process.arch}`)]
+  : await packageDesktop();
 if (paths.length !== 1) throw new Error("Expected one native-architecture macOS package.");
 const app = join(paths[0], "Tidy.app");
 const temporary = await mkdtemp(join(tmpdir(), "tidy-release-"));
@@ -93,31 +97,51 @@ const artifactName = `Tidy-${manifest.version}-mac-${process.arch}.dmg`;
 const artifact = join(appDirectory, "release", artifactName);
 
 try {
-  // packageDesktop applies the security fuses first; signing must be the final bundle mutation.
-  console.info(`Signing Tidy ${manifest.version} (${process.arch})…`);
-  await sign({
-    app,
-    identity,
-    platform: "darwin",
-    version: manifest.devDependencies.electron,
-    preEmbedProvisioningProfile: false,
-    ignore: isResource,
-    optionsForFile: () => ({
-      hardenedRuntime: true,
-      entitlements: ["com.apple.security.cs.allow-jit"],
-    }),
-  });
-  await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
+  if (resume) {
+    // Reuse only a matching, previously notarized app. Never silently skip signing.
+    for (const [key, expected] of [
+      ["CFBundleShortVersionString", manifest.version.split("-")[0]],
+      ["CFBundleVersion", manifest.desktopBuildNumber],
+    ]) {
+      const actual = await run("/usr/libexec/PlistBuddy", [
+        "-c",
+        `Print :${key}`,
+        join(app, "Contents/Info.plist"),
+      ]);
+      if (actual.trim() !== expected)
+        throw new Error(`Cannot resume: ${key} differs from package.json.`);
+    }
+    console.info("Resuming from the existing notarized app.");
+  } else {
+    // packageDesktop applies the security fuses first; signing must be the final bundle mutation.
+    console.info(`Signing Tidy ${manifest.version} (${process.arch})…`);
+    await sign({
+      app,
+      identity,
+      platform: "darwin",
+      version: manifest.devDependencies.electron,
+      preEmbedProvisioningProfile: false,
+      ignore: isResource,
+      optionsForFile: () => ({
+        hardenedRuntime: true,
+        entitlements: ["com.apple.security.cs.allow-jit"],
+      }),
+    });
+    await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
 
-  const archive = join(temporary, "Tidy.zip");
-  await run("ditto", ["-c", "-k", "--keepParent", app, archive]);
-  await notarize(archive);
-  await run("xcrun", ["stapler", "staple", app]);
+    const archive = join(temporary, "Tidy.zip");
+    await run("ditto", ["-c", "-k", "--keepParent", app, archive]);
+    await notarize(archive);
+    await run("xcrun", ["stapler", "staple", app]);
+  }
+  await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
   await run("xcrun", ["stapler", "validate", app]);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
 
   const contents = join(temporary, "contents");
-  await cp(app, join(contents, "Tidy.app"), { recursive: true });
+  const copiedApp = join(contents, "Tidy.app");
+  await cp(app, copiedApp, { recursive: true, verbatimSymlinks: true });
+  await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", copiedApp]);
   await symlink("/Applications", join(contents, "Applications"));
   await run("hdiutil", [
     "create",

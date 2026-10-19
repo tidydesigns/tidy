@@ -280,6 +280,11 @@ before waiting (up to 15 minutes for each submission). If Apple takes longer,
 inspect the submission with `xcrun notarytool info <id> --keychain-profile <profile>`;
 an incomplete or rejected run is not a verified release candidate.
 
+If app notarization has completed and the app is already stapled, append `--resume`
+to retry only the DMG stage without rebuilding or re-uploading the app. This
+requires the existing app's version/build metadata, signature, notarization ticket
+and Gatekeeper assessment to pass. Keep the source and build number unchanged.
+
 The command does not publish, install, or deploy anything. Test the DMG on another
 Mac before public distribution. This first candidate has manual updates; it does
 not configure automatic updates, CI signing, or website download links. Those
