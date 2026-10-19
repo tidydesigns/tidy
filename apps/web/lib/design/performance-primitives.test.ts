@@ -121,3 +121,23 @@ test("measured free-tree bounds retain overflowing descendants and pinned select
   bounds.set("root", { x: 4000, y: 0, width: 100, height: 100 });
   expect(visibleCanvasRoots([root], view, size, ["root"], bounds)).toEqual(["root"]);
 });
+
+test("culling refreshes root bounds after edits and uses current measured overflow", () => {
+  const root = buildDrawnNode("root", "artboard", null, {
+    x: 4000,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  const nodes = [root];
+  const view = { x: 0, y: 0, zoom: 1 };
+  const size = { width: 1200, height: 900 };
+  expect(visibleCanvasRoots(nodes, view, size, [])).toEqual([]);
+  const measured = new Map([[root.id, { x: 0, y: 0, width: 100, height: 100 }]]);
+  expect(visibleCanvasRoots(nodes, view, size, [], measured)).toEqual([root.id]);
+  measured.clear();
+  expect(visibleCanvasRoots(nodes, view, size, [], measured)).toEqual([]);
+  const moved = { ...root, box: { ...root.box, x: 0 } };
+  expect(visibleCanvasRoots([moved], view, size, [])).toEqual([root.id]);
+  expect(visibleCanvasRoots([], view, size, [])).toEqual([]);
+});

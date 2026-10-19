@@ -74,6 +74,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type MouseEvent,
   type PointerEvent,
   type ReactNode,
@@ -1237,6 +1238,13 @@ export function FileEditor({
       viewPreferences.snapPixels,
     );
   }
+
+  const cursorPresenceFrame = useFrameEvent((clientX: number, clientY: number) => {
+    room.publishPresence({ cursor: worldPoint({ clientX, clientY }), away: false });
+  });
+  const artboardLabelStyle: CSSProperties & { "--canvas-zoom": number } = {
+    "--canvas-zoom": view.zoom,
+  };
 
   function placementTarget(): PlacementTarget {
     const parentId =
@@ -4269,9 +4277,12 @@ export function FileEditor({
             (event.target instanceof Element && event.target.closest("[data-canvas-control]"))
           )
             return;
-          room.publishPresence({ cursor: worldPoint(event), away: false });
+          cursorPresenceFrame.schedule(event.clientX, event.clientY);
         }}
-        onPointerLeave={() => room.publishPresence({ cursor: null }, true)}
+        onPointerLeave={() => {
+          cursorPresenceFrame.cancel();
+          room.publishPresence({ cursor: null }, true);
+        }}
         onContextMenu={(event) => {
           if (viewPreferences.rightClickPan) event.preventDefault();
         }}
@@ -4388,14 +4399,16 @@ export function FileEditor({
               />
             </ImageViewportProvider>
             {!prototypeMode && (
-              <CanvasArtboardLabels
-                nodesById={renderedById}
-                visibleRootIds={visibleRootIds}
-                selectedIds={selectedIds}
-                readOnly={readOnly}
-                onSelect={selectArtboard}
-                onRename={renameArtboard}
-              />
+              <div style={artboardLabelStyle}>
+                <CanvasArtboardLabels
+                  nodesById={renderedById}
+                  visibleRootIds={visibleRootIds}
+                  selectedIds={selectedIds}
+                  readOnly={readOnly}
+                  onSelect={selectArtboard}
+                  onRename={renameArtboard}
+                />
+              </div>
             )}
           </div>
           <CanvasHover

@@ -74,10 +74,12 @@ test("selection outlines keep screen-pixel widths through zoom and restore layer
       return {
         width: parseFloat(style.outlineWidth) * scale,
         offset: parseFloat(element.style.outlineOffset) * scale,
+        inheritedZoom: style.getPropertyValue("--canvas-zoom"),
       };
     });
     expect(actual.width).toBeCloseTo(2, 1);
     expect(actual.offset).toBeCloseTo(1, 1);
+    expect(actual.inheritedZoom).toBe("");
   }
   await page.keyboard.up("Control");
   await page.getByRole("button", { name: "Select Header", exact: true }).click();
@@ -145,4 +147,48 @@ test("cached hover restores resize observation after leaving and returning", asy
       return Math.abs(artwork.width - overlay);
     })
     .toBeLessThan(0.2);
+});
+
+test("cursor presence reads layout once per frame and cancels pending work on leave", async ({
+  page,
+}) => {
+  await page.goto("/dev/performance-preview?nodes=5000");
+  await page.getByRole("button", { name: "Select tool", exact: true }).click();
+  const result = await page
+    .getByRole("region", { name: "Design canvas", exact: true })
+    .evaluate(async (canvas) => {
+      const original = Element.prototype.getBoundingClientRect;
+      let reads = 0;
+      Element.prototype.getBoundingClientRect = function () {
+        if (this === canvas) reads++;
+        return original.call(this);
+      };
+      const settle = () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+      const move = () =>
+        canvas.dispatchEvent(
+          new PointerEvent("pointermove", {
+            bubbles: true,
+            pointerType: "mouse",
+            clientX: 500,
+            clientY: 400,
+          }),
+        );
+      try {
+        for (let i = 0; i < 1000; i++) move();
+        await settle();
+        const burstReads = reads;
+        reads = 0;
+        move();
+        canvas.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
+        canvas.dispatchEvent(new PointerEvent("pointerleave"));
+        await settle();
+        return { burstReads, leaveReads: reads };
+      } finally {
+        Element.prototype.getBoundingClientRect = original;
+      }
+    });
+  expect(result).toEqual({ burstReads: 1, leaveReads: 0 });
 });

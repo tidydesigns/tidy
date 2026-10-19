@@ -108,11 +108,17 @@ export function resolvedDesignTokens(document: TokenDocument): Map<string, Desig
   return result;
 }
 
-const nodeCache = new WeakMap<DesignNode, { key: string; node: DesignNode }>();
+const nodeCache = new WeakMap<
+  DesignNode,
+  { tokens: ReturnType<typeof resolvedDesignTokens>; key: string; node: DesignNode }
+>();
 export function resolveNodeTokens(node: DesignNode, document: TokenDocument): DesignNode {
-  const entries = Object.entries(node.tokenBindings ?? {}).filter((entry) => Boolean(entry[1]));
-  if (!entries.length) return node;
+  if (!node.tokenBindings) return node;
   const tokens = resolvedDesignTokens(document);
+  const cached = nodeCache.get(node);
+  if (cached?.tokens === tokens) return cached.node;
+  const entries = Object.entries(node.tokenBindings).filter((entry) => Boolean(entry[1]));
+  if (!entries.length) return node;
   const values = entries.map(([binding, name]) => {
     const token = tokens.get(name!);
     if (!token || token.type !== bindingKinds[binding as TokenBinding] || !("value" in token))
@@ -124,8 +130,10 @@ export function resolveNodeTokens(node: DesignNode, document: TokenDocument): De
     return [binding, token.value] as const;
   });
   const key = JSON.stringify(values);
-  const cached = nodeCache.get(node);
-  if (cached?.key === key) return cached.node;
+  if (cached?.key === key) {
+    cached.tokens = tokens;
+    return cached.node;
+  }
   const result = { ...node, box: { ...node.box }, style: { ...node.style } };
   // Individual typography bindings override a reusable text style.
   const text = values.find(([key]) => key === "textStyle")?.[1];
@@ -139,7 +147,7 @@ export function resolveNodeTokens(node: DesignNode, document: TokenDocument): De
   }
   if (node.tokenBindings?.width) result.widthMode = "fixed";
   if (node.tokenBindings?.height) result.heightMode = "fixed";
-  nodeCache.set(node, { key, node: result });
+  nodeCache.set(node, { tokens, key, node: result });
   return result;
 }
 
