@@ -4793,7 +4793,7 @@ export function FileEditor({
           {!inspectorOpen && !prototypeMode && threadControl && (
             <div
               data-canvas-control
-              className="absolute right-4 top-4 z-20 rounded-lg bg-surface p-1"
+              className="absolute right-4 top-4 z-20 rounded-lg bg-surface p-1 md:top-20"
             >
               {threadControl}
             </div>
