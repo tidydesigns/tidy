@@ -13,6 +13,7 @@
   --color-hover-surface: light-dark(#f0f0f0, #2b2b2b);
   --color-subtle-fill: light-dark(#e9e9e9, #333333);
   --desktop-surface: light-dark(#ffffff, #262626);
+  --project-sidebar-width: 224px;
   font-family: var(--font-instrument-sans);
   color: var(--color-ink);
   background: var(--color-panel);
@@ -41,7 +42,7 @@ body {
   align-items: center;
   flex-shrink: 0;
   gap: 16px;
-  padding: 10px 16px;
+  padding: 10px;
 }
 
 .workspace-tabs {
@@ -203,7 +204,7 @@ summary:focus-visible {
 }
 .project-picker {
   min-width: 0;
-  max-width: 280px;
+  width: min(100%, calc(var(--project-sidebar-width) - 21px));
 }
 .recent-projects {
   display: flex;
@@ -237,7 +238,7 @@ summary:focus-visible {
 }
 .project-workspace:not([hidden]) {
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: var(--project-sidebar-width) minmax(0, 1fr);
 }
 .project-sidebar {
   display: flex;
@@ -562,8 +563,8 @@ summary:focus-visible {
   }
 }
 @media (max-width: 800px) {
-  .project-workspace:not([hidden]) {
-    grid-template-columns: 180px minmax(0, 1fr);
+  .desktop {
+    --project-sidebar-width: 180px;
   }
   .content-heading {
     padding-inline: 20px;
