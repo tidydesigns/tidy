@@ -74,6 +74,7 @@ export function SelectMenu({
     function position(event?: Event) {
       if (event?.target instanceof Node && popup.contains(event.target)) return;
       if ((event?.type === "scroll" || event?.type === "wheel") && dismissOnScroll) {
+        if (popup.contains(document.activeElement)) anchor.focus({ preventScroll: true });
         setOpen(false);
         return;
       }

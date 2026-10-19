@@ -286,6 +286,21 @@ try {
   await page.mouse.move(5, 5);
   await page.mouse.wheel(0, 100);
   await picker.waitFor({ state: "hidden" });
+  assert.equal(
+    await trigger.evaluate((element) => element === document.activeElement),
+    true,
+    "Wheel dismissal returns menu-item focus to its trigger",
+  );
+  await trigger.click();
+  await reply.focus();
+  await picker.waitFor();
+  await page.mouse.wheel(0, 100);
+  await picker.waitFor({ state: "hidden" });
+  assert.equal(
+    await reply.evaluate((element) => element === document.activeElement),
+    true,
+    "Wheel dismissal preserves focus moved outside the picker",
+  );
   await trigger.click();
   await page.keyboard.press("Tab");
   assert.equal(await picker.count(), 0, "Tab leaves the picker");
@@ -304,6 +319,12 @@ try {
     element.scrollTop = 0;
   });
   await picker.waitFor({ state: "hidden" });
+  assert.equal(
+    await triggers.last().evaluate((element) => element === document.activeElement),
+    true,
+    "Scroll dismissal returns focus without scrolling its trigger back into view",
+  );
+  assert.equal(await scroller.evaluate((element) => element.scrollTop), 0);
   await triggers.first().click();
   const oldId = await triggers.first().getAttribute("aria-controls");
   await triggers.nth(1).click();
