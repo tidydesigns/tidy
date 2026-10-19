@@ -384,7 +384,10 @@ const LayerRow = memo(function LayerRow({
           >
             {glyph}
           </span>
-          <span id={labelId} className="truncate">
+          <span
+            id={labelId}
+            className={`truncate ${node.parentId === null && node.type === "artboard" ? "font-medium" : ""}`}
+          >
             {node.name}
           </span>
         </button>
