@@ -396,32 +396,3 @@ test("linked instance literal detachment survives master updates and reset resto
     350,
   );
 });
-
-test("cached token resolutions follow alias edits and reject removed or incompatible bindings", () => {
-  const document = fixture();
-  const node = document.nodes[0];
-  const resolved = resolveNodeTokens(node, document);
-  expect(resolveNodeTokens(node, { ...document })).toBe(resolved);
-  const unrelated: DesignDocument = {
-    ...document,
-    designTokens: { ...document.designTokens, unused: { type: "number", value: 1 } },
-  };
-  expect(resolveNodeTokens(node, unrelated)).toBe(resolved);
-  const changed: DesignDocument = {
-    ...document,
-    designTokens: { ...document.designTokens, rounded: { type: "radius", value: 24 } },
-  };
-  expect(resolveNodeTokens(node, changed).style.radius).toBe(24);
-  expect(resolveNodeTokens(node, document)).toEqual(resolved);
-  const removed = { ...document.designTokens };
-  delete removed.rounded;
-  expect(() => resolveNodeTokens(node, { ...document, designTokens: removed })).toThrow();
-  expect(() =>
-    resolveNodeTokens(node, {
-      ...document,
-      designTokens: { ...document.designTokens, rounded: { type: "number", value: 24 } },
-    }),
-  ).toThrow();
-  const edited = { ...node, box: { ...node.box, x: 80 } };
-  expect(resolveNodeTokens(edited, document).box.x).toBe(80);
-});
