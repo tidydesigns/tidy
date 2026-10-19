@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { agentOptions, setupFor, type Agent } from "@/app/mcp/agent-setup";
 import { CopyableValue } from "@/components/mcp/copyable-value";
 import { McpPromptButton, type SetupPromptProps } from "@/components/mcp/setup-prompt";
@@ -9,8 +9,11 @@ import { useFeatureFlag } from "@/lib/use-feature-flag";
 
 export type EditorAgentSetup = Pick<SetupPromptProps, "resourceUrl" | "organizationId">;
 
-export function EditorAgentConnection({ setup }: { setup: EditorAgentSetup }) {
+export function EditorAgentConnection({ setup, open }: { setup: EditorAgentSetup; open: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    if (!open && dialog.current?.open) dialog.current.close();
+  }, [open]);
   const id = useId();
   const [agent, setAgent] = useState<Agent>("codex");
   const [copied, setCopied] = useState(false);

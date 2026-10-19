@@ -322,6 +322,14 @@ test("switching to a narrow canvas dismisses agent setup with its sidebar", asyn
   await expect(dialog).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(dialog).toBeHidden();
+  await expect(page.locator("dialog").filter({ hasText: "Connect your agent" })).toHaveJSProperty(
+    "open",
+    false,
+  );
   await expect(canvas).toBeVisible();
+  await page.getByRole("button", { name: "Text tool", exact: true }).click();
+  await canvas.focus();
+  await canvas.press("Enter");
+  await expect(page.getByRole("textbox", { name: "Edit Text", exact: true })).toBeFocused();
   await expect(page.getByRole("button", { name: "Page settings", exact: true })).toHaveCount(0);
 });

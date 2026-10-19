@@ -5001,6 +5001,7 @@ export function FileEditor({
               )}
             {(!selected || toolInspectorActive) && (
               <ToolInspector
+                open={inspectorOpen}
                 tool={tool === "frame" || tool === "text" ? tool : null}
                 textNode={textToolNode}
                 onTextPatch={patchTextDefaults}

@@ -152,6 +152,7 @@ export function TextToolInspector({
 }
 
 export function ToolInspector({
+  open,
   tool,
   textNode,
   onTextPatch,
@@ -161,6 +162,7 @@ export function ToolInspector({
   agentSetup,
   readOnly,
 }: {
+  open: boolean;
   tool: "frame" | "text" | null;
   textNode: DesignNode;
   onTextPatch: (patch: Patch) => void;
@@ -221,7 +223,7 @@ export function ToolInspector({
       </Section>
       {agentSetup && (
         <Section replayTitle title="MCP">
-          <EditorAgentConnection setup={agentSetup} />
+          <EditorAgentConnection setup={agentSetup} open={open} />
         </Section>
       )}
     </>
