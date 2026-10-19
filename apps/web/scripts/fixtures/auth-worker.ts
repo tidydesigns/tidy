@@ -20,7 +20,7 @@ import { reserveFeedbackUpload } from "../../lib/feedback/upload-budget";
 import { APIError } from "better-auth/api";
 import { reserveAvatarStorage } from "../../lib/security/avatar-budget";
 import { OperationBudgetError } from "../../lib/security/operation-budget";
-import { reserveRealtimeMessages } from "../../lib/realtime/message-budget";
+import { reserveRealtimeMessages, RealtimeMessageBudget } from "../../lib/realtime/message-budget";
 import { admitServerTrace } from "../../lib/security/server-telemetry-budget";
 import {
   reserveCommentMutation,
@@ -53,11 +53,34 @@ export class LegacyAuthGuard extends DurableObject<CloudflareEnv> {
     return this.store.consume(key, rule);
   }
 }
+// Unlike separate Worker invocations, one Durable Object shares an I/O context.
+export class PresenceBudgetRoom extends DurableObject<CloudflareEnv> {
+  private reservations = 0;
+  private budget = new RealtimeMessageBudget(async (userId) => {
+    this.reservations++;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    return reserveRealtimeMessages(this.env, userId);
+  });
+  async consume(userId: string): Promise<{ allowed: boolean; reservations: number }> {
+    return { allowed: await this.budget.consume(userId), reservations: this.reservations };
+  }
+}
 const worker = {
-  async fetch(request: Request, env: Pick<CloudflareEnv, "AUTH_GUARD" | "BETTER_AUTH_SECRET">) {
+  async fetch(
+    request: Request,
+    env: Pick<CloudflareEnv, "AUTH_GUARD" | "BETTER_AUTH_SECRET"> & {
+      TEST_MESSAGE_ROOMS: DurableObjectNamespace<PresenceBudgetRoom>;
+    },
+  ) {
     const path = new URL(request.url).pathname;
     // Same context mechanism OpenNext supplies to the production guard client.
     Object.assign(globalThis, { [Symbol.for("__cloudflare-context__")]: { env } });
+    if (path === "/presence-overlap") {
+      const room = env.TEST_MESSAGE_ROOMS.getByName("overlapping-events");
+      return Response.json(
+        await Promise.all(Array.from({ length: 24 }, () => room.consume("overlap-account"))),
+      );
+    }
     if (path === "/avatar-storage-budget") {
       try {
         await reserveAvatarStorage(

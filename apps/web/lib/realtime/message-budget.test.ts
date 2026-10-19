@@ -73,11 +73,12 @@ test("overlapping messages cannot obtain multiple outstanding batches", async ()
     });
   });
   const first = room.consume("account");
-  expect(await room.consume("account")).toBe(false);
+  const second = room.consume("account");
   expect(calls).toBe(1);
   finish({ allowed: true, retryAfter: null });
   expect(await first).toBe(true);
-  for (let i = 0; i < 9; i++) expect(await room.consume("account")).toBe(true);
+  expect(await second).toBe(true);
+  for (let i = 0; i < 8; i++) expect(await room.consume("account")).toBe(true);
   expect(calls).toBe(1);
 });
 

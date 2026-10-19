@@ -20,10 +20,15 @@ export async function reserveRealtimeMessages(env: BudgetEnvironment, userId: st
   );
 }
 
-type Allowance = { remaining: number; until: number; pending: boolean; blocked: boolean };
+type Allowance = {
+  remaining: number;
+  until: number;
+  pending: Promise<boolean> | null;
+  blocked: boolean;
+};
 
-/** Short-lived prepaid batches share durable account limits across rooms. Never
- * share an in-flight RPC between events; concurrent messages may be dropped. */
+/** Short-lived prepaid batches share durable account limits across rooms.
+ * Instantiate only inside a Durable Object, whose events share one I/O context. */
 export class RealtimeMessageBudget {
   private accounts = new Map<string, Allowance>();
   constructor(
@@ -36,10 +41,14 @@ export class RealtimeMessageBudget {
     this.accounts.delete(userId);
   }
 
-  async consume(userId: string) {
+  async consume(userId: string): Promise<boolean> {
     const now = this.now();
     let entry = this.accounts.get(userId);
-    if (entry?.pending) return false;
+    if (entry?.pending) {
+      await entry.pending;
+      if (this.accounts.get(userId) !== entry) return false;
+      return this.consume(userId);
+    }
     if (entry && entry.until > now) {
       if (entry.blocked) return false;
       if (entry.remaining > 0) {
@@ -51,24 +60,27 @@ export class RealtimeMessageBudget {
       for (const [id, value] of this.accounts)
         if (!value.pending && value.until <= now) this.accounts.delete(id);
       if (this.accounts.size >= 100) return false;
-      entry = { remaining: 0, until: 0, pending: false, blocked: false };
+      entry = { remaining: 0, until: 0, pending: null, blocked: false };
       this.accounts.set(userId, entry);
     }
-    entry.pending = true;
-    try {
-      const result = await this.reserve(userId);
-      entry.until =
-        this.now() + (result.allowed ? 1000 : Math.max(1000, (result.retryAfter ?? 1) * 1000));
-      entry.remaining = result.allowed ? REALTIME_MESSAGE_LIMITS.batch - 1 : 0;
-      entry.blocked = !result.allowed;
-      return result.allowed;
-    } catch {
-      entry.until = this.now() + 1000;
-      entry.remaining = 0;
-      entry.blocked = true;
-      return false;
-    } finally {
-      entry.pending = false;
-    }
+    const current = entry;
+    current.pending = (async () => {
+      try {
+        const result = await this.reserve(userId);
+        current.until =
+          this.now() + (result.allowed ? 1000 : Math.max(1000, (result.retryAfter ?? 1) * 1000));
+        current.remaining = result.allowed ? REALTIME_MESSAGE_LIMITS.batch - 1 : 0;
+        current.blocked = !result.allowed;
+        return result.allowed;
+      } catch {
+        current.until = this.now() + 1000;
+        current.remaining = 0;
+        current.blocked = true;
+        return false;
+      } finally {
+        current.pending = null;
+      }
+    })();
+    return current.pending;
   }
 }

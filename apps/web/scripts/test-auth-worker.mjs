@@ -39,12 +39,28 @@ const worker = new Miniflare(
     compatibilityDate: "2026-09-26",
     compatibilityFlags: ["nodejs_compat", "global_fetch_strictly_public"],
     bindings: { BETTER_AUTH_SECRET: "worker-fixture-budget-secret-at-least-32-characters" },
-    durableObjects: { AUTH_GUARD: { className: "AuthGuard", useSQLite: true } },
+    durableObjects: {
+      AUTH_GUARD: { className: "AuthGuard", useSQLite: true },
+      TEST_MESSAGE_ROOMS: { className: "PresenceBudgetRoom", useSQLite: true },
+    },
     outboundService,
   }),
 );
 try {
   await worker.ready;
+  const overlaps = await (await worker.dispatchFetch("https://auth.test/presence-overlap")).json();
+  assert.equal(overlaps.length, 24);
+  assert.equal(
+    overlaps.every((result) => result.allowed),
+    true,
+    "Overlapping Durable Object events must retain every admitted update",
+  );
+  assert.equal(
+    Math.max(...overlaps.map((result) => result.reservations)),
+    3,
+    "Overlapping events share ten-message batches in one I/O context",
+  );
+
   const avatarAttempts = await Promise.all(
     Array.from({ length: 65 }, () =>
       worker.dispatchFetch("https://auth.test/avatar-storage-budget"),

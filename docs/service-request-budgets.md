@@ -31,7 +31,8 @@ Room restarts cannot reset the durable account counters.
 
 Over-budget presence updates are dropped. The document mutation pipeline has its
 own independent limits. A failed guard is retried after a short local cooldown,
-and overlapping events do not share pending I/O. Socket authorization is checked
+and overlapping events within the same Durable Object reuse its pending
+reservation before consuming separate permits. Socket authorization is checked
 again after admission because revocation can interleave while waiting.
 
 ## Diagnostics
