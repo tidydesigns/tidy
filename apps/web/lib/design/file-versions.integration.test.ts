@@ -906,3 +906,115 @@ integration(
     }
   },
 );
+
+integration(
+  "agent palettes and layer links commit together, with conflicts and invalid edits rolled back",
+  async () => {
+    const services = await import("./document-service");
+    const id = `token-${fixture}`;
+    const before = parseDesignDocument({
+      ...initial(),
+      tokens: { ink: "#123456" },
+      designTokens: { border: { type: "color", alias: "ink" } },
+    });
+    await client.query(
+      'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,\'Tokens\',$3)',
+      [id, organization, actor],
+    );
+    await client.query('insert into "designDocument" ("fileId","content") values ($1,$2::jsonb)', [
+      id,
+      JSON.stringify(before),
+    ]);
+    const read = async () =>
+      (
+        await client.query('select "revision","content" from "designDocument" where "fileId"=$1', [
+          id,
+        ])
+      ).rows[0];
+    const saved = await services.patchDocumentNodes(
+      actor,
+      id,
+      1,
+      [
+        { nodeId: "frame", changes: { style: { fillToken: "paper" } } },
+        { nodeId: "text", changes: { style: { colorToken: "ink" } } },
+      ],
+      {
+        designTokens: {
+          paper: { type: "color", value: "#ffffff80" },
+          ink: { type: "color", value: "#123456" },
+        },
+      },
+    );
+    expect(saved.revision).toBe(2);
+    expect(saved.document.nodes[0].style.fillToken).toBe("paper");
+    expect(saved.document.nodes[1].style.colorToken).toBe("ink");
+    expect(saved.document.designTokens?.paper).toEqual({ type: "color", value: "#ffffff80" });
+    expect(saved.document.designTokens?.border).toEqual({ type: "color", alias: "ink" });
+    expect(saved.document.tokens).toEqual({});
+    const committed = await read();
+    expect(committed).toEqual({ revision: saved.revision, content: saved.document });
+    await expect(
+      services.patchDocumentNode(
+        actor,
+        id,
+        1,
+        "frame",
+        {},
+        {
+          designTokens: { stale: { type: "color", value: "#000000" } },
+        },
+      ),
+    ).rejects.toThrow("Refresh before editing");
+    await expect(
+      services.patchDocumentNode(
+        actor,
+        id,
+        2,
+        "frame",
+        {},
+        {
+          designTokens: { ink: { type: "color", alias: "border" } },
+        },
+      ),
+    ).rejects.toThrow();
+    await expect(
+      services.patchDocumentNode(
+        outsider,
+        id,
+        2,
+        "frame",
+        {},
+        {
+          designTokens: { denied: { type: "color", value: "#000000" } },
+        },
+      ),
+    ).rejects.toThrow("access denied");
+    await expect(
+      services.patchDocumentNode(
+        actor,
+        id,
+        2,
+        "missing",
+        {},
+        {
+          designTokens: { orphaned: { type: "color", value: "#000000" } },
+        },
+      ),
+    ).rejects.toThrow("Layer not found");
+    expect(await read()).toEqual(committed);
+    const updated = await services.patchDocumentNode(
+      actor,
+      id,
+      2,
+      "frame",
+      {},
+      {
+        designTokens: { paper: { type: "color", value: "#f5f1e9" } },
+      },
+    );
+    expect(updated.revision).toBe(3);
+    expect(updated.document.nodes[0].style.fillToken).toBe("paper");
+    expect(updated.document.designTokens?.paper).toEqual({ type: "color", value: "#f5f1e9" });
+  },
+);

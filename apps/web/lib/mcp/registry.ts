@@ -408,13 +408,14 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("patch_document"),
       description:
-        "Edit UI nodes at the current expected_revision. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
+        "Edit UI nodes at the current expected_revision. Optional design_tokens merges named token definitions (preserving others) and applies node bindings in the same transaction. Use existing names to update tokens; use an empty changes object for a token-only edit of an existing node. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
       inputSchema: mcpSchema("patch_document", () =>
         z.object({
           file_id: z.string().min(1),
           expected_revision: z.number().int().min(1),
           node_id: z.string().min(1),
           changes: designNodeChangesSchema,
+          design_tokens: designTokensSchema.optional(),
           additional_edits: z
             .array(z.object({ node_id: z.string().min(1), changes: designNodeChangesSchema }))
             .max(249)
@@ -430,6 +431,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       changes,
       additional_edits = [],
       include_document,
+      design_tokens,
     }) => {
       try {
         if (additional_edits.length) {
@@ -441,6 +443,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
               nodeId: node_id,
               changes,
             })),
+            { designTokens: design_tokens },
           );
           const value = {
             revision: saved.revision,
@@ -449,7 +452,14 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
           };
           return result(include_document ? { ...value, document: saved.document } : value);
         }
-        const saved = await patchDocumentNode(userId, file_id, expected_revision, node_id, changes);
+        const saved = await patchDocumentNode(
+          userId,
+          file_id,
+          expected_revision,
+          node_id,
+          changes,
+          { designTokens: design_tokens },
+        );
         return result(include_document ? saved : { revision: saved.revision, node: saved.node });
       } catch (error) {
         return failure(actionError(error, "Could not edit node."));

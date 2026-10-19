@@ -25,6 +25,8 @@ import {
 } from "@/lib/design/document";
 import { mergeImport, requireImportSource } from "@/lib/design/merge-import";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
+import type { DesignTokens } from "./design-tokens";
+import { mergeDesignTokens } from "./token-catalog";
 import { changedLayerBatch } from "@/lib/design/edit-document";
 import { trackDocumentChanges } from "@/lib/design/edit-document";
 import { layoutReport } from "./layout-diagnostics";
@@ -835,8 +837,16 @@ export async function patchDocumentNode(
   expectedRevision: number,
   nodeId: string,
   changes: DesignNodeChanges,
+  options: { designTokens?: DesignTokens } = {},
 ) {
-  const saved = await patchNodes(userId, fileId, expectedRevision, [{ nodeId, changes }], false);
+  const saved = await patchNodes(
+    userId,
+    fileId,
+    expectedRevision,
+    [{ nodeId, changes }],
+    false,
+    options,
+  );
   return { revision: saved.revision, node: saved.nodes[0], document: saved.document };
 }
 
@@ -845,8 +855,9 @@ export function patchDocumentNodes(
   fileId: string,
   expectedRevision: number,
   edits: { nodeId: string; changes: DesignNodeChanges }[],
+  options: { designTokens?: DesignTokens } = {},
 ) {
-  return patchNodes(userId, fileId, expectedRevision, edits, true);
+  return patchNodes(userId, fileId, expectedRevision, edits, true, options);
 }
 
 async function patchNodes(
@@ -855,6 +866,7 @@ async function patchNodes(
   expectedRevision: number,
   edits: { nodeId: string; changes: DesignNodeChanges }[],
   requireTargets: boolean,
+  options: { designTokens?: DesignTokens },
 ) {
   if (edits.length < 1 || edits.length > 250)
     throw new PublicActionError("Provide between 1 and 250 layer edits.");
@@ -883,11 +895,17 @@ async function patchNodes(
     if (current.revision !== expectedRevision)
       throw new PublicActionError("Document changed. Refresh before editing.");
     const existing = new Set(current.content.nodes.map((node) => node.id));
-    if (requireTargets && edits.some((edit) => !existing.has(edit.nodeId)))
+    if (
+      (requireTargets || options.designTokens) &&
+      edits.some((edit) => !existing.has(edit.nodeId))
+    )
       throw new PublicActionError("Layer not found. Refresh before editing.");
-    const nodes = changedLayerBatch(current.content, edits);
+    const content = options.designTokens
+      ? mergeDesignTokens(current.content, options.designTokens)
+      : current.content;
+    const nodes = changedLayerBatch(content, edits);
     const document = trackDocumentChanges(current.content, {
-      ...current.content,
+      ...content,
       nodes,
       editedNodeIds: [
         ...new Set([...current.content.editedNodeIds, ...edits.map((edit) => edit.nodeId)]),
