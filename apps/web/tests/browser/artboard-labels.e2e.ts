@@ -110,3 +110,52 @@ test("titles follow rotated artboards and blur preserves the next selection", as
   await page.keyboard.press("ControlOrMeta+z");
   await expect(desktop.getByRole("button")).toHaveText("Desktop 1440 · /login");
 });
+
+test("title selection preserves canvas shortcuts and keyboard activation", async ({ page }) => {
+  await page.removeLocatorHandler(
+    page
+      .getByRole("spinbutton", { name: "Export scale", exact: true })
+      .and(page.locator('[value="2"]')),
+  );
+  await page.goto("/dev/import-preview?edit=1");
+  const canvas = page.getByRole("region", { name: "Design canvas" });
+  const title = page.locator('[data-artboard-label="desktop-screen"]').getByRole("button");
+  await title.click();
+  await expect(canvas).toBeFocused();
+  const x = page.getByRole("spinbutton", { name: "X", exact: true });
+  const before = Number(await x.inputValue());
+  await page.keyboard.press("ArrowRight");
+  await expect(x).toHaveValue(String(before + 1));
+  await page.keyboard.press("ControlOrMeta+d");
+  await expect(page.locator("[data-artboard-label]")).toHaveCount(3);
+  await page.keyboard.press("Delete");
+  await expect(page.locator("[data-artboard-label]")).toHaveCount(2);
+  await title.focus();
+  await title.press("Enter");
+  await expect(canvas).toBeFocused();
+  await expect(page.locator('[data-layer-row="desktop-screen"]')).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  const mobile = page.locator('[data-artboard-label="mobile-screen"]').getByRole("button");
+  await mobile.focus();
+  await mobile.press("Space");
+  await expect(canvas).toBeFocused();
+  await expect(mobile).toHaveAttribute("aria-pressed", "true");
+});
+
+test("narrow artboard titles remain readable at low zoom", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1");
+  const canvas = page.getByRole("region", { name: "Design canvas" });
+  const title = page.locator('[data-artboard-label="mobile-screen"]').getByRole("button");
+  await title.waitFor();
+  await canvas.focus();
+  await page.keyboard.press("Shift+0");
+  for (let step = 0; step < 11; step++) await page.keyboard.press("-");
+  await expect(page.getByRole("button", { name: /^Zoom / }).first()).toContainText("10");
+  const bounds = required(await title.boundingBox());
+  expect(bounds.width).toBeGreaterThan(100);
+  expect(bounds.height).toBeCloseTo(24, 0);
+  expect(await title.evaluate((button) => button.scrollWidth <= button.clientWidth)).toBe(true);
+  await expect(title).toHaveAttribute("title", "Mobile 390 · /login");
+});

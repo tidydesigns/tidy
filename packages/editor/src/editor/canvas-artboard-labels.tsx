@@ -72,6 +72,7 @@ const ArtboardLabel = memo(function ArtboardLabel({
         style={{
           transform: "scale(calc(1 / var(--canvas-zoom, 1)))",
           width: "calc(100% * var(--canvas-zoom, 1))",
+          minWidth: 120,
         }}
         onPointerDown={(event) => event.stopPropagation()}
         onDoubleClick={(event) => event.stopPropagation()}

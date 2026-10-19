@@ -3800,6 +3800,10 @@ export function FileEditor({
     ) : null;
 
   const panelSelect = useEditorEvent(selectNode);
+  const selectArtboard = useEditorEvent((id: string, additive: boolean) => {
+    selectNode(id, additive);
+    viewport.current?.focus({ preventScroll: true });
+  });
   const renameArtboard = useEditorEvent((id: string, draft: string) => {
     const name = draft.trim();
     if (readOnly || !name) return;
@@ -4383,7 +4387,7 @@ export function FileEditor({
                 visibleRootIds={visibleRootIds}
                 selectedIds={selectedIds}
                 readOnly={readOnly}
-                onSelect={panelSelect}
+                onSelect={selectArtboard}
                 onRename={renameArtboard}
               />
             )}
