@@ -2,8 +2,10 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -65,6 +67,12 @@ export function CanvasColorPicker({
   const [request, setRequest] = useState<Request | null>(null);
   const [message, setMessage] = useState(instruction);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const pick = useCallback((apply: Request["apply"], origin: HTMLElement | null) => {
+    setMessage(instruction);
+    setRequest({ apply, origin });
+  }, []);
+  const picking = Boolean(request);
+  const context = useMemo(() => ({ picking, pick }), [picking, pick]);
   const finish = () => {
     restoreFocus.current = request?.origin ?? null;
     setRequest(null);
@@ -144,15 +152,7 @@ export function CanvasColorPicker({
     };
   }, [request, canvas, nodes, tokens]);
   return (
-    <Context.Provider
-      value={{
-        picking: Boolean(request),
-        pick: (apply, origin) => {
-          setMessage(instruction);
-          setRequest({ apply, origin });
-        },
-      }}
-    >
+    <Context.Provider value={context}>
       <main
         className={className}
         data-mobile-panels-open={mobilePanelsOpen}
