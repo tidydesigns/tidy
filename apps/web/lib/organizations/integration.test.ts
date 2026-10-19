@@ -5223,6 +5223,32 @@ integration(
       ids,
     );
     expect(retried).toEqual(created);
+    await expect(
+      createCommentWithMessage(file.id, ownerId, 10, 20, "First", "page-1", {
+        threadId: ids.threadId,
+        messageId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("Comment thread already exists.");
+    await expect(
+      createCommentWithMessage(file.id, ownerId, 10, 20, "First", "page-1", {
+        threadId: ids.threadId,
+      }),
+    ).rejects.toThrow("Comment thread already exists.");
+    await expect(
+      createCommentWithMessage(file.id, ownerId, 10, 20, "Changed", "page-1", ids),
+    ).rejects.toThrow();
+    await expect(
+      createCommentWithMessage(file.id, ownerId, 11, 20, "First", "page-1", ids),
+    ).rejects.toThrow("Comment thread already exists.");
+    await expect(
+      createCommentWithMessage(file.id, invitedId, 10, 20, "First", "page-1", ids),
+    ).rejects.toThrow("Comment thread already exists.");
+    await expect(
+      createCommentWithMessage(file.id, ownerId, 10, 20, "First", "page-1", {
+        threadId: crypto.randomUUID(),
+        messageId: ids.messageId,
+      }),
+    ).rejects.toThrow("Comment message already exists.");
     const replyId = crypto.randomUUID();
     const replies = await Promise.all([
       replyToComment(file.id, created.id, ownerId, "Reply", replyId),

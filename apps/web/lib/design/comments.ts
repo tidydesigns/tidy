@@ -10,7 +10,7 @@ import { COMMENT_EMOJIS } from "@/lib/design/comment-emoji";
 import { documentPages } from "@/lib/design/pages";
 import type { DesignDocument } from "@/lib/design/document";
 
-import type { CommentReaction, CommentThread } from "./comment-contract";
+import type { CommentMessage, CommentReaction, CommentThread } from "./comment-contract";
 export type { CommentReaction, CommentMessage, CommentThread } from "./comment-contract";
 
 function cleanBody(body: string) {
@@ -279,13 +279,24 @@ export async function createCommentWithMessage(
       throw new PublicActionError("Comment thread already exists on another page.");
     const inserted = await client.query(
       `insert into "designCommentThread" ("id", "fileId", "x", "y", "createdBy") values ($1,$2,$3,$4,$5)
-      on conflict ("id") do update set "x" = "designCommentThread"."x"
-      where "designCommentThread"."fileId" = excluded."fileId" and "designCommentThread"."createdBy" = excluded."createdBy"
-        and "designCommentThread"."x" = excluded."x" and "designCommentThread"."y" = excluded."y"
+      on conflict ("id") do nothing
       returning "id"`,
       [threadId, fileId, x, y, userId],
     );
-    if (!inserted.rowCount) throw new PublicActionError("Comment thread already exists.");
+    if (!inserted.rowCount) {
+      const existing = await client.query<
+        Pick<CommentMessage, "id" | "authorId" | "body" | "createdAt">
+      >(
+        `select c."id", c."authorId", c."body",
+        to_char(c."createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt"
+        from "designCommentThread" t join "designCommentMessage" c on c."threadId" = t."id"
+        where t."id"=$1 and t."fileId"=$2 and t."createdBy"=$3 and t."x"=$4 and t."y"=$5
+          and c."id"=$6 and c."authorId"=$3 and c."body"=$7`,
+        [threadId, fileId, userId, x, y, ids.messageId ?? null, text],
+      );
+      if (!existing.rowCount) throw new PublicActionError("Comment thread already exists.");
+      return { id: threadId, message: existing.rows[0] };
+    }
     const message = await client.query<{
       id: string;
       authorId: string;
