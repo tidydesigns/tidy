@@ -33,7 +33,13 @@ export default async function ImportPreview({ searchParams }: PageProps<"/dev/im
   return (
     <FileEditor
       fileId={typeof query.file === "string" ? query.file.slice(0, 120) : "preview"}
-      fileName={query.images === "1" ? "Coastal study" : "Login · import preview"}
+      fileName={
+        query.tokens === "1"
+          ? "Token playground"
+          : query.images === "1"
+            ? "Coastal study"
+            : "Login · import preview"
+      }
       organizationName="Local preview"
       agentSetup={{
         resourceUrl: new URL(

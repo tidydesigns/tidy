@@ -208,3 +208,49 @@ test("token popovers keep rows stable, commit click-away edits, and fit small vi
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });
+
+test("detaching paint tokens keeps resolved colors and alpha for fills, strokes and gradient stops", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Color", exact: true }).click();
+  const color = page.getByRole("textbox", { name: "Color", exact: true });
+  await color.fill("#22735980");
+  await color.press("Enter");
+  await page.keyboard.press("Escape");
+  await page.getByRole("tab", { name: "Layers", exact: true }).click();
+  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  const card = page.locator('[data-node-id="token-card"]');
+  await chooseSelectMenu(page, "Fill token", "color");
+  const boundFill = await card.evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(boundFill).toMatch(/^rgba\(34, 115, 89, 0\.5/);
+  await chooseSelectMenu(page, "Fill token", "No token");
+  await expect(card).toHaveCSS("background-color", boundFill);
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  expect(await selectMenuText(page, "Fill token")).toBe("color");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  expect(await selectMenuText(page, "Fill token")).toBe("No token");
+
+  await page.getByRole("button", { name: "Add stroke", exact: true }).click();
+  await chooseSelectMenu(page, "Stroke token", "color");
+  const boundStroke = await card.evaluate((node) => getComputedStyle(node).borderImageSource);
+  expect(decodeURIComponent(boundStroke)).toContain("#22735980");
+  await chooseSelectMenu(page, "Stroke token", "No token");
+  await expect(card).toHaveCSS("border-image-source", boundStroke);
+
+  await chooseSelectMenu(page, "Fill type", "Linear gradient");
+  await chooseSelectMenu(page, "Stop 1 token", "color");
+  const boundGradient = await card.evaluate((node) => getComputedStyle(node).backgroundImage);
+  expect(boundGradient).toContain("rgba(34, 115, 89");
+  await chooseSelectMenu(page, "Stop 1 token", "No token");
+  await expect(card).toHaveCSS("background-image", boundGradient);
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Edit token color", exact: true }).click();
+  await color.fill("#cc6699");
+  await color.press("Enter");
+  await expect(card).toHaveCSS("background-image", boundGradient);
+  await expect(card).toHaveCSS("border-image-source", boundStroke);
+});
