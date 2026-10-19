@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { applyProjectEvent, applyThreadPatch, type ThreadPatch } from "../shared/thread-updates";
-import { summarizeThread, type Thread, type ProjectSnapshot } from "../shared/contracts";
+import {
+  summarizeThread,
+  applyProjectEvent,
+  applyThreadPatch,
+  type ThreadPatch,
+} from "../shared/thread-updates";
+import type { Thread, ProjectSnapshot } from "../shared/contracts";
 
 test("stream patches preserve old message identities, append once and ignore stale or foreign updates", () => {
   const first = { id: randomUUID(), role: "user" as const, text: "Earlier request" };

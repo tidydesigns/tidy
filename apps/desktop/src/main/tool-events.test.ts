@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createHarnessParser, type HarnessUpdate } from "./harnesses";
+import { createClaudeParser, type HarnessUpdate } from "./harnesses";
 import { commandKind, createToolEventParser, plainToolText } from "./tool-events";
 import { MAX_TOOL_INPUT, MAX_TOOL_OUTPUT, type ToolActivityUpdate } from "../shared/tool-activity";
 
@@ -255,7 +255,7 @@ test("Claude background task completion retains earlier output and excludes ambi
 
 test("a failed tool is activity, not a turn error, and text precedes its tools", () => {
   const updates: HarnessUpdate[] = [];
-  const parse = createHarnessParser("claude", (update) => updates.push(update));
+  const parse = createClaudeParser((update) => updates.push(update));
   parse({
     type: "assistant",
     message: {

@@ -1,23 +1,16 @@
 import { z } from "zod";
 import { designDocumentSchema } from "@tidy/design/document";
 import { attachmentSchema } from "./attachments";
-import { liveThreadSchema, threadSummarySchema } from "./thread-schema";
+import {
+  liveThreadSchema,
+  threadSummarySchema,
+  projectSchema,
+  folderSchema,
+  designSchema,
+  harnessConnectionSchema,
+} from "./contracts";
+import { harnessDetailsSchema } from "./harness-settings";
 
-const projectSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  path: z.string(),
-  openedAt: z.string(),
-});
-const folderSchema = z.object({ id: z.string().uuid(), name: z.string(), updatedAt: z.string() });
-const designSchema = z.object({
-  id: z.string().uuid(),
-  name: z.string(),
-  path: z.string(),
-  updatedAt: z.string(),
-  folderId: z.string().uuid().nullable().optional(),
-  nodeCount: z.number().optional(),
-});
 const localDesignSchema = designSchema.extend({
   document: designDocumentSchema,
   version: z.string(),
@@ -29,49 +22,18 @@ const projectSnapshotSchema = z.object({
   designs: z.array(designSchema),
   folders: z.array(folderSchema),
 });
-const connectionsSchema = z.array(
-  z.object({
-    id: z.enum(["codex", "claude"]),
-    name: z.string(),
-    status: z.enum(["ready", "signed-out", "not-installed"]),
-  }),
-);
-const detailsSchema = z.object({
-  models: z.array(
-    z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string().optional(),
-      efforts: z.array(z.string()),
-      defaultEffort: z.string().optional(),
-    }),
-  ),
-  defaultModel: z.string().optional(),
-  defaultEffort: z.string().optional(),
-  windows: z.array(
-    z.object({
-      name: z.string(),
-      usedPercent: z.number(),
-      resetsAt: z.number().optional(),
-      windowMinutes: z.number().optional(),
-    }),
-  ),
-  usageError: z.string().optional(),
-  updatedAt: z.string(),
-  usagePage: z.enum(["subscription", "api"]),
-});
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 const responseSchemas = {
   bootstrap: z.object({
     projects: z.array(projectSchema),
     activeProject: projectSnapshotSchema.nullable(),
-    harnesses: connectionsSchema,
+    harnesses: z.array(harnessConnectionSchema),
   }),
   "open-project": projectSnapshotSchema.nullable(),
   "select-project": projectSnapshotSchema,
   "project-snapshot": projectSnapshotSchema,
-  harnesses: connectionsSchema,
-  "harness-details": detailsSchema,
+  harnesses: z.array(harnessConnectionSchema),
+  "harness-details": harnessDetailsSchema,
   "harness-usage-page": z.void(),
   "thread-settings": liveThreadSchema,
   "read-thread": liveThreadSchema,

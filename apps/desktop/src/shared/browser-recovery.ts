@@ -20,7 +20,6 @@ export function browserRecovery({
   return {
     remember(value: ProjectSnapshot | null) {
       if (value) projects.add(value.project.id);
-      return value;
     },
     receive(event: DesktopEvent) {
       if (closed) return;
@@ -33,9 +32,11 @@ export function browserRecovery({
       const versions = new Map(designVersions);
       const stale = () => closed || current !== generation;
       try {
-        const initial = await bootstrap();
-        if (stale()) return;
-        if (initial.activeProject) projects.add(initial.activeProject.project.id);
+        if (!projects.size) {
+          const initial = await bootstrap();
+          if (stale()) return;
+          if (initial.activeProject) projects.add(initial.activeProject.project.id);
+        }
         for (const projectId of projects) {
           if (stale()) return;
           try {

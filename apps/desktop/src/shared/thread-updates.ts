@@ -1,21 +1,35 @@
-import {
-  summarizeThread,
-  type Thread,
-  type ThreadSummary,
-  type Message,
-  type ProjectSnapshot,
-  type DesktopEvent,
-} from "./contracts";
-import type { ToolActivity } from "./tool-activity";
+import type { Thread, ThreadSummary, ProjectSnapshot, DesktopEvent } from "./contracts";
+export type ThreadPatch = Omit<Extract<DesktopEvent, { type: "thread-patch" }>, "type">;
 
-export type ThreadPatch = {
-  thread: Omit<Thread, "messages" | "toolActivities">;
-  summary: ThreadSummary;
-  messages: Message[];
-  toolActivities: ToolActivity[];
-  toolActivityIds: string[];
-};
-
+export function summarizeThread(thread: Thread): ThreadSummary {
+  let preview: string | undefined;
+  for (let index = thread.messages.length - 1; index >= 0; index--) {
+    const message = thread.messages[index];
+    if (message.role === "assistant") {
+      preview = message.text.slice(0, 320);
+      break;
+    }
+  }
+  return {
+    revision: thread.revision,
+    id: thread.id,
+    projectId: thread.projectId,
+    title: thread.title,
+    harness: thread.harness,
+    doneAt: thread.doneAt,
+    settings: thread.settings,
+    actualModel: thread.actualModel,
+    usage: thread.usage,
+    preview,
+    messageCount: thread.messages.length,
+    designIds: thread.designIds,
+    status: thread.status,
+    activity: thread.activity,
+    pendingApprovalCount: thread.pendingApprovals?.length,
+    error: thread.error,
+    updatedAt: thread.updatedAt,
+  };
+}
 /** Preserve unchanged message/row identities as well as avoiding history copies over IPC. */
 export function applyThreadPatch(previous: Thread, patch: ThreadPatch): Thread {
   if (

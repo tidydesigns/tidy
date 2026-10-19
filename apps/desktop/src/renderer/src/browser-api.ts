@@ -1,5 +1,5 @@
 import { chooseBrowserProject } from "./browser-project-picker";
-import { desktopEventSchema } from "../../shared/thread-schema";
+import { desktopEventSchema } from "../../shared/contracts";
 import { browserRecovery } from "../../shared/browser-recovery";
 import {
   parseWorkspaceResponse,
@@ -115,7 +115,7 @@ const api: DesktopAPI = {
       onError: (error) => console.error("Browser project recovery failed", error),
     });
     recoveries.add(recovery);
-    events.onopen = () => void recovery.refresh();
+    events.addEventListener("resync", () => void recovery.refresh());
     events.onmessage = (message) => {
       try {
         recovery.receive(desktopEventSchema.parse(JSON.parse(message.data)));

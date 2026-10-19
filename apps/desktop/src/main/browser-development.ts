@@ -196,9 +196,9 @@ else fetch('/__tidy/session', {method:'POST',headers:{'Content-Type':'applicatio
         const lastId = request.headers["last-event-id"];
         if (lastId) {
           const index = history.findIndex((event) => event.id === lastId);
-          if (index < 0) response.write("event: resync\ndata: {}\n\n");
-          else for (const event of history.slice(index + 1)) response.write(event.data);
-        }
+          if (index >= 0) for (const event of history.slice(index + 1)) response.write(event.data);
+          else if (lastId !== `${epoch}:${sequence}`) response.write("event: resync\ndata: {}\n\n");
+        } else response.write("event: resync\ndata: {}\n\n");
         // Even quiet connections carry a cursor, allowing recovery across a server restart.
         response.write(`id: ${epoch}:${sequence}\n\n`);
         streams.add(response);

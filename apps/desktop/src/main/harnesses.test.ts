@@ -3,7 +3,7 @@ import { chmod, copyFile, mkdtemp, readFile, realpath, rm, stat } from "node:fs/
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  createHarnessParser,
+  createClaudeParser,
   findHarness,
   harnessEnvironment,
   startHarness,
@@ -353,7 +353,7 @@ test("model and effort reach the native harness protocol literally", async () =>
 
 test("Claude startup failures cannot erase a resumed thread's recorded usage", () => {
   const updates: HarnessUpdate[] = [];
-  createHarnessParser("claude", (update) => updates.push(update))({
+  createClaudeParser((update) => updates.push(update))({
     type: "result",
     is_error: true,
     errors: ["Could not start"],

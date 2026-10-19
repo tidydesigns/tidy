@@ -1,4 +1,5 @@
-import { createHarnessParser, type HarnessUpdate } from "./harnesses";
+import type { HarnessUpdate } from "./harnesses";
+import { createToolEventParser } from "./tool-events";
 import { MAX_TOOL_OUTPUT } from "../shared/tool-activity";
 const object = (value: unknown): Record<string, unknown> =>
   value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -6,7 +7,7 @@ const text = (value: unknown) => (typeof value === "string" ? value : "");
 
 /** Convert App Server's public v2 items into the same bounded timeline as exec JSON. */
 export function createCodexEvents(emit: (update: HarnessUpdate) => void) {
-  const parse = createHarnessParser("codex", emit);
+  const parse = createToolEventParser("codex", (tool) => emit({ type: "tool", tool }));
   const items = new Map<string, Record<string, unknown>>();
   return (method: string, params: Record<string, unknown>) => {
     if (method === "item/agentMessage/delta")
@@ -44,8 +45,7 @@ export function createCodexEvents(emit: (update: HarnessUpdate) => void) {
     if (!id) return;
     const event = method === "item/started" ? "item.started" : "item.completed";
     if (type === "agentMessage") {
-      if (method === "item/completed")
-        parse({ type: event, item: { ...item, type: "agent_message" } });
+      if (method === "item/completed") emit({ type: "message", id, text: text(item.text) });
       return;
     }
     if (type === "commandExecution") {

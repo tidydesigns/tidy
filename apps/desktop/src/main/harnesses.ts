@@ -4,11 +4,11 @@ import { constants } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
-import { startInteractiveHarness } from "./interactive-harness";
+export { startInteractiveHarness as startHarness } from "./interactive-harness";
 import type { ApprovalRequest, ApprovalDecision } from "../shared/permissions";
 import { createToolEventParser } from "./tool-events";
 import type { ToolActivityUpdate } from "../shared/tool-activity";
-import type { HarnessSettings, TokenUsage } from "../shared/harness-settings";
+import type { TokenUsage } from "../shared/harness-settings";
 import type { HarnessConnection, HarnessId } from "../shared/contracts";
 
 const execute = promisify(execFile);
@@ -21,7 +21,6 @@ export type HarnessUpdate =
   | { type: "model"; model: string }
   | { type: "session"; id: string }
   | { type: "message"; id: string; text: string; append?: boolean }
-  | { type: "activity"; text: string }
   | { type: "error"; text: string };
 export type RunningHarness = {
   done: Promise<void>;
@@ -118,61 +117,23 @@ export async function checkHarnesses(): Promise<HarnessConnection[]> {
 
 const count = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
-function readUsage(value: Record<string, unknown>, claude: boolean): TokenUsage | undefined {
+function readUsage(value: Record<string, unknown>): TokenUsage | undefined {
   if (!Object.keys(value).length) return;
-  const cached = count(claude ? value.cache_read_input_tokens : value.cached_input_tokens);
+  const cached = count(value.cache_read_input_tokens);
   return {
-    inputTokens:
-      count(value.input_tokens) + (claude ? cached + count(value.cache_creation_input_tokens) : 0),
+    inputTokens: count(value.input_tokens) + cached + count(value.cache_creation_input_tokens),
     cachedInputTokens: cached,
     outputTokens: count(value.output_tokens),
   };
 }
 
 /** Normalize only visible messages and tool progress, never reasoning or credentials. */
-export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpdate) => void) {
+export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
   let claudeMessageId = "response";
-  const tools = createToolEventParser(harness, (tool) => emit({ type: "tool", tool }));
+  const tools = createToolEventParser("claude", (tool) => emit({ type: "tool", tool }));
   return (input: unknown) => {
     const value = record(input);
     if (value.type !== "assistant" || value.parent_tool_use_id) tools(value);
-    if (harness === "codex") {
-      if (value.type === "thread.started" && text(value.thread_id))
-        emit({ type: "session", id: text(value.thread_id) });
-      if (
-        value.type === "item.started" ||
-        value.type === "item.updated" ||
-        value.type === "item.completed"
-      ) {
-        const item = record(value.item);
-        if (item.type === "agent_message")
-          emit({ type: "message", id: text(item.id), text: text(item.text) });
-        else if (
-          ![
-            "reasoning",
-            "command_execution",
-            "file_change",
-            "web_search",
-            "mcp_tool_call",
-            "dynamic_tool_call",
-          ].includes(text(item.type))
-        )
-          emit({ type: "activity", text: "Working" });
-      }
-      if (value.type === "turn.completed") {
-        const usage = readUsage(record(value.usage), false);
-        if (usage) emit({ type: "usage", usage, cumulative: false });
-      }
-      if (value.type === "turn.failed" || value.type === "error")
-        emit({
-          type: "error",
-          text:
-            text(record(value.error).message) ||
-            text(value.message) ||
-            "Codex could not complete this turn.",
-        });
-      return;
-    }
     if (value.type === "system" && typeof value.model === "string")
       emit({ type: "model", model: value.model });
     if (typeof value.session_id === "string") emit({ type: "session", id: value.session_id });
@@ -212,7 +173,7 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
           }),
           { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0 },
         );
-      else usage = readUsage(record(value.usage), true);
+      else usage = readUsage(record(value.usage));
       // Startup errors can report zeroed accounting even when resuming a used session.
       if (value.is_error && usage && usage.inputTokens === 0 && usage.outputTokens === 0)
         usage = undefined;
@@ -234,17 +195,4 @@ export function createHarnessParser(harness: HarnessId, emit: (event: HarnessUpd
         emit({ type: "message", id: claudeMessageId, text: text(value.result) });
     }
   };
-}
-
-export function startHarness(input: {
-  harness: HarnessId;
-  executable: string;
-  cwd: string;
-  prompt: string;
-  sessionId?: string;
-  settings?: HarnessSettings;
-  images?: Array<{ path: string; mimeType: string; data: string }>;
-  onUpdate: (update: HarnessUpdate) => void;
-}): RunningHarness {
-  return startInteractiveHarness(input);
 }

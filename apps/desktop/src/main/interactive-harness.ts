@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
-  createHarnessParser,
+  createClaudeParser,
   harnessEnvironment,
-  type startHarness,
+  type HarnessUpdate,
   type RunningHarness,
 } from "./harnesses";
+import type { HarnessId } from "../shared/contracts";
+import type { HarnessSettings } from "../shared/harness-settings";
 import { createCodexEvents } from "./codex-events";
 import { plainToolText } from "./tool-events";
 import {
@@ -26,7 +28,16 @@ const approvalText = (value: string) =>
   );
 
 /** One native harness turn, with an open duplex connection for explicit approvals. */
-export function startInteractiveHarness(input: Parameters<typeof startHarness>[0]): RunningHarness {
+export function startInteractiveHarness(input: {
+  harness: HarnessId;
+  executable: string;
+  cwd: string;
+  prompt: string;
+  sessionId?: string;
+  settings?: HarnessSettings;
+  images?: Array<{ path: string; mimeType: string; data: string }>;
+  onUpdate: (update: HarnessUpdate) => void;
+}): RunningHarness {
   const codex = input.harness === "codex";
   const mode = validatePermissionMode(input.harness, input.settings?.permissionMode);
   const args = codex
@@ -84,7 +95,7 @@ export function startInteractiveHarness(input: Parameters<typeof startHarness>[0
       input.onUpdate(update);
     }
   };
-  const parse = createHarnessParser("claude", emit),
+  const parse = createClaudeParser(emit),
     codexEvent = createCodexEvents(emit);
   function write(value: unknown) {
     if (closed || child.stdin.destroyed || !child.stdin.writable) return false;

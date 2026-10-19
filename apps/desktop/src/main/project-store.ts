@@ -26,12 +26,11 @@ import type {
   ProjectSnapshot,
   Thread,
 } from "../shared/contracts";
-import { summarizeThread } from "../shared/contracts";
+import { summarizeThread } from "../shared/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
 import { readLocalFile } from "./local-files";
 
-import { storedThreadSchema as threadSchema } from "../shared/thread-schema";
-export { threadSchema };
+import { storedThreadSchema as threadSchema } from "../shared/contracts";
 
 const id = z.string().uuid();
 const registrySchema = z.object({

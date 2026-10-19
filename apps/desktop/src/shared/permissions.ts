@@ -11,15 +11,16 @@ export const permissionModeSchema = z.enum([
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export const approvalDecisionSchema = z.enum(["allow", "allow-session", "deny"]);
 export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
-export type ApprovalRequest = {
-  id: string;
-  title: string;
-  reason?: string;
-  details?: string;
-  shortened?: boolean;
-  choices: ApprovalDecision[];
-  scope?: "turn";
-};
+export const approvalRequestSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  reason: z.string().optional(),
+  details: z.string().optional(),
+  shortened: z.boolean().optional(),
+  choices: z.array(approvalDecisionSchema),
+  scope: z.literal("turn").optional(),
+});
+export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
 const auto = {
   value: "auto" as const,
   label: "Auto — Full access",

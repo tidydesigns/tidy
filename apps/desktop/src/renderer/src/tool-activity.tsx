@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toolStatusLabel, type ToolActivity } from "../../shared/tool-activity";
 const kinds = {
   command: "Command",
@@ -130,43 +130,48 @@ function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
     </details>
   );
 }
-export function ToolActivityGroup({ activities }: { activities: ToolActivity[] }) {
-  const [now, setNow] = useState(Date.now);
-  const active = activities.filter((tool) => tool.status === "running");
-  const running = active.length > 0;
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  if (!activities.length) return null;
-  const failed = activities.filter((tool) => tool.status === "failed").length;
-  const current = active.at(-1);
-  return (
-    <details className="tool-activity-group">
-      <summary
-        aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}${failed ? `, ${failed} failed` : ""}`}
-      >
-        <span className="activity-chevron" aria-hidden="true">
-          ›
-        </span>
-        {current && <ToolIcon kind={current.kind} />}
-        <span className="activity-summary-title">
-          {current?.title ?? `${activities.length} ${activities.length === 1 ? "step" : "steps"}`}
-        </span>
-        {running && (
-          <span className="activity-count">
-            {active.length > 1 ? `${active.length} running` : "Running"}
+export const ToolActivityGroup = memo(
+  function ToolActivityGroup({ activities }: { activities: ToolActivity[] }) {
+    const [now, setNow] = useState(Date.now);
+    const active = activities.filter((tool) => tool.status === "running");
+    const running = active.length > 0;
+    useEffect(() => {
+      if (!running) return;
+      setNow(Date.now());
+      const timer = setInterval(() => setNow(Date.now()), 1000);
+      return () => clearInterval(timer);
+    }, [running]);
+    if (!activities.length) return null;
+    const failed = activities.filter((tool) => tool.status === "failed").length;
+    const current = active.at(-1);
+    return (
+      <details className="tool-activity-group">
+        <summary
+          aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}${failed ? `, ${failed} failed` : ""}`}
+        >
+          <span className="activity-chevron" aria-hidden="true">
+            ›
           </span>
-        )}
-        {failed > 0 && <span className="tool-status-failed">{failed} failed</span>}
-      </summary>
-      <div className="tool-activity-list">
-        {activities.map((tool) => (
-          <ToolRow key={tool.id} tool={tool} now={now} />
-        ))}
-      </div>
-    </details>
-  );
-}
+          {current && <ToolIcon kind={current.kind} />}
+          <span className="activity-summary-title">
+            {current?.title ?? `${activities.length} ${activities.length === 1 ? "step" : "steps"}`}
+          </span>
+          {running && (
+            <span className="activity-count">
+              {active.length > 1 ? `${active.length} running` : "Running"}
+            </span>
+          )}
+          {failed > 0 && <span className="tool-status-failed">{failed} failed</span>}
+        </summary>
+        <div className="tool-activity-list">
+          {activities.map((tool) => (
+            <ToolRow key={tool.id} tool={tool} now={now} />
+          ))}
+        </div>
+      </details>
+    );
+  },
+  (previous, next) =>
+    previous.activities.length === next.activities.length &&
+    previous.activities.every((tool, index) => tool === next.activities[index]),
+);

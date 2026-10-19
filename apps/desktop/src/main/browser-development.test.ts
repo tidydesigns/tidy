@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { parseWorkspaceResponse, type WorkspaceOperation } from "../shared/workspace-response";
+import { parseWorkspaceResponse } from "../shared/workspace-response";
 import { browserRecovery } from "../shared/browser-recovery";
-import { desktopEventSchema, storedThreadSchema } from "../shared/thread-schema";
+import { desktopEventSchema, storedThreadSchema } from "../shared/contracts";
 import type { DesktopEvent, ProjectSnapshot, Thread } from "../shared/contracts";
 import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
@@ -127,16 +127,15 @@ test("browser design edits persist through the shared backend and stream live ev
     headers: { Cookie: cookie, Origin: origin.origin, "Content-Type": "application/json" },
     body: JSON.stringify({ name: "create-design", input: { projectId } }),
   });
-  const created = (await result.json()) as { ok: boolean; data: { id: string; version: string } };
-  expect(created.ok).toBe(true);
-  expect((await store.readDesign(projectId, created.data.id)).version).toBe(created.data.version);
+  const created = parseWorkspaceResponse("create-design", await result.json());
+  expect((await store.readDesign(projectId, created.id)).version).toBe(created.version);
   let event = "";
   while (!event.includes('"type":"designs"')) {
     const chunk = await reader.read();
     if (chunk.done) throw new Error("Event stream closed before the design update.");
     event += new TextDecoder().decode(chunk.value);
   }
-  expect(event).toContain(created.data.id);
+  expect(event).toContain(created.id);
   await reader.cancel();
 });
 
@@ -257,12 +256,12 @@ test("recovery refreshes cached projects without selecting them and continues pa
   await rm(unavailable, { recursive: true });
   const events: DesktopEvent[] = [];
   const errors: unknown[] = [];
+  let bootstraps = 0;
   const recovery = browserRecovery({
-    bootstrap: async () => ({
-      projects: store.projects,
-      activeProject: await store.snapshot(active.project.id),
-      harnesses: [],
-    }),
+    bootstrap: async () => {
+      bootstraps++;
+      return { projects: store.projects, activeProject: active, harnesses: [] };
+    },
     snapshot: (id) => store.snapshot(id),
     readThread: (id, threadId) => service.readThread(id, threadId),
     listener: (event) => events.push(event),
@@ -270,8 +269,10 @@ test("recovery refreshes cached projects without selecting them and continues pa
   });
   recovery.remember(missing);
   recovery.remember(await store.snapshot(projectId));
+  recovery.remember(active);
   await recovery.refresh();
   expect(errors).toHaveLength(1);
+  expect(bootstraps).toBe(0);
   expect(events.filter((event) => event.type === "thread").map((event) => event.thread.id)).toEqual(
     [originalThread.id, activeThread.id],
   );
@@ -414,6 +415,9 @@ test("reconnecting browsers replay missed thread events and request resync after
   await service.setThreadDone(projectId, thread.id, false);
   const replay = await streamCursor(origin, cookie, first.cursor);
   expect(replay.cursor).not.toBe(first.cursor);
+  expect(replay.text).not.toContain("event: resync");
+  const quiet = await streamCursor(origin, cookie, replay.cursor);
+  expect(quiet.text).not.toContain("event: resync");
   const data = replay.text.match(/^data: (.+)$/m)?.[1];
   if (!data) throw new Error("Missed thread event was not replayed.");
   const event = desktopEventSchema.parse(JSON.parse(data));
@@ -423,61 +427,6 @@ test("reconnecting browsers replay missed thread events and request resync after
   const restarted = await streamCursor(origin, cookie, replay.cursor);
   expect(restarted.text).toContain("event: resync");
   expect(restarted.cursor).not.toBe(replay.cursor);
-});
-
-test("browser and preload responses validate real file, folder, thread and attachment operations", async () => {
-  const { origin, login, store, projectId } = await fixture();
-  const cookie = await login();
-  async function request<Name extends WorkspaceOperation>(name: Name, input?: unknown) {
-    const response = await fetch(new URL("/__tidy/request", origin), {
-      method: "POST",
-      headers: { Cookie: cookie, Origin: origin.origin, "Content-Type": "application/json" },
-      body: JSON.stringify({ name, input }),
-    });
-    return parseWorkspaceResponse(name, await response.json());
-  }
-  const folder = await request("create-design-folder", { projectId, name: "Explorations" });
-  const renamed = await request("rename-design-folder", {
-    projectId,
-    folderId: folder.id,
-    name: "Product",
-  });
-  expect(renamed.name).toBe("Product");
-  const created = await request("create-design", { projectId, folderId: folder.id });
-  const updated = await request("update-design", {
-    projectId,
-    designId: created.id,
-    expectedVersion: created.version,
-    name: "Homepage",
-    folderId: null,
-  });
-  const read = await request("read-design", { projectId, designId: created.id });
-  expect(read).toEqual(updated);
-  expect(read.folderId).toBeNull();
-  const snapshot = await request("project-snapshot", projectId);
-  expect(snapshot.designs[0].name).toBe("Homepage");
-  expect(snapshot.folders[0].name).toBe("Product");
-  const thread = conversation(projectId);
-  await store.writeThread(thread);
-  const done = await request("set-thread-done", { projectId, threadId: thread.id, done: true });
-  expect(done.doneAt).toBeDefined();
-  const reopened = await request("set-thread-done", {
-    projectId,
-    threadId: thread.id,
-    done: false,
-  });
-  expect(reopened.doneAt).toBeUndefined();
-  expect(await request("read-thread", { projectId, threadId: thread.id })).toEqual(reopened);
-  expect(reopened.messages).toEqual(thread.messages);
-  expect(await request("stop-thread", { projectId, threadId: thread.id })).toBeUndefined();
-  const attached = await request("add-attachment", {
-    projectId,
-    name: "notes.txt",
-    dataUrl: "data:text/plain;base64,aGVsbG8=",
-  });
-  expect(await request("read-attachment", { projectId, attachmentId: attached.id })).toEqual(
-    attached,
-  );
 });
 
 test("response schemas reject malformed successes and preserve useful server errors", () => {

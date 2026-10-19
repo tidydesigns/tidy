@@ -4,7 +4,7 @@ import {
   type WorkspaceOperation,
   type WorkspaceResponse,
 } from "../shared/workspace-response";
-import { desktopEventSchema } from "../shared/thread-schema";
+import { desktopEventSchema } from "../shared/contracts";
 import type { DesktopAPI } from "../shared/contracts";
 
 async function request<Name extends WorkspaceOperation>(

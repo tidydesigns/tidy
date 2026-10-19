@@ -211,18 +211,22 @@ export function createToolEventParser(
       return;
     }
     const parent = text(value.parent_tool_use_id) || undefined;
+    if (parent && parent.length > 200) return;
     if (value.type === "stream_event") {
       const event = record(value.event),
         block = record(event.content_block);
       const scope = parent ?? "root";
-      if (event.type === "message_start") messageIds.set(scope, text(record(event.message).id));
+      if (event.type === "message_start" && (messageIds.has(scope) || messageIds.size < 1000))
+        messageIds.set(scope, text(record(event.message).id).slice(0, 200));
       const key = `${scope}:${messageIds.get(scope) ?? ""}:${integer(event.index) ?? 0}`;
       if (
         event.type === "content_block_start" &&
         ["tool_use", "server_tool_use"].includes(text(block.type))
       ) {
         claudeStart(block, parent);
-        blocks.set(key, { id: text(block.id), input: "" });
+        const id = text(block.id);
+        if (tools.has(id) && (blocks.has(key) || blocks.size < 1000))
+          blocks.set(key, { id, input: "" });
       }
       const delta = record(event.delta),
         current = blocks.get(key);
@@ -317,7 +321,8 @@ export function createToolEventParser(
       if (value.ambient || value.skip_transcript) return;
       const taskId = text(value.task_id),
         id = text(value.tool_use_id) || tasks.get(taskId);
-      if (!id) return;
+      if (!id || id.length > 200 || taskId.length > 200) return;
+      if (!tasks.has(taskId) && tasks.size >= 1000) return;
       tasks.set(taskId, id);
       const previous = tools.get(id);
       publish({

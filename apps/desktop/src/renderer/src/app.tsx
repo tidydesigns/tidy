@@ -19,8 +19,7 @@ import { ProjectFiles } from "./project-files";
 import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
-import { summarizeThread } from "../../shared/contracts";
-import { applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
+import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
   DesktopEvent,
   DesignSummary,

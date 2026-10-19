@@ -24,25 +24,30 @@ export const tokenUsageSchema = z.object({
 });
 export type HarnessSettings = z.infer<typeof harnessSettingsSchema>;
 export type TokenUsage = z.infer<typeof tokenUsageSchema>;
-export type HarnessModel = {
-  id: string;
-  name: string;
-  description?: string;
-  efforts: string[];
-  defaultEffort?: string;
-};
-export type UsageWindow = {
-  name: string;
-  usedPercent: number;
-  resetsAt?: number;
-  windowMinutes?: number;
-};
-export type HarnessDetails = {
-  models: HarnessModel[];
-  defaultModel?: string;
-  defaultEffort?: string;
-  windows: UsageWindow[];
-  usageError?: string;
-  updatedAt: string;
-  usagePage: "subscription" | "api";
-};
+export const harnessDetailsSchema = z.object({
+  models: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+      efforts: z.array(z.string()),
+      defaultEffort: z.string().optional(),
+    }),
+  ),
+  defaultModel: z.string().optional(),
+  defaultEffort: z.string().optional(),
+  windows: z.array(
+    z.object({
+      name: z.string(),
+      usedPercent: z.number(),
+      resetsAt: z.number().optional(),
+      windowMinutes: z.number().optional(),
+    }),
+  ),
+  usageError: z.string().optional(),
+  updatedAt: z.string(),
+  usagePage: z.enum(["subscription", "api"]),
+});
+export type HarnessDetails = z.infer<typeof harnessDetailsSchema>;
+export type HarnessModel = HarnessDetails["models"][number];
+export type UsageWindow = HarnessDetails["windows"][number];
