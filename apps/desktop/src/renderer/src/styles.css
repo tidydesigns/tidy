@@ -1422,10 +1422,10 @@ summary:focus-visible {
 
 .browser-project-dialog {
   position: fixed;
-  inset: 0;
-  margin: auto;
+  inset: clamp(24px, 14dvh, 112px) 0 auto;
+  margin: 0 auto;
   width: min(540px, calc(100vw - 32px));
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - clamp(24px, 14dvh, 112px) - 24px);
   padding: 0;
   overflow: auto;
   border: 1px solid var(--color-border);
@@ -1433,6 +1433,13 @@ summary:focus-visible {
   color: var(--color-ink);
   background: var(--desktop-surface);
   box-shadow: 0 16px 64px #0003;
+}
+.browser-project-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+.browser-project-dialog > :not(.browser-project-folders) {
+  flex-shrink: 0;
 }
 .browser-project-dialog::backdrop {
   background: #0006;
@@ -1456,9 +1463,25 @@ summary:focus-visible {
   padding: 1px 5px;
 }
 .browser-project-heading button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
   margin-left: auto;
-  font-size: 20px;
-  line-height: 20px;
+  padding: 0;
+  border-radius: 5px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .browser-project-heading button:hover {
+    background: var(--color-hover-surface);
+    color: var(--color-ink);
+  }
+}
+.browser-project-heading button:active:not(:focus-visible),
+.browser-project-actions button:active:not(:focus-visible) {
+  transform: scale(0.97);
 }
 .browser-project-search {
   display: flex;
@@ -1493,6 +1516,7 @@ summary:focus-visible {
     monospace;
 }
 .browser-project-folders {
+  min-height: 0;
   max-height: min(320px, 40dvh);
   padding: 4px 8px;
   overflow: auto;
@@ -1570,7 +1594,17 @@ summary:focus-visible {
   color: var(--color-muted-ink);
   font-size: 11px;
 }
+.browser-project-hints > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .browser-project-hints kbd {
+  min-width: 16px;
+  padding: 1px 3px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
   font: inherit;
-  padding: 0 2px;
+  line-height: 14px;
+  text-align: center;
 }

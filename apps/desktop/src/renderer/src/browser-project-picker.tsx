@@ -10,6 +10,15 @@ type Directory = {
   initialProject: string;
 };
 
+function folderError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : fallback;
+  if (message.startsWith("ENOENT:") || message.startsWith("ENOTDIR:"))
+    return "Folder not found. Check the path and try again.";
+  if (message.startsWith("EACCES:") || message.startsWith("EPERM:"))
+    return "You don't have permission to open this folder.";
+  return message;
+}
+
 function FolderIcon() {
   return (
     <svg
@@ -103,7 +112,7 @@ function ProjectPicker({
     try {
       finish(await open(selectedPath));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to open project.");
+      setError(folderError(error, "Unable to open project."));
       openingRef.current = false;
       setOpening(false);
     }
@@ -122,8 +131,7 @@ function ProjectPicker({
         setQuery((current) => current || "~/");
       })
       .catch((error: unknown) => {
-        if (!cancelled)
-          setError(error instanceof Error ? error.message : "Unable to load folders.");
+        if (!cancelled) setError(folderError(error, "Unable to load folders."));
       });
     return () => {
       cancelled = true;
@@ -144,8 +152,7 @@ function ProjectPicker({
         }
       })
       .catch((error: unknown) => {
-        if (!cancelled)
-          setError(error instanceof Error ? error.message : "Unable to load folders.");
+        if (!cancelled) setError(folderError(error, "Unable to load folders."));
       })
       .finally(() => {
         if (!cancelled) setPending(false);
@@ -181,7 +188,14 @@ function ProjectPicker({
           disabled={opening}
           onClick={() => finish(null)}
         >
-          ×
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="m4 4 8 8M12 4l-8 8"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+          </svg>
         </Button>
       </div>
       <div className="browser-project-search">
@@ -191,6 +205,7 @@ function ProjectPicker({
           autoFocus
           role="combobox"
           aria-label="Folder on Linux"
+          aria-describedby="browser-project-hints"
           aria-autocomplete="list"
           aria-controls="browser-project-folders"
           aria-expanded="true"
@@ -214,7 +229,7 @@ function ProjectPicker({
               if (event.metaKey || event.ctrlKey) void select();
               else if (count) navigate(highlighted);
               else if (ready && !filter) void select();
-            } else if (event.key === "Tab" && !event.shiftKey && count && folders.length) {
+            } else if (event.key === "Tab" && !event.shiftKey && filter && folders.length) {
               event.preventDefault();
               navigate(highlighted === 0 && canGoUp ? 1 : highlighted);
             } else if (event.key === "ArrowLeft" && event.altKey && canGoUp) {
@@ -227,6 +242,7 @@ function ProjectPicker({
       <div
         id="browser-project-folders"
         role="listbox"
+        tabIndex={-1}
         aria-label="Linux folders"
         aria-busy={pending}
         className="browser-project-folders"
@@ -290,7 +306,7 @@ function ProjectPicker({
           {opening ? "Opening…" : "Open folder"}
         </Button>
       </div>
-      <div className="browser-project-hints">
+      <div className="browser-project-hints" id="browser-project-hints">
         <span>
           <kbd>↑</kbd>
           <kbd>↓</kbd> navigate
@@ -312,7 +328,6 @@ function ProjectPicker({
 export function chooseBrowserProject(
   open: (path: string) => Promise<ProjectSnapshot>,
 ): Promise<ProjectSnapshot | null> {
-  const previousFocus = document.activeElement;
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -323,7 +338,6 @@ export function chooseBrowserProject(
       settled = true;
       root.unmount();
       host.remove();
-      if (previousFocus instanceof HTMLElement) previousFocus.focus();
       resolve(project);
     }
     root.render(<ProjectPicker open={open} finish={finish} />);

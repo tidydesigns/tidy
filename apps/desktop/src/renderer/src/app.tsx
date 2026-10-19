@@ -60,6 +60,13 @@ export function App() {
   const [mode, setMode] = useState<Mode>("design");
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
+  const projectFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (opening) return;
+    const previous = projectFocus.current;
+    projectFocus.current = null;
+    if (previous?.isConnected && document.activeElement === document.body) previous.focus();
+  }, [opening]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
@@ -373,6 +380,8 @@ export function App() {
 
   async function chooseProject(projectId?: string) {
     if (!api || opening) return;
+    projectFocus.current =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const generation = ++navigation.current;
     setOpening(true);
     setError(null);
