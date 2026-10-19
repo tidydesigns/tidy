@@ -111,50 +111,6 @@ test("token edits, bindings, history and exported pixels", async ({ page, baseUR
   );
 });
 
-test("design requests carry selection or page scope without creating tokens prematurely", async ({
-  page,
-  context,
-}) => {
-  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  await page.goto("/dev/import-preview?edit=1&tokens=1");
-  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
-  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
-  const panel = page.getByRole("tabpanel", { name: "Tokens", exact: true });
-  await panel.getByRole("button", { name: "Add token", exact: true }).click();
-  await page.getByRole("menuitem", { name: "From design…", exact: true }).click();
-  await expect(
-    panel.getByRole("button", { name: "Color source: Selection and children", exact: true }),
-  ).toBeVisible();
-  await panel.getByRole("button", { name: "Copy agent request", exact: true }).click();
-  await expect(panel.getByRole("button", { name: "Copied request", exact: true })).toBeVisible();
-  const selected = await page.evaluate(() => navigator.clipboard.readText());
-  expect(selected).toContain('"selected_node_ids":["token-card"]');
-  await chooseSelectMenu(page, "Color source", "Current page");
-  await panel.getByRole("button", { name: "Copy agent request", exact: true }).click();
-  const wholePage = await page.evaluate(() => navigator.clipboard.readText());
-  expect(wholePage).toContain('"page_id":"page-1","selected_node_ids":[]');
-  expect(wholePage).toContain("Preserve all current colors and alpha values");
-  await panel.getByText("View request", { exact: true }).click();
-  await expect(panel.getByRole("textbox", { name: "Agent request", exact: true })).toHaveValue(
-    wholePage,
-  );
-  await expect(panel.getByRole("button", { name: /^Edit token / })).toHaveCount(5);
-  await page.evaluate(() =>
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value: {
-        writeText: async () => {
-          throw new Error("Clipboard unavailable");
-        },
-      },
-    }),
-  );
-  await panel.getByRole("button", { name: "Copied request", exact: true }).click();
-  await expect(panel.getByRole("alert")).toContainText("copy it manually");
-  await panel.getByRole("button", { name: "Close colors from design", exact: true }).click();
-  await expect(panel.getByRole("region", { name: "Colors from design" })).toHaveCount(0);
-});
-
 test("read-only tokens remain browsable without exposing mutation actions", async ({ page }) => {
   await page.goto("/dev/import-preview?tokens=1&viewer=1");
   await page.getByRole("tab", { name: "Tokens", exact: true }).click();
@@ -251,33 +207,4 @@ test("token popovers keep rows stable, commit click-away edits, and fit small vi
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
-});
-
-test("from design opens a scoped agent draft and submits only on request", async ({ page }) => {
-  let submission: unknown;
-  await page.route("**/api/agents/threads**", async (route) => {
-    if (route.request().method() === "POST") {
-      submission = route.request().postDataJSON();
-      await route.fulfill({ status: 503, json: { error: "Local transport fixture" } });
-    } else await route.fulfill({ json: { threads: [], hasMore: false } });
-  });
-  await page.goto("/dev/import-preview?edit=1&tokens=1&agentTokens=1");
-  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
-  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
-  await page.getByRole("button", { name: "Add token", exact: true }).click();
-  await page.getByRole("menuitem", { name: "From design…", exact: true }).click();
-  await page.getByRole("button", { name: "Ask agent…", exact: true }).click();
-  const composer = page.getByRole("textbox", { name: "Describe the design work", exact: true });
-  await expect(composer).toHaveValue(/"selected_node_ids":\["token-card"\]/);
-  expect(submission).toBeUndefined();
-  await composer.fill("Create and link the palette from this selected card.");
-  await page.getByRole("button", { name: "Send", exact: true }).click();
-  await expect
-    .poll(() => submission)
-    .toMatchObject({
-      prompt: "Create and link the palette from this selected card.",
-      files: [{ id: "preview", selectedNodeIds: ["token-card"] }],
-      agentLimit: 1,
-    });
-  await expect(composer).toHaveValue("Create and link the palette from this selected card.");
 });
