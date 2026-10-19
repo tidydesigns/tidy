@@ -275,7 +275,7 @@ type Submission = {
   create: boolean;
 } & (
   | { kind: "sending" }
-  | { kind: "sent"; legacyReceipt: boolean }
+  | { kind: "sent"; legacyReceipt: boolean; ackVersion: number }
   | { kind: "failed"; error: string }
 );
 
@@ -409,11 +409,23 @@ export const CanvasComments = forwardRef<
         );
         setSubmissions((current) =>
           current.filter((submission) => {
+            // Only a detail read started after acknowledgement can confirm deletion.
+            const goneAfterAck =
+              submission.kind === "sent" &&
+              version > submission.ackVersion &&
+              selected === submission.thread.id &&
+              detail !== null &&
+              !detail.threads.some((thread) => thread.id === submission.thread.id);
             const legacyConfirmed =
               submission.kind === "sent" &&
               submission.legacyReceipt &&
               detail?.threads.some((thread) => thread.id === submission.thread.id);
-            if (!received.has(submission.thread.messages[0].id) && !legacyConfirmed) return true;
+            if (
+              !received.has(submission.thread.messages[0].id) &&
+              !legacyConfirmed &&
+              !goneAfterAck
+            )
+              return true;
             if (submission.create) creationRequests.current.delete(submission.thread.id);
             return false;
           }),
@@ -569,6 +581,7 @@ export const CanvasComments = forwardRef<
                   ...item,
                   kind: "sent",
                   legacyReceipt: !result.message,
+                  ackVersion: refreshVersion.current,
                   thread: {
                     ...item.thread,
                     createdBy: item.create

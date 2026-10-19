@@ -335,6 +335,50 @@ try {
     assert.equal(options.y, x.y);
     assert.equal(options.height, x.height);
   }
+  // An empty detail snapshot started before the receipt must not remove the local thread.
+  await close.click();
+  await newComment.click();
+  await page.getByLabel("Write a comment").fill("Thread awaiting an authoritative read");
+  holdPosts();
+  await post.click();
+  holdReads();
+  const readsBeforeStale = reads;
+  await refresh.click();
+  await until(() => reads >= readsBeforeStale + 2);
+  const staleDetail = page.waitForResponse(
+    (response) => response.url().includes("threadId=") && response.ok(),
+  );
+  resumePosts();
+  await until(async () => (await popup.getByRole("status").count()) === 0);
+  resumeReads();
+  await staleDetail;
+  const settle = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        }),
+    );
+  await settle();
+  assert.equal(
+    await popup.getByText("Thread awaiting an authoritative read", { exact: true }).count(),
+    1,
+    "An empty detail read started before acknowledgement preserves the sent thread",
+  );
+  // Another client deletes it after acknowledgement, before any read confirms its message ID.
+  const deletedIndex = threads.findIndex((thread) =>
+    thread.messages.some((message) => message.body === "Thread awaiting an authoritative read"),
+  );
+  assert.ok(deletedIndex >= 0);
+  threads.splice(deletedIndex, 1);
+  const deletedDetail = page.waitForResponse(
+    (response) => response.url().includes("threadId=") && response.ok(),
+  );
+  await refresh.click();
+  await deletedDetail;
+  await settle();
+  assert.equal(await popup.count(), 0, "A fresh missing detail removes the deleted sent thread");
+  assert.equal(await pin.count(), 1, "The deleted thread's optimistic pin stays removed");
   assert.deepEqual(errors, []);
   console.log(
     `Comment performance checks passed. First comment visible: ${visibleMs.toFixed(1)}ms; reply visible: ${replyVisibleMs.toFixed(1)}ms with POST held; slowest typing render with 120 history messages: ${typingRenderMs.toFixed(1)}ms; no post-send GETs. Burst replies, stale reads, failures, retry deduplication, long-thread scrolling, next-draft preservation and header alignment passed.`,
