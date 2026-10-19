@@ -762,10 +762,10 @@ export function FileEditor({
       ? imageEditNode(selected, imageTarget)
       : undefined;
   if (imageTarget && !editedImage) setImageTarget(null);
-  function openImageEditor(paintId?: string) {
+  const openImageEditor = useEditorEvent((paintId?: string) => {
     if (!selected || readOnly) return;
     setImageTarget({ nodeId: selected.id, paintId });
-  }
+  });
   function editImage(edit: ImageEdit) {
     if (!imageTarget) return;
     void changeDocument((content) => ({

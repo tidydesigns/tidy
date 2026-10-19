@@ -1,3 +1,4 @@
+import { createComponentInstance } from "../document-operations";
 import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "../document";
 /** Repeatable, mixed nested scenes validated against the shared document limits. */
 export function performanceDocument(count: number) {
@@ -31,4 +32,32 @@ export function performanceDocument(count: number) {
     }
   }
   return parseDesignDocument(document);
+}
+
+export function componentPerformanceDocument(count: number) {
+  const document = performanceDocument(count);
+  const component = parseDesignDocument({
+    ...document,
+    nodes: document.nodes.map((node) => {
+      if (node.parentId === null) {
+        const index = Number(node.id.slice("frame-".length));
+        node = {
+          ...node,
+          box: { ...node.box, x: (index % 6) * 900, y: Math.floor(index / 6) * 800 },
+        };
+      }
+      return node.id === "frame-0"
+        ? {
+            ...node,
+            name: "Component master",
+            isComponent: true,
+            componentProperties: {
+              label: { name: "Caption", targetId: "layer-3", property: "text" },
+            },
+          }
+        : node;
+    }),
+  });
+  let id = 0;
+  return createComponentInstance(component, "frame-0", () => `component-instance-${id++}`).document;
 }

@@ -41,9 +41,8 @@ export function ComponentPropertiesInspector({
   if (!master) return null;
   const bindings = Object.entries(master.componentProperties ?? {});
   const author = node.id === master.id && !master.librarySource;
-  const targets = document.nodes.filter((n) =>
-    componentSubtreeIds(document.nodes, master.id).has(n.id),
-  );
+  const subtreeIds = componentSubtreeIds(document.nodes, master.id);
+  const targets = document.nodes.filter((node) => subtreeIds.has(node.id));
   const target = targets.find((n) => n.id === targetId) ?? targets[0];
   return (
     <>
