@@ -191,7 +191,6 @@ test("token popovers keep rows stable, commit click-away edits, and fit small vi
       bounds.x + bounds.width <= 768 &&
       bounds.y + bounds.height <= 480,
   );
-  // The existing font picker must remain above, and inside, the floating editor.
   await textPopup.getByRole("combobox", { name: "Font family", exact: true }).click();
   await page.getByRole("textbox", { name: "Search fonts", exact: true }).fill("Arial");
   await page.getByRole("option", { name: "Arial", exact: true }).click();

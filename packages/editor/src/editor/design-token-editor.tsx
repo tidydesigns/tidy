@@ -11,6 +11,7 @@ import { PropertyField } from "./property-field";
 import { FontPicker } from "./font-picker";
 import { putDesignToken, tokenNameError } from "../design/token-catalog";
 
+type TextStyle = Extract<DesignToken, { type: "typography" }>["value"];
 type Change = (transform: (document: DesignDocument) => DesignDocument) => void;
 const numericBounds = {
   radius: [0, 5000],
@@ -61,7 +62,7 @@ export function DesignTokenEditor({
     ...buildDrawnNode("token-preview", "text", null, { x: 0, y: 0, width: 100, height: 40 }),
     style: text ?? {},
   };
-  const textValue = (key: keyof NonNullable<typeof text>, value: unknown) =>
+  const textValue = <Key extends keyof TextStyle>(key: Key, value: TextStyle[Key]) =>
     update((current) =>
       current.type === "typography" && "value" in current
         ? { ...current, value: { ...current.value, [key]: value } }
@@ -107,7 +108,7 @@ export function DesignTokenEditor({
                           ...current.value,
                           ...Object.fromEntries(
                             Object.entries(changes.style ?? {}).filter(([key]) =>
-                              (typographyProperties as readonly string[]).includes(key),
+                              typographyProperties.some((property) => property === key),
                             ),
                           ),
                         },

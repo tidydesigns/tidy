@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } fr
 import { useCanvasColorPicker } from "./canvas-color-picker";
 import { Icon } from "../components/ui/icon";
 
-/** Stay beside the selected row without changing the sidebar's layout or scroll position. */
 export function TokenEditorPopover({
   anchor,
   name,

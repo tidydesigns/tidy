@@ -58,7 +58,6 @@ function TokenSwatch({ token }: { token: DesignToken }) {
   );
 }
 
-// Only the previous and next active rows need to render when switching editors.
 const TokenRow = memo(function TokenRow({
   name,
   token,

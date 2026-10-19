@@ -408,7 +408,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("patch_document"),
       description:
-        "Edit UI nodes at the current expected_revision. Optional design_tokens merges named token definitions (preserving others) and applies node bindings in the same transaction. Use existing names to update tokens; use an empty changes object for a token-only edit of an existing node. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
+        "Edit UI nodes at the current expected_revision. Supply design_tokens to add or update named definitions without removing unrelated tokens. The same transaction applies the layer bindings. Use existing names to update tokens; use an empty changes object for a token-only edit of an existing node. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
       inputSchema: mcpSchema("patch_document", () =>
         z.object({
           file_id: z.string().min(1),

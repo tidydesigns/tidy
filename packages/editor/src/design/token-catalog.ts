@@ -17,7 +17,7 @@ export const tokenDefaults = {
       lineHeightMode: "percent",
     },
   },
-} satisfies Record<DesignToken["type"], DesignToken>;
+} satisfies { [Type in DesignToken["type"]]: Extract<DesignToken, { type: Type }> };
 
 export function tokenNameError(document: DesignDocument, name: string, current?: string) {
   if (!tokenNameSchema.safeParse(name).success)

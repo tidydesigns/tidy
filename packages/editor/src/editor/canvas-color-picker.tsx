@@ -24,7 +24,6 @@ const Context = createContext<{
 export const useCanvasColorPicker = () => useContext(Context);
 const instruction = "Click a solid fill or text colour. Esc to cancel.";
 
-/** Read a layer's colour, including token values, without changing its selection or bindings. */
 function layerColor(node: DesignNode, element: Element, tokens: Record<string, string>) {
   if (node.type === "text") {
     const value = node.style.colorToken ? tokens[node.style.colorToken] : node.style.color;
