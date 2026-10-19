@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
+import { useCanvasColorPicker } from "./canvas-color-picker";
 import { Icon } from "../components/ui/icon";
 
 /** Stay beside the selected row without changing the sidebar's layout or scroll position. */
@@ -21,6 +22,7 @@ export function TokenEditorPopover({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const picking = useCanvasColorPicker()?.picking ?? false;
   const panel = useRef<HTMLDivElement>(null);
   const latest = useRef(onClose);
   useLayoutEffect(() => {
@@ -65,6 +67,7 @@ export function TokenEditorPopover({
   }, [anchor, name]);
   useEffect(() => {
     function dismiss(event: PointerEvent) {
+      if (picking) return;
       const popup = panel.current;
       if (!(event.target instanceof Element) || !popup || popup.contains(event.target)) return;
       // Row clicks switch the editor directly, without a close/reopen race.
@@ -79,7 +82,8 @@ export function TokenEditorPopover({
       latest.current();
     }
     function escape(event: KeyboardEvent) {
-      if (event.key !== "Escape" || panel.current?.querySelector(":popover-open")) return;
+      if (picking || event.key !== "Escape" || panel.current?.querySelector(":popover-open"))
+        return;
       event.preventDefault();
       event.stopPropagation();
       anchor.current?.focus({ preventScroll: true });
@@ -91,7 +95,7 @@ export function TokenEditorPopover({
       document.removeEventListener("pointerdown", dismiss, true);
       document.removeEventListener("keydown", escape);
     };
-  }, [anchor]);
+  }, [anchor, picking]);
   const action =
     "flex h-7 w-7 items-center justify-center rounded-md text-secondary-ink hover:bg-hover-surface hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange";
   return (
@@ -101,6 +105,7 @@ export function TokenEditorPopover({
       role="dialog"
       aria-label={`${title} token`}
       tabIndex={-1}
+      style={{ visibility: picking ? "hidden" : undefined }}
       className="token-editor fixed m-0 w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-xl border border-primary-grey/70 bg-surface text-primary-black outline-none"
     >
       <header className="flex h-12 items-center gap-1 border-b border-primary-grey/50 px-4">

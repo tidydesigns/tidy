@@ -36,10 +36,3 @@ export function selectionColors(nodes: DesignNode[], tokens: Record<string, stri
   }
   return [...colors];
 }
-
-export function addRecentColor(colors: string[], value: string): string[] {
-  const color = normalizeColor(value);
-  return color
-    ? [color, ...colors.filter((entry) => normalizeColor(entry) !== color)].slice(0, 12)
-    : colors;
-}

@@ -1,8 +1,9 @@
 "use client";
-import { useId, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { SelectMenu } from "../components/ui/select-menu";
 import type { DesignNode, DesignNodeChanges } from "../design/document";
-import { addRecentColor, normalizeColor, selectionColors } from "../design/selection-colors";
+import { normalizeColor } from "../design/selection-colors";
+import { useCanvasColorPicker } from "./canvas-color-picker";
 import { PropertyField } from "./property-field";
 type Value = string | number | undefined;
 type ColorUpdate = string | ((current: string) => string);
@@ -83,42 +84,6 @@ export function Section({
   );
 }
 
-const recentKey = "bella-recent-colors";
-const recentEvent = "bella-recent-colors-changed";
-function recentSnapshot() {
-  try {
-    return localStorage.getItem(recentKey) ?? "[]";
-  } catch {
-    return "[]";
-  }
-}
-function subscribeRecent(listener: () => void) {
-  window.addEventListener(recentEvent, listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    window.removeEventListener(recentEvent, listener);
-    window.removeEventListener("storage", listener);
-  };
-}
-const emptyRecentSnapshot = () => "[]";
-const noSubscription = () => () => {};
-const sampleAvailable = () => "EyeDropper" in window;
-const sampleUnavailable = () => false;
-function readRecentColors(snapshot: string): string[] {
-  try {
-    const stored: unknown = JSON.parse(snapshot);
-    return Array.isArray(stored)
-      ? stored
-          .filter(
-            (color): color is string => typeof color === "string" && Boolean(normalizeColor(color)),
-          )
-          .slice(0, 12)
-      : [];
-  } catch {
-    return [];
-  }
-}
-
 export function ColorField({
   label,
   compact = false,
@@ -126,7 +91,6 @@ export function ColorField({
   nodes,
   get,
   onChange,
-  tokens = {},
 }: {
   label: string;
   compact?: boolean;
@@ -134,63 +98,15 @@ export function ColorField({
   nodes: DesignNode[];
   get: (node: DesignNode) => string;
   onChange: (color: ColorUpdate) => void;
-  tokens?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
-  const recentJson = useSyncExternalStore(subscribeRecent, recentSnapshot, emptyRecentSnapshot);
-  const recent = useMemo(() => readRecentColors(recentJson), [recentJson]);
-  const canSample = useSyncExternalStore(noSubscription, sampleAvailable, sampleUnavailable);
+  const sampler = useCanvasColorPicker();
+  const swatch = useRef<HTMLButtonElement>(null);
   const color = shared(nodes, get);
   const alpha = shared(nodes, (node) => {
     const value = get(node);
     return Math.round((value.length === 9 ? parseInt(value.slice(7), 16) / 255 : 1) * 100);
   });
-  const palette = selectionColors(nodes, tokens);
-  function change(value: ColorUpdate) {
-    const next = applyColor(value, color ?? get(nodes[0]));
-    onChange(value);
-    const updated = addRecentColor(readRecentColors(recentSnapshot()), next);
-    try {
-      localStorage.setItem(recentKey, JSON.stringify(updated));
-      window.dispatchEvent(new Event(recentEvent));
-    } catch {
-      /* Color edits still apply if storage is unavailable. */
-    }
-  }
-  async function sample() {
-    const constructor = (
-      window as Window & { EyeDropper?: new () => { open: () => Promise<{ sRGBHex: string }> } }
-    ).EyeDropper;
-    if (!constructor) return;
-    try {
-      const { sRGBHex } = await new constructor().open();
-      if (normalizeColor(sRGBHex)) {
-        change((current) => sRGBHex + (current.length === 9 ? current.slice(7) : ""));
-        setOpen(false);
-      }
-    } catch {
-      /* Escape cancels sampling. */
-    }
-  }
-  const swatches = (colors: string[], group: string) => (
-    <div className="flex flex-wrap gap-1">
-      {colors.map((value) => (
-        <button
-          data-ph-private
-          key={value}
-          type="button"
-          aria-label={`Use ${group} color ${value}`}
-          title={value}
-          onClick={() => {
-            change(value);
-            setOpen(false);
-          }}
-          className="h-6 w-6 rounded border border-primary-grey/70 focus-visible:outline-2 focus-visible:outline-primary-orange"
-          style={{ backgroundColor: value }}
-        />
-      ))}
-    </div>
-  );
   return (
     <div className="space-y-1.5">
       <div className={compact ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3" : ""}>
@@ -203,6 +119,7 @@ export function ColorField({
           }
         >
           <button
+            ref={swatch}
             data-ph-private
             type="button"
             aria-label={`Open ${label.toLowerCase()} palette`}
@@ -219,7 +136,7 @@ export function ColorField({
             validate={(value) =>
               normalizeColor(value) ? undefined : "Enter a hex color such as #336699 or #336699ff."
             }
-            onCommit={change}
+            onCommit={onChange}
           />
           <div className={compact ? "flex items-center text-xs text-secondary-ink" : ""}>
             <PropertyField
@@ -232,7 +149,7 @@ export function ColorField({
               max={100}
               onCommit={(value) => {
                 if (value === "") return;
-                change(
+                onChange(
                   (current) =>
                     current.slice(0, 7) +
                     Math.round((Number(value) / 100) * 255)
@@ -258,38 +175,25 @@ export function ColorField({
                 value={color?.slice(0, 7) ?? "#000000"}
                 onChange={(event) => {
                   const rgb = event.target.value;
-                  change((current) => rgb + (current.length === 9 ? current.slice(7) : ""));
+                  onChange((current) => rgb + (current.length === 9 ? current.slice(7) : ""));
                 }}
                 className="h-7 w-8 cursor-pointer rounded border border-primary-grey/70 bg-surface p-0.5"
               />
             </label>
-            {canSample && (
+            {sampler && (
               <button
                 data-ph-public
                 type="button"
-                onClick={sample}
+                onClick={() => {
+                  setOpen(false);
+                  sampler.pick(onChange, swatch.current);
+                }}
                 className="rounded border border-primary-grey/70 px-2 py-1 hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
               >
-                Sample canvas
+                Pick from canvas
               </button>
             )}
           </div>
-          {palette.length > 0 && (
-            <div className="space-y-1">
-              <span data-ph-public className="text-secondary-ink">
-                Selection
-              </span>
-              {swatches(palette, "selection")}
-            </div>
-          )}
-          {recent.length > 0 && (
-            <div className="space-y-1">
-              <span data-ph-public className="text-secondary-ink">
-                Recent
-              </span>
-              {swatches(recent, "recent")}
-            </div>
-          )}
         </div>
       )}
     </div>

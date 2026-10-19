@@ -232,3 +232,8 @@
   outline-offset: 2px;
   border-radius: 4px;
 }
+
+[data-picking-canvas-color] [aria-label="Design canvas"],
+[data-picking-canvas-color] [aria-label="Design canvas"] * {
+  cursor: crosshair !important;
+}

@@ -254,3 +254,76 @@ test("detaching paint tokens keeps resolved colors and alpha for fills, strokes 
   await expect(card).toHaveCSS("background-image", boundGradient);
   await expect(card).toHaveCSS("border-image-source", boundStroke);
 });
+
+test("pick a canvas layer into a color token without native eyedropper, selection changes or dragging", async ({
+  page,
+}) => {
+  await page.addInitScript(() => Reflect.deleteProperty(window, "EyeDropper"));
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  const fill = page.getByRole("textbox", { name: "Fill color", exact: true });
+  await fill.fill("#22735980");
+  await fill.press("Enter");
+  const card = page.locator('[data-node-id="token-card"]');
+  const before = await card.boundingBox();
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Color", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Color token", exact: true });
+  const value = page.getByRole("textbox", { name: "Color", exact: true });
+  await page.getByRole("button", { name: "Open color palette", exact: true }).click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(card).toHaveCSS("cursor", "crosshair");
+  await page.keyboard.press("Delete");
+  await expect(card).toBeVisible();
+  await card.click();
+  await expect(dialog).toBeVisible();
+  await expect(value).toHaveValue("#22735980");
+  await expect(page.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue("Card");
+  expect(await card.boundingBox()).toEqual(before);
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(value).toHaveValue("#ff5d00");
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(value).toHaveValue("#22735980");
+});
+
+test("canvas color picking handles empty space, gradients and cancellation without editing", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1&tokens=1");
+  await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  await chooseSelectMenu(page, "Fill type", "Linear gradient");
+  await page.getByRole("tab", { name: "Tokens", exact: true }).click();
+  await page.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Color", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Color token", exact: true });
+  const start = async () => {
+    await page.getByRole("button", { name: "Open color palette", exact: true }).click();
+    await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  };
+  await start();
+  await page.getByLabel("Design canvas", { exact: true }).click({ position: { x: 800, y: 700 } });
+  await expect(page.getByRole("status").filter({ hasText: "No solid colour here" })).toBeVisible();
+  await page.locator('[data-node-id="token-card"]').click();
+  await expect(dialog).toBeHidden();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open color palette", exact: true })).toBeFocused();
+  await expect(page.getByRole("textbox", { name: "Color", exact: true })).toHaveValue("#ff5d00");
+  await start();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Color", exact: true })).toHaveValue("#ff5d00");
+  await start();
+  await page.locator('[data-node-id="token-label"]').click();
+  await expect(dialog).toBeVisible();
+  const inheritedText = await page
+    .locator('[data-node-id="token-label"]')
+    .evaluate((node) => getComputedStyle(node).color);
+  expect(inheritedText).toContain("rgb(");
+  await expect(page.getByRole("textbox", { name: "Color", exact: true })).not.toHaveValue(
+    "#ff5d00",
+  );
+});

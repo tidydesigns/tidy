@@ -879,7 +879,6 @@ export const SelectionInspector = memo(function SelectionInspector({
               replayLabel
               label="Text color"
               nodes={selected}
-              tokens={tokens}
               get={(item) =>
                 item.style.colorToken
                   ? (tokens[item.style.colorToken] ?? item.style.color ?? "#1e1e1e")
@@ -1776,7 +1775,7 @@ export const SelectionInspector = memo(function SelectionInspector({
             }
           />
         </Section>
-        <EffectsInspector selected={selected} tokens={tokens} onPatch={onPatch} />
+        <EffectsInspector selected={selected} onPatch={onPatch} />
         <details className="border-b border-primary-grey/60">
           <summary data-ph-public className="cursor-pointer px-4 py-3 text-xs font-medium">
             Outline
@@ -1787,7 +1786,6 @@ export const SelectionInspector = memo(function SelectionInspector({
               replayLabel
               label="Outline color"
               nodes={selected}
-              tokens={tokens}
               get={(item) => item.style.outlineColor ?? "#000000"}
               onChange={(value) =>
                 onPatch((item) => ({

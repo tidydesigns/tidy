@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { buildDrawnNode, type DesignNode } from "./document";
-import { addRecentColor, selectionColors } from "./selection-colors";
+import { selectionColors } from "./selection-colors";
 
 test("selection palette includes rendered fills, stops, text, borders, and shadows without duplicates", () => {
   const a: DesignNode = {
@@ -36,15 +36,4 @@ test("selection palette includes rendered fills, stops, text, borders, and shado
     "#44556688",
     "#778899",
   ]);
-});
-
-test("recent colors normalize, deduplicate, bound, and reject invalid values", () => {
-  expect(addRecentColor(["#abcdef", "#123456"], "#ABCDEF")).toEqual(["#abcdef", "#123456"]);
-  expect(addRecentColor(["#abcdef"], "bad")).toEqual(["#abcdef"]);
-  expect(
-    Array.from({ length: 14 }, (_, index) => index.toString(16).padStart(6, "0")).reduce<string[]>(
-      (colors, value) => addRecentColor(colors, `#${value}`),
-      [],
-    ).length,
-  ).toBe(12);
 });

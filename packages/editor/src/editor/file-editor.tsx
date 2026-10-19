@@ -154,6 +154,7 @@ import {
   zoomImageCrop,
   type ImageCrop,
 } from "../design/image-crop";
+import { CanvasColorPicker } from "./canvas-color-picker";
 import { TokenPanel } from "./token-panel";
 import { resolvedColorTokens, resolvedDocumentNodes } from "../design/design-tokens";
 import { useEditorEvent } from "./use-editor-event";
@@ -3910,7 +3911,10 @@ export function FileEditor({
   );
 
   return (
-    <main
+    <CanvasColorPicker
+      canvas={viewport}
+      nodes={renderedNodes}
+      tokens={tokens}
       data-mobile-panels-open={mobilePanelsOpen}
       className="tidy-editor editor-workspace relative flex h-full min-h-0 w-full overflow-hidden bg-surface text-primary-black"
     >
@@ -5125,6 +5129,6 @@ export function FileEditor({
           onClose={() => setPageMenu(null)}
         />
       )}
-    </main>
+    </CanvasColorPicker>
   );
 }
