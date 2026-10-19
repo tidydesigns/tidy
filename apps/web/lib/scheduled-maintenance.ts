@@ -17,11 +17,15 @@ export async function runScheduledMaintenance(env: Environment) {
       if (!required && !secret) return;
       if (!secret || secret.length < 32 || !env.WORKER_SELF_REFERENCE)
         throw new Error("Scheduled maintenance configuration is incomplete.");
+      const request = new Request(`https://maintenance.internal${path}`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}` },
+      });
+      // Let the route finish its own deadline and return a bounded response
+      // before the outer scheduled request expires.
       const response = await env.WORKER_SELF_REFERENCE.fetch(
-        new Request(`https://maintenance.internal${path}`, {
-          method: "POST",
-          headers: { authorization: `Bearer ${secret}` },
-          signal: AbortSignal.timeout(20_000),
+        new Request(request, {
+          signal: AbortSignal.timeout(requestDeadline(request) + 5000),
         }),
       );
       await response.body?.cancel();
@@ -31,3 +35,4 @@ export async function runScheduledMaintenance(env: Environment) {
   if (results.some((result) => result.status === "rejected"))
     throw new Error("Scheduled maintenance did not complete.");
 }
+import { requestDeadline } from "./request-boundary";

@@ -1,5 +1,6 @@
-import { expect, mock, test } from "bun:test";
+import { expect, mock, spyOn, test } from "bun:test";
 import { runScheduledMaintenance } from "./scheduled-maintenance";
+import { requestDeadline } from "./request-boundary";
 
 test("maintenance tasks run independently and billing remains optional", async () => {
   const paths: string[] = [];
@@ -38,4 +39,31 @@ test("failed maintenance responses are surfaced without response content", async
   await expect(runScheduledMaintenance(env)).rejects.toThrow(
     "Scheduled maintenance did not complete.",
   );
+});
+
+test("scheduled request deadlines leave room for each route to finish", async () => {
+  const originalTimeout = AbortSignal.timeout;
+  let outerDeadline = 0;
+  const timeout = spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+    outerDeadline = ms;
+    return originalTimeout(ms);
+  });
+  const paths: string[] = [];
+  const env = {
+    PRIVACY_CLEANUP_SECRET: "a".repeat(32),
+    BILLING_RECONCILIATION_SECRET: "b".repeat(32),
+    WORKER_SELF_REFERENCE: {
+      fetch: async (request: Request) => {
+        paths.push(new URL(request.url).pathname);
+        expect(outerDeadline).toBeGreaterThan(requestDeadline(request));
+        return new Response(null);
+      },
+    } as unknown as Fetcher,
+  };
+  try {
+    await runScheduledMaintenance(env);
+    expect(paths).toEqual(["/api/privacy/cleanup", "/api/internal/billing/reconcile"]);
+  } finally {
+    timeout.mockRestore();
+  }
 });

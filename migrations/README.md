@@ -117,6 +117,14 @@ PR lookup index. Apply it before deploying the service synchronization changes.
 The existing table grants cover the added column; reapply the runtime manifest
 when provisioning a new runtime role. Both local setup scripts include it.
 
+Measure the migration on a production-sized copy and use a low-traffic maintenance
+window. The column addition retains an `ACCESS EXCLUSIVE` lock on
+`organization_billing` until commit, and both non-concurrent index builds block
+writes to their tables. Billing reads and webhook processing can wait or reach
+their lock deadlines during this window. If the GitHub index build is too long,
+prepare a separate non-transactional concurrent index build before rollout;
+`CREATE INDEX CONCURRENTLY` cannot run inside this migration's transaction.
+
 Hosted Pro allowances include a 24-hour grace period after the recorded billing
 period. Rows without a period use their last update plus 24 hours; review and
 refresh any such existing subscriptions before applying the migration. No stored
