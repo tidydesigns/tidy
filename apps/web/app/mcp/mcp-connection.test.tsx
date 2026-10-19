@@ -33,7 +33,7 @@ test("pending authorizations never show the empty setup state before connected a
   const reader = stream.getReader();
   const first = new TextDecoder().decode((await reader.read()).value);
   expect(first).toContain("MCP");
-  expect(first.replace(/<!--.*?-->/g, "")).toContain("Loading authorized agents");
+  expect(first).toContain("Loading authorized agents");
   expect(first).toContain("data-mcp-connections-skeleton");
   expect(first).not.toContain("Connect your agent");
   expect(first).not.toContain("Copy setup prompt");
