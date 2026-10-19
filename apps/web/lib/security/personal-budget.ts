@@ -1,6 +1,6 @@
 import { budgetShard } from "./worker-budget";
-import { consumeMutationRateLimit } from "@/lib/auth/guard-client";
-import type { RateDecision, RateRule } from "@/lib/auth/guard-store";
+import { consumeMutationRateLimit, consumeMutationRateLimitPair } from "@/lib/auth/guard-client";
+import type { RateCheck, RateDecision, RateRule } from "@/lib/auth/guard-store";
 import { PublicActionError } from "./public-error";
 
 export const PERSONAL_ATTEMPTS = {
@@ -22,11 +22,15 @@ export const PERSONAL_ATTEMPTS = {
 } as const;
 export type PersonalOperation = keyof typeof PERSONAL_ATTEMPTS;
 export class PersonalBudgetError extends PublicActionError {
-  constructor(public status: 429 | 503) {
+  constructor(
+    public status: 429 | 503,
+    options?: ErrorOptions,
+  ) {
     super(
       status === 429
         ? "Too many account requests. Try again shortly."
         : "Account requests are temporarily unavailable. Try again.",
+      options,
     );
   }
 }
@@ -34,6 +38,7 @@ export async function consumePersonalAttempts(
   kind: PersonalOperation,
   userId: string,
   consume: (scope: string, key: string, rule: RateRule) => Promise<RateDecision>,
+  consumePair?: (scope: string, first: RateCheck, second: RateCheck) => Promise<RateDecision>,
 ) {
   const limits = PERSONAL_ATTEMPTS[kind];
   // Anonymous identities must not allocate one persistent object per source IP.
@@ -41,20 +46,31 @@ export async function consumePersonalAttempts(
   const scope = anonymous
     ? `personal-consent-shard:${await budgetShard(userId)}`
     : `personal-${kind}:${userId}`;
-  for (const [key, window, max] of [
-    ["minute", 60, limits.minute],
-    ["hour", 3600, limits.hour],
-  ] as const) {
-    if (!(await consume(scope, anonymous ? `${userId}:${key}` : key, { window, max })).allowed)
-      throw new PersonalBudgetError(429);
+  const checks: [RateCheck, RateCheck] = [
+    { key: anonymous ? `${userId}:minute` : "minute", rule: { window: 60, max: limits.minute } },
+    { key: anonymous ? `${userId}:hour` : "hour", rule: { window: 3600, max: limits.hour } },
+  ];
+  if (consumePair) {
+    if (!(await consumePair(scope, ...checks)).allowed) throw new PersonalBudgetError(429);
+    return;
+  }
+  for (const { key, rule } of checks) {
+    if (!(await consume(scope, key, rule)).allowed) throw new PersonalBudgetError(429);
   }
 }
 export async function reservePersonalAttempts(kind: PersonalOperation, userId: string) {
   if (typeof navigator === "undefined" || navigator.userAgent !== "Cloudflare-Workers") return;
   try {
-    await consumePersonalAttempts(kind, userId, consumeMutationRateLimit);
+    await consumePersonalAttempts(
+      kind,
+      userId,
+      consumeMutationRateLimit,
+      consumeMutationRateLimitPair,
+    );
   } catch (error) {
     if (error instanceof PersonalBudgetError) throw error;
-    throw new PersonalBudgetError(503);
+    // Keep the cause in memory so the server reporter can classify it. Its
+    // allowlist still excludes raw messages, identities and provider payloads.
+    throw new PersonalBudgetError(503, { cause: error });
   }
 }

@@ -4,6 +4,7 @@ import { createErrorReporter, safeServerError, serverErrorCategory } from "./pos
 import { posthogCollectionEnabled, posthogServerErrorsEnabled } from "./posthog-policy";
 import { consentCookie, ESSENTIAL_ONLY } from "./privacy/consent";
 import { observeRequest } from "./request-observability";
+import { PersonalBudgetError } from "./security/personal-budget";
 
 const original = { ...process.env };
 afterEach(() => {
@@ -327,6 +328,35 @@ test("safe categories preserve actionable diagnostics without arbitrary codes or
     safeServerError(Object.assign(new Error("private"), { code: "private" }), "private-event")
       .message,
   ).toBe("server_request_failed");
+});
+
+test("wrapped account guard failures retain categories without exporting their causes", async () => {
+  const c = collector();
+  try {
+    const cause = new Error("private-provider-token", {
+      cause: new DOMException("private-timeout-details", "TimeoutError"),
+    });
+    const failure = new PersonalBudgetError(503, { cause });
+    expect(failure.cause).toBe(cause);
+    expect(failure.message).toBe("Account requests are temporarily unavailable. Try again.");
+    await createErrorReporter(runtime)(failure, {
+      source: "next",
+      event: "server_request_failed",
+      route: "/mcp",
+      phase: "render",
+    });
+    expect(c.events()[0].properties.error_category).toBe("timeout");
+    expect(c.events()[0].properties.$exception_list).toHaveLength(1);
+    expect(c.bodies.join("")).not.toMatch(/private-|provider-token|timeout-details|\"cause\"/);
+    const cyclic = new Error("private-cycle");
+    cyclic.cause = cyclic;
+    expect(serverErrorCategory(cyclic)).toBe("unknown");
+    expect(serverErrorCategory(new Error("AUTH_GUARD binding is required"))).toBe(
+      "missing_runtime_binding",
+    );
+  } finally {
+    c.transport.mockRestore();
+  }
 });
 
 test("non-Error and stackless errors cannot expose the wrapper's machine paths", async () => {

@@ -12,6 +12,8 @@ import { connectorProviders } from "@/lib/connectors/catalog";
 import { settingsTab } from "@/lib/settings-navigation";
 import { PageLoading } from "@/components/ui/page-loading";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
+import { Skeleton as Block } from "@/components/ui/skeleton";
+import { McpLoadingContent } from "@/app/mcp/mcp-loading";
 import {
   filesPage,
   settingsPage,
@@ -30,10 +32,6 @@ import {
   connectorList,
   connectorSummary,
 } from "./page-layout";
-
-function Block({ className = "" }: { className?: string }) {
-  return <div className={`rounded bg-subtle-fill motion-safe:animate-pulse ${className}`} />;
-}
 
 function Surface({
   name,
@@ -374,28 +372,7 @@ function SettingsLayoutSkeleton({ tab, emailConfigured }: { tab: string } & Skel
 export function McpSkeleton() {
   return (
     <Surface name="mcp" className={mcpPage}>
-      <h1 data-ph-public className="text-3xl font-semibold tracking-tight">
-        Connect your agent
-      </h1>
-      <Block className="mt-2 h-5 w-full max-w-md" />
-      <Block className="mt-6 h-10 w-[210px]" />
-      <div className="mt-6 space-y-6">
-        {[0, 1, 2].map((step) => (
-          <div key={step} className="flex gap-4">
-            <Block className="size-[26px] shrink-0 rounded-full" />
-            <div className="min-w-0 flex-1">
-              <Block className="h-[26px] w-40" />
-              <Block className="mt-1 h-5 w-full max-w-lg" />
-              <Block className="mt-2 h-[54px] w-full" />
-            </div>
-          </div>
-        ))}
-      </div>
-      <div className="mt-6 border-t border-primary-grey/70 pt-4">
-        <Block className="h-4 w-28" />
-        <Block className="mt-2 h-6 w-full" />
-      </div>
-      <Block className="mt-4 h-11 w-full" />
+      <McpLoadingContent />
     </Surface>
   );
 }

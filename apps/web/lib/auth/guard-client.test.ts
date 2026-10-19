@@ -10,6 +10,7 @@ import type { RateCheck, RateDecision, RateRule } from "./guard-store";
 import { consumeImageBudget } from "../design/image-budget";
 import { MutationBudgetError } from "../security/mutation-budget";
 import { runWithRequestSignal } from "../request-lifecycle";
+import { consumePersonalAttempts, reservePersonalAttempts } from "../security/personal-budget";
 
 const symbol = Symbol.for("__cloudflare-context__");
 const globals = globalThis as unknown as Record<symbol, unknown>;
@@ -40,6 +41,50 @@ afterEach(() => {
   globals[symbol] = previous;
 });
 const admitted = { allowed: true, retryAfter: null };
+test("MCP authorization checks reserve the existing account counters in one RPC", async () => {
+  const calls = fixture(async () => ({ ...admitted, batchSupported: true }));
+  await consumePersonalAttempts(
+    "oauth-authorizations",
+    "private-user",
+    consumeMutationRateLimit,
+    consumeMutationRateLimitPair,
+  );
+  expect(calls).toEqual([
+    {
+      shard: `mutations:${digest("application-mutations-v1:personal-oauth-authorizations:private-user")}`,
+      key: digest("minute"),
+      rule: { window: 60, max: 120 },
+      next: { key: digest("hour"), rule: { window: 3600, max: 3600 } },
+    },
+  ]);
+  expect(JSON.stringify(calls)).not.toContain("private-user");
+});
+
+test("a lost account guard response fails closed without retrying or discarding its cause", async () => {
+  const failure = new DOMException("synthetic lost reservation response", "TimeoutError");
+  const calls = fixture(async () => {
+    throw failure;
+  });
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { userAgent: "Cloudflare-Workers" },
+  });
+  try {
+    await expect(
+      reservePersonalAttempts("oauth-authorizations", "private-user"),
+    ).rejects.toMatchObject({
+      status: 503,
+      cause: failure,
+      message: "Account requests are temporarily unavailable. Try again.",
+    });
+    expect(calls).toHaveLength(1);
+  } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  }
+});
+
 test("endpoint reservations are hashed separately from provider and delivery budgets", async () => {
   const calls = fixture(async () => admitted);
   await consumeAuthEndpointRateLimit("203.0.113.10|/unknown-one", { window: 60, max: 120 });

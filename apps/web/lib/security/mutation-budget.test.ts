@@ -313,23 +313,30 @@ for (const kind of ["read", "write", "oauth"] as const)
   });
 
 for (const kind of Object.keys(PERSONAL_ATTEMPTS) as (keyof typeof PERSONAL_ATTEMPTS)[])
-  test(`personal ${kind} hourly attempts survive minute resets and isolate actors`, async () => {
-    const guard = limiter(),
-      limits = PERSONAL_ATTEMPTS[kind];
-    const consume = (scope: string, key: string, rule: RateRule) =>
-      guard.consume(`${scope}:${key}`, rule);
-    for (let n = 0; n < limits.hour; n++) {
-      if (n > 0 && n % limits.minute === 0) guard.advance(60_001);
-      await consumePersonalAttempts(kind, "actor", consume);
-    }
-    guard.advance(60_001);
-    await expect(consumePersonalAttempts(kind, "actor", consume)).rejects.toMatchObject({
-      status: 429,
+  for (const batched of [false, true])
+    test(`personal ${kind} ${batched ? "paired" : "serial"} hourly attempts survive minute resets and isolate actors`, async () => {
+      const guard = limiter(),
+        limits = PERSONAL_ATTEMPTS[kind];
+      const consume = (scope: string, key: string, rule: RateRule) =>
+        guard.consume(`${scope}:${key}`, rule);
+      const consumePair = async (scope: string, first: RateCheck, second: RateCheck) => {
+        const result = await consume(scope, first.key, first.rule);
+        return result.allowed ? consume(scope, second.key, second.rule) : result;
+      };
+      const reserve = (actor: string) =>
+        consumePersonalAttempts(kind, actor, consume, batched ? consumePair : undefined);
+      for (let n = 0; n < limits.hour; n++) {
+        if (n > 0 && n % limits.minute === 0) guard.advance(60_001);
+        await reserve("actor");
+      }
+      guard.advance(60_001);
+      await expect(reserve("actor")).rejects.toMatchObject({
+        status: 429,
+      });
+      await reserve("another-actor");
+      guard.advance(3_600_001);
+      await reserve("actor");
     });
-    await consumePersonalAttempts(kind, "another-actor", consume);
-    guard.advance(3_600_001);
-    await consumePersonalAttempts(kind, "actor", consume);
-  });
 
 test("telemetry hourly byte limits survive minute resets and isolate receipts", async () => {
   const guard = limiter();

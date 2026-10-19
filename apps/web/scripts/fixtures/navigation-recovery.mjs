@@ -239,7 +239,8 @@ export async function testNavigationRecovery({ context, base, database, artifact
       if (persistent) {
         const retry = cold.getByRole("button", { name: "Retry loading authorized agents" });
         await retry.waitFor();
-        await cold.getByRole("heading", { name: "Connect your agent", exact: true }).waitFor();
+        await cold.getByRole("heading", { name: "MCP", exact: true }).waitFor();
+        assert.equal(await cold.getByRole("button", { name: "Copy setup prompt" }).count(), 0);
         await cold.waitForTimeout(500);
         assert.equal(refreshes.length, 1, "Persistent outage caused a refresh loop.");
         await lock.query("rollback");

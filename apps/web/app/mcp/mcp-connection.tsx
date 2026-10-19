@@ -17,6 +17,7 @@ import { agentOptions, setupFor, type Agent } from "./agent-setup";
 import { useFeatureFlag } from "@/lib/use-feature-flag";
 import type { AuthorizedClient } from "@/lib/mcp/authorizations";
 import { authorizationRefreshDelay, sameAuthorizations } from "@/lib/mcp/authorization-refresh";
+import { McpConnectionsSkeleton, McpPageHeading } from "./mcp-loading";
 import styles from "./mcp-connection.module.css";
 
 function ManualSetup({ resourceUrl }: { resourceUrl: string }) {
@@ -331,17 +332,12 @@ export function McpConnection({
   const prompt = { resourceUrl, organizationId, copied, onCopied: setCopied };
   return (
     <section className={styles.connection}>
-      <h1 data-ph-public className={styles.pageTitle}>
-        MCP
-      </h1>
-      <p data-ph-public className={styles.pageDescription}>
-        Use your coding agents with your Tidy files.
-      </p>
+      <McpPageHeading />
       <div className={styles.content}>
         <DeferredSection
           value={clients}
           label="authorized agents"
-          fallback={<EmptySetup {...prompt} />}
+          fallback={<McpConnectionsSkeleton />}
         >
           {(loaded) => <Connections initialClients={loaded} {...prompt} />}
         </DeferredSection>

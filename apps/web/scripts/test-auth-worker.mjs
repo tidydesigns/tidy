@@ -393,6 +393,16 @@ const legacyWorker = new Miniflare(
 );
 try {
   await legacyWorker.ready;
+  const authorizations = await Promise.all(
+    Array.from({ length: 125 }, () =>
+      legacyWorker.dispatchFetch(
+        "https://auth.test/personal-attempts?kind=oauth-authorizations&user=legacy-mcp-actor",
+      ),
+    ),
+  );
+  assert.equal(authorizations.filter((response) => response.status === 204).length, 120);
+  assert.equal(authorizations.filter((response) => response.status === 429).length, 5);
+  console.log("PASS: personal authorization budgets retain their limits against legacy guards");
   const attempts = await Promise.all(
     Array.from({ length: 65 }, (_, index) =>
       legacyWorker.dispatchFetch(
