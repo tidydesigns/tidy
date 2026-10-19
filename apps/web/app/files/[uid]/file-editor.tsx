@@ -23,7 +23,9 @@ const host = {
 export function FileEditor(props: ComponentProps<typeof SharedFileEditor>) {
   return (
     <EditorHostProvider value={host}>
-      <SharedFileEditor {...props} />
+      <div className="h-dvh">
+        <SharedFileEditor {...props} />
+      </div>
     </EditorHostProvider>
   );
 }
