@@ -4,7 +4,7 @@ import { memo, useRef, useState } from "react";
 import type { DesignNode } from "../design/document";
 
 type Props = {
-  roots: readonly DesignNode[];
+  nodesById: ReadonlyMap<string, DesignNode>;
   visibleRootIds: ReadonlySet<string>;
   selectedIds: readonly string[];
   readOnly: boolean;
@@ -14,28 +14,30 @@ type Props = {
 
 /** Editor chrome shares the node's identity, but never becomes part of the artwork. */
 export const CanvasArtboardLabels = memo(function CanvasArtboardLabels({
-  roots,
+  nodesById,
   visibleRootIds,
   selectedIds,
   readOnly,
   onSelect,
   onRename,
 }: Props) {
-  return roots.map((node) =>
-    node.type === "artboard" && node.visible && visibleRootIds.has(node.id) ? (
+  const selected = new Set(selectedIds);
+  return Array.from(visibleRootIds, (id) => {
+    const node = nodesById.get(id);
+    return node?.parentId === null && node.type === "artboard" && node.visible ? (
       <ArtboardLabel
         key={node.id}
         node={node}
-        selected={selectedIds.includes(node.id)}
+        selected={selected.has(node.id)}
         readOnly={readOnly}
         onSelect={onSelect}
         onRename={onRename}
       />
-    ) : null,
-  );
+    ) : null;
+  });
 });
 
-function ArtboardLabel({
+const ArtboardLabel = memo(function ArtboardLabel({
   node,
   selected,
   readOnly,
@@ -116,4 +118,4 @@ function ArtboardLabel({
       </div>
     </div>
   );
-}
+});

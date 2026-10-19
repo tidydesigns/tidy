@@ -4379,7 +4379,7 @@ export function FileEditor({
             </ImageViewportProvider>
             {!prototypeMode && (
               <CanvasArtboardLabels
-                roots={children.get(null) ?? []}
+                nodesById={renderedById}
                 visibleRootIds={visibleRootIds}
                 selectedIds={selectedIds}
                 readOnly={readOnly}
