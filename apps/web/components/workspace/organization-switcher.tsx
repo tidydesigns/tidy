@@ -29,6 +29,7 @@ export function OrganizationSwitcher({
   const dropdown = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const [, startTransition] = useTransition();
+  const switching = useRef(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -43,10 +44,15 @@ export function OrganizationSwitcher({
   const organizationPath = avatarPath("organization", organizationId);
   const active = currentOrganizations.find((org) => org.id === organizationId);
 
-  async function switchOrganization(id: string) {
-    if (pending || id === organizationId) return;
+  function switchOrganization(id: string) {
+    if (switching.current || id === organizationId) return;
+    switching.current = true;
     setPending(true);
     setError("");
+    startTransition(() => switchOrganizationAction(id));
+  }
+
+  async function switchOrganizationAction(id: string) {
     try {
       const result = await authClient.organization.setActive({ organizationId: id });
       if (result.error) throw new Error(result.error.message || "Unable to switch organization.");
@@ -54,6 +60,7 @@ export function OrganizationSwitcher({
       await navigateWithFreshSession("/files");
     } catch (error) {
       unstable_rethrow(error);
+      switching.current = false;
       setError(error instanceof Error ? error.message : "Unable to switch organization.");
       setPending(false);
     }
@@ -120,7 +127,7 @@ export function OrganizationSwitcher({
             label="Organization"
             value={organizationId}
             options={currentOrganizations.map((org) => ({ value: org.id, label: org.name }))}
-            onChange={(id) => startTransition(() => switchOrganization(id))}
+            onChange={switchOrganization}
             disabled={pending}
             className="flex-1"
             placement="top"

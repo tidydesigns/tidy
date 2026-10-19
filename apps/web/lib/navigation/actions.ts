@@ -8,7 +8,7 @@ import { redirect, RedirectType } from "next/navigation";
 // before navigating; push/replace followed by refresh can race the transition.
 // Client callers must return/await this in a form Action or useTransition so
 // Next's redirect rejection reaches its RedirectBoundary instead of the browser.
-export async function navigateWithFreshSession(href: string, replace = true): Promise<void> {
+export async function navigateWithFreshSession(href: string, replace = true): Promise<never> {
   if (
     typeof href !== "string" ||
     !href.startsWith("/") ||
