@@ -766,7 +766,7 @@ export const CanvasComments = forwardRef<
   }
 
   return (
-    <div data-canvas-control className="pointer-events-none absolute inset-0 z-20">
+    <div data-canvas-control className="pointer-events-none absolute inset-0 z-30">
       {visibleThreads.map((thread) => {
         const first = thread.preview ?? thread.messages[0];
         return (

@@ -67,7 +67,7 @@ export function CanvasViewMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        className="flex h-8 items-center gap-2 rounded-md border border-primary-grey/80 bg-surface px-2.5 text-xs tabular-nums hover:bg-primary-grey/20"
+        className="flex h-[42px] items-center gap-2 rounded-lg border border-primary-grey/70 bg-primary-white px-3 text-xs tabular-nums shadow-sm hover:bg-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
       >
         {percent}
         <span data-ph-public style={{ display: "contents" }}>
@@ -89,7 +89,7 @@ export function CanvasViewMenu({
           data-ph-public-label
           role="menu"
           aria-label="Canvas view"
-          className="absolute right-0 top-10 z-50 max-h-[calc(100dvh-72px)] w-64 overflow-y-auto rounded-xl border border-primary-grey/70 bg-primary-white p-1.5 shadow-xl"
+          className="absolute right-0 top-full z-50 mt-2 max-h-[calc(100dvh-150px)] w-64 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-xl border border-primary-grey/70 bg-primary-white p-1.5 shadow-xl"
           onKeyDown={(event) => {
             if (event.key === "Escape") {
               event.preventDefault();

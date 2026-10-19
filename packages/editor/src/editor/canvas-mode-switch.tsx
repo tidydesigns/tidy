@@ -12,7 +12,7 @@ export function CanvasModeSwitch({
       data-ph-public
       role="group"
       aria-label="Canvas mode"
-      className="flex shrink-0 gap-0.5 rounded-lg border border-primary-grey/70 bg-primary-white/95 p-1 shadow-sm"
+      className="flex shrink-0 gap-0.5 rounded-lg border border-primary-grey/70 bg-primary-white p-1 shadow-sm"
     >
       {(["design", "inspect"] as const).map((value) => (
         <button

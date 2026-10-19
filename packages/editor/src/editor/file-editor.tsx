@@ -4878,7 +4878,7 @@ export function FileEditor({
             );
           })}
           {!prototypeMode && (preview || local || !viewPreferences.comments) && (
-            <div data-canvas-control className="absolute right-4 top-20 z-20 md:top-4">
+            <div data-canvas-control className="absolute right-4 top-20 z-30 md:top-4">
               {canvasControls}
             </div>
           )}
