@@ -205,6 +205,8 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     }
     if (attachment) {
       this.participants.delete(attachment.sessionId);
+      if (peer && ![...this.participants.values()].some((item) => item.userId === peer.userId))
+        this.messageBudget.forget(peer.userId);
       this.ctx.waitUntil(this.ctx.storage.delete(`peer:${attachment.sessionId}`));
       this.broadcast({ type: "leave", sessionId: attachment.sessionId }, socket);
     }

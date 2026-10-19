@@ -31,6 +31,11 @@ export class RealtimeMessageBudget {
     private now = Date.now,
   ) {}
 
+  /** Discard local permits on departure; durable charges are never refunded. */
+  forget(userId: string) {
+    this.accounts.delete(userId);
+  }
+
   async consume(userId: string) {
     const now = this.now();
     let entry = this.accounts.get(userId);

@@ -80,3 +80,23 @@ test("overlapping messages cannot obtain multiple outstanding batches", async ()
   for (let i = 0; i < 9; i++) expect(await room.consume("account")).toBe(true);
   expect(calls).toBe(1);
 });
+
+test("departed accounts release cache capacity without resetting their durable denial", async () => {
+  let calls = 0;
+  const room = new RealtimeMessageBudget(
+    async (userId) => {
+      calls++;
+      return { allowed: userId === "new-participant", retryAfter: 3600 };
+    },
+    () => 1000,
+  );
+  for (let i = 0; i < 100; i++) expect(await room.consume(`departing-${i}`)).toBe(false);
+  expect(await room.consume("new-participant")).toBe(false);
+  expect(calls).toBe(100);
+  room.forget("departing-0");
+  expect(await room.consume("new-participant")).toBe(true);
+  expect(calls).toBe(101);
+  room.forget("new-participant");
+  expect(await room.consume("departing-0")).toBe(false);
+  expect(calls).toBe(102);
+});
