@@ -152,7 +152,7 @@ test("narrow artboard titles remain readable at low zoom", async ({ page }) => {
   await canvas.focus();
   await page.keyboard.press("Shift+0");
   for (let step = 0; step < 11; step++) await page.keyboard.press("-");
-  await expect(page.getByRole("button", { name: /^Zoom / }).first()).toContainText("10");
+  await expect(page.getByRole("button", { name: /^Zoom / }).first()).toContainText("10%");
   const bounds = required(await title.boundingBox());
   expect(bounds.width).toBeGreaterThan(100);
   expect(bounds.height).toBeCloseTo(24, 0);
