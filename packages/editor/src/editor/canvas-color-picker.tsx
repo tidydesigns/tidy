@@ -1,0 +1,180 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import type { DesignNode } from "../design/document";
+import { nodePaints } from "../design/paints";
+import { nodeStrokePaints, strokeWidths } from "../design/strokes";
+import { normalizeColor } from "../design/selection-colors";
+
+type Request = { apply: (color: string) => void; origin: HTMLElement | null };
+const Context = createContext<{
+  picking: boolean;
+  pick: (apply: Request["apply"], origin: HTMLElement | null) => void;
+} | null>(null);
+export const useCanvasColorPicker = () => useContext(Context);
+const instruction = "Click a solid fill or text colour. Esc to cancel.";
+
+/** Read a layer's colour, including token values, without changing its selection or bindings. */
+function layerColor(node: DesignNode, element: Element, tokens: Record<string, string>) {
+  if (node.type === "text") {
+    const value = node.style.colorToken ? tokens[node.style.colorToken] : node.style.color;
+    if (value) return normalizeColor(value);
+    // Text can inherit its colour. Resolve CSS colour syntax through the browser.
+    const pixel = document.createElement("canvas");
+    pixel.width = pixel.height = 1;
+    const context = pixel.getContext("2d");
+    if (!context) return;
+    context.fillStyle = getComputedStyle(element).color;
+    context.fillRect(0, 0, 1, 1);
+    return `#${[...context.getImageData(0, 0, 1, 1).data].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+  }
+  const fill = nodePaints(node).find((paint) => paint.visible && paint.opacity > 0);
+  const paint =
+    fill ??
+    (strokeWidths(node.style).some((width) => width > 0)
+      ? nodeStrokePaints(node).find((paint) => paint.visible && paint.opacity > 0)
+      : undefined);
+  return paint?.type === "solid"
+    ? normalizeColor(paint.token ? (tokens[paint.token] ?? paint.color) : paint.color)
+    : undefined;
+}
+
+export function CanvasColorPicker({
+  canvas,
+  nodes,
+  tokens,
+  children,
+  className,
+  "data-mobile-panels-open": mobilePanelsOpen,
+}: {
+  canvas: RefObject<HTMLDivElement | null>;
+  nodes: DesignNode[];
+  tokens: Record<string, string>;
+  children: ReactNode;
+  className: string;
+  "data-mobile-panels-open": boolean;
+}) {
+  const [request, setRequest] = useState<Request | null>(null);
+  const [message, setMessage] = useState(instruction);
+  const restoreFocus = useRef<HTMLElement | null>(null);
+  const finish = () => {
+    restoreFocus.current = request?.origin ?? null;
+    setRequest(null);
+  };
+  useEffect(() => {
+    if (!request) {
+      restoreFocus.current?.focus({ preventScroll: true });
+      restoreFocus.current = null;
+      return;
+    }
+    const surface = canvas.current;
+    if (!surface) return;
+    surface.focus({ preventScroll: true });
+    const blockGesture = (event: Event) => {
+      if (
+        !(event.target instanceof Element) ||
+        event.target.closest("[data-canvas-color-picker-control]")
+      )
+        return;
+      if (
+        !surface.contains(event.target) ||
+        event.target.closest("[data-canvas-control], button, input, textarea, select")
+      ) {
+        if (event.type === "pointerdown") {
+          restoreFocus.current = null;
+          setRequest(null);
+        }
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+    const choose = (event: MouseEvent) => {
+      if (!(event.target instanceof Element) || !surface.contains(event.target)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const element = document
+        .elementsFromPoint(event.clientX, event.clientY)
+        .find((element) => surface.contains(element) && element.closest("[data-node-id]"))
+        ?.closest<HTMLElement>("[data-node-id]");
+      const node = nodes.find((node) => node.id === element?.dataset.nodeId);
+      const color = node && element ? layerColor(node, element, tokens) : undefined;
+      if (!color) {
+        setMessage("No solid colour here. Choose a solid fill or text, or press Esc.");
+        return;
+      }
+      request.apply(color);
+      restoreFocus.current = request.origin;
+      setRequest(null);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        if (
+          event.key !== "Tab" &&
+          !(
+            event.target instanceof Element &&
+            event.target.closest("[data-canvas-color-picker-control]")
+          )
+        )
+          event.stopImmediatePropagation();
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      restoreFocus.current = request.origin;
+      setRequest(null);
+    };
+    for (const name of ["pointerdown", "pointerup", "pointermove", "contextmenu"])
+      document.addEventListener(name, blockGesture, true);
+    document.addEventListener("click", choose, true);
+    document.addEventListener("keydown", escape, true);
+    return () => {
+      for (const name of ["pointerdown", "pointerup", "pointermove", "contextmenu"])
+        document.removeEventListener(name, blockGesture, true);
+      document.removeEventListener("click", choose, true);
+      document.removeEventListener("keydown", escape, true);
+    };
+  }, [request, canvas, nodes, tokens]);
+  return (
+    <Context.Provider
+      value={{
+        picking: Boolean(request),
+        pick: (apply, origin) => {
+          setMessage(instruction);
+          setRequest({ apply, origin });
+        },
+      }}
+    >
+      <main
+        className={className}
+        data-mobile-panels-open={mobilePanelsOpen}
+        data-picking-canvas-color={request ? "" : undefined}
+      >
+        {children}
+        {request && (
+          <div
+            data-canvas-color-picker-control
+            className="fixed bottom-20 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-primary-grey bg-surface px-3 py-2 text-xs shadow-sm"
+          >
+            <span role="status">{message}</span>
+            <button
+              type="button"
+              onClick={() => finish()}
+              className="rounded px-2 py-1 hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-primary-orange"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </main>
+    </Context.Provider>
+  );
+}

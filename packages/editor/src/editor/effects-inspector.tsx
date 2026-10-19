@@ -80,11 +80,9 @@ function StackActions({
 }
 export function EffectsInspector({
   selected,
-  tokens,
   onPatch,
 }: {
   selected: DesignNode[];
-  tokens: Record<string, string>;
   onPatch: (patch: Patch) => void;
 }) {
   const [adding, setAdding] = useState<Effect["type"]>("blur");
@@ -226,7 +224,6 @@ export function EffectsInspector({
                       replayLabel
                       label={`Shadow ${index + 1} color`}
                       nodes={selected}
-                      tokens={tokens}
                       get={(node) => get(node).color}
                       onChange={(value) =>
                         update((shadow) => ({ ...shadow, color: applyColor(value, shadow.color) }))

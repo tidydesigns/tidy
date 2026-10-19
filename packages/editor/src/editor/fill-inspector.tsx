@@ -388,7 +388,6 @@ export function FillInspector({
                 replayLabel
                 label={`${prefix} color`}
                 nodes={selected}
-                tokens={tokens}
                 get={(node) => {
                   const paint = nodePaints(node)[index];
                   return paint.type === "solid"
@@ -561,7 +560,6 @@ export function FillInspector({
                           replayLabel
                           label={`Stop ${stopIndex + 1} color`}
                           nodes={selected}
-                          tokens={tokens}
                           get={(node) => {
                             const stop = get(node)!;
                             return stop.token ? (tokens[stop.token] ?? stop.color) : stop.color;
