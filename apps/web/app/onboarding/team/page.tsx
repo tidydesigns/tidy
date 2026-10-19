@@ -35,15 +35,19 @@ export default async function TeamPage({ searchParams }: PageProps<"/onboarding/
 
   const requestedId = (await searchParams).organizationId;
   const organization = organizations.find((item) => item.id === requestedId) ?? organizations[0];
-  const { role } = await auth.api.getActiveMemberRole({
-    headers: requestHeaders,
-    query: { organizationId: organization.id },
-  });
+  // Both endpoints authorize the requested organization independently. Fetch
+  // them together so invitation loading adds no extra sequential round trip.
+  const [{ role }, invitations] = await Promise.all([
+    auth.api.getActiveMemberRole({
+      headers: requestHeaders,
+      query: { organizationId: organization.id },
+    }),
+    auth.api.listInvitations({
+      headers: requestHeaders,
+      query: { organizationId: organization.id },
+    }),
+  ]);
   if (!role.split(",").some((item) => item === "owner" || item === "admin")) redirect("/");
-  const invitations = await auth.api.listInvitations({
-    headers: requestHeaders,
-    query: { organizationId: organization.id },
-  });
 
   return (
     <OnboardingShell

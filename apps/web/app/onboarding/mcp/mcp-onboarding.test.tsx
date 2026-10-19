@@ -6,7 +6,7 @@ mock.module("server-only", () => ({}));
 const navigation = { ...(await import("next/navigation")) };
 mock.module("next/navigation", () => ({
   ...navigation,
-  useRouter: () => ({ refresh() {}, replace() {} }),
+  useRouter: () => ({ refresh() {}, replace() {}, prefetch() {} }),
 }));
 const { McpOnboarding } = await import("./mcp-onboarding");
 const setup = { resourceUrl: "https://example.test/api/mcp", organizationId: "selected-org" };

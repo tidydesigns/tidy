@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import posthog from "@/lib/posthog-client";
 import { authClient } from "@/lib/auth-client";
@@ -39,6 +39,11 @@ export function TeamInvites({
   const [error, setError] = useState("");
   const [copiedId, setCopiedId] = useState("");
   const [cancellingId, setCancellingId] = useState("");
+
+  useEffect(() => {
+    if (onboarding)
+      router.prefetch(`/onboarding/mcp?organizationId=${encodeURIComponent(organizationId)}`);
+  }, [onboarding, organizationId, router]);
 
   async function cancelInvite(invite: Invite) {
     setCancellingId(invite.id);

@@ -13,6 +13,8 @@ const customEvents = new Set([
   "team_invitations_created",
   "onboarding_team_completed",
   "onboarding_completed",
+  "onboarding_mcp_prompt_copied",
+  "onboarding_mcp_connected",
   "organization_switched",
   "organization_created",
   "design_file_created",
@@ -25,6 +27,7 @@ const booleans = new Set([
   "panels_open",
   "has_selection",
   "mcp_setup_prompt_copied",
+  "mcp_connected",
 ]);
 const numbers = new Set([
   "frame_count",

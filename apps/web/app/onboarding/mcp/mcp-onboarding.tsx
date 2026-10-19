@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import posthog from "posthog-js";
+import posthog from "@/lib/posthog-client";
 import { Button } from "@/components/ui/button";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
@@ -27,6 +27,23 @@ export function McpOnboarding({
   const [clients, setClients] = useState(initialClients);
   const connected = clients.length > 0;
   const successHeading = useRef<HTMLHeadingElement>(null);
+  const reportedConnection = useRef(false);
+
+  useEffect(() => {
+    router.prefetch("/files");
+  }, [router]);
+
+  useEffect(() => {
+    if (connected && !reportedConnection.current) {
+      reportedConnection.current = true;
+      posthog.capture("onboarding_mcp_connected");
+    }
+  }, [connected]);
+
+  function promptCopied(value: boolean) {
+    setCopied(value);
+    if (value) posthog.capture("onboarding_mcp_prompt_copied");
+  }
 
   useEffect(() => {
     if (connected) {
@@ -135,7 +152,7 @@ export function McpOnboarding({
             resourceUrl={resourceUrl}
             organizationId={organizationId}
             copied={copied}
-            onCopied={setCopied}
+            onCopied={promptCopied}
           />
         )}
 

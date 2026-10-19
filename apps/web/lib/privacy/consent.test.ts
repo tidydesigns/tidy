@@ -85,6 +85,8 @@ test("all eight combinations enforce independent purpose boundaries", () => {
       ["survey sent", "analytics"],
       ["onboarding_team_completed", "analytics"],
       ["onboarding_completed", "analytics"],
+      ["onboarding_mcp_prompt_copied", "analytics"],
+      ["onboarding_mcp_connected", "analytics"],
       ["$snapshot", "replay"],
       ["$exception", "diagnostics"],
       ["$web_vitals", "diagnostics"],
@@ -102,11 +104,17 @@ test("all eight combinations enforce independent purpose boundaries", () => {
   }
 });
 test("onboarding analytics retain setup outcomes without invitation addresses or prompt text", () => {
-  for (const name of ["onboarding_team_completed", "onboarding_completed"]) {
+  for (const name of [
+    "onboarding_team_completed",
+    "onboarding_completed",
+    "onboarding_mcp_prompt_copied",
+    "onboarding_mcp_connected",
+  ]) {
     const result = redactTelemetry(
       event(name, {
         invitation_count: 2,
         mcp_setup_prompt_copied: true,
+        mcp_connected: false,
         email: "private@example.test",
         prompt: "Private setup prompt",
       }),
@@ -116,6 +124,7 @@ test("onboarding analytics retain setup outcomes without invitation addresses or
     expect(result.event).toBe(name);
     expect(result.properties.invitation_count).toBe(2);
     expect(result.properties.mcp_setup_prompt_copied).toBe(true);
+    expect(result.properties.mcp_connected).toBe(false);
     expect(result.properties).not.toHaveProperty("email");
     expect(result.properties).not.toHaveProperty("prompt");
   }
