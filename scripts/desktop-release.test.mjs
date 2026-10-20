@@ -30,9 +30,11 @@ const environment = {
   GITHUB_REPOSITORY: "example/tidy",
   GITHUB_RUN_NUMBER: "41",
   GITHUB_RUN_ID: "123456",
+  DESKTOP_BETA_VERSION_OFFSET: "1",
 };
 const identity = releaseIdentity({ version: "0.1.0-beta.1" }, environment);
 
+/** Create a checked installer fixture and remove it after the test. */
 async function candidate(t) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-release-test-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -40,6 +42,7 @@ async function candidate(t) {
   return directory;
 }
 
+/** Replace fixture bytes and regenerate their matching checksum and metadata. */
 async function setInstaller(directory, bytes) {
   await writeFile(join(directory, identity.name), bytes);
   const checksum = createHash("sha256").update(bytes).digest("hex");
@@ -47,10 +50,12 @@ async function setInstaller(directory, bytes) {
   await writeReleaseMetadata(directory, identity);
 }
 
+/** Model a failed gh invocation with the exit code and stderr used by the publisher. */
 function cliError(stderr) {
   return Object.assign(new Error(stderr), { code: 1, stderr });
 }
 
+/** Emulate release operations while retaining calls and assets for safety assertions. */
 function fakeGitHub() {
   const state = { release: null, commit: null, files: new Map(), calls: [], failUpload: false };
   const gh = async (args) => {

@@ -9,6 +9,7 @@ import manifest from "../package.json";
 
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const repository = fileURLToPath(new URL("../../..", import.meta.url));
+/** Package the native app with numeric macOS versions and security fuses, ready for signing. */
 export async function packageDesktop() {
   const stagingDirectory = await mkdtemp(join(tmpdir(), "tidy-desktop-"));
 

@@ -24,6 +24,7 @@ if (!identity?.startsWith("Developer ID Application:"))
 if (!profile)
   throw new Error("Set TIDY_NOTARY_PROFILE to a validated notarytool Keychain profile.");
 
+/** Run a native tool, selecting the configured temporary keychain for notarytool calls. */
 async function run(command: string, args: string[]) {
   const keychainArgs =
     command === "xcrun" && args[0] === "notarytool" && keychain
@@ -33,8 +34,7 @@ async function run(command: string, args: string[]) {
   return result.stdout;
 }
 
-// Resource files are sealed by their containing bundle, not individually signed.
-// Sign every Mach-O (including universal binaries), regardless of its extension.
+/** Identify non-Mach-O resources sealed by their bundle instead of individually signed. */
 function isResource(path: string) {
   if (!statSync(path).isFile()) return false;
   const descriptor = openSync(path, "r");
@@ -50,6 +50,7 @@ function isResource(path: string) {
   }
 }
 
+/** Submit an archive or DMG and require Apple's Accepted result within a 15-minute wait. */
 async function notarize(path: string) {
   console.info(`Submitting ${basename(path)} for notarization…`);
   const submission = JSON.parse(

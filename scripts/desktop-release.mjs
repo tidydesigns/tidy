@@ -14,6 +14,7 @@ const basePattern = new RegExp(
   `^(${versionPart}\\.${versionPart}\\.${versionPart})(?:-beta\\.[1-9][0-9]*)?$`,
 );
 
+/** Parse a canonical decimal integer, rejecting unsafe values and values below the minimum. */
 function integer(value, name, minimum = 1) {
   if (!/^(0|[1-9][0-9]*)$/.test(value ?? "")) throw new Error(`Invalid ${name}.`);
   const number = Number(value);
@@ -21,6 +22,7 @@ function integer(value, name, minimum = 1) {
   return number;
 }
 
+/** Derive a retry-stable beta identity from a validated main-branch Actions context. */
 export function releaseIdentity(manifest, env) {
   if (
     env.GITHUB_ACTIONS !== "true" ||
@@ -56,6 +58,7 @@ export function releaseIdentity(manifest, env) {
   };
 }
 
+/** Return file metadata only for regular files; reject symlinks and other entry types. */
 async function regularFile(path) {
   const info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink())
@@ -63,6 +66,7 @@ async function regularFile(path) {
   return info;
 }
 
+/** Stream a regular release file into a SHA-256 digest without loading it all into memory. */
 async function sha256(path) {
   await regularFile(path);
   const hash = createHash("sha256");
@@ -70,6 +74,7 @@ async function sha256(path) {
   return hash.digest("hex");
 }
 
+/** Validate the nonempty installer and exact checksum sidecar, then describe its download. */
 async function checkedDownload(directory, identity) {
   const path = join(directory, identity.name);
   const info = await regularFile(path);
@@ -89,6 +94,7 @@ async function checkedDownload(directory, identity) {
   };
 }
 
+/** Write public metadata binding a verified installer to its source commit and workflow run. */
 export async function writeReleaseMetadata(directory, identity) {
   const download = await checkedDownload(directory, identity);
   const metadata = {
@@ -107,6 +113,7 @@ export async function writeReleaseMetadata(directory, identity) {
   return metadata;
 }
 
+/** Reject extra files, symlinks, tampered bytes, or metadata that differs from this release. */
 export async function validateReleaseArtifacts(directory, identity) {
   const names = [identity.name, `${identity.name}.sha256`, manifestName].sort();
   const entries = (await readdir(directory)).sort();
@@ -133,11 +140,13 @@ export async function validateReleaseArtifacts(directory, identity) {
   return expected;
 }
 
+/** Execute gh with literal arguments and propagate failures to the caller. */
 async function runGh(args) {
   const result = await execute("gh", args, { maxBuffer: 8 * 1024 * 1024 });
   return result.stdout;
 }
 
+/** Read a release, returning null only for gh's explicit release-not-found response. */
 async function getRelease(identity, gh) {
   try {
     return JSON.parse(
@@ -157,6 +166,7 @@ async function getRelease(identity, gh) {
   }
 }
 
+/** Allow an absent tag or a tag resolving to the expected commit, following at most five tags. */
 async function checkTag(identity, gh) {
   let object;
   try {
@@ -177,6 +187,7 @@ async function checkTag(identity, gh) {
     throw new Error("Release tag points to a different source commit.");
 }
 
+/** Require an existing release to be a desktop prerelease targeting this exact commit. */
 function checkRelease(release, identity) {
   if (
     release.tagName !== identity.tag ||
@@ -187,6 +198,7 @@ function checkRelease(release, identity) {
     throw new Error("Existing release is not this commit's desktop beta.");
 }
 
+/** Stage and publish verified beta assets, recovering drafts without replacing published bytes. */
 export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
   await validateReleaseArtifacts(directory, identity);
   await checkTag(identity, gh);
