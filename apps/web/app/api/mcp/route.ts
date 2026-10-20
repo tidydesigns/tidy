@@ -26,6 +26,7 @@ const resource = new URL(
 // Ask for design editing at consent; read-only grants still authorize reads.
 const connectionScopes = ["mcp:read", "mcp:write"];
 
+/** Create a server whose tools, validation budget, and authority belong to one request. */
 function buildServer(userId: string, clientId: string, grant: McpGrant) {
   const activity = new McpActivity({ userId, clientId });
   return registerTidyTools(
@@ -67,6 +68,7 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
 // The handler is shared; the SDK still constructs a fresh server and transport
 // for each request. Actor closures and grants never survive their request.
 const mcpHandler = createMcpHandler(
+  /** Resolve the current request's verified grant before constructing its isolated server. */
   () => {
     const grant = currentMcpGrant();
     if (!grant) throw new Error("Missing authenticated MCP context.");

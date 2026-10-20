@@ -67,6 +67,7 @@ export function requiredMcpScopes(message: unknown): readonly string[] {
     : ["mcp:read", "mcp:write"];
 }
 
+/** Read one JSON-RPC message within the shared byte limit and deadline, preserving it for dispatch. */
 export async function readMcpRequest(request: Request) {
   const reader = request.body?.getReader();
   if (!reader) throw new Error("A JSON-RPC request body is required.");
