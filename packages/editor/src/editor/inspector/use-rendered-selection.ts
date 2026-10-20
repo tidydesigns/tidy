@@ -1,11 +1,11 @@
 "use client";
 
-import { useEditorEvent } from "./use-editor-event";
-import { selectedElements } from "./canvas-elements";
+import { useEditorEvent } from "../use-editor-event";
+import { selectedElements } from "../canvas-elements";
 
 import { useLayoutEffect, useMemo, useState, type RefObject } from "react";
-import type { DesignDocument, DesignNode } from "../design/document";
-import { renderedNodeBox } from "../design/canvas-geometry";
+import type { DesignDocument, DesignNode } from "../../design/document";
+import { renderedNodeBox } from "../../design/canvas-geometry";
 
 /** The inspector shows actual geometry for fill, hug, and constrained layers. */
 export function useRenderedSelection(

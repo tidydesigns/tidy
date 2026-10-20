@@ -1,16 +1,16 @@
 "use client";
 import { useMemo, useState } from "react";
-import type { DesignDocument, DesignNode } from "../design/document";
-import { resolvedColorTokens } from "../design/design-tokens";
-import { replaceSelectionColor } from "../design/selection-colors";
-import { nodeIndex } from "../design/node-index";
+import type { DesignDocument, DesignNode } from "../../design/document";
+import { resolvedColorTokens } from "../../design/design-tokens";
+import { replaceSelectionColor } from "../../design/selection-colors";
+import { nodeIndex } from "../../design/node-index";
 import {
   createColourPalette,
   reconcileColourPalette,
   recolourPalette,
   indexSelectionColours,
 } from "./selection-colour-palette";
-import { applyColor, ColorField, Section } from "./inspector-controls";
+import { applyColor, ColorField, Section } from "../inspector-controls";
 
 export function SelectionColorsInspector({
   selected,

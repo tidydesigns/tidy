@@ -1,5 +1,5 @@
-import type { DesignNode } from "../design/document";
-import { selectionColors } from "../design/selection-colors";
+import type { DesignNode } from "../../design/document";
+import { selectionColors } from "../../design/selection-colors";
 
 type ColourRow = { readonly id: number; readonly colour: string };
 export type ColourPalette = { readonly rows: readonly ColourRow[]; readonly nextId: number };

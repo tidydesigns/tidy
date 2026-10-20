@@ -6,7 +6,7 @@ import {
   recolourPalette,
   indexSelectionColours,
   type ColourPalette,
-} from "../../../../packages/editor/src/editor/selection-colour-palette";
+} from "../../../../packages/editor/src/editor/inspector/selection-colour-palette";
 
 const colours = ["#1e1e1e", "#ff5d00", "#f2f2f0"];
 function row(palette: ColourPalette, colour: string) {
