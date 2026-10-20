@@ -3342,7 +3342,7 @@ export function FileEditor({
       const current = drag.current;
       if (!current || current.pointerId !== event.pointerId) return;
       if (!(event.buttons & 1)) {
-        finishLayerDrag(current.latest);
+        finishLayerDrag(event);
         return;
       }
       if (!viewport.current?.hasPointerCapture(event.pointerId)) moveLayerDrag(event);
@@ -4380,7 +4380,7 @@ export function FileEditor({
           if (event.target !== event.currentTarget) return;
           const current = drag.current;
           if (current?.pointerId === event.pointerId && !(event.buttons & 1))
-            finishLayerDrag(current.latest);
+            finishLayerDrag(event);
         }}
         onPointerDown={(event) => {
           if (

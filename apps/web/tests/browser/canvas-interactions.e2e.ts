@@ -149,7 +149,12 @@ test("cached hover restores resize observation after leaving and returning", asy
     .toBeLessThan(0.2);
 });
 
-for (const failure of ["pointer capture loss", "an intercepted release"] as const) {
+for (const failure of [
+  "pointer capture loss",
+  "an intercepted release",
+  "release detected by movement",
+  "release detected by capture loss",
+] as const) {
   test(`quick drops survive ${failure} and remain undoable once`, async ({ page }) => {
     await page.goto("/dev/hover-preview");
     await page.getByRole("button", { name: "Rectangle tool", exact: true }).click();
@@ -176,8 +181,29 @@ for (const failure of ["pointer capture loss", "an intercepted release"] as cons
           },
           { once: true },
         );
-      else
+      else if (failure === "an intercepted release")
         element.addEventListener("pointerup", (event) => event.stopPropagation(), { once: true });
+      else
+        element.addEventListener(
+          "pointermove",
+          (event) => {
+            if (!(event instanceof PointerEvent)) return;
+            element.dispatchEvent(
+              new PointerEvent(
+                failure === "release detected by movement" ? "pointermove" : "lostpointercapture",
+                {
+                  pointerId: event.pointerId,
+                  clientX: event.clientX + 40,
+                  clientY: event.clientY + 30,
+                  buttons: 0,
+                  ctrlKey: true,
+                  bubbles: true,
+                },
+              ),
+            );
+          },
+          { once: true },
+        );
     }, failure);
     await page.mouse.move(x + 40, y + 30);
     await page.mouse.move(x + 80, y + 60);

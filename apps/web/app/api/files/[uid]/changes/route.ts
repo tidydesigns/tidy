@@ -66,19 +66,19 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
   const denied = await operationBudgetResponse("document-request", session.user.id);
   if (denied) return denied;
   const { uid } = await params;
-  const file = await getDesignFile(session.user.id, uid);
-  if (!file) return new Response(null, { status: 404 });
-  if (!can(file.role, "edit"))
-    return Response.json(
-      { error: "Editor access is required to change this design." },
-      { status: 403 },
-    );
-  if (!(await realtimeSchemaReady()))
-    return Response.json(
-      { error: "Live files require the multiplayer migration." },
-      { status: 503 },
-    );
   try {
+    const file = await getDesignFile(session.user.id, uid);
+    if (!file) return new Response(null, { status: 404 });
+    if (!can(file.role, "edit"))
+      return Response.json(
+        { error: "Editor access is required to change this design." },
+        { status: 403 },
+      );
+    if (!(await realtimeSchemaReady()))
+      return Response.json(
+        { error: "Live files require the multiplayer migration." },
+        { status: 503 },
+      );
     const input = inputSchema.parse(
       await (await boundedRequest(request, DOCUMENT_HISTORY_LIMITS.operationBytes)).json(),
     );
