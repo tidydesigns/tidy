@@ -149,7 +149,16 @@ function directServerErrorCategory(value: Error) {
   if (value.name === "AbortError") return "canceled";
   if (value.name === "TimeoutError" || /timeout|timed out|Query read timeout/i.test(value.message))
     return "timeout";
-  if (/I\/O.*different request/i.test(value.message)) return "cross_request_io";
+  if (
+    value.message
+      .toLowerCase()
+      .split(/[\r\n\u2028\u2029]/)
+      .some((line) => {
+        const start = line.indexOf("i/o");
+        return start !== -1 && line.includes("different request", start + 3);
+      })
+  )
+    return "cross_request_io";
   if (/binding is (?:missing|required)/i.test(value.message)) return "missing_runtime_binding";
   return "unknown";
 }
