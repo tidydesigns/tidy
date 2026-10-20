@@ -31,14 +31,18 @@ export function renderedParentSize(element: HTMLElement) {
 }
 
 /** Compose layer transforms up to the canvas, including ancestor rotation, flips, and zoom. */
-export function canvasTransform(element: HTMLElement, canvas: HTMLElement) {
+export function canvasTransform(
+  element: HTMLElement,
+  canvas: HTMLElement,
+  styleFor: (element: HTMLElement) => CSSStyleDeclaration = getComputedStyle,
+) {
   let matrix = new DOMMatrix();
   for (
     let current: HTMLElement | null = element;
     current && current !== canvas;
     current = current.parentElement
   ) {
-    const transform = getComputedStyle(current).transform;
+    const transform = styleFor(current).transform;
     if (transform !== "none") matrix = new DOMMatrix(transform).multiply(matrix);
   }
   return matrix;

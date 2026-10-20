@@ -2,7 +2,13 @@
 import { useMemo, useState } from "react";
 import type { DesignDocument, DesignNode } from "../design/document";
 import { resolvedColorTokens } from "../design/design-tokens";
-import { replaceSelectionColor, selectionColors } from "../design/selection-colors";
+import { replaceSelectionColor } from "../design/selection-colors";
+import {
+  createColourPalette,
+  reconcileColourPalette,
+  recolourPalette,
+  indexSelectionColours,
+} from "./selection-colour-palette";
 import { applyColor, ColorField, Section } from "./inspector-controls";
 
 export function SelectionColorsInspector({
@@ -16,7 +22,7 @@ export function SelectionColorsInspector({
 }) {
   const [editing, setEditing] = useState(false);
   const [all, setAll] = useState(false);
-  const { nodes, tokens, colours } = useMemo(() => {
+  const { nodes, tokens, colours, groups } = useMemo(() => {
     const byId = new Map(document.nodes.map((node) => [node.id, node]));
     const children = new Map<string, DesignNode[]>();
     for (const node of document.nodes) {
@@ -45,26 +51,20 @@ export function SelectionColorsInspector({
       pending.push(...(children.get(node.id) ?? []));
     }
     const tokens = resolvedColorTokens(document);
-    return { nodes, tokens, colours: selectionColors(nodes, tokens) };
+    const groups = indexSelectionColours(nodes, tokens);
+    return { nodes, tokens, colours: [...groups.keys()], groups };
   }, [document, selected]);
-  const [palette, setPalette] = useState(() => ({
-    rows: colours.map((colour, id) => ({ colour, id })),
-    nextId: colours.length,
-  }));
-  let rows = palette.rows;
-  if (rows.length !== colours.length || rows.some((row, index) => row.colour !== colours[index])) {
-    let nextId = palette.nextId;
-    const previous = new Map(palette.rows.map((row) => [row.colour, row]));
-    rows = colours.map((colour) => previous.get(colour) ?? { colour, id: nextId++ });
-    setPalette({ rows, nextId });
-  }
+  const [palette, setPalette] = useState(() => createColourPalette(colours));
+  const currentPalette = reconcileColourPalette(palette, colours);
+  if (currentPalette !== palette) setPalette(currentPalette);
+  const rows = currentPalette.rows;
   if ((!editing && colours.length < 2) || (selected.length === 1 && nodes.length === 1))
     return null;
   return (
     <Section title="Selection colours" replayTitle>
       <div className={all ? "max-h-64 space-y-2 overflow-y-auto overscroll-contain" : "space-y-2"}>
         {(all ? rows : rows.slice(0, 4)).map(({ colour, id }) => {
-          const matching = nodes.filter((node) => selectionColors([node], tokens).includes(colour));
+          const matching = groups.get(colour) ?? [];
           const matchingIds = new Set(matching.map((node) => node.id));
           return (
             <ColorField
@@ -76,12 +76,7 @@ export function SelectionColorsInspector({
               get={() => colour}
               onChange={(change) => {
                 const next = applyColor(change, colour);
-                setPalette((previous) => ({
-                  ...previous,
-                  rows: previous.rows
-                    .filter((row) => row.id === id || row.colour !== next)
-                    .map((row) => (row.id === id ? { ...row, colour: next } : row)),
-                }));
+                setPalette((previous) => recolourPalette(previous, id, next));
                 onDocument((content) => ({
                   ...content,
                   nodes: content.nodes.map((node) => {

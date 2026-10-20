@@ -288,3 +288,30 @@ test("deep-selecting text on the canvas samples into that text only", async ({ p
     "#ff5d00",
   );
 });
+
+test("fully transparent text cannot steal the colour from the visible background", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  await heading.click({ modifiers: ["Control"] });
+  const glyph = await visibleColourPoint(page, heading, [30, 30, 30]);
+  const text = page.getByRole("textbox", { name: "Text color", exact: true });
+  await text.fill("#1e1e1e00");
+  await text.press("Enter");
+  await expect(heading).toHaveCSS("color", "rgba(30, 30, 30, 0)");
+  await page
+    .getByRole("button", { name: "Select Authentication panel", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Open selection colour #777777 palette", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await page.mouse.click(glyph.x, glyph.y);
+  await expect(page.locator('[data-node-id="desktop-email-placeholder"]')).toHaveCSS(
+    "color",
+    "rgb(242, 242, 240)",
+  );
+  await expect(heading).toHaveCSS("color", "rgba(30, 30, 30, 0)");
+});
