@@ -40,6 +40,7 @@ const readMethods = new Set([
   "notifications/progress",
 ]);
 
+/** Derive required scopes from a single message, treating unknown tools as write operations. */
 export function requiredMcpScopes(message: unknown): readonly string[] {
   if (!message || typeof message !== "object" || Array.isArray(message))
     throw new Error("Send one JSON-RPC message.");

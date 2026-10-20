@@ -65,8 +65,7 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
   );
 }
 
-// The handler is shared; the SDK still constructs a fresh server and transport
-// for each request. Actor closures and grants never survive their request.
+/** Share dispatch while constructing a fresh server and transport for each request's grant. */
 const mcpHandler = createMcpHandler(
   /** Resolve the current request's verified grant before constructing its isolated server. */
   () => {
@@ -77,6 +76,7 @@ const mcpHandler = createMcpHandler(
   { maxRequestBodySize: MCP_REQUEST_LIMITS.bodyBytes },
 );
 
+/** Return an authorization challenge or a retryable verification error when a grant is unusable. */
 async function grantFailure(
   claims: Record<string, unknown>,
   scopes: readonly string[] = ["mcp:read"],
@@ -106,6 +106,7 @@ async function grantFailure(
   );
 }
 
+/** Authenticate, bound, and authorize each message before dispatching it in its own grant context. */
 const authenticatedPost = requireMcpAuth(
   auth,
   async (request, claims) => {
@@ -144,6 +145,7 @@ const authenticatedPost = requireMcpAuth(
   { resource, requiredScopes: ["mcp:read"], challengeScopes: connectionScopes },
 );
 
+/** Bind MCP authentication and dispatch to the incoming request's cancellation signal and trace. */
 export function POST(request: Request) {
   return runWithRequestSignal(request.signal, () =>
     traceOperation("mcp.request", () => authenticatedPost(request)),
