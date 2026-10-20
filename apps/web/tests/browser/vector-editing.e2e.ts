@@ -134,6 +134,10 @@ test("vector point editing, drawing, history and export", async ({ page, baseURL
       .filter({ hasText: "Frame" })
       .first()
       .click();
+    await page
+      .locator("summary")
+      .filter({ has: page.getByText("Export", { exact: true }) })
+      .click();
     for (const format of ["svg", "png", "webp"]) {
       const control = page.getByRole("button", { name: format, exact: true });
       await control.scrollIntoViewIfNeeded();

@@ -2,7 +2,7 @@ import { defineConfig } from "playwright/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const port = 3391;
+const port = Number(process.env.BROWSER_TEST_PORT ?? 3391);
 const baseURL = `http://localhost:${port}`;
 
 export default defineConfig({
@@ -27,7 +27,7 @@ export default defineConfig({
   webServer: {
     command: `bun run dev --port ${port}`,
     url: `${baseURL}/dev/import-preview?edit=1`,
-    reuseExistingServer: false,
+    reuseExistingServer: process.env.BROWSER_TEST_REUSE_SERVER === "1",
     timeout: 120_000,
     env: {
       DATABASE_URL: "postgres://fixture:fixture@127.0.0.1:1/browser_tests",

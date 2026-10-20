@@ -83,6 +83,10 @@ test("component overrides, propagation, detach and viewer restrictions", async (
         .querySelectorAll(":scope > [data-node-id]").length === 3,
   );
   await select("Card instance");
+  await page
+    .locator("summary")
+    .filter({ has: page.getByText("Instance actions", { exact: true }) })
+    .click();
   await page.getByRole("button", { name: "Reset overrides", exact: true }).click();
   assert.equal(await instance.evaluate((node: HTMLElement) => node.style.width), "240px");
   await undo();

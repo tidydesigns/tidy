@@ -27,7 +27,9 @@ export function ComponentPropertiesInspector({
   node,
   document,
   onDocument,
+  mode = "all",
 }: {
+  mode?: "all" | "properties" | "authoring";
   node: DesignNode;
   document: DesignDocument;
   onDocument: (update: (doc: DesignDocument) => DesignDocument) => void;
@@ -46,7 +48,7 @@ export function ComponentPropertiesInspector({
   const target = targets.find((n) => n.id === targetId) ?? targets[0];
   return (
     <>
-      {master.librarySource && (
+      {mode !== "properties" && master.librarySource && (
         <Section replayTitle title="Library">
           <p className="text-xs text-secondary-ink">
             <span data-ph-public style={{ display: "contents" }}>
@@ -67,7 +69,7 @@ export function ComponentPropertiesInspector({
         </Section>
       )}
       {bindings.length > 0 && (
-        <Section replayTitle title="Properties">
+        <Section replayTitle title={mode === "authoring" ? "Manage properties" : "Properties"}>
           <div className="space-y-2">
             {bindings.map(([key, binding]) => {
               const bound = propertyTarget(document, node, binding);
@@ -81,35 +83,40 @@ export function ComponentPropertiesInspector({
                 onDocument((doc) => setComponentProperty(doc, node.id, key, value));
               return (
                 <div key={key}>
-                  {binding.property === "visible" ? (
-                    <Choice
-                      replayOptions
-                      label={binding.name}
-                      value={String(value)}
-                      choices={[
-                        ["true", "Visible"],
-                        ["false", "Hidden"],
-                      ]}
-                      onChange={(v) => update(v === "true")}
-                    />
-                  ) : binding.property === "fill" || binding.property === "color" ? (
-                    <ColorField
-                      label={binding.name}
-                      nodes={[bound]}
-                      get={() => String(value ?? "#000000")}
-                      onChange={(change) => update(applyColor(change, String(value ?? "#000000")))}
-                    />
-                  ) : (
-                    <PropertyField
-                      label={binding.name}
-                      value={typeof value === "boolean" ? String(value) : value}
-                      numeric={numeric}
-                      min={binding.property === "radius" ? 0 : 1}
-                      max={5000}
-                      onCommit={(v) => update(numeric ? Number(v) : v)}
-                    />
-                  )}
-                  {author && (
+                  <div hidden={mode === "authoring"}>
+                    {binding.property === "visible" ? (
+                      <Choice
+                        replayOptions
+                        label={binding.name}
+                        value={String(value)}
+                        choices={[
+                          ["true", "Visible"],
+                          ["false", "Hidden"],
+                        ]}
+                        onChange={(v) => update(v === "true")}
+                      />
+                    ) : binding.property === "fill" || binding.property === "color" ? (
+                      <ColorField
+                        label={binding.name}
+                        nodes={[bound]}
+                        get={() => String(value ?? "#000000")}
+                        onChange={(change) =>
+                          update(applyColor(change, String(value ?? "#000000")))
+                        }
+                      />
+                    ) : (
+                      <PropertyField
+                        label={binding.name}
+                        value={typeof value === "boolean" ? String(value) : value}
+                        numeric={numeric}
+                        min={binding.property === "radius" ? 0 : 1}
+                        max={5000}
+                        onCommit={(v) => update(numeric ? Number(v) : v)}
+                      />
+                    )}
+                  </div>
+                  {mode === "authoring" && <p className="text-xs">{binding.name}</p>}
+                  {mode !== "properties" && author && (
                     <button
                       data-ph-public
                       className={`${button} mt-1`}
@@ -135,7 +142,7 @@ export function ComponentPropertiesInspector({
           </div>
         </Section>
       )}
-      {author && (
+      {mode !== "properties" && author && (
         <Section replayTitle title="Expose property">
           <div className="space-y-2">
             <SelectMenu

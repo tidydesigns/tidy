@@ -7,12 +7,14 @@ import {
   type FocusEvent,
   type KeyboardEvent,
 } from "react";
+import { useQuietInspector } from "./inspector-presentation";
 type Value = string | number | undefined;
 const inputClass =
   "h-8 w-full min-w-0 rounded-md border border-control-border bg-surface px-2 text-xs text-primary-black outline-none focus:border-primary-orange focus-visible:ring-2 focus-visible:ring-primary-orange disabled:opacity-40";
 /** Keep the draft focused while other fields and network responses update. */
 export function PropertyField({
   label,
+  displayLabel,
   layout = "stacked",
   replayLabel = false,
   value,
@@ -30,6 +32,7 @@ export function PropertyField({
   validate,
 }: {
   label: string;
+  displayLabel?: string;
   layout?: "stacked" | "inline" | "embedded";
   replayLabel?: boolean;
   value: Value;
@@ -46,6 +49,8 @@ export function PropertyField({
   multiline?: boolean;
   validate?: (value: string) => string | undefined;
 }) {
+  const quiet = useQuietInspector();
+  const compact = quiet && layout === "stacked" && !multiline;
   const id = useId();
   const [draft, setDraft] = useState<string | null>(null);
   const committed = useRef(false);
@@ -108,14 +113,29 @@ export function PropertyField({
   };
   return (
     <div
-      className={`min-w-0 text-[10px] text-secondary-ink ${layout === "inline" ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3" : ""}`}
+      className={`relative min-w-0 ${quiet ? "text-[11px]" : "text-[10px]"} text-secondary-ink ${compact ? "inspector-field flex h-8 items-center gap-2 rounded-md bg-hover-surface px-2 focus-within:ring-1 focus-within:ring-primary-orange" : ""} ${layout === "inline" ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3" : ""}`}
     >
       <label
         htmlFor={id}
         data-ph-public={replayLabel || undefined}
-        className={layout === "embedded" ? "sr-only" : layout === "inline" ? "text-xs" : undefined}
+        className={
+          layout === "embedded"
+            ? "sr-only"
+            : compact
+              ? "shrink-0"
+              : layout === "inline"
+                ? "text-xs"
+                : undefined
+        }
       >
-        {label}
+        {displayLabel ? (
+          <>
+            <span className="sr-only">{label}</span>
+            <span aria-hidden="true">{displayLabel}</span>
+          </>
+        ) : (
+          label
+        )}
       </label>
       {multiline ? (
         <textarea
@@ -131,14 +151,14 @@ export function PropertyField({
           max={max}
           step={step}
           list={list}
-          className={`${inputClass} ${layout === "stacked" ? "mt-1" : ""} ${layout === "embedded" ? "border-transparent bg-transparent px-1 focus-visible:ring-inset" : ""} ${error ? "border-danger" : ""}`}
+          className={`${compact ? "h-8 w-full min-w-0 bg-transparent text-right text-xs text-primary-black outline-none disabled:opacity-40" : inputClass} ${!compact && layout === "stacked" ? "mt-1" : ""} ${layout === "embedded" ? "border-transparent bg-transparent px-1 focus-visible:ring-inset" : ""} ${error ? "border-danger" : ""}`}
         />
       )}
       {error && (
         <p
           id={`${id}-error`}
           role="alert"
-          className={`mt-1 text-danger ${layout === "inline" ? "col-start-2" : ""}`}
+          className={`mt-1 text-danger ${compact ? "absolute top-full z-10 rounded bg-surface px-2 py-1 shadow-sm" : ""} ${layout === "inline" ? "col-start-2" : ""}`}
         >
           {error}
         </p>

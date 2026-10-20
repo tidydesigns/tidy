@@ -237,3 +237,52 @@
 [data-picking-canvas-color] [aria-label="Design canvas"] * {
   cursor: crosshair !important;
 }
+
+.quiet-inspector .inspector-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.quiet-inspector .inspector-disclosure > div > .inspector-section {
+  padding-inline: 0;
+  border-bottom: 0;
+}
+.quiet-inspector .inspector-dimension > div:first-of-type {
+  min-width: 0;
+  flex: 1;
+}
+.quiet-inspector .inspector-dimension > div:first-of-type input {
+  padding-inline: 2px;
+  border: 0;
+  background: transparent;
+}
+.quiet-inspector input[type="number"] {
+  appearance: textfield;
+}
+.quiet-inspector input::-webkit-inner-spin-button,
+.quiet-inspector input::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+.quiet-inspector .inspector-choice > span {
+  min-width: 64px;
+}
+.quiet-inspector .inspector-choice button[aria-haspopup="menu"] {
+  border-color: transparent;
+  background: var(--color-hover-surface);
+}
+.quiet-inspector input[aria-label="Layer name"] {
+  font-weight: 600;
+}
+.quiet-inspector [data-inspector-font] button[role="combobox"] {
+  margin-top: 0;
+  border-color: transparent;
+  background: var(--color-hover-surface);
+}
+
+.quiet-inspector .inspector-dimension svg {
+  width: 10px;
+  height: 10px;
+}
+.quiet-inspector .inspector-font-style svg {
+  width: 12px;
+  height: 12px;
+}

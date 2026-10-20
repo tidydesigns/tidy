@@ -1,4 +1,5 @@
 "use client";
+import { useQuietInspector, InspectorDisclosure } from "./inspector-presentation";
 import { useMemo } from "react";
 import { isLayerLocked } from "../design/edit-document";
 import { SelectMenu } from "../components/ui/select-menu";
@@ -27,6 +28,7 @@ export function InstanceControls({
   onDocument: (change: (document: DesignDocument) => DesignDocument) => void;
   onGoToMaster?: (id: string) => void;
 }) {
+  const quiet = useQuietInspector();
   const options = useMemo(
     () =>
       componentInstanceSources(document.nodes, node.id).map((item) => ({
@@ -36,14 +38,14 @@ export function InstanceControls({
     [document.nodes, node.id],
   );
   const disabled = readOnly || isLayerLocked(document.nodes, node.id);
-  return (
+  const controls = (
     <div className="space-y-2" onKeyDown={(event) => event.stopPropagation()}>
       {fromChild && (
         <p data-ph-private className="text-xs text-secondary-ink">
           Instance: {node.name}
         </p>
       )}
-      {!readOnly && (
+      {!readOnly && !quiet && (
         <p className="text-xs text-secondary-ink">
           Detach to add, remove or rearrange layers. This instance will stop receiving component
           updates.
@@ -89,5 +91,12 @@ export function InstanceControls({
         )}
       </div>
     </div>
+  );
+  return quiet ? (
+    <InspectorDisclosure title="Instance actions" nested summary="Swap, reset or detach">
+      {controls}
+    </InspectorDisclosure>
+  ) : (
+    controls
   );
 }

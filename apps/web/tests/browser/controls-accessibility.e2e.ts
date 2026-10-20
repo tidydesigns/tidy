@@ -41,12 +41,9 @@ test("invalid token values explain the error, preserve artwork and allow correct
   const card = page.locator('[data-node-id="token-card"]');
   await expect(card).toBeVisible();
   await page.getByRole("tab", { name: "Tokens", exact: true }).click();
-  const token = (name: string) =>
-    page
-      .locator("details")
-      .filter({ has: page.locator("summary").filter({ hasText: `${name} ·` }) });
-  await token("rounded").locator("summary").click();
-  const radius = token("rounded").getByRole("spinbutton", { name: "Value", exact: true });
+  const token = () => page.getByRole("tabpanel", { name: "Tokens", exact: true });
+  await page.getByRole("button", { name: "Edit token rounded", exact: true }).click();
+  const radius = token().getByRole("spinbutton", { name: "Value", exact: true });
   const originalRadius = await card.evaluate(
     (element) => getComputedStyle(element).borderTopLeftRadius,
   );
@@ -63,14 +60,14 @@ test("invalid token values explain the error, preserve artwork and allow correct
   await expect(card).toHaveCSS("border-top-left-radius", "24px");
   await expect(radius).not.toHaveAttribute("aria-invalid");
 
-  await token("body").locator("summary").click();
+  await page.getByRole("button", { name: "Edit token body", exact: true }).click();
   const text = page.locator('[data-node-id="token-label"]');
   for (const [label, message, cssProperty, expectedCss, correction, correctedCss] of [
     ["Font size", "Enter a font size from 6 to 300.", "font-size", "18px", "20", "20px"],
     ["Font weight", "Enter a font weight from 1 to 1000.", "font-weight", "500", "600", "600"],
     ["Line height", "Enter a line height as a percentage.", "line-height", "28px", "150", "30px"],
   ]) {
-    const field = token("body").getByRole("spinbutton", { name: label, exact: true });
+    const field = token().getByRole("spinbutton", { name: label, exact: true });
     await expect(field).toHaveAttribute("required", "");
     await field.fill("");
     await field.press("Enter");
@@ -86,9 +83,11 @@ test("invalid token values explain the error, preserve artwork and allow correct
     await expect(field).not.toHaveAccessibleDescription(message);
   }
 
-  await page.getByRole("button", { name: "+ Color token", exact: true }).click();
-  await token("color_1").locator("summary").click();
-  const color = token("color_1").getByRole("textbox", { name: "Color", exact: true });
+  await page.getByRole("button", { name: "Add token", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Color", exact: true }).click();
+  const color = page
+    .getByRole("dialog", { name: "Color token", exact: true })
+    .getByRole("textbox", { name: "Color", exact: true });
   await expect(color).not.toHaveAttribute("aria-label");
   await color.fill("not-a-color");
   await color.press("Enter");
@@ -111,6 +110,8 @@ test("invalid token values explain the error, preserve artwork and allow correct
   await color.press("Enter");
   await expect(color).toHaveAttribute("aria-invalid", "true");
   await color.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Color token", exact: true })).toBeHidden();
+  await page.getByRole("button", { name: "Edit token color", exact: true }).click();
   await expect(color).toHaveValue("#336699ff");
   await expect(error).toHaveCount(0);
 });
@@ -155,6 +156,7 @@ test("the fill image picker uses its visible label and reflects keyboard focus",
 }) => {
   await page.goto("/dev/import-preview?edit=1&tokens=1");
   await page.getByRole("button", { name: "Select Card", exact: true }).first().click();
+  await page.getByRole("button", { name: "Edit fill 1", exact: true }).click();
   await page.getByRole("button", { name: /^Fill type:/ }).click();
   await page
     .getByRole("menu", { name: "Fill type", exact: true })

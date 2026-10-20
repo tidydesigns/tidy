@@ -1,4 +1,5 @@
 "use client";
+import { useQuietInspector } from "./inspector-presentation";
 import { useState } from "react";
 import type { DesignNode } from "../design/document";
 import type { ExportRequest, ExportFormat } from "../design/export-plan";
@@ -17,10 +18,11 @@ export function ExportControls({
   pending?: boolean;
   warnings?: string[];
 }) {
+  const quiet = useQuietInspector();
   const [scale, setScale] = useState(2),
     [mode, setMode] = useState<ExportRequest["mode"]>("selection");
   return (
-    <Section replayTitle title="Export">
+    <Section replayTitle title={quiet ? "" : "Export"}>
       <div className="space-y-2">
         {selected.length > 1 && (
           <Choice

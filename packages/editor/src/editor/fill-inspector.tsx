@@ -51,9 +51,11 @@ export function FillInspector({
   onGradientEdit,
   viewport,
   mode = "fill",
+  compact = false,
   children,
 }: {
   mode?: "fill" | "stroke";
+  compact?: boolean;
   children?: ReactNode;
   selected: DesignNode[];
   tokens: Record<string, string>;
@@ -64,6 +66,7 @@ export function FillInspector({
   onUpload?: (index: number, file: File) => Promise<void>;
   viewport?: RefObject<HTMLDivElement | null>;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const vector = selected.some((node) => node.vectorPath),
     stroke = mode === "stroke",
     noun = stroke ? "Stroke" : "Fill",
@@ -204,559 +207,617 @@ export function FillInspector({
         : paint,
     );
   }
+  if (compact && count === 0) return null;
+  const paintSummary = (current: DesignPaint) =>
+    current.type === "solid"
+      ? (current.token ?? current.color).replace(/^#/, "").toUpperCase()
+      : current.type === "linear"
+        ? "Linear gradient"
+        : current.type === "radial"
+          ? "Radial gradient"
+          : "Image fill";
   return (
-    <Section
-      replayTitle
-      title={noun}
-      action={
-        <button
-          data-ph-public
-          type="button"
-          aria-label={`Add ${lower}`}
-          disabled={lists.some((paints) => paints.length >= 20)}
-          className={button}
-          onClick={() => {
-            const id = crypto.randomUUID();
-            onPatch((node) => ({
-              style: paintStyle([
-                { id, type: "solid", color: "#ffffff", opacity: 1, visible: true },
-                ...nodePaints(node),
-              ]),
-            }));
-            setActive(0);
-            onGradientEdit?.(null);
-          }}
-        >
-          +
-        </button>
-      }
-    >
-      {children}
-      {Array.from({ length: count }, (_, i) => {
-        const current = lists[0][i],
-          kind = shared(selected, (node) => nodePaints(node)[i].type);
-        return (
-          <div
-            key={i}
-            className={`flex items-center gap-1 rounded-md p-1 ${index === i ? "bg-primary-grey/25" : ""}`}
-          >
-            <button
-              data-ph-private
-              type="button"
-              aria-label={`Edit ${lower} ${i + 1}`}
-              aria-pressed={index === i}
-              onClick={() => {
-                setActive(i);
-                if (current.type === "image" && current.assetId && selected.length === 1)
-                  onEditImage?.(current.id);
-                if (editingGradientId && editingGradientId !== current.id) onGradientEdit?.(null);
-              }}
-              className="h-7 w-7 shrink-0 rounded border border-primary-grey/70"
-              style={{
-                background:
-                  current.type === "image" && current.assetId
-                    ? `url("/api/assets/${current.assetId}") center / cover no-repeat`
-                    : (paintBackground(current, tokens, paintSize(selected[0])) ?? "#ffffff"),
-              }}
-            />
-            <SelectMenu
-              replayOptions
-              replayLabel
-              label={i === 0 ? `${noun} type` : `${noun} ${i + 1} type`}
-              value={kind ?? "mixed"}
-              size="sm"
-              className="flex-1"
-              options={[
-                ...(!kind ? [{ value: "mixed", label: "Mixed", disabled: true }] : []),
-                ...[
-                  ["solid", "Solid"],
-                  ["linear", "Linear gradient"],
-                  ["radial", "Radial gradient"],
-                  ["image", "Image"],
-                ]
-                  .filter(([value]) => !(stroke || vector) || value !== "image")
-                  .map(([value, label]) => ({ value, label })),
-              ]}
-              onChange={(value) => {
-                const type = value as DesignPaint["type"];
-                setActive(i);
-                if (editingGradientId && editingGradientId !== current.id) onGradientEdit?.(null);
-                onPatch((node) => ({
-                  style: paintStyle(
-                    nodePaints(node).map((paint, j) =>
-                      i === j ? convertPaint(paint, type) : paint,
-                    ),
-                  ),
-                }));
-              }}
-            />
-            <button
-              data-ph-public
-              type="button"
-              aria-label={`${current.visible ? "Hide" : "Show"} ${lower} ${i + 1}`}
-              aria-pressed={current.visible}
-              title={`Toggle ${lower} visibility`}
-              className={button}
-              onClick={() =>
-                onPatch((node) => ({
-                  style: paintStyle(
-                    nodePaints(node).map((paint, j) =>
-                      i === j ? { ...paint, visible: !current.visible } : paint,
-                    ),
-                  ),
-                }))
-              }
-            >
-              {current.visible ? "◉" : "○"}
-            </button>
-            <button
-              data-ph-public
-              type="button"
-              aria-label={`Move ${lower} ${i + 1} up`}
-              disabled={i === 0}
-              className={button}
-              onClick={() => {
-                onPatch((node) => {
-                  const paints = [...nodePaints(node)];
-                  [paints[i - 1], paints[i]] = [paints[i], paints[i - 1]];
-                  return { style: paintStyle(paints) };
-                });
-                setActive(i - 1);
-                if (editingGradientId && editingGradientId !== current.id) onGradientEdit?.(null);
-              }}
-            >
-              ↑
-            </button>
-            <button
-              data-ph-public
-              type="button"
-              aria-label={`Move ${lower} ${i + 1} down`}
-              disabled={i === count - 1}
-              className={button}
-              onClick={() => {
-                onPatch((node) => {
-                  const paints = [...nodePaints(node)];
-                  [paints[i + 1], paints[i]] = [paints[i], paints[i + 1]];
-                  return { style: paintStyle(paints) };
-                });
-                setActive(i + 1);
-                if (editingGradientId && editingGradientId !== current.id) onGradientEdit?.(null);
-              }}
-            >
-              ↓
-            </button>
-            <button
-              data-ph-public
-              type="button"
-              aria-label={i === 0 ? `Remove ${lower}` : `Remove ${lower} ${i + 1}`}
-              className={button}
-              onClick={() =>
-                onPatch((node) => ({
-                  style: paintStyle(nodePaints(node).filter((_, j) => j !== i)),
-                }))
-              }
-            >
-              −
-            </button>
-          </div>
-        );
-      })}
-      {count > 0 && (
-        <div key={index} className="space-y-2">
-          {number(
-            `${prefix} opacity %`,
-            (paint) => paint.opacity * 100,
-            (paint, value) => ({ ...paint, opacity: value / 100 }),
-            0,
-            100,
-          )}
-          <Choice
-            replayOptions
-            replayLabel
-            label={`${prefix} blend mode`}
-            value={read((paint) => paint.blendMode ?? "normal")}
-            choices={["normal", "multiply", "screen", "overlay", "darken", "lighten"].map(
-              (mode) => [mode, mode],
-            )}
-            onChange={(value) =>
-              update((paint) => ({ ...paint, blendMode: value as DesignPaint["blendMode"] }))
-            }
-          />
-          {type === "solid" && (
-            <>
-              <ColorField
-                replayLabel
-                label={`${prefix} color`}
-                nodes={selected}
-                get={(node) => {
-                  const paint = nodePaints(node)[index];
-                  return paint.type === "solid"
-                    ? paint.token
-                      ? (tokens[paint.token] ?? paint.color)
-                      : paint.color
-                    : "#ffffff";
+    <div className={compact ? "inspector-paints space-y-2" : undefined}>
+      {compact && (
+        <div className="space-y-2">
+          {Array.from({ length: count }, (_, i) => {
+            const current = lists[0][i];
+            const summary = shared(selected, (node) => paintSummary(nodePaints(node)[i]));
+            const opacity = shared(selected, (node) => nodePaints(node)[i].opacity);
+            return (
+              <button
+                key={current.id}
+                type="button"
+                aria-label={`Edit ${lower} ${i + 1}`}
+                aria-expanded={expanded && index === i}
+                className="flex h-9 w-full items-center gap-2 rounded-md bg-hover-surface px-2 text-left text-xs outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
+                onClick={() => {
+                  setActive(i);
+                  setExpanded(index !== i || !expanded);
                 }}
-                onChange={(color) =>
-                  update((paint) =>
-                    paint.type === "solid"
-                      ? {
-                          ...paint,
-                          color: applyColor(
-                            color,
-                            paint.token ? (tokens[paint.token] ?? paint.color) : paint.color,
-                          ),
-                          token: undefined,
-                        }
-                      : paint,
-                  )
-                }
-              />
-              {token(
-                `${prefix} token`,
-                read((paint) => (paint.type === "solid" ? (paint.token ?? "") : "")),
-                (name) =>
-                  update((paint) =>
-                    paint.type === "solid"
-                      ? {
-                          ...paint,
-                          color:
-                            !name && paint.token
-                              ? (tokens[paint.token] ?? paint.color)
-                              : paint.color,
-                          token: name || undefined,
-                        }
-                      : paint,
-                  ),
-              )}
-            </>
-          )}
-          {(type === "linear" || type === "radial") &&
-            (paint.type === "linear" || paint.type === "radial") && (
-              <>
-                {selected.length === 1 && paint.visible && onGradientEdit && (
-                  <button
-                    data-ph-public
-                    type="button"
-                    aria-pressed={editingGradientId === paint.id}
-                    className={button}
-                    onClick={() => onGradientEdit(editingGradientId === paint.id ? null : paint.id)}
-                  >
-                    {editingGradientId === paint.id ? "Finish gradient" : "Edit gradient"}
-                  </button>
-                )}
-                {type === "linear" &&
-                  number(
-                    "Gradient angle",
-                    (paint, node) =>
-                      paint.type === "linear" ? linearGradientAngle(paint, paintSize(node)) : 180,
-                    (paint, value, node) =>
-                      paint.type === "linear"
-                        ? setLinearGradientAngle(paint, value, paintSize(node))
-                        : paint,
-                    0,
-                    360,
-                  )}
-                {type === "radial" &&
-                  number(
-                    "Gradient rotation",
-                    (paint) => (paint.type === "radial" ? (paint.rotation ?? 0) : 0),
-                    (paint, value) =>
-                      paint.type === "radial" ? { ...paint, rotation: value } : paint,
-                    -360,
-                    360,
-                  )}
-                {type === "radial" && (
-                  <div className="grid grid-cols-2 gap-1.5">
-                    {(["centerX", "centerY", "radiusX", "radiusY"] as const).map((key) => (
-                      <div key={key}>
-                        {number(
-                          `Gradient ${key === "centerX" ? "X" : key === "centerY" ? "Y" : key === "radiusX" ? "radius X" : "radius Y"} %`,
-                          (paint) => (paint.type === "radial" ? paint[key] * 100 : 50),
-                          (paint, value) =>
-                            paint.type === "radial" ? { ...paint, [key]: value / 100 } : paint,
-                          key.startsWith("radius") ? 0.1 : -300,
-                          key.startsWith("radius") ? 300 : 400,
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {Array.from(
-                  {
-                    length: Math.min(
-                      ...lists.map((paints) => {
-                        const paint = paints[index];
-                        return paint.type === "linear" || paint.type === "radial"
-                          ? paint.stops.length
-                          : 0;
-                      }),
-                    ),
-                  },
-                  (_, stopIndex) => {
-                    const get = (node: DesignNode) => {
-                      const paint = nodePaints(node)[index];
-                      return paint.type === "linear" || paint.type === "radial"
-                        ? paint.stops[stopIndex]
-                        : undefined;
-                    };
-                    const stop = get(selected[0])!;
-                    const updateStop = (change: (stop: Stop) => Stop) =>
-                      update((paint) =>
-                        paint.type === "linear" || paint.type === "radial"
-                          ? {
-                              ...paint,
-                              stops: paint.stops.map((entry, i) =>
-                                i === stopIndex ? change(entry) : entry,
-                              ),
-                            }
-                          : paint,
-                      );
-                    return (
-                      <div
-                        key={stop.id}
-                        className="space-y-1.5 rounded-md border border-primary-grey/60 p-2"
-                      >
-                        <div className="flex items-end gap-2">
-                          <PropertyField
-                            replayLabel
-                            label={`Stop ${stopIndex + 1} position %`}
-                            value={shared(selected, (node) => get(node)!.position * 100)}
-                            numeric
-                            min={0}
-                            max={100}
-                            step="any"
-                            onCommit={(value) => {
-                              if (value !== "")
-                                updateStop((stop) => ({ ...stop, position: Number(value) / 100 }));
-                            }}
-                          />
-                          <button
-                            data-ph-public
-                            type="button"
-                            aria-label={`Remove stop ${stopIndex + 1}`}
-                            disabled={lists.some((paints) => {
-                              const paint = paints[index];
-                              return (
-                                (paint.type === "linear" || paint.type === "radial") &&
-                                paint.stops.length <= 2
-                              );
-                            })}
-                            className={button}
-                            onClick={() =>
-                              update((paint) =>
-                                paint.type === "linear" || paint.type === "radial"
-                                  ? {
-                                      ...paint,
-                                      stops: paint.stops.filter((_, i) => i !== stopIndex),
-                                    }
-                                  : paint,
-                              )
-                            }
-                          >
-                            −
-                          </button>
-                        </div>
-                        <ColorField
-                          replayLabel
-                          label={`Stop ${stopIndex + 1} color`}
-                          nodes={selected}
-                          get={(node) => {
-                            const stop = get(node)!;
-                            return stop.token ? (tokens[stop.token] ?? stop.color) : stop.color;
-                          }}
-                          onChange={(color) =>
-                            updateStop((stop) => ({
-                              ...stop,
-                              color: applyColor(
-                                color,
-                                stop.token ? (tokens[stop.token] ?? stop.color) : stop.color,
-                              ),
-                              token: undefined,
-                            }))
-                          }
-                        />
-                        {token(
-                          `Stop ${stopIndex + 1} token`,
-                          shared(selected, (node) => get(node)?.token ?? ""),
-                          (name) =>
-                            updateStop((stop) => ({
-                              ...stop,
-                              color:
-                                !name && stop.token
-                                  ? (tokens[stop.token] ?? stop.color)
-                                  : stop.color,
-                              token: name || undefined,
-                            })),
-                        )}
-                      </div>
-                    );
-                  },
-                )}
-                <button
-                  data-ph-public
-                  data-ph-public-label
-                  type="button"
-                  aria-label="Add gradient stop"
-                  disabled={lists.some((paints) => {
-                    const paint = paints[index];
-                    return (
-                      (paint.type === "linear" || paint.type === "radial") &&
-                      paint.stops.length >= 20
-                    );
-                  })}
-                  className={button}
-                  onClick={() => {
-                    const id = crypto.randomUUID();
-                    update((paint) =>
-                      paint.type === "linear" || paint.type === "radial"
-                        ? {
-                            ...paint,
-                            stops: [...paint.stops, { id, position: 0.5, color: "#ffffff" }],
-                          }
-                        : paint,
-                    );
+              >
+                <span
+                  className="h-4 w-4 shrink-0 rounded border border-primary-grey"
+                  style={{
+                    background:
+                      paintBackground(current, tokens, paintSize(selected[0])) ?? "#ffffff",
                   }}
-                >
-                  + Stop
-                </button>
-              </>
-            )}
-          {type === "image" && (
-            <>
-              {!cropped &&
-                !(
-                  onEditImage &&
-                  selected.length === 1 &&
-                  paint.type === "image" &&
-                  paint.assetId
-                ) && (
-                  <>
-                    <Choice
-                      replayOptions
-                      replayLabel
-                      label="Fill image fit"
-                      value={read((paint) => (paint.type === "image" ? paint.fit : "cover"))}
-                      choices={[
-                        ["cover", "Fill"],
-                        ["contain", "Fit"],
-                        ["fill", "Stretch"],
-                      ]}
-                      onChange={(fit) =>
-                        update((paint) =>
-                          paint.type === "image"
-                            ? { ...paint, fit: fit as "cover" | "contain" | "fill" }
-                            : paint,
-                        )
-                      }
-                    />
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {(["positionX", "positionY"] as const).map((key) => (
-                        <div key={key}>
-                          {number(
-                            `Fill image ${key === "positionX" ? "X" : "Y"} %`,
-                            (paint) => (paint.type === "image" ? paint[key] : 50),
-                            (paint, value) =>
-                              paint.type === "image" ? { ...paint, [key]: value } : paint,
-                            0,
-                            100,
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
-              {lists.every(
-                (paints) => paints[index]?.type === "image" && Boolean(paints[index].assetId),
-              ) &&
-                (cropped ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {(["x", "y", "width", "height"] as const).map((key) => (
-                        <div key={key}>
-                          {number(
-                            `${prefix} crop ${key} %`,
-                            (paint) =>
-                              paint.type === "image" ? (paint.crop?.[key] ?? 0) * 100 : 0,
-                            (paint, value) =>
-                              paint.type === "image" && paint.crop
-                                ? { ...paint, crop: updateCrop(paint.crop, key, value) }
-                                : paint,
-                            key === "width" || key === "height" ? 0.0001 : 0,
-                            100,
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                    <button
-                      data-ph-public
-                      type="button"
-                      className={button}
-                      onClick={() =>
-                        update((paint) =>
-                          paint.type === "image" ? { ...paint, crop: undefined } : paint,
-                        )
-                      }
-                    >
-                      Reset fill crop
-                    </button>
-                  </>
-                ) : (
-                  <button data-ph-public type="button" className={button} onClick={enableCrop}>
-                    Crop fill image
-                  </button>
-                ))}
-              {cropError && (
-                <p role="alert" className="text-[10px] text-danger">
-                  {cropError}
-                </p>
-              )}
-              {onUpload && (
-                <label
-                  className={`${button} inline-block cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-orange`}
-                >
-                  <span data-ph-public style={{ display: "contents" }}>
-                    {uploading
-                      ? "Uploading…"
-                      : paint.type === "image" && paint.assetId
-                        ? "Replace fill image"
-                        : "Choose fill image"}
-                  </span>
-                  <input
-                    data-ph-public-label
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                    className="sr-only"
-                    disabled={uploading}
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      event.currentTarget.value = "";
-                      if (file) {
-                        setUploading(true);
-                        try {
-                          await onUpload(index, file);
-                        } finally {
-                          setUploading(false);
-                        }
-                      }
-                    }}
-                  />
-                </label>
-              )}
-            </>
-          )}
+                />
+                <span className="min-w-0 flex-1 truncate">{summary ?? "Mixed"}</span>
+                <span className="text-[11px] text-secondary-ink">
+                  {opacity === undefined ? "Mixed" : `${Math.round(opacity * 100)}%`}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
-      {lists.some((paints) => paints.length !== count) && (
-        <p className="text-[10px] text-secondary-ink">
-          <span data-ph-public style={{ display: "contents" }}>
-            Mixed{" "}
-          </span>
-          {lower}{" "}
-          <span data-ph-public style={{ display: "contents" }}>
-            counts
-          </span>
-        </p>
-      )}
-    </Section>
+      <div hidden={compact && !expanded}>
+        <Section
+          replayTitle
+          title={noun}
+          action={
+            <button
+              data-ph-public
+              type="button"
+              aria-label={`Add ${lower}`}
+              disabled={lists.some((paints) => paints.length >= 20)}
+              className={button}
+              onClick={() => {
+                const id = crypto.randomUUID();
+                onPatch((node) => ({
+                  style: paintStyle([
+                    { id, type: "solid", color: "#ffffff", opacity: 1, visible: true },
+                    ...nodePaints(node),
+                  ]),
+                }));
+                setActive(0);
+                onGradientEdit?.(null);
+              }}
+            >
+              +
+            </button>
+          }
+        >
+          {children}
+          {Array.from({ length: count }, (_, i) => {
+            const current = lists[0][i],
+              kind = shared(selected, (node) => nodePaints(node)[i].type);
+            return (
+              <div
+                key={i}
+                className={`flex items-center gap-1 rounded-md p-1 ${index === i ? "bg-primary-grey/25" : ""}`}
+              >
+                <button
+                  data-ph-private
+                  type="button"
+                  aria-label={`${compact ? "Preview" : "Edit"} ${lower} ${i + 1}`}
+                  aria-pressed={index === i}
+                  onClick={() => {
+                    setActive(i);
+                    if (current.type === "image" && current.assetId && selected.length === 1)
+                      onEditImage?.(current.id);
+                    if (editingGradientId && editingGradientId !== current.id)
+                      onGradientEdit?.(null);
+                  }}
+                  className="h-7 w-7 shrink-0 rounded border border-primary-grey/70"
+                  style={{
+                    background:
+                      current.type === "image" && current.assetId
+                        ? `url("/api/assets/${current.assetId}") center / cover no-repeat`
+                        : (paintBackground(current, tokens, paintSize(selected[0])) ?? "#ffffff"),
+                  }}
+                />
+                <SelectMenu
+                  replayOptions
+                  replayLabel
+                  label={i === 0 ? `${noun} type` : `${noun} ${i + 1} type`}
+                  value={kind ?? "mixed"}
+                  size="sm"
+                  className="flex-1"
+                  options={[
+                    ...(!kind ? [{ value: "mixed", label: "Mixed", disabled: true }] : []),
+                    ...[
+                      ["solid", "Solid"],
+                      ["linear", "Linear gradient"],
+                      ["radial", "Radial gradient"],
+                      ["image", "Image"],
+                    ]
+                      .filter(([value]) => !(stroke || vector) || value !== "image")
+                      .map(([value, label]) => ({ value, label })),
+                  ]}
+                  onChange={(value) => {
+                    const type = value as DesignPaint["type"];
+                    setActive(i);
+                    if (editingGradientId && editingGradientId !== current.id)
+                      onGradientEdit?.(null);
+                    onPatch((node) => ({
+                      style: paintStyle(
+                        nodePaints(node).map((paint, j) =>
+                          i === j ? convertPaint(paint, type) : paint,
+                        ),
+                      ),
+                    }));
+                  }}
+                />
+                <button
+                  data-ph-public
+                  type="button"
+                  aria-label={`${current.visible ? "Hide" : "Show"} ${lower} ${i + 1}`}
+                  aria-pressed={current.visible}
+                  title={`Toggle ${lower} visibility`}
+                  className={button}
+                  onClick={() =>
+                    onPatch((node) => ({
+                      style: paintStyle(
+                        nodePaints(node).map((paint, j) =>
+                          i === j ? { ...paint, visible: !current.visible } : paint,
+                        ),
+                      ),
+                    }))
+                  }
+                >
+                  {current.visible ? "◉" : "○"}
+                </button>
+                <button
+                  data-ph-public
+                  type="button"
+                  aria-label={`Move ${lower} ${i + 1} up`}
+                  disabled={i === 0}
+                  className={button}
+                  onClick={() => {
+                    onPatch((node) => {
+                      const paints = [...nodePaints(node)];
+                      [paints[i - 1], paints[i]] = [paints[i], paints[i - 1]];
+                      return { style: paintStyle(paints) };
+                    });
+                    setActive(i - 1);
+                    if (editingGradientId && editingGradientId !== current.id)
+                      onGradientEdit?.(null);
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  data-ph-public
+                  type="button"
+                  aria-label={`Move ${lower} ${i + 1} down`}
+                  disabled={i === count - 1}
+                  className={button}
+                  onClick={() => {
+                    onPatch((node) => {
+                      const paints = [...nodePaints(node)];
+                      [paints[i + 1], paints[i]] = [paints[i], paints[i + 1]];
+                      return { style: paintStyle(paints) };
+                    });
+                    setActive(i + 1);
+                    if (editingGradientId && editingGradientId !== current.id)
+                      onGradientEdit?.(null);
+                  }}
+                >
+                  ↓
+                </button>
+                <button
+                  data-ph-public
+                  type="button"
+                  aria-label={i === 0 ? `Remove ${lower}` : `Remove ${lower} ${i + 1}`}
+                  className={button}
+                  onClick={() =>
+                    onPatch((node) => ({
+                      style: paintStyle(nodePaints(node).filter((_, j) => j !== i)),
+                    }))
+                  }
+                >
+                  −
+                </button>
+              </div>
+            );
+          })}
+          {count > 0 && (
+            <div key={index} className="space-y-2">
+              {number(
+                `${prefix} opacity %`,
+                (paint) => paint.opacity * 100,
+                (paint, value) => ({ ...paint, opacity: value / 100 }),
+                0,
+                100,
+              )}
+              <Choice
+                replayOptions
+                replayLabel
+                label={`${prefix} blend mode`}
+                value={read((paint) => paint.blendMode ?? "normal")}
+                choices={["normal", "multiply", "screen", "overlay", "darken", "lighten"].map(
+                  (mode) => [mode, mode],
+                )}
+                onChange={(value) =>
+                  update((paint) => ({ ...paint, blendMode: value as DesignPaint["blendMode"] }))
+                }
+              />
+              {type === "solid" && (
+                <>
+                  <ColorField
+                    replayLabel
+                    label={`${prefix} color`}
+                    nodes={selected}
+                    get={(node) => {
+                      const paint = nodePaints(node)[index];
+                      return paint.type === "solid"
+                        ? paint.token
+                          ? (tokens[paint.token] ?? paint.color)
+                          : paint.color
+                        : "#ffffff";
+                    }}
+                    onChange={(color) =>
+                      update((paint) =>
+                        paint.type === "solid"
+                          ? {
+                              ...paint,
+                              color: applyColor(
+                                color,
+                                paint.token ? (tokens[paint.token] ?? paint.color) : paint.color,
+                              ),
+                              token: undefined,
+                            }
+                          : paint,
+                      )
+                    }
+                  />
+                  {token(
+                    `${prefix} token`,
+                    read((paint) => (paint.type === "solid" ? (paint.token ?? "") : "")),
+                    (name) =>
+                      update((paint) =>
+                        paint.type === "solid"
+                          ? {
+                              ...paint,
+                              color:
+                                !name && paint.token
+                                  ? (tokens[paint.token] ?? paint.color)
+                                  : paint.color,
+                              token: name || undefined,
+                            }
+                          : paint,
+                      ),
+                  )}
+                </>
+              )}
+              {(type === "linear" || type === "radial") &&
+                (paint.type === "linear" || paint.type === "radial") && (
+                  <>
+                    {selected.length === 1 && paint.visible && onGradientEdit && (
+                      <button
+                        data-ph-public
+                        type="button"
+                        aria-pressed={editingGradientId === paint.id}
+                        className={button}
+                        onClick={() =>
+                          onGradientEdit(editingGradientId === paint.id ? null : paint.id)
+                        }
+                      >
+                        {editingGradientId === paint.id ? "Finish gradient" : "Edit gradient"}
+                      </button>
+                    )}
+                    {type === "linear" &&
+                      number(
+                        "Gradient angle",
+                        (paint, node) =>
+                          paint.type === "linear"
+                            ? linearGradientAngle(paint, paintSize(node))
+                            : 180,
+                        (paint, value, node) =>
+                          paint.type === "linear"
+                            ? setLinearGradientAngle(paint, value, paintSize(node))
+                            : paint,
+                        0,
+                        360,
+                      )}
+                    {type === "radial" &&
+                      number(
+                        "Gradient rotation",
+                        (paint) => (paint.type === "radial" ? (paint.rotation ?? 0) : 0),
+                        (paint, value) =>
+                          paint.type === "radial" ? { ...paint, rotation: value } : paint,
+                        -360,
+                        360,
+                      )}
+                    {type === "radial" && (
+                      <div className="grid grid-cols-2 gap-1.5">
+                        {(["centerX", "centerY", "radiusX", "radiusY"] as const).map((key) => (
+                          <div key={key}>
+                            {number(
+                              `Gradient ${key === "centerX" ? "X" : key === "centerY" ? "Y" : key === "radiusX" ? "radius X" : "radius Y"} %`,
+                              (paint) => (paint.type === "radial" ? paint[key] * 100 : 50),
+                              (paint, value) =>
+                                paint.type === "radial" ? { ...paint, [key]: value / 100 } : paint,
+                              key.startsWith("radius") ? 0.1 : -300,
+                              key.startsWith("radius") ? 300 : 400,
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {Array.from(
+                      {
+                        length: Math.min(
+                          ...lists.map((paints) => {
+                            const paint = paints[index];
+                            return paint.type === "linear" || paint.type === "radial"
+                              ? paint.stops.length
+                              : 0;
+                          }),
+                        ),
+                      },
+                      (_, stopIndex) => {
+                        const get = (node: DesignNode) => {
+                          const paint = nodePaints(node)[index];
+                          return paint.type === "linear" || paint.type === "radial"
+                            ? paint.stops[stopIndex]
+                            : undefined;
+                        };
+                        const stop = get(selected[0])!;
+                        const updateStop = (change: (stop: Stop) => Stop) =>
+                          update((paint) =>
+                            paint.type === "linear" || paint.type === "radial"
+                              ? {
+                                  ...paint,
+                                  stops: paint.stops.map((entry, i) =>
+                                    i === stopIndex ? change(entry) : entry,
+                                  ),
+                                }
+                              : paint,
+                          );
+                        return (
+                          <div
+                            key={stop.id}
+                            className="space-y-1.5 rounded-md border border-primary-grey/60 p-2"
+                          >
+                            <div className="flex items-end gap-2">
+                              <PropertyField
+                                replayLabel
+                                label={`Stop ${stopIndex + 1} position %`}
+                                value={shared(selected, (node) => get(node)!.position * 100)}
+                                numeric
+                                min={0}
+                                max={100}
+                                step="any"
+                                onCommit={(value) => {
+                                  if (value !== "")
+                                    updateStop((stop) => ({
+                                      ...stop,
+                                      position: Number(value) / 100,
+                                    }));
+                                }}
+                              />
+                              <button
+                                data-ph-public
+                                type="button"
+                                aria-label={`Remove stop ${stopIndex + 1}`}
+                                disabled={lists.some((paints) => {
+                                  const paint = paints[index];
+                                  return (
+                                    (paint.type === "linear" || paint.type === "radial") &&
+                                    paint.stops.length <= 2
+                                  );
+                                })}
+                                className={button}
+                                onClick={() =>
+                                  update((paint) =>
+                                    paint.type === "linear" || paint.type === "radial"
+                                      ? {
+                                          ...paint,
+                                          stops: paint.stops.filter((_, i) => i !== stopIndex),
+                                        }
+                                      : paint,
+                                  )
+                                }
+                              >
+                                −
+                              </button>
+                            </div>
+                            <ColorField
+                              replayLabel
+                              label={`Stop ${stopIndex + 1} color`}
+                              nodes={selected}
+                              get={(node) => {
+                                const stop = get(node)!;
+                                return stop.token ? (tokens[stop.token] ?? stop.color) : stop.color;
+                              }}
+                              onChange={(color) =>
+                                updateStop((stop) => ({
+                                  ...stop,
+                                  color: applyColor(
+                                    color,
+                                    stop.token ? (tokens[stop.token] ?? stop.color) : stop.color,
+                                  ),
+                                  token: undefined,
+                                }))
+                              }
+                            />
+                            {token(
+                              `Stop ${stopIndex + 1} token`,
+                              shared(selected, (node) => get(node)?.token ?? ""),
+                              (name) =>
+                                updateStop((stop) => ({
+                                  ...stop,
+                                  color:
+                                    !name && stop.token
+                                      ? (tokens[stop.token] ?? stop.color)
+                                      : stop.color,
+                                  token: name || undefined,
+                                })),
+                            )}
+                          </div>
+                        );
+                      },
+                    )}
+                    <button
+                      data-ph-public
+                      data-ph-public-label
+                      type="button"
+                      aria-label="Add gradient stop"
+                      disabled={lists.some((paints) => {
+                        const paint = paints[index];
+                        return (
+                          (paint.type === "linear" || paint.type === "radial") &&
+                          paint.stops.length >= 20
+                        );
+                      })}
+                      className={button}
+                      onClick={() => {
+                        const id = crypto.randomUUID();
+                        update((paint) =>
+                          paint.type === "linear" || paint.type === "radial"
+                            ? {
+                                ...paint,
+                                stops: [...paint.stops, { id, position: 0.5, color: "#ffffff" }],
+                              }
+                            : paint,
+                        );
+                      }}
+                    >
+                      + Stop
+                    </button>
+                  </>
+                )}
+              {type === "image" && (
+                <>
+                  {!cropped &&
+                    !(
+                      onEditImage &&
+                      selected.length === 1 &&
+                      paint.type === "image" &&
+                      paint.assetId
+                    ) && (
+                      <>
+                        <Choice
+                          replayOptions
+                          replayLabel
+                          label="Fill image fit"
+                          value={read((paint) => (paint.type === "image" ? paint.fit : "cover"))}
+                          choices={[
+                            ["cover", "Fill"],
+                            ["contain", "Fit"],
+                            ["fill", "Stretch"],
+                          ]}
+                          onChange={(fit) =>
+                            update((paint) =>
+                              paint.type === "image"
+                                ? { ...paint, fit: fit as "cover" | "contain" | "fill" }
+                                : paint,
+                            )
+                          }
+                        />
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(["positionX", "positionY"] as const).map((key) => (
+                            <div key={key}>
+                              {number(
+                                `Fill image ${key === "positionX" ? "X" : "Y"} %`,
+                                (paint) => (paint.type === "image" ? paint[key] : 50),
+                                (paint, value) =>
+                                  paint.type === "image" ? { ...paint, [key]: value } : paint,
+                                0,
+                                100,
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  {lists.every(
+                    (paints) => paints[index]?.type === "image" && Boolean(paints[index].assetId),
+                  ) &&
+                    (cropped ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {(["x", "y", "width", "height"] as const).map((key) => (
+                            <div key={key}>
+                              {number(
+                                `${prefix} crop ${key} %`,
+                                (paint) =>
+                                  paint.type === "image" ? (paint.crop?.[key] ?? 0) * 100 : 0,
+                                (paint, value) =>
+                                  paint.type === "image" && paint.crop
+                                    ? { ...paint, crop: updateCrop(paint.crop, key, value) }
+                                    : paint,
+                                key === "width" || key === "height" ? 0.0001 : 0,
+                                100,
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          data-ph-public
+                          type="button"
+                          className={button}
+                          onClick={() =>
+                            update((paint) =>
+                              paint.type === "image" ? { ...paint, crop: undefined } : paint,
+                            )
+                          }
+                        >
+                          Reset fill crop
+                        </button>
+                      </>
+                    ) : (
+                      <button data-ph-public type="button" className={button} onClick={enableCrop}>
+                        Crop fill image
+                      </button>
+                    ))}
+                  {cropError && (
+                    <p role="alert" className="text-[10px] text-danger">
+                      {cropError}
+                    </p>
+                  )}
+                  {onUpload && (
+                    <label
+                      className={`${button} inline-block cursor-pointer focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-primary-orange`}
+                    >
+                      <span data-ph-public style={{ display: "contents" }}>
+                        {uploading
+                          ? "Uploading…"
+                          : paint.type === "image" && paint.assetId
+                            ? "Replace fill image"
+                            : "Choose fill image"}
+                      </span>
+                      <input
+                        data-ph-public-label
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        className="sr-only"
+                        disabled={uploading}
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          event.currentTarget.value = "";
+                          if (file) {
+                            setUploading(true);
+                            try {
+                              await onUpload(index, file);
+                            } finally {
+                              setUploading(false);
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {lists.some((paints) => paints.length !== count) && (
+            <p className="text-[10px] text-secondary-ink">
+              <span data-ph-public style={{ display: "contents" }}>
+                Mixed{" "}
+              </span>
+              {lower}{" "}
+              <span data-ph-public style={{ display: "contents" }}>
+                counts
+              </span>
+            </p>
+          )}
+        </Section>
+      </div>
+    </div>
   );
 }

@@ -1,5 +1,14 @@
 "use client";
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useQuietInspector, InspectorDisclosure } from "./inspector-presentation";
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import type { DesignNode, DesignNodeChanges } from "../design/document";
 import {
@@ -99,6 +108,7 @@ export function FontPicker({
   familyOnly = false,
   label = "Font family",
   replayLabel = false,
+  sizeControl,
 }: {
   selected: DesignNode[];
   onPatch: (patch: Patch) => void;
@@ -106,7 +116,9 @@ export function FontPicker({
   familyOnly?: boolean;
   label?: string;
   replayLabel?: boolean;
+  sizeControl?: ReactNode;
 }) {
+  const quiet = useQuietInspector();
   const registry = useFontRegistry(),
     id = useId();
   const [webFonts, setWebFonts] = useState(loadedWebFonts);
@@ -297,9 +309,12 @@ export function FontPicker({
   );
   const missing = failed.some((node) => !retryable.includes(node));
   return (
-    <div className="space-y-2">
-      <label className="block text-[10px] text-secondary-ink">
-        <span data-ph-public={replayLabel || undefined}>
+    <div
+      className={sizeControl ? "inspector-font-grid grid grid-cols-2 gap-2" : "space-y-2"}
+      data-inspector-font
+    >
+      <label className={`block text-[10px] text-secondary-ink ${sizeControl ? "col-span-2" : ""}`}>
+        <span className={quiet ? "sr-only" : undefined} data-ph-public={replayLabel || undefined}>
           {familyOnly && onChoose ? "Replace throughout file" : label}
         </span>
         <button
@@ -318,7 +333,7 @@ export function FontPicker({
             setError("");
             setOpen((value) => !value);
           }}
-          className={`${control} mt-1 flex items-center justify-between text-left text-primary-black`}
+          className={`${control} ${quiet ? "border-transparent bg-hover-surface" : "mt-1"} flex items-center justify-between text-left text-primary-black`}
         >
           <span className="truncate">
             {familyOnly && onChoose ? "Choose replacement…" : (family ?? "Mixed")}
@@ -331,9 +346,15 @@ export function FontPicker({
       {!familyOnly && (
         <>
           {styleOptions.length > 0 && (
-            <div className="text-[10px] text-secondary-ink">
+            <div
+              className={
+                quiet
+                  ? "inspector-font-style flex min-w-0 items-center gap-2 rounded-md bg-hover-surface px-2 text-[11px] text-secondary-ink"
+                  : "text-[10px] text-secondary-ink"
+              }
+            >
               <span data-ph-public id={`${id}-style-label`}>
-                Font style
+                {quiet ? "Style" : "Font style"}
               </span>
               <SelectMenu
                 replayLabel
@@ -341,7 +362,12 @@ export function FontPicker({
                 labelledBy={`${id}-style-label`}
                 size="sm"
                 value={styleValue}
-                className="mt-1"
+                className={quiet ? "min-w-0 flex-1" : "mt-1"}
+                triggerClassName={
+                  quiet
+                    ? "flex h-8 w-full min-w-0 items-center justify-between gap-1 border-0 bg-transparent text-xs text-primary-black outline-none focus-visible:ring-1 focus-visible:ring-primary-orange"
+                    : undefined
+                }
                 onChange={(value) => {
                   const [weight, italic, face] = JSON.parse(value) as [
                     number,
@@ -388,19 +414,24 @@ export function FontPicker({
               />
             </div>
           )}
+          {sizeControl}
           {font?.weightRange && (
-            <PropertyField
-              replayLabel
-              label="Font weight"
-              value={weight}
-              numeric
-              integer
-              min={font.weightRange[0]}
-              max={font.weightRange[1]}
-              onCommit={(value) => {
-                if (value) onPatch({ style: { fontWeight: Number(value) } });
-              }}
-            />
+            <div className={sizeControl ? "col-span-2" : undefined}>
+              <InspectorDisclosure enabled={quiet} title="Variable weight" nested>
+                <PropertyField
+                  replayLabel
+                  label="Font weight"
+                  value={weight}
+                  numeric
+                  integer
+                  min={font.weightRange[0]}
+                  max={font.weightRange[1]}
+                  onCommit={(value) => {
+                    if (value) onPatch({ style: { fontWeight: Number(value) } });
+                  }}
+                />
+              </InspectorDisclosure>
+            </div>
           )}
           {status === "loading" && (
             <p data-ph-public role="status" className="text-[10px] text-secondary-ink">
