@@ -1625,6 +1625,7 @@ export const SelectionInspector = memo(function SelectionInspector({
             </InspectorDisclosure>
           </Section>
           <SelectionColorsInspector
+            key={sourceSelection.map((node) => node.id).join("|")}
             selected={sourceSelection}
             document={document}
             onDocument={onDocument}

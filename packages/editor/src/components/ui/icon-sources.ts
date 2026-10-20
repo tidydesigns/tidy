@@ -1,4 +1,5 @@
 export const iconSources = {
+  eyedropper: new URL("../../assets/icons/eyedropper.svg", import.meta.url).href,
   github: new URL("../../assets/icons/github.svg", import.meta.url).href,
   back: new URL("../../assets/icons/iconoir/arrow-left.svg", import.meta.url).href,
   folder: new URL("../../assets/icons/iconoir/folder.svg", import.meta.url).href,

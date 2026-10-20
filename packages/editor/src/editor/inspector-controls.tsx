@@ -3,7 +3,7 @@ import { useId, useRef, useState, type ReactNode } from "react";
 import { SelectMenu } from "../components/ui/select-menu";
 import type { DesignNode, DesignNodeChanges } from "../design/document";
 import { normalizeColor } from "../design/selection-colors";
-import { useCanvasColorPicker } from "./canvas-color-picker";
+import { ColorPickerPopover } from "./color-picker-popover";
 import { useQuietInspector } from "./inspector-presentation";
 import { PropertyField } from "./property-field";
 type Value = string | number | undefined;
@@ -109,6 +109,7 @@ export function Section({
 export function ColorField({
   label,
   compact = false,
+  onOpenChange,
   replayLabel = false,
   nodes,
   get,
@@ -116,6 +117,7 @@ export function ColorField({
 }: {
   label: string;
   compact?: boolean;
+  onOpenChange?: (open: boolean) => void;
   replayLabel?: boolean;
   nodes: DesignNode[];
   get: (node: DesignNode) => string;
@@ -124,7 +126,10 @@ export function ColorField({
   const quiet = useQuietInspector();
   const inline = compact || quiet;
   const [open, setOpen] = useState(false);
-  const sampler = useCanvasColorPicker();
+  const toggle = (value: boolean) => {
+    setOpen(value);
+    onOpenChange?.(value);
+  };
   const swatch = useRef<HTMLButtonElement>(null);
   const color = shared(nodes, get);
   const alpha = shared(nodes, (node) => {
@@ -152,7 +157,8 @@ export function ColorField({
             type="button"
             aria-label={`Open ${label.toLowerCase()} palette`}
             aria-expanded={open}
-            onClick={() => setOpen(!open)}
+            onClick={() => toggle(!open)}
+            aria-haspopup="dialog"
             className={`${inline ? "h-5 w-5" : "h-8 w-8"} rounded border border-primary-grey/70 focus-visible:outline-2 focus-visible:outline-primary-orange`}
             style={{ backgroundColor: color ?? "#ffffff" }}
           />
@@ -191,38 +197,12 @@ export function ColorField({
         </div>
       </div>
       {open && (
-        <div className="space-y-2 rounded-md border border-primary-grey/70 bg-surface p-2 text-[10px]">
-          <div className="flex items-center gap-2">
-            <label className="flex items-center gap-1">
-              <span data-ph-public style={{ display: "contents" }}>
-                Color picker
-              </span>
-              <input
-                aria-label={`Choose ${label.toLowerCase()}`}
-                type="color"
-                value={color?.slice(0, 7) ?? "#000000"}
-                onChange={(event) => {
-                  const rgb = event.target.value;
-                  onChange((current) => rgb + (current.length === 9 ? current.slice(7) : ""));
-                }}
-                className="h-7 w-8 cursor-pointer rounded border border-primary-grey/70 bg-surface p-0.5"
-              />
-            </label>
-            {sampler && (
-              <button
-                data-ph-public
-                type="button"
-                onClick={() => {
-                  setOpen(false);
-                  sampler.pick(onChange, swatch.current);
-                }}
-                className="rounded border border-primary-grey/70 px-2 py-1 hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange"
-              >
-                Pick from canvas
-              </button>
-            )}
-          </div>
-        </div>
+        <ColorPickerPopover
+          anchor={swatch}
+          color={color ?? "#000000"}
+          onChange={onChange}
+          onClose={() => toggle(false)}
+        />
       )}
     </div>
   );
