@@ -130,6 +130,7 @@ test("layer controls retain only the static tree label in replay", () => {
   }
 });
 
+/** Models public chrome with an optional private boundary for policy checks. */
 function replayElement(boundary?: string, svg = false) {
   return {
     namespaceURI: svg ? "http://www.w3.org/2000/svg" : "http://www.w3.org/1999/xhtml",
@@ -141,6 +142,7 @@ function replayElement(boundary?: string, svg = false) {
   } as unknown as HTMLElement;
 }
 
+/** Runs URL checks with a disposable origin and restores the browser global. */
 function withReplayLocation(check: () => void) {
   const original = Object.getOwnPropertyDescriptor(globalThis, "location");
   Object.defineProperty(globalThis, "location", {

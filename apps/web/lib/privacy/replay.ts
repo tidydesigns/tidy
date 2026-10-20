@@ -6,8 +6,7 @@ const replayIconSources = Object.values(iconSources);
 const privateSelector =
   ".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable], [data-node-id], [data-design-font], input, textarea, select";
 
-// Replay defaults to private text. Only reviewed application chrome opts in;
-// user content must never inherit that opt-in from a surrounding control.
+/** Reveals reviewed application text only when no private ancestor overrides it. */
 export function replayText(text: string, element?: HTMLElement | null) {
   if (!text.trim()) return text;
   return element?.closest("[data-ph-public]") && !element.closest(privateSelector)
@@ -15,6 +14,7 @@ export function replayText(text: string, element?: HTMLElement | null) {
     : "[hidden]";
 }
 
+/** Preserves replay layout and approved chrome assets while redacting private attributes. */
 export function replayAttribute(name: string, value: string, element?: Element) {
   // Preserve layout without leaking labels, hrefs, IDs, data attributes or values.
   const privateContent = element?.closest(privateSelector);

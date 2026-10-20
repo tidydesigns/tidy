@@ -1,5 +1,6 @@
 import { iconSources as sources } from "./icon-sources";
 
+/** Renders a bundled icon without opting surrounding content into replay. */
 export function Icon({
   name,
   size = 20,
