@@ -232,33 +232,6 @@ See [`package.json`](package.json) for available test commands.
 
 Use `bun dev:site` to run the website on port `3001`.
 
-### Canvas benchmarks
-
-Start the local app, then run:
-
-```sh
-EDITOR_TEST_URL=http://localhost:3000 bun apps/web/scripts/benchmark-selected-canvas.ts
-```
-
-The benchmark selects an instance in a synthetic component document and pans it
-24 times. It reports frame intervals and Chromium CPU metrics, and verifies that
-the canvas moved. Set `BENCHMARK_SELECTION=none` for an unselected comparison or
-`BENCHMARK_PROFILE=/absolute/path/canvas.cpuprofile` to save a CPU profile.
-
-Run `EDITOR_TEST_URL=http://localhost:3000 bun apps/web/scripts/benchmark-large-canvas.ts`
-to test native wheel input across 5,000 × 5,000 frames with 9,000 total layers.
-It compares no selection, a frame selection and a child selection in one dense
-frame and across nine frames. `BENCHMARK_LABEL=/absolute/path/large-canvas` saves
-results and CPU profiles; add `BENCHMARK_TRACE=1` to save rendering traces.
-
-For a private document reproduction, start the development server with
-`TIDY_PERFORMANCE_DOCUMENT=/absolute/path/document.json`, then set
-`BENCHMARK_PATH='/dev/performance-preview?document=local&compact=1'` and
-`BENCHMARK_SELECTION` to the layer ID. The file must contain a document accepted
-by `parseDesignDocument`, without transport metadata such as `revision`.
-The fixture uses local editor state and the benchmark blocks API requests.
-Keep private documents and profiles outside the repository.
-
 ### MCP benchmarks
 
 Run `bun run bench:mcp` to measure MCP request speed, throughput, database query
