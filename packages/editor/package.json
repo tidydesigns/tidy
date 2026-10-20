@@ -84,6 +84,7 @@
     "./design/fonts/recovery": "./src/design/fonts/recovery.ts",
     "./design/fonts/catalog": "./src/design/fonts/catalog.ts",
     "./components/ui/text-field": "./src/components/ui/text-field.tsx",
+    "./components/ui/icon-sources": "./src/components/ui/icon-sources.ts",
     "./components/ui/icon": "./src/components/ui/icon.tsx",
     "./components/ui/editor-toolbar-preference": "./src/components/ui/editor-toolbar-preference.tsx",
     "./components/ui/dialog": "./src/components/ui/dialog.tsx",

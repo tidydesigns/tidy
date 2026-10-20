@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { renderToStaticMarkup } from "react-dom/server";
 import { PropertyField } from "../../app/files/[uid]/property-field";
 import { Choice, ColorField, Section } from "../../app/files/[uid]/inspector-controls";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { replayAttribute, replayText } from "./replay";
+import { iconSources } from "@tidy/editor/components/ui/icon-sources";
+import { Icon } from "@tidy/editor/components/ui/icon";
 import { buildDrawnNode } from "../design/document";
 import { LayerTree } from "../../app/files/[uid]/layer-tree";
 
@@ -125,4 +128,129 @@ test("layer controls retain only the static tree label in replay", () => {
     expect(replayAttribute("aria-label", `${action} ${node.name}`, rowButton)).toBe("");
     expect(replayAttribute("title", `${action} ${node.name}`, rowButton)).toBe("");
   }
+});
+
+function replayElement(boundary?: string, svg = false) {
+  return {
+    namespaceURI: svg ? "http://www.w3.org/2000/svg" : "http://www.w3.org/1999/xhtml",
+    closest: (selector: string) =>
+      selector === "[data-ph-public]" || (boundary && selector.split(", ").includes(boundary))
+        ? {}
+        : null,
+    hasAttribute: () => false,
+  } as unknown as HTMLElement;
+}
+
+function withReplayLocation(check: () => void) {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "location");
+  Object.defineProperty(globalThis, "location", {
+    configurable: true,
+    value: new URL("https://replay.example.test/files"),
+  });
+  try {
+    check();
+  } finally {
+    if (original) Object.defineProperty(globalThis, "location", original);
+    else Reflect.deleteProperty(globalThis, "location");
+  }
+}
+
+test("replay preserves every bundled icon's actual CSS mask without making its label public", () => {
+  withReplayLocation(() => {
+    for (const [name, source] of Object.entries(iconSources)) {
+      const html = renderToStaticMarkup(<Icon name={name as keyof typeof iconSources} />);
+      // Use the component's rendered styles, including both mask declarations.
+      const style = html.match(/style="([^"]*)"/)![1].replaceAll("&quot;", '"');
+      expect(style).toContain(source);
+      expect(replayAttribute("style", style, replayElement())).toBe(style);
+      expect(html).not.toContain("data-ph-public");
+      expect(replayAttribute("aria-label", "private icon label", replayElement())).toBe("");
+    }
+  });
+});
+
+test("asset approval is exact: uploads, arbitrary build assets and URL suffixes stay redacted", () => {
+  withReplayLocation(() => {
+    const approved = iconSources.folder;
+    const urls = [
+      "/icons/customer-upload.svg",
+      "/icons/iconoir/folder.svg?private-account=secret",
+      "/_next/static/media/customer-upload.123.svg",
+      "/api/assets/private-asset",
+      "/api/assets/private)asset.svg",
+      "/api/assets/private(asset).svg",
+      "https://uploads.example.test/customer.svg",
+      "https://replay.example.test.evil.test/icons/folder.svg",
+      "data:image/svg+xml,private-content",
+      "blob:https://replay.example.test/private-content",
+      `${approved}?private-account=secret`,
+      `${approved}#private-layer`,
+      `${approved}.private.svg`,
+    ];
+    for (const url of urls) {
+      const style = `mask-image: url("${url}"); background-image: url("${url}")`;
+      const masked = replayAttribute("style", style, replayElement());
+      expect(masked).toBe("mask-image: none; background-image: none");
+      expect(masked).not.toContain(url);
+    }
+    expect(replayAttribute("src", approved, replayElement())).toBe("");
+    expect(replayAttribute("href", approved, replayElement())).toBe("");
+  });
+});
+
+test("every private boundary overrides public chrome for text, built-in icons and SVG paths", () => {
+  withReplayLocation(() => {
+    for (const boundary of [
+      ".ph-mask",
+      ".ph-no-capture",
+      "[data-ph-private]",
+      "[contenteditable]",
+      "[data-node-id]",
+      "[data-design-font]",
+      "input",
+      "textarea",
+      "select",
+    ]) {
+      const element = replayElement(boundary, true);
+      expect(replayText("private-user-content", element)).toBe("[hidden]");
+      expect(replayAttribute("style", `mask-image:url("${iconSources.folder}")`, element)).toBe("");
+      expect(replayAttribute("d", "M 1 2 L 3 4", element)).toBe("");
+      expect(replayAttribute("value", "private-input", element)).toBe("");
+      expect(replayAttribute("title", "private-name", element)).toBe("");
+    }
+    expect(replayText("Files", replayElement())).toBe("Files");
+    expect(replayAttribute("d", "M 1 2 L 3 4", replayElement(undefined, true))).toBe("M 1 2 L 3 4");
+  });
+});
+
+test("bundler-relative deployment URLs are canonicalized without approving caller-supplied suffixes", () => {
+  // Isolate the synthetic bundler manifest so it cannot alter other SDK tests.
+  execFileSync(
+    process.execPath,
+    [
+      "--eval",
+      `
+    import { mock } from "bun:test";
+    import assert from "node:assert/strict";
+    mock.module("@tidy/editor/components/ui/icon-sources", () => ({
+      iconSources: { folder: "/_next/static/media/folder.build.svg?dpl=release" },
+    }));
+    globalThis.location = new URL("https://replay.example.test/files");
+    const { replayAttribute } = await import("./replay.ts");
+    const element = { closest: () => null };
+    const approved = "/_next/static/media/folder.build.svg?dpl=release";
+    for (const url of [approved, location.origin + approved]) {
+      const style = 'mask-image:url("' + url + '")';
+      assert.equal(replayAttribute("style", style, element), style);
+    }
+    for (const url of [
+      approved + "&private=secret", approved + "#private",
+      approved.replace("release", "another-release"),
+      "https://evil.example.test" + approved,
+      "/_next/static/media/customer.build.svg?dpl=release",
+    ]) assert.equal(replayAttribute("style", 'mask-image:url("' + url + '")', element), "mask-image:none");
+  `,
+    ],
+    { cwd: import.meta.dirname, stdio: "pipe" },
+  );
 });

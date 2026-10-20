@@ -1,18 +1,23 @@
+import { iconSources } from "@tidy/editor/components/ui/icon-sources";
+
+// These are the exact URLs emitted by the bundler for our checked-in iconpack.
+// Never permit an entire asset directory, uploads, or URLs with user data appended.
+const replayIconSources = Object.values(iconSources);
+const privateSelector =
+  ".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable], [data-node-id], [data-design-font], input, textarea, select";
+
 // Replay defaults to private text. Only reviewed application chrome opts in;
 // user content must never inherit that opt-in from a surrounding control.
 export function replayText(text: string, element?: HTMLElement | null) {
   if (!text.trim()) return text;
-  return element?.closest("[data-ph-public]") &&
-    !element.closest(".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable]")
+  return element?.closest("[data-ph-public]") && !element.closest(privateSelector)
     ? text
     : "[hidden]";
 }
 
 export function replayAttribute(name: string, value: string, element?: Element) {
   // Preserve layout without leaking labels, hrefs, IDs, data attributes or values.
-  const privateContent = element?.closest(
-    ".ph-mask, .ph-no-capture, [data-ph-private], [contenteditable], [data-node-id]",
-  );
+  const privateContent = element?.closest(privateSelector);
   if (!privateContent && name === "aria-label" && element?.hasAttribute("data-ph-control-label"))
     return element.getAttribute("data-ph-control-label") ?? "";
   if (
@@ -25,7 +30,7 @@ export function replayAttribute(name: string, value: string, element?: Element) 
   if (
     element?.namespaceURI === "http://www.w3.org/2000/svg" &&
     element.closest("[data-ph-public]") &&
-    !element.closest("[data-ph-private], .ph-no-capture, [data-node-id]") &&
+    !privateContent &&
     /^(viewBox|d|x|y|x1|y1|x2|y2|cx|cy|r|rx|ry|points|fill|stroke|stroke-width|stroke-linecap|stroke-linejoin|fill-rule|clip-rule)$/.test(
       name,
     ) &&
@@ -40,16 +45,22 @@ export function replayAttribute(name: string, value: string, element?: Element) 
   if (name === "_cssText" && element?.matches("style, link[rel='stylesheet']")) return value;
   if (name === "style") {
     if (!element || privateContent) return "";
-    return value.replace(/url\(([^)]*)\)/gi, (match, raw: string) => {
-      try {
-        const url = new URL(raw.trim().replace(/^["']|["']$/g, ""), location.origin);
-        return url.origin === location.origin && /^\/icons\/[\w/.-]+\.svg$/.test(url.pathname)
-          ? match
-          : "none";
-      } catch {
-        return "none";
-      }
-    });
+    // Quoted CSS URLs may contain parentheses; redact the complete token.
+    return value.replace(
+      /url\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^)]*)\s*\)/gi,
+      (match, raw: string) => {
+        try {
+          const url = new URL(raw.trim().replace(/^["']|["']$/g, ""), location.href);
+          return replayIconSources.some(
+            (source) => new URL(source, location.href).href === url.href,
+          )
+            ? match
+            : "none";
+        } catch {
+          return "none";
+        }
+      },
+    );
   }
   if (/^(width|height|colspan|rowspan)$/.test(name) && /^\d{1,5}$/.test(value)) return value;
   if (
