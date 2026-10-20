@@ -83,8 +83,22 @@ The isolated Linux publisher downloads the signing job's exact artifact ID from
 the same workflow run. It validates all filenames, regular-file boundaries,
 version/commit/run metadata and the actual installer hash before using its write
 token. It stages a **draft release**, uploads all three files, verifies their
-sizes, and only then publishes a prerelease with `--latest=false`. Release drafts
+sizes, downloads them into a fresh directory, and compares all three SHA-256
+digests against the validated local files before publishing a prerelease with
+`--latest=false`. After publication it repeats the asset readback and requires
+the release tag to resolve to the expected source commit. Release drafts
 are internal staging; pull requests remain ready for review.
+
+Enable GitHub release immutability before activation so published assets and tags
+cannot be replaced. Repository contents-write users and admins remain trusted
+release writers. Do not manually edit an active release draft: GitHub's release
+update API provides no documented conditional operation covering asset validation
+and publication, and workflow concurrency only serializes this workflow. Readback
+checks detect conflicting writes; they do not provide a lock against other writers.
+A failed post-publication check can leave a public release, so inspect that release
+before distributing its link and issue a new version rather than overwriting it.
+See GitHub's [release API](https://docs.github.com/en/rest/releases/releases#update-a-release)
+and [immutable release guarantees](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
 The workflow uses `concurrency.queue: max` and does not cancel active runs.
 GitHub can queue up to 100 pending runs; release discovery must select versions,

@@ -95,6 +95,10 @@ function fakeGitHub() {
         return "";
       case "edit":
         assert.equal(state.release.assets.length, 3, "all assets must exist before publication");
+        assert.ok(
+          state.calls.some((call) => call[1] === "download"),
+          "remote assets must be read back before publication",
+        );
         assert.ok(args.includes("--draft=false"));
         assert.ok(args.includes("--prerelease"));
         assert.ok(args.includes("--latest=false"));
@@ -240,6 +244,57 @@ test("a release is published as a prerelease only after all assets are uploaded"
   });
   assert.equal(state.release.isDraft, false);
   assert.equal(state.files.size, 3);
+  const operations = state.calls.map((args) => args[1]);
+  const publish = operations.indexOf("edit");
+  assert.ok(operations.indexOf("download") < publish);
+  assert.ok(operations.lastIndexOf("download") > publish);
+});
+
+test("same-size remote replacements must match the original local digests", async (t) => {
+  for (const replaceAt of ["upload", "edit"]) {
+    const directory = await candidate(t);
+    const replacement = await candidate(t);
+    const bytes = Buffer.from("synthetic installer");
+    bytes[0] ^= 1;
+    await setInstaller(replacement, bytes);
+    const { state, gh: original } = fakeGitHub();
+    const gh = async (args) => {
+      if (args[1] === "edit" && replaceAt === "edit") {
+        // Model another writer replacing the draft after its readback, before publication.
+        for (const name of state.files.keys())
+          state.files.set(name, await readFile(join(replacement, name)));
+      }
+      const result = await original(args);
+      if (args[1] === "upload" && replaceAt === "upload") {
+        // All three replacement files are self-consistent and retain their original sizes.
+        for (const [name, previous] of state.files) {
+          const next = await readFile(join(replacement, name));
+          assert.equal(next.length, previous.length);
+          state.files.set(name, next);
+        }
+      }
+      return result;
+    };
+    await assert.rejects(
+      publishDesktopBeta({ directory, identity, gh }),
+      /Remote release assets differ/,
+    );
+    assert.equal(state.release.isDraft, replaceAt === "upload");
+  }
+});
+
+test("publication cannot report success if its tag moves or disappears", async (t) => {
+  for (const commit of ["b".repeat(40), null]) {
+    const directory = await candidate(t);
+    const { state, gh: original } = fakeGitHub();
+    const gh = async (args) => {
+      const result = await original(args);
+      if (args[1] === "edit") state.commit = commit;
+      return result;
+    };
+    await assert.rejects(publishDesktopBeta({ directory, identity, gh }));
+    assert.equal(state.release.isDraft, false);
+  }
 });
 
 test("interrupted uploads remain private drafts and can be retried", async (t) => {

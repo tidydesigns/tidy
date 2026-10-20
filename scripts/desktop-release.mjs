@@ -166,15 +166,15 @@ async function getRelease(identity, gh) {
   }
 }
 
-/** Allow an absent tag or a tag resolving to the expected commit, following at most five tags. */
-async function checkTag(identity, gh) {
+/** Resolve up to five annotated tags to the expected commit; require a tag after publication. */
+async function checkTag(identity, gh, required = false) {
   let object;
   try {
     object = JSON.parse(
       await gh(["api", `repos/${identity.repository}/git/ref/tags/${identity.tag}`]),
     ).object;
   } catch (error) {
-    if (error.code === 1 && /\(HTTP 404\)/.test(error.stderr ?? "")) return;
+    if (!required && error.code === 1 && /\(HTTP 404\)/.test(error.stderr ?? "")) return;
     throw error;
   }
   for (let depth = 0; depth < 5 && object?.type === "tag"; depth++) {
@@ -185,6 +185,25 @@ async function checkTag(identity, gh) {
   }
   if (object?.type !== "commit" || object.sha !== identity.commit)
     throw new Error("Release tag points to a different source commit.");
+}
+
+/** Read back all remote assets into a fresh directory and compare their exact local digests. */
+async function checkRemoteArtifacts(temporary, identity, gh, digests) {
+  const directory = await mkdtemp(join(temporary, "verify-"));
+  await gh([
+    "release",
+    "download",
+    identity.tag,
+    "--repo",
+    identity.repository,
+    "--dir",
+    directory,
+  ]);
+  await validateReleaseArtifacts(directory, identity);
+  for (const [name, digest] of digests) {
+    if ((await sha256(join(directory, name))) !== digest)
+      throw new Error("Remote release assets differ from the verified local artifacts.");
+  }
 }
 
 /** Require an existing release to be a desktop prerelease targeting this exact commit. */
@@ -201,6 +220,12 @@ function checkRelease(release, identity) {
 /** Stage and publish verified beta assets, recovering drafts without replacing published bytes. */
 export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
   await validateReleaseArtifacts(directory, identity);
+  const digests = await Promise.all(
+    [identity.name, `${identity.name}.sha256`, manifestName].map(async (name) => [
+      name,
+      await sha256(join(directory, name)),
+    ]),
+  );
   await checkTag(identity, gh);
   let release = await getRelease(identity, gh);
   const temporary = await mkdtemp(join(tmpdir(), "tidy-beta-publish-"));
@@ -226,6 +251,7 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
           ...expectedNames.flatMap((name) => ["--pattern", name]),
         ]);
         await validateReleaseArtifacts(temporary, identity);
+        await checkTag(identity, gh, true);
         return { published: false, url: identity.releaseUrl };
       }
       if (
@@ -294,6 +320,7 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
       if (!asset || asset.size !== (await regularFile(join(directory, name))).size)
         throw new Error("Uploaded asset size mismatch.");
     }
+    await checkRemoteArtifacts(temporary, identity, gh, digests);
     await checkTag(identity, gh);
     await gh([
       "release",
@@ -315,6 +342,8 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
     if (!release) throw new Error("Published release disappeared.");
     checkRelease(release, identity);
     if (release.isDraft) throw new Error("Release is still a draft.");
+    await checkRemoteArtifacts(temporary, identity, gh, digests);
+    await checkTag(identity, gh, true);
     return { published: true, url: identity.releaseUrl };
   } finally {
     await rm(temporary, { recursive: true, force: true });
