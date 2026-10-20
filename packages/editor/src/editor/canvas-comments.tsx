@@ -61,19 +61,6 @@ function Avatar({ name, image, size = 32 }: { name: string; image: string | null
   );
 }
 
-function SendingStatus() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setVisible(true), 1000);
-    return () => window.clearTimeout(timer);
-  }, []);
-  return (
-    <p role="status" className="ml-9 mt-1 h-4 text-xs text-secondary-ink">
-      <span className={visible ? undefined : "sr-only"}>Sending…</span>
-    </p>
-  );
-}
-
 type ReactionDraft = {
   emoji: (typeof COMMENT_EMOJIS)[number];
   reacted: boolean;
@@ -375,6 +362,8 @@ export const CanvasComments = forwardRef<
     (submission) => submission.thread.id === activeId && submission.kind === "sending",
   );
   const [changing, setChanging] = useState(false);
+  const [resolvedNotice, setResolvedNotice] = useState<CommentThread | null>(null);
+  const [noticePaused, setNoticePaused] = useState(false);
   const [canModerateThreads, setCanModerateThreads] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [filter, setFilter] = useState<"open" | "resolved">("open");
@@ -386,13 +375,23 @@ export const CanvasComments = forwardRef<
   const scrollRequest = useRef<string | null>(null);
   const readController = useRef<AbortController | null>(null);
   const interactionRef = useRef(0);
-  const mutationRef = useRef<{ thread: CommentThread; resolved: boolean | null } | null>(null);
+  const mutationRef = useRef<{
+    thread: CommentThread;
+    resolved: boolean | null;
+    undoRequested: boolean;
+  } | null>(null);
   const editor = useRef<HTMLTextAreaElement>(null);
   const refreshVersion = useRef(0);
   const [confirmedRead, setConfirmedRead] = useState(() => ({
     version: 0,
     messageIds: new Set<string>(),
   }));
+  useEffect(() => {
+    if (!resolvedNotice || noticePaused) return;
+    const timer = window.setTimeout(() => setResolvedNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [resolvedNotice, noticePaused]);
+  useEffect(() => setResolvedNotice(null), [fileId, pageId]);
   const latestReadVersion = useCallback(() => refreshVersion.current, []);
   const loadedPages = useRef(1);
   const focusedThread = useRef<string | null>(null);
@@ -721,7 +720,11 @@ export const CanvasComments = forwardRef<
     setError("");
   }
 
-  async function changeThread(thread: CommentThread, resolved: boolean | null) {
+  async function changeThread(
+    thread: CommentThread,
+    resolved: boolean | null,
+    preserveInteraction = false,
+  ) {
     const notifyError = setError("");
     if (
       mutationRef.current ||
@@ -732,8 +735,14 @@ export const CanvasComments = forwardRef<
       !(canModerateThreads || viewerId === thread.createdBy)
     )
       return;
-    const interaction = ++interactionRef.current;
-    mutationRef.current = { thread, resolved };
+    const interaction = preserveInteraction ? interactionRef.current : ++interactionRef.current;
+    const mutation = { thread, resolved, undoRequested: false };
+    mutationRef.current = mutation;
+    let rollbackThread = thread;
+    setNoticePaused(false);
+    setResolvedNotice((current) =>
+      resolved === true ? thread : current?.id === thread.id ? null : current,
+    );
     setSubmissions((current) =>
       current.flatMap((item) =>
         item.thread.id !== thread.id
@@ -750,9 +759,11 @@ export const CanvasComments = forwardRef<
         item.id !== thread.id ? [item] : resolved === null ? [] : [{ ...item, resolved }],
       ),
     );
-    setActiveId(null);
-    setOptionsOpen(false);
-    setBody("");
+    if (!preserveInteraction) {
+      setActiveId(null);
+      setOptionsOpen(false);
+      setBody("");
+    }
     setChanging(true);
 
     try {
@@ -761,18 +772,44 @@ export const CanvasComments = forwardRef<
           ? await removeCommentThread({ fileId, threadId: thread.id })
           : await changeCommentThreadStatus({ fileId, threadId: thread.id, resolved });
       if (result.kind === "error") throw new Error(result.error);
-    } catch (cause) {
-      setThreads((current) => [...current.filter((item) => item.id !== thread.id), thread]);
-      if (interaction === interactionRef.current) {
-        setActiveId(thread.id);
-        notifyError(cause, "Could not update thread. Try again.");
+      if (mutation.undoRequested) {
+        rollbackThread = { ...thread, resolved: true };
+        const undo = await changeCommentThreadStatus({
+          fileId,
+          threadId: thread.id,
+          resolved: false,
+        });
+        if (undo.kind === "error") throw new Error(undo.error);
       }
+    } catch (cause) {
+      setResolvedNotice((current) => (current?.id === thread.id ? null : current));
+      setThreads((current) => [...current.filter((item) => item.id !== thread.id), rollbackThread]);
+      if (interaction === interactionRef.current && !preserveInteraction) {
+        setActiveId(thread.id);
+      }
+      notifyError(cause, "Could not update thread. Try again.");
     } finally {
       mutationRef.current = null;
       setChanging(false);
       // Reads never change the selected thread or clear a newer draft.
       void refresh();
     }
+  }
+
+  function undoResolve(thread: CommentThread) {
+    const mutation = mutationRef.current;
+    if (mutation && mutation.thread.id !== thread.id) return;
+    setResolvedNotice(null);
+    if (mutation?.resolved === true) {
+      mutation.undoRequested = true;
+      mutation.resolved = false;
+      refreshVersion.current++;
+      setThreads((current) =>
+        current.map((item) => (item.id === thread.id ? { ...item, resolved: false } : item)),
+      );
+      return;
+    }
+    void changeThread({ ...thread, resolved: true }, false, true);
   }
 
   return (
@@ -1033,7 +1070,6 @@ export const CanvasComments = forwardRef<
                       }
                       latestReadVersion={latestReadVersion}
                     />
-                    {submission?.kind === "sending" && <SendingStatus />}
                     {submission?.kind === "failed" && (
                       <div className="ml-9 mt-1 flex items-center gap-2 text-xs text-danger">
                         <p role="alert">{submission.error}</p>
@@ -1105,6 +1141,33 @@ export const CanvasComments = forwardRef<
           )}
         </section>
       )}
+      {resolvedNotice &&
+        notificationRoot &&
+        createPortal(
+          <div
+            onPointerEnter={() => setNoticePaused(true)}
+            onPointerLeave={(event) =>
+              setNoticePaused(event.currentTarget.contains(document.activeElement))
+            }
+            onFocus={() => setNoticePaused(true)}
+            onBlur={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget))
+                setNoticePaused(event.currentTarget.matches(":hover"));
+            }}
+          >
+            <EditorNotification
+              message="Comment resolved"
+              tone="success"
+              onDismiss={() => setResolvedNotice(null)}
+              action={{
+                label: "Undo",
+                onClick: () => undoResolve(resolvedNotice),
+                disabled: changing && mutationRef.current?.thread.id !== resolvedNotice.id,
+              }}
+            />
+          </div>,
+          notificationRoot,
+        )}
       {(error || loadError) &&
         !point &&
         notificationRoot &&

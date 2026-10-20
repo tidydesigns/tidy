@@ -58,3 +58,14 @@
   outline: 2px solid var(--color-primary-orange, #f5733f);
   outline-offset: 2px;
 }
+
+.tidy-toast-content .tidy-toast-action {
+  width: auto;
+  padding: 0 8px;
+  font-size: inherit;
+  font-weight: 500;
+}
+.tidy-toast-action:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

@@ -16,11 +16,13 @@ export function Toast({
   message,
   onDismiss,
   children,
+  action,
   tone = "error",
 }: {
   message: string;
   onDismiss: () => void;
   children?: ReactNode;
+  action?: { label: string; onClick: () => void; disabled?: boolean };
   tone?: "error" | "success";
 }) {
   return (
@@ -37,6 +39,17 @@ export function Toast({
           {tone === "error" ? "!" : "✓"}
         </span>
         <p data-ph-private>{message}</p>
+        {action && (
+          <button
+            data-ph-public
+            type="button"
+            className="tidy-toast-action"
+            onClick={action.onClick}
+            disabled={action.disabled}
+          >
+            {action.label}
+          </button>
+        )}
         <button data-ph-public type="button" aria-label="Dismiss notification" onClick={onDismiss}>
           ×
         </button>
