@@ -149,10 +149,12 @@ test("image fit and crop remain available in a quiet inspector in both themes", 
   await expect(
     inspector(page).getByRole("button", { name: "Crop image", exact: true }),
   ).toBeVisible();
-  for (const theme of ["light", "dark"]) {
-    await page.evaluate((value) => {
-      document.documentElement.style.colorScheme = value;
-    }, theme);
+  for (const theme of ["light", "dark"] as const) {
+    await page.emulateMedia({ colorScheme: theme });
+    await expect(inspector(page)).toHaveCSS(
+      "background-color",
+      theme === "dark" ? "rgb(32, 32, 32)" : "rgb(250, 250, 250)",
+    );
     await expect(
       inspector(page).getByRole("spinbutton", { name: "Width", exact: true }),
     ).toBeVisible();
