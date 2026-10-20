@@ -3,7 +3,7 @@
 import { useEditorEvent } from "./use-editor-event";
 import { selectedElements } from "./canvas-elements";
 
-import { useLayoutEffect, useState, type RefObject } from "react";
+import { useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import type { DesignDocument, DesignNode } from "../design/document";
 import { renderedNodeBox } from "../design/canvas-geometry";
 
@@ -15,15 +15,17 @@ export function useRenderedSelection(
 ) {
   const [boxes, setBoxes] = useState<Record<string, DesignNode["box"]>>({});
   const selectionKey = JSON.stringify(nodes.map((node) => node.id));
+  const elements = useEditorEvent(() =>
+    selectedElements(
+      viewport?.current,
+      nodes.map((node) => node.id),
+    ),
+  );
   const measure = useEditorEvent(() => {
     const canvas = viewport?.current;
     if (!canvas) return;
-    const elements = selectedElements(
-      canvas,
-      nodes.map((node) => node.id),
-    );
     const next = Object.fromEntries(
-      elements.map((element) => [element.dataset.nodeId!, renderedNodeBox(element)]),
+      elements().map((element) => [element.dataset.nodeId!, renderedNodeBox(element)]),
     );
     setBoxes((current) => {
       const ids = Object.keys(next);
@@ -41,13 +43,15 @@ export function useRenderedSelection(
   useLayoutEffect(() => {
     const canvas = viewport?.current;
     if (!canvas) return;
-    const elements = selectedElements(canvas, JSON.parse(selectionKey) as string[]);
     const observer = new ResizeObserver(measure);
-    for (const element of elements) {
+    for (const element of elements()) {
       observer.observe(element);
       if (element.parentElement) observer.observe(element.parentElement);
     }
     return () => observer.disconnect();
-  }, [selectionKey, viewport, measure]);
-  return nodes.map((node) => (boxes[node.id] ? { ...node, box: boxes[node.id] } : node));
+  }, [selectionKey, viewport, measure, elements]);
+  return useMemo(
+    () => nodes.map((node) => (boxes[node.id] ? { ...node, box: boxes[node.id] } : node)),
+    [nodes, boxes],
+  );
 }

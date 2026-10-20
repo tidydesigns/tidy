@@ -1,11 +1,21 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import {
+  useContext,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type RefObject,
+} from "react";
 import { Icon } from "../components/ui/icon";
 import { useCanvasColorPicker } from "./canvas-color-picker";
 import { clamp, hexToHsva, hsvaToHex, type Hsva } from "./color-values";
 import { PropertyField } from "./property-field";
 import { normalizeColor } from "../design/selection-colors";
+import { InspectorGesture } from "./inspector-presentation";
+import { useEditorEvent } from "./use-editor-event";
+import { useFrameEvent } from "./use-frame-event";
 
 const checker = {
   backgroundImage: "conic-gradient(#8883 25%, transparent 0 50%, #8883 0 75%, transparent 0)",
@@ -27,6 +37,14 @@ export function ColorPickerPopover({
 }) {
   const panel = useRef<HTMLDivElement>(null);
   const sampler = useCanvasColorPicker();
+  const session = useContext(InspectorGesture);
+  const gesture = useRef<{
+    pointerId: number;
+    apply: typeof onChange;
+    next: Hsva;
+    applied: string;
+    bounds: DOMRect | null;
+  } | null>(null);
   const [previous] = useState(color);
   const [state, setState] = useState(() => ({ color, hsv: hexToHsva(color) }));
   let hsv = state.hsv;
@@ -36,11 +54,50 @@ export function ColorPickerPopover({
     hsv = next;
     setState({ color, hsv: next });
   }
-  function change(next: Hsva) {
+  const apply = useEditorEvent((next: Hsva) => {
     const hex = hsvaToHex(next);
     setState({ color: hex, hsv: next });
-    onChange(hex);
+    const active = gesture.current;
+    if (active) {
+      if (active.applied === hex) return;
+      active.applied = hex;
+      active.apply(hex);
+    } else if (hex !== color) onChange(hex);
+  });
+  const preview = useFrameEvent(apply);
+  function change(next: Hsva) {
+    if (gesture.current) {
+      gesture.current.next = next;
+      preview.schedule(next);
+    } else apply(next);
   }
+  function begin(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0 || gesture.current) return;
+    session?.begin();
+    gesture.current = {
+      pointerId: event.pointerId,
+      apply: onChange,
+      next: hsv,
+      applied: color,
+      bounds: event.currentTarget.getBoundingClientRect(),
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+  function commit(event: ReactPointerEvent<HTMLElement>) {
+    const active = gesture.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    preview.cancel();
+    apply(active.next);
+    gesture.current = null;
+    session?.commit();
+  }
+  const cancel = useEditorEvent(() => {
+    preview.cancel();
+    if (!gesture.current) return;
+    gesture.current = null;
+    session?.cancel();
+  });
+  useLayoutEffect(() => cancel, [cancel]);
   const latest = useRef(onClose);
   useLayoutEffect(() => {
     latest.current = onClose;
@@ -51,6 +108,7 @@ export function ColorPickerPopover({
     popup.showPopover();
     popup.focus({ preventScroll: true });
     function position() {
+      if (gesture.current) gesture.current.bounds = null;
       const bounds = anchor.current?.getBoundingClientRect();
       if (!bounds || !popup) return;
       const width = popup.offsetWidth,
@@ -95,10 +153,14 @@ export function ColorPickerPopover({
       role="dialog"
       aria-label="Colour picker"
       tabIndex={-1}
+      onPointerUp={commit}
+      onLostPointerCapture={commit}
+      onPointerCancel={cancel}
       onKeyDownCapture={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
           event.stopPropagation();
+          cancel();
           close();
         }
       }}
@@ -143,9 +205,11 @@ export function ColorPickerPopover({
               "linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent)",
           }}
           onPointerDown={(event) => {
+            if (event.button !== 0) return;
             event.preventDefault();
-            event.currentTarget.setPointerCapture(event.pointerId);
-            const bounds = event.currentTarget.getBoundingClientRect();
+            begin(event);
+            const bounds = gesture.current?.bounds;
+            if (!bounds) return;
             change({
               ...hsv,
               s: clamp((event.clientX - bounds.left) / bounds.width),
@@ -153,8 +217,9 @@ export function ColorPickerPopover({
             });
           }}
           onPointerMove={(event) => {
-            if (!event.currentTarget.hasPointerCapture(event.pointerId)) return;
-            const bounds = event.currentTarget.getBoundingClientRect();
+            const active = gesture.current;
+            if (!active || active.pointerId !== event.pointerId) return;
+            const bounds = (active.bounds ??= event.currentTarget.getBoundingClientRect());
             change({
               ...hsv,
               s: clamp((event.clientX - bounds.left) / bounds.width),
@@ -196,6 +261,7 @@ export function ColorPickerPopover({
               max={359.9}
               step={0.1}
               value={hsv.h}
+              onPointerDown={begin}
               onChange={(event) => change({ ...hsv, h: Number(event.target.value) })}
               className="color-picker-slider"
               style={{
@@ -209,6 +275,7 @@ export function ColorPickerPopover({
                 min={0}
                 max={100}
                 value={Math.round(hsv.a * 100)}
+                onPointerDown={begin}
                 onChange={(event) => change({ ...hsv, a: Number(event.target.value) / 100 })}
                 className="color-picker-slider"
                 style={{

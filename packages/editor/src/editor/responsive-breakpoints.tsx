@@ -80,6 +80,7 @@ export function ResponsiveBreakpoints({
     <PropertyField
       replayLabel
       label={label}
+      displayLabel={label.replace(/^Breakpoint /, "")}
       value={breakpoint[key] ?? ""}
       numeric
       min={min}
@@ -157,6 +158,7 @@ export function ResponsiveBreakpoints({
                   <PropertyField
                     replayLabel
                     label="Frame width up to"
+                    displayLabel="Up to"
                     value={breakpoint.frameMaxWidth}
                     numeric
                     min={1}
@@ -195,6 +197,7 @@ export function ResponsiveBreakpoints({
                     replayOptions
                     replayLabel
                     label="Breakpoint flow"
+                    displayLabel="Flow"
                     value={breakpoint.layout ?? ""}
                     choices={[
                       ["", "Inherit"],
@@ -264,6 +267,8 @@ export function ResponsiveBreakpoints({
                                 replayOptions
                                 replayLabel
                                 label={`Breakpoint column ${index + 1} unit`}
+                                displayLabel="Unit"
+                                layout="stacked"
                                 value={track.unit}
                                 choices={[
                                   ["fr", "Fraction"],
@@ -288,6 +293,7 @@ export function ResponsiveBreakpoints({
                                 <PropertyField
                                   replayLabel
                                   label={`Breakpoint column ${index + 1} size`}
+                                  displayLabel="Size"
                                   value={track.value}
                                   numeric
                                   min={track.unit === "fr" ? 0.1 : 1}
@@ -323,6 +329,8 @@ export function ResponsiveBreakpoints({
                                 replayOptions
                                 replayLabel
                                 label={`Breakpoint row ${index + 1} unit`}
+                                displayLabel="Unit"
+                                layout="stacked"
                                 value={track.unit}
                                 choices={[
                                   ["fr", "Fraction"],
@@ -347,6 +355,7 @@ export function ResponsiveBreakpoints({
                                 <PropertyField
                                   replayLabel
                                   label={`Breakpoint row ${index + 1} size`}
+                                  displayLabel="Size"
                                   value={track.value}
                                   numeric
                                   min={track.unit === "fr" ? 0.1 : 1}
@@ -399,6 +408,8 @@ export function ResponsiveBreakpoints({
                         replayOptions
                         replayLabel
                         label="Breakpoint align"
+                        displayLabel="Align"
+                        layout="stacked"
                         value={breakpoint.align ?? ""}
                         choices={[
                           ["", "Inherit"],
@@ -418,6 +429,8 @@ export function ResponsiveBreakpoints({
                         replayOptions
                         replayLabel
                         label="Breakpoint justify"
+                        displayLabel="Justify"
+                        layout="stacked"
                         value={breakpoint.justify ?? ""}
                         choices={[
                           ["", "Inherit"],
@@ -442,6 +455,7 @@ export function ResponsiveBreakpoints({
                       replayOptions
                       replayLabel
                       label="Breakpoint wrap"
+                      displayLabel="Wrap"
                       value={breakpoint.wrap === undefined ? "" : String(breakpoint.wrap)}
                       choices={[
                         ["", "Inherit"],
@@ -461,6 +475,8 @@ export function ResponsiveBreakpoints({
                     replayOptions
                     replayLabel
                     label="Breakpoint width"
+                    displayLabel="Width"
+                    layout="stacked"
                     value={breakpoint.widthMode ?? ""}
                     choices={[
                       ["", "Inherit"],
@@ -478,6 +494,8 @@ export function ResponsiveBreakpoints({
                     replayOptions
                     replayLabel
                     label="Breakpoint height"
+                    displayLabel="Height"
+                    layout="stacked"
                     value={breakpoint.heightMode ?? ""}
                     choices={[
                       ["", "Inherit"],
@@ -500,6 +518,7 @@ export function ResponsiveBreakpoints({
                       replayLabel
                       key={key}
                       label={`Breakpoint ${key.replace(/([A-Z])/g, " $1").toLowerCase()}`}
+                      displayLabel={key.replace(/([A-Z])/g, " $1").toLowerCase()}
                       value={breakpoint[key] ?? ""}
                       numeric
                       min={key.startsWith("min") ? 0 : 1}

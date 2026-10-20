@@ -27,6 +27,7 @@ test("quiet text inspector preserves measured size, editing, sizing modes and un
   await expect(summary(page, "Layout").locator("..")).not.toHaveAttribute("open");
   await expect(summary(page, "Advanced").locator("..")).not.toHaveAttribute("open");
   await expect(summary(page, "Export").locator("..")).not.toHaveAttribute("open");
+  await expect(panel.getByRole("spinbutton", { name: "Rotation", exact: true })).toHaveCount(0);
   const width = panel.getByRole("spinbutton", { name: "Width", exact: true });
   await width.fill("420");
   await width.press("Enter");
@@ -212,4 +213,112 @@ test("a mixed selection can add a fill when only some layers already have one", 
   );
   await expect(paints).toHaveCount(2);
   await expect(paints.last()).toHaveCSS("background-color", "rgb(255, 255, 255)");
+});
+
+async function number(page: Page, label: string, value: string) {
+  const input = inspector(page).getByRole("spinbutton", { name: label, exact: true });
+  await input.fill(value);
+  await input.press("Enter");
+}
+
+test("responsive parent layouts expose the correct child controls after expanding transform settings", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  await select(page, "Authentication panel");
+  await summary(page, "Advanced").click();
+  await inspector(page)
+    .locator("summary")
+    .filter({ hasText: /^Responsive breakpoints$/ })
+    .click();
+  for (const [width, flow] of [
+    ["900", "Grid"],
+    ["600", "Vertical"],
+  ] as const) {
+    await inspector(page).getByRole("button", { name: "Add breakpoint", exact: true }).click();
+    const threshold = inspector(page)
+      .getByRole("spinbutton", { name: "Frame width up to", exact: true })
+      .last();
+    await threshold.fill(width);
+    await threshold.press("Enter");
+    await inspector(page)
+      .getByRole("button", { name: /^Breakpoint flow / })
+      .last()
+      .click();
+    await page.getByRole("menuitemradio", { name: flow, exact: true }).click();
+  }
+  for (const width of [1200, 800, 400]) {
+    await select(page, "Desktop 1440 · /login");
+    await number(page, "Width", String(width));
+    await select(page, "Email input");
+    const panel = inspector(page);
+    const transform = summary(page, "Transform & constraints").locator("..");
+    if (!(await transform.evaluate((element) => element.hasAttribute("open"))))
+      await summary(page, "Transform & constraints").click();
+    await expect(panel.getByRole("button", { name: /^Horizontal constraint / })).toHaveCount(
+      width === 1200 ? 1 : 0,
+    );
+    await expect(panel.getByRole("spinbutton", { name: "Column span", exact: true })).toHaveCount(
+      width === 800 ? 1 : 0,
+    );
+    await expect(
+      panel.getByRole("spinbutton", { name: "Gap adjustment", exact: true }),
+    ).toHaveCount(width === 400 ? 1 : 0);
+    await expect(page.locator('[data-node-id="desktop-panel"]')).toHaveCSS(
+      "display",
+      width === 1200 ? "block" : width === 800 ? "grid" : "flex",
+    );
+  }
+});
+
+test("breakpoint edits normalize overlap, padding sides and explicit grid tracks through the real inspector", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  await select(page, "Desktop 1440 · /login");
+  await number(page, "Width", "800");
+  await select(page, "Authentication panel");
+  await summary(page, "Advanced").click();
+  const panel = inspector(page);
+  await panel
+    .locator("summary")
+    .filter({ hasText: /^Responsive breakpoints$/ })
+    .click();
+  await panel.getByRole("button", { name: "Add breakpoint", exact: true }).click();
+  await number(page, "Frame width up to", "900");
+  await choose(page, /^Breakpoint flow /, "Grid");
+  await number(page, "Breakpoint column gap", "4");
+  await choose(page, /^Breakpoint flow /, "Horizontal");
+  await number(page, "Breakpoint gap", "-8");
+  const artwork = page.locator('[data-node-id="desktop-panel"]');
+  await expect(artwork).toHaveCSS("column-gap", "0px");
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS("margin-left", "-8px");
+  await panel
+    .locator("summary")
+    .filter({ hasText: /^Padding by side$/ })
+    .click();
+  await number(page, "Breakpoint padding left", "30");
+  await number(page, "Breakpoint padding", "12");
+  await expect(artwork).toHaveCSS("padding-left", "12px");
+  await choose(page, /^Breakpoint wrap /, "Wrap");
+  const gap = panel.getByRole("spinbutton", { name: "Breakpoint gap", exact: true });
+  await expect(gap).toHaveValue("0");
+  await expect(gap).toHaveAttribute("min", "0");
+  await choose(page, /^Breakpoint flow /, "Grid");
+  await panel
+    .locator("summary")
+    .filter({ hasText: /^Breakpoint grid tracks$/ })
+    .click();
+  await choose(page, /^Breakpoint column 1 unit /, "Pixels");
+  await number(page, "Breakpoint column 1 size", "50");
+  await expect(artwork).toHaveCSS("grid-template-columns", /^50px /);
+  await number(page, "Breakpoint columns", "3");
+  await expect
+    .poll(() =>
+      artwork.evaluate(
+        (element) => getComputedStyle(element).gridTemplateColumns.split(" ").length,
+      ),
+    )
+    .toBe(3);
+  await expect(artwork).not.toHaveCSS("grid-template-columns", /^50px /);
 });

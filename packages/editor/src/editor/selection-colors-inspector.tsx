@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { DesignDocument, DesignNode } from "../design/document";
 import { resolvedColorTokens } from "../design/design-tokens";
 import { replaceSelectionColor } from "../design/selection-colors";
+import { nodeIndex } from "../design/node-index";
 import {
   createColourPalette,
   reconcileColourPalette,
@@ -23,7 +24,7 @@ export function SelectionColorsInspector({
   const [editing, setEditing] = useState(false);
   const [all, setAll] = useState(false);
   const { nodes, tokens, colours, groups } = useMemo(() => {
-    const byId = new Map(document.nodes.map((node) => [node.id, node]));
+    const byId = nodeIndex(document.nodes);
     const children = new Map<string, DesignNode[]>();
     for (const node of document.nodes) {
       if (!node.parentId) continue;
@@ -50,10 +51,13 @@ export function SelectionColorsInspector({
       nodes.push(node);
       pending.push(...(children.get(node.id) ?? []));
     }
-    const tokens = resolvedColorTokens(document);
+    const tokens = resolvedColorTokens({
+      tokens: document.tokens,
+      designTokens: document.designTokens,
+    });
     const groups = indexSelectionColours(nodes, tokens);
     return { nodes, tokens, colours: [...groups.keys()], groups };
-  }, [document, selected]);
+  }, [document.nodes, document.tokens, document.designTokens, selected]);
   const [palette, setPalette] = useState(() => createColourPalette(colours));
   const currentPalette = reconcileColourPalette(palette, colours);
   if (currentPalette !== palette) setPalette(currentPalette);

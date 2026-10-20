@@ -21,6 +21,8 @@ export function shared<T>(nodes: DesignNode[], get: (node: DesignNode) => T): T 
 
 export function Choice<const T extends string>({
   label,
+  displayLabel,
+  layout,
   replayLabel = false,
   replayOptions = false,
   value,
@@ -28,6 +30,8 @@ export function Choice<const T extends string>({
   onChange,
 }: {
   label: string;
+  displayLabel?: string;
+  layout?: "stacked" | "inline";
   replayLabel?: boolean;
   replayOptions?: boolean;
   value: Value;
@@ -35,17 +39,25 @@ export function Choice<const T extends string>({
   onChange: (value: T) => void;
 }) {
   const quiet = useQuietInspector();
+  const inline = quiet && layout !== "stacked";
   const labelId = useId();
   return (
     <div
       className={
-        quiet
+        inline
           ? "inspector-choice flex min-w-0 items-center justify-between gap-3 text-[11px] text-secondary-ink"
           : "min-w-0 text-[10px] text-secondary-ink"
       }
     >
       <span id={labelId} data-ph-public={replayLabel || undefined}>
-        {label}
+        {displayLabel ? (
+          <>
+            <span className="sr-only">{label}</span>
+            <span aria-hidden="true">{displayLabel}</span>
+          </>
+        ) : (
+          label
+        )}
       </span>
       <SelectMenu
         replayLabel={replayLabel}
@@ -53,7 +65,7 @@ export function Choice<const T extends string>({
         label={label}
         labelledBy={labelId}
         size="sm"
-        className={quiet ? "min-w-0 flex-1" : "mt-1"}
+        className={inline ? "min-w-0 flex-1" : "mt-1"}
         triggerClassName={
           quiet
             ? "flex h-8 w-full items-center justify-between gap-2 rounded-md border border-transparent bg-hover-surface px-2 text-left text-xs text-primary-black outline-none focus-visible:ring-1 focus-visible:ring-primary-orange disabled:opacity-50"

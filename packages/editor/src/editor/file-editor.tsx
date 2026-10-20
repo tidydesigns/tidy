@@ -196,6 +196,7 @@ import {
   type VectorContour,
 } from "@tidy/design/vector-geometry";
 import { SelectionInspector } from "./selection-inspector";
+import { InspectorGesture } from "./inspector-presentation";
 import { ToolInspector } from "./tool-inspector";
 import type { EditorAgentSetup } from "../host";
 import { textToolStyle, type TextToolStyle } from "../design/text-tool-style";
@@ -240,6 +241,14 @@ import {
 } from "../design/document-operations";
 
 type Snapshot = { revision: number; content: DesignDocument };
+type InspectorEdit =
+  | { kind: "ready"; version: number }
+  | {
+      kind: "preview";
+      version: number;
+      transform: (document: DesignDocument) => DesignDocument;
+      sourceNodeId: string | undefined;
+    };
 type View = { zoom: number; x: number; y: number };
 type NodeChanges = DesignNodeChanges;
 type CanvasTool =
@@ -511,6 +520,7 @@ export function FileEditor({
     edit?: GradientEdit;
     size?: Size;
   } | null>(null);
+  const inspectorGesture = useRef<InspectorEdit | null>(null);
   const [vectorMode, setVectorMode] = useState<string | null>(null);
   const vectorGesture = useRef<{ nodeId: string; path: string } | null>(null);
   const [imageTarget, setImageTarget] = useState<ImageEditTarget | null>(null);
@@ -596,6 +606,9 @@ export function FileEditor({
     const oldNodes = new Map(local.content.nodes.map((node) => [node.id, node]));
     // Preserve only this session's active gesture while accepting all other edits.
     const activeGradient = gradientGesture.current;
+    const activeInspector = inspectorGesture.current;
+    const gestureContent =
+      activeInspector?.kind === "preview" ? activeInspector.transform(next.content) : next.content;
     const incoming =
       activeGradient?.edit && activeGradient.size
         ? previewGradientDocument(
@@ -605,7 +618,7 @@ export function FileEditor({
             activeGradient.edit,
             activeGradient.size,
           )
-        : next.content;
+        : gestureContent;
     const reconciled = incoming.nodes.map((node) => {
       const old = oldNodes.get(node.id);
       if (!old) return node;
@@ -3043,7 +3056,68 @@ export function FileEditor({
     );
   }
 
-  function patchSelection(changes: NodeChanges | ((node: DesignNode) => NodeChanges)) {
+  function applyInspectorDocument(
+    transform: (content: DesignDocument) => DesignDocument,
+    nextSelection?: string | null | string[],
+    base?: Snapshot,
+    sourceNodeId?: string,
+  ) {
+    const gesture = inspectorGesture.current;
+    if (!gesture || nextSelection !== undefined) {
+      if (gesture) cancelInspectorGesture();
+      void changeDocument(transform, nextSelection, base, sourceNodeId);
+      return;
+    }
+    if (readOnly || gesture.version !== selectionVersion.current) return;
+    try {
+      const before = room.getSnapshot();
+      const content = transform(before.content);
+      inspectorGesture.current = { ...gesture, kind: "preview", transform, sourceNodeId };
+      setSnapshot({ ...before, content });
+    } catch (cause) {
+      inspectorGesture.current = null;
+      room.restore();
+      reportError(cause, "Could not preview colour.");
+    }
+  }
+  const cancelInspectorGesture = useEditorEvent(() => {
+    if (!inspectorGesture.current) return;
+    inspectorGesture.current = null;
+    room.restore();
+  });
+  const beginInspectorGesture = useEditorEvent(() => {
+    if (readOnly) return;
+    inspectorGesture.current = { kind: "ready", version: selectionVersion.current };
+  });
+  const commitInspectorGesture = useEditorEvent(() => {
+    const gesture = inspectorGesture.current;
+    inspectorGesture.current = null;
+    if (!gesture) return;
+    if (readOnly || gesture.version !== selectionVersion.current || gesture.kind !== "preview") {
+      room.restore();
+      return;
+    }
+    void changeDocument(gesture.transform, undefined, undefined, gesture.sourceNodeId);
+  });
+  const inspectorGestureControls = useMemo(
+    () => ({
+      begin: beginInspectorGesture,
+      commit: commitInspectorGesture,
+      cancel: cancelInspectorGesture,
+    }),
+    [beginInspectorGesture, commitInspectorGesture, cancelInspectorGesture],
+  );
+  useLayoutEffect(cancelInspectorGesture, [
+    selectedIds,
+    currentPageId,
+    readOnly,
+    cancelInspectorGesture,
+  ]);
+
+  function patchSelection(
+    changes: NodeChanges | ((node: DesignNode) => NodeChanges),
+    inspector = false,
+  ) {
     if (
       typeof changes !== "function" &&
       changes.style?.objectFit &&
@@ -3051,12 +3125,16 @@ export function FileEditor({
     )
       setCropId(null);
     const elements = canvasElements(viewport.current);
-    void changeDocument(
+    const apply = inspector ? applyInspectorDocument : changeDocument;
+    void apply(
       (content) => ({
         ...content,
         nodes: changedLayers(content, selectedIds, (item) => {
           const element = elements.get(item.id);
-          const actual = element ? { ...item, box: renderedNodeBox(element) } : item;
+          const actual =
+            element && typeof changes === "function"
+              ? { ...item, box: renderedNodeBox(element) }
+              : item;
           const patch = typeof changes === "function" ? changes(actual) : changes;
           if (
             !element ||
@@ -3070,7 +3148,8 @@ export function FileEditor({
           )
             return patch;
           const parent = content.nodes.find((node) => node.id === item.parentId);
-          const after = { ...actual, ...patch, box: { ...actual.box, ...patch.box } };
+          const measured = actual === item ? { ...item, box: renderedNodeBox(element) } : actual;
+          const after = { ...measured, ...patch, box: { ...measured.box, ...patch.box } };
           return {
             ...patch,
             box: storedConstraintBox(after.box, after, parent, renderedParentSize(element)),
@@ -3946,7 +4025,9 @@ export function FileEditor({
         ),
       })),
   );
-  const panelPatch = useEditorEvent(patchSelection);
+  const panelPatch = useEditorEvent((changes: Parameters<typeof patchSelection>[0]) =>
+    patchSelection(changes, true),
+  );
   const panelFitImageBounds = useEditorEvent(() => {
     if (!selected || readOnly || isLayerLocked(nodes, selected.id)) return;
     const element = canvasElements(viewport.current).get(selected.id);
@@ -3987,6 +4068,10 @@ export function FileEditor({
   const panelDocument = useEditorEvent(
     (transform: (content: DesignDocument) => DesignDocument, nextSelection?: string) =>
       void changeDocument(transform, nextSelection),
+  );
+  const inspectorDocument = useEditorEvent(
+    (transform: (content: DesignDocument) => DesignDocument, nextSelection?: string) =>
+      applyInspectorDocument(transform, nextSelection),
   );
   const panelNoteStatus = useEditorEvent(
     (key: string, status: ImportNoteStatus) =>
@@ -5127,34 +5212,36 @@ export function FileEditor({
               !toolInspectorActive &&
               !prototypeInspectorOpen &&
               inspectorSelection.length > 0 && (
-                <SelectionInspector
-                  key={[...selectedIds].sort().join(":")}
-                  selected={inspectorSelection}
-                  mode={readOnly ? "inspect" : inspectorMode}
-                  document={snapshot.content}
-                  viewport={viewport}
-                  readOnly={readOnly}
-                  onPatch={panelPatch}
-                  onDocument={panelDocument}
-                  onGoToMaster={panelGoToMaster}
-                  onExport={panelExport}
-                  exportPending={exportPending}
-                  exportWarnings={exportWarnings}
-                  editingGradientId={editingGradient ? gradientMode?.paintId : undefined}
-                  onGradientEdit={panelGradient}
-                  onUploadFill={panelUpload}
-                  onEditImage={openImageEditor}
-                  onReplaceImage={panelReplace}
-                  onCropImage={panelCrop}
-                  onFitImageBounds={panelFitImageBounds}
-                  cropping={cropping}
-                  editingVector={vectorMode === selected.id}
-                  onEditVector={panelVector}
-                  onAlign={panelAlign}
-                  onDistribute={panelDistribute}
-                  onGroup={panelGroup}
-                  onScale={panelScale}
-                />
+                <InspectorGesture.Provider value={inspectorGestureControls}>
+                  <SelectionInspector
+                    key={[...selectedIds].sort().join(":")}
+                    selected={inspectorSelection}
+                    mode={readOnly ? "inspect" : inspectorMode}
+                    document={snapshot.content}
+                    viewport={viewport}
+                    readOnly={readOnly}
+                    onPatch={panelPatch}
+                    onDocument={inspectorDocument}
+                    onGoToMaster={panelGoToMaster}
+                    onExport={panelExport}
+                    exportPending={exportPending}
+                    exportWarnings={exportWarnings}
+                    editingGradientId={editingGradient ? gradientMode?.paintId : undefined}
+                    onGradientEdit={panelGradient}
+                    onUploadFill={panelUpload}
+                    onEditImage={openImageEditor}
+                    onReplaceImage={panelReplace}
+                    onCropImage={panelCrop}
+                    onFitImageBounds={panelFitImageBounds}
+                    cropping={cropping}
+                    editingVector={vectorMode === selected.id}
+                    onEditVector={panelVector}
+                    onAlign={panelAlign}
+                    onDistribute={panelDistribute}
+                    onGroup={panelGroup}
+                    onScale={panelScale}
+                  />
+                </InspectorGesture.Provider>
               )}
             {(!selected || toolInspectorActive) && (
               <ToolInspector

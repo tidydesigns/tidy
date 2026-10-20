@@ -3,6 +3,11 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 
 export const QuietInspector = createContext(false);
 export const useQuietInspector = () => useContext(QuietInspector);
+export const InspectorGesture = createContext<{
+  begin: () => void;
+  commit: () => void;
+  cancel: () => void;
+} | null>(null);
 const disclosures = new Map<string, boolean>();
 
 export function InspectorDisclosure({
@@ -40,7 +45,7 @@ export function InspectorDisclosure({
           </span>
         )}
       </summary>
-      <div className={nested ? "space-y-3 pt-2" : "space-y-3 px-4 pb-4"}>{children}</div>
+      {open && <div className={nested ? "space-y-3 pt-2" : "space-y-3 px-4 pb-4"}>{children}</div>}
     </details>
   );
 }

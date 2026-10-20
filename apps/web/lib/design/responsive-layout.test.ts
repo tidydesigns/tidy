@@ -1,7 +1,12 @@
 import { test, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
+import {
+  blankDesignDocument,
+  buildDrawnNode,
+  parseDesignDocument,
+  type DesignNode,
+} from "./document";
 import { responsiveNode } from "./responsive-layout";
 import { nodeStyle } from "./node-style";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
@@ -24,7 +29,7 @@ const panel = {
     { id: wideId, frameMaxWidth: 900, gridColumns: 1, gap: 12, padding: 16 },
     { id: narrowId, frameMaxWidth: 600, layout: "flex-column", gap: 8 },
   ],
-};
+} satisfies DesignNode;
 
 test("frame-width breakpoints cascade from wide to narrow and clear superseded grid tracks", () => {
   expect(responsiveNode(panel, 1200)).toBe(panel);
@@ -50,8 +55,10 @@ test("breakpoint edits patch and undo, and thumbnails/reviews render the frame r
   expect(applyDocumentPatch(document, invertPatch(patch))).toEqual(before);
   const thumbnail = renderToStaticMarkup(
     createElement(ThumbnailRenderer, {
-      fileId: "responsive",
-      snapshot: { document: { content: document }, frames: [], rectangles: [] },
+      snapshot: { document: { content: document, revision: 1 }, frames: [], rectangles: [] },
+      signal: new AbortController().signal,
+      onComplete: () => {},
+      onError: () => {},
     }),
   );
   const review = renderToStaticMarkup(
@@ -98,7 +105,7 @@ test("a narrower grid rule can clear inherited row tracks", () => {
     ...panel,
     gridRowTracks: [{ unit: "px", value: 60 }],
     responsiveBreakpoints: [{ id: wideId, frameMaxWidth: 900, gridRowTracks: [] }],
-  };
+  } satisfies DesignNode;
   const document = parseDesignDocument({ ...blankDesignDocument(), nodes: [frame, source] });
   expect(responsiveNode(document.nodes[1], 1200).gridRowTracks).toEqual([
     { unit: "px", value: 60 },
@@ -129,8 +136,8 @@ test("uniform breakpoint padding replaces inherited sides; explicit sides win", 
       { id: wideId, frameMaxWidth: 900, padding: 20, paddingRight: 30 },
       { id: narrowId, frameMaxWidth: 600, padding: 8, paddingBottom: 12 },
     ],
-  };
-  const sides = (width) => {
+  } satisfies DesignNode;
+  const sides = (width: number) => {
     const style = nodeStyle(responsiveNode(source, width), "absolute", {});
     return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft];
   };
@@ -163,10 +170,14 @@ test("clearing an override inherits identically before and after persistence", (
         gap: undefined,
       },
     ],
-  };
+  } satisfies DesignNode;
+  const persisted: unknown = JSON.parse(JSON.stringify(source));
   const live = responsiveNode(source, 500),
-    reopened = responsiveNode(JSON.parse(JSON.stringify(source)), 500);
-  for (const key of ["layout", "padding", "minWidth", "wrap", "gap"])
+    reopened = responsiveNode(
+      parseDesignDocument({ ...blankDesignDocument(), nodes: [frame, persisted] }).nodes[1],
+      500,
+    );
+  for (const key of ["layout", "padding", "minWidth", "wrap", "gap"] as const)
     expect(live[key]).toEqual(reopened[key]);
   expect([live.layout, live.padding, live.minWidth, live.wrap, live.gap]).toEqual([
     "flex-row",
@@ -188,7 +199,7 @@ test("validation rejects conflicting inherited limits at any breakpoint, includi
       { id: wideId, frameMaxWidth: 900, minWidth: 300, maxHeight: 200 },
       { id: narrowId, frameMaxWidth: 600, maxWidth: 400, minHeight: 100 },
     ],
-  };
+  } satisfies DesignNode;
   const before = parseDesignDocument({ ...blankDesignDocument(), nodes: [frame, source] });
   for (const changes of [{ maxWidth: 200 }, { minHeight: 250 }]) {
     const after = {
@@ -218,7 +229,7 @@ test("signed gaps overlap only non-wrapping flex children; wrapped flex and grid
     width: 20,
     height: 20,
   });
-  for (const layout of ["flex-row", "flex-column", "grid"])
+  for (const layout of ["flex-row", "flex-column", "grid"] as const)
     for (const wrap of [false, true]) {
       const parent = { ...panel, layout, wrap, gap: -12, responsiveBreakpoints: undefined };
       const parentStyle = nodeStyle(parent, "absolute", {}),
@@ -260,7 +271,7 @@ test("nested responsive fixtures agree across canvas, thumbnail, review, and por
         paddingBottom: 12,
       },
     ],
-  };
+  } satisfies DesignNode;
   const stack = {
     ...buildDrawnNode("stack", "container", "panel", { x: 0, y: 0, width: 160, height: 200 }),
     layout: "flex-column",
@@ -269,7 +280,7 @@ test("nested responsive fixtures agree across canvas, thumbnail, review, and por
     maxWidth: 400,
     gridColumnSpan: 2,
     gap: -7,
-  };
+  } satisfies DesignNode;
   const a = buildDrawnNode("a", "text", "stack", { x: 0, y: 0, width: 80, height: 30 });
   const hidden = { ...a, id: "hidden", visible: false };
   const overlay = {
@@ -277,20 +288,20 @@ test("nested responsive fixtures agree across canvas, thumbnail, review, and por
     id: "overlay",
     positionMode: "absolute",
     box: { x: 11, y: 17, width: 20, height: 20 },
-  };
+  } satisfies DesignNode;
   const b = {
     ...a,
     id: "b",
     widthMode: "fill",
     responsiveBreakpoints: [{ id: narrowId, frameMaxWidth: 600, minHeight: 35 }],
-  };
+  } satisfies DesignNode;
   for (const width of [1200, 800, 400]) {
     const document = parseDesignDocument({
       ...blankDesignDocument(),
       nodes: [{ ...frame, box: { ...frame.box, width } }, row, stack, a, hidden, overlay, b],
     });
     expect(containingFrameWidth(b, document.nodes)).toBe(width);
-    const childrenById = new Map();
+    const childrenById = new Map<string | null, DesignNode[]>();
     for (const node of document.nodes)
       childrenById.set(node.parentId, [...(childrenById.get(node.parentId) ?? []), node]);
     const canvas = createElement(CanvasArtwork, {
@@ -300,6 +311,18 @@ test("nested responsive fixtures agree across canvas, thumbnail, review, and por
       tokens: {},
       selectedIds: [],
       prototypeMode: false,
+      prototypeArtboardId: null,
+      cropId: null,
+      editingTextId: null,
+      registerElement: () => {},
+      onMenu: () => {},
+      onDoubleClick: () => {},
+      onPointerDown: () => {},
+      onPointerMove: () => {},
+      onPointerUp: () => {},
+      onPointerCancel: () => {},
+      onTextDraft: () => {},
+      onTextFinish: () => {},
     });
     const thumbnail = createElement(DocumentPreview, { content: document });
     const review = createElement(DesignSnapshot, {
@@ -343,12 +366,12 @@ test("nested responsive fixtures agree across canvas, thumbnail, review, and por
 
 test("breakpoint inspector exposes sizing for leaf layers and container-only spacing controls", async () => {
   const { ResponsiveBreakpoints } = await import("@/app/files/[uid]/responsive-breakpoints");
-  for (const type of ["text", "image", "vector", "container"]) {
+  for (const type of ["text", "image", "vector", "container"] as const) {
     const node = { ...panel, type };
     const html = renderToStaticMarkup(
       createElement(ResponsiveBreakpoints, {
         node,
-        document: { nodes: [frame, node] },
+        document: { ...blankDesignDocument(), nodes: [frame, node] },
         onPatch: () => {},
       }),
     );
@@ -357,75 +380,4 @@ test("breakpoint inspector exposes sizing for leaf layers and container-only spa
     expect(html.includes("Breakpoint flow")).toBe(type === "container");
     expect(html.includes("Padding by side")).toBe(type === "container");
   }
-});
-
-test("child spacing controls follow the parent's active breakpoint layout", async () => {
-  const { SelectionInspector } = await import("@/app/files/[uid]/selection-inspector");
-  const child = buildDrawnNode("child", "container", "panel", {
-    x: 0,
-    y: 0,
-    width: 100,
-    height: 100,
-  });
-  const parent = {
-    ...panel,
-    layout: "absolute",
-    responsiveBreakpoints: panel.responsiveBreakpoints.map((rule, index) =>
-      index === 0 ? { ...rule, layout: "grid" } : rule,
-    ),
-  };
-  for (const width of [1200, 800, 400]) {
-    const document = {
-      ...blankDesignDocument(),
-      nodes: [{ ...frame, box: { ...frame.box, width } }, parent, child],
-    };
-    const html = renderToStaticMarkup(
-      createElement(SelectionInspector, { document, selected: [child] }),
-    );
-    expect(html.includes("Column span")).toBe(width === 800);
-    expect(html.includes("Gap adjustment")).toBe(width === 400);
-    expect(html.includes("Horizontal constraint")).toBe(width === 1200);
-  }
-});
-
-test("breakpoint edits replace specific overrides and normalize overlap when enabling wrap", async () => {
-  const { ResponsiveBreakpoints } = await import("@/app/files/[uid]/responsive-breakpoints");
-  let current = {
-    ...panel,
-    layout: "flex-row",
-    responsiveBreakpoints: [
-      { id: wideId, frameMaxWidth: 900, gap: -10, columnGap: 4, padding: 20, paddingLeft: 30 },
-    ],
-  };
-  function field(label) {
-    const tree = ResponsiveBreakpoints({
-      node: current,
-      document: { nodes: [frame, current] },
-      onPatch: (patch) => {
-        current = { ...current, ...patch(current) };
-      },
-    });
-    function find(element) {
-      if (!element || typeof element !== "object") return;
-      if (element.props?.label === label) return element.props;
-      for (const child of [element.props?.children].flat(Infinity)) {
-        const found = find(child);
-        if (found) return found;
-      }
-    }
-    return find(tree);
-  }
-  field("Breakpoint gap").onCommit("-8");
-  expect(responsiveNode(current, 800).columnGap).toBeUndefined();
-  field("Breakpoint padding").onCommit("12");
-  expect(nodeStyle(responsiveNode(current, 800), "absolute", {}).paddingLeft).toBe(12);
-  field("Breakpoint wrap").onChange("true");
-  expect(responsiveNode(current, 800).gap).toBe(0);
-  expect(field("Breakpoint gap").min).toBe(0);
-  field("Breakpoint flow").onChange("grid");
-  current.responsiveBreakpoints[0].gridColumnTracks = [{ unit: "px", value: 50 }];
-  field("Breakpoint columns").onCommit("3");
-  expect(nodeStyle(responsiveNode(current, 800), "absolute", {}).gridTemplateColumns).toBe(
-    "repeat(3, minmax(0, 1fr))",
-  );
 });

@@ -1,5 +1,8 @@
 import { test, expect, required } from "./fixtures";
 import { visibleColourPoint } from "./color-sampling";
+import { z } from "zod";
+import { buildLoginDocument } from "../../lib/design/examples/login";
+import { applyDocumentPatch, documentPatchSchema } from "../../lib/design/document-patch";
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`selection colour picker edits continuously beside the row in ${colorScheme} mode`, async ({
@@ -314,4 +317,138 @@ test("fully transparent text cannot steal the colour from the visible background
     "rgb(242, 242, 240)",
   );
   await expect(heading).toHaveCSS("color", "rgba(30, 30, 30, 0)");
+});
+
+for (const selection of ["Welcome heading", "Authentication panel"] as const) {
+  test(`a colour drag on ${selection} previews immediately and creates one undo step`, async ({
+    page,
+  }) => {
+    await page.goto("/dev/import-preview?edit=1");
+    await page
+      .getByRole("button", { name: `Select ${selection}`, exact: true })
+      .first()
+      .click();
+    const heading = page.locator('[data-node-id="desktop-heading"]');
+    const original = await heading.evaluate((element) => getComputedStyle(element).color);
+    await page
+      .getByRole("button", {
+        name:
+          selection === "Welcome heading"
+            ? "Open text color palette"
+            : "Open selection colour #1e1e1e palette",
+        exact: true,
+      })
+      .click();
+    const picker = page.getByRole("dialog", { name: "Colour picker", exact: true });
+    const square = required(
+      await picker.getByRole("group", { name: "Saturation and brightness" }).boundingBox(),
+    );
+    await page.mouse.move(square.x + 25, square.y + 25);
+    await page.mouse.down();
+    await page.mouse.move(square.x + 150, square.y + 80, { steps: 12 });
+    await expect(heading).not.toHaveCSS("color", original);
+    await page.mouse.up();
+    const changed = await heading.evaluate((element) => getComputedStyle(element).color);
+    await picker.getByRole("button", { name: "Close colour picker", exact: true }).click();
+    await page.getByLabel("Design canvas", { exact: true }).focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(heading).toHaveCSS("color", original);
+    await page.keyboard.press("ControlOrMeta+Shift+z");
+    await expect(heading).toHaveCSS("color", changed);
+  });
+}
+
+test("cancelling a colour drag restores its paint and switching selection cannot leak a pending preview", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  const original = await heading.evaluate((element) => getComputedStyle(element).color);
+  for (const interruption of ["Escape", "selection"] as const) {
+    await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+    await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+    const square = required(
+      await page.getByRole("group", { name: "Saturation and brightness" }).boundingBox(),
+    );
+    await page.mouse.move(square.x + 30, square.y + 30);
+    await page.mouse.down();
+    await page.mouse.move(square.x + 120, square.y + 90, { steps: 5 });
+    await expect(heading).not.toHaveCSS("color", original);
+    if (interruption === "Escape") await page.keyboard.press("Escape");
+    else
+      await page
+        .getByRole("button", { name: "Select Sign in button", exact: true })
+        .first()
+        .evaluate((button) => {
+          if (button instanceof HTMLElement) button.click();
+        });
+    await page.mouse.up();
+    await expect(heading).toHaveCSS("color", original);
+    await expect(page.getByRole("dialog", { name: "Colour picker", exact: true })).toHaveCount(0);
+  }
+});
+
+test("colour previews send no commits and an earlier acknowledgement preserves the next drag", async ({
+  page,
+}) => {
+  let content = buildLoginDocument(),
+    revision = 1,
+    commits = 0;
+  const firstAck = Promise.withResolvers<void>();
+  await page.route("**/api/files/preview/presence-ticket", (route) =>
+    route.fulfill({ status: 404, json: {} }),
+  );
+  await page.route("**/api/files/preview/changes**", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        json: {
+          snapshot: { content, revision },
+          sequence: revision,
+          name: "Preview",
+          canEdit: true,
+        },
+      });
+      return;
+    }
+    const { patch } = z
+      .object({ patch: documentPatchSchema })
+      .parse(route.request().postDataJSON());
+    content = applyDocumentPatch(content, patch);
+    const snapshot = { content, revision: ++revision };
+    if (++commits === 1) await firstAck.promise;
+    await route.fulfill({ json: { snapshot, sequence: snapshot.revision, patch } });
+  });
+  await page.goto("/dev/import-preview?edit=1&realtime=1");
+  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  const square = required(
+    await page.getByRole("group", { name: "Saturation and brightness" }).boundingBox(),
+  );
+  await page.mouse.move(square.x + 30, square.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(square.x + 130, square.y + 60, { steps: 8 });
+  await expect(heading).not.toHaveCSS("color", "rgb(30, 30, 30)");
+  expect(commits).toBe(0);
+  await page.mouse.up();
+  await expect.poll(() => commits).toBe(1);
+  const first = await heading.evaluate((element) => getComputedStyle(element).color);
+  const hue = required(await page.getByRole("slider", { name: "Hue", exact: true }).boundingBox());
+  await page.mouse.move(hue.x + 20, hue.y + hue.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(hue.x + hue.width * 0.7, hue.y + hue.height / 2, { steps: 8 });
+  await expect(heading).not.toHaveCSS("color", first);
+  const preview = await heading.evaluate((element) => getComputedStyle(element).color);
+  const acknowledged = page.waitForResponse(
+    (response) =>
+      response.url().includes("/api/files/preview/changes") &&
+      response.request().method() === "POST",
+  );
+  firstAck.resolve();
+  await acknowledged;
+  await expect(heading).toHaveCSS("color", preview);
+  expect(commits).toBe(1);
+  await page.mouse.up();
+  await expect.poll(() => commits).toBe(2);
+  await expect(heading).toHaveCSS("color", preview);
 });
