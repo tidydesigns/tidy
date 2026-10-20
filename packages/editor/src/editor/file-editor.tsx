@@ -3107,6 +3107,7 @@ export function FileEditor({
   });
   const inspectorGestureControls = useMemo(
     () => ({
+      isActive: () => inspectorGesture.current !== null,
       begin: beginInspectorGesture,
       commit: commitInspectorGesture,
       cancel: cancelInspectorGesture,

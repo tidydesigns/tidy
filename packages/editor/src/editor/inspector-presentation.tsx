@@ -4,6 +4,7 @@ import { createContext, useContext, useState, type ReactNode } from "react";
 export const QuietInspector = createContext(false);
 export const useQuietInspector = () => useContext(QuietInspector);
 export const InspectorGesture = createContext<{
+  isActive: () => boolean;
   begin: () => void;
   commit: () => void;
   cancel: () => void;
