@@ -212,6 +212,18 @@ bun test
 bun run build
 ```
 
+`bun typecheck` uses the pinned experimental [tsrs](https://github.com/oxc-project/tsrs)
+compiler. Use `bun run typecheck:tsc` for the original TypeScript checker, including
+on Windows or Intel Macs, which this tsrs release does not support. TypeScript stays
+installed for Next.js builds and editor tooling.
+
+Run `bun run bench:typecheck` to compare both compilers across every workspace and
+the full typecheck pipeline. It takes five samples per case and writes timings,
+compiler memory measurements and command logs to `.artifacts/typecheck-benchmark/`.
+Set `BENCH_RUNS` to change the sample count or `BENCH_OUTPUT` to change the output
+directory. See [the benchmark report](docs/typecheck-benchmarks.md) for results and
+methodology.
+
 The contribution guide lists additional required checks. Database tests use
 disposable PostgreSQL clusters and run separately; `bun test` skips those suites.
 See [`package.json`](package.json) for available test commands.

@@ -12,13 +12,14 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "package": "bun run build && bun scripts/package.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json",
+    "typecheck": "tsrs --noEmit -p tsconfig.node.json && tsrs --noEmit -p tsconfig.renderer.json",
     "lint": "eslint .",
     "test": "bun test src/main",
     "test:security": "env -u ELECTRON_RUN_AS_NODE electron scripts/security-smoke.mjs",
     "postinstall": "install-electron",
     "dev:browser": "node --import tsx scripts/dev-browser.ts",
-    "release:mac": "bun run build && bun scripts/release-mac.ts"
+    "release:mac": "bun run build && bun scripts/release-mac.ts",
+    "typecheck:tsc": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json"
   },
   "dependencies": {
     "@tidy/design": "workspace:*",

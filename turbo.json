@@ -52,6 +52,17 @@
       "dependsOn": ["@tidy/gpt-plugin#build"],
       "cache": false,
       "persistent": true
+    },
+    "typecheck:tsc": {
+      "dependsOn": ["^typecheck:tsc"]
+    },
+    "@tidy/web#typecheck:tsc": {
+      "dependsOn": ["^typecheck:tsc", "@tidy/gpt-plugin#build"],
+      "outputs": [".next/types/**", "next-env.d.ts"]
+    },
+    "@tidy/extension#typecheck:tsc": {
+      "dependsOn": ["^typecheck:tsc"],
+      "outputs": [".wxt/**"]
     }
   }
 }

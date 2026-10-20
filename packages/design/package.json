@@ -29,8 +29,9 @@
     "./document-limits": "./document-limits.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "typecheck": "tsrs --noEmit",
+    "test": "bun test",
+    "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "fflate": "0.8.3",

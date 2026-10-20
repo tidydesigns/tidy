@@ -129,8 +129,9 @@
     "./design/selection-target": "./src/design/selection-target.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "typecheck": "tsrs --noEmit",
+    "lint": "eslint .",
+    "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "@tidy/design": "workspace:*",

@@ -73,10 +73,13 @@
     "test:versions:local": "bun apps/web/scripts/run-file-version-history.ts",
     "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts",
     "dev:desktop:browser": "bun run --cwd apps/desktop dev:browser",
-    "release:desktop:mac": "bun run --cwd apps/desktop release:mac"
+    "release:desktop:mac": "bun run --cwd apps/desktop release:mac",
+    "typecheck:tsc": "turbo run typecheck:tsc",
+    "bench:typecheck": "node scripts/benchmark-typecheck.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",
+    "tsrs": "0.18.0-ts7.1.0-dev.20260929",
     "turbo": "^2.8.20"
   },
   "trustedDependencies": [

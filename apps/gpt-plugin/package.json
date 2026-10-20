@@ -13,11 +13,12 @@
   "scripts": {
     "build": "bun scripts/build.ts",
     "dev": "bun scripts/dev.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "lint": "eslint .",
     "test": "bun test",
     "zip": "bun scripts/package.ts",
-    "test:browser": "bun scripts/check-browser.ts"
+    "test:browser": "bun scripts/check-browser.ts",
+    "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "@tidy/design": "workspace:*",

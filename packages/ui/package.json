@@ -14,8 +14,9 @@
     "./harness-icon": "./harness-icon.tsx"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "typecheck": "tsrs --noEmit",
+    "lint": "eslint .",
+    "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "react": "19.2.8"

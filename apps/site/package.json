@@ -8,7 +8,8 @@
     "deploy": "bun scripts/deploy.mjs",
     "preview": "wrangler preview",
     "lint": "eslint",
-    "typecheck": "next typegen && tsc --noEmit"
+    "typecheck": "next typegen && tsrs --noEmit",
+    "typecheck:tsc": "next typegen && tsc --noEmit"
   },
   "dependencies": {
     "@tidy/ui": "workspace:*",

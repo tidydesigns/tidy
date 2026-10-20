@@ -26,8 +26,9 @@
     "./node-strokes": "./node-strokes.tsx"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "lint": "eslint ."
+    "typecheck": "tsrs --noEmit",
+    "lint": "eslint .",
+    "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
     "@tidy/design": "workspace:*",
