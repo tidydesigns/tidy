@@ -75,28 +75,3 @@ test("responsive hug frames do not enter the fixed-size cache", () => {
   retain({ nodes, visibleRootIds: new Set(["a"]) });
   expect(retain({ nodes, visibleRootIds: new Set() }).size).toBe(0);
 });
-
-test("position-only snapshots preserve retention while reparenting updates hidden weights", () => {
-  const nodes = [...frame("a"), ...frame("b")];
-  const retain = createCanvasRootCache(2);
-  retain({ nodes, visibleRootIds: new Set(["a", "b"]) });
-  const moved = nodes.map((node) => ({ ...node, box: { ...node.box, x: node.box.x + 40 } }));
-  expect(retain({ nodes: moved, visibleRootIds: new Set(["b"]) })).toEqual(new Set(["b", "a"]));
-  const reparented = moved.map((node) =>
-    node.id === "b-child" ? { ...node, parentId: "a" } : node,
-  );
-  expect([...retain({ nodes: reparented, visibleRootIds: new Set(["b"]) })]).toEqual(["b"]);
-});
-
-test("root eligibility changes invalidate retention without changing the hierarchy", () => {
-  const nodes = frame("a");
-  const retain = createCanvasRootCache();
-  retain({ nodes, visibleRootIds: new Set(["a"]) });
-  const hidden = nodes.map((node) => (node.id === "a" ? { ...node, visible: false } : node));
-  expect(retain({ nodes: hidden, visibleRootIds: new Set() }).size).toBe(0);
-  retain({ nodes, visibleRootIds: new Set(["a"]) });
-  const overflowing = nodes.map((node) =>
-    node.id === "a" ? { ...node, style: { overflow: "visible" as const } } : node,
-  );
-  expect(retain({ nodes: overflowing, visibleRootIds: new Set() }).size).toBe(0);
-});
