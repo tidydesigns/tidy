@@ -1,6 +1,19 @@
 import { nearestSnapAnchor } from "./snap-index";
 export type SnapBox = { x: number; y: number; width: number; height: number };
 export type SnapGuide = { axis: "x" | "y"; position: number; start: number; end: number };
+const translationAnchors = [0, 0.5, 1] as const;
+
+type TranslationSnap = {
+  target: number;
+  candidate: SnapBox;
+  sourceAnchor: number;
+  rank: number;
+};
+export type TranslationSnapState = Record<"x" | "y", TranslationSnap | null>;
+export function createTranslationSnapState(): TranslationSnapState {
+  return { x: null, y: null };
+}
+
 export type SpacingCue = {
   axis: "x" | "y";
   start: number;
@@ -21,26 +34,30 @@ export function boundingBox(boxes: SnapBox[]): SnapBox | null {
   };
 }
 
-/** A screen-pixel tolerance makes edge/center snapping consistent at every zoom. */
 export function snapTranslation(
   box: SnapBox,
   delta: { x: number; y: number },
   candidates: SnapBox[],
   tolerance: number,
+  state?: TranslationSnapState,
 ) {
-  const guides: SnapGuide[] = [];
+  const matches = state ?? createTranslationSnapState();
   const result = { ...delta };
   for (const axis of ["x", "y"] as const) {
     const size = axis === "x" ? "width" : "height";
-    const cross = axis === "x" ? "y" : "x";
-    const crossSize = axis === "x" ? "height" : "width";
-    let best: { distance: number; target: number; candidate: SnapBox; rank?: number } | null = null;
-    if (candidates.length >= 128)
-      for (const [sourceIndex, anchor] of [0, 0.5, 1].entries()) {
+    const held = state?.[axis];
+    let best: (TranslationSnap & { distance: number }) | null = null;
+    if (held) {
+      const distance = held.target - (box[axis] + delta[axis] + box[size] * held.sourceAnchor);
+      if (Math.abs(distance) <= tolerance * 1.5) best = { ...held, distance };
+    }
+    if (!best && candidates.length >= 128) {
+      for (let sourceIndex = 0; sourceIndex < translationAnchors.length; sourceIndex++) {
+        const sourceAnchor = translationAnchors[sourceIndex];
         const found = nearestSnapAnchor(
           candidates,
           axis,
-          box[axis] + delta[axis] + box[size] * anchor,
+          box[axis] + delta[axis] + box[size] * sourceAnchor,
           tolerance,
         );
         if (!found) continue;
@@ -48,37 +65,56 @@ export function snapTranslation(
         if (
           !best ||
           Math.abs(found.distance) < Math.abs(best.distance) ||
-          (Math.abs(found.distance) === Math.abs(best.distance) && rank < best.rank!)
+          (Math.abs(found.distance) === Math.abs(best.distance) && rank < best.rank)
         )
           best = {
             distance: found.distance,
             target: found.value,
             candidate: found.candidate,
+            sourceAnchor,
             rank,
           };
       }
-    else
-      for (const candidate of candidates)
-        for (const targetAnchor of [0, 0.5, 1])
-          for (const sourceAnchor of [0, 0.5, 1]) {
-            const target = candidate[axis] + candidate[size] * targetAnchor;
+    } else if (!best) {
+      for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
+        const candidate = candidates[candidateIndex];
+        for (let targetIndex = 0; targetIndex < translationAnchors.length; targetIndex++) {
+          const target = candidate[axis] + candidate[size] * translationAnchors[targetIndex];
+          for (let sourceIndex = 0; sourceIndex < translationAnchors.length; sourceIndex++) {
+            const sourceAnchor = translationAnchors[sourceIndex];
             const distance = target - (box[axis] + delta[axis] + box[size] * sourceAnchor);
             if (
               Math.abs(distance) > tolerance ||
               (best && Math.abs(distance) >= Math.abs(best.distance))
             )
               continue;
-            best = { distance, target, candidate };
+            best = {
+              distance,
+              target,
+              candidate,
+              sourceAnchor,
+              rank: candidateIndex * 9 + targetIndex * 3 + sourceIndex,
+            };
           }
-    if (!best) continue;
-    result[axis] = Math.round((result[axis] + best.distance) * 1000) / 1000;
+        }
+      }
+    }
+    matches[axis] = best;
+    if (best) result[axis] = Math.round((result[axis] + best.distance) * 1000) / 1000;
+  }
+  const guides: SnapGuide[] = [];
+  for (const axis of ["x", "y"] as const) {
+    const match = matches[axis];
+    if (!match) continue;
+    const cross = axis === "x" ? "y" : "x";
+    const crossSize = axis === "x" ? "height" : "width";
     guides.push({
       axis,
-      position: best.target,
-      start: Math.min(box[cross] + delta[cross], best.candidate[cross]),
+      position: match.target,
+      start: Math.min(box[cross] + result[cross], match.candidate[cross]),
       end: Math.max(
-        box[cross] + delta[cross] + box[crossSize],
-        best.candidate[cross] + best.candidate[crossSize],
+        box[cross] + result[cross] + box[crossSize],
+        match.candidate[cross] + match.candidate[crossSize],
       ),
     });
   }

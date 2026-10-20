@@ -1,4 +1,5 @@
 "use client";
+import { CanvasAlignment } from "./canvas-alignment";
 import { isFigmaClipboard } from "@tidy/design/figma-input";
 import { readFigma, remapFigmaAssets } from "../design/figma-client";
 import {
@@ -1754,6 +1755,16 @@ export function FileEditor({
       if (event.code === "Space") setSpaceHeld(false);
     }
     function onBlur() {
+      const interrupted = drag.current;
+      if (interrupted) {
+        drag.current = null;
+        setSnapGuides([]);
+        setSpacingCues([]);
+        restoreSharedSnapshot();
+        publishPresence({ preview: null, action: "select" }, true);
+        if (viewport.current?.hasPointerCapture(interrupted.pointerId))
+          viewport.current.releasePointerCapture(interrupted.pointerId);
+      }
       setSpaceHeld(false);
       setPanning(false);
       pan.current = null;
@@ -1989,7 +2000,7 @@ export function FileEditor({
   }
 
   function snappingGeometry(rootIds: string[]) {
-    return measureLayerDrag({ rootIds, nodes, nodesById, canvas: viewport.current, view });
+    return measureLayerDrag({ rootIds, nodesById, canvas: viewport.current, view });
   }
 
   async function edit(id: string, changes: NodeChanges) {
@@ -2400,10 +2411,26 @@ export function FileEditor({
       const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
       if (!start) return;
       drag.current = start;
-      const { x, y, guides, spacing } = dragDelta(event, start);
-      setSnapGuides(guides);
-      setSpacingCues(spacing);
+      const delta = dragDelta(event, start);
       const latest = room.getSnapshot();
+      const bypass = event.ctrlKey || event.metaKey;
+      if (
+        start.preview?.content === latest.content &&
+        start.preview.bypass === bypass &&
+        start.preview.zoom === view.zoom &&
+        start.preview.delta.x === delta.x &&
+        start.preview.delta.y === delta.y &&
+        equalJsonValues(start.preview.delta.guides, delta.guides)
+      )
+        return;
+      start.preview = { content: latest.content, delta, bypass, zoom: view.zoom };
+      const { x, y, guides } = delta;
+      setSnapGuides(guides);
+      setSpacingCues(
+        start.geometry.bounds && !bypass
+          ? equalSpacingCues(start.geometry.bounds, delta, start.geometry.candidates, 1 / view.zoom)
+          : [],
+      );
       const content = previewMoveLayers(latest.content, start.ids, x, y, start.geometry.parents);
       setSnapshot({ ...latest, content });
       room.publishPresence({
@@ -3112,20 +3139,18 @@ export function FileEditor({
       x: snapCoordinate((event.clientX - start.x) / view.zoom),
       y: snapCoordinate((event.clientY - start.y) / view.zoom),
     };
-    if (event.ctrlKey || event.metaKey || !start.geometry.bounds)
-      return { ...delta, guides: [], spacing: [] };
-    const snapped = viewPreferences.snapObjects
-      ? snapTranslation(start.geometry.bounds, delta, start.geometry.candidates, 6 / view.zoom)
-      : { ...delta, guides: [] };
-    return {
-      ...snapped,
-      spacing: equalSpacingCues(
-        start.geometry.bounds,
-        snapped,
-        start.geometry.candidates,
-        1 / view.zoom,
-      ),
-    };
+    if (event.ctrlKey || event.metaKey || !viewPreferences.snapObjects || !start.geometry.bounds) {
+      start.geometry.snapState.x = null;
+      start.geometry.snapState.y = null;
+      return { ...delta, guides: [] };
+    }
+    return snapTranslation(
+      start.geometry.bounds,
+      delta,
+      start.geometry.candidates,
+      6 / view.zoom,
+      start.geometry.snapState,
+    );
   }
 
   const artworkDoubleClick = useEditorEvent(
@@ -4374,7 +4399,7 @@ export function FileEditor({
               transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`,
               transformOrigin: "top left",
             }}
-            className="absolute left-0 top-0"
+            className="absolute left-0 top-0 isolate z-0"
           >
             <ImageViewportProvider viewport={viewport} zoom={view.zoom} selectedIds={selectedIds}>
               <CanvasArtwork
@@ -4839,61 +4864,7 @@ export function FileEditor({
               revision={snapshot.revision}
             />
           )}
-          {snapGuides.map((guide, index) => (
-            <div
-              key={index}
-              data-snap-guide
-              aria-hidden="true"
-              className="pointer-events-none absolute z-10 bg-primary-orange"
-              style={
-                guide.axis === "x"
-                  ? {
-                      left: guide.position * view.zoom + view.x,
-                      top: guide.start * view.zoom + view.y,
-                      width: 1,
-                      height: (guide.end - guide.start) * view.zoom,
-                    }
-                  : {
-                      left: guide.start * view.zoom + view.x,
-                      top: guide.position * view.zoom + view.y,
-                      width: (guide.end - guide.start) * view.zoom,
-                      height: 1,
-                    }
-              }
-            />
-          ))}
-          {spacingCues.map((cue, index) => {
-            const length = (cue.end - cue.start) * view.zoom;
-            return (
-              <div
-                key={index}
-                data-spacing-cue={cue.axis}
-                aria-hidden="true"
-                className="pointer-events-none absolute z-10 bg-primary-orange"
-                style={
-                  cue.axis === "x"
-                    ? {
-                        left: cue.start * view.zoom + view.x,
-                        top: cue.cross * view.zoom + view.y,
-                        width: length,
-                        height: 1,
-                      }
-                    : {
-                        top: cue.start * view.zoom + view.y,
-                        left: cue.cross * view.zoom + view.x,
-                        height: length,
-                        width: 1,
-                      }
-                }
-              >
-                {length >= 28 && (
-                  <span className="absolute -top-5 left-1/2 -translate-x-1/2 rounded bg-primary-orange px-1 text-[10px] leading-4 text-on-brand">
-                    {Math.round(cue.gap * 10) / 10}
-                  </span>
-                )}
-              </div>
-            );
-          })}
+          <CanvasAlignment guides={snapGuides} spacing={spacingCues} view={view} />
           {!prototypeMode && (preview || local || !viewPreferences.comments) && (
             <div data-canvas-control className="absolute right-4 top-20 z-30 md:top-4">
               {canvasControls}

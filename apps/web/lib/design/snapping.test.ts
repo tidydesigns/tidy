@@ -1,5 +1,11 @@
 import { test, expect } from "bun:test";
-import { boundingBox, equalSpacingCues, snapResize, snapTranslation } from "./snapping";
+import {
+  boundingBox,
+  createTranslationSnapState,
+  equalSpacingCues,
+  snapResize,
+  snapTranslation,
+} from "./snapping";
 test("selection bounds include every selected layer", () => {
   expect(
     boundingBox([
@@ -50,4 +56,39 @@ test("equal spacing cues pair adjacent gaps along the overlapping axis", () => {
   ]);
   expect(equalSpacingCues(selected, { x: 3, y: 0 }, [left, right], 1)).toEqual([]);
   expect(equalSpacingCues(selected, { x: 0, y: 0 }, [{ ...left, y: 25 }, right], 1)).toEqual([]);
+});
+
+for (const count of [2, 128]) {
+  test(`retains the acquired center against a closer target until release (${count} candidates)`, () => {
+    const source = { x: 0, y: 0, width: 80, height: 20 };
+    const candidates = [
+      { x: 1000, y: 100, width: 300, height: 20 },
+      { x: 1004, y: 200, width: 300, height: 20 },
+      ...Array.from({ length: count - 2 }, (_, i) => ({
+        x: 10000 + i * 400,
+        y: 1000,
+        width: 300,
+        height: 20,
+      })),
+    ];
+    const state = createTranslationSnapState();
+    expect(snapTranslation(source, { x: 954, y: 40 }, candidates, 6, state).x).toBe(960);
+    for (const x of [964, 969])
+      expect(snapTranslation(source, { x, y: 40 }, candidates, 6, state).x).toBe(960);
+    expect(snapTranslation(source, { x: 969.1, y: 40 }, candidates, 6, state).x).toBe(964);
+    expect(snapTranslation(source, { x: 974, y: 40 }, candidates, 6, state).x).toBe(974);
+    expect(state.x).toBeNull();
+    expect(
+      snapTranslation(source, { x: 964, y: 40 }, candidates, 6, createTranslationSnapState()).x,
+    ).toBe(964);
+  });
+}
+
+test("guide endpoints use both final snapped axes", () => {
+  const source = { x: 0, y: 0, width: 20, height: 20 };
+  const candidate = { x: 100, y: 100, width: 20, height: 20 };
+  expect(snapTranslation(source, { x: 99, y: 98 }, [candidate], 6).guides).toEqual([
+    { axis: "x", position: 100, start: 100, end: 120 },
+    { axis: "y", position: 100, start: 100, end: 120 },
+  ]);
 });
