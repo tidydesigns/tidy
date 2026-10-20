@@ -24,9 +24,22 @@ export function useRenderedSelection(
   const measure = useEditorEvent(() => {
     const canvas = viewport?.current;
     if (!canvas) return;
-    const next = Object.fromEntries(
-      elements().map((element) => [element.dataset.nodeId!, renderedNodeBox(element)]),
-    );
+    const byId = new Map(nodes.map((node) => [node.id, node]));
+    const next: Record<string, DesignNode["box"]> = {};
+    for (const element of elements()) {
+      const id = element.dataset.nodeId;
+      if (!id) continue;
+      const actual = renderedNodeBox(element);
+      const stored = byId.get(id)?.box;
+      if (
+        !stored ||
+        actual.x !== stored.x ||
+        actual.y !== stored.y ||
+        actual.width !== stored.width ||
+        actual.height !== stored.height
+      )
+        next[id] = actual;
+    }
     setBoxes((current) => {
       const ids = Object.keys(next);
       return ids.length === Object.keys(current).length &&

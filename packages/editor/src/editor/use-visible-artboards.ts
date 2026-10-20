@@ -21,6 +21,7 @@ function overflowBoundsStore() {
   const cache = new WeakMap<DesignNode[], ReadonlyMap<string, DesignNode["box"]>>();
   const listeners = new Set<() => void>();
   let version = 0;
+  let previousBounds: ReadonlyMap<string, DesignNode["box"]> | undefined;
   const notify = () => {
     version++;
     for (const listener of listeners) listener();
@@ -37,7 +38,9 @@ function overflowBoundsStore() {
     },
     publish: (nodes: DesignNode[], bounds: ReadonlyMap<string, DesignNode["box"]>) => {
       cache.set(nodes, bounds);
-      notify();
+      const unchanged = previousBounds?.size === 0 && bounds.size === 0;
+      previousBounds = bounds;
+      if (!unchanged) notify();
     },
     invalidate: (nodes: DesignNode[]) => {
       cache.delete(nodes);

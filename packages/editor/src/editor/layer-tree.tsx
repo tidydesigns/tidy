@@ -14,9 +14,18 @@ import {
 } from "react";
 import { useLayerWindow } from "./use-layer-window";
 import type { DesignNode } from "../design/document";
+import { createLayerTreeNodes, type LayerTreeNode } from "./layer-tree-nodes";
 
 type DropPosition = "before" | "inside" | "after";
-export const LayerTree = memo(function LayerTree({
+export function LayerTree(
+  props: Omit<Parameters<typeof LayerTreeView>[0], "nodes"> & { nodes: DesignNode[] },
+) {
+  const [selectNodes] = useState(createLayerTreeNodes);
+  const nodes = useMemo(() => selectNodes(props.nodes), [props.nodes, selectNodes]);
+  return <LayerTreeView {...props} nodes={nodes} />;
+}
+
+const LayerTreeView = memo(function LayerTreeView({
   nodes,
   selectedIds,
   query,
@@ -29,7 +38,7 @@ export const LayerTree = memo(function LayerTree({
   readOnly = false,
 }: {
   readOnly?: boolean;
-  nodes: DesignNode[];
+  nodes: LayerTreeNode[];
   selectedIds: string[];
   query: string;
   onSelect: (id: string, additive: boolean) => void;
@@ -47,7 +56,7 @@ export const LayerTree = memo(function LayerTree({
   const [dragged, setDragged] = useState<string | null>(null);
   const [drop, setDrop] = useState<{ id: string; position: DropPosition } | null>(null);
   const { children, byId } = useMemo(() => {
-    const children = new Map<string | null, DesignNode[]>();
+    const children = new Map<string | null, LayerTreeNode[]>();
     const byId = new Map(nodes.map((node) => [node.id, node]));
     for (const node of nodes) {
       const siblings = children.get(node.parentId);
@@ -72,7 +81,7 @@ export const LayerTree = memo(function LayerTree({
       }
     const result: LayerRowData[] = [];
     function collect(
-      node: DesignNode,
+      node: LayerTreeNode,
       depth: number,
       parentLocked: boolean,
       parentVisible: boolean,
@@ -111,9 +120,7 @@ export const LayerTree = memo(function LayerTree({
   );
   const { tree, start, end, virtual, rowHeight } = useLayerWindow(
     rows.length,
-    focusWithin || pendingFocus.current
-      ? focusedIndex
-      : rows.findIndex((row) => row.node.id === selectedIds.at(-1)),
+    focusWithin ? focusedIndex : rows.findIndex((row) => row.node.id === selectedIds.at(-1)),
   );
   useLayoutEffect(() => {
     const id = pendingFocus.current;
@@ -226,12 +233,12 @@ export const LayerTree = memo(function LayerTree({
 });
 
 type LayerRowData = {
-  node: DesignNode;
+  node: LayerTreeNode;
   depth: number;
   parentLocked: boolean;
   locked: boolean;
   visible: boolean;
-  nested: DesignNode[];
+  nested: LayerTreeNode[];
   expanded: boolean;
   index: number;
   siblings: number;

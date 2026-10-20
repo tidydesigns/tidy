@@ -306,3 +306,39 @@ test("selection inspector cycles do not drift artwork while explicit resizes pre
     }
   }
 });
+
+test("dragging keeps inspector coordinates live and retains measured size overrides", async ({
+  page,
+}) => {
+  await page.goto("/dev/hover-preview");
+  await page.getByRole("button", { name: "Select Votes card", exact: true }).click();
+  const card = page.locator('[data-node-id="hover-card"]');
+  const x = page.getByRole("spinbutton", { name: "X", exact: true });
+  const y = page.getByRole("spinbutton", { name: "Y", exact: true });
+  const width = page.getByRole("spinbutton", { name: "Width", exact: true });
+  const beforeX = Number(await x.inputValue());
+  const beforeY = Number(await y.inputValue());
+  const beforeWidth = await width.inputValue();
+  const box = required(await card.boundingBox());
+  await page.mouse.move(box.x + box.width - 12, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.keyboard.down("Control");
+  await page.mouse.move(box.x + box.width - 12 + 40, box.y + box.height / 2 + 30);
+  await expect.poll(async () => Number(await x.inputValue())).toBeGreaterThan(beforeX);
+  await expect.poll(async () => Number(await y.inputValue())).toBeGreaterThan(beforeY);
+  await page.keyboard.up("Control");
+  await page.keyboard.press("Escape");
+  await page.mouse.up();
+  await expect(x).toHaveValue(String(beforeX));
+  await expect(y).toHaveValue(String(beforeY));
+  const storedWidth = await card.evaluate((element) => {
+    const previous = element.style.width;
+    element.style.width = "300px";
+    return previous;
+  });
+  await expect(width).toHaveValue("300");
+  await card.evaluate((element, previous) => {
+    element.style.width = previous;
+  }, storedWidth);
+  await expect(width).toHaveValue(beforeWidth);
+});
