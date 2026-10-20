@@ -1814,13 +1814,24 @@ export function FileEditor({
     return () => observer.disconnect();
   }, [initialDocument, currentPageId, initialFocusNodeId, viewportReady]);
 
+  const inspectorResize = useRef({ panelsOpen, inspectorOpen, selectionDriven: false });
+  useLayoutEffect(() => {
+    const previous = inspectorResize.current;
+    inspectorResize.current = {
+      panelsOpen,
+      inspectorOpen,
+      selectionDriven:
+        panelsOpen === previous.panelsOpen &&
+        (inspectorOpen !== previous.inspectorOpen || previous.selectionDriven),
+    };
+  }, [panelsOpen, inspectorOpen]);
+
   const preserveViewportCenter = useEditorEvent((dx: number, dy: number) => {
     // Keep text under the pointer/caret when its inspector opens or changes size.
     if (
       (dx || dy) &&
       !drag.current &&
       !resize.current &&
-      (panelsOpen || !inspectorOpen) &&
       !marqueeRef.current &&
       drawingRef.current?.type !== "text" &&
       !editingTextId
@@ -1831,15 +1842,24 @@ export function FileEditor({
   useLayoutEffect(() => {
     const canvas = viewport.current;
     if (!canvas || !viewportReady) return;
-    let width = canvas.clientWidth;
-    let height = canvas.clientHeight;
+    const inspectorSize = () => {
+      const panel = canvas.parentElement?.querySelector('[data-kind="inspector"]');
+      const inFlow = !panel || getComputedStyle(panel).position !== "absolute";
+      return { width: inFlow ? (panel?.getBoundingClientRect().width ?? 0) : 0, inFlow };
+    };
+    let bounds = canvas.getBoundingClientRect();
+    let panel = inspectorSize();
     const observer = new ResizeObserver(() => {
-      const nextWidth = canvas.clientWidth;
-      const nextHeight = canvas.clientHeight;
-      const dx = (nextWidth - width) / 2;
-      const dy = (nextHeight - height) / 2;
-      width = nextWidth;
-      height = nextHeight;
+      const next = canvas.getBoundingClientRect();
+      const nextPanel = inspectorSize();
+      const selectionDelta =
+        inspectorResize.current.selectionDriven && nextPanel.inFlow === panel.inFlow
+          ? nextPanel.width - panel.width
+          : 0;
+      const dx = (next.width - bounds.width + selectionDelta) / 2;
+      const dy = (next.height - bounds.height) / 2;
+      bounds = next;
+      panel = nextPanel;
       // Preserve the current canvas centre throughout panel motion, including reversals.
       // Clearing selection can collapse the inspector during a marquee. Keep
       // artwork under the pointer instead of moving its hit bounds mid-drag.
