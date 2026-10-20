@@ -6,6 +6,7 @@ export type ArtworkBranchProps = {
   nodesById: ReadonlyMap<string, DesignNode>;
   childrenById: ReadonlyMap<string | null, readonly DesignNode[]>;
   visibleRootIds: ReadonlySet<string>;
+  retainedRootIds?: ReadonlySet<string>;
   tokens: Record<string, string>;
   previewAssetUrls?: Record<string, string>;
   selectedIds: readonly string[];
@@ -21,6 +22,8 @@ export type Branch = {
   flowIndex: number;
   viewportWidth: number;
   selected: boolean;
+  hidden: boolean;
+  backdropDependent: boolean;
   cropping: boolean;
   editing: boolean;
   children: Branch[];
@@ -117,7 +120,10 @@ export function createArtworkBranches() {
     previousEditing = props.editingTextId;
     previousTokens = props.tokens;
     function build(node: DesignNode, flowIndex = 0, frameWidth = node.box.width): Branch | null {
-      if (!node.visible || (node.parentId === null && !props.visibleRootIds.has(node.id)))
+      if (
+        !node.visible ||
+        (node.parentId === null && !(props.retainedRootIds ?? props.visibleRootIds).has(node.id))
+      )
         return null;
       if (
         props.prototypeMode &&
@@ -125,6 +131,7 @@ export function createArtworkBranches() {
         (node.type !== "artboard" || node.id !== props.prototypeArtboardId)
       )
         return null;
+      const hidden = node.parentId === null && !props.visibleRootIds.has(node.id);
       const viewportWidth = node.type === "artboard" ? node.box.width : frameWidth;
       const parent = props.nodesById.get(node.parentId ?? "");
       const old = previous.get(node);
@@ -134,6 +141,7 @@ export function createArtworkBranches() {
         old &&
         !dirty.has(node.id) &&
         !tokensChanged &&
+        old.hidden === hidden &&
         old.parent === parent &&
         old.flowIndex === flowIndex &&
         old.viewportWidth === viewportWidth
@@ -146,6 +154,11 @@ export function createArtworkBranches() {
         if (child.visible && child.positionMode !== "absolute") childFlowIndex++;
         if (branch) children.push(branch);
       }
+      const backdropDependent = Boolean(
+        node.style.backdropBlur ||
+        (node.style.blendMode && node.style.blendMode !== "normal") ||
+        children.some((child) => child.backdropDependent),
+      );
       const selected = selection.has(node.id),
         cropping = props.cropId === node.id,
         editing = props.editingTextId === node.id;
@@ -158,6 +171,8 @@ export function createArtworkBranches() {
       );
       if (
         old &&
+        old.hidden === hidden &&
+        old.backdropDependent === backdropDependent &&
         old.parent === parent &&
         old.composite.maskImage === composite.maskImage &&
         old.composite.opacity === composite.opacity &&
@@ -181,6 +196,8 @@ export function createArtworkBranches() {
         flowIndex,
         viewportWidth,
         selected,
+        hidden,
+        backdropDependent,
         cropping,
         editing,
         children,

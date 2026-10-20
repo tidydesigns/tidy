@@ -170,6 +170,7 @@ import { resolvedColorTokens, resolvedDocumentNodes } from "../design/design-tok
 import { useEditorEvent } from "./use-editor-event";
 import { useFrameEvent } from "./use-frame-event";
 import { useEditorPerformance } from "../host-performance";
+import { createCanvasRootCache } from "./retained-artboards";
 import { useVisibleArtboards } from "./use-visible-artboards";
 import { ImageViewportProvider } from "@tidy/design-renderer/image-viewport";
 import { CanvasArtwork } from "./canvas-artwork";
@@ -750,6 +751,8 @@ export function FileEditor({
     selectedIds,
     room.store,
   );
+  const [retainCanvasRoots] = useState(createCanvasRootCache);
+  const retainedRootIds = retainCanvasRoots({ nodes: renderedNodes, visibleRootIds });
   useDocumentFonts(renderedNodes, visibleRootIds);
   const selected = nodesById.get(selection ?? "") ?? null;
   const editedImage =
@@ -4375,6 +4378,7 @@ export function FileEditor({
           >
             <ImageViewportProvider viewport={viewport} zoom={view.zoom} selectedIds={selectedIds}>
               <CanvasArtwork
+                retainedRootIds={retainedRootIds}
                 assetMimeTypes={assetMimeTypes}
                 visibleRootIds={visibleRootIds}
                 registerElement={registerElement}

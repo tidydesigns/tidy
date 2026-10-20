@@ -170,3 +170,36 @@ test("image masks refresh restored asset URLs even when the document is unchange
     build({ ...hidden, visibleRootIds: current.visibleRootIds })[0].composite.maskImage,
   ).toContain("blob:offscreen");
 });
+
+test("retained roots change visibility without rebuilding their descendants", () => {
+  const nodes = scene();
+  const current = props(nodes);
+  const build = createArtworkBranches();
+  const retainedRootIds = new Set(["left", "right"]);
+  const before = build({ ...current, retainedRootIds, visibleRootIds: new Set(["left"]) });
+  const after = build({ ...current, retainedRootIds, visibleRootIds: new Set(["right"]) });
+  expect(before.map((branch) => branch.hidden)).toEqual([false, true]);
+  expect(after.map((branch) => branch.hidden)).toEqual([true, false]);
+  expect(after[0].children[0]).toBe(before[0].children[0]);
+  expect(after[1].children[0]).toBe(before[1].children[0]);
+  expect(build({ ...current, retainedRootIds, visibleRootIds: new Set(["right"]) })[0]).toBe(
+    after[0],
+  );
+});
+
+test("backdrop-dependent descendants prevent isolating the root paint context", () => {
+  const build = createArtworkBranches();
+  const nodes = scene();
+  const blending = nodes.map((node) =>
+    node.id === "leaf" ? { ...node, style: { blendMode: "multiply" as const } } : node,
+  );
+  const mixed = build(props(blending));
+  expect(mixed[0].backdropDependent).toBe(true);
+  expect(mixed[1].backdropDependent).toBe(false);
+  const restored = build(props(nodes));
+  expect(restored[0].backdropDependent).toBe(false);
+  const filtered = nodes.map((node) =>
+    node.id === "group" ? { ...node, style: { backdropBlur: 8 } } : node,
+  );
+  expect(build(props(filtered))[0].backdropDependent).toBe(true);
+});

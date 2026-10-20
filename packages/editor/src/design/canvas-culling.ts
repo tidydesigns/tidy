@@ -1,6 +1,17 @@
 import type { DesignNode } from "./document";
+import { responsiveNode } from "./responsive-layout";
 import { nodeIndex } from "./node-index";
 export type CanvasView = { x: number; y: number; zoom: number };
+export function isFixedClippedArtboard(node: DesignNode) {
+  if (
+    node.parentId !== null ||
+    node.type !== "artboard" ||
+    (node.style.overflow ?? "hidden") !== "hidden"
+  )
+    return false;
+  const rendered = responsiveNode(node, node.box.width);
+  return rendered.widthMode !== "hug" && rendered.heightMode !== "hug";
+}
 type RootBounds = { node: DesignNode; bounds: DesignNode["box"] | null };
 const rootsByNodes = new WeakMap<readonly DesignNode[], readonly RootBounds[]>();
 function canvasRootBounds(nodes: readonly DesignNode[]): readonly RootBounds[] {

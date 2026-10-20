@@ -6,6 +6,7 @@ import { FilesBrowser } from "@/app/files/files-browser";
 import {
   performanceDocument,
   componentPerformanceDocument,
+  largeFramePerformanceDocument,
 } from "@/lib/design/examples/performance";
 export default async function PerformancePreview({
   searchParams,
@@ -59,7 +60,7 @@ export default async function PerformancePreview({
       </main>
     );
   }
-  const count = [100, 1000, 5000].includes(Number(query.nodes)) ? Number(query.nodes) : 1000;
+  const count = [100, 1000, 5000, 9000].includes(Number(query.nodes)) ? Number(query.nodes) : 1000;
   return (
     <FileEditor
       fileId="performance-fixture"
@@ -69,9 +70,14 @@ export default async function PerformancePreview({
       initialDocument={{
         revision: 1,
         content:
-          query.components === "1"
-            ? componentPerformanceDocument(count)
-            : performanceDocument(count),
+          query.large === "1"
+            ? largeFramePerformanceDocument({
+                count,
+                layersPerFrame: query.frameLayers === "all" ? count : 1000,
+              })
+            : query.components === "1"
+              ? componentPerformanceDocument(count)
+              : performanceDocument(count),
       }}
       local
       initialPanelsOpen={query.compact !== "1"}

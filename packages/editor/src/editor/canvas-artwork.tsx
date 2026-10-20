@@ -6,12 +6,15 @@ import {
   useCallback,
   useMemo,
   useState,
+  useRef,
+  useLayoutEffect,
   type MouseEvent,
   type PointerEvent,
   type ReactElement,
 } from "react";
 import type { DesignNode } from "../design/document";
 import { createArtworkBranches, type Branch } from "./artwork-branches";
+import { isFixedClippedArtboard } from "../design/canvas-culling";
 import { nodeStyle } from "../design/node-style";
 import { responsiveNode } from "../design/responsive-layout";
 import { NodeStrokes } from "@tidy/design-renderer/node-strokes";
@@ -27,6 +30,7 @@ type Props = {
   nodesById: ReadonlyMap<string, DesignNode>;
   childrenById: ReadonlyMap<string | null, DesignNode[]>;
   visibleRootIds: ReadonlySet<string>;
+  retainedRootIds?: ReadonlySet<string>;
   registerElement: (id: string, element: HTMLDivElement | null) => void;
   tokens: Record<string, string>;
   selectedIds: string[];
@@ -73,10 +77,26 @@ const ArtworkNode = memo(function ArtworkNode({
   renderBranch: (branch: Branch) => ReactElement;
 }) {
   const { node, parent, viewportWidth, flowIndex, selected, cropping, editing, children } = branch;
+  const elementRef = useRef<HTMLDivElement | null>(null);
+  const wasHidden = useRef(false);
   const register = useCallback(
-    (element: HTMLDivElement | null) => handlers.registerElement(node.id, element),
+    (element: HTMLDivElement | null) => {
+      elementRef.current = element;
+      handlers.registerElement(node.id, element);
+    },
     [handlers, node.id],
   );
+  useLayoutEffect(() => {
+    if (node.parentId !== null || (!branch.hidden && !wasHidden.current)) return;
+    const element = elementRef.current;
+    if (!element) return;
+    handlers.registerElement(node.id, branch.hidden ? null : element);
+    for (const child of element.querySelectorAll<HTMLDivElement>("[data-node-id]")) {
+      const id = child.dataset.nodeId;
+      if (id) handlers.registerElement(id, branch.hidden ? null : child);
+    }
+    wasHidden.current = branch.hidden;
+  }, [branch, handlers, node.id, node.parentId]);
   const rendered = responsiveNode(branch.painted, viewportWidth);
   const style: React.CSSProperties = {
     ...nodeStyle(
@@ -95,7 +115,10 @@ const ArtworkNode = memo(function ArtworkNode({
         : undefined,
     outlineOffset: selected ? "1px" : undefined,
     cursor: cropping ? "move" : undefined,
+    contentVisibility: branch.hidden ? "hidden" : undefined,
   };
+  if (isFixedClippedArtboard(rendered) && !branch.backdropDependent)
+    style.contain = "layout paint style";
   return (
     <div
       ref={register}

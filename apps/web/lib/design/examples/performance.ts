@@ -61,3 +61,53 @@ export function componentPerformanceDocument(count: number) {
   let id = 0;
   return createComponentInstance(component, "frame-0", () => `component-instance-${id++}`).document;
 }
+
+export function largeFramePerformanceDocument({
+  count,
+  layersPerFrame,
+}: {
+  count: number;
+  layersPerFrame: number;
+}) {
+  const document = blankDesignDocument();
+  for (let index = 0; index < count; index++) {
+    const frame = Math.floor(index / layersPerFrame);
+    const offset = index % layersPerFrame;
+    if (offset === 0) {
+      const node = buildDrawnNode(`large-frame-${frame}`, "artboard", null, {
+        x: (frame % 4) * 5400,
+        y: Math.floor(frame / 4) * 5400,
+        width: 5000,
+        height: 5000,
+      });
+      node.name = `Large frame ${frame + 1}`;
+      node.style = { fill: "#fafafa", overflow: "hidden" };
+      document.nodes.push(node);
+    } else {
+      const node = buildDrawnNode(
+        `large-layer-${index}`,
+        offset % 3 === 0 ? "text" : "container",
+        `large-frame-${frame}`,
+        {
+          x: 32 + ((offset - 1) % 100) * 48,
+          y: 32 + Math.floor((offset - 1) / 100) * 48,
+          width: 44,
+          height: 40,
+        },
+      );
+      node.name = `Stress layer ${index}`;
+      node.style =
+        node.type === "text"
+          ? { fontFamily: "system-ui", fontSize: 10, color: "#333333" }
+          : {
+              fill: offset % 2 ? "#e4e4e4" : "#d4d4d4",
+              borderColor: "#cccccc",
+              borderWidth: 1,
+              radius: 4,
+            };
+      if (node.type === "text") node.text = `Label ${index}`;
+      document.nodes.push(node);
+    }
+  }
+  return parseDesignDocument(document);
+}
