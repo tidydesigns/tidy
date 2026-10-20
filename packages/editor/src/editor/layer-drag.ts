@@ -56,7 +56,18 @@ export function measureLayerDrag({
   return { bounds: boundingBox(selectedBoxes), candidates, parents, snapState };
 }
 
-type DragOrigin = { pointerId: number; id: string; x: number; y: number; ids: string[] };
+export type LayerDragPointer = Pick<
+  globalThis.PointerEvent,
+  "pointerId" | "clientX" | "clientY" | "ctrlKey" | "metaKey"
+>;
+type DragOrigin = {
+  pointerId: number;
+  id: string;
+  x: number;
+  y: number;
+  ids: string[];
+  latest: LayerDragPointer;
+};
 export type LayerDrag = DragOrigin &
   (
     | { kind: "pending" }

@@ -8,6 +8,7 @@ import { auth } from "@/lib/auth";
 import { readFileChanges } from "@/lib/design/changes";
 import { commitDocumentPatch } from "@/lib/design/commands";
 import { documentPatchSchema } from "@/lib/design/document-patch";
+import { retryableEditResponse } from "@/lib/design/retryable-edit-response";
 import { realtimeSchemaReady } from "@/lib/realtime/server";
 
 export const runtime = "nodejs";
@@ -114,6 +115,8 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
         { status: 410, headers: { "Cache-Control": "private, no-store" } },
       );
     if (error instanceof RequestBodyError) return requestBodyError(error);
+    const retryable = retryableEditResponse(error);
+    if (retryable) return retryable;
     return Response.json(
       { error: error instanceof Error ? error.message : "Could not apply edit." },
       { status: 409 },

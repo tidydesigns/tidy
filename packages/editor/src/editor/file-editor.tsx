@@ -15,6 +15,7 @@ import {
   activateLayerDrag,
   measureLayerDrag,
   type LayerDrag,
+  type LayerDragPointer,
   type MovingLayerDrag,
 } from "./layer-drag";
 import { useSelectionOutlineScale } from "./use-selection-outline-scale";
@@ -1815,7 +1816,15 @@ export function FileEditor({
 
   const preserveViewportCenter = useEditorEvent((dx: number, dy: number) => {
     // Keep text under the pointer/caret when its inspector opens or changes size.
-    if ((dx || dy) && !marqueeRef.current && drawingRef.current?.type !== "text" && !editingTextId)
+    if (
+      (dx || dy) &&
+      !drag.current &&
+      !resize.current &&
+      (panelsOpen || !inspectorOpen) &&
+      !marqueeRef.current &&
+      drawingRef.current?.type !== "text" &&
+      !editingTextId
+    )
       flushSync(() => setView((current) => ({ ...current, x: current.x + dx, y: current.y + dy })));
   });
 
@@ -2391,58 +2400,57 @@ export function FileEditor({
     });
   }
 
-  const artworkMoveFrame = useFrameEvent(
-    (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
-      const cropStart = cropDrag.current;
-      if (cropStart?.id === node.id) {
-        const before = room.getSnapshot();
-        setSnapshot({
-          ...before,
-          content: previewLayerChanges(before.content, [node.id], {
-            style: {
-              imageCrop: panImageCrop(cropStart.crop, cropStart.box, cropDelta(event, cropStart)),
-            },
-          }),
-        });
-        return;
-      }
-      const pending = drag.current;
-      if (pending?.id !== node.id || pending.pointerId !== event.pointerId) return;
-      const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
-      if (!start) return;
-      drag.current = start;
-      const delta = dragDelta(event, start);
-      const latest = room.getSnapshot();
-      const bypass = event.ctrlKey || event.metaKey;
-      if (
-        start.preview?.content === latest.content &&
-        start.preview.bypass === bypass &&
-        start.preview.zoom === view.zoom &&
-        start.preview.delta.x === delta.x &&
-        start.preview.delta.y === delta.y &&
-        equalJsonValues(start.preview.delta.guides, delta.guides)
-      )
-        return;
-      start.preview = { content: latest.content, delta, bypass, zoom: view.zoom };
-      const { x, y, guides } = delta;
-      setSnapGuides(guides);
-      setSpacingCues(
-        start.geometry.bounds && !bypass
-          ? equalSpacingCues(start.geometry.bounds, delta, start.geometry.candidates, 1 / view.zoom)
-          : [],
-      );
-      const content = previewMoveLayers(latest.content, start.ids, x, y, start.geometry.parents);
-      setSnapshot({ ...latest, content });
-      room.publishPresence({
-        action: "move",
-        preview: {
-          nodeId: node.id,
-          box: content.nodes.find((item) => item.id === node.id)!.box,
-        },
+  const artworkMoveFrame = useFrameEvent((node: DesignNode, event: LayerDragPointer) => {
+    const cropStart = cropDrag.current;
+    if (cropStart?.id === node.id) {
+      const before = room.getSnapshot();
+      setSnapshot({
+        ...before,
+        content: previewLayerChanges(before.content, [node.id], {
+          style: {
+            imageCrop: panImageCrop(cropStart.crop, cropStart.box, cropDelta(event, cropStart)),
+          },
+        }),
       });
-    },
-  );
-  const artworkCancel = useEditorEvent(() => {
+      return;
+    }
+    const pending = drag.current;
+    if (pending?.id !== node.id || pending.pointerId !== event.pointerId) return;
+    const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
+    if (!start) return;
+    drag.current = start;
+    const delta = dragDelta(event, start);
+    const latest = room.getSnapshot();
+    const bypass = event.ctrlKey || event.metaKey;
+    if (
+      start.preview?.content === latest.content &&
+      start.preview.bypass === bypass &&
+      start.preview.zoom === view.zoom &&
+      start.preview.delta.x === delta.x &&
+      start.preview.delta.y === delta.y &&
+      equalJsonValues(start.preview.delta.guides, delta.guides)
+    )
+      return;
+    start.preview = { content: latest.content, delta, bypass, zoom: view.zoom };
+    const { x, y, guides } = delta;
+    setSnapGuides(guides);
+    setSpacingCues(
+      start.geometry.bounds && !bypass
+        ? equalSpacingCues(start.geometry.bounds, delta, start.geometry.candidates, 1 / view.zoom)
+        : [],
+    );
+    const content = previewMoveLayers(latest.content, start.ids, x, y, start.geometry.parents);
+    setSnapshot({ ...latest, content });
+    room.publishPresence({
+      action: "move",
+      preview: {
+        nodeId: node.id,
+        box: content.nodes.find((item) => item.id === node.id)!.box,
+      },
+    });
+  });
+  const artworkCancel = useEditorEvent((event?: Pick<globalThis.PointerEvent, "pointerId">) => {
+    if (event && drag.current && event.pointerId !== drag.current.pointerId) return;
     artworkMoveFrame.cancel();
     cropDrag.current = null;
     drag.current = null;
@@ -3097,7 +3105,10 @@ export function FileEditor({
     setError("");
     viewport.current?.focus();
   }
-  function cropDelta(event: PointerEvent, start: NonNullable<typeof cropDrag.current>) {
+  function cropDelta(
+    event: Pick<LayerDragPointer, "clientX" | "clientY">,
+    start: NonNullable<typeof cropDrag.current>,
+  ) {
     const x = event.clientX - start.x,
       y = event.clientY - start.y;
     return {
@@ -3134,7 +3145,7 @@ export function FileEditor({
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function dragDelta(event: PointerEvent, start: MovingLayerDrag) {
+  function dragDelta(event: LayerDragPointer, start: MovingLayerDrag) {
     const delta = {
       x: snapCoordinate((event.clientX - start.x) / view.zoom),
       y: snapCoordinate((event.clientY - start.y) / view.zoom),
@@ -3195,6 +3206,13 @@ export function FileEditor({
       x: event.clientX,
       y: event.clientY,
       ids: movingIds,
+      latest: {
+        pointerId: event.pointerId,
+        clientX: event.clientX,
+        clientY: event.clientY,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+      },
     };
     // The viewport stays mounted even when artwork is culled or updated mid-drag.
     viewport.current?.setPointerCapture(event.pointerId);
@@ -3285,51 +3303,80 @@ export function FileEditor({
       beginLayerDrag(event, ids, node.id);
     },
   );
+  const moveLayerDrag = useEditorEvent((event: LayerDragPointer) => {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    current.latest = {
+      pointerId: event.pointerId,
+      clientX: event.clientX,
+      clientY: event.clientY,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+    };
+    const node = nodesById.get(current.id);
+    if (node) artworkMoveFrame.schedule(node, current.latest);
+  });
+  const finishLayerDrag = useEditorEvent((event: LayerDragPointer) => {
+    const pending = drag.current;
+    if (!pending || pending.pointerId !== event.pointerId) return;
+    artworkMoveFrame.cancel();
+    const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
+    drag.current = null;
+    if (viewport.current?.hasPointerCapture(event.pointerId))
+      viewport.current.releasePointerCapture(event.pointerId);
+    if (!start) return;
+    const { x, y } = dragDelta(event, start);
+    setSnapGuides([]);
+    setSpacingCues([]);
+    if (x || y) {
+      const before = room.getSnapshot();
+      const content = previewMoveLayers(before.content, start.ids, x, y, start.geometry.parents);
+      void changeDocument(() => content, undefined, before);
+    } else {
+      room.restore();
+      room.publishPresence({ preview: null, action: "select" }, true);
+    }
+  });
+  useLayoutEffect(() => {
+    const move = (event: globalThis.PointerEvent) => {
+      const current = drag.current;
+      if (!current || current.pointerId !== event.pointerId) return;
+      if (!(event.buttons & 1)) {
+        finishLayerDrag(current.latest);
+        return;
+      }
+      if (!viewport.current?.hasPointerCapture(event.pointerId)) moveLayerDrag(event);
+    };
+    const cancel = (event: globalThis.PointerEvent) => {
+      if (drag.current?.pointerId === event.pointerId) artworkCancel(event);
+    };
+    window.addEventListener("pointermove", move, true);
+    window.addEventListener("pointerup", finishLayerDrag, true);
+    window.addEventListener("pointercancel", cancel, true);
+    return () => {
+      window.removeEventListener("pointermove", move, true);
+      window.removeEventListener("pointerup", finishLayerDrag, true);
+      window.removeEventListener("pointercancel", cancel, true);
+    };
+  }, [moveLayerDrag, finishLayerDrag, artworkCancel]);
   const artworkPointerMove = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
-      if (
-        (drag.current?.id === node.id && drag.current.pointerId === event.pointerId) ||
-        cropDrag.current?.id === node.id
-      )
-        artworkMoveFrame.schedule(node, event);
+      if (drag.current) moveLayerDrag(event);
+      else if (cropDrag.current?.id === node.id) artworkMoveFrame.schedule(node, event);
     },
   );
   const artworkPointerUp = useEditorEvent(
     (node: DesignNode, event: PointerEvent<HTMLDivElement>) => {
-      if (drag.current && drag.current.pointerId !== event.pointerId) return;
-      artworkMoveFrame.cancel();
       const cropStart = cropDrag.current;
       if (cropStart?.id === node.id) {
+        artworkMoveFrame.cancel();
         cropDrag.current = null;
         event.currentTarget.releasePointerCapture(event.pointerId);
         const crop = panImageCrop(cropStart.crop, cropStart.box, cropDelta(event, cropStart));
         void edit(node.id, { style: { imageCrop: crop } });
         return;
       }
-      const pending = drag.current;
-      if (pending?.id !== node.id || pending.pointerId !== event.pointerId) return;
-      const start = activateLayerDrag(pending, event.clientX, event.clientY, snappingGeometry);
-      drag.current = null;
-      if (viewport.current?.hasPointerCapture(event.pointerId))
-        viewport.current.releasePointerCapture(event.pointerId);
-      // A selection-only click produced no document preview to restore. Avoid
-      // rebuilding the document, derived resources and artwork on pointer-up.
-      if (!start) return;
-      const { x, y } = dragDelta(event, start);
-      setSnapGuides([]);
-      setSpacingCues([]);
-      if (x || y)
-        void changeDocument((content) => ({
-          ...content,
-          nodes: movedLayers(content, start.ids, x, y, start.geometry.parents),
-        }));
-      else {
-        room.restore();
-        room.publishPresence(
-          { preview: null, action: isShapeKind(tool) ? "rectangle" : tool },
-          true,
-        );
-      }
+      finishLayerDrag(event);
     },
   );
   const artworkTextDraft = useEditorEvent((node: DesignNode, value: TextContent) => {
@@ -4330,7 +4377,10 @@ export function FileEditor({
             openNodeMenu(event, target.kind === "layer" ? target.id : selectedIds[0]);
         }}
         onLostPointerCapture={(event) => {
-          if (drag.current?.pointerId === event.pointerId) artworkCancel();
+          if (event.target !== event.currentTarget) return;
+          const current = drag.current;
+          if (current?.pointerId === event.pointerId && !(event.buttons & 1))
+            finishLayerDrag(current.latest);
         }}
         onPointerDown={(event) => {
           if (
@@ -4352,7 +4402,8 @@ export function FileEditor({
           if (moving) artworkPointerUp(moving, event);
           else void finishCanvasGesture(event);
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(event) => {
+          if (drag.current && drag.current.pointerId !== event.pointerId) return;
           canvasMoveFrame.cancel();
           cropDrag.current = null;
           pan.current = null;

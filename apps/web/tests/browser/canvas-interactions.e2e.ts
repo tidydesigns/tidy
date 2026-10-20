@@ -148,3 +148,84 @@ test("cached hover restores resize observation after leaving and returning", asy
     })
     .toBeLessThan(0.2);
 });
+
+for (const failure of ["pointer capture loss", "an intercepted release"] as const) {
+  test(`quick drops survive ${failure} and remain undoable once`, async ({ page }) => {
+    await page.goto("/dev/hover-preview");
+    await page.getByRole("button", { name: "Rectangle tool", exact: true }).click();
+    await page.mouse.move(900, 550);
+    await page.mouse.down();
+    await page.mouse.move(1000, 650);
+    await page.mouse.up();
+    await page.getByRole("button", { name: "Select tool", exact: true }).click();
+    const rectangle = page.locator("[data-node-id]").last();
+    const canvas = page.getByLabel("Design canvas", { exact: true });
+    await page.waitForTimeout(300);
+    const before = required(await rectangle.boundingBox());
+    const x = before.x + before.width / 2,
+      y = before.y + before.height / 2;
+    await page.keyboard.down("Control");
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await canvas.evaluate((element, failure) => {
+      if (failure === "pointer capture loss")
+        element.addEventListener(
+          "pointermove",
+          (event) => {
+            if (event instanceof PointerEvent) element.releasePointerCapture(event.pointerId);
+          },
+          { once: true },
+        );
+      else
+        element.addEventListener("pointerup", (event) => event.stopPropagation(), { once: true });
+    }, failure);
+    await page.mouse.move(x + 40, y + 30);
+    await page.mouse.move(x + 80, y + 60);
+    await page.mouse.up();
+    await page.keyboard.up("Control");
+    await expect
+      .poll(async () => required(await rectangle.boundingBox()).x - before.x)
+      .toBeCloseTo(80, 0);
+    await expect
+      .poll(async () => required(await rectangle.boundingBox()).y - before.y)
+      .toBeCloseTo(60, 0);
+    await canvas.focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect
+      .poll(async () => required(await rectangle.boundingBox()).x - before.x)
+      .toBeCloseTo(0, 0);
+  });
+}
+
+test("quick selection and release keep the drop under the pointer while the inspector opens", async ({
+  page,
+}) => {
+  await page.goto("/dev/hover-preview");
+  await page.getByRole("button", { name: "Rectangle tool", exact: true }).click();
+  await page.mouse.move(900, 550);
+  await page.mouse.down();
+  await page.mouse.move(1000, 650);
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Select tool", exact: true }).click();
+  const rectangle = page.locator("[data-node-id]").last();
+  await rectangle.waitFor();
+  await page.getByRole("button", { name: "Minimize editor panels", exact: true }).click();
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Escape");
+  await expect(page.locator('[data-kind="inspector"]')).toHaveAttribute("data-open", "false");
+  await page.waitForTimeout(350);
+  const before = required(await rectangle.boundingBox());
+  const x = before.x + before.width / 2,
+    y = before.y + before.height / 2;
+  await page.keyboard.down("Control");
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x - 60, y - 40);
+  await page.mouse.up();
+  await page.keyboard.up("Control");
+  await expect(page.locator('[data-kind="inspector"]')).toHaveAttribute("data-open", "true");
+  await page.waitForTimeout(350);
+  const after = required(await rectangle.boundingBox());
+  expect(after.x - before.x).toBeCloseTo(-60, 0);
+  expect(after.y - before.y).toBeCloseTo(-40, 0);
+});
