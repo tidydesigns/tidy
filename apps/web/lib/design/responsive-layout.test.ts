@@ -8,6 +8,7 @@ import {
   type DesignNode,
 } from "./document";
 import { responsiveNode } from "./responsive-layout";
+import { selectionLayout } from "../../../../packages/editor/src/editor/inspector/selection";
 import { nodeStyle } from "./node-style";
 import { applyDocumentPatch, diffDocument, invertPatch } from "./document-patch";
 import { ThumbnailRenderer } from "@/app/files/thumbnail-renderer";
@@ -380,4 +381,38 @@ test("breakpoint inspector exposes sizing for leaf layers and container-only spa
     expect(html.includes("Breakpoint flow")).toBe(type === "container");
     expect(html.includes("Padding by side")).toBe(type === "container");
   }
+});
+
+test("inspector child controls follow responsive parents and exclude absolute or mixed selections", () => {
+  const child = buildDrawnNode("child", "container", "panel", frame.box);
+  const sibling = { ...child, id: "sibling" };
+  const content = { ...blankDesignDocument(), nodes: [frame, panel, child, sibling] };
+  expect(selectionLayout([child, sibling], content)).toEqual({ gridChild: true, flowChild: false });
+  const narrow = {
+    ...content,
+    nodes: [{ ...frame, box: { ...frame.box, width: 500 } }, panel, child, sibling],
+  };
+  expect(selectionLayout([child, sibling], narrow)).toEqual({ gridChild: false, flowChild: true });
+  expect(selectionLayout([child, { ...sibling, positionMode: "absolute" }], content)).toEqual({
+    gridChild: false,
+    flowChild: false,
+  });
+  expect(selectionLayout([child, { ...sibling, parentId: "frame" }], content)).toEqual({
+    gridChild: false,
+    flowChild: false,
+  });
+  expect(selectionLayout([{ ...child, parentId: null }], content)).toEqual({
+    gridChild: false,
+    flowChild: false,
+  });
+  expect(selectionLayout([{ ...child, parentId: "missing" }], content)).toEqual({
+    gridChild: false,
+    flowChild: false,
+  });
+  expect(
+    selectionLayout([child, sibling], {
+      ...content,
+      nodes: [frame, { ...panel, responsiveBreakpoints: [] }, child, sibling],
+    }),
+  ).toEqual({ gridChild: true, flowChild: false });
 });

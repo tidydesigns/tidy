@@ -7,6 +7,7 @@ import { formatNodeText, nodeTextFormatting } from "../../design/text-formatting
 import { canvasElements } from "../canvas-elements";
 import { fontRegistry } from "../../design/fonts/runtime";
 import { Section, Choice } from "../inspector-controls";
+import { InspectorDisclosure } from "../inspector-presentation";
 import { FontPicker } from "../font-picker";
 import { PropertyField } from "../property-field";
 const lineHeightMeasurements = new Map<string, number>();
@@ -14,9 +15,6 @@ const lineHeightMeasurements = new Map<string, number>();
 type Props = Pick<SelectionInspectorProps, "selected" | "onPatch" | "viewport">;
 export function TypographySection({ selected, onPatch, viewport }: Props) {
   const multi = selected.length > 1;
-  const node = selected[0];
-  const richSelection = useRichTextSelection();
-  const editingSelection = richSelection?.nodeId === node.id ? richSelection : null;
   const { common, numberField, styleNumber } = selectionFields(selected, onPatch);
   function lineHeightPx(item: DesignNode) {
     const element = canvasElements(viewport?.current).get(item.id);
@@ -127,10 +125,7 @@ export function TypographySection({ selected, onPatch, viewport }: Props) {
           onChange={(value) => onPatch({ style: { textAlign: value } })}
         />
       </div>
-      <details>
-        <summary className="cursor-pointer py-1 text-xs text-secondary-ink focus-visible:outline-2 focus-visible:outline-primary-orange">
-          Text details
-        </summary>
+      <InspectorDisclosure title="Text details" nested>
         <div className="mt-2 space-y-2">
           {" "}
           <Choice
@@ -270,30 +265,33 @@ export function TypographySection({ selected, onPatch, viewport }: Props) {
             true,
           )}
         </div>
-      </details>
+      </InspectorDisclosure>
       {!multi && (
-        <details data-rich-text-controls>
-          <summary className="cursor-pointer py-1 text-xs text-secondary-ink focus-visible:outline-2 focus-visible:outline-primary-orange">
-            Formatting
-          </summary>
-          <div className="pt-2">
-            <RichTextSelectionControls
-              selection={editingSelection ?? { nodeId: node.id, ...nodeTextFormatting(node) }}
-              onCommand={
-                editingSelection
-                  ? undefined
-                  : (command, value) =>
-                      onPatch((item) => formatNodeText({ node: item, command, value }))
-              }
-              onFinishEditing={
-                editingSelection
-                  ? () => viewport?.current?.focus({ preventScroll: true })
-                  : undefined
-              }
-            />
-          </div>
-        </details>
+        <div data-rich-text-controls>
+          <InspectorDisclosure title="Formatting" nested>
+            <FormattingControls selected={selected} onPatch={onPatch} viewport={viewport} />
+          </InspectorDisclosure>
+        </div>
       )}
     </Section>
+  );
+}
+
+function FormattingControls({ selected, onPatch, viewport }: Props) {
+  const node = selected[0];
+  const richSelection = useRichTextSelection();
+  const editingSelection = richSelection?.nodeId === node.id ? richSelection : null;
+  return (
+    <RichTextSelectionControls
+      selection={editingSelection ?? { nodeId: node.id, ...nodeTextFormatting(node) }}
+      onCommand={
+        editingSelection
+          ? undefined
+          : (command, value) => onPatch((item) => formatNodeText({ node: item, command, value }))
+      }
+      onFinishEditing={
+        editingSelection ? () => viewport?.current?.focus({ preventScroll: true }) : undefined
+      }
+    />
   );
 }

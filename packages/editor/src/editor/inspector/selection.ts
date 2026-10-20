@@ -24,25 +24,23 @@ export function selectionFeatures(selected: DesignNode[]) {
 }
 export function parentLayout(item: DesignNode, document: DesignDocument) {
   const parent = nodeIndex(document.nodes).get(item.parentId ?? "");
-  return parent
-    ? responsiveNode(parent, containingFrameWidth(parent, document.nodes)).layout
-    : undefined;
+  if (!parent?.responsiveBreakpoints?.length) return parent?.layout;
+  return responsiveNode(parent, containingFrameWidth(parent, document.nodes)).layout;
 }
 export function selectionLayout(selected: DesignNode[], document: DesignDocument) {
-  return {
-    gridChild: selected.every(
-      (item) =>
-        item.parentId &&
-        parentLayout(item, document) === "grid" &&
-        item.positionMode !== "absolute",
-    ),
-    flowChild: selected.every(
-      (item) =>
-        item.parentId &&
-        ["flex-row", "flex-column"].includes(parentLayout(item, document) ?? "") &&
-        item.positionMode !== "absolute",
-    ),
-  };
+  let gridChild = true;
+  let flowChild = true;
+  const layouts = new Map<string, DesignNode["layout"] | undefined>();
+  for (const item of selected) {
+    if (!item.parentId || item.positionMode === "absolute")
+      return { gridChild: false, flowChild: false };
+    if (!layouts.has(item.parentId)) layouts.set(item.parentId, parentLayout(item, document));
+    const layout = layouts.get(item.parentId);
+    gridChild &&= layout === "grid";
+    flowChild &&= layout === "flex-row" || layout === "flex-column";
+    if (!gridChild && !flowChild) break;
+  }
+  return { gridChild, flowChild };
 }
 
 export type SelectionFeatures = ReturnType<typeof selectionFeatures>;

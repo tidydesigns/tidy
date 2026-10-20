@@ -28,6 +28,16 @@ test("quiet text inspector preserves measured size, editing, sizing modes and un
   await expect(summary(page, "Advanced").locator("..")).not.toHaveAttribute("open");
   await expect(summary(page, "Export").locator("..")).not.toHaveAttribute("open");
   await expect(panel.getByRole("spinbutton", { name: "Rotation", exact: true })).toHaveCount(0);
+  await expect(panel.getByText("Text case", { exact: true })).toHaveCount(0);
+  await expect(panel.getByRole("button", { name: "Bold", exact: true })).toHaveCount(0);
+  await summary(page, "Text details").click();
+  await expect(panel.getByText("Text case", { exact: true })).toBeVisible();
+  await summary(page, "Text details").click();
+  await expect(panel.getByText("Text case", { exact: true })).toHaveCount(0);
+  await summary(page, "Formatting").click();
+  await expect(panel.getByRole("button", { name: "Bold", exact: true })).toBeVisible();
+  await summary(page, "Formatting").click();
+  await expect(panel.getByRole("button", { name: "Bold", exact: true })).toHaveCount(0);
   const width = panel.getByRole("spinbutton", { name: "Width", exact: true });
   await width.fill("420");
   await width.press("Enter");

@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import type { DesignDocument, DesignNode } from "../../design/document";
 import { resolvedColorTokens } from "../../design/design-tokens";
 import { replaceSelectionColor } from "../../design/selection-colors";
-import { nodeIndex } from "../../design/node-index";
+import { nodeIndex, nodeChildrenIndex } from "../../design/node-index";
 import {
   createColourPalette,
   reconcileColourPalette,
@@ -24,14 +24,8 @@ export function SelectionColorsInspector({
   const [editing, setEditing] = useState(false);
   const [all, setAll] = useState(false);
   const { nodes, tokens, colours, groups } = useMemo(() => {
+    const children = nodeChildrenIndex(document.nodes);
     const byId = nodeIndex(document.nodes);
-    const children = new Map<string, DesignNode[]>();
-    for (const node of document.nodes) {
-      if (!node.parentId) continue;
-      const siblings = children.get(node.parentId) ?? [];
-      siblings.push(node);
-      children.set(node.parentId, siblings);
-    }
     const nodes: DesignNode[] = [];
     const visited = new Set<string>();
     const pending = selected.filter((node) => {
@@ -85,7 +79,6 @@ export function SelectionColorsInspector({
                   ...content,
                   nodes: content.nodes.map((node) => {
                     if (!matchingIds.has(node.id)) return node;
-                    const next = applyColor(change, colour);
                     return replaceSelectionColor({ node, tokens, colour, next });
                   }),
                 }));

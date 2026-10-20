@@ -21,7 +21,10 @@ test("desktop inspector stays stable across tools, selections, and deselection",
   await expect(inspector.getByRole("heading", { name: "Page", exact: true })).toBeVisible();
   const before = await canvas.boundingBox();
   await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
-  await expect(inspector.getByRole("heading", { name: "Text", exact: true })).toBeVisible();
+  await expect(inspector.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue(
+    "Welcome heading",
+  );
+  await expect(inspector.getByRole("heading", { name: "Typography", exact: true })).toBeVisible();
   await canvas.focus();
   await canvas.press("Escape");
   await canvas.press("Escape");

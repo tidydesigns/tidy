@@ -38,7 +38,7 @@ export function VectorSection({
   const node = selected[0];
   const { numberField } = selectionFields(selected, onPatch);
   const [maskSourceId, setMaskSourceId] = useState("");
-  const maskSources = vectorMaskSources(selected, document.nodes);
+  const maskSources = multi && !readOnly ? vectorMaskSources(selected, document.nodes) : [];
   const chosenMaskSource =
     maskSources.find((item) => item.id === maskSourceId) ?? maskSources.at(-1);
   function combinePaths(operation: VectorBoolean) {
@@ -193,9 +193,7 @@ export function VectorSection({
               ["alpha", "Alpha"],
               ["luminance", "Luminance"],
             ]}
-            onChange={(value) =>
-              onPatch({ mask: { ...node.mask!, mode: value as "alpha" | "luminance" } })
-            }
+            onChange={(value) => onPatch({ mask: { ...node.mask!, mode: value } })}
           />
           <div className="mt-2 flex gap-2">
             <button

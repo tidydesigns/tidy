@@ -8,6 +8,8 @@ import {
   type ColourPalette,
 } from "../../../../packages/editor/src/editor/inspector/selection-colour-palette";
 
+import { nodeChildrenIndex } from "../../../../packages/editor/src/design/node-index";
+
 const colours = ["#1e1e1e", "#ff5d00", "#f2f2f0"];
 function row(palette: ColourPalette, colour: string) {
   const found = palette.rows.find((entry) => entry.colour === colour);
@@ -63,4 +65,21 @@ test("the colour index deduplicates matching nodes while preserving token alpha,
   expect([...groups.keys()]).toEqual(["#22735980", "#ff5d00"]);
   expect(groups.get("#22735980")).toEqual([first]);
   expect(groups.get("#ff5d00")).toEqual([first, second]);
+});
+
+test("selection hierarchy is reused across selections and refreshed for immutable document edits", () => {
+  const parent = buildDrawnNode("parent", "container", null, {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 100,
+  });
+  const child = { ...parent, id: "child", parentId: parent.id };
+  const nodes = [parent, child];
+  const index = nodeChildrenIndex(nodes);
+  expect(nodeChildrenIndex(nodes)).toBe(index);
+  expect(index.get(parent.id)).toEqual([child]);
+  const moved = { ...child, parentId: null };
+  expect(nodeChildrenIndex([parent, moved]).get(parent.id)).toBeUndefined();
+  expect(index.get(parent.id)).toEqual([child]);
 });
