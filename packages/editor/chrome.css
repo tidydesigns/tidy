@@ -235,9 +235,7 @@
 
 [data-picking-canvas-color] [aria-label="Design canvas"],
 [data-picking-canvas-color] [aria-label="Design canvas"] * {
-  cursor:
-    url("./src/assets/icons/eyedropper-cursor.svg") 3 21,
-    crosshair !important;
+  cursor: none !important;
 }
 
 .quiet-inspector .inspector-disclosure > summary::-webkit-details-marker {

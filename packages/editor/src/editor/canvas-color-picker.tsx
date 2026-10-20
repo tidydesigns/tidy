@@ -67,6 +67,7 @@ export function CanvasColorPicker({
   const [request, setRequest] = useState<Request | null>(null);
   const [message, setMessage] = useState(instruction);
   const restoreFocus = useRef<HTMLElement | null>(null);
+  const cursor = useRef<HTMLSpanElement>(null);
   const pick = useCallback((apply: Request["apply"], origin: HTMLElement | null) => {
     setMessage(instruction);
     setRequest({ apply, origin });
@@ -86,6 +87,15 @@ export function CanvasColorPicker({
     const surface = canvas.current;
     if (!surface) return;
     surface.focus({ preventScroll: true });
+    const moveCursor = (event: PointerEvent) => {
+      const marker = cursor.current;
+      if (!marker) return;
+      marker.hidden = !(event.target instanceof Node && surface.contains(event.target));
+      marker.style.transform = `translate3d(${event.clientX - 3}px, ${event.clientY - 21}px, 0)`;
+    };
+    const hideCursor = (event: PointerEvent) => {
+      if (!event.relatedTarget && cursor.current) cursor.current.hidden = true;
+    };
     const blockGesture = (event: Event) => {
       if (
         !(event.target instanceof Element) ||
@@ -147,11 +157,15 @@ export function CanvasColorPicker({
       restoreFocus.current = request.origin;
       setRequest(null);
     };
+    document.addEventListener("pointermove", moveCursor, true);
+    document.addEventListener("pointerout", hideCursor, true);
     for (const name of ["pointerdown", "pointerup", "pointermove", "contextmenu"])
       document.addEventListener(name, blockGesture, true);
     document.addEventListener("click", choose, true);
     document.addEventListener("keydown", escape, true);
     return () => {
+      document.removeEventListener("pointermove", moveCursor, true);
+      document.removeEventListener("pointerout", hideCursor, true);
       for (const name of ["pointerdown", "pointerup", "pointermove", "contextmenu"])
         document.removeEventListener(name, blockGesture, true);
       document.removeEventListener("click", choose, true);
@@ -166,6 +180,18 @@ export function CanvasColorPicker({
         data-picking-canvas-color={request ? "" : undefined}
       >
         {children}
+        {request && (
+          <span
+            ref={cursor}
+            hidden
+            aria-hidden="true"
+            data-canvas-color-picker-cursor
+            className="pointer-events-none fixed top-0 left-0 z-[2147483647] h-6 w-6 bg-contain bg-no-repeat"
+            style={{
+              backgroundImage: `url("${new URL("../assets/icons/eyedropper-cursor.svg", import.meta.url).href}")`,
+            }}
+          />
+        )}
         {request && (
           <div
             data-canvas-color-picker-control

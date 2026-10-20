@@ -81,19 +81,30 @@ test("eyedropper samples the canvas from a selection colour picker", async ({ pa
   await expect(page.getByRole("dialog", { name: "Colour picker", exact: true })).toHaveCount(0);
   const canvas = page.getByLabel("Design canvas", { exact: true });
   const heading = page.locator('[data-node-id="desktop-heading"]');
-  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
-  await expect(heading).toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(canvas).toHaveCSS("cursor", "none");
+  await expect(heading).toHaveCSS("cursor", "none");
+  const marker = page.locator("[data-canvas-color-picker-cursor]");
+  const headingBox = required(await heading.boundingBox());
+  const pointer = { x: headingBox.x + 10, y: headingBox.y + 5 };
+  await page.mouse.move(pointer.x, pointer.y);
+  await expect(marker).toBeVisible();
+  await expect(marker).toHaveCSS("background-image", /eyedropper-cursor/);
+  const markerBox = required(await marker.boundingBox());
+  expect(markerBox.x).toBeCloseTo(pointer.x - 3, 0);
+  expect(markerBox.y).toBeCloseTo(pointer.y - 21, 0);
   await canvas.click({ position: { x: 5, y: 150 } });
-  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(canvas).toHaveCSS("cursor", "none");
   const source = required(await page.locator('[data-node-id="desktop-screen"]').boundingBox());
   await page.mouse.click(source.x + 10, source.y + 10);
   await expect(heading).toHaveCSS("color", "rgb(242, 242, 240)");
-  await expect(canvas).not.toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(canvas).not.toHaveCSS("cursor", "none");
+  await expect(marker).toHaveCount(0);
   await page
     .getByRole("button", { name: "Open selection colour #f2f2f0 palette", exact: true })
     .click();
   await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
-  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(canvas).toHaveCSS("cursor", "none");
   await page.keyboard.press("Escape");
-  await expect(canvas).not.toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(canvas).not.toHaveCSS("cursor", "none");
+  await expect(marker).toHaveCount(0);
 });
