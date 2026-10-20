@@ -34,6 +34,7 @@ export function nodePaintHit({
   onBorder: boolean;
 }): ColourHit {
   if (!node.visible || node.style.opacity === 0) return { kind: "transparent" };
+  if (node.assetId || node.vectorPath) return { kind: "unsupported" };
   if (onBorder) {
     const stroke = paintStackHit(nodeStrokePaints(node), tokens);
     if (stroke.kind !== "transparent") return stroke;

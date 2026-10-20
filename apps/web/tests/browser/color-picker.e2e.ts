@@ -23,6 +23,19 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(picker.getByRole("textbox", { name: "Hex colour", exact: true })).toHaveValue(
       "#1E1E1E",
     );
+    const hexDraft = picker.getByRole("textbox", { name: "Hex colour", exact: true });
+    await hexDraft.fill("#224466");
+    await hexDraft.press("Escape");
+    await expect(hexDraft).toHaveValue("#1E1E1E");
+    const redDraft = picker.getByRole("spinbutton", { name: "R", exact: true });
+    await redDraft.fill("128");
+    await redDraft.press("Escape");
+    await expect(redDraft).toHaveValue("30");
+    await expect(picker).toBeVisible();
+    await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+      "color",
+      "rgb(30, 30, 30)",
+    );
     const bounds = required(await picker.boundingBox());
     const row = required(await swatch.boundingBox());
     expect(bounds.x + bounds.width).toBeLessThan(row.x);
@@ -451,4 +464,32 @@ test("colour previews send no commits and an earlier acknowledgement preserves t
   await page.mouse.up();
   await expect.poll(() => commits).toBe(2);
   await expect(heading).toHaveCSS("color", preview);
+});
+
+test("a page colour drag previews locally and commits exactly one undo step on release", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  const canvas = page.getByLabel("Design canvas", { exact: true });
+  const original = await canvas.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await page.getByRole("button", { name: "Open canvas color palette", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "Colour picker", exact: true });
+  const square = picker.getByRole("group", { name: "Saturation and brightness" });
+  const bounds = required(await square.boundingBox());
+  const marker = square.locator("span");
+  const before = required(await marker.getAttribute("style"));
+  await page.mouse.move(bounds.x + 30, bounds.y + 30);
+  await page.mouse.down();
+  await page.mouse.move(bounds.x + 150, bounds.y + 90, { steps: 12 });
+  await expect(marker).not.toHaveAttribute("style", before);
+  await expect(canvas).toHaveCSS("background-color", original);
+  await page.mouse.up();
+  await expect(canvas).not.toHaveCSS("background-color", original);
+  const changed = await canvas.evaluate((element) => getComputedStyle(element).backgroundColor);
+  await picker.getByRole("button", { name: "Close colour picker", exact: true }).click();
+  await canvas.focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(canvas).toHaveCSS("background-color", original);
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(canvas).toHaveCSS("background-color", changed);
 });

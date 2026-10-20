@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { nativeShapePath } from "@tidy/design/native-shapes";
 import { buildDrawnNode, type DesignNode, type DesignPaint } from "./document";
 import {
   firstCanvasColour,
@@ -111,4 +112,29 @@ test("invalid font measurements and collapsed transforms cannot reach canvas dra
     textSampleTransform({ ...glyph, metrics: { ...glyph.metrics, fontBoundingBoxAscent: NaN } }),
   ).toBeUndefined();
   expect(textSampleTransform({ ...glyph, matrix: { ...glyph.matrix, a: 0 } })).toBeUndefined();
+});
+
+test("raster and path layers block box-based sampling instead of exposing the background", () => {
+  const background = sample({ fill: "#ff5d00" });
+  const base = node({ fill: "#123456", borderColor: "#654321", borderWidth: 4 });
+  for (const layer of [
+    { ...base, assetId: "00000000-0000-4000-8000-000000000001" },
+    { ...base, vectorPath: nativeShapePath({ kind: "ellipse" }) },
+  ]) {
+    for (const onBorder of [false, true]) {
+      const hit = nodePaintHit({ node: layer, tokens: {}, onBorder });
+      expect(hit).toEqual({ kind: "unsupported" });
+      expect(firstCanvasColour([hit, background])).toBeUndefined();
+    }
+    expect(
+      nodePaintHit({ node: { ...layer, visible: false }, tokens: {}, onBorder: false }),
+    ).toEqual({ kind: "transparent" });
+    expect(
+      nodePaintHit({
+        node: { ...layer, style: { ...layer.style, opacity: 0 } },
+        tokens: {},
+        onBorder: false,
+      }),
+    ).toEqual({ kind: "transparent" });
+  }
 });

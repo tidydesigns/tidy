@@ -607,8 +607,14 @@ export function FileEditor({
     // Preserve only this session's active gesture while accepting all other edits.
     const activeGradient = gradientGesture.current;
     const activeInspector = inspectorGesture.current;
-    const gestureContent =
-      activeInspector?.kind === "preview" ? activeInspector.transform(next.content) : next.content;
+    let gestureContent = next.content;
+    if (activeInspector?.kind === "preview") {
+      try {
+        gestureContent = activeInspector.transform(next.content);
+      } catch {
+        inspectorGesture.current = null;
+      }
+    }
     const incoming =
       activeGradient?.edit && activeGradient.size
         ? previewGradientDocument(

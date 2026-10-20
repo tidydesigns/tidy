@@ -56,10 +56,10 @@ export function ColorPickerPopover({
   }
   const apply = useEditorEvent((next: Hsva) => {
     const hex = hsvaToHex(next);
-    setState({ color: hex, hsv: next });
+    setState({ color, hsv: next });
     const active = gesture.current;
     if (active) {
-      if (active.applied === hex) return;
+      if (!session || active.applied === hex) return;
       active.applied = hex;
       active.apply(hex);
     } else if (hex !== color) onChange(hex);
@@ -87,6 +87,7 @@ export function ColorPickerPopover({
     const active = gesture.current;
     if (!active || active.pointerId !== event.pointerId) return;
     preview.cancel();
+    if (!session) gesture.current = null;
     apply(active.next);
     gesture.current = null;
     session?.commit();
@@ -95,6 +96,7 @@ export function ColorPickerPopover({
     preview.cancel();
     if (!gesture.current) return;
     gesture.current = null;
+    setState({ color, hsv: hexToHsva(color) });
     session?.cancel();
   });
   useLayoutEffect(() => cancel, [cancel]);
@@ -158,6 +160,7 @@ export function ColorPickerPopover({
       onPointerCancel={cancel}
       onKeyDownCapture={(event) => {
         if (event.key === "Escape") {
+          if (event.target instanceof HTMLInputElement && event.target.type !== "range") return;
           event.preventDefault();
           event.stopPropagation();
           cancel();
