@@ -59,6 +59,7 @@ const thread: CommentThread = {
 let hold: Promise<void> | null = null;
 let release: (() => void) | undefined;
 let fail = false;
+let reads = 0;
 const mutations: boolean[] = [];
 const preview = process.argv.includes("--preview");
 const server = Bun.serve({
@@ -74,7 +75,8 @@ const server = Bun.serve({
         Bun.file(resolve(root, "../../packages/editor/src", url.pathname.slice(1))),
       );
     if (url.pathname.startsWith("/api/")) {
-      if (request.method === "GET")
+      if (request.method === "GET") {
+        reads++;
         return Response.json({
           threads: [thread],
           viewerId: "viewer",
@@ -82,6 +84,7 @@ const server = Bun.serve({
           reactionsAvailable: true,
           canModerateThreads: true,
         });
+      }
       const input = commentMutationSchema.parse(await request.json());
       if (input.action === "resolve") mutations.push(input.resolved);
       if (hold) await hold;
@@ -150,6 +153,7 @@ try {
   await resolveButton.waitFor({ state: "visible" });
   await waitFor(() => thread.messages.length === 2);
   await settle();
+  const readsBeforeResolve = reads;
   hold = new Promise((done) => {
     release = done;
   });
@@ -162,6 +166,8 @@ try {
   release?.();
   hold = null;
   await waitFor(() => mutations.length === 2 && !thread.resolved);
+  await settle();
+  assert.equal(reads, readsBeforeResolve, "Acknowledged resolve and Undo need no comment refetch");
   await pin.click();
   await page.getByLabel("Write a reply").fill("Keep this draft");
   await settle();

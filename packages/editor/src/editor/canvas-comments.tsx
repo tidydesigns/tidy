@@ -489,6 +489,8 @@ export const CanvasComments = forwardRef<
         setCanModerateThreads(result.canModerateThreads);
       } catch (cause) {
         if (version === refreshVersion.current) notifyLoadError(cause, "Could not load comments.");
+      } finally {
+        if (readController.current === controller) readController.current = null;
       }
     },
     [fileId, pageId, setSubmissions, setLoadError],
@@ -739,6 +741,7 @@ export const CanvasComments = forwardRef<
     const mutation = { thread, resolved, undoRequested: false };
     mutationRef.current = mutation;
     let rollbackThread = thread;
+    let needsRefresh = resolved === null;
     setNoticePaused(false);
     setResolvedNotice((current) =>
       resolved === true ? thread : current?.id === thread.id ? null : current,
@@ -782,6 +785,7 @@ export const CanvasComments = forwardRef<
         if (undo.kind === "error") throw new Error(undo.error);
       }
     } catch (cause) {
+      needsRefresh = true;
       setResolvedNotice((current) => (current?.id === thread.id ? null : current));
       setThreads((current) => [...current.filter((item) => item.id !== thread.id), rollbackThread]);
       if (interaction === interactionRef.current && !preserveInteraction) {
@@ -791,8 +795,7 @@ export const CanvasComments = forwardRef<
     } finally {
       mutationRef.current = null;
       setChanging(false);
-      // Reads never change the selected thread or clear a newer draft.
-      void refresh();
+      if (needsRefresh || readController.current) void refresh();
     }
   }
 
@@ -997,7 +1000,7 @@ export const CanvasComments = forwardRef<
                     type="button"
                     disabled={changing || posting}
                     onClick={() => void changeThread(active, !active.resolved)}
-                    className="text-xs hover:underline disabled:opacity-50"
+                    className="rounded px-2 py-1.5 text-xs hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange active:scale-[0.97] disabled:opacity-50"
                   >
                     {active?.resolved ? "Reopen" : "Resolve"}
                   </button>
