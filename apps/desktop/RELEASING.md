@@ -78,6 +78,8 @@ importing credentials, then signs and notarizes the app and DMG. It verifies
 signatures, stapled tickets and Gatekeeper acceptance before uploading artifacts.
 Only the selected installer, checksum and metadata leave that job. Its temporary
 Keychain and `.p12` are removed on success or failure.
+The signing step registers that temporary Keychain in the runner's user search
+list: `codesign --keychain` alone does not make its certificate chain discoverable.
 
 The isolated Linux publisher downloads the signing job's exact artifact ID from
 the same workflow run. It validates all filenames, regular-file boundaries,

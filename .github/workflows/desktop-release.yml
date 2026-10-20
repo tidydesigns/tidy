@@ -127,6 +127,8 @@ jobs:
           security unlock-keychain -p "$keychain_password" "$TIDY_MAC_SIGN_KEYCHAIN"
           security import "$certificate_path" -P "$CERTIFICATE_PASSWORD" -t cert -f pkcs12 -T /usr/bin/codesign -k "$TIDY_MAC_SIGN_KEYCHAIN"
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$TIDY_MAC_SIGN_KEYCHAIN" > /dev/null
+          # codesign needs the keychain in its search list to resolve the certificate chain.
+          security list-keychains -d user -s "$TIDY_MAC_SIGN_KEYCHAIN"
           xcrun notarytool store-credentials "$TIDY_NOTARY_PROFILE" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_PASSWORD" --keychain "$TIDY_MAC_SIGN_KEYCHAIN"
       - name: Sign, notarize, staple and verify the installer
         env:
