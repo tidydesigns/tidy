@@ -1,4 +1,5 @@
 import { test, expect, required } from "./fixtures";
+import { visibleColourPoint } from "./color-sampling";
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`selection colour picker edits continuously beside the row in ${colorScheme} mode`, async ({
@@ -107,4 +108,183 @@ test("eyedropper samples the canvas from a selection colour picker", async ({ pa
   await page.keyboard.press("Escape");
   await expect(canvas).not.toHaveCSS("cursor", "none");
   await expect(marker).toHaveCount(0);
+});
+
+test("sampling the visible orange beside button text picks orange rather than its transparent text box", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  await page
+    .getByRole("button", { name: "Select Authentication panel", exact: true })
+    .first()
+    .click();
+  await page
+    .getByRole("button", { name: "Open selection colour #1e1e1e palette", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  const button = required(await page.locator('[data-node-id="desktop-submit"]').boundingBox());
+  await page.mouse.click(button.x + 4, button.y + button.height / 2);
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+    "color",
+    "rgb(255, 93, 0)",
+  );
+});
+
+test("merging selection colours, undoing, and editing again preserves unique rows without React errors", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto("/dev/import-preview?edit=1");
+  await page
+    .getByRole("button", { name: "Select Authentication panel", exact: true })
+    .first()
+    .click();
+  const panel = page.getByLabel("Inspector", { exact: true });
+  const colour = panel.getByRole("textbox", { name: "Selection colour #1e1e1e", exact: true });
+  await colour.fill("#F2F2F0");
+  await colour.press("Enter");
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(colour).toHaveCount(1);
+  await expect(
+    panel.getByRole("textbox", { name: "Selection colour #f2f2f0", exact: true }),
+  ).toHaveCount(1);
+  await colour.fill("#224466");
+  await colour.press("Enter");
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+    "color",
+    "rgb(34, 68, 102)",
+  );
+  expect(errors).toEqual([]);
+});
+
+for (const sample of [
+  {
+    name: "actual text glyph",
+    id: "desktop-heading",
+    rgb: [30, 30, 30],
+    expected: "rgb(30, 30, 30)",
+  },
+  {
+    name: "orange button fill",
+    id: "desktop-submit",
+    rgb: [255, 93, 0],
+    expected: "rgb(255, 93, 0)",
+  },
+  {
+    name: "transparent text-box whitespace",
+    id: "desktop-heading",
+    rgb: [242, 242, 240],
+    expected: "rgb(242, 242, 240)",
+  },
+  {
+    name: "input fill behind placeholder text",
+    id: "desktop-email-input",
+    rgb: [242, 242, 240],
+    expected: "rgb(242, 242, 240)",
+  },
+] as const) {
+  test(`eyedropper matches a visible ${sample.name} pixel and preserves the selected target`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") errors.push(message.text());
+    });
+    await page.goto("/dev/import-preview?edit=1");
+    await page
+      .getByRole("button", { name: "Select Authentication panel", exact: true })
+      .first()
+      .click();
+    const source = page.locator(`[data-node-id="${sample.id}"]`);
+    const point = await visibleColourPoint(page, source, sample.rgb);
+    await page
+      .getByRole("button", { name: "Open selection colour #777777 palette", exact: true })
+      .click();
+    await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+    await page.mouse.move(point.x, point.y);
+    await expect(page.locator("[data-canvas-color-picker-cursor]")).toBeVisible();
+
+    await page.mouse.click(point.x, point.y);
+    await expect(page.locator('[data-node-id="desktop-email-placeholder"]')).toHaveCSS(
+      "color",
+      sample.expected,
+    );
+    await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue(
+      "Authentication panel",
+    );
+    expect(errors).toEqual([]);
+    await page.getByLabel("Design canvas", { exact: true }).focus();
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(page.locator('[data-node-id="desktop-email-placeholder"]')).toHaveCSS(
+      "color",
+      "rgb(119, 119, 119)",
+    );
+    expect(errors).toEqual([]);
+  });
+}
+
+test("selecting on the canvas, opening a colour, and sampling another element preserves the target", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.goto("/dev/import-preview?edit=1");
+  await page.locator('[data-node-id="desktop-heading"]').click();
+  const selected = page.locator('[data-node-id][data-selected="true"]');
+  await expect(selected).toHaveAttribute("data-node-id", "desktop-screen");
+  const orange = await visibleColourPoint(
+    page,
+    page.locator('[data-node-id="desktop-submit"]'),
+    [255, 93, 0],
+  );
+  await page
+    .getByRole("button", { name: "Open selection colour #1e1e1e palette", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await expect(page.locator("[data-selection-controls]").first()).toHaveCSS("visibility", "hidden");
+  await page.mouse.click(orange.x, orange.y);
+  await expect(selected).toHaveAttribute("data-node-id", "desktop-screen");
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+    "color",
+    "rgb(255, 93, 0)",
+  );
+  await expect(page.locator("[data-selection-controls]").first()).toHaveCSS(
+    "visibility",
+    "visible",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("deep-selecting text on the canvas samples into that text only", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1");
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  await heading.click({ modifiers: ["Control"] });
+  await expect(heading).toHaveAttribute("data-selected", "true");
+  await expect(page.getByRole("textbox", { name: "Layer name", exact: true })).toHaveValue(
+    "Welcome heading",
+  );
+  const orange = await visibleColourPoint(
+    page,
+    page.locator('[data-node-id="desktop-submit"]'),
+    [255, 93, 0],
+  );
+  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await page.mouse.click(orange.x, orange.y);
+  await expect(heading).toHaveCSS("color", "rgb(255, 93, 0)");
+  await expect(heading).toHaveAttribute("data-selected", "true");
+  await expect(page.locator('[data-node-id="desktop-submit-text"]')).toHaveCSS(
+    "color",
+    "rgb(30, 30, 30)",
+  );
+  await expect(page.getByRole("textbox", { name: "Text color", exact: true })).toHaveValue(
+    "#ff5d00",
+  );
 });

@@ -12,9 +12,7 @@ import {
   type RefObject,
 } from "react";
 import type { DesignNode } from "../design/document";
-import { nodePaints } from "../design/paints";
-import { nodeStrokePaints, strokeWidths } from "../design/strokes";
-import { normalizeColor } from "../design/selection-colors";
+import { canvasColorAtPoint } from "./canvas-color-hit";
 
 type Request = { apply: (color: string) => void; origin: HTMLElement | null };
 const Context = createContext<{
@@ -23,31 +21,6 @@ const Context = createContext<{
 } | null>(null);
 export const useCanvasColorPicker = () => useContext(Context);
 const instruction = "Click a solid fill or text colour. Esc to cancel.";
-
-function layerColor(node: DesignNode, element: Element, tokens: Record<string, string>) {
-  if (node.type === "text") {
-    const value = node.style.colorToken ? tokens[node.style.colorToken] : node.style.color;
-    if (value) return normalizeColor(value);
-    // Text can inherit its colour. Resolve CSS colour syntax through the browser.
-    const pixel = document.createElement("canvas");
-    pixel.width = pixel.height = 1;
-    const context = pixel.getContext("2d");
-    if (!context) return;
-    context.fillStyle = getComputedStyle(element).color;
-    context.fillRect(0, 0, 1, 1);
-    return `#${[...context.getImageData(0, 0, 1, 1).data].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-  }
-  const fill = nodePaints(node).find((paint) => paint.visible && paint.opacity > 0);
-  const paint =
-    fill ??
-    (strokeWidths(node.style).some((width) => width > 0)
-      ? nodeStrokePaints(node).find((paint) => paint.visible && paint.opacity > 0)
-      : undefined);
-  if (!paint) return null;
-  return paint.type === "solid"
-    ? normalizeColor(paint.token ? (tokens[paint.token] ?? paint.color) : paint.color)
-    : undefined;
-}
 
 export function CanvasColorPicker({
   canvas,
@@ -64,6 +37,7 @@ export function CanvasColorPicker({
   className: string;
   "data-mobile-panels-open": boolean;
 }) {
+  const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const [request, setRequest] = useState<Request | null>(null);
   const [message, setMessage] = useState(instruction);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -119,19 +93,13 @@ export function CanvasColorPicker({
       if (!(event.target instanceof Element) || !surface.contains(event.target)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const seen = new Set<string>();
-      let color: string | null | undefined;
-      for (const hit of document.elementsFromPoint(event.clientX, event.clientY)) {
-        if (!surface.contains(hit)) continue;
-        const element = hit.closest<HTMLElement>("[data-node-id]");
-        const id = element?.dataset.nodeId;
-        if (!element || !id || seen.has(id)) continue;
-        seen.add(id);
-        const node = nodes.find((candidate) => candidate.id === id);
-        if (!node) continue;
-        color = layerColor(node, element, tokens);
-        if (color !== null) break;
-      }
+      const color = canvasColorAtPoint({
+        surface,
+        nodes: byId,
+        tokens,
+        x: event.clientX,
+        y: event.clientY,
+      });
       if (!color) {
         setMessage("No solid colour here. Choose a solid fill or text, or press Esc.");
         return;
@@ -171,7 +139,7 @@ export function CanvasColorPicker({
       document.removeEventListener("click", choose, true);
       document.removeEventListener("keydown", escape, true);
     };
-  }, [request, canvas, nodes, tokens]);
+  }, [request, canvas, byId, tokens]);
   return (
     <Context.Provider value={context}>
       <main

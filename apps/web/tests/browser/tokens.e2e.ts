@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { chooseSelectMenu, selectMenuText } from "../../scripts/select-menu-controls.mjs";
 import { test, expect, required } from "./fixtures";
 import type { Locator, Page } from "playwright";
+import { visibleColourPoint } from "./color-sampling";
 
 test("token edits, bindings, history and exported pixels", async ({ page, baseURL }) => {
   const base = baseURL!;
@@ -347,7 +348,12 @@ test("canvas color picking handles empty space, gradients and cancellation witho
   await expect(dialog).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Color", exact: true })).toHaveValue("#ff5d00");
   await start();
-  await page.locator('[data-node-id="token-label"]').click();
+  const glyph = await visibleColourPoint(
+    page,
+    page.locator('[data-node-id="token-label"]'),
+    [30, 30, 30],
+  );
+  await page.mouse.click(glyph.x, glyph.y);
   await expect(dialog).toBeVisible();
   const inheritedText = await page
     .locator('[data-node-id="token-label"]')

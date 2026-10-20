@@ -256,6 +256,7 @@ export function GradientHandles({
   return (
     <div
       data-canvas-control
+      data-selection-controls
       data-gradient-controls
       className="pointer-events-none absolute z-30"
       style={{ left: bounds.x, top: bounds.y }}

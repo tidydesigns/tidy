@@ -245,6 +245,7 @@ export function SelectionHandles({
   return (
     <div
       data-canvas-control
+      data-selection-controls
       className="pointer-events-none absolute z-20"
       style={{ left: bounds.x, top: bounds.y }}
     >

@@ -175,6 +175,7 @@ export function MultiSelectionHandles({
   return (
     <div
       data-canvas-control
+      data-selection-controls
       data-multi-selection
       className="pointer-events-none absolute z-20 border border-primary-orange"
       style={{ left: bounds.x, top: bounds.y, width: bounds.width, height: bounds.height }}

@@ -14,7 +14,6 @@ export function SelectionColorsInspector({
   document: DesignDocument;
   onDocument: (transform: (document: DesignDocument) => DesignDocument) => void;
 }) {
-  const [keys, setKeys] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
   const [all, setAll] = useState(false);
   const { nodes, tokens, colours } = useMemo(() => {
@@ -48,17 +47,28 @@ export function SelectionColorsInspector({
     const tokens = resolvedColorTokens(document);
     return { nodes, tokens, colours: selectionColors(nodes, tokens) };
   }, [document, selected]);
+  const [palette, setPalette] = useState(() => ({
+    rows: colours.map((colour, id) => ({ colour, id })),
+    nextId: colours.length,
+  }));
+  let rows = palette.rows;
+  if (rows.length !== colours.length || rows.some((row, index) => row.colour !== colours[index])) {
+    let nextId = palette.nextId;
+    const previous = new Map(palette.rows.map((row) => [row.colour, row]));
+    rows = colours.map((colour) => previous.get(colour) ?? { colour, id: nextId++ });
+    setPalette({ rows, nextId });
+  }
   if ((!editing && colours.length < 2) || (selected.length === 1 && nodes.length === 1))
     return null;
   return (
     <Section title="Selection colours" replayTitle>
       <div className={all ? "max-h-64 space-y-2 overflow-y-auto overscroll-contain" : "space-y-2"}>
-        {(all ? colours : colours.slice(0, 4)).map((colour) => {
+        {(all ? rows : rows.slice(0, 4)).map(({ colour, id }) => {
           const matching = nodes.filter((node) => selectionColors([node], tokens).includes(colour));
           const matchingIds = new Set(matching.map((node) => node.id));
           return (
             <ColorField
-              key={keys[colour] ?? colour}
+              key={id}
               onOpenChange={setEditing}
               compact
               label={`Selection colour ${colour}`}
@@ -66,12 +76,12 @@ export function SelectionColorsInspector({
               get={() => colour}
               onChange={(change) => {
                 const next = applyColor(change, colour);
-                setKeys((previous) => {
-                  const nextKeys = { ...previous };
-                  delete nextKeys[colour];
-                  nextKeys[next] = previous[colour] ?? colour;
-                  return nextKeys;
-                });
+                setPalette((previous) => ({
+                  ...previous,
+                  rows: previous.rows
+                    .filter((row) => row.id === id || row.colour !== next)
+                    .map((row) => (row.id === id ? { ...row, colour: next } : row)),
+                }));
                 onDocument((content) => ({
                   ...content,
                   nodes: content.nodes.map((node) => {

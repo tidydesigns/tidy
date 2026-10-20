@@ -170,7 +170,10 @@ export function ColorField({
             validate={(value) =>
               normalizeColor(value) ? undefined : "Enter a hex color such as #336699 or #336699ff."
             }
-            onCommit={onChange}
+            onCommit={(value) => {
+              const normalized = normalizeColor(value);
+              if (normalized) onChange(normalized);
+            }}
           />
           <div className={inline ? "flex items-center text-xs text-secondary-ink" : ""}>
             <PropertyField

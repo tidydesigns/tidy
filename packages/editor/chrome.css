@@ -233,6 +233,10 @@
   border-radius: 4px;
 }
 
+[data-picking-canvas-color] [data-selection-controls] {
+  visibility: hidden;
+}
+
 [data-picking-canvas-color] [aria-label="Design canvas"],
 [data-picking-canvas-color] [aria-label="Design canvas"] * {
   cursor: none !important;
