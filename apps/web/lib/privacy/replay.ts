@@ -50,9 +50,11 @@ export function replayAttribute(name: string, value: string, element?: Element) 
       /url\(\s*("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^)]*)\s*\)/gi,
       (match, raw: string) => {
         try {
-          const url = new URL(raw.trim().replace(/^["']|["']$/g, ""), location.href);
+          const url = raw.trim().replace(/^["']|["']$/g, "");
+          // Normalize only our manifest. Resolving a candidate could discard
+          // private path segments (secret/../) while recording the original URL.
           return replayIconSources.some(
-            (source) => new URL(source, location.href).href === url.href,
+            (source) => source === url || new URL(source, location.href).href === url,
           )
             ? match
             : "none";

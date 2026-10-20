@@ -246,6 +246,8 @@ test("bundler-relative deployment URLs are canonicalized without approving calle
     for (const url of [
       approved + "&private=secret", approved + "#private",
       approved.replace("release", "another-release"),
+      "/private-account/.." + approved,
+      approved.replace("folder.build.svg", "private-account/../folder.build.svg"),
       "https://evil.example.test" + approved,
       "/_next/static/media/customer.build.svg?dpl=release",
     ]) assert.equal(replayAttribute("style", 'mask-image:url("' + url + '")', element), "mask-image:none");
