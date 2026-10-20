@@ -238,6 +238,15 @@ Run `bun run bench:mcp` to measure MCP request speed, throughput, database query
 counts and response sizes against a disposable local database. These results
 do not represent hosted Worker performance.
 
+Run `bun apps/web/scripts/benchmark-visual-preview.ts` for synthetic preview and
+variant-validation timings without network or database access. It reports wall
+time and process CPU time for preparing views, collecting fonts, checking layout
+and exporting 12 selections. Set `PREVIEW_BENCH_ITERATIONS` to change the default
+three iterations. These stage measurements exclude authentication, database and
+asset reads, font downloads, and final HTML generation; they are not production
+request measurements. For V8 measurements, bundle the script with
+`bun build --target=node` and run the resulting module with Node.
+
 ## Security
 
 Please report vulnerabilities privately using the process in

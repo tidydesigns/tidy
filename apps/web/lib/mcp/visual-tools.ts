@@ -2,7 +2,7 @@ import { mcpSchema } from "@/lib/mcp/schema";
 import type { McpServer } from "@modelcontextprotocol/server";
 import * as z from "zod";
 import { documentAssetIds } from "@tidy/design/document";
-import { getDocument } from "@/lib/design/document-service";
+import { getDocument, getDocumentRevision } from "@/lib/design/document-service";
 import { getFileImage } from "@/lib/design/file-image";
 import { packagePreviewFonts } from "@/lib/design/visual-preview-fonts";
 import { buildVisualPreview, visualPreviewViews } from "@/lib/design/visual-preview";
@@ -22,7 +22,7 @@ export const visualPreviewInput = z.object({
     .min(1)
     .max(12),
 });
-const services = { getDocument, getFileImage, packagePreviewFonts };
+const services = { getDocument, getDocumentRevision, getFileImage, packagePreviewFonts };
 const missingImage = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" fill="#eee"/><path d="M0 0L80 80M80 0L0 80" stroke="#aaa"/></svg>')}`;
 
 export function registerVisualTools(server: McpServer, userId: string, backend = services) {
@@ -68,7 +68,7 @@ export function registerVisualTools(server: McpServer, userId: string, backend =
             );
         }
         const fonts = await backend.packagePreviewFonts(views.map((view) => view.document));
-        const current = await backend.getDocument(userId, file_id);
+        const current = await backend.getDocumentRevision(userId, file_id);
         if (!current) throw new Error("Document not found or access denied.");
         if (current.revision !== snapshot.revision)
           throw new Error(

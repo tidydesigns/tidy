@@ -1,5 +1,6 @@
 import type { DesignDocument, DesignNode } from "./document";
-import { componentSubtreeIds, resolveVariantNodes } from "./component-variants";
+import { createVariantResolver } from "./component-variants";
+import { childrenByParent } from "@tidy/design/node-hierarchy";
 
 export type LayoutIssue = {
   nodeId: string;
@@ -16,25 +17,37 @@ const border = (node: DesignNode, side: "Top" | "Right" | "Bottom" | "Left") =>
 
 /** Checks only facts available in the document. Font measurement and visual comparison still need a browser. */
 export function diagnoseLayout(document: DesignDocument): LayoutIssue[] {
-  const current = diagnoseResolvedLayout({
-    ...document,
-    nodes: resolveVariantNodes(document.nodes),
-  });
+  const resolver = createVariantResolver(document.nodes);
+  const nodes = resolver.resolve();
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const children = childrenByParent(nodes);
+  const order = new Map(nodes.map((node, index) => [node.id, index]));
+  const current = diagnoseResolvedLayout(nodes, byId, children);
   const issues = [...current];
+  const existing = new Map<string, Set<string>>();
+  for (const issue of current) {
+    const signatures = existing.get(issue.nodeId) ?? new Set<string>();
+    signatures.add(JSON.stringify([issue.code, issue.message]));
+    existing.set(issue.nodeId, signatures);
+  }
   for (const component of document.nodes.filter((node) => node.variants)) {
-    const ids = componentSubtreeIds(document.nodes, component.id);
     for (const name of Object.keys(component.variants!.options)) {
-      const resolved = resolveVariantNodes(document.nodes, new Map([[component.id, name]]));
-      for (const issue of diagnoseResolvedLayout({ ...document, nodes: resolved }).filter((issue) =>
-        ids.has(issue.nodeId),
-      )) {
+      const resolved = resolver.resolveSubtree(component.id, new Map([[component.id, name]]));
+      const overrides = new Map(resolved.map((node) => [node.id, node]));
+      const lookup = { get: (id: string) => overrides.get(id) ?? byId.get(id) };
+      // The parent can emit sizing/overflow issues on the selected root. Its
+      // other children remain available as context, including hidden children.
+      const parent = byId.get(component.parentId ?? "");
+      const scope = parent
+        ? [...resolved, parent].sort((a, b) => order.get(a.id)! - order.get(b.id)!)
+        : resolved;
+      const scopedChildren = {
+        get: (id: string) => children.get(id)?.map((node) => lookup.get(node.id)!),
+      };
+      for (const issue of diagnoseResolvedLayout(scope, lookup, scopedChildren)) {
         if (
-          !current.some(
-            (existing) =>
-              existing.nodeId === issue.nodeId &&
-              existing.code === issue.code &&
-              existing.message === issue.message,
-          )
+          overrides.has(issue.nodeId) &&
+          !existing.get(issue.nodeId)?.has(JSON.stringify([issue.code, issue.message]))
         )
           issues.push({ ...issue, variant: name, message: `Variant ${name}: ${issue.message}` });
       }
@@ -43,16 +56,13 @@ export function diagnoseLayout(document: DesignDocument): LayoutIssue[] {
   return issues;
 }
 
-function diagnoseResolvedLayout(document: DesignDocument): LayoutIssue[] {
+function diagnoseResolvedLayout(
+  nodes: readonly DesignNode[],
+  byId: Pick<ReadonlyMap<string, DesignNode>, "get">,
+  contextChildren: Pick<ReadonlyMap<string, readonly DesignNode[]>, "get">,
+): LayoutIssue[] {
   const issues: LayoutIssue[] = [];
-  const byId = new Map(document.nodes.map((node) => [node.id, node]));
-  const children = new Map<string, DesignNode[]>();
-  for (const node of document.nodes)
-    if (node.parentId && node.visible) {
-      const siblings = children.get(node.parentId) ?? [];
-      siblings.push(node);
-      children.set(node.parentId, siblings);
-    }
+  const children = { get: (id: string) => contextChildren.get(id)?.filter((node) => node.visible) };
   function accessibleText(node: DesignNode): string {
     if (node.semantics?.hidden || !node.visible) return "";
     return (
@@ -68,7 +78,7 @@ function diagnoseResolvedLayout(document: DesignDocument): LayoutIssue[] {
     severity: LayoutIssue["severity"],
     message: string,
   ) => issues.push({ nodeId: node.id, code, severity, message });
-  for (const node of document.nodes) {
+  for (const node of nodes) {
     if (node.minWidth !== undefined && node.maxWidth !== undefined && node.minWidth > node.maxWidth)
       add(node, "conflicting-width-limits", "error", "Minimum width exceeds maximum width.");
     if (
@@ -93,7 +103,7 @@ function diagnoseResolvedLayout(document: DesignDocument): LayoutIssue[] {
       node.instanceOf &&
       (!byId.get(node.instanceOf)?.isComponent ||
         !node.componentSourceId ||
-        !byId.has(node.componentSourceId))
+        !byId.get(node.componentSourceId))
     )
       add(
         node,

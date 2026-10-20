@@ -11,8 +11,8 @@ import { mergeNodeChanges } from "./component-variants";
 import { fontFamilies, genericFonts, googleFontUrl, webFontByName } from "./fonts/catalog";
 import {
   componentFamily,
-  componentSubtreeIds,
-  resolveVariantNodes,
+  createComponentIndex,
+  createVariantResolver,
   standaloneVariants,
 } from "./component-variants";
 
@@ -25,95 +25,106 @@ const extensions: Record<string, string> = {
 };
 
 export function componentExportDocument(input: DesignDocument, rootId: string): DesignDocument {
+  return createComponentExporter(input).exportSelection(rootId);
+}
+
+/** Validate once and reuse indexes only within this export operation. */
+export function createComponentExporter(input: DesignDocument) {
   const document = parseDesignDocument(input);
-  const root = document.nodes.find((node) => node.id === rootId);
-  if (!root) throw new Error("Export root not found.");
-  const ids = componentSubtreeIds(document.nodes, rootId);
-  const families = new Set(
-    document.nodes
-      .filter((node) => ids.has(node.id) && componentFamily(document.nodes, node))
-      .map((node) => node.id),
-  );
-  const bases = resolveVariantNodes(document.nodes, new Map(), families);
-  const normalizeFont = (value: string | undefined) =>
-    ["var(--font-instrument-sans)", "var(--font-instrument-serif)"].includes(value ?? "")
-      ? JSON.stringify(fontFamilies(value!)[0])
-      : value;
-  // Strip private source paths and editor history from deliverable code.
-  // Prototype destinations may be outside the selected subtree; retain them as metadata for onAction.
-  return designDocumentSchema.parse({
-    schemaVersion: 1,
-    pages: document.pages,
-    tokens: document.tokens,
-    designTokens: document.designTokens
-      ? Object.fromEntries(
-          Object.entries(document.designTokens).map(([name, token]) => [
-            name,
-            token.type === "typography" && "value" in token
+  const resolver = createVariantResolver(document.nodes);
+  const components = createComponentIndex(document.nodes);
+  return { document, exportSelection };
+
+  function exportSelection(rootId: string): DesignDocument {
+    const root = components.byId.get(rootId);
+    if (!root) throw new Error("Export root not found.");
+    const ids = components.subtreeIds(rootId);
+    const families = new Set(
+      document.nodes
+        .filter((node) => ids.has(node.id) && componentFamily(document.nodes, node, components))
+        .map((node) => node.id),
+    );
+    const bases = resolver.resolveSubtree(rootId, new Map(), families);
+    const normalizeFont = (value: string | undefined) =>
+      ["var(--font-instrument-sans)", "var(--font-instrument-serif)"].includes(value ?? "")
+        ? JSON.stringify(fontFamilies(value!)[0])
+        : value;
+    // Strip private source paths and editor history from deliverable code.
+    // Prototype destinations may be outside the selected subtree; retain them as metadata for onAction.
+    return designDocumentSchema.parse({
+      schemaVersion: 1,
+      pages: document.pages,
+      tokens: document.tokens,
+      designTokens: document.designTokens
+        ? Object.fromEntries(
+            Object.entries(document.designTokens).map(([name, token]) => [
+              name,
+              token.type === "typography" && "value" in token
+                ? {
+                    ...token,
+                    value: { ...token.value, fontFamily: normalizeFont(token.value.fontFamily) },
+                  }
+                : token,
+            ]),
+          )
+        : undefined,
+      warnings: [],
+      nodes: bases
+        .filter((node) => ids.has(node.id))
+        .map((node) => {
+          const variants = standaloneVariants(document.nodes, node, components);
+          return {
+            ...node,
+            parentId: node.id === rootId ? null : node.parentId,
+            style: { ...node.style, fontFamily: normalizeFont(node.style.fontFamily) },
+            variants: variants
               ? {
-                  ...token,
-                  value: { ...token.value, fontFamily: normalizeFont(token.value.fontFamily) },
+                  ...variants,
+                  options: Object.fromEntries(
+                    Object.entries(variants.options).map(([name, option]) => {
+                      const normalizeChanges = (changes: typeof option.root) =>
+                        changes?.style
+                          ? {
+                              ...changes,
+                              style: {
+                                ...changes.style,
+                                fontFamily: normalizeFont(changes.style.fontFamily),
+                              },
+                            }
+                          : changes;
+                      return [
+                        name,
+                        {
+                          root: normalizeChanges(option.root),
+                          children: option.children
+                            ? Object.fromEntries(
+                                Object.entries(option.children).map(([id, changes]) => [
+                                  id,
+                                  normalizeChanges(changes),
+                                ]),
+                              )
+                            : undefined,
+                        },
+                      ];
+                    }),
+                  ),
                 }
-              : token,
-          ]),
-        )
-      : undefined,
-    warnings: [],
-    nodes: bases
-      .filter((node) => ids.has(node.id))
-      .map((node) => {
-        const variants = standaloneVariants(document.nodes, node);
-        return {
-          ...node,
-          parentId: node.id === rootId ? null : node.parentId,
-          style: { ...node.style, fontFamily: normalizeFont(node.style.fontFamily) },
-          variants: variants
-            ? {
-                ...variants,
-                options: Object.fromEntries(
-                  Object.entries(variants.options).map(([name, option]) => {
-                    const normalizeChanges = (changes: typeof option.root) =>
-                      changes?.style
-                        ? {
-                            ...changes,
-                            style: {
-                              ...changes.style,
-                              fontFamily: normalizeFont(changes.style.fontFamily),
-                            },
-                          }
-                        : changes;
-                    return [
-                      name,
-                      {
-                        root: normalizeChanges(option.root),
-                        children: option.children
-                          ? Object.fromEntries(
-                              Object.entries(option.children).map(([id, changes]) => [
-                                id,
-                                normalizeChanges(changes),
-                              ]),
-                            )
-                          : undefined,
-                      },
-                    ];
-                  }),
-                ),
-              }
-            : undefined,
-          isComponent: variants ? true : node.isComponent,
-          sourceKey: undefined,
-          sourcePath: undefined,
-          importKey: undefined,
-          instanceOf: undefined,
-          componentSourceId: undefined,
-          instanceOverrides: undefined,
-          styleId: undefined,
-          styleOverrides: undefined,
-          librarySource: undefined,
-          libraryNodeId: undefined,
-        };
-      }),
-  });
+              : undefined,
+            isComponent: variants ? true : node.isComponent,
+            sourceKey: undefined,
+            sourcePath: undefined,
+            importKey: undefined,
+            instanceOf: undefined,
+            componentSourceId: undefined,
+            instanceOverrides: undefined,
+            styleId: undefined,
+            styleOverrides: undefined,
+            librarySource: undefined,
+            libraryNodeId: undefined,
+          };
+        }),
+    });
+  }
 }
 
 export function exportComponent(
@@ -129,8 +140,8 @@ export function exportComponent(
     throw new Error(
       "Use a PascalCase component name that does not shadow React or TypeScript helpers.",
     );
-  const document = parseDesignDocument(input);
-  const selected = componentExportDocument(document, rootId);
+  const { document, exportSelection } = createComponentExporter(input);
+  const selected = exportSelection(rootId);
   const root = selected.nodes.find((node) => node.id === rootId)!;
   const ids = new Set(selected.nodes.map((node) => node.id));
   const report = layoutReport({

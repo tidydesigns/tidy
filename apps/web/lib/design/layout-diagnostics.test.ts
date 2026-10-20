@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { blankDesignDocument, designNodeSchema } from "./document";
 import { diagnoseLayout } from "./layout-diagnostics";
+import { componentSubtreeIds, resolveVariantNodes } from "./component-variants";
 
 const node = (id: string, parentId: string | null, changes: object = {}) =>
   designNodeSchema.parse({
@@ -85,4 +86,85 @@ test("checks accessible names and nested controls even in absolute decoration gr
       }),
     ]),
   ).toContain("missing-accessible-name");
+});
+
+test("scoped variant diagnostics retain parent sizing, hidden children and nested variant failures", () => {
+  const nodes = [
+    node("row", null, {
+      layout: "flex-row",
+      align: "center",
+      justify: "start",
+      widthMode: "hug",
+      box: { x: 0, y: 0, width: 100, height: 40 },
+    }),
+    node("component", "row", {
+      isComponent: true,
+      layout: "flex-row",
+      align: "center",
+      justify: "start",
+      variants: {
+        default: "base",
+        options: {
+          base: {},
+          fill: { root: { widthMode: "fill" } },
+          tall: { root: { box: { height: 80 } } },
+          show: { children: { hidden: { visible: true } } },
+        },
+      },
+    }),
+    node("nested", "component", {
+      isComponent: true,
+      layout: "flex-row",
+      align: "center",
+      justify: "start",
+      variants: {
+        default: "base",
+        options: { base: {}, narrow: { root: { box: { width: 10 } } } },
+      },
+    }),
+    node("label", "nested", {
+      type: "text",
+      text: "Label",
+      box: { x: 0, y: 0, width: 30, height: 20 },
+    }),
+    node("hidden", "component", { visible: false, box: { x: 0, y: 0, width: 400, height: 20 } }),
+    node("sibling", "row", { type: "text", text: "Sibling" }),
+  ].reverse();
+  // Reference: render and diagnose the entire graph for each variant, then
+  // retain the affected subtree as before the optimization.
+  const check = (rendered: typeof nodes) =>
+    diagnoseLayout({
+      ...blankDesignDocument(),
+      nodes: rendered.map((node) => ({ ...node, variants: undefined })),
+    });
+  const current = check(resolveVariantNodes(nodes));
+  const expected = [...current];
+  for (const component of nodes.filter((node) => node.variants)) {
+    const ids = componentSubtreeIds(nodes, component.id);
+    for (const name of Object.keys(component.variants!.options)) {
+      for (const issue of check(resolveVariantNodes(nodes, new Map([[component.id, name]])))) {
+        if (
+          ids.has(issue.nodeId) &&
+          !current.some(
+            (existing) =>
+              existing.nodeId === issue.nodeId &&
+              existing.code === issue.code &&
+              existing.message === issue.message,
+          )
+        )
+          expected.push({ ...issue, variant: name, message: `Variant ${name}: ${issue.message}` });
+      }
+    }
+  }
+  const actual = diagnoseLayout({ ...blankDesignDocument(), nodes });
+  expect(actual).toEqual(expected);
+  expect(actual).toContainEqual(
+    expect.objectContaining({ nodeId: "component", variant: "fill", code: "cyclic-width-sizing" }),
+  );
+  expect(actual).toContainEqual(
+    expect.objectContaining({ nodeId: "component", variant: "tall", code: "cross-axis-overflow" }),
+  );
+  expect(actual).toContainEqual(
+    expect.objectContaining({ nodeId: "nested", variant: "narrow", code: "flow-overflow" }),
+  );
 });

@@ -7,6 +7,7 @@ import { blankDesignDocument } from "./document";
 mock.module("server-only", () => ({}));
 const { uploadThumbnailForUser, thumbnailResponseForUser } = await import("./thumbnail-service");
 const { assetResponseForUser } = await import("./asset-response");
+const { getDocumentRevision } = await import("./document-service");
 
 const testUrl = process.env.IMAGES_TEST_DATABASE_URL,
   setupUrl = process.env.IMAGES_SETUP_DATABASE_URL;
@@ -632,3 +633,22 @@ for (const kind of ["asset", "thumbnail"] as const) {
     );
   }
 }
+
+integration(
+  "preview revision checks reauthorize viewers without returning document content",
+  async () => {
+    expect(await getDocumentRevision("viewer", "file")).toEqual({ revision: 3 });
+    expect(await getDocumentRevision("outsider", "file")).toBeNull();
+    expect(await getDocumentRevision("viewer", "missing")).toBeNull();
+    await admin.query(`update "designDocument" set "revision"=5 where "fileId"='file'`);
+    expect(await getDocumentRevision("viewer", "file")).toEqual({ revision: 5 });
+    await admin.query(`update "user" set "emailVerified"=false where "id"='viewer'`);
+    expect(await getDocumentRevision("viewer", "file")).toBeNull();
+    await admin.query(`update "user" set "emailVerified"=true where "id"='viewer'`);
+    await admin.query(`update "designFile" set "archivedAt"=now() where "id"='file'`);
+    expect(await getDocumentRevision("viewer", "file")).toBeNull();
+    await admin.query(`update "designFile" set "archivedAt"=null where "id"='file'`);
+    await admin.query(`delete from "member" where "id"='view'`);
+    expect(await getDocumentRevision("viewer", "file")).toBeNull();
+  },
+);

@@ -2,10 +2,33 @@ import type { DesignDocument } from "@tidy/design/document";
 import { documentFontReferences } from "./fonts/recovery";
 import { fontFamilies, genericFonts, webFontByName } from "./fonts/catalog";
 import { fontCssForText } from "./fonts/export-css";
-import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
+import { resolveNodeTokens } from "@tidy/design/design-tokens";
+import { createVariantResolver } from "@tidy/design/component-variants";
 
 export type PreviewFonts = { css: string; warnings: string[] };
 export const VISUAL_PREVIEW_MAX_BYTES = 512_000;
+
+function* previewFontReferences(documents: readonly DesignDocument[]) {
+  for (const document of new Set(documents)) {
+    const resolver = createVariantResolver(
+      document.nodes.map((node) => resolveNodeTokens(node, document)),
+    );
+    yield* documentFontReferences({
+      ...document,
+      nodes: resolver.resolve().map((node) => resolveNodeTokens(node, document)),
+    });
+    // Only the selected family's subtree can change. Keep ancestor overrides
+    // and external component sources, without rescanning unrelated text.
+    for (const node of document.nodes)
+      for (const variant of Object.keys(node.variants?.options ?? {}))
+        yield* documentFontReferences({
+          ...document,
+          nodes: resolver
+            .resolveSubtree(node.id, new Map([[node.id, variant]]))
+            .map((node) => resolveNodeTokens(node, document)),
+        });
+  }
+}
 
 async function boundedBytes(response: Response, signal: AbortSignal) {
   if (!response.ok || !response.body) throw new Error("Font resource unavailable.");
@@ -35,22 +58,11 @@ export async function packagePreviewFonts(
 ): Promise<PreviewFonts> {
   const warnings = new Set<string>(),
     css: string[] = [];
-  const references = documents.flatMap((document) => [
-    ...documentFontReferences({ ...document, nodes: resolvedDocumentNodes(document) }),
-    ...document.nodes.flatMap((node) =>
-      Object.keys(node.variants?.options ?? {}).flatMap((variant) =>
-        documentFontReferences({
-          ...document,
-          nodes: resolvedDocumentNodes(document, new Map([[node.id, variant]])),
-        }),
-      ),
-    ),
-  ]);
   const groups = new Map<
     string,
-    { family: string; weight: number; italic: boolean; text: string }
+    { family: string; weight: number; italic: boolean; characters: Set<string> }
   >();
-  for (const reference of references) {
+  for (const reference of previewFontReferences(documents)) {
     const family = fontFamilies(reference.style.fontFamily ?? "system-ui")[0] ?? "system-ui";
     if (genericFonts.has(family.toLowerCase())) continue;
     if (
@@ -66,20 +78,21 @@ export async function packagePreviewFonts(
     const weight = reference.style.fontWeight ?? 400,
       italic = reference.style.fontStyle === "italic";
     const key = `${family}:${weight}:${italic}`;
-    const group = groups.get(key) ?? { family, weight, italic, text: "" };
-    group.text += reference.text;
+    const group = groups.get(key) ?? { family, weight, italic, characters: new Set<string>() };
+    for (const character of reference.text) group.characters.add(character);
     groups.set(key, group);
   }
   const deadline = AbortSignal.timeout(20_000);
   let size = 0;
   for (const group of groups.values()) {
-    if (!group.text) continue;
+    const text = [...group.characters].join("");
+    if (!text) continue;
     try {
       const signal = AbortSignal.any([deadline, AbortSignal.timeout(5_000)]);
       const params = new URLSearchParams({
         family: `${group.family}:ital,wght@${group.italic ? 1 : 0},${group.weight}`,
         display: "swap",
-        text: [...new Set([...group.text])].join(""),
+        text,
       });
       const response = await fetcher(`https://fonts.googleapis.com/css2?${params}`, {
         signal,
@@ -90,7 +103,7 @@ export async function packagePreviewFonts(
         (await boundedBytes(response, signal)).toString("utf8"),
         group.weight,
         group.italic,
-        group.text,
+        text,
       );
       const urls = [
         ...new Set(

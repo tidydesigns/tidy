@@ -1,6 +1,6 @@
 import { resolvedDocumentNodes } from "@tidy/design/design-tokens";
 import type { DesignDocument } from "@tidy/design/document";
-import { componentExportDocument } from "./code-export";
+import { createComponentExporter } from "./code-export";
 import type {
   VisualPreviewData,
   VisualPreviewState,
@@ -20,19 +20,30 @@ export function visualPreviewViews(
   document: DesignDocument,
   selections: PreviewSelection[],
 ): VisualPreviewView[] {
+  const exporter = createComponentExporter(document);
+  const rendered = new Map(resolvedDocumentNodes(exporter.document).map((node) => [node.id, node]));
+  const exports = new Map<string, DesignDocument>();
+  const roots = new Map<string, ReturnType<typeof resolvedDocumentNodes>[number]>();
   return selections.map((selection) => {
-    const content = componentExportDocument(document, selection.node_id);
-    const root = resolvedDocumentNodes(content).find((node) => node.id === selection.node_id)!;
+    let content = exports.get(selection.node_id);
+    if (!content) {
+      content = exporter.exportSelection(selection.node_id);
+      exports.set(selection.node_id, content);
+      roots.set(
+        selection.node_id,
+        resolvedDocumentNodes(content).find((node) => node.id === selection.node_id)!,
+      );
+    }
+    const root = roots.get(selection.node_id)!;
     if (!root.visible) throw new Error("Choose a visible frame or component.");
     const variants = Object.keys(root.variants?.options ?? {});
     if (selection.variant && !variants.includes(selection.variant))
       throw new Error(`Variant ${selection.variant} is unavailable on ${root.name}.`);
-    const rendered = resolvedDocumentNodes(document);
-    let frame = rendered.find((node) => node.id === selection.node_id);
+    let frame = rendered.get(selection.node_id);
     const visited = new Set<string>();
     while (frame?.parentId && !visited.has(frame.id)) {
       visited.add(frame.id);
-      frame = rendered.find((node) => node.id === frame!.parentId);
+      frame = rendered.get(frame.parentId);
     }
     return {
       nodeId: root.id,

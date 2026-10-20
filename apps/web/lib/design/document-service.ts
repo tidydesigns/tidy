@@ -965,6 +965,19 @@ export async function getDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readDocument(userId, fileId));
 }
 
+/** Recheck live access and revision without decoding the full document again. */
+export async function getDocumentRevision(userId: string, fileId: string) {
+  if (!(await documentSchemaReady())) return null;
+  const result = await db.query<{ revision: number }>(
+    `select d."revision" from "designDocument" d join "designFile" f on f."id" = d."fileId"
+     join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     where d."fileId" = $1 and m."role" in ${VIEW_ROLES_SQL} and f."archivedAt" is null`,
+    [fileId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
 /** Project the requested page in Postgres: large documents must not cross the
  * database connection or be decoded/scanned in JS merely to return 50 nodes. */
 export async function getDocumentPage(

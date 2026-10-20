@@ -19,10 +19,33 @@ function findFamily(byId: ReadonlyMap<string, DesignNode>, node: DesignNode) {
   }
   return undefined;
 }
-export function componentFamily(nodes: readonly DesignNode[], node: DesignNode) {
+/** Reuse family/source indexes while exporting many components of one snapshot. */
+export function createComponentIndex(nodes: readonly DesignNode[]) {
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  const children = childrenByParent(nodes);
+  const subtrees = new Map<string, ReadonlySet<string>>();
+  return {
+    byId,
+    subtreeIds(rootId: string) {
+      let ids = subtrees.get(rootId);
+      if (!ids) {
+        ids = subtreeIds(children, rootId);
+        subtrees.set(rootId, ids);
+      }
+      return ids;
+    },
+  };
+}
+type ComponentIndex = ReturnType<typeof createComponentIndex>;
+
+export function componentFamily(
+  nodes: readonly DesignNode[],
+  node: DesignNode,
+  index?: ComponentIndex,
+) {
   if (node.variants) return { master: node, variants: node.variants };
   if (!node.componentSourceId) return undefined;
-  return findFamily(new Map(nodes.map((item) => [item.id, item])), node);
+  return findFamily(index?.byId ?? new Map(nodes.map((item) => [item.id, item])), node);
 }
 function familySource(
   byId: ReadonlyMap<string, DesignNode>,
@@ -270,28 +293,59 @@ export function resolveVariantNodes(
   skipFamilies: ReadonlySet<string> = new Set(),
 ): DesignNode[] {
   if (!nodes.some((node) => node.variants)) return [...nodes];
+  return createVariantResolver(nodes).resolve(selections, skipFamilies);
+}
+
+/** Request-local indexes for consumers inspecting many variants of one document.
+ * Subtree resolution applies ancestor variants first, using the complete source
+ * graph for copied component families, without rendering unrelated branches.
+ */
+export function createVariantResolver(nodes: readonly DesignNode[]) {
   const byId = new Map(nodes.map((node) => [node.id, node]));
-  const rendered = new Map(byId);
+  const order = new Map(nodes.map((node, index) => [node.id, index]));
   const children = childrenByParent(nodes);
-  function visit(node: DesignNode) {
-    const family = findFamily(byId, node);
-    if (family && !skipFamilies.has(node.id)) {
+  const subtrees = new Map<string, DesignNode[]>();
+  const sources = new Map<string, ReadonlySet<string>>();
+  function subtree(rootId: string) {
+    let result = subtrees.get(rootId);
+    if (!result) {
+      result = [...subtreeIds(children, rootId)]
+        .flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []))
+        .sort((a, b) => order.get(a.id)! - order.get(b.id)!);
+      subtrees.set(rootId, result);
+    }
+    return result;
+  }
+  function render(
+    selected: readonly DesignNode[],
+    roots: readonly DesignNode[],
+    ancestors: readonly DesignNode[],
+    selections: ReadonlyMap<string, string>,
+    skipFamilies: ReadonlySet<string>,
+  ) {
+    const rendered = new Map(selected.map((node) => [node.id, node]));
+    function apply(node: DesignNode, descendants?: readonly DesignNode[]) {
+      const family = findFamily(byId, node);
+      if (!family || skipFamilies.has(node.id)) return;
       const name = selections.get(node.id) ?? node.variant ?? family.variants.default;
       if (!Object.hasOwn(family.variants.options, name))
         throw new Error(`Unknown variant ${name} on ${node.id}.`);
       const option = family.variants.options[name]!;
-      if (option.root)
+      if (option.root && rendered.has(node.id))
         rendered.set(
           node.id,
           applyVariant(inheritedOverrides(byId, rendered.get(node.id)!), option.root),
         );
-      const sourceIds = subtreeIds(children, family.master.id);
-      const descendants = [...(children.get(node.id) ?? [])];
-      for (let index = 0; index < descendants.length; index++) {
-        const child = descendants[index]!;
-        descendants.push(...(children.get(child.id) ?? []));
+      if (!option.children || !Object.keys(option.children).length) return;
+      let sourceIds = sources.get(family.master.id);
+      if (!sourceIds) {
+        sourceIds = subtreeIds(children, family.master.id);
+        sources.set(family.master.id, sourceIds);
+      }
+      for (const child of descendants ?? subtree(node.id)) {
+        if (child.id === node.id) continue;
         const sourceId = familySource(byId, sourceIds, child);
-        const patch = sourceId ? option.children?.[sourceId] : undefined;
+        const patch = sourceId ? option.children[sourceId] : undefined;
         if (patch)
           rendered.set(
             child.id,
@@ -299,13 +353,49 @@ export function resolveVariantNodes(
           );
       }
     }
-    for (const child of children.get(node.id) ?? []) visit(child);
+    for (const ancestor of ancestors) apply(ancestor, selected);
+    function visit(node: DesignNode) {
+      apply(node);
+      for (const child of children.get(node.id) ?? []) visit(child);
+    }
+    for (const root of roots) visit(root);
+    return selected.map((node) => {
+      const result = rendered.get(node.id)!;
+      return result === node ? node : { ...result, instanceOverrides: node.instanceOverrides };
+    });
   }
-  for (const root of nodes) if (root.parentId === null) visit(root);
-  return nodes.map((node) => {
-    const result = rendered.get(node.id)!;
-    return result === node ? node : { ...result, instanceOverrides: node.instanceOverrides };
-  });
+  return {
+    resolve(
+      selections: ReadonlyMap<string, string> = new Map(),
+      skipFamilies: ReadonlySet<string> = new Set(),
+    ) {
+      if (!nodes.some((node) => node.variants)) return [...nodes];
+      return render(
+        nodes,
+        nodes.filter((node) => node.parentId === null),
+        [],
+        selections,
+        skipFamilies,
+      );
+    },
+    resolveSubtree(
+      rootId: string,
+      selections: ReadonlyMap<string, string> = new Map(),
+      skipFamilies: ReadonlySet<string> = new Set(),
+    ) {
+      const root = byId.get(rootId);
+      if (!root) throw new Error("Component root not found.");
+      const ancestors: DesignNode[] = [];
+      const seen = new Set([root.id]);
+      let parent = byId.get(root.parentId ?? "");
+      while (parent && !seen.has(parent.id)) {
+        seen.add(parent.id);
+        ancestors.push(parent);
+        parent = byId.get(parent.parentId ?? "");
+      }
+      return render(subtree(rootId), [root], ancestors.reverse(), selections, skipFamilies);
+    },
+  };
 }
 
 export function remapComponentVariants(
@@ -338,12 +428,14 @@ export function remapComponentVariants(
 export function standaloneVariants(
   nodes: readonly DesignNode[],
   root: DesignNode,
+  index?: ComponentIndex,
 ): ComponentVariants | undefined {
-  const family = componentFamily(nodes, root);
+  const family = componentFamily(nodes, root, index);
   if (!family) return undefined;
-  const ids = componentSubtreeIds(nodes, root.id);
-  const byId = new Map(nodes.map((node) => [node.id, node]));
-  const sourceIds = componentSubtreeIds(nodes, family.master.id);
+  const graph = index ?? createComponentIndex(nodes);
+  const ids = graph.subtreeIds(root.id);
+  const byId = graph.byId;
+  const sourceIds = graph.subtreeIds(family.master.id);
   const sourceToCopy = new Map(
     nodes
       .filter((node) => ids.has(node.id))

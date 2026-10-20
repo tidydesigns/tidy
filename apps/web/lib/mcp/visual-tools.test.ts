@@ -17,6 +17,7 @@ function setup() {
       revision: 4,
       content: document,
     })),
+    getDocumentRevision: mock(async (): Promise<{ revision: number } | null> => ({ revision: 4 })),
     getFileImage: mock(async () => ({
       revision: 4,
       fileId: "file",
@@ -65,10 +66,8 @@ describe("authenticated visual MCP export", () => {
       ).text();
       expect(value.html).toContain(license.trim());
     }
-    expect(backend.getDocument.mock.calls as unknown[][]).toEqual([
-      ["member", "file"],
-      ["member", "file"],
-    ]);
+    expect(backend.getDocument.mock.calls as unknown[][]).toEqual([["member", "file"]]);
+    expect(backend.getDocumentRevision.mock.calls as unknown[][]).toEqual([["member", "file"]]);
     expect(
       requiredMcpScopes({ method: "tools/call", params: { name: "export_visual_preview" } }),
     ).toEqual(["mcp:read"]);
@@ -79,9 +78,7 @@ describe("authenticated visual MCP export", () => {
     expect((await call()).isError).toBe(true);
     expect(backend.getFileImage).not.toHaveBeenCalled();
     const second = setup();
-    second.backend.getDocument
-      .mockResolvedValueOnce({ revision: 4, content: second.document })
-      .mockResolvedValueOnce(null);
+    second.backend.getDocumentRevision.mockResolvedValueOnce(null);
     expect((await second.call()).isError).toBe(true);
   });
   test("embeds assets once and reports missing images instead of leaking private URLs", async () => {
@@ -104,13 +101,11 @@ describe("authenticated visual MCP export", () => {
     expect(missing.content[0].text).not.toContain("private bucket diagnostic");
   });
   test("refuses mixed revisions and unknown variants", async () => {
-    const { backend, document, call } = setup();
+    const { backend, call } = setup();
     expect(
       (await call({ selections: [{ node_id: "new-thread", variant: "other" }] })).isError,
     ).toBe(true);
-    backend.getDocument
-      .mockResolvedValueOnce({ revision: 4, content: document })
-      .mockResolvedValueOnce({ revision: 5, content: document });
+    backend.getDocumentRevision.mockResolvedValueOnce({ revision: 5 });
     expect((await call()).content[0].text).toContain("changed during export");
   });
   test("escapes source content, strips private editor paths, and enforces UTF-8 payload size", () => {
@@ -194,6 +189,47 @@ describe("authenticated visual MCP export", () => {
     );
     expect(fonts.css).toContain("data:font/woff2;base64,AQID");
     expect(fonts.warnings).toEqual([]);
+  });
+  test("inactive variant typography and text retain all required font subsets", async () => {
+    const { document } = setup();
+    document.designTokens = {
+      alternateFont: {
+        type: "typography",
+        value: { fontFamily: "Instrument Serif", fontSource: "web", fontWeight: 400 },
+      },
+    };
+    document.nodes[0].variants!.options.secondary.children = {
+      label: {
+        text: "Unique Ω",
+        tokenBindings: { textStyle: "alternateFont" },
+      },
+    };
+    const fetcher = mock(async (input: string) =>
+      input.startsWith("https://fonts.googleapis.com/")
+        ? new Response(
+            '@font-face{font-family:"Instrument Serif";font-weight:400;src:url(https://fonts.gstatic.com/f.woff2)}',
+          )
+        : new Response(new Uint8Array([1, 2, 3])),
+    );
+    const views = visualPreviewViews(document, [
+      { node_id: "new-thread" },
+      { node_id: "new-thread", variant: "secondary" },
+    ]);
+    const before = JSON.stringify(document);
+    const fonts = await packagePreviewFonts(
+      views.map((view) => view.document),
+      fetcher,
+    );
+    const request = fetcher.mock.calls
+      .map((call) => new URL(call[0]))
+      .find((url) => url.hostname === "fonts.googleapis.com")!;
+    expect(request.searchParams.get("family")).toContain("Instrument Serif");
+    expect(request.searchParams.get("text")).toContain("Ω");
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fonts.warnings).toEqual([]);
+    expect(JSON.stringify(document)).toBe(before);
+    expect(views[0].initialVariant).not.toBe(views[1].initialVariant);
+    expect(views[0].document).toEqual(views[1].document);
   });
   test("generated runtime follows the shared renderer", async () => {
     const result = Bun.spawn(

@@ -8,7 +8,12 @@ import {
 import { composeComponent, componentTreeSchema } from "./compose-component";
 import { buttonExample } from "../mcp/design-tools";
 import { createComponentInstance, removeLayers } from "./document-operations";
-import { componentFamily, componentSubtreeIds, resolveVariantNodes } from "./component-variants";
+import {
+  componentFamily,
+  componentSubtreeIds,
+  resolveVariantNodes,
+  createVariantResolver,
+} from "./component-variants";
 import { syncComponentEdit } from "./component-sync";
 import { componentExportDocument, exportComponent } from "./code-export";
 import { layoutReport } from "./layout-diagnostics";
@@ -38,6 +43,54 @@ test("variant descendants are independent of document order and remain confined 
   document.nodes.push(outside);
   document.nodes[0].variants!.options.secondary.children = { outside: { text: "No" } };
   expect(() => parseDesignDocument(document)).toThrow("must belong");
+});
+
+test("scoped variant resolution matches full rendering with ancestors, copied families and overrides", () => {
+  const document = instance("secondary");
+  document.nodes.find((node) => node.id === "copy-0")!.parentId = "outer";
+  document.nodes.push({
+    ...document.nodes[0],
+    id: "outer",
+    name: "Outer",
+    semantics: undefined,
+    variants: {
+      default: "base",
+      options: {
+        base: {},
+        alternate: {
+          children: {
+            "copy-1": { text: "Parent label", style: { color: "#123456" } },
+          },
+        },
+      },
+    },
+  });
+  const copied = createComponentInstance(document, "outer", createId("nested"));
+  const nested = copied.document;
+  nested.nodes = syncComponentEdit(nested.nodes, "copy-1", { style: { color: "#abcdef" } });
+  // Adversarial ordering: descendants precede their parents.
+  const nodes = parseDesignDocument({ ...nested, nodes: [...nested.nodes].reverse() }).nodes;
+  const before = JSON.stringify(nodes);
+  const resolver = createVariantResolver(nodes);
+  for (const selections of [
+    new Map<string, string>(),
+    new Map([["outer", "alternate"]]),
+    new Map([
+      ["copy-0", "danger"],
+      [copied.rootId, "alternate"],
+    ]),
+  ]) {
+    for (const skip of [new Set<string>(), new Set(["outer", "copy-0"])]) {
+      const full = resolveVariantNodes(nodes, selections, skip);
+      for (const node of nodes) {
+        const ids = componentSubtreeIds(nodes, node.id);
+        expect(resolver.resolveSubtree(node.id, selections, skip)).toEqual(
+          full.filter((node) => ids.has(node.id)),
+        );
+      }
+    }
+  }
+  expect(JSON.stringify(nodes)).toBe(before);
 });
 
 function instance(variant = "secondary") {
