@@ -57,12 +57,29 @@ function cliError(stderr) {
 
 /** Emulate release operations while retaining calls and assets for safety assertions. */
 function fakeGitHub() {
-  const state = { release: null, commit: null, files: new Map(), calls: [], failUpload: false };
+  const state = {
+    release: null,
+    commit: null,
+    tag: null,
+    tags: new Map(),
+    files: new Map(),
+    calls: [],
+    failUpload: false,
+  };
   const gh = async (args) => {
     state.calls.push(args);
     if (args[0] === "api") {
-      if (!state.commit) throw cliError("gh: Not Found (HTTP 404)");
-      return JSON.stringify({ object: { type: "commit", sha: state.commit } });
+      if (args[1] === `repos/${identity.repository}/git/ref/tags/${identity.tag}`) {
+        if (!state.commit) throw cliError("gh: Not Found (HTTP 404)");
+        return JSON.stringify({ object: state.tag ?? { type: "commit", sha: state.commit } });
+      }
+      const prefix = `repos/${identity.repository}/git/tags/`;
+      if (args[1].startsWith(prefix)) {
+        const object = state.tags.get(args[1].slice(prefix.length));
+        if (!object) throw cliError("gh: Not Found (HTTP 404)");
+        return JSON.stringify({ object });
+      }
+      throw new Error(`Unexpected API path: ${args[1]}`);
     }
     const option = (name) => args[args.indexOf(name) + 1];
     switch (args[1]) {
@@ -294,6 +311,40 @@ test("publication cannot report success if its tag moves or disappears", async (
     };
     await assert.rejects(publishDesktopBeta({ directory, identity, gh }));
     assert.equal(state.release.isDraft, false);
+  }
+});
+
+test("annotated tags must resolve within five hops to the expected source commit", async (t) => {
+  for (const { depth, commit, malformed, accepted } of [
+    { depth: 1, commit: identity.commit, accepted: true },
+    { depth: 5, commit: identity.commit, accepted: true },
+    { depth: 1, commit: "b".repeat(40), accepted: false },
+    { depth: 6, commit: identity.commit, accepted: false },
+    { depth: 1, commit: identity.commit, malformed: true, accepted: false },
+  ]) {
+    const directory = await candidate(t);
+    const { state, gh } = fakeGitHub();
+    const hashes = Array.from({ length: depth }, (_, index) => String(index + 1).repeat(40));
+    state.commit = identity.commit;
+    state.tag = { type: "tag", sha: malformed ? "invalid-sha" : hashes[0] };
+    for (let index = 0; index < depth; index++) {
+      state.tags.set(
+        hashes[index],
+        index + 1 === depth
+          ? { type: "commit", sha: commit }
+          : { type: "tag", sha: hashes[index + 1] },
+      );
+    }
+    if (accepted) {
+      assert.equal((await publishDesktopBeta({ directory, identity, gh })).published, true);
+    } else {
+      await assert.rejects(publishDesktopBeta({ directory, identity, gh }), /release tag/i);
+      assert.equal(state.release, null, "invalid tags must fail before creating a release");
+    }
+    const tagLookups = state.calls.filter(
+      (args) => args[0] === "api" && args[1].startsWith(`repos/${identity.repository}/git/tags/`),
+    );
+    assert.equal(tagLookups.length > 0, !malformed);
   }
 });
 
