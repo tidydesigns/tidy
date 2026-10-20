@@ -19,6 +19,7 @@ const { blankDesignDocument } = await import("../design/document");
 const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
 const { linearReadFixture } = await import("./linear-read-fixture.ts");
 const { renameDesignFileForUser } = await import("../design/service");
+const { MCP_REQUEST_LIMITS } = await import("../security/resource-limits");
 const { withoutDatabaseScope, inDatabaseScope, scopedDatabaseClient } =
   await import("../database-scope");
 const testUrl = process.env.MCP_TEST_DATABASE_URL,
@@ -2139,6 +2140,95 @@ integration(
     expect(await calls()).toBe(3);
   },
 );
+
+integration("MCP input limits retain the supported 250-node import chunk", async () => {
+  const created = await responseMessage(
+    await request("tools/call", {
+      name: "create_import",
+      arguments: { organization_id: "org-a", file_id: "file-a", name: "Bounded import" },
+    }),
+  );
+  expect(created.result.isError).not.toBe(true);
+  const { designNodeSchema } = await import("../design/document");
+  const nodes = Array.from({ length: 250 }, (_, index) =>
+    designNodeSchema.parse({
+      id: `node-${index}`,
+      name: `Layer ${index}`,
+      type: "container",
+      parentId: null,
+      box: { x: index, y: 0, width: 10, height: 10 },
+    }),
+  );
+  const chunk = await responseMessage(
+    await request("tools/call", {
+      name: "put_import_chunk",
+      arguments: { import_id: created.result.structuredContent.importId, chunk_id: "0", nodes },
+    }),
+  );
+  expect(chunk.result.isError).not.toBe(true);
+  expect(chunk.result.structuredContent.nodeCount).toBe(250);
+});
+
+for (const kind of ["array", "record"])
+  integration(
+    `MCP rejects dense ${kind} arguments before tool validation and mutation`,
+    async () => {
+      const padding =
+        kind === "array"
+          ? Array(MCP_REQUEST_LIMITS.toolInputElements).fill(0)
+          : Object.fromEntries(
+              Array.from({ length: MCP_REQUEST_LIMITS.toolInputElements }, (_, index) => [
+                String(index),
+                0,
+              ]),
+            );
+      const params = {
+        name: "rename_file",
+        arguments: { file_id: "file-a", name: "Unsafe", padding },
+      };
+      expect(new TextEncoder().encode(JSON.stringify(params)).length).toBeLessThan(
+        MCP_REQUEST_LIMITS.bodyBytes,
+      );
+      const result = await responseMessage(await request("tools/call", params));
+      expect(result.result.isError).toBe(true);
+      expect(result.result.content[0].text).toContain("arguments contain more than the maximum");
+      expect(await fileName()).toBe("Original");
+      expect(await calls()).toBe(0);
+    },
+  );
+
+integration(
+  "concurrent HTTP clients with the same RPC id keep their own server authority",
+  async () => {
+    const results = await Promise.all(
+      Array.from({ length: 6 }, async (_, index) => {
+        const bob = index % 2 === 1;
+        const fileId = bob ? "file-b" : "file-a";
+        const response = await request(
+          "tools/call",
+          { name: "get_file", arguments: { file_id: fileId } },
+          bob ? { sub: "bob", client_id: "client-b", sid: "session-b" } : {},
+        );
+        const message = await responseMessage(response);
+        expect(message.id).toBe(1);
+        expect(message.result.isError).not.toBe(true);
+        expect(message.result.structuredContent.file.id).toBe(fileId);
+        expect(message.result.structuredContent.file.name).toBe(bob ? "Private" : "Original");
+        return fileId;
+      }),
+    );
+    expect(results).toHaveLength(6);
+    expect(await calls()).toBe(6);
+  },
+);
+
+integration("HTTP bearer authentication rejects tokens issued for another resource", async () => {
+  for (const aud of ["https://other-service.invalid/mcp", ["https://other-service.invalid/mcp"]]) {
+    const response = await request("tools/list", {}, { aud });
+    expect(response.status).toBe(401);
+    expect(await calls()).toBe(0);
+  }
+});
 
 for (const changes of [
   { sid: undefined },

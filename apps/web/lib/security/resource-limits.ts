@@ -1,4 +1,10 @@
 import { DESIGN_DOCUMENT_LIMITS } from "@tidy/design/document-limits";
+/** Bound MCP buffering and validation fan-out; large designs use 250-node import chunks. */
+export const MCP_REQUEST_LIMITS = {
+  bodyBytes: 4 * 1024 * 1024,
+  toolInputElements: 100_000,
+} as const;
+
 /** Hosted resource safety ceilings, independent of paid editing/file allowances. */
 export const IMPORT_LIMITS = {
   recordsPerOrganization: 100,

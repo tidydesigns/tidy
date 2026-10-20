@@ -11,7 +11,7 @@
     },
     "apps/desktop": {
       "name": "@tidy/desktop",
-      "version": "0.1.0",
+      "version": "0.1.0-beta.1",
       "dependencies": {
         "@tidy/design": "workspace:*",
         "@tidy/design-renderer": "workspace:*",
@@ -109,7 +109,7 @@
         "@better-auth/core": "1.7.7",
         "@better-auth/mcp": "1.7.7",
         "@better-auth/oauth-provider": "1.7.7",
-        "@modelcontextprotocol/server": "^2.1.0",
+        "@modelcontextprotocol/server": "^2.3.1",
         "@posthog/mcp": "0.22.3",
         "@tidy/design": "workspace:*",
         "@tidy/design-renderer": "workspace:*",
@@ -606,9 +606,9 @@
 
     "@malept/cross-spawn-promise": ["@malept/cross-spawn-promise@2.0.0", "", { "dependencies": { "cross-spawn": "^7.0.1" } }, "sha512-1DpKU0Z5ThltBwjNySMC14g0CkbyhCaz9FkhxqNsZI6uAPJXFS8cMXlBKo26FJ8ZuW6S9GCMcR9IO5k2X5/9Fg=="],
 
-    "@modelcontextprotocol/core": ["@modelcontextprotocol/core@2.1.0", "", { "dependencies": { "zod": "^4.2.0" } }, "sha512-YdFj5gMRHr0gYNAhTbQDgjLHiEJdIAUYxomhKseUNye7ZGlISQmUoLh2sveFFCiQ7j2YMffT1kgSND0FSfIFjQ=="],
+    "@modelcontextprotocol/core": ["@modelcontextprotocol/core@2.3.1", "", { "dependencies": { "zod": "^4.2.0" } }, "sha512-laVmIhPGpWi7rG9q+0UigblRN0Hws/Yjlb6qLFtVqryXVLkc4h+yN8z731POD2LnAGQlFe7/tXhUm7Bi0YB91g=="],
 
-    "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.1.0", "", { "dependencies": { "@modelcontextprotocol/core": "2.1.0", "zod": "^4.2.0" } }, "sha512-FdvwZU5N03O77Suh35JqjAqq5R1ZTEPFtwu6N4BgBq28qrQtrCnpbLL5U2pwYCuE194jAw0xnlOVmIqhfoYuUQ=="],
+    "@modelcontextprotocol/server": ["@modelcontextprotocol/server@2.3.1", "", { "dependencies": { "@modelcontextprotocol/core": "2.3.1", "zod": "^4.2.0" } }, "sha512-e59MfWuSssj6DoQ96JCTqdW1AXT5/XtnTl0WWd6MU1Ka434fFUGGosCLJbGNySDhHGvxQWoRWK137FXYFkYNWw=="],
 
     "@napi-rs/wasm-runtime": ["@napi-rs/wasm-runtime@1.2.4", "", { "dependencies": { "@tybys/wasm-util": "^0.10.3" }, "peerDependencies": { "@emnapi/core": "^1.7.1 || ^2.0.0-alpha.4", "@emnapi/runtime": "^1.7.1 || ^2.0.0-alpha.4" } }, "sha512-AJxoUD2/15ESHbvpcyjU274nsAPLuOtPHCk0vKJM5pj//Fg/B1FXNWjPnXTT9PymCYYiHo4zPj0ZomXBKhoy7g=="],
 

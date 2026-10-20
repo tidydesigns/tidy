@@ -1,3 +1,5 @@
+import { MCP_REQUEST_LIMITS } from "@/lib/security/resource-limits";
+
 const readTools = new Set([
   "list_organizations",
   "list_files",
@@ -77,7 +79,7 @@ export async function readMcpRequest(request: Request) {
       const { value, done } = await waitForSignal(reader.read(), signal);
       if (done) break;
       size += value.byteLength;
-      if (size > 4 * 1024 * 1024) throw new Error("The MCP request is too large.");
+      if (size > MCP_REQUEST_LIMITS.bodyBytes) throw new Error("The MCP request is too large.");
       chunks.push(value);
     }
     const body = new Uint8Array(size);

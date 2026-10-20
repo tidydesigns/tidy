@@ -1,4 +1,5 @@
 import { operationBudgetResponse } from "@/lib/security/operation-budget";
+import { MCP_REQUEST_LIMITS } from "@/lib/security/resource-limits";
 import { requireMcpAuth } from "@better-auth/mcp";
 import { createResourceServerChallenge } from "@better-auth/oauth-provider";
 import { APIError } from "better-auth/api";
@@ -34,6 +35,7 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
           new McpServer(
             { name: "Tidy canvas", version: "0.1.0" },
             {
+              maxToolInputElements: MCP_REQUEST_LIMITS.toolInputElements,
               cacheHints: {
                 "tools/list": { ttlMs: 300_000, cacheScope: "private" },
                 "resources/list": { ttlMs: 300_000, cacheScope: "private" },
@@ -64,11 +66,14 @@ function buildServer(userId: string, clientId: string, grant: McpGrant) {
 
 // The handler is shared; the SDK still constructs a fresh server and transport
 // for each request. Actor closures and grants never survive their request.
-const mcpHandler = createMcpHandler(() => {
-  const grant = currentMcpGrant();
-  if (!grant) throw new Error("Missing authenticated MCP context.");
-  return buildServer(grant.claims.sub as string, grant.claims.client_id as string, grant);
-});
+const mcpHandler = createMcpHandler(
+  () => {
+    const grant = currentMcpGrant();
+    if (!grant) throw new Error("Missing authenticated MCP context.");
+    return buildServer(grant.claims.sub as string, grant.claims.client_id as string, grant);
+  },
+  { maxRequestBodySize: MCP_REQUEST_LIMITS.bodyBytes },
+);
 
 async function grantFailure(
   claims: Record<string, unknown>,
