@@ -1,12 +1,21 @@
 "use client";
 
+import { selectionTranslationDelta, canReuseSelectionAncestors } from "./selection-translation";
+import { canvasTransform } from "../design/canvas-geometry";
 import { CornerRadiusHandles } from "./corner-radius-handles";
 import { supportsCornerRadius } from "../design/corner-radius";
 
 import { canvasElements } from "./canvas-elements";
 import { useEditorEvent } from "./use-editor-event";
 
-import { useLayoutEffect, useRef, useState, type PointerEvent, type RefObject } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 import type { DesignNode, DesignNodeChanges } from "../design/document";
 import {
   resizeBox,
@@ -51,6 +60,7 @@ type Gesture = {
 export function SelectionHandles({
   node,
   parent,
+  nodesById,
   viewport,
   view,
   snap,
@@ -63,6 +73,7 @@ export function SelectionHandles({
 }: {
   node: DesignNode;
   parent?: DesignNode;
+  nodesById: ReadonlyMap<string, DesignNode>;
   viewport: RefObject<HTMLDivElement | null>;
   view: { zoom: number; x: number; y: number };
   snap: boolean;
@@ -77,6 +88,26 @@ export function SelectionHandles({
   const gesture = useRef<Gesture | null>(null);
   const radiusGesture = useRef(false);
   const previewFrame = useFrameEvent(onPreview);
+  const measured = useRef<{
+    node: DesignNode;
+    ancestors: DesignNode[];
+    element: HTMLElement;
+    canvas: HTMLElement;
+    view: typeof view;
+    bounds: Bounds;
+    parentMatrix: DOMMatrix;
+  } | null>(null);
+  const ancestorNodes = useMemo(() => {
+    const result: DesignNode[] = [];
+    let current = nodesById.get(node.parentId ?? "");
+    while (current) {
+      result.push(current);
+      current = nodesById.get(current.parentId ?? "");
+    }
+    return result;
+  }, [nodesById, node.parentId]);
+  const ancestorKey = JSON.stringify(ancestorNodes.map((ancestor) => ancestor.id));
+  const ancestors = useEditorEvent(() => ancestorNodes);
   const measureBounds = useEditorEvent(() => {
     const canvas = viewport.current;
     const element = canvasElements(canvas).get(node.id);
@@ -95,7 +126,7 @@ export function SelectionHandles({
     const style = getComputedStyle(element!);
     const width = parseFloat(style.width),
       height = parseFloat(style.height);
-    setBounds({
+    const next: Bounds = {
       x: rect.left + rect.width / 2 - parent.left,
       y: rect.top + rect.height / 2 - parent.top,
       width,
@@ -103,20 +134,64 @@ export function SelectionHandles({
       matrix,
       box: renderedNodeBox(element!),
       parentSize: renderedParentSize(element!),
-    });
+    };
+    measured.current = {
+      node,
+      ancestors: ancestors(),
+      element,
+      canvas,
+      view,
+      bounds: next,
+      parentMatrix: element.parentElement
+        ? canvasTransform(element.parentElement, canvas)
+        : new DOMMatrix(),
+    };
+    setBounds(next);
   });
   useLayoutEffect(() => {
-    if (!radiusGesture.current) measureBounds();
-  }, [node, parent, viewport, view, measureBounds]);
+    if (radiusGesture.current) return;
+    const previous = measured.current;
+    const chain = ancestors();
+    const delta = previous && selectionTranslationDelta(previous.node, node);
+    if (
+      previous &&
+      delta &&
+      previous.canvas === viewport.current &&
+      previous.element === canvasElements(viewport.current).get(node.id) &&
+      previous.view.x === view.x &&
+      previous.view.y === view.y &&
+      previous.view.zoom === view.zoom &&
+      canReuseSelectionAncestors(chain) &&
+      chain.length === previous.ancestors.length &&
+      chain.every((ancestor, index) => ancestor === previous.ancestors[index]) &&
+      (!parent || parent.layout === "absolute" || node.positionMode === "absolute")
+    ) {
+      const { bounds, parentMatrix } = previous;
+      const next = {
+        ...bounds,
+        x: bounds.x + parentMatrix.a * delta.x + parentMatrix.c * delta.y,
+        y: bounds.y + parentMatrix.b * delta.x + parentMatrix.d * delta.y,
+        box: { ...bounds.box, x: bounds.box.x + delta.x, y: bounds.box.y + delta.y },
+      };
+      measured.current = { ...previous, node, bounds: next };
+      if (delta.x || delta.y) setBounds(next);
+      return;
+    }
+    measureBounds();
+  }, [node, parent, nodesById, viewport, view, measureBounds, ancestors]);
   useLayoutEffect(() => {
     const canvas = viewport.current;
     const element = canvasElements(canvas).get(node.id);
     if (!canvas || !element) return;
     const observer = new ResizeObserver(measureBounds);
     observer.observe(element);
+    for (const ancestor of ancestors()) {
+      const parentElement = canvasElements(canvas).get(ancestor.id);
+      if (parentElement) observer.observe(parentElement);
+    }
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [node.id, viewport, measureBounds]);
+  }, [node.id, ancestorKey, viewport, measureBounds, ancestors]);
 
   function begin(event: PointerEvent<HTMLButtonElement>, kind: Gesture["kind"]) {
     if (event.button !== 0 || !bounds || !viewport.current) return;

@@ -152,6 +152,7 @@ import {
   editLayers,
   isLayerLocked,
   previewMoveLayers,
+  prepareMoveLayersPreview,
   previewLayerChanges,
   selectionRoots,
   trackDocumentChanges,
@@ -774,7 +775,7 @@ export function FileEditor({
   );
   const [retainCanvasRoots] = useState(createCanvasRootCache);
   const retainedRootIds = retainCanvasRoots({ nodes: renderedNodes, visibleRootIds });
-  useDocumentFonts(renderedNodes, visibleRootIds);
+  useDocumentFonts(renderedNodes, visibleRootIds, renderedById);
   const selected = nodesById.get(selection ?? "") ?? null;
   const editedImage =
     imageTarget &&
@@ -2470,7 +2471,11 @@ export function FileEditor({
       equalJsonValues(start.preview.delta.guides, delta.guides)
     )
       return;
-    start.preview = { content: latest.content, delta, bypass, zoom: view.zoom };
+    const move =
+      start.preview?.content === latest.content
+        ? start.preview.move
+        : prepareMoveLayersPreview(latest.content, start.ids, start.geometry.parents);
+    start.preview = { content: latest.content, delta, bypass, zoom: view.zoom, move };
     const { x, y, guides } = delta;
     setSnapGuides(guides);
     setSpacingCues(
@@ -2478,7 +2483,7 @@ export function FileEditor({
         ? equalSpacingCues(start.geometry.bounds, delta, start.geometry.candidates, 1 / view.zoom)
         : [],
     );
-    const content = previewMoveLayers(latest.content, start.ids, x, y, start.geometry.parents);
+    const content = move(x, y);
     setSnapshot({ ...latest, content });
     room.publishPresence({
       action: "move",
@@ -4658,6 +4663,7 @@ export function FileEditor({
               <SelectionHandles
                 key={selected.id}
                 node={selected}
+                nodesById={renderedById}
                 parent={nodes.find((node) => node.id === selected.parentId)}
                 viewport={viewport}
                 view={view}
@@ -5221,6 +5227,7 @@ export function FileEditor({
               inspectorSelection.length > 0 && (
                 <InspectorGesture.Provider value={inspectorGestureControls}>
                   <SelectionInspector
+                    nodesById={renderedById}
                     key={[...selectedIds].sort().join(":")}
                     selected={inspectorSelection}
                     mode={readOnly ? "inspect" : inspectorMode}

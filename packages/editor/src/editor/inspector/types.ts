@@ -5,6 +5,7 @@ import type { Patch } from "../inspector-controls";
 
 export type SelectionInspectorProps = {
   selected: DesignNode[];
+  nodesById?: ReadonlyMap<string, DesignNode>;
   mode?: "design" | "inspect";
   document: DesignDocument;
   readOnly?: boolean;

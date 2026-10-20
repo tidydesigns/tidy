@@ -1,8 +1,7 @@
 "use client";
-import { memo, useEffect, useMemo } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import type { DesignDocument, DesignNode } from "../design/document";
 import {
-  documentFontReferences,
   fontIdentity,
   fontIdentityKey,
   replaceDocumentFont,
@@ -10,6 +9,7 @@ import {
 } from "../design/fonts/recovery";
 import { useFontRegistry } from "../design/fonts/use-document-fonts";
 import { mapConcurrent } from "../lib/map-concurrent";
+import { createFontReferenceSelector } from "./font-reference-selector";
 import { FontPicker } from "./font-picker";
 
 export const FontRecovery = memo(function FontRecovery({
@@ -20,7 +20,8 @@ export const FontRecovery = memo(function FontRecovery({
   onDocument: (update: (document: DesignDocument) => DesignDocument) => void;
 }) {
   const registry = useFontRegistry();
-  const references = useMemo(() => documentFontReferences(document), [document]);
+  const [selectReferences] = useState(createFontReferenceSelector);
+  const references = useMemo(() => selectReferences(document), [document, selectReferences]);
   useEffect(() => {
     let active = true;
     const unique = [

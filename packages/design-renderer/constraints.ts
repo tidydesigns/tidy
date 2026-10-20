@@ -1,6 +1,14 @@
 import type { DesignNode } from "@tidy/design/document";
 
-export function innerSize(node: DesignNode) {
+export type ConstraintParent = {
+  box: Pick<DesignNode["box"], "width" | "height">;
+  style: Pick<
+    DesignNode["style"],
+    "borderWidth" | "borderLeftWidth" | "borderRightWidth" | "borderTopWidth" | "borderBottomWidth"
+  >;
+};
+
+export function innerSize(node: ConstraintParent) {
   const border = node.style.borderWidth ?? 0;
   return {
     width: Math.max(
@@ -72,7 +80,7 @@ export function storedConstraintBox(
 /** Runtime CSS constraints also follow a parent's rendered fill size. */
 export function constraintStyle(
   node: DesignNode,
-  parent: DesignNode | undefined,
+  parent: ConstraintParent | undefined,
   absolute: boolean,
 ) {
   if (!absolute || !parent) return {};

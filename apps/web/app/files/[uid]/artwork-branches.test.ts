@@ -203,3 +203,34 @@ test("backdrop-dependent descendants prevent isolating the root paint context", 
   );
   expect(build(props(filtered))[0].backdropDependent).toBe(true);
 });
+
+test("moving and rotating a frame reuses descendant artwork while layout edits invalidate it", () => {
+  const build = createArtworkBranches();
+  const nodes = scene();
+  const initial = build(props(nodes));
+  const translated = nodes.map((node) =>
+    node.id === "left"
+      ? {
+          ...node,
+          box: { ...node.box, x: 150, y: 80 },
+          style: { ...node.style, rotation: 18 },
+        }
+      : node,
+  );
+  const moved = build(props(translated));
+  expect(moved[0]).not.toBe(initial[0]);
+  expect(moved[0].children[0]).toBe(initial[0].children[0]);
+  expect(moved).toEqual(createArtworkBranches()(props(translated)));
+  const resized = translated.map((node) =>
+    node.id === "left"
+      ? {
+          ...node,
+          box: { ...node.box, width: 700 },
+          style: { ...node.style, borderWidth: 4 },
+        }
+      : node,
+  );
+  const changed = build(props(resized));
+  expect(changed[0].children[0]).not.toBe(moved[0].children[0]);
+  expect(changed).toEqual(createArtworkBranches()(props(resized)));
+});

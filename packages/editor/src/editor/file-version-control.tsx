@@ -14,7 +14,7 @@ import { Icon } from "../components/ui/icon";
 import { SelectMenu } from "../components/ui/select-menu";
 import { TextField } from "../components/ui/text-field";
 import { DesignSnapshot } from "../components/github/design-snapshot";
-import { documentFontReferences } from "../design/fonts/recovery";
+import { createFontReferenceSelector } from "./font-reference-selector";
 import { useFontRegistry } from "../design/fonts/use-document-fonts";
 import { mapConcurrent } from "../lib/map-concurrent";
 import { openFeedback } from "../lib/feedback/commands";
@@ -32,7 +32,8 @@ const body = (value: unknown) => ({
 });
 function VersionFonts({ document }: { document: DesignDocument }) {
   const registry = useFontRegistry();
-  const references = useMemo(() => documentFontReferences(document), [document]);
+  const [selectReferences] = useState(createFontReferenceSelector);
+  const references = useMemo(() => selectReferences(document), [document, selectReferences]);
   useEffect(() => {
     let active = true;
     const release = registry.retainFamilies(

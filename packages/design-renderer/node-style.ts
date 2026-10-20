@@ -3,8 +3,11 @@ import { effectCss, shadowCss } from "@tidy/design/effects";
 import type { CSSProperties } from "react";
 import type { DesignNode } from "@tidy/design/document";
 import { nodeBackgroundPaint, paintBackground } from "./paints";
-import { constraintStyle } from "./constraints";
+import { constraintStyle, type ConstraintParent } from "./constraints";
 import { renderFontFamily } from "./font-family";
+
+export type ParentLayout = ConstraintParent &
+  Pick<DesignNode, "layout" | "wrap" | "gap" | "columnGap" | "rowGap">;
 
 function gridTrackStyle(track: NonNullable<DesignNode["gridColumnTracks"]>[number]) {
   return track.unit === "auto"
@@ -19,7 +22,7 @@ export function nodeStyle(
   node: DesignNode,
   parentLayout: DesignNode["layout"],
   tokens: Record<string, string>,
-  parent?: DesignNode,
+  parent?: ParentLayout,
   flowIndex = 0,
 ): CSSProperties {
   const backgroundPaint = nodeBackgroundPaint(node.style.paints);

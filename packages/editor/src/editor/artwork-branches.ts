@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { createParentLayouts, type ParentRenderLayout } from "./parent-layout";
 import type { DesignNode } from "../design/document";
 import { booleanRenderNode, vectorCompositeStyle } from "@tidy/design-renderer/vector-composites";
 
@@ -18,7 +19,7 @@ export type ArtworkBranchProps = {
 
 export type Branch = {
   node: DesignNode;
-  parent?: DesignNode;
+  parent?: ParentRenderLayout;
   flowIndex: number;
   viewportWidth: number;
   selected: boolean;
@@ -34,6 +35,7 @@ export type Branch = {
 /** Node identities and child lists describe immutable render snapshots. */
 export function createArtworkBranches() {
   const previous = new WeakMap<DesignNode, Branch>();
+  const layouts = createParentLayouts();
   let previousMap: ArtworkBranchProps["nodesById"] | undefined;
   let previousChildren: ArtworkBranchProps["childrenById"] | undefined;
   let allNodes: DesignNode[] = [];
@@ -62,7 +64,10 @@ export function createArtworkBranches() {
           }
       if (previousMap)
         for (const node of previousMap.values())
-          if (!props.nodesById.has(node.id)) mark(node.id, previousMap);
+          if (!props.nodesById.has(node.id)) {
+            mark(node.id, previousMap);
+            layouts.remove(node.id);
+          }
       for (const id of dirty) if (!props.nodesById.has(id)) dirty.delete(id);
       previousMap = props.nodesById;
       allNodes = [...props.nodesById.values()];
@@ -133,7 +138,8 @@ export function createArtworkBranches() {
         return null;
       const hidden = node.parentId === null && !props.visibleRootIds.has(node.id);
       const viewportWidth = node.type === "artboard" ? node.box.width : frameWidth;
-      const parent = props.nodesById.get(node.parentId ?? "");
+      const containingParent = props.nodesById.get(node.parentId ?? "");
+      const parent = layouts.get(containingParent, viewportWidth);
       const old = previous.get(node);
       // Changed descendants mark their ancestors. Unrelated subtrees need no
       // child traversal, boolean dependency collection, or SVG mask generation.
@@ -166,7 +172,7 @@ export function createArtworkBranches() {
         node,
         allNodes,
         props.tokens,
-        parent,
+        containingParent,
         (id) => props.previewAssetUrls?.[id] ?? `/api/assets/${id}`,
       );
       if (

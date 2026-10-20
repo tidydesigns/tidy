@@ -8,9 +8,14 @@ export function useFontRegistry() {
   useSyncExternalStore(fontRegistry.subscribe, fontRegistry.snapshot, fontRegistry.serverSnapshot);
   return fontRegistry;
 }
-export function useDocumentFonts(nodes?: DesignNode[], visibleRoots?: ReadonlySet<string>) {
+export function useDocumentFonts(
+  nodes?: DesignNode[],
+  visibleRoots?: ReadonlySet<string>,
+  nodesById?: ReadonlyMap<string, DesignNode>,
+) {
   const requests = useMemo(() => {
-    const byId = nodeIndex(nodes ?? []),
+    if (!nodes?.some((node) => node.type === "text")) return "[]";
+    const byId = nodesById ?? nodeIndex(nodes),
       visibility = new Map<string, boolean>();
     function visible(node: DesignNode): boolean {
       const cached = visibility.get(node.id);
@@ -40,7 +45,7 @@ export function useDocumentFonts(nodes?: DesignNode[], visibleRoots?: ReadonlySe
     return JSON.stringify(
       [...groups].map(([key, characters]) => [JSON.parse(key), [...characters].sort().join("")]),
     );
-  }, [nodes, visibleRoots]);
+  }, [nodes, visibleRoots, nodesById]);
   useEffect(() => {
     type Face = [
       string,

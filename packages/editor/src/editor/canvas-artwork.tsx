@@ -99,13 +99,7 @@ const ArtworkNode = memo(function ArtworkNode({
   }, [branch, handlers, node.id, node.parentId]);
   const rendered = responsiveNode(branch.painted, viewportWidth);
   const style: React.CSSProperties = {
-    ...nodeStyle(
-      rendered,
-      parent ? responsiveNode(parent, viewportWidth).layout : "absolute",
-      tokens,
-      parent ? responsiveNode(parent, viewportWidth) : undefined,
-      flowIndex,
-    ),
+    ...nodeStyle(rendered, parent?.layout ?? "absolute", tokens, parent, flowIndex),
     ...(editing ? { textDecoration: "none" } : {}),
     ...branch.composite,
     outline: selected

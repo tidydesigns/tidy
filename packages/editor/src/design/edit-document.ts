@@ -130,33 +130,29 @@ export function previewLayerChanges(
   return { ...document, nodes };
 }
 
-/** Prepare a move for a transaction; preserves lock, component and constraint semantics. */
-export function movedLayers(
-  document: DesignDocument,
-  ids: string[],
-  x: number,
-  y: number,
+function layerMovement(
+  node: DesignNode,
+  byId: ReadonlyMap<string, DesignNode>,
   renderedParents?: ReadonlyMap<string, { width: number; height: number }>,
-): DesignNode[] {
-  const byId = nodeIndex(document.nodes);
-  const roots = movableSelectionRoots(document.nodes, ids);
-  const changes = (node: DesignNode): DesignNodeChanges => {
-    const ancestors: DesignNode[] = [];
-    let parent = byId.get(node.parentId ?? "");
-    while (parent) {
-      ancestors.push(parent);
-      parent = byId.get(parent.parentId ?? "");
-    }
+) {
+  const ancestors: DesignNode[] = [];
+  let parent = byId.get(node.parentId ?? "");
+  while (parent) {
+    ancestors.push(parent);
+    parent = byId.get(parent.parentId ?? "");
+  }
+  ancestors.reverse();
+  const constraintParent = byId.get(node.parentId ?? "");
+  const actual = renderedParents?.get(node.id);
+  const reference = constraintParent && actual ? innerSize(constraintParent) : undefined;
+  return (x: number, y: number): DesignNodeChanges => {
     let delta = { x, y };
-    for (const ancestor of ancestors.reverse()) {
+    for (const ancestor of ancestors) {
       delta = rotatePoint(delta, -(ancestor.style.rotation ?? 0));
       if (ancestor.style.flipX) delta.x *= -1;
       if (ancestor.style.flipY) delta.y *= -1;
     }
-    const constraintParent = byId.get(node.parentId ?? "");
-    const actual = renderedParents?.get(node.id);
-    if (constraintParent && actual) {
-      const reference = innerSize(constraintParent);
+    if (reference && actual) {
       if (node.horizontalConstraint === "scale" && (!node.widthMode || node.widthMode === "fixed"))
         delta.x *= reference.width / actual.width;
       if (node.verticalConstraint === "scale" && (!node.heightMode || node.heightMode === "fixed"))
@@ -169,11 +165,50 @@ export function movedLayers(
       },
     };
   };
+}
+
+export function movedLayers(
+  document: DesignDocument,
+  ids: string[],
+  x: number,
+  y: number,
+  renderedParents?: ReadonlyMap<string, { width: number; height: number }>,
+): DesignNode[] {
+  const byId = nodeIndex(document.nodes);
   return changedLayers(
     document,
-    roots.map((node) => node.id),
-    changes,
+    movableSelectionRoots(document.nodes, ids).map((node) => node.id),
+    (node) => layerMovement(node, byId, renderedParents)(x, y),
   );
+}
+
+export function prepareMoveLayersPreview(
+  document: DesignDocument,
+  ids: string[],
+  renderedParents?: ReadonlyMap<string, { width: number; height: number }>,
+) {
+  const byId = nodeIndex(document.nodes);
+  const roots = movableSelectionRoots(document.nodes, ids);
+  const selected = new Set(roots.map((node) => node.id));
+  if (
+    roots.some((node) => node.isComponent || node.instanceOf || node.componentSourceId) ||
+    document.nodes.some((node) => node.componentSourceId && selected.has(node.componentSourceId))
+  )
+    return (x: number, y: number) => previewMoveLayers(document, ids, x, y, renderedParents);
+  const moves = roots.map((node) => ({
+    id: node.id,
+    changes: layerMovement(resolveNodeTokens(node, document), byId, renderedParents),
+  }));
+  const session = componentEditSession(document.nodes, document);
+  return (x: number, y: number): DesignDocument => {
+    for (const move of moves) session.edit(move.id, move.changes(x, y));
+    return {
+      ...document,
+      nodes: session
+        .finish()
+        .map((node) => (byId.get(node.id) === node ? node : designNodeSchema.parse(node))),
+    };
+  };
 }
 
 export function moveLayers(

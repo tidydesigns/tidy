@@ -1,3 +1,4 @@
+import type { prepareMoveLayersPreview } from "../design/edit-document";
 import type { DesignDocument, DesignNode } from "../design/document";
 import { boundingBox, createTranslationSnapState, type SnapBox } from "../design/snapping";
 import type { snapTranslation } from "../design/snapping";
@@ -79,6 +80,7 @@ export type LayerDrag = DragOrigin &
           delta: ReturnType<typeof snapTranslation>;
           bypass: boolean;
           zoom: number;
+          move: ReturnType<typeof prepareMoveLayersPreview>;
         } | null;
       }
   );

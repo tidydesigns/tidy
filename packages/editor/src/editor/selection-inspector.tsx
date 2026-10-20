@@ -20,6 +20,7 @@ import { AdvancedSection } from "./inspector/advanced-section";
 
 export const SelectionInspector = memo(function SelectionInspector({
   selected: sourceSelection,
+  nodesById,
   mode = "design",
   readOnly = false,
   document,
@@ -32,7 +33,7 @@ export const SelectionInspector = memo(function SelectionInspector({
   exportWarnings,
   ...actions
 }: SelectionInspectorProps) {
-  const selected = useRenderedSelection(sourceSelection, document, viewport);
+  const selected = useRenderedSelection(sourceSelection, document, viewport, nodesById);
   const inspect = readOnly || mode === "inspect";
   const { multi, text, image, vector, hasVector, containers } = selectionFeatures(selected);
   const identity = (

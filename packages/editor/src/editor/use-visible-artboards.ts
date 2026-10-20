@@ -73,11 +73,28 @@ export function useVisibleArtboards(
   }, [nodes, boundsStore]);
   useLayoutEffect(() => {
     if (boundsCache.has(nodes) || !viewport.current) return;
+    const bounds = new Map<string, DesignNode["box"]>();
+    const overflowing = nodes.filter(
+      (node) =>
+        node.parentId === null &&
+        node.visible &&
+        !(
+          node.type === "artboard" &&
+          node.style.overflow !== "visible" &&
+          node.style.overflow !== "auto" &&
+          !node.style.shadow &&
+          !node.style.shadows?.length &&
+          !node.style.blur
+        ),
+    );
+    if (!overflowing.length) {
+      boundsStore.publish(nodes, bounds);
+      return;
+    }
     const canvas = viewport.current,
       origin = canvas.getBoundingClientRect(),
       byId = nodeIndex(nodes);
-    const elements = canvasElements(canvas),
-      bounds = new Map<string, DesignNode["box"]>();
+    const elements = canvasElements(canvas);
     const effects = new Map<string, number>();
     const unbounded = new Set<string>();
     for (const node of nodes) {
@@ -103,19 +120,7 @@ export function useVisibleArtboards(
         );
       effects.set(root.id, Math.max(effects.get(root.id) ?? 0, extra));
     }
-    for (const node of nodes) {
-      if (node.parentId || !node.visible) continue;
-      // Clipped artboards already have deterministic model bounds. Free trees
-      // need their rendered descendant/text bounds so overflowing content survives.
-      if (
-        node.type === "artboard" &&
-        node.style.overflow !== "visible" &&
-        node.style.overflow !== "auto" &&
-        !node.style.shadow &&
-        !node.style.shadows?.length &&
-        !node.style.blur
-      )
-        continue;
+    for (const node of overflowing) {
       const element = elements.get(node.id);
       if (!element) continue;
       if (unbounded.has(node.id)) continue; // Unparsed legacy effects cannot be bounded here.
