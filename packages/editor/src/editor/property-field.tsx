@@ -113,7 +113,7 @@ export function PropertyField({
   };
   return (
     <div
-      className={`relative min-w-0 ${quiet ? "text-[11px]" : "text-[10px]"} text-secondary-ink ${compact ? "inspector-field flex h-8 items-center gap-2 rounded-md bg-hover-surface px-2 focus-within:ring-1 focus-within:ring-primary-orange" : ""} ${layout === "inline" ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3" : ""}`}
+      className={`relative min-w-0 ${quiet ? "text-[11px]" : "text-[10px]"} text-secondary-ink ${compact ? "flex h-8 items-center gap-2 rounded-md bg-hover-surface px-2 focus-within:ring-1 focus-within:ring-primary-orange" : ""} ${layout === "inline" ? "grid grid-cols-[64px_minmax(0,1fr)] items-center gap-x-3" : ""}`}
     >
       <label
         htmlFor={id}

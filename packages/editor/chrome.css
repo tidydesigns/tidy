@@ -273,20 +273,8 @@
   border-color: transparent;
   background: var(--color-hover-surface);
 }
-.quiet-inspector input[aria-label="Layer name"] {
-  font-weight: 600;
-}
 .quiet-inspector [data-inspector-font] button[role="combobox"] {
   margin-top: 0;
   border-color: transparent;
   background: var(--color-hover-surface);
-}
-
-.quiet-inspector .inspector-dimension svg {
-  width: 10px;
-  height: 10px;
-}
-.quiet-inspector .inspector-font-style svg {
-  width: 12px;
-  height: 12px;
 }

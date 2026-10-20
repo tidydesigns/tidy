@@ -309,10 +309,7 @@ export function FontPicker({
   );
   const missing = failed.some((node) => !retryable.includes(node));
   return (
-    <div
-      className={sizeControl ? "inspector-font-grid grid grid-cols-2 gap-2" : "space-y-2"}
-      data-inspector-font
-    >
+    <div className={sizeControl ? "grid grid-cols-2 gap-2" : "space-y-2"} data-inspector-font>
       <label className={`block text-[10px] text-secondary-ink ${sizeControl ? "col-span-2" : ""}`}>
         <span className={quiet ? "sr-only" : undefined} data-ph-public={replayLabel || undefined}>
           {familyOnly && onChoose ? "Replace throughout file" : label}
@@ -349,7 +346,7 @@ export function FontPicker({
             <div
               className={
                 quiet
-                  ? "inspector-font-style flex min-w-0 items-center gap-2 rounded-md bg-hover-surface px-2 text-[11px] text-secondary-ink"
+                  ? "flex min-w-0 items-center gap-2 rounded-md bg-hover-surface px-2 text-[11px] text-secondary-ink"
                   : "text-[10px] text-secondary-ink"
               }
             >
