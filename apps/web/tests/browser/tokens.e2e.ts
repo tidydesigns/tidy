@@ -299,7 +299,7 @@ test("picking an unselected layer copies alpha, blocks dragging and Delete, and 
   await page.getByRole("button", { name: "Open color palette", exact: true }).click();
   await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(card).toHaveCSS("cursor", "crosshair");
+  await expect(card).toHaveCSS("cursor", /eyedropper-cursor/);
   await page.keyboard.press("Delete");
   await expect(card).toBeVisible();
   await page.mouse.move(before.x + 20, before.y + 20);

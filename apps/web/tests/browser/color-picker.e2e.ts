@@ -79,10 +79,21 @@ test("eyedropper samples the canvas from a selection colour picker", async ({ pa
     .click();
   await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Colour picker", exact: true })).toHaveCount(0);
+  const canvas = page.getByLabel("Design canvas", { exact: true });
+  const heading = page.locator('[data-node-id="desktop-heading"]');
+  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
+  await expect(heading).toHaveCSS("cursor", /eyedropper-cursor/);
+  await canvas.click({ position: { x: 5, y: 150 } });
+  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
   const source = required(await page.locator('[data-node-id="desktop-screen"]').boundingBox());
   await page.mouse.click(source.x + 10, source.y + 10);
-  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
-    "color",
-    "rgb(242, 242, 240)",
-  );
+  await expect(heading).toHaveCSS("color", "rgb(242, 242, 240)");
+  await expect(canvas).not.toHaveCSS("cursor", /eyedropper-cursor/);
+  await page
+    .getByRole("button", { name: "Open selection colour #f2f2f0 palette", exact: true })
+    .click();
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await expect(canvas).toHaveCSS("cursor", /eyedropper-cursor/);
+  await page.keyboard.press("Escape");
+  await expect(canvas).not.toHaveCSS("cursor", /eyedropper-cursor/);
 });
