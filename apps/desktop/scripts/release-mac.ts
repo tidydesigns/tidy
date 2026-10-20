@@ -14,6 +14,7 @@ const execute = promisify(execFile);
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
 const identity = process.env.TIDY_MAC_SIGN_IDENTITY?.trim();
 const profile = process.env.TIDY_NOTARY_PROFILE?.trim();
+const keychain = process.env.TIDY_MAC_SIGN_KEYCHAIN?.trim();
 const resume = process.argv.slice(2).join(" ") === "--resume";
 if (process.argv.length > 2 && !resume) throw new Error("Usage: release-mac.ts [--resume]");
 
@@ -24,7 +25,11 @@ if (!profile)
   throw new Error("Set TIDY_NOTARY_PROFILE to a validated notarytool Keychain profile.");
 
 async function run(command: string, args: string[]) {
-  const result = await execute(command, args, { maxBuffer: 10 * 1024 * 1024 });
+  const keychainArgs =
+    command === "xcrun" && args[0] === "notarytool" && keychain
+      ? [...args, "--keychain", keychain]
+      : args;
+  const result = await execute(command, keychainArgs, { maxBuffer: 10 * 1024 * 1024 });
   return result.stdout;
 }
 
@@ -118,6 +123,7 @@ try {
     await sign({
       app,
       identity,
+      keychain,
       platform: "darwin",
       version: manifest.devDependencies.electron,
       preEmbedProvisioningProfile: false,
@@ -154,7 +160,13 @@ try {
     "-ov",
     artifact,
   ]);
-  await run("codesign", ["--sign", identity, "--timestamp", artifact]);
+  await run("codesign", [
+    "--sign",
+    identity,
+    "--timestamp",
+    ...(keychain ? ["--keychain", keychain] : []),
+    artifact,
+  ]);
   await notarize(artifact);
   await run("xcrun", ["stapler", "staple", artifact]);
   await run("xcrun", ["stapler", "validate", artifact]);

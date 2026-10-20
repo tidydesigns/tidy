@@ -68,8 +68,15 @@ The default package is for local development. The opt-in `release:desktop:mac`
 command signs, notarizes, staples and verifies a native-architecture macOS DMG
 using the operator's local signing identity and notarization Keychain profile.
 Public distribution still requires installer testing and a maintained release
-process; automatic updates and CI publishing are not configured. An unsigned
-package is not a public-release artifact.
+process. The opt-in [beta workflow](RELEASING.md) separates source verification,
+macOS signing, and publication into different jobs. Pull requests receive no
+signing secrets or release-write token. Signing uses a temporary Keychain on a
+GitHub-hosted runner, removed even on failure; only the publisher has
+`contents: write`, and it never receives Apple credentials. Publication validates
+the exact commit, version, allowed filenames, metadata and installer checksum.
+Published releases are never overwritten, and betas never become GitHub's stable
+Latest release. Automatic updates are not configured. An unsigned package is not
+a public-release artifact.
 
 Run from the repository root:
 

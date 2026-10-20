@@ -31,5 +31,8 @@ schema; stage incompatible changes across releases where possible. Application
 services enforce authorization, even when a caller already checked a page or
 route. Reuse existing custom UI components and preserve immediate interactions.
 
-Public CI runs with a read-only token and synthetic fixtures. It does not deploy.
+Pull-request CI runs with a read-only token and synthetic fixtures. It does not deploy.
+The separately enabled desktop beta workflow signs installers after changes reach
+`main`; only its publishing job has release-write permissions. See
+[desktop release setup](apps/desktop/RELEASING.md) before enabling it.
 Follow [SECURITY.md](SECURITY.md) for private vulnerability reports.

@@ -286,10 +286,11 @@ requires the existing app's version/build metadata, signature, notarization tick
 and Gatekeeper assessment to pass. Keep the source and build number unchanged.
 
 The command does not publish, install, or deploy anything. Test the DMG on another
-Mac before public distribution. This first candidate has manual updates; it does
-not configure automatic updates, CI signing, or website download links. Those
-are separate release steps. Existing `package:desktop` remains an unsigned local
-development package, including in pull-request CI.
+Mac before public distribution. The [desktop beta release workflow](RELEASING.md)
+can automate signing and publishing after merges to `main` once its environment
+is configured and enabled. These betas use manual updates; automatic updates and
+website download links are separate work. Existing `package:desktop` remains an
+unsigned local development package, including in pull-request CI.
 
 ## Shared foundations
 
