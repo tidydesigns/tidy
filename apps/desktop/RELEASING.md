@@ -113,6 +113,10 @@ all six assets, leave A running until its icon appears, then click it and confir
 B launches with projects and interrupted thread history intact. Also verify an
 ordinary quit/relaunch after staging. Unit and native security tests use synthetic
 fixtures and do not replace this signed distribution check.
+On Apple Silicon, `test:security` also runs the built main process with synthetic
+release discovery and native installer events. It checks trusted update-state
+delivery, restart failure recovery/retry, and ordinary quit cleanup. Other
+architectures skip this updater-specific fixture.
 
 Production sign-off is still pending. Exercise signed distribution on a fresh Mac
 and an existing installation, including an offline launch, network interruption

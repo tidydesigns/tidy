@@ -169,7 +169,7 @@ app.on("browser-window-created", (_event, window) => {
         assert.match(message, /Untrusted desktop request/);
       }
 
-      // Exercise automatic update delivery and its sole sidebar action with a synthetic state.
+      // Exercise renderer update-state rendering and its sidebar action with synthetic events.
       assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);
       for (const status of ["checking", "downloading", "installing"]) {
         page.send("tidy:update", { status, version: "0.1.0-beta.999" });
@@ -230,6 +230,9 @@ app.on("browser-window-created", (_event, window) => {
         const rect=document.querySelector('.app-update-button').getBoundingClientRect();
         return {x:Math.round(rect.x+rect.width/2),y:Math.round(rect.y+rect.height/2)};
       })()`);
+      // Escape may have dismissed an existing hover; start outside before entering again.
+      page.sendInputEvent({ type: "mouseMove", x: 350, y: 100 });
+      await wait("!document.querySelector('.app-update-control').matches(':hover')");
       page.sendInputEvent({ type: "mouseMove", ...updateBounds });
       await wait(
         "getComputedStyle(document.querySelector('.app-update-tooltip')).visibility==='visible'",
