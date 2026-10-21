@@ -6,6 +6,7 @@ import {
   traceLimits,
   traceSize,
   type RasterTrace,
+  type RasterTraceRequest,
   type TraceColors,
   type TraceStage,
 } from "./contract";
@@ -193,7 +194,7 @@ export async function traceImage(
               buffer: pixels.data.buffer,
               colors,
               lossy: mime === "image/jpeg",
-            },
+            } satisfies RasterTraceRequest,
             [pixels.data.buffer],
           );
       },

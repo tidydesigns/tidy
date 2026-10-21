@@ -1,23 +1,12 @@
 import { verifyRasterTrace } from "./quality";
 import { traceRaster } from "./trace";
-import type { TraceColors } from "./contract";
+import { rasterTraceRequestSchema } from "./contract";
 
-const worker = self as unknown as {
-  onmessage:
-    | ((
-        event: MessageEvent<{
-          width: number;
-          height: number;
-          buffer: ArrayBuffer;
-          colors: TraceColors;
-          lossy?: boolean;
-        }>,
-      ) => void)
-    | null;
-  postMessage: (message: unknown) => void;
-};
-worker.onmessage = ({ data }) => {
+self.addEventListener("message", (event: MessageEvent<unknown>) => {
   try {
+    const parsed = rasterTraceRequestSchema.safeParse(event.data);
+    if (!parsed.success) throw new Error("Invalid vectorisation request.");
+    const data = parsed.data;
     const image = {
       width: data.width,
       height: data.height,
@@ -32,7 +21,7 @@ worker.onmessage = ({ data }) => {
         : null;
     const original = context ? { ...image, data: image.data.slice() } : undefined;
     const trace = traceRaster(image, data.colors, { lossy: data.lossy });
-    worker.postMessage({
+    self.postMessage({
       trace: original
         ? verifyRasterTrace(original, trace, context, {
             automatic: data.colors === "auto",
@@ -42,8 +31,8 @@ worker.onmessage = ({ data }) => {
       verified: !!original,
     });
   } catch (error) {
-    worker.postMessage({
+    self.postMessage({
       error: error instanceof Error ? error.message : "Could not trace this image.",
     });
   }
-};
+});

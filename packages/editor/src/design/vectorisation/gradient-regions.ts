@@ -276,11 +276,27 @@ export function traceGradientRegions(
     p >= width ? p - width : -1,
     p < count - width ? p + width : -1,
   ];
-  const similar = (p: number, q: number) =>
-    Math.abs(data[p * 4 + 3] - data[q * 4 + 3]) <= 6 &&
-    [0, 1, 2].every((k) => Math.abs(data[p * 4 + k] - data[q * 4 + k]) <= 6);
-  for (let p = 0; p < count; p++)
-    if (data[p * 4 + 3] && neighbors(p).every((q) => q < 0 || similar(p, q))) core[p] = 1;
+  const similar = (p: number, q: number) => {
+    const a = p * 4,
+      b = q * 4;
+    return (
+      Math.abs(data[a + 3] - data[b + 3]) <= 6 &&
+      Math.abs(data[a] - data[b]) <= 6 &&
+      Math.abs(data[a + 1] - data[b + 1]) <= 6 &&
+      Math.abs(data[a + 2] - data[b + 2]) <= 6
+    );
+  };
+  for (let p = 0; p < count; p++) {
+    if (!data[p * 4 + 3]) continue;
+    const x = p % width;
+    if (
+      (x === 0 || similar(p, p - 1)) &&
+      (x === width - 1 || similar(p, p + 1)) &&
+      (p < width || similar(p, p - width)) &&
+      (p >= count - width || similar(p, p + width))
+    )
+      core[p] = 1;
+  }
   const regions: number[][] = [];
   for (let first = 0; first < count; first++) {
     if (!core[first] || labels[first] !== -1) continue;
@@ -304,9 +320,13 @@ export function traceGradientRegions(
     if (regions.length >= 32) return;
     regions.push(Array.from(queue.subarray(0, tail)));
   }
-  const models = regions.map((pixels, i) => fitRegion(image, pixels, labels, i));
-  if (!models.length || models.some((m) => !m) || !models.some((m) => m?.fill)) return;
-  const fitted = models as Model[];
+  const fitted: Model[] = [];
+  for (const [label, pixels] of regions.entries()) {
+    const model = fitRegion(image, pixels, labels, label);
+    if (!model) return;
+    fitted.push(model);
+  }
+  if (!fitted.some((model) => model.fill)) return;
   let head = 0,
     tail = 0;
   for (let p = 0; p < count; p++) if (labels[p] >= 0) queue[tail++] = p;

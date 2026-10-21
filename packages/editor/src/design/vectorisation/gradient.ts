@@ -125,9 +125,10 @@ export function fitRasterLinearGradient(
   )
     return;
   let total = 0,
-    maximum = 0;
+    interior = 0;
   for (let pixel = 0; pixel < width * height; pixel++) {
     const i = pixel * 4;
+    if (data[i + 3] >= alpha - 1) interior++;
     if (!data[i + 3]) continue;
     // Interior alpha must be one constant fill, apart from a narrow coverage edge.
     if (data[i + 3] < alpha - 1) {
@@ -149,12 +150,11 @@ export function fitRasterLinearGradient(
       y = (Math.floor(pixel / width) + 0.5) / height;
     for (let k = 0; k < 3; k++) {
       const error = Math.abs(planes[k].a * x + planes[k].b * y + planes[k].c - data[i + k]);
+      if (error > 6) return;
       total += error;
-      maximum = Math.max(maximum, error);
     }
   }
-  const interior = data.filter((_, i) => i % 4 === 3 && data[i] >= alpha - 1).length;
-  if (maximum > 6 || total / Math.max(1, interior * 3) > 1.5) return;
+  if (total / Math.max(1, interior * 3) > 1.5) return;
   const projections = samples.map((p) => (p.x - mx) * width * ux + (p.y - my) * height * uy);
   const minimum = Math.min(...projections),
     maximumProjection = Math.max(...projections);

@@ -23,6 +23,18 @@ function imageEditor(page: Page) {
   }
   return { root, panel, openImage };
 }
+async function exportSvg(page: Page) {
+  const exportSection = page
+    .locator("details")
+    .filter({ has: page.locator("summary").filter({ hasText: /^Export$/ }) })
+    .last();
+  if (!(await page.getByRole("button", { name: "svg", exact: true }).isVisible()))
+    await exportSection.locator("summary").click();
+  const download = page.waitForEvent("download");
+  await page.getByRole("button", { name: "svg", exact: true }).click();
+  return download;
+}
+
 for (const format of ["png", "jpeg", "webp"] as const) {
   test(`raster ${format}: conversion, adjustments, history and export`, async ({
     page,
@@ -65,8 +77,7 @@ for (const format of ["png", "jpeg", "webp"] as const) {
       `PASS ${format}: editable vector layers, appearance (MAE ${difference.toFixed(3)}), undo/redo`,
     );
     if (format === "png") {
-      const downloading = page.waitForEvent("download");
-      await page.getByRole("button", { name: "svg", exact: true }).click();
+      const downloading = exportSvg(page);
       const download = await downloading;
       const exported = await readFile((await download.path())!, "utf8");
 
@@ -196,7 +207,8 @@ for (const fixture of rasterShapeFixtures) {
       for (let i = 0; i < 19; i++) await page.keyboard.press("ArrowRight");
 
       for (let i = 0; i < 20; i++) await page.keyboard.press("ControlOrMeta+z");
-      const fill = page.getByLabel("Fill color", { exact: true });
+      await page.getByRole("button", { name: "Edit fill 1", exact: true }).click();
+      const fill = page.getByLabel("Fill color", { exact: true }).filter({ visible: true });
       await fill.fill("#ee5b32");
       await fill.press("Tab");
       await page.waitForFunction(() => {
@@ -249,8 +261,7 @@ test("small lettering and subpixel strokes survive conversion and native export"
   await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
   await panel.waitFor({ state: "hidden" });
   await root.locator("img[data-vector-path]").first().waitFor();
-  const downloading = page.waitForEvent("download");
-  await page.getByRole("button", { name: "svg", exact: true }).click();
+  const downloading = exportSvg(page);
   const svg = await readFile((await (await downloading).path())!, "utf8");
   expect(svg).not.toMatch(/<image|foreignObject/);
   const original = await sharp(png).ensureAlpha().raw().toBuffer();
@@ -343,8 +354,7 @@ for (const fixture of gradientRasterFixtures) {
     const vectors = root.locator("img[data-vector-path]");
     await vectors.first().waitFor();
     expect(await vectors.count()).toBeLessThanOrEqual(fixture.maxShapes);
-    const downloading = page.waitForEvent("download");
-    await page.getByRole("button", { name: "svg", exact: true }).click();
+    const downloading = exportSvg(page);
     const download = await downloading;
     const exported = await readFile((await download.path())!, "utf8");
     expect(exported).not.toMatch(/<image|foreignObject/);
@@ -366,7 +376,8 @@ for (const fixture of gradientRasterFixtures) {
     if (fixture.maxShapes === 1) {
       const name = await vectors.first().getAttribute("alt");
       await page.getByRole("button", { name: `Select ${name}`, exact: true }).click();
-      const stop = page.getByLabel("Stop 1 color", { exact: true });
+      await page.getByRole("button", { name: "Edit fill 1", exact: true }).click();
+      const stop = page.getByLabel("Stop 1 color", { exact: true }).filter({ visible: true });
       await stop.fill("#ff0000");
       await stop.press("Tab");
       await expect.poll(() => vectors.first().getAttribute("src")).toContain("%23ff0000");
@@ -401,8 +412,7 @@ test("coastal illustration: smooth shading preserves thin highlights and stays e
   const vectors = root.locator("img[data-vector-path]");
   await vectors.first().waitFor();
   expect(await vectors.count()).toBeLessThan(48);
-  const downloading = page.waitForEvent("download");
-  await page.getByRole("button", { name: "svg", exact: true }).click();
+  const downloading = exportSvg(page);
   const download = await downloading;
   const exported = await readFile((await download.path())!, "utf8");
   expect(exported).toContain("linearGradient");
@@ -489,7 +499,8 @@ for (const { fixture, format } of cases) {
     if (fixture.id === "linear-gradient") {
       assert.ok(geometry[0].svg.includes("linearGradient"));
       await page.getByRole("button", { name: "Select Ellipse", exact: true }).click();
-      const stop = page.getByLabel("Stop 1 color", { exact: true });
+      await page.getByRole("button", { name: "Edit fill 1", exact: true }).click();
+      const stop = page.getByLabel("Stop 1 color", { exact: true }).filter({ visible: true });
       await stop.fill("#ff0000");
       await stop.press("Tab");
       await page.waitForFunction(() =>
@@ -508,8 +519,7 @@ for (const { fixture, format } of cases) {
       assert.ok(path, "Generated SVG contains a path");
       assert.equal(parsePathContours(path[1]).length, 3, "Preserves both intentional holes");
     }
-    const downloading = page.waitForEvent("download");
-    await page.getByRole("button", { name: "svg", exact: true }).click();
+    const downloading = exportSvg(page);
     const downloaded = await downloading,
       svg = await readFile((await downloaded.path())!, "utf8");
     assert.ok(!svg.includes("<image") && !svg.includes("foreignObject"));
@@ -528,3 +538,191 @@ for (const { fixture, format } of cases) {
     console.log(`PASS ${id}: ${geometry.length} shapes, ${geometry.map((p) => p.name).join(", ")}`);
   });
 }
+
+test("small antialiased circles and one-pixel accents retain compact editable geometry", async ({
+  page,
+  baseURL,
+}) => {
+  const source =
+    '<svg xmlns="http://www.w3.org/2000/svg" width="624" height="380"><rect width="624" height="380" fill="#fff"/><circle cx="100.25" cy="100.5" r="2" fill="#087f68"/><rect x="200" y="100" width="1" height="1" fill="#e02040"/><rect x="300" y="100" width="80" height="80" fill="#087f68"/></svg>';
+  const image = await sharp(Buffer.from(source)).png().toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: image, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  const { root, panel, openImage } = imageEditor(page);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  const vectors = root.locator("img[data-vector-path]");
+  await expect(vectors).toHaveCount(4);
+  const download = await exportSvg(page);
+  const exported = await readFile((await download.path())!, "utf8");
+  await test.info().attach("small-shapes.svg", { body: exported, contentType: "image/svg+xml" });
+  assert.ok(!exported.includes("<image"));
+  const rendered = await sharp(Buffer.from(exported)).ensureAlpha().raw().toBuffer();
+  const original = await sharp(image).ensureAlpha().raw().toBuffer();
+  assert.equal(rendered.length, original.length);
+  for (const [left, top, size] of [
+    [97, 97, 7],
+    [199, 99, 3],
+  ]) {
+    let difference = 0;
+    for (let y = top; y < top + size; y++)
+      for (let x = left; x < left + size; x++)
+        for (let channel = 0; channel < 4; channel++) {
+          const index = (y * 624 + x) * 4 + channel;
+          difference += Math.abs(rendered[index] - original[index]);
+        }
+    assert.ok(
+      difference / (size * size * 4) < 2,
+      `small shape at ${left},${top} retains its appearance: ${difference / (size * size * 4)}`,
+    );
+  }
+  await page.keyboard.press("ControlOrMeta+z");
+  await root.locator("[data-adjustable-image]").waitFor();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(vectors).toHaveCount(4);
+});
+
+test("a malformed worker request preserves the image and allows retry", async ({
+  page,
+  baseURL,
+}) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    let corruptNextRequest = true;
+    window.Worker = class extends NativeWorker {
+      postMessage(message: unknown, transfer: Transferable[] | StructuredSerializeOptions = {}) {
+        if (
+          corruptNextRequest &&
+          typeof message === "object" &&
+          message !== null &&
+          "buffer" in message
+        ) {
+          corruptNextRequest = false;
+          message = { ...message, width: NaN };
+        }
+        if (Array.isArray(transfer)) super.postMessage(message, transfer);
+        else super.postMessage(message, transfer);
+      }
+    };
+  });
+  const image = await sharp(Buffer.from(artwork)).png().toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: image, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  const { root, panel, openImage } = imageEditor(page);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await expect(panel.getByRole("alert")).toHaveText("Invalid vectorisation request.");
+  await expect(root.locator("img[data-vector-path]")).toHaveCount(0);
+  await expect(root.locator("[data-adjustable-image]")).toBeVisible();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  await root.locator("img[data-vector-path]").first().waitFor();
+});
+
+test("smooth silhouettes export fewer native curve points", async ({ page, baseURL }) => {
+  const points = Array.from({ length: 360 }, (_, i) => {
+    const angle = (i * Math.PI) / 180,
+      radius = 80 + 12 * Math.cos(3 * angle);
+    return `${312 + Math.cos(angle) * radius},${190 + Math.sin(angle) * radius}`;
+  });
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="624" height="380"><polygon points="${points.join(" ")}" fill="#087f68"/></svg>`;
+  const image = await sharp(Buffer.from(source)).png().toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: image, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  const { root, panel, openImage } = imageEditor(page);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  const vectors = root.locator("img[data-vector-path]");
+  await expect(vectors).toHaveCount(1);
+  const download = await exportSvg(page);
+  const svg = await readFile((await download.path())!, "utf8");
+  expect(svg).not.toMatch(/<image|foreignObject/);
+  const data = await vectors.first().getAttribute("src");
+  assert.ok(data);
+  const geometry = decodeURIComponent(data.slice(data.indexOf(",") + 1)).match(
+    /<path\b[^>]*\sd="([^"]*)"/,
+  );
+  assert.ok(geometry);
+  expect(
+    parsePathContours(geometry[1]).reduce((sum, contour) => sum + contour.points.length, 0),
+  ).toBeLessThanOrEqual(27);
+  const original = new Uint8ClampedArray(await sharp(image).ensureAlpha().raw().toBuffer());
+  const rendered = new Uint8ClampedArray(
+    await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer(),
+  );
+  const quality = measureRasterTrace({ width: 624, height: 380, data: original }, rendered);
+  expect(quality.meanError).toBeLessThan(0.3);
+  expect(quality.alphaError).toBeLessThan(0.2);
+  await page.keyboard.press("ControlOrMeta+z");
+  await root.locator("[data-adjustable-image]").waitFor();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(vectors).toHaveCount(1);
+});
+
+test("dense illustration retains hundreds of details in bounded native layers", async ({
+  page,
+  baseURL,
+}) => {
+  const windows = Array.from(
+    { length: 300 },
+    (_, i) =>
+      `<rect x="${80 + (i % 20) * 23}" y="${55 + Math.floor(i / 20) * 18}" width="5" height="5" fill="${i % 3 ? "#f6c85f" : "#ffffff"}"/>`,
+  ).join("");
+  const source = `<svg xmlns="http://www.w3.org/2000/svg" width="624" height="380"><rect width="624" height="380" fill="#e8edf3"/><rect x="60" y="35" width="500" height="310" fill="#23486a"/>${windows}</svg>`;
+  const image = await sharp(Buffer.from(source)).png().toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: image, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  const { root, panel, openImage } = imageEditor(page);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  const vectors = root.locator("img[data-vector-path]");
+  await vectors.first().waitFor();
+  const count = await vectors.count();
+  expect(count).toBeLessThanOrEqual(8);
+  const download = await exportSvg(page);
+  const svg = await readFile((await download.path())!, "utf8");
+  await test.info().attach("dense-export.svg", { body: svg, contentType: "image/svg+xml" });
+  expect(svg).not.toMatch(/<image|foreignObject/);
+  const original = new Uint8ClampedArray(await sharp(image).ensureAlpha().raw().toBuffer());
+  const rendered = new Uint8ClampedArray(
+    await sharp(Buffer.from(svg)).ensureAlpha().raw().toBuffer(),
+  );
+  const frameMask = Buffer.from(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="624" height="380"><rect width="624" height="380" rx="8" fill="white"/></svg>',
+  );
+  const framedOriginal = new Uint8ClampedArray(
+    await sharp(image)
+      .composite([{ input: frameMask, blend: "dest-in" }])
+      .ensureAlpha()
+      .raw()
+      .toBuffer(),
+  );
+  const quality = measureRasterTrace({ width: 624, height: 380, data: framedOriginal }, rendered);
+  await test.info().attach("dense-quality.json", {
+    body: JSON.stringify(quality),
+    contentType: "application/json",
+  });
+  expect(quality.meanError).toBeLessThan(0.5);
+  expect(quality.alphaError).toBe(0);
+  expect(quality.worstTileError).toBeLessThan(1);
+  expect(quality.detailLoss).toBeLessThan(0.01);
+  for (let i = 0; i < 300; i++) {
+    const offset = ((57 + Math.floor(i / 20) * 18) * 624 + 82 + (i % 20) * 23) * 4;
+    expect(rendered.slice(offset, offset + 4)).toEqual(original.slice(offset, offset + 4));
+  }
+  await page.keyboard.press("ControlOrMeta+z");
+  await root.locator("[data-adjustable-image]").waitFor();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(vectors).toHaveCount(count);
+});

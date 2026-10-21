@@ -19,11 +19,18 @@ export function elementMatrix(
   const raw = new DOMMatrix(style.transform === "none" ? undefined : style.transform),
     origin = style.transformOrigin.split(" ").map(parseFloat);
   const parent = element.offsetParent instanceof HTMLElement ? element.offsetParent : null;
+  const left = parseFloat(style.left),
+    top = parseFloat(style.top);
+  const x =
+    style.position === "absolute" && Number.isFinite(left)
+      ? left + (parseFloat(style.marginLeft) || 0)
+      : element.offsetLeft;
+  const y =
+    style.position === "absolute" && Number.isFinite(top)
+      ? top + (parseFloat(style.marginTop) || 0)
+      : element.offsetTop;
   return matrixMultiply(
-    translate(
-      element.offsetLeft + (parent?.clientLeft ?? 0),
-      element.offsetTop + (parent?.clientTop ?? 0),
-    ),
+    translate(x + (parent?.clientLeft ?? 0), y + (parent?.clientTop ?? 0)),
     matrixMultiply(
       translate(origin[0] || 0, origin[1] || 0),
       matrixMultiply(

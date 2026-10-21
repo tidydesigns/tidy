@@ -75,20 +75,32 @@ export function fitRasterShape(contour: VectorContour): { contour: VectorContour
     }
   }
   const ellipseResidual = (angle: number) => {
-    const points = samples.map((point) => rotatePoint(point, angle));
-    const left = Math.min(...points.map((p) => p.x)),
-      right = Math.max(...points.map((p) => p.x));
-    const top = Math.min(...points.map((p) => p.y)),
-      bottom = Math.max(...points.map((p) => p.y));
+    const c = Math.cos(angle),
+      s = Math.sin(angle);
+    let left = Infinity,
+      right = -Infinity,
+      top = Infinity,
+      bottom = -Infinity;
+    for (const point of samples) {
+      const x = (point.x - center.x) * c - (point.y - center.y) * s,
+        y = (point.x - center.x) * s + (point.y - center.y) * c;
+      left = Math.min(left, x);
+      right = Math.max(right, x);
+      top = Math.min(top, y);
+      bottom = Math.max(bottom, y);
+    }
     const rx = (right - left) / 2,
       ry = (bottom - top) / 2;
     if (Math.min(rx, ry) < 3) return Infinity;
-    return points.reduce(
-      (sum, p) =>
-        sum +
-        (Math.hypot((p.x - (left + right) / 2) / rx, (p.y - (top + bottom) / 2) / ry) - 1) ** 2,
-      0,
-    );
+    const cx = (left + right) / 2,
+      cy = (top + bottom) / 2;
+    let error = 0;
+    for (const point of samples) {
+      const x = (point.x - center.x) * c - (point.y - center.y) * s,
+        y = (point.x - center.x) * s + (point.y - center.y) * c;
+      error += (Math.hypot((x - cx) / rx, (y - cy) / ry) - 1) ** 2;
+    }
+    return error;
   };
   let ellipseAngle = 0,
     ellipseError = ellipseResidual(0);
@@ -229,7 +241,6 @@ function fitAxisAligned(
       `M ${cx + rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx - rx} ${cy} A ${rx} ${ry} 0 1 1 ${cx + rx} ${cy} Z`,
       "Ellipse",
     );
-  // Fit a uniform corner radius using the rounded rectangle's signed distance.
   const error = (radius: number) =>
     Math.max(
       ...samples.map((p) => {

@@ -48,7 +48,7 @@ export function recoverRasterOcclusion(
   const measure = (path: Path) => {
     let cached = geometry.get(path);
     if (!cached) {
-      const samples = sampleRasterContour(path.vectorPath.contours![0]);
+      const samples = path.vectorPath.contours!.flatMap(sampleRasterContour);
       const boundary = hull(samples);
       cached = { samples, hull: boundary, area: area(boundary) };
       geometry.set(path, cached);
@@ -61,13 +61,18 @@ export function recoverRasterOcclusion(
     if (
       removed.has(path) ||
       path.opacity !== 1 ||
+      path.vectorPath.contours!.length !== 1 ||
       (path.name && path.name !== "Polygon" && path.name !== "Triangle")
     ) {
       if (!removed.has(path)) output.push(path);
       continue;
     }
     const siblings = paths.filter(
-      (p) => p.opacity === 1 && p.color === path.color && !removed.has(p),
+      (p) =>
+        p.opacity === 1 &&
+        p.vectorPath.contours!.length === 1 &&
+        p.color === path.color &&
+        !removed.has(p),
     );
     const all = hull(siblings.flatMap((p) => measure(p).samples));
     // Collapse near-collinear raster artefacts before testing a triangle hypothesis.

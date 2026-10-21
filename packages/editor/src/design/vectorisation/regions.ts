@@ -21,12 +21,32 @@ function thinFeature(data: Uint8ClampedArray, pixel: number, width: number) {
     if (offset === 1 && (x === 0 || x === width - 1)) continue;
     const before = i - offset * 4,
       after = i + offset * 4;
-    if (before < 0 || after >= data.length || data[before + 3] !== 255 || data[after + 3] !== 255)
-      continue;
-    for (let k = 0; k < 3; k++) {
-      const a = data[i + k] - data[before + k],
-        b = data[i + k] - data[after + k];
+    if (before < 0 || after >= data.length) continue;
+    for (let k = 0; k < 4; k++) {
+      const value = data[i + k];
+      const a = value - (k === 3 ? data[before + k] : (data[before + k] * data[before + 3]) / 255),
+        b = value - (k === 3 ? data[after + k] : (data[after + k] * data[after + 3]) / 255);
       if ((a > 12 && b > 12) || (a < -12 && b < -12)) return true;
+    }
+  }
+  return false;
+}
+
+function compactCore(data: Uint8ClampedArray, pixel: number, width: number) {
+  const x = pixel % width,
+    height = data.length / 4 / width,
+    y = Math.floor(pixel / width);
+  if (data[pixel * 4 + 3] !== 255) return false;
+  for (const dx of [-1, 1]) {
+    if (x + dx < 0 || x + dx >= width) continue;
+    for (const dy of [-1, 1]) {
+      if (y + dy < 0 || y + dy >= height) continue;
+      if (
+        nearRgba(data, pixel * 4, (pixel + dx) * 4) &&
+        nearRgba(data, pixel * 4, (pixel + dy * width) * 4) &&
+        nearRgba(data, pixel * 4, (pixel + dx + dy * width) * 4)
+      )
+        return true;
     }
   }
   return false;
@@ -46,6 +66,7 @@ function palette(
     number,
     {
       color: TraceColor;
+      pixel: number;
       count: number;
       peak: number;
       core: number;
@@ -105,6 +126,7 @@ function palette(
       }
     } else
       histogram.set(key, {
+        pixel,
         color: { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3] },
         count: 1,
         peak: 1,
@@ -113,6 +135,15 @@ function palette(
         samples: new Map([[sample, 1]]),
       });
   }
+  if (!lossy)
+    for (const entry of histogram.values())
+      if (
+        entry.core < 2 &&
+        entry.count >= 4 &&
+        entry.count <= 64 &&
+        compactCore(data, entry.pixel, imageWidth)
+      )
+        entry.core = 4;
   const sorted = [
     ...[...histogram.values()].map((entry) => ({ ...entry, stable: false })),
     ...[...solidCores.values()]
@@ -128,7 +159,11 @@ function palette(
   ].sort((a, b) => b.count - a.count);
   // Do not spend the requested palette on isolated compression noise or edge colours.
   const remaining = sorted.filter(
-    (entry, index) => index === 0 || entry.core >= 4 || entry.count >= 4,
+    (entry, index) =>
+      index === 0 ||
+      entry.core >= 4 ||
+      entry.count >= 4 ||
+      (!lossy && entry.color.a === 255 && entry.detail > 0),
   );
   const chosen: TraceColor[] = transparent ? [{ r: 0, g: 0, b: 0, a: 0 }] : [];
   const distance = (a: TraceColor, b: TraceColor) =>
@@ -177,7 +212,7 @@ function palette(
         isEdgeBlend(remaining[i]) ||
         // Repeated opaque samples can be deliberate small lossless accents.
         (!remaining[i].stable &&
-          remaining[i].detail < 4 &&
+          remaining[i].detail === 0 &&
           (lossy || remaining[i].color.a !== 255 || remaining[i].peak < 4) &&
           remaining[i].core < 2 &&
           remaining[i].count < visiblePixels * 0.003)

@@ -1,4 +1,4 @@
-import tracer, { type TracePath } from "imagetracerjs";
+import tracer, { type TracePath, type TraceColor } from "imagetracerjs";
 import {
   serializeContours,
   type VectorAnchor,
@@ -6,12 +6,18 @@ import {
 } from "@tidy/design/vector-geometry";
 import { recoverRasterOcclusion } from "./occlusion";
 import { refineRasterCoverage } from "./coverage";
+import { simplifyRasterPaths } from "./simplify";
+import { recoverSmallRasterEllipses } from "./small-ellipses";
 import { fitRasterShape } from "./shape-fit";
 import { fitRasterLinearGradient, fitRasterOpacityGradient } from "./gradient";
 import { traceGradientRegions } from "./gradient-regions";
 import { prepareRasterRegions } from "./regions";
 import { designNodeSchema } from "../document";
 import { traceLimits, type TraceColors, type RasterTrace } from "./contract";
+
+function rgbaKey(color: TraceColor) {
+  return ((color.r << 24) | (color.g << 16) | (color.b << 8) | color.a) >>> 0;
+}
 
 function contour(path: TracePath, id: string): VectorContour {
   if (!path.segments.length || path.segments.length > 1000)
@@ -45,10 +51,9 @@ function contour(path: TracePath, id: string): VectorContour {
   return { id, closed: true, points };
 }
 
-/** Keep disconnected coverage fragments in bounded compound paths. Full-size
- * objects stay independent; one-pixel edge fragments need not consume a layer each. */
 function compactDetails(paths: RasterTrace["paths"]) {
   const result: RasterTrace["paths"] = [];
+  const dense = paths.length > traceLimits.paths / 2;
   const merged = new Set<RasterTrace["paths"][number]>();
   let group: RasterTrace["paths"][number] | undefined;
   for (const path of paths) {
@@ -56,12 +61,14 @@ function compactDetails(paths: RasterTrace["paths"]) {
     const points = contours.flatMap((c) => c.points);
     const xs = points.map((p) => p.x),
       ys = points.map((p) => p.y);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const height = Math.max(...ys) - Math.min(...ys);
     const small =
       path.opacity === 1 &&
       !path.fill &&
       points.length <= 16 &&
-      (Math.max(...xs) - Math.min(...xs) <= 2 || Math.max(...ys) - Math.min(...ys) <= 2);
-    if (!small || group?.color !== path.color) group = undefined;
+      (width <= 2 || height <= 2 || (dense && contours.length === 1 && width <= 8 && height <= 8));
+    if (path.opacity !== 1 || path.fill || group?.color !== path.color) group = undefined;
     if (
       small &&
       group &&
@@ -74,7 +81,7 @@ function compactDetails(paths: RasterTrace["paths"]) {
     } else {
       const copy = { ...path, vectorPath: { ...path.vectorPath, contours: [...contours] } };
       result.push(copy);
-      group = small ? copy : undefined;
+      if (small) group = copy;
     }
   }
   for (const path of merged) path.vectorPath.d = serializeContours(path.vectorPath.contours!);
@@ -149,20 +156,41 @@ export function traceRaster(
   }
   const original = { ...image, data: image.data.slice() };
   const seeds = prepareRasterRegions(image, colors, !!options.lossy);
-  const result = tracer.imagedataToTracedata(image, {
-    pal: seeds,
-    colorsampling: 0,
-    colorquantcycles: 1,
-    mincolorratio: 0,
-    layering: 0,
-    ltres: 1,
-    qtres: 1,
-    // Lossless artwork may contain deliberate one-pixel-wide accents.
-    pathomit: options.lossy ? 8 : 0,
-    rightangleenhance: true,
-    blurradius: 0,
-    strokewidth: 0,
-  });
+  const paletteIndices = new Map(seeds.map((color, index) => [rgbaKey(color), index]));
+  const indexed = {
+    palette: seeds,
+    array: Array.from({ length: image.height + 2 }, () =>
+      new Array<number>(image.width + 2).fill(-1),
+    ),
+  };
+  for (let y = 0; y < image.height; y++)
+    for (let x = 0; x < image.width; x++) {
+      const i = (y * image.width + x) * 4;
+      const key =
+        ((image.data[i] << 24) |
+          (image.data[i + 1] << 16) |
+          (image.data[i + 2] << 8) |
+          image.data[i + 3]) >>>
+        0;
+      const index = paletteIndices.get(key);
+      if (index === undefined) throw new Error("Trace region has no palette colour.");
+      indexed.array[y + 1][x + 1] = index;
+    }
+  const result = {
+    palette: seeds,
+    layers: seeds.map((color, index) =>
+      color.a
+        ? tracer.batchtracepaths(
+            tracer.internodes(
+              tracer.pathscan(tracer.layeringstep(indexed, index), options.lossy ? 8 : 0),
+              { rightangleenhance: true },
+            ),
+            1,
+            1,
+          )
+        : [],
+    ),
+  };
   const paths: RasterTrace["paths"] = [];
   const fallbackPaths: RasterTrace["paths"] = [];
   const underlays: { path: RasterTrace["paths"][number]; area: number }[] = [];
@@ -179,9 +207,57 @@ export function traceRaster(
         path.holechildren.length > traceLimits.points / 3
       )
         throw new Error("This trace has too many shapes. Try fewer colours or a simpler image.");
+      const [left, top, right, bottom] = path.boundingbox;
+      const tinyRectangle =
+        color.a === 255 &&
+        !path.holechildren.length &&
+        right - left <= 8 &&
+        bottom - top <= 8 &&
+        left >= 0 &&
+        top >= 0 &&
+        right <= image.width &&
+        bottom <= image.height &&
+        right > left &&
+        bottom > top &&
+        (() => {
+          for (let y = Math.max(0, top - 1); y < Math.min(image.height, bottom + 1); y++)
+            for (let x = Math.max(0, left - 1); x < Math.min(image.width, right + 1); x++) {
+              const i = (y * image.width + x) * 4;
+              const matches =
+                original.data[i] === color.r &&
+                original.data[i + 1] === color.g &&
+                original.data[i + 2] === color.b &&
+                original.data[i + 3] === color.a;
+              const inside = x >= left && x < right && y >= top && y < bottom;
+              if (inside && !matches) return false;
+              if (
+                !inside &&
+                original.data[i + 3] > 0 &&
+                Math.abs(original.data[i] - color.r) <= 16 &&
+                Math.abs(original.data[i + 1] - color.g) <= 16 &&
+                Math.abs(original.data[i + 2] - color.b) <= 16
+              )
+                return false;
+            }
+          return true;
+        })();
       const rawContours = [path, ...path.holechildren.map((index) => layer[index])].map(
         (p, index) => contour(p, `trace-${fallbackPaths.length}-${index}`),
       );
+      if (tinyRectangle)
+        rawContours[0] = {
+          ...rawContours[0],
+          points: [
+            [left, top],
+            [right, top],
+            [right, bottom],
+            [left, bottom],
+          ].map(([x, y], i) => ({
+            id: `${rawContours[0].id}-${i}`,
+            x,
+            y,
+          })),
+        };
       const fallbackPath = {
         vectorPath: {
           d: serializeContours(rawContours),
@@ -193,10 +269,11 @@ export function traceRaster(
         opacity: color.a / 255,
       };
       const fitted = rawContours.map((raw) => {
+        if (tinyRectangle) return { contour: raw, name: "Rectangle" };
         const primitive = fitRasterShape(raw);
-        return primitive.name
-          ? primitive
-          : fitRasterShape(refineRasterCoverage(raw, original, color.a));
+        if (primitive.name) return primitive;
+        const refined = refineRasterCoverage(raw, original, color.a);
+        return refined === raw ? primitive : fitRasterShape(refined);
       });
       // Recover an opaque primitive behind enclosed opaque artwork. A rounded
       // background with a leaf on it should remain a complete background when the
@@ -249,7 +326,6 @@ export function traceRaster(
         viewBox: { x: 0, y: 0, width: image.width, height: image.height },
         fillRule: "evenodd" as const,
       };
-      // Reuse exactly the limits enforced by document persistence and the point editor.
       const checked = designNodeSchema.shape.vectorPath.safeParse(vectorPath);
       if (!checked.success)
         throw new Error(
@@ -281,7 +357,9 @@ export function traceRaster(
   ];
   if (ordered.length > traceLimits.paths)
     throw new Error("This trace has too many shapes. Try fewer colours or a simpler image.");
-  const recovered = recoverRasterOcclusion(ordered, image);
+  const recovered = simplifyRasterPaths(
+    recoverSmallRasterEllipses(recoverRasterOcclusion(ordered, image), original),
+  );
   pointCount = recovered.reduce(
     (sum, path) => sum + path.vectorPath.contours!.reduce((n, c) => n + c.points.length, 0),
     0,

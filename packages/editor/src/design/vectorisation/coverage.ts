@@ -29,31 +29,32 @@ export function refineRasterCoverage(
       at(left + 1, top + 1) * tx * ty
     );
   };
-  return {
-    ...contour,
-    points: contour.points.map((point) => {
-      let x = point.x,
-        y = point.y;
-      for (let i = 0; i < 4; i++) {
-        const value = sample(x, y),
-          gx = sample(x + 0.5, y) - sample(x - 0.5, y),
-          gy = sample(x, y + 0.5) - sample(x, y - 0.5),
-          length = gx * gx + gy * gy;
-        if (length < 0.04) break;
-        x -= ((value - 0.5) * gx) / length;
-        y -= ((value - 0.5) * gy) / length;
-        if (Math.hypot(x - point.x, y - point.y) > 0.8) return point;
-      }
-      if (Math.abs(sample(x, y) - 0.5) > 0.02) return point;
-      const dx = x - point.x,
-        dy = y - point.y;
-      return {
-        ...point,
-        x,
-        y,
-        in: point.in && { x: point.in.x + dx, y: point.in.y + dy },
-        out: point.out && { x: point.out.x + dx, y: point.out.y + dy },
-      };
-    }),
-  };
+  let changed = false;
+  const points = contour.points.map((point) => {
+    let x = point.x,
+      y = point.y;
+    for (let i = 0; i < 4; i++) {
+      const value = sample(x, y),
+        gx = sample(x + 0.5, y) - sample(x - 0.5, y),
+        gy = sample(x, y + 0.5) - sample(x, y - 0.5),
+        length = gx * gx + gy * gy;
+      if (length < 0.04) break;
+      x -= ((value - 0.5) * gx) / length;
+      y -= ((value - 0.5) * gy) / length;
+      if (Math.hypot(x - point.x, y - point.y) > 0.8) return point;
+    }
+    if (Math.abs(sample(x, y) - 0.5) > 0.02) return point;
+    const dx = x - point.x,
+      dy = y - point.y;
+    if (Math.abs(dx) + Math.abs(dy) < 0.000001) return point;
+    changed = true;
+    return {
+      ...point,
+      x,
+      y,
+      in: point.in && { x: point.in.x + dx, y: point.in.y + dy },
+      out: point.out && { x: point.out.x + dx, y: point.out.y + dy },
+    };
+  });
+  return changed ? { ...contour, points } : contour;
 }
