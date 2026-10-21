@@ -144,7 +144,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
-  updates?.stop();
+  // Update restarts still need native errors to restore the prepared workspace.
+  if (!quitting) updates?.stop();
   if (quitting || !service) return;
   event.preventDefault();
   quitting = true;

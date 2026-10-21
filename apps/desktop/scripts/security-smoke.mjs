@@ -174,6 +174,9 @@ app.on("browser-window-created", (_event, window) => {
       for (const status of ["checking", "downloading", "installing"]) {
         page.send("tidy:update", { status, version: "0.1.0-beta.999" });
         await wait("document.querySelector('.app-update-button[aria-busy=\"true\"]')!==null");
+        // Native keyboard/focus assertions need the primary renderer to own focus.
+        window.focus();
+        page.focus();
         assert.equal(
           await evaluate(
             "document.querySelector('.app-update-button').getAttribute('aria-disabled')",
