@@ -808,7 +808,9 @@ export const CanvasComments = forwardRef<
       mutation.resolved = false;
       refreshVersion.current++;
       setThreads((current) =>
-        current.map((item) => (item.id === thread.id ? { ...item, resolved: false } : item)),
+        current.some((item) => item.id === thread.id)
+          ? current.map((item) => (item.id === thread.id ? { ...item, resolved: false } : item))
+          : [...current, { ...thread, resolved: false }],
       );
       return;
     }
