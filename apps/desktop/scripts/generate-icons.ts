@@ -62,7 +62,7 @@ try {
   const macMaster = join(resources, "icon-macos.png");
   execFileSync("xcrun", [
     "swift",
-    fileURLToPath(new URL("./pad-macos-icon.swift", import.meta.url)),
+    fileURLToPath(new URL("./macos-icon/main.swift", import.meta.url)),
     masked,
     macMaster,
   ]);

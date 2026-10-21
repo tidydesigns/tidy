@@ -42,3 +42,7 @@ and `iconutil` utilities, and
 require these utilities. Icon Composer is used only to render Apple's mask; its
 asset catalog and source document are not shipped. No image-processing dependency
 is shipped in the app.
+
+The root `Package.swift` exposes only the padding helper as a buildable executable
+for CodeQL's Swift analysis. Run `swift build` from the repository root to check
+it independently; icon generation continues to run the helper directly.

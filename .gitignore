@@ -49,6 +49,8 @@ next-env.d.ts
 # Local verification artifacts
 .artifacts/
 .turbo/
+.build/
+.swiftpm/
 .wxt/
 .output/
 .worktrees/
