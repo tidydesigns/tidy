@@ -1,5 +1,5 @@
 import * as posthogPolicy from "./posthog-policy";
-import { beforeEach, afterEach, expect, spyOn, test } from "bun:test";
+import { beforeEach, afterEach, expect, mock, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
 import { createRequestTrace } from "./request-tracing";
 import { startOperation, traceDetails, traceOperation } from "./trace-context";
@@ -10,9 +10,12 @@ import { requestDatabaseClient } from "./request-database-client";
 import { runWithRequestSignal } from "./request-lifecycle";
 import { tracedDatabaseClient } from "./traced-database-client";
 import type { PoolClient } from "pg";
-import { imageFailureResponse, ImageBudgetUnavailableError } from "./design/image-budget";
 import { ImageCapacityError } from "./design/image-capacity";
 import { MutationBudgetError } from "./security/mutation-budget";
+
+// Bun runs outside Next's server module loader; retain the production boundary.
+mock.module("server-only", () => ({}));
+const { imageFailureResponse, ImageBudgetUnavailableError } = await import("./design/image-budget");
 
 // Exercise the dormant transport with fake credentials and mocked fetch only.
 let policyOverride: ReturnType<typeof spyOn>;

@@ -3590,6 +3590,9 @@ integration(
     await comments.toggleCommentReaction(file.id, fresh, ownerId, "👍");
     expect(await total()).toBe(COMMENT_LIMITS.reactionsPerFile);
   },
+  // This fills the retained file ceiling and serializes two concurrent batches.
+  // Allow slower CI storage to finish before the next fixture truncates its rows.
+  15_000,
 );
 
 integration(
