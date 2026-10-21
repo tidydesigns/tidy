@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { getWorkspace } from "@/lib/workspace/server";
 import { authorizedClients } from "@/lib/mcp/authorizations";
 import { McpOnboarding } from "./mcp-onboarding";
@@ -18,7 +19,10 @@ export default async function McpOnboardingPage({ searchParams }: PageProps<"/on
   const resourceUrl = new URL("/api/mcp", baseUrl).toString();
 
   // A transient read failure must not block setup. The client retries automatically.
-  const initialClients = await authorizedClients(session.user.id, resourceUrl).catch(() => []);
+  const initialClients = await authorizedClients(session.user.id, resourceUrl).catch((cause) => {
+    reportHandledError(cause);
+    return [];
+  });
   return (
     <McpOnboarding
       key={organization.id}

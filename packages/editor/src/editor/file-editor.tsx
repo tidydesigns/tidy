@@ -1362,6 +1362,7 @@ export function FileEditor({
     setError("");
     const assets: PlacementAsset[] = [],
       failures: string[] = [];
+    const reportUploadFailure = createReporter("user_action");
     try {
       for (const file of files) {
         try {
@@ -1375,6 +1376,7 @@ export function FileEditor({
             ...decoded,
           });
         } catch (cause) {
+          reportUploadFailure(cause);
           failures.push(
             `${file.name || "Image"}: ${editorErrorMessage(cause, "Could not upload image.")}`,
           );
@@ -2299,6 +2301,7 @@ export function FileEditor({
   }
 
   async function pasteFromSystem(inPlace = false, properties = false) {
+    const reportClipboardFailure = createReporter("clipboard");
     const origin = {
       ...pasteContext(),
       request: ++clipboardRequest.current,
@@ -2318,19 +2321,28 @@ export function FileEditor({
           }
       }
       await pasteClipboard(await navigator.clipboard.readText(), inPlace, properties, origin);
-    } catch {
-      setError("Could not read the clipboard.");
+    } catch (cause) {
+      handleError(cause, {
+        fallback: "Could not read the clipboard.",
+        report: reportClipboardFailure,
+        notify: setError,
+      });
     }
   }
 
   async function copyAppearance() {
     if (!selected) return;
+    const reportClipboardFailure = createReporter("clipboard");
     try {
       await navigator.clipboard.writeText(
         copyProperties(selected, room.getSnapshot().content, fileId),
       );
-    } catch {
-      setError("Could not access the clipboard. Try the keyboard shortcut.");
+    } catch (cause) {
+      handleError(cause, {
+        fallback: "Could not access the clipboard. Try the keyboard shortcut.",
+        report: reportClipboardFailure,
+        notify: setError,
+      });
     }
   }
 
@@ -2832,8 +2844,11 @@ export function FileEditor({
       setGradientMode(null);
       setTool("select");
       setVectorMode(node.id);
-    } catch {
-      setError("This path cannot be edited as points. Its original rendering is retained.");
+    } catch (cause) {
+      reportError(
+        cause,
+        "This path cannot be edited as points. Its original rendering is retained.",
+      );
     }
   }
 

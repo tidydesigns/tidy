@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 import { commentMutationSchema } from "@/lib/design/comment-contract";
@@ -29,6 +30,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
       pageId: url.searchParams.get("pageId") ?? undefined,
     });
   } catch (error) {
+    reportHandledError(error);
     if (error instanceof CommentCursorError)
       return Response.json({ error: error.message }, { status: 400 });
     throw error;
@@ -113,6 +115,7 @@ async function post(request: Request, { params }: RouteContext<"/api/files/[uid]
       },
     );
   } catch (error) {
+    reportHandledError(error);
     if (error instanceof MutationBudgetError)
       return Response.json(
         { error: error.message },

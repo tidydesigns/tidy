@@ -1020,11 +1020,12 @@ export function FilesBrowser({
                 role="menuitem"
                 className={menuItem}
                 onClick={() => {
+                  const notifyClipboardError = setError("");
                   void navigator.clipboard
                     .writeText(
                       `${window.location.origin}/files?folder=${encodeURIComponent(menu.folder.id)}`,
                     )
-                    .catch(() => setError("Could not copy the link."));
+                    .catch((cause) => notifyClipboardError(cause, "Could not copy the link."));
                   setMenu(null);
                 }}
               >
@@ -1137,9 +1138,10 @@ export function FilesBrowser({
                 role="menuitem"
                 className={menuItem}
                 onClick={() => {
+                  const notifyClipboardError = setError("");
                   void navigator.clipboard
                     .writeText(`${window.location.origin}/files/${menu.file.id}`)
-                    .catch(() => setError("Could not copy the link."));
+                    .catch((cause) => notifyClipboardError(cause, "Could not copy the link."));
                   setMenu(null);
                 }}
               >

@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { auth } from "@/lib/auth";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
@@ -30,6 +31,7 @@ export async function POST(
     });
     return Response.json({ assets }, { headers: { "Cache-Control": "private, no-store" } });
   } catch (cause) {
+    reportHandledError(cause);
     if (cause instanceof RequestBodyError) return requestBodyError(cause);
     const headers: Record<string, string> = { "Cache-Control": "private, no-store" };
     if (cause instanceof MutationBudgetError) {

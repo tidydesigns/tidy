@@ -167,3 +167,23 @@ test("toast dismissal is scoped and account changes clear queued private message
   clearToasts();
   expect(toastSnapshot()).toEqual([]);
 });
+
+test("malformed HTTP responses retain the exact parsing failure, status and response", async () => {
+  const original = new SyntaxError("invalid server JSON");
+  const response = new Response("invalid", { status: 503 });
+  response.json = async () => {
+    throw original;
+  };
+  let caught: unknown;
+  try {
+    await readJsonResponse({ response, schema: z.unknown(), message: fallback });
+  } catch (cause) {
+    caught = cause;
+  }
+  const diagnostic = diagnosticError(caught) as ResponseError;
+  expect(diagnostic).toBeInstanceOf(ResponseError);
+  expect(diagnostic.response).toBe(response);
+  expect(diagnostic.response.status).toBe(503);
+  expect(diagnostic.cause).toBe(original);
+  expect(errorMessage(caught, "other")).toBe(fallback);
+});

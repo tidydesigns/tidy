@@ -12,7 +12,13 @@ import { useEditorHost } from "../host";
 import { fetchWithRateLimitRetry } from "../lib/retry-after";
 
 import { fileChangesSchema, fileCommitSchema, presenceTicketSchema } from "../design/sync-protocol";
-import { readJsonResponse } from "../lib/http/json-response";
+import {
+  readJsonResponse,
+  readJsonValue,
+  responseError,
+  ResponseError,
+} from "../lib/http/json-response";
+import { UserFacingError, diagnosticError } from "@tidy/ui/errors";
 import { z } from "zod";
 
 const editErrorSchema = z.object({ error: z.string().optional() });
@@ -121,6 +127,7 @@ export function useFileRoom({
     let requireSnapshot = false;
     let refreshTimer: ReturnType<typeof setTimeout> | undefined;
     let refreshFailureReported = false;
+    let connectionFailureReported = false;
     async function refresh() {
       if (reading || controller.signal.aborted) return;
       const reportSyncError = appErrorReporter("file_sync");
@@ -141,7 +148,6 @@ export function useFileRoom({
             controller.abort();
             return;
           }
-          if (!response.ok) throw new Error("Could not synchronize file.");
           const result = await readJsonResponse({
             response,
             schema: fileChangesSchema,
@@ -191,6 +197,7 @@ export function useFileRoom({
         socket.current?.readyState === WebSocket.OPEN
       )
         return;
+      const reportConnectionError = appErrorReporter("file_sync");
       try {
         const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/presence-ticket`, {
           method: "POST",
@@ -200,7 +207,6 @@ export function useFileRoom({
           setConnection("unavailable");
           return;
         }
-        if (!response.ok) throw new Error("Could not join file.");
         const ticket = await readJsonResponse({
           response,
           schema: presenceTicketSchema,
@@ -217,6 +223,7 @@ export function useFileRoom({
           switch (message.type) {
             case "ready":
               attempt = 0;
+              connectionFailureReported = false;
               setConnection("live");
               flushPresence();
               seenSequence = -1;
@@ -270,8 +277,14 @@ export function useFileRoom({
           () => ws.close(1000, "Renew authorization"),
           Math.max(1000, ticket.expiresAt - Date.now() - 15_000),
         );
-      } catch {
-        if (!controller.signal.aborted) reconnect();
+      } catch (cause) {
+        if (!controller.signal.aborted) {
+          if (!connectionFailureReported) {
+            reportConnectionError(cause);
+            connectionFailureReported = true;
+          }
+          reconnect();
+        }
       }
     }
     void connect();
@@ -362,8 +375,20 @@ export function useFileRoom({
                   }),
                 controller.signal,
               );
-              if (response.status >= 500) throw new Error("Server unavailable");
-              const value: unknown = await response.json().catch(() => null);
+              let value: unknown;
+              let parseFailure: unknown;
+              try {
+                value = await readJsonValue(response, "Could not apply edit.");
+              } catch (cause) {
+                // A malformed acknowledgement is uncertain. An explicit 4xx
+                // remains a definitive rejection even if its body is invalid;
+                // never replay a retired edit because JSON parsing failed.
+                if (response.ok || response.status >= 500) throw cause;
+                parseFailure = diagnosticError(cause);
+                value = null;
+              }
+              if (response.status >= 500)
+                throw responseError(response, value, "Server unavailable");
               const failure = editErrorSchema.safeParse(value);
               const rejection = failure.success ? failure.data.error : undefined;
               if (response.status === 410) {
@@ -383,17 +408,21 @@ export function useFileRoom({
                     if ("snapshot" in synchronized && !controller.signal.aborted)
                       edits.receive(synchronized.snapshot);
                   }
-                } catch {
+                } catch (cause) {
+                  if (!controller.signal.aborted) reportSaveError(cause);
                   /* A failed refresh must not replay an explicitly expired edit. */
                 }
                 throw new RejectedEdit(
                   rejection ??
                     "This edit has expired. Synchronize the latest file before editing again.",
+                  { cause: parseFailure ?? new ResponseError(response, value) },
                 );
               }
               if (!response.ok) {
                 // An explicit response is a definitive rejection, unlike a lost ack.
-                throw new RejectedEdit(rejection ?? "Could not apply edit.");
+                throw new RejectedEdit(rejection ?? "Could not apply edit.", {
+                  cause: parseFailure ?? new ResponseError(response, value),
+                });
               }
               // An invalid acknowledgement is uncertain, so retry this same operation ID.
               const payload = fileCommitSchema.parse(value);
@@ -460,4 +489,4 @@ export function useFileRoom({
     receive,
   };
 }
-class RejectedEdit extends Error {}
+class RejectedEdit extends UserFacingError {}

@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "./use-error-notice";
 
 import { useLayoutEffect, useMemo, useState, type RefObject } from "react";
 import { SelectMenu } from "../components/ui/select-menu";
@@ -96,16 +97,16 @@ export function HandoffInspector({
           facts: handoffFacts(model.node, model.style),
           measured: false,
         };
+  const [, setError] = useEditorErrorNotice("clipboard");
   async function copy() {
+    const notifyError = setError("");
     const latest = read();
     try {
       await navigator.clipboard.writeText(latest.css);
       setCopyStatus({ css: latest.css, message: "CSS copied" });
-    } catch {
-      setCopyStatus({
-        css: latest.css,
-        message: "Could not copy. Select the CSS below to copy it manually.",
-      });
+    } catch (cause) {
+      setCopyStatus(null);
+      notifyError(cause, "Could not copy. Select the CSS below to copy it manually.");
     }
   }
   return (

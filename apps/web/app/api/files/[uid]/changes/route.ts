@@ -1,3 +1,5 @@
+import { reportHandledError } from "@/lib/handled-error";
+import { actionError } from "@/lib/action-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { DOCUMENT_HISTORY_LIMITS, ExpiredDocumentEdit } from "@/lib/design/history-retention";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
@@ -107,6 +109,7 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
       : { patch: result.patch, snapshot: result.snapshot, sequence: result.sequence };
     return Response.json(response, { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
+    reportHandledError(error);
     const denied = operationFailure(error);
     if (denied) return denied;
     if (error instanceof ExpiredDocumentEdit)
@@ -117,9 +120,6 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
     if (error instanceof RequestBodyError) return requestBodyError(error);
     const retryable = retryableEditResponse(error);
     if (retryable) return retryable;
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Could not apply edit." },
-      { status: 409 },
-    );
+    return Response.json({ error: actionError(error, "Could not apply edit.") }, { status: 409 });
   }
 }

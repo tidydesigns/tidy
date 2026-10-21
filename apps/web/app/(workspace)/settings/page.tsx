@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import {
@@ -64,10 +65,16 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   };
   const github =
     flags["settings-connectors"] && flags["github-connector"]
-      ? connectionStatus(session.user.id, organization.id).catch(() => githubUnavailable)
+      ? connectionStatus(session.user.id, organization.id).catch((cause) => {
+          reportHandledError(cause);
+          return githubUnavailable;
+        })
       : githubUnavailable;
   const linear = flags["settings-connectors"]
-    ? linearStatus(session.user.id, organization.id).catch(() => linearUnavailable)
+    ? linearStatus(session.user.id, organization.id).catch((cause) => {
+        reportHandledError(cause);
+        return linearUnavailable;
+      })
     : linearUnavailable;
   // Start independent reads together and stream them into their own sections.
   const members = listWorkspaceMembers(session.user.id, organization.id);
@@ -75,6 +82,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const sessions = listAccountSessions(session.user.id);
   const billing = showBilling ? billingStatus(session.user.id, organization.id, true) : undefined;
   const invitations = canInvite ? listPendingInvitations(session.user.id, organization.id) : [];
+
   const callbackStatus = params.github;
   return (
     <SettingsTabs

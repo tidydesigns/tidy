@@ -22,8 +22,9 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     const started = Date.now();
+    let notifyError = setError("");
+    let failing = false;
     const poll = async () => {
-      const notifyError = setError("");
       if (Date.now() - started > 10 * 60_000) {
         setLogin(null);
         notifyError("Sign-in expired. Connect again to get a new code.");
@@ -40,13 +41,19 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
           message: "Could not check Codex connection.",
         });
         if (controller.signal.aborted) return;
+        if (failing) {
+          notifyError = setError("");
+          failing = false;
+        }
         setConnection(data);
         if (data.status === "connected") {
           setLogin(null);
           return;
         }
-      } catch {
+      } catch (cause) {
         if (controller.signal.aborted) return;
+        if (!failing) notifyError(cause, "Could not check the connection. Retrying…");
+        failing = true;
       }
       timer = setTimeout(poll, 2500);
     };

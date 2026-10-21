@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { getWorkspace, workspaceAccount } from "@/lib/workspace/server";
 import { notFound } from "next/navigation";
 import { z } from "zod";
@@ -26,7 +27,8 @@ export default async function ThreadsPage({
     if (!id.success) notFound();
     try {
       snapshot = await getAgentThread(session.user.id, id.data);
-    } catch {
+    } catch (cause) {
+      reportHandledError(cause);
       notFound();
     }
   }

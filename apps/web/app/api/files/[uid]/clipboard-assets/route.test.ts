@@ -8,6 +8,10 @@ test("clipboard asset route checks origin/session, bounds streamed bodies and re
       "--eval",
       `
     import { mock } from "bun:test";
+    mock.module("server-only", () => ({}));
+    const captured = [];
+    mock.module("@/lib/posthog-server", () => ({ createErrorReporter: () => async error => { captured.push(error); } }));
+    const original = Object.assign(new Error("internal database secret"), {code:"XX000"});
     let session = null, calls = [], mode="normal",admissions=0;
     const {MutationBudgetError}=await import("./lib/security/mutation-budget.ts");
     mock.module("@/lib/auth", () => ({ auth: { api: { getSession: async () => session } } }));
@@ -20,7 +24,7 @@ test("clipboard asset route checks origin/session, bounds streamed bodies and re
         admissions++;
         if(mode==="budget")throw new MutationBudgetError(17);
         if(mode==="unavailable")throw new ClipboardBudgetUnavailableError("temporarily unavailable");
-        if(mode==="sql")throw Object.assign(new Error("internal database secret"),{code:"XX000"});
+        if(mode==="sql")throw original;
         const input=await load();calls.push([actor,target,input]);return {source:"destination"};
       }
     }));
@@ -43,7 +47,7 @@ test("clipboard asset route checks origin/session, bounds streamed bodies and re
     mode="budget";const limited=await POST(request("{}"),context);
     mode="unavailable";const unavailable=await POST(request("{}"),context);
     mode="sql";const database=await POST(request("{}"),context);
-    console.log(JSON.stringify({ failureCodes:[unsupported.status,canceled.status,limited.status,unavailable.status,database.status],retry:limited.headers.get("Retry-After"),database:await database.json(),admissions,codes: [forbidden.status, anonymous.status, invalid.status, oversized.status, result.status],
+    console.log(JSON.stringify({ capturedOriginal:captured.some(error => error === original), failureCodes:[unsupported.status,canceled.status,limited.status,unavailable.status,database.status],retry:limited.headers.get("Retry-After"),database:await database.json(),admissions,codes: [forbidden.status, anonymous.status, invalid.status, oversized.status, result.status],
       cache: result.headers.get("Cache-Control"), body: await result.json(), calls }));
   `,
     ],
@@ -60,6 +64,7 @@ test("clipboard asset route checks origin/session, bounds streamed bodies and re
   expect(result.body).toEqual({ assets: { source: "destination" } });
   expect(result.failureCodes).toEqual([415, 408, 429, 503, 503]);
   expect(result.retry).toBe("17");
+  expect(result.capturedOriginal).toBe(true);
   expect(result.database).toEqual({ error: "Could not copy clipboard images." });
   expect(result.admissions).toBe(8);
 });

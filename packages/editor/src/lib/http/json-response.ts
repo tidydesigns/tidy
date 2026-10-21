@@ -5,9 +5,21 @@ export class ResponseError extends Error {
   constructor(
     readonly response: Response,
     readonly body: unknown,
+    options?: ErrorOptions,
   ) {
-    super(`HTTP ${response.status}`);
+    super(`HTTP ${response.status}`, options);
     this.name = "ResponseError";
+  }
+}
+
+/** Keep the parser failure and response when a server sends malformed JSON. */
+export async function readJsonValue(response: Response, message: string): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch (cause) {
+    throw new UserFacingError(message, {
+      cause: new ResponseError(response, undefined, { cause }),
+    });
   }
 }
 
@@ -31,12 +43,7 @@ export async function readJsonResponse<T>({
   schema: z.ZodType<T>;
   message: string;
 }): Promise<T> {
-  let value: unknown;
-  try {
-    value = await response.json();
-  } catch (cause) {
-    throw new UserFacingError(message, { cause });
-  }
+  const value = await readJsonValue(response, message);
   if (!response.ok) {
     throw responseError(response, value, message);
   }

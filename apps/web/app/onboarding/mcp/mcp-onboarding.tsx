@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import posthog from "@/lib/posthog-client";
+import posthog, { appErrorReporter } from "@/lib/posthog-client";
 import { Button } from "@/components/ui/button";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
@@ -57,6 +57,8 @@ export function McpOnboarding({
     const schedule = () => {
       timer = setTimeout(() => void refresh(), delay);
     };
+    const reportPollError = appErrorReporter("integration_update");
+    let failureReported = false;
     async function refresh() {
       if (disposed || inFlight) return;
       clearTimeout(timer);
@@ -67,12 +69,15 @@ export function McpOnboarding({
       inFlight = true;
       try {
         const result = await checkAuthorizedAgents();
+        failureReported = false;
         if (disposed) return;
         if (result.clients?.length) {
           setClients(result.clients);
           return;
         }
-      } catch {
+      } catch (cause) {
+        if (!disposed && !failureReported) reportPollError(cause);
+        failureReported = true;
         // Keep setup usable and retry transient failures without a manual check button.
       } finally {
         inFlight = false;

@@ -1,3 +1,5 @@
+import { reportHandledError } from "@/lib/handled-error";
+import { actionError } from "@/lib/action-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { can } from "@/lib/organizations/roles";
@@ -24,10 +26,8 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
       ? Response.json(result, { headers: { "Cache-Control": "private, no-store" } })
       : new Response(null, { status: 404 });
   } catch (cause) {
-    return Response.json(
-      { error: cause instanceof Error ? cause.message : "Could not load assets." },
-      { status: 400 },
-    );
+    reportHandledError(cause);
+    return Response.json({ error: actionError(cause, "Could not load assets.") }, { status: 400 });
   }
 }
 
@@ -63,12 +63,10 @@ export async function POST(request: Request, { params }: RouteContext<"/api/file
     );
     return Response.json(result);
   } catch (error) {
+    reportHandledError(error);
     const denied = operationFailure(error);
     if (denied) return denied;
     if (error instanceof RequestBodyError) return requestBodyError(error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Could not upload image." },
-      { status: 400 },
-    );
+    return Response.json({ error: actionError(error, "Could not upload image.") }, { status: 400 });
   }
 }

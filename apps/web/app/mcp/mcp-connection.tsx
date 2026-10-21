@@ -1,4 +1,5 @@
 "use client";
+import { appErrorReporter } from "@/lib/posthog-client";
 
 import { useEffect, useId, useRef, useState } from "react";
 import { DeferredSection } from "@/components/ui/deferred-section";
@@ -140,6 +141,8 @@ function Connections({
     const schedule = () => {
       timer = setTimeout(() => void refresh(), delay);
     };
+    const reportPollError = appErrorReporter("integration_update");
+    let failureReported = false;
     async function refresh() {
       if (inFlight || disposed) return;
       clearTimeout(timer);
@@ -151,6 +154,7 @@ function Connections({
       const generation = access.current.generation;
       try {
         const result = await checkAuthorizedAgents();
+        failureReported = false;
         if (!disposed && generation === access.current.generation) {
           const changed = Boolean(
             result.clients && !sameAuthorizations(access.current.clients, result.clients),
@@ -172,7 +176,9 @@ function Connections({
           }
           delay = authorizationRefreshDelay(delay, { settingUp: settingUp(), changed });
         }
-      } catch {
+      } catch (cause) {
+        if (!disposed && !failureReported) reportPollError(cause);
+        failureReported = true;
         // Keep the last known authorization state when a background refresh fails.
         delay = authorizationRefreshDelay(delay, { settingUp: settingUp(), changed: false });
       } finally {

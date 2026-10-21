@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { reserveOperation, operationFailure } from "@/lib/security/operation-budget";
 import { isHistoryCapacityError } from "./history-capacity";
 import { auth } from "@/lib/auth";
@@ -44,6 +45,7 @@ export async function versionBody(request: Request) {
   }
 }
 export function versionFailure(error: unknown) {
+  reportHandledError(error);
   const denied = operationFailure(error);
   if (denied) return denied;
   if (isHistoryCapacityError(error))

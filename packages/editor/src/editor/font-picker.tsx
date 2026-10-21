@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "./use-error-notice";
 import { useQuietInspector, InspectorDisclosure } from "./inspector-presentation";
 import {
   useEffect,
@@ -141,7 +142,7 @@ export function FontPicker({
   const [limit, setLimit] = useState(60);
   const [position, setPosition] = useState({ left: 0, top: 0 });
   const [localBusy, setLocalBusy] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useEditorErrorNotice("user_action", "inline");
   const first = selected[0],
     value = first.style.fontFamily ?? "system-ui";
   const family = selected.every((node) => (node.style.fontFamily ?? "system-ui") === value)
@@ -552,11 +553,11 @@ export function FontPicker({
                 disabled={localBusy}
                 onClick={async () => {
                   setLocalBusy(true);
-                  setError("");
+                  const notifyError = setError("");
                   try {
                     await registry.connectLocal();
-                  } catch {
-                    setError("Local fonts were not enabled. You can try again.");
+                  } catch (cause) {
+                    notifyError(cause, "Local fonts were not enabled. You can try again.");
                   } finally {
                     setLocalBusy(false);
                   }

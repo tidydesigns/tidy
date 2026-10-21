@@ -11,6 +11,7 @@ await Bun.write(
   `
 import posthog, {startPostHogConsent, appErrorReporter} from "../../lib/posthog-client";
 import {chooseConsent, ESSENTIAL_ONLY} from "../../lib/privacy/consent";
+import {handleError, UserFacingError} from "@tidy/ui/errors";
 const wait = () => new Promise(r => setTimeout(r, 700));
 const events = () => fetch('/events').then(r => r.json());
 const assert = (ok, message) => { if(!ok) throw new Error(message); };
@@ -34,6 +35,22 @@ window.runDiagnostics = async () => {
   assert(errors.every(e=>e.properties.$exception_list.every(exception=>exception.stacktrace.frames.every(frame=>frame.function==='<redacted>'))), 'Required function field survives SDK serialization without original names');
   assert(!JSON.stringify(sent).includes('private-secret'), 'Private values excluded');
   assert(!sent.some(e=>e.event==='$snapshot'||e.event==='$pageview'), 'Replay and analytics remain off');
+  const original = new TypeError('Failed to fetch');
+  const originalStack = original.stack;
+  const wrapped = new UserFacingError('Could not create the file. Please try again.', {cause:original});
+  const reportHandled = appErrorReporter('file_create');
+  let displayed = '';
+  handleError(wrapped, {fallback:'Action failed.', report: error => {
+    assert(error === original, 'Shared handler reports the original exception');
+    reportHandled(error);
+  }, notify: message => { displayed = message; }});
+  assert(displayed === wrapped.displayMessage, 'Friendly copy stays separate from diagnostics');
+  assert(original.stack === originalStack && wrapped.cause === original, 'Original stack and cause remain intact');
+  await wait();
+  const handled = (await events()).filter(e=>e.event==='$exception').at(-1);
+  assert(handled.properties.app_error_operation === 'file_create', 'Shared handler error reaches the real SDK collector');
+  assert(handled.properties.$exception_list[0].value === 'Tidy file creation failed: Failed to fetch', 'PostHog receives the technical diagnosis instead of toast copy');
+  assert(handled.properties.$exception_list[0].stacktrace.frames.length > 0, 'Handled exception retains application frames');
   chooseConsent({analytics:false,replay:true,diagnostics:true}); await wait();
   window.replayReady=true;
   document.querySelector('#result').textContent='Click Generate activity to validate replay correlation';
@@ -49,7 +66,7 @@ window.runDiagnostics = async () => {
   posthog.captureException(new Error('Failed to fetch')); await wait();
   assert((await events()).filter(e=>e.event==='$exception').length===errors.length, 'Replay alone never enables errors');
   chooseConsent(ESSENTIAL_ONLY); await wait();
-  return {passed:true, exceptions:errors.length, snapshots:snapshots.length, linkedSession:true};
+  return {passed:true, exceptions:errors.length, snapshots:snapshots.length, linkedSession:true, handledException:true};
 };
 document.body.innerHTML='<p>Local diagnostics fixture</p><button id="run">Run diagnostics checks</button><button id="activity">Generate activity</button><pre id="result"></pre>';
 document.querySelector('#run').onclick=()=>window.runDiagnostics().then(r=>document.querySelector('#result').textContent=JSON.stringify(r)).catch(e=>document.querySelector('#result').textContent=e.message);

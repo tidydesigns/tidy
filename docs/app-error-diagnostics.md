@@ -100,3 +100,17 @@ Desktop and extension UI reuse the toast and normalization primitives and retain
 caught values locally. These hosts do not currently configure a PostHog reporter;
 this change does not introduce native telemetry collection. Persisted failed jobs,
 failed agent runs, field validation and retryable content keep their contextual UI.
+
+The real-SDK local fixture also exercises `handleError` with a `UserFacingError`
+and an original technical cause. It asserts original object identity and stack
+integrity at reporter entry, separate UI copy, and the technical diagnosis and
+application frames at the collector. This validates the installed SDK and
+redaction pipeline without sending test events to production. It does not prove
+that a deployed environment's collection switches or ingestion are enabled.
+
+Preserving the original error at reporter entry does not mean uploading every
+field unchanged. Browser diagnostics redact private messages and retain approved
+application frames. Server diagnostics retain approved categories and root code
+locations; raw cause messages, arbitrary properties and private payloads remain
+excluded by the existing policy. Expected validation and cancellation do not
+create synthetic diagnostic exceptions.

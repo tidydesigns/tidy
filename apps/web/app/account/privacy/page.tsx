@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 export const metadata = { title: "Your account · Tidy" };
 import { PrivacyChoicesButton } from "@/components/privacy/privacy-choices-button";
 import { headers } from "next/headers";
@@ -32,8 +33,12 @@ export default async function AccountPrivacyPage() {
   const [creation, invitations] = await Promise.all([
     organizationCreationStatus(account.user.id),
     account.user.emailVerified
-      ? auth.api.listUserInvitations({ headers: requestHeaders }).catch(() => null)
+      ? auth.api.listUserInvitations({ headers: requestHeaders }).catch((cause) => {
+          reportHandledError(cause);
+          return null;
+        })
       : Promise.resolve([]),
+
   ]);
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-6 py-12 pb-24">

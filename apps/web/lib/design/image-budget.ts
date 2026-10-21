@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { consumeMutationRateLimit, consumeMutationRateLimitPair } from "@/lib/auth/guard-client";
 import type { RateCheck, RateDecision, RateRule } from "@/lib/auth/guard-store";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
@@ -55,6 +56,7 @@ export async function reserveImageOperation(kind: Kind, userId: string, organiza
 }
 
 export function imageFailureResponse(error: unknown) {
+  reportHandledError(error);
   const reason =
     error instanceof MutationBudgetError
       ? "rate_limit"
