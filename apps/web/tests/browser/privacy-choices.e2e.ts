@@ -114,6 +114,10 @@ test("rapid choices persist in order and stale responses do not undo the next in
 test("a queued withdrawal is replayed after reloading during an earlier opt-in", async ({
   page,
 }) => {
+  // LAN HTTP contexts can provide crypto without randomUUID.
+  await page.addInitScript(() => {
+    Object.defineProperty(crypto, "randomUUID", { configurable: true, value: undefined });
+  });
   let release!: () => void;
   const blocked = new Promise<void>((resolve) => (release = resolve));
   const writes: boolean[] = [];

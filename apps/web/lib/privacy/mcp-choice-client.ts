@@ -24,7 +24,8 @@ export function pendingMcpWithdrawal() {
 }
 
 function rememberWithdrawal(enabled: boolean) {
-  const token = enabled ? undefined : crypto.randomUUID();
+  // This local acknowledgement marker carries no authority or user information.
+  const token = enabled ? undefined : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   try {
     if (token) sessionStorage.setItem(withdrawalKey, token);
     else sessionStorage.removeItem(withdrawalKey);
