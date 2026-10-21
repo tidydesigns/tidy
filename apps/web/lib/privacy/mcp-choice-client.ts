@@ -13,17 +13,26 @@ async function choice(response: Response) {
     message: "Your MCP privacy choice could not be confirmed.",
   });
 }
-export async function recordMcpChoice(enabled: boolean) {
-  return choice(
-    await fetch("/api/privacy/mcp-analytics", {
-      method: "POST",
-      credentials: "same-origin",
-      cache: "no-store",
-      headers: { "Content-Type": "application/json", "x-tidy-privacy": "1" },
-      body: JSON.stringify({ enabled, noticeVersion: MCP_NOTICE_VERSION }),
-      signal: AbortSignal.timeout(10_000),
-    }),
-  );
+let writes: Promise<unknown> = Promise.resolve();
+export function recordMcpChoice(enabled: boolean) {
+  // Preserve click order without blocking controls or racing intent cookies.
+  const task = writes
+    .catch(() => {})
+    .then(async () =>
+      choice(
+        await fetch("/api/privacy/mcp-analytics", {
+          method: "POST",
+          credentials: "same-origin",
+          cache: "no-store",
+          keepalive: true,
+          headers: { "Content-Type": "application/json", "x-tidy-privacy": "1" },
+          body: JSON.stringify({ enabled, noticeVersion: MCP_NOTICE_VERSION }),
+          signal: AbortSignal.timeout(10_000),
+        }),
+      ),
+    );
+  writes = task;
+  return task;
 }
 export async function loadMcpChoice() {
   const current = await choice(

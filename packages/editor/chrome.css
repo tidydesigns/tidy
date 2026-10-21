@@ -1,3 +1,9 @@
+/* Native modal dialogs make the app inert, but do not lock page scrolling. */
+html:has(dialog:modal),
+html:has(dialog:modal) body {
+  overflow: hidden;
+}
+
 .editor-panel {
   --editor-panel-duration: 220ms;
   --editor-panel-ease: cubic-bezier(0.32, 0.72, 0, 1);

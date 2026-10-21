@@ -33,6 +33,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 ## UX
 
+- All UI interactions must respond instantly: apply the visible result immediately, persist and do expensive work in the background, and handle failures without blocking the next interaction.
 - Prioritise instant loading: render available content and navigation immediately, prefetch likely destinations, and keep existing content visible during background refreshes. Use skeletons only for genuinely unavailable content, scoped to the smallest dependent section; reserve full-page skeletons for pages whose primary content is unavailable.
 
 - Check for existing custom UI components and reuse them instead of native controls, including `SelectMenu` for dropdowns.

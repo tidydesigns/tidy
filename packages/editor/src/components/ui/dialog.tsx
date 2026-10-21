@@ -63,7 +63,7 @@ export function Dialog({
         pressedBackdrop.current = false;
         onClose?.(event);
       }}
-      className={`fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] overflow-y-auto rounded-lg border border-border bg-panel text-ink shadow-xl backdrop:bg-overlay/20 backdrop:backdrop-blur-none ${widths[size]} ${padded ? "p-6" : "p-0"} ${className}`}
+      className={`fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-panel text-ink shadow-xl backdrop:bg-overlay/20 backdrop:backdrop-blur-none ${widths[size]} ${padded ? "p-6" : "p-0"} ${className}`}
     />
   );
 }

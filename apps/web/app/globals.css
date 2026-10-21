@@ -25,10 +25,6 @@ body {
   color-scheme: dark;
 }
 
-html:has(dialog[data-workspace-navigation][open]) {
-  overflow: hidden;
-}
-
 .workspace-navigation-dialog {
   inset: 0;
   width: 100%;
