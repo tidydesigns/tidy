@@ -27,9 +27,14 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
     };
   }, [api]);
 
-  if (!["ready", "installing"].includes(state.status)) return null;
+  const preview = import.meta.env.DEV && !["ready", "installing"].includes(state.status);
+  if (!preview && !["ready", "installing"].includes(state.status)) return null;
   const installing = state.status === "installing";
-  const label = installing ? "Restarting to update…" : `Restart to update to Tidy ${state.version}`;
+  const label = preview
+    ? "Update available (development preview)"
+    : installing
+      ? "Restarting to update…"
+      : `Restart to update to Tidy ${state.version}`;
   return (
     <footer className="sidebar-update">
       <Button
@@ -38,6 +43,7 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
         title={label}
         disabled={installing}
         onClick={() => {
+          if (preview) return;
           setError(false);
           // Disable synchronously so repeated clicks cannot start a second install.
           setState((current) => ({ ...current, status: "installing" }));
@@ -51,7 +57,11 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
         <span className="app-update-dot" />
       </Button>
       <span className="sr-only" role="status">
-        {installing ? "Restarting to update…" : `Tidy ${state.version} is ready to install.`}
+        {preview
+          ? "Update available (development preview)"
+          : installing
+            ? "Restarting to update…"
+            : `Tidy ${state.version} is ready to install.`}
       </span>
       {error && (
         <span className="app-update-error" role="alert">

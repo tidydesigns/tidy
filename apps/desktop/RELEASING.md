@@ -73,6 +73,8 @@ selects the highest compatible version rather than the last publication. Beta
 installs can receive newer betas or stable releases; stable installs ignore betas.
 Failed checks and downloads retry on the next interval without interrupting work.
 Development builds and the browser development gateway never check or install.
+They display a preview of the sidebar update icon; its tooltip identifies the
+development preview, and clicking it does not install or restart anything.
 
 Electron's native Squirrel updater downloads the ZIP in the background and checks
 its code signature against the installed app. The update icon appears at the
