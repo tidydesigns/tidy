@@ -80,7 +80,12 @@ development preview, and clicking it does not install or restart anything.
 Electron's native Squirrel updater downloads the ZIP in the background and checks
 its code signature against the installed app. The Iconoir circular refresh icon at the bottom of the workspace sidebar spins
 while checking, downloading or preparing a restart. Reduced-motion preferences
-disable rotation. The ready indicator appears only after staging succeeds. Clicking it stops
+disable rotation. A small green check-circle badge appears only after staging
+succeeds; failures use an amber warning-circle badge. Colors match thread status
+indicators. Status, version and retry details appear in a compact tooltip above
+the control on hover or keyboard focus, dismissible with Escape. No status or
+error text reserves space beside the icon. Busy controls remain focusable for
+inspection and ignore activation until the operation completes. Clicking it stops
 active harness runs, checkpoints their threads, flushes local storage, and restarts
 to install. Squirrel also applies staged updates on the next normal quit/relaunch.
 Every update replaces the installed app and requires a restart. There is no

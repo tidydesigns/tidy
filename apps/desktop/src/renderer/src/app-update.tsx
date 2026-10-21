@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI } from "../../shared/contracts";
@@ -7,6 +7,8 @@ import type { AppUpdateState } from "../../shared/app-updates";
 export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
   const [state, setState] = useState<AppUpdateState>({ status: "unsupported" });
   const [error, setError] = useState(false);
+  const tooltipId = useId();
+  const [tooltipDismissed, setTooltipDismissed] = useState(false);
   useEffect(() => {
     if (!api) return;
     let received = false;
@@ -51,43 +53,69 @@ export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
           : state.status === "downloading"
             ? `Downloading Tidy ${state.version}…`
             : `Restart to update to Tidy ${state.version}`));
+  const actionLabel = preview
+    ? "Update preview"
+    : retry
+      ? "Retry update check"
+      : installError
+        ? "Retry restart to update"
+        : busy
+          ? label
+          : "Restart to update";
   return (
     <footer className="sidebar-update">
-      <Button
-        className="app-update-button"
-        aria-label={label}
-        title={label}
-        aria-busy={busy}
-        disabled={busy}
-        onClick={() => {
-          if (preview || !api) return;
-          setError(false);
-          if (retry) {
-            setState({ status: "checking" });
-            void api.checkUpdates().catch(() => {
-              setState({ status: "error", error: "check" });
-            });
-            return;
-          }
-          // Disable synchronously so repeated clicks cannot start a second install.
-          setState((current) => ({ ...current, status: "installing" }));
-          void api.installUpdate().catch(() => {
-            setState((current) => ({ ...current, status: "ready" }));
-            setError(true);
-          });
+      <span
+        className="app-update-control"
+        data-tooltip-dismissed={tooltipDismissed}
+        onPointerEnter={() => setTooltipDismissed(false)}
+        onFocus={() => setTooltipDismissed(false)}
+        onBlur={() => setTooltipDismissed(true)}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setTooltipDismissed(true);
         }}
       >
-        <Icon name="update" size={18} className={busy ? "app-update-spinning" : ""} />
-        {!busy && !retry && !installError && <span className="app-update-dot" />}
-      </Button>
+        <Button
+          className="app-update-button"
+          aria-label={actionLabel}
+          aria-describedby={tooltipId}
+          aria-busy={busy}
+          aria-disabled={busy}
+          data-state={busy ? "busy" : retry || installError ? "error" : "ready"}
+          onClick={() => {
+            if (preview || busy || !api) return;
+            setError(false);
+            if (retry) {
+              setState({ status: "checking" });
+              void api.checkUpdates().catch(() => {
+                setState({ status: "error", error: "check" });
+              });
+              return;
+            }
+            // Disable synchronously so repeated clicks cannot start a second install.
+            setState((current) => ({ ...current, status: "installing" }));
+            void api.installUpdate().catch(() => {
+              setState((current) => ({ ...current, status: "ready" }));
+              setError(true);
+            });
+          }}
+        >
+          <Icon name="update" size={16} className={busy ? "app-update-spinning" : ""} />
+          {!busy && (
+            <span
+              className={`app-update-badge ${retry || installError ? "app-update-warning" : "app-update-ready"}`}
+              aria-hidden="true"
+            >
+              <Icon name={retry || installError ? "warningCircle" : "checkCircle"} size={12} />
+            </span>
+          )}
+        </Button>
+        <span id={tooltipId} className="app-update-tooltip" role="tooltip">
+          {label}
+        </span>
+      </span>
       <span className="sr-only" role="status">
         {label}
       </span>
-      {message && (
-        <span className="app-update-error" role="alert">
-          {message}
-        </span>
-      )}
     </footer>
   );
 }
