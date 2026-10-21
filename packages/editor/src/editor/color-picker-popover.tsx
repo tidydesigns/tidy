@@ -56,7 +56,10 @@ export function ColorPickerPopover({
   }
   const apply = useEditorEvent((next: Hsva) => {
     const active = gesture.current;
-    if (active && session && !session.isActive()) return;
+    if (active && session && !session.isActive()) {
+      setState({ color, hsv: hexToHsva(color) });
+      return;
+    }
     const hex = hsvaToHex(next);
     setState({ color, hsv: next });
     if (active) {
