@@ -13,6 +13,107 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-20",
+    fixes: [
+      {
+        title: "Keep quick drag positions",
+        details:
+          "Layers stay where you release them, including during fast drags and when opening or closing the inspector.",
+      },
+      {
+        title: "Steadier alignment guides",
+        details: "Alignment guides stay in place while you move layers.",
+      },
+      {
+        title: "Smoother canvas navigation",
+        details: "Panning and zooming respond faster while frames are selected.",
+      },
+      {
+        title: "Faster agent previews and imports",
+        details: "Connected agents take less time to generate previews and import designs.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-19",
+    features: [
+      {
+        title: "Local desktop workspaces",
+        details:
+          "Open local projects and edit designs in the desktop app. Work alongside Codex or Claude Code conversations, with file and image attachments.",
+      },
+      {
+        title: "Easier desktop navigation",
+        details:
+          "Switch projects, browse files and revisit conversations. Expand tool activity to see what your agent did.",
+      },
+      {
+        title: "Improved design tokens",
+        details:
+          "Browse and search tokens, edit them in a floating panel, and pick colors from canvas layers. Connected agents can also create tokens and apply them to layers.",
+      },
+      {
+        title: "Select layers within groups",
+        details:
+          "Select layers within groups more predictably. Hover outlines show which layer you will select.",
+      },
+      {
+        title: "Select artboards by title",
+        details: "Click an artboard's canvas title to select it and its matching layer.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More reliable text editing",
+        details:
+          "Pressing Escape to finish editing keeps your text changes. Text formatting controls also behave more consistently.",
+      },
+      {
+        title: "Responsive comments and reactions",
+        details:
+          "Comments appear immediately and threads stay open while you post. Reactions stay visible when comments refresh.",
+      },
+      {
+        title: "Prevent accidental trackpad navigation",
+        details:
+          "Horizontal canvas gestures no longer take you back or forward through your browser history.",
+      },
+      {
+        title: "Faster onboarding",
+        details: "Spend less time waiting when creating an organization and connecting your agent.",
+      },
+      {
+        title: "More reliable account navigation",
+        details:
+          "Signing in, switching organizations and accepting invitations now take you to the right page when your session changes.",
+      },
+      {
+        title: "Keep canvas controls accessible",
+        details:
+          "Canvas controls stay above selected layers. Desktop thread controls no longer overlap the view controls.",
+      },
+      {
+        title: "Faster canvas interactions",
+        details: "Selecting layers and showing hover outlines take less processing.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-18",
+    fixes: [
+      {
+        title: "Better keyboard and screen reader access",
+        details:
+          "Improved keyboard navigation, focus handling and control labels across the editor, workspace, prototypes and capture extension.",
+      },
+      {
+        title: "Clearer canvas modes and toolbar placement",
+        details:
+          "Design and Inspect modes are easier to distinguish. Mobile uses a compact toolbar, and desktop toolbar placement respects your preference.",
+      },
+    ],
+  },
+  {
     date: "2026-10-17",
     features: [
       {
