@@ -111,6 +111,75 @@ test("rapid choices persist in order and stale responses do not undo the next in
   await expect(page.getByRole("dialog", { name: "Privacy choices", exact: true })).toBeVisible();
 });
 
+test("a queued withdrawal is replayed after reloading during an earlier opt-in", async ({
+  page,
+}) => {
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => (release = resolve));
+  const writes: boolean[] = [];
+  let serverEnabled = false;
+  await page.route("**/api/privacy/mcp-analytics", async (route) => {
+    if (route.request().method() === "POST") {
+      const { enabled } = route.request().postDataJSON();
+      writes.push(enabled);
+      serverEnabled = enabled;
+      if (enabled) await blocked;
+      await route.fulfill({ json: { enabled } }).catch(() => {});
+    } else await route.fulfill({ json: { enabled: serverEnabled } });
+  });
+  await page.goto("/reset-password?token=privacy-fixture");
+  await page.getByRole("button", { name: "Accept all optional", exact: true }).click();
+  await expect.poll(() => writes).toEqual([true]);
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  await page.getByRole("button", { name: "Reject all optional", exact: true }).click();
+  expect(writes).toEqual([true]);
+  await page.reload();
+  await expect.poll(() => writes).toEqual([true, false]);
+  expect(serverEnabled).toBe(false);
+  release();
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  const mcp = page.getByRole("button", { name: /^Account-linked MCP diagnostics:/ });
+  await expect(mcp).toBeEnabled();
+  await expect(mcp).toContainText("Off");
+  await page.reload();
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  await expect(mcp).toBeEnabled();
+  await expect(mcp).toContainText("Off");
+  expect(writes).toEqual([true, false]);
+});
+
+test("an unconfirmed withdrawal survives repeated reloads and remains retryable", async ({
+  page,
+}) => {
+  let fail = true;
+  let writes = 0;
+  await page.route("**/api/privacy/mcp-analytics", (route) => {
+    if (route.request().method() === "POST") {
+      writes++;
+      return route.fulfill(fail ? { status: 503, json: {} } : { json: { enabled: false } });
+    }
+    return route.fulfill({ json: { enabled: false } });
+  });
+  await page.goto("/reset-password?token=privacy-fixture");
+  await page.getByRole("button", { name: "Reject all optional", exact: true }).click();
+  const notice = page.getByRole("complementary", { name: "Privacy choices" }).getByRole("alert");
+  await expect(notice).toContainText("server confirmation is pending");
+  expect(writes).toBe(1);
+  await page.reload();
+  await expect(notice).toContainText("server confirmation is pending");
+  expect(writes).toBe(2);
+  fail = false;
+  await notice.getByRole("button", { name: "Retry recording choice", exact: true }).click();
+  await expect.poll(() => writes).toBe(3);
+  await expect(notice).toBeHidden();
+  await page.reload();
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: /^Account-linked MCP diagnostics:/ }),
+  ).toBeEnabled();
+  expect(writes).toBe(3);
+});
+
 test("returning to the tab preserves an unconfirmed MCP selection for retry", async ({ page }) => {
   let reads = 0;
   await page.route("**/api/privacy/mcp-analytics", (route) => {

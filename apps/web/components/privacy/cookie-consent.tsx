@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { usePathname } from "next/navigation";
-import { loadMcpChoice, recordMcpChoice } from "@/lib/privacy/mcp-choice-client";
+import {
+  loadMcpChoice,
+  pendingMcpWithdrawal,
+  recordMcpChoice,
+} from "@/lib/privacy/mcp-choice-client";
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 import { recordBrowserConsent, recordBrowserWithdrawal } from "@/lib/privacy/receipt-client";
 import { browserCollectionEnabled } from "@/lib/posthog-client";
@@ -44,6 +48,8 @@ const purposes: { key: ConsentPurpose; title: string; description: string }[] = 
 ];
 const actionClass =
   "flex min-h-11 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-4 py-3 text-sm font-medium text-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
+const confirmationPending =
+  "Your privacy choices could not all be confirmed; server confirmation is pending. MCP changes take effect only after confirmation. Retry recording your choices.";
 
 export function CookieConsent() {
   const id = "privacy-choices-dialog";
@@ -79,7 +85,13 @@ export function CookieConsent() {
         },
         (cause) => {
           if (generation === mcpGeneration.current) {
-            setMcpError(true);
+            if (pendingMcpWithdrawal()) {
+              retryMcp.current = false;
+              setMcpEnabled(false);
+              setNeedsRetry(true);
+              setMessage(confirmationPending);
+              setMcpError(false);
+            } else setMcpError(true);
             setMcpNotice(cause, "Could not check your MCP privacy choice.");
           }
         },
@@ -179,9 +191,7 @@ export function CookieConsent() {
       if (generation !== choiceGeneration.current) return;
       notifyError(cause, "Your privacy choices could not all be confirmed. Please retry.");
       setNeedsRetry(true);
-      setMessage(
-        "Your privacy choices could not all be confirmed; server confirmation is pending. MCP changes take effect only after confirmation. Retry recording your choices.",
-      );
+      setMessage(confirmationPending);
     } finally {
       if (generation === choiceGeneration.current) {
         pendingRef.current = false;
