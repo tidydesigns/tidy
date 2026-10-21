@@ -9,7 +9,6 @@ import { TidyLogo } from "@/components/ui/tidy-logo";
 import { AccountOrganizationOptions } from "./organization-options";
 import { PrivacyControls } from "./privacy-controls";
 import { mcpConsentPreference } from "@/lib/privacy/mcp-consent";
-import { McpAnalyticsChoice } from "@/components/privacy/mcp-analytics-choice";
 
 function activeInvitations(
   invitations: { id: string; organizationName?: string; expiresAt: Date }[] | null,
@@ -64,8 +63,7 @@ export default async function AccountPrivacyPage() {
         invitations={activeInvitations(invitations)}
       />
       <PrivacyControls email={account.user.email} />
-      <PrivacyChoicesButton />
-      {mcpAnalytics && <McpAnalyticsChoice initialEnabled={mcpAnalytics.enabled} />}
+      <PrivacyChoicesButton initialMcpAnalytics={mcpAnalytics} />
     </main>
   );
 }

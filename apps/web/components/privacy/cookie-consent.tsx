@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 import { recordBrowserConsent, recordBrowserWithdrawal } from "@/lib/privacy/receipt-client";
@@ -8,7 +8,8 @@ import { browserCollectionEnabled } from "@/lib/posthog-client";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { SelectMenu } from "@/components/ui/select-menu";
-import { OPEN_PRIVACY_CHOICES } from "./privacy-choices-button";
+import { DeferredSection } from "@/components/ui/deferred-section";
+import { McpAnalyticsChoice } from "./mcp-analytics-choice";
 import {
   browserConsent,
   chooseConsent,
@@ -17,6 +18,12 @@ import {
   type ConsentChoices,
   type ConsentPurpose,
 } from "@/lib/privacy/consent";
+
+export const OPEN_PRIVACY_CHOICES = "tidy-open-privacy-choices";
+export type McpPrivacyPreference =
+  | { enabled: boolean }
+  | null
+  | Promise<{ enabled: boolean } | null>;
 
 const purposes: { key: ConsentPurpose; title: string; description: string }[] = [
   {
@@ -40,25 +47,35 @@ const purposes: { key: ConsentPurpose; title: string; description: string }[] = 
 const actionClass =
   "flex min-h-11 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-4 py-3 text-sm font-medium text-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
 
-export function CookieConsent() {
+export function CookieConsent({
+  id = "privacy-choices-dialog",
+  initialMcpAnalytics,
+}: {
+  id?: string;
+  initialMcpAnalytics?: McpPrivacyPreference;
+}) {
+  const accountChoices = initialMcpAnalytics !== undefined;
   const collectionEnabled = browserCollectionEnabled();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const choiceGeneration = useRef(0);
   const [choices, setChoices] = useState<ConsentChoices>(ESSENTIAL_ONLY);
-  const [customize, setCustomize] = useState(false);
+  const [customize, setCustomize] = useState(accountChoices);
   const [message, setMessage] = useState("");
   const [needsRetry, setNeedsRetry] = useState(false);
   useEffect(() => {
     const refresh = () => setChoices(browserConsent() ?? ESSENTIAL_ONLY);
     refresh();
-    if (location.pathname !== "/privacy" && !browserConsent()) {
+    if (!accountChoices && location.pathname !== "/privacy" && !browserConsent()) {
       dialog.current?.showModal();
       heading.current?.focus({ preventScroll: true });
     }
     const open = (event: Event) => {
-      trigger.current = (event as CustomEvent<HTMLButtonElement>).detail;
+      const detail = (event as CustomEvent<{ trigger: HTMLButtonElement; dialogId: string }>)
+        .detail;
+      if (detail.dialogId !== id) return;
+      trigger.current = detail.trigger;
       // Finish rendering the controls before showModal measures and displays them.
       flushSync(() => {
         setCustomize(true);
@@ -73,7 +90,7 @@ export function CookieConsent() {
       window.removeEventListener(OPEN_PRIVACY_CHOICES, open);
       unsubscribe();
     };
-  }, []);
+  }, [accountChoices, id]);
   async function choose(next: ConsentChoices, close = false) {
     const generation = ++choiceGeneration.current;
     setNeedsRetry(false);
@@ -96,14 +113,53 @@ export function CookieConsent() {
       );
     }
   }
+  function renderPurpose({ key, title, description }: (typeof purposes)[number]) {
+    return (
+      <div key={key}>
+        <div className="flex items-center justify-between gap-4">
+          <span className="text-sm font-semibold">{title}</span>
+          <SelectMenu
+            replayOptions
+            label={title}
+            value={choices[key] ? "on" : "off"}
+            options={[
+              { value: "off", label: "Off" },
+              { value: "on", label: "On" },
+            ]}
+            onChange={(value) => choose({ ...choices, [key]: value === "on" })}
+          />
+        </div>
+        <p className="mt-2 text-sm leading-5 text-secondary-ink">{description}</p>
+      </div>
+    );
+  }
+  function diagnosticsSection(children: ReactNode) {
+    return (
+      <section aria-labelledby={`${id}-diagnostics`} className="space-y-5">
+        <h3 id={`${id}-diagnostics`} className="text-sm font-semibold">
+          Diagnostics and troubleshooting
+        </h3>
+        {children}
+      </section>
+    );
+  }
+  const mcpChoice = initialMcpAnalytics && (
+    <DeferredSection value={initialMcpAnalytics} label="MCP privacy choice">
+      {(choice) => {
+        if (!choice) return null;
+        const control = <McpAnalyticsChoice initialEnabled={choice.enabled} />;
+        return collectionEnabled ? control : diagnosticsSection(control);
+      }}
+    </DeferredSection>
+  );
   return (
     <aside data-ph-public-label className="ph-no-capture" aria-label="Privacy choices">
       <Dialog
         ref={dialog}
-        id="privacy-choices-dialog"
+        id={id}
         size="lg"
-        aria-labelledby="privacy-choice-title"
-        aria-describedby="privacy-choice-description"
+        aria-labelledby={`${id}-title`}
+        aria-describedby={`${id}-description`}
         onClose={() => {
           if (trigger.current?.isConnected) trigger.current.focus();
         }}
@@ -112,11 +168,11 @@ export function CookieConsent() {
           <h2
             data-ph-public
             ref={heading}
-            id="privacy-choice-title"
+            id={`${id}-title`}
             tabIndex={-1}
             className="text-xl font-semibold outline-none"
           >
-            Your browser privacy choices
+            {accountChoices ? "Privacy choices" : "Your browser privacy choices"}
           </h2>
           <Button
             type="button"
@@ -131,16 +187,16 @@ export function CookieConsent() {
         </div>
         <p
           data-ph-public
-          id="privacy-choice-description"
+          id={`${id}-description`}
           className="mt-3 text-sm leading-6 text-secondary-ink"
         >
           {collectionEnabled
             ? "Optional PostHog analytics, masked replay and browser diagnostics stay off until you choose."
-            : "Only essential storage for sign-in and preferences is active. Optional PostHog collection is off."}
+            : "This browser uses only essential storage for sign-in and preferences. Optional PostHog browser collection is off."}
         </p>
         {collectionEnabled && (
           <p data-ph-public className="mt-3 text-sm leading-6 text-secondary-ink">
-            When signed in, optional activity is linked to your account ID and email.
+            When signed in, optional browser activity is linked to your account ID and email.
           </p>
         )}
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
@@ -152,28 +208,18 @@ export function CookieConsent() {
             Privacy and cookie policy
           </a>
         </p>
-        {collectionEnabled && customize && (
-          <div className="mt-5 mb-5 space-y-5 border-y border-border py-5">
-            {purposes.map(({ key, title, description }) => (
-              <div key={key}>
-                <div className="flex items-center justify-between gap-4">
-                  <span id={`consent-${key}`} className="text-sm font-semibold">
-                    {title}
-                  </span>
-                  <SelectMenu
-                    replayOptions
-                    label={title}
-                    value={choices[key] ? "on" : "off"}
-                    options={[
-                      { value: "off", label: "Off" },
-                      { value: "on", label: "On" },
-                    ]}
-                    onChange={(value) => choose({ ...choices, [key]: value === "on" })}
-                  />
-                </div>
-                <p className="mt-2 text-sm leading-5 text-secondary-ink">{description}</p>
-              </div>
-            ))}
+        {customize && (collectionEnabled || initialMcpAnalytics) && (
+          <div className="mt-5 space-y-5">
+            {collectionEnabled &&
+              purposes.filter(({ key }) => key !== "diagnostics").map(renderPurpose)}
+            {collectionEnabled
+              ? diagnosticsSection(
+                  <>
+                    {purposes.filter(({ key }) => key === "diagnostics").map(renderPurpose)}
+                    {mcpChoice}
+                  </>,
+                )
+              : mcpChoice}
           </div>
         )}
         {message && (
@@ -195,7 +241,11 @@ export function CookieConsent() {
             onClick={() => choose(ESSENTIAL_ONLY, true)}
           >
             <span data-ph-public style={{ display: "contents" }}>
-              {collectionEnabled ? "Reject optional" : "Use essential storage"}
+              {collectionEnabled
+                ? accountChoices
+                  ? "Reject browser options"
+                  : "Reject optional"
+                : "Use essential storage"}
             </span>
           </Button>
           {collectionEnabled && (
@@ -205,7 +255,7 @@ export function CookieConsent() {
               onClick={() => choose({ analytics: true, replay: true, diagnostics: true }, true)}
             >
               <span data-ph-public style={{ display: "contents" }}>
-                Accept all optional
+                {accountChoices ? "Accept browser options" : "Accept all optional"}
               </span>
             </Button>
           )}

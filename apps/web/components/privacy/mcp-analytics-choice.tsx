@@ -35,9 +35,9 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
   return (
     <div className="ph-no-capture space-y-2">
       <div className="flex items-center justify-between gap-4">
-        <span className="text-sm font-medium">Link MCP monitoring to my account</span>
+        <span className="text-sm font-medium">Account-linked MCP diagnostics</span>
         <SelectMenu
-          label="Link MCP monitoring to my account"
+          label="Account-linked MCP diagnostics"
           value={enabled ? "on" : "off"}
           disabled={pending}
           options={[
@@ -48,11 +48,10 @@ export function McpAnalyticsChoice({ initialEnabled }: { initialEnabled: boolean
         />
       </div>
       <p className="text-sm text-secondary-ink">
-        Tidy monitors tool counts, timings, failures and reported client application names and
-        versions to operate the MCP service and diagnose compatibility issues. Turn this on to let
-        us associate those events with your account for troubleshooting for 90 days. Off stops
-        account linking; service monitoring continues. No prompts or tool content are sent. This is
-        separate from browser choices and does not affect MCP access.
+        Link MCP tool counts, timings, failures and client application names and versions to your
+        account for troubleshooting for 90 days. This applies across your account, independently of
+        browser choices. Service monitoring continues when off. No prompts or tool content are sent,
+        and MCP access is unaffected.
       </p>
       {error && (
         <p role="alert" className="text-sm text-danger">

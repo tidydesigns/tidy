@@ -230,12 +230,15 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
         <p>
           <strong>Optional account linking — consent.</strong> Turning on{" "}
-          <strong>Link MCP monitoring to my account</strong> in{" "}
-          <strong>Settings → Preferences → Privacy</strong> (or your account privacy page if you
-          have no organisation) lets us associate tool events with your account for troubleshooting.
-          These events use precise timestamps and a pseudonymous identifier that Tidy can link to
-          your account through your consent record. We do not send your email address or direct
-          account ID to PostHog, or join these events to browser profiles or replay.
+          <strong>Account-linked MCP diagnostics</strong> in{" "}
+          <strong>
+            Settings → Preferences → Privacy → Privacy choices → Diagnostics and troubleshooting
+          </strong>{" "}
+          (or <strong>Privacy choices</strong> on your account privacy page if you have no
+          organisation) lets us associate tool events with your account for troubleshooting. These
+          events use precise timestamps and a pseudonymous identifier that Tidy can link to your
+          account through your consent record. We do not send your email address or direct account
+          ID to PostHog, or join these events to browser profiles or replay.
         </p>
         <p>
           Account linking is off by default, separate from browser choices and agent access, and

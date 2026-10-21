@@ -4,8 +4,6 @@ import { PrivacyChoicesButton } from "@/components/privacy/privacy-choices-butto
 import { ThemePreferenceControl } from "@/components/ui/theme-preference";
 import { EditorPanelPreferenceControl } from "@/components/ui/editor-panel-preference";
 import { EditorToolbarPreferenceControl } from "@/components/ui/editor-toolbar-preference";
-import { DeferredSection } from "@/components/ui/deferred-section";
-import { McpAnalyticsChoice } from "@/components/privacy/mcp-analytics-choice";
 import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
 
 export function PreferenceControls({
@@ -50,12 +48,7 @@ export function PreferenceControls({
         >
           Privacy
         </h2>
-        <PrivacyChoicesButton />
-        {initialMcpAnalytics && (
-          <DeferredSection value={initialMcpAnalytics} label="MCP privacy choice">
-            {(choice) => (choice ? <McpAnalyticsChoice initialEnabled={choice.enabled} /> : null)}
-          </DeferredSection>
-        )}
+        <PrivacyChoicesButton initialMcpAnalytics={initialMcpAnalytics ?? null} />
       </section>
     </div>
   );
