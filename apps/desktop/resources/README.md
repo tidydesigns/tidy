@@ -1,8 +1,12 @@
 # Desktop icon
 
-`icon.png` is the 1024 × 1024 master rendered from the existing Tidy Co **icon**
-design (revision 17), retrieved through Tidy MCP. It preserves the original white
-artboard, dark wordmark, positioning and letter spacing. The render uses the
+`icon.png` is the 1024 × 1024 master rendered from the Tidy Co **Desktop icon — centered**
+design (revision 3), created through Tidy MCP from the original **icon** design.
+It preserves the white artboard, dark wordmark, font size and letter spacing.
+The visible lettering is centered horizontally and vertically, with measured
+139px left/right and 276px top/bottom margins at the 50% ink threshold.
+The editable text layer is at x=64.8828125, y=85.90625 on the 500px artboard.
+The render uses the
 repository's `packages/ui/fonts/InstrumentSerif-Regular.woff2` because the MCP
 preview could not embed that font.
 
