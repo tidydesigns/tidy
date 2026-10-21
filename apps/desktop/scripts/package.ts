@@ -15,6 +15,7 @@ export async function packageDesktop() {
 
   try {
     await cp(join(appDirectory, "out"), join(stagingDirectory, "out"), { recursive: true });
+    await cp(join(appDirectory, "resources/icon.png"), join(stagingDirectory, "icon.png"));
     await cp(join(repository, "LICENSE"), join(stagingDirectory, "LICENSE"));
     await cp(
       join(repository, "THIRD_PARTY_NOTICES.md"),
@@ -52,6 +53,12 @@ export async function packageDesktop() {
     const paths = await packager({
       dir: stagingDirectory,
       name: "Tidy",
+      icon:
+        process.platform === "darwin"
+          ? join(appDirectory, "resources/icon.icns")
+          : process.platform === "win32"
+            ? join(appDirectory, "resources/icon.ico")
+            : undefined,
       appBundleId: "co.tidydesign.desktop",
       appCategoryType: "public.app-category.graphics-design",
       buildVersion: manifest.desktopBuildNumber,

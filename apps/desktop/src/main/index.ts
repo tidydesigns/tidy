@@ -19,10 +19,12 @@ const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 
 let service: WorkspaceService | undefined;
 let quitting = false;
+const appIcon = join(app.getAppPath(), app.isPackaged ? "icon.png" : "resources/icon.png");
 
 async function createWindow() {
   const window = new BrowserWindow({
     title: "Tidy",
+    icon: appIcon,
     width: 1200,
     height: 800,
     minWidth: 640,
@@ -62,6 +64,7 @@ app
   .whenReady()
   .then(async () => {
     if (!ownsWorkspace) return;
+    if (process.platform === "darwin" && !app.isPackaged) app.dock?.setIcon(appIcon);
     const store = new ProjectStore(join(app.getPath("userData"), "workspace"));
     await store.initialize();
     await store.recover();
