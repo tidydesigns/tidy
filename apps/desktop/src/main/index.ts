@@ -89,8 +89,12 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
-        await service?.close();
+        const resumeWorkspace = await service!.prepareUpdate();
         quitting = true;
+        return () => {
+          quitting = false;
+          resumeWorkspace();
+        };
       },
     });
     registerUpdateIPC(updates, entryURL);

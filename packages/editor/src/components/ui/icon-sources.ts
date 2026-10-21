@@ -9,6 +9,7 @@ export const iconSources = {
   plug: new URL("../../assets/icons/iconoir/plug.svg", import.meta.url).href,
   settings: new URL("../../assets/icons/iconoir/settings.svg", import.meta.url).href,
   upgrade: new URL("../../assets/icons/iconoir/arrow-up.svg", import.meta.url).href,
+  update: new URL("../../assets/icons/iconoir/refresh-double.svg", import.meta.url).href,
   frame: new URL("../../assets/icons/iconoir/frame-tool.svg", import.meta.url).href,
   rectangle: new URL("../../assets/icons/iconoir/square.svg", import.meta.url).href,
   hand: new URL("../../assets/icons/iconoir/drag-hand-gesture.svg", import.meta.url).href,

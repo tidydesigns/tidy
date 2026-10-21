@@ -11,5 +11,6 @@ export const appUpdateStateSchema = z.object({
     "error",
   ]),
   version: z.string().optional(),
+  error: z.enum(["check", "download", "install"]).optional(),
 });
 export type AppUpdateState = z.infer<typeof appUpdateStateSchema>;

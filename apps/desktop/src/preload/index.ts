@@ -18,6 +18,9 @@ async function request<Name extends WorkspaceOperation>(
 const api: DesktopAPI = {
   updateState: async () =>
     appUpdateStateSchema.parse(await ipcRenderer.invoke("tidy:update-state")),
+  checkUpdates: async () => {
+    await ipcRenderer.invoke("tidy:check-updates");
+  },
   installUpdate: async () => {
     await ipcRenderer.invoke("tidy:install-update");
   },

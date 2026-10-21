@@ -140,12 +140,12 @@ test("network and native failures retry without publishing sensitive diagnostics
   updater.start();
   try {
     await tick();
-    expect(updater.state).toEqual({ status: "error" });
+    expect(updater.state).toEqual({ status: "error", error: "check", version: undefined });
     online = true;
     await updater.check();
     expect(updater.state.status).toBe("downloading");
     native.emit("error", new Error("private signing diagnostic"));
-    expect(updater.state).toEqual({ status: "error" });
+    expect(updater.state).toEqual({ status: "error", error: "download", version: "0.1.0-beta.12" });
     await updater.check();
     native.emit("update-downloaded");
     expect(updater.state.status).toBe("ready");
@@ -167,7 +167,7 @@ test("empty native feeds return to polling and malformed discovery never starts 
     expect(updater.state.status).toBe("idle");
     malformed = true;
     await updater.check();
-    expect(updater.state).toEqual({ status: "error" });
+    expect(updater.state).toEqual({ status: "error", error: "check", version: undefined });
     expect(native.checks).toBe(1);
     malformed = false;
     await updater.check();
@@ -215,6 +215,77 @@ test("failed preparation preserves the update for another install attempt", asyn
   } finally {
     updater.stop();
   }
+});
+
+test("asynchronous native restart failures restore the workspace and keep the staged update", async () => {
+  let restored = 0;
+  const { updater, native } = fixture({
+    prepareInstall: async () => () => {
+      restored++;
+    },
+  });
+  updater.start();
+  try {
+    await tick();
+    native.emit("update-downloaded");
+    await updater.install();
+    expect(updater.state.status).toBe("installing");
+    native.emit("error", new Error("private path /Volumes/readonly"));
+    expect(restored).toBe(1);
+    expect(updater.state).toEqual({ status: "ready", version: "0.1.0-beta.12", error: "install" });
+    await updater.install();
+    expect(native.installs).toBe(2);
+  } finally {
+    updater.stop();
+  }
+});
+
+test("synchronous native restart errors cannot leave the app stuck installing", async () => {
+  let restored = 0;
+  const { updater, native } = fixture({
+    prepareInstall: async () => () => {
+      restored++;
+    },
+  });
+  native.quitAndInstall = () => {
+    native.emit("error", new Error("restart failed"));
+  };
+  updater.start();
+  try {
+    await tick();
+    native.emit("update-downloaded");
+    await expect(updater.install()).rejects.toThrow("Please try again");
+    expect(restored).toBe(1);
+    expect(updater.state.status).toBe("ready");
+  } finally {
+    updater.stop();
+  }
+});
+
+test("quitting while update preparation is pending never calls the native installer", async () => {
+  let prepared!: () => void;
+  let restored = 0;
+  const { updater, native } = fixture({
+    prepareInstall: () =>
+      new Promise((resolve) => {
+        prepared = () =>
+          resolve(() => {
+            restored++;
+          });
+      }),
+  });
+  updater.start();
+  await tick();
+  native.emit("update-downloaded");
+  const installation = updater.install().then(
+    () => null,
+    (error: unknown) => error,
+  );
+  updater.stop();
+  prepared();
+  expect(String(await installation)).toContain("Please try again");
+  expect(native.installs).toBe(0);
+  expect(restored).toBe(1);
 });
 
 test("development and unsupported packages never check or install", async () => {

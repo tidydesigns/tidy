@@ -75,6 +75,57 @@ function finished(service: WorkspaceService, threadId: string) {
   });
 }
 
+test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Before update",
+    designIds: [],
+  });
+  runs[0].input.onUpdate({ type: "message", id: "reply", text: "Persist this reply" });
+  const restore = await service.prepareUpdate();
+  expect(runs[0].stopped).toBe(true);
+  const saved = await store.readThread(project.id, thread.id);
+  expect(saved.status).not.toBe("running");
+  expect(saved.messages.some((message) => message.text === "Persist this reply")).toBe(true);
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "Blocked during update",
+      designIds: [],
+    }),
+  ).rejects.toThrow("closing");
+  restore();
+  const next = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Continue after failure",
+    designIds: [],
+  });
+  expect(next.status).toBe("running");
+  expect(runs.length).toBe(2);
+});
+
+test("a failed update flush releases the workspace instead of leaving it permanently closed", async () => {
+  const { service, store, project } = await fixture();
+  const flush = store.flush.bind(store);
+  store.flush = () => Promise.reject(new Error("disk failure"));
+  try {
+    await expect(service.prepareUpdate()).rejects.toThrow("disk failure");
+  } finally {
+    store.flush = flush;
+  }
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Still usable",
+    designIds: [],
+  });
+  expect(thread.status).toBe("running");
+});
+
 test("design references reach the harness and follow-up messages resume the same session", async () => {
   const { service, store, project, runs } = await fixture();
   const design = await store.createDesign(project.id);

@@ -102,7 +102,18 @@ body {
   font-size: 12px;
   color: var(--color-muted-ink);
 }
+.app-update-spinning {
+  animation: app-update-spin 900ms linear infinite;
+}
+@keyframes app-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (prefers-reduced-motion: reduce) {
+  .app-update-spinning {
+    animation: none;
+  }
   .app-update-button {
     transition: none;
   }

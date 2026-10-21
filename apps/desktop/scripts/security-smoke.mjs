@@ -162,7 +162,7 @@ app.on("browser-window-created", (_event, window) => {
       );
       assert.equal(denied.ok, false);
       assert.match(denied.error, /Untrusted desktop request/);
-      for (const name of ["update-state", "install-update"]) {
+      for (const name of ["update-state", "check-updates", "install-update"]) {
         const message = await foreign.webContents.executeJavaScript(
           `window.probe.invoke(${JSON.stringify(name)}).then(()=>null,error=>error.message)`,
         );
@@ -171,8 +171,21 @@ app.on("browser-window-created", (_event, window) => {
 
       // Exercise automatic update delivery and its sole sidebar action with a synthetic state.
       assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);
+      for (const status of ["checking", "downloading", "installing"]) {
+        page.send("tidy:update", { status, version: "0.1.0-beta.999" });
+        await wait("document.querySelector('.app-update-button[aria-busy=\"true\"]')!==null");
+        assert.equal(await evaluate("document.querySelector('.app-update-button').disabled"), true);
+        assert.equal(
+          await evaluate(`(() => {
+          const icon=document.querySelector('.app-update-spinning');
+          return Boolean(icon) && getComputedStyle(icon).animationName ===
+            (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'none' : 'app-update-spin');
+        })()`),
+          true,
+        );
+      }
       page.send("tidy:update", { status: "ready", version: "0.1.0-beta.999" });
-      await wait("document.querySelector('.app-update-button')!==null");
+      await wait("document.querySelector('.app-update-button[aria-busy=\"false\"]')!==null");
       assert.equal(
         await evaluate(`(() => {
           const button=document.querySelector('.app-update-button');

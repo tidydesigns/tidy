@@ -92,6 +92,8 @@ export class AppUpdates {
   private timer?: ReturnType<typeof setInterval>;
   private stopped = false;
   private checking = false;
+  private preparing = false;
+  private restoreWorkspace?: () => void;
   private readonly unavailable = () => {
     if (this.state.status === "downloading") this.set({ status: "idle" });
   };
@@ -102,7 +104,14 @@ export class AppUpdates {
   private readonly failed = () => {
     if (this.stopped) return;
     // Never expose native paths, signing diagnostics or network responses to the renderer.
-    this.set({ status: "error" });
+    if (this.state.status === "installing") {
+      this.restoreWorkspace?.();
+      this.restoreWorkspace = undefined;
+      this.set({ status: "ready", version: this.state.version, error: "install" });
+    } else {
+      const error = this.state.status === "downloading" ? "download" : "check";
+      this.set({ status: "error", version: this.state.version, error });
+    }
   };
 
   constructor(
@@ -112,7 +121,7 @@ export class AppUpdates {
       arch: string;
       native: NativeUpdater;
       fetch(url: string, init: RequestInit): Promise<Response>;
-      prepareInstall(): Promise<void>;
+      prepareInstall(): Promise<void | (() => void)>;
     },
   ) {
     this.state = { status: options.supported ? "idle" : "unsupported" };
@@ -122,6 +131,10 @@ export class AppUpdates {
     if (this.stopped) return;
     this.state = state;
     for (const listener of this.listeners) listener(state);
+  }
+
+  private isInstalling() {
+    return this.state.status === "installing";
   }
 
   subscribe(listener: (state: AppUpdateState) => void) {
@@ -180,16 +193,24 @@ export class AppUpdates {
   }
 
   async install() {
-    if (this.stopped || this.state.status !== "ready")
+    if (this.stopped || this.preparing || this.state.status !== "ready")
       throw new Error("No desktop update is ready.");
     const version = this.state.version;
+    this.preparing = true;
     this.set({ status: "installing", version });
     try {
-      await this.options.prepareInstall();
+      this.restoreWorkspace = (await this.options.prepareInstall()) ?? undefined;
+      if (this.stopped || !this.isInstalling()) throw new Error("Installation cancelled.");
       this.options.native.quitAndInstall();
+      // Native updater errors can be emitted synchronously or after this call returns.
+      if (!this.isInstalling()) throw new Error("Installation failed.");
     } catch {
-      this.set({ status: "ready", version });
+      this.restoreWorkspace?.();
+      this.restoreWorkspace = undefined;
+      this.set({ status: "ready", version, error: "install" });
       throw new Error("The update could not be installed. Please try again.");
+    } finally {
+      this.preparing = false;
     }
   }
 

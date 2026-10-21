@@ -512,9 +512,22 @@ export class WorkspaceService {
     this.emit({ type: "thread", thread: job.thread });
   }
 
-  async close() {
+  /** Quiesce harnesses and persist their work, retaining a recovery path if restart fails. */
+  async prepareUpdate() {
+    if (this.closing) throw new Error("Tidy is closing.");
     this.closing = true;
-    for (const watcher of this.watchers.values()) watcher.close();
+    try {
+      await this.stopAndFlush();
+    } catch (error) {
+      this.closing = false;
+      throw error;
+    }
+    return () => {
+      this.closing = false;
+    };
+  }
+
+  private async stopAndFlush() {
     for (const job of this.jobs.values()) {
       job.stopped = true;
       job.process?.stop();
@@ -524,5 +537,11 @@ export class WorkspaceService {
     for (const job of this.jobs.values())
       await this.store.writeThread({ ...job.thread, status: "interrupted", activity: undefined });
     await this.store.flush();
+  }
+
+  async close() {
+    this.closing = true;
+    for (const watcher of this.watchers.values()) watcher.close();
+    await this.stopAndFlush();
   }
 }

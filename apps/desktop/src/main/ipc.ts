@@ -15,11 +15,12 @@ function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
 }
 
 export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
-  for (const name of ["update-state", "install-update"]) {
+  for (const name of ["update-state", "check-updates", "install-update"]) {
     ipcMain.handle(`tidy:${name}`, async (event, ...args: unknown[]) => {
       if (!trustedRequest(event, rendererURL) || args.length)
         throw new Error("Untrusted desktop request.");
       if (name === "update-state") return updates.state;
+      if (name === "check-updates") return updates.check();
       await updates.install();
     });
   }

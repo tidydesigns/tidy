@@ -126,6 +126,7 @@ export type Bootstrap = {
 export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
   updateState(): Promise<AppUpdateState>;
+  checkUpdates(): Promise<void>;
   installUpdate(): Promise<void>;
   onUpdate(listener: (state: AppUpdateState) => void): () => void;
   bootstrap(): Promise<Bootstrap>;

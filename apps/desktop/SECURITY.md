@@ -91,12 +91,15 @@ remain trusted. Runtime installation relies on native code-signature verificatio
 not on an unsigned checksum fetched from the same release.
 
 The isolated renderer can only read update state, subscribe to sanitized state
-changes, or request installation of an already staged update. It cannot supply a
+changes, retry a check against the fixed release source, or request installation of an
+already staged update. It cannot supply a
 feed, version, path or download URL. Update IPC uses the same trusted top-frame and
 window checks as workspace requests and rejects arguments. Browser development has
 no update installation endpoint. Clicking install checkpoints/stops harness jobs
 and flushes storage before the native updater closes windows; background checks do
-not restart the app. Native error details remain outside the renderer.
+not restart the app. Native restart errors restore the workspace admission state
+and preserve the staged update for a retry; they cannot leave the UI in an
+installing state. Native error details remain outside the renderer.
 
 Run from the repository root:
 

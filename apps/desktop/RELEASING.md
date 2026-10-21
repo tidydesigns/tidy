@@ -71,17 +71,23 @@ startup and every 30 minutes. Discovery reads up to three pages of 100 releases,
 ignores drafts, unrelated tags, incomplete assets and other architectures, and
 selects the highest compatible version rather than the last publication. Beta
 installs can receive newer betas or stable releases; stable installs ignore betas.
-Failed checks and downloads retry on the next interval without interrupting work.
+Failed checks and downloads retry on the next interval without interrupting work;
+the sidebar also offers an immediate retry using the same update control.
 Development builds and the browser development gateway never check or install.
 They display a preview of the sidebar update icon; its tooltip identifies the
 development preview, and clicking it does not install or restart anything.
 
 Electron's native Squirrel updater downloads the ZIP in the background and checks
-its code signature against the installed app. The update icon appears at the
-bottom of the workspace sidebar only after staging succeeds. Clicking it stops
+its code signature against the installed app. The Iconoir circular refresh icon at the bottom of the workspace sidebar spins
+while checking, downloading or preparing a restart. Reduced-motion preferences
+disable rotation. The ready indicator appears only after staging succeeds. Clicking it stops
 active harness runs, checkpoints their threads, flushes local storage, and restarts
 to install. Squirrel also applies staged updates on the next normal quit/relaunch.
-There is no automatic restart or extra menu entry.
+Every update replaces the installed app and requires a restart. There is no
+automatic restart or extra menu entry. Download/check failures expose sanitized
+retry feedback. If native restart fails, the staged update remains retryable and
+the workspace reopens for new work; stopped harness runs require a follow-up
+message to continue.
 
 Older builds without this updater need one manual DMG installation. Install Tidy
 in Applications before updating; running from a mounted DMG or a read-only folder
@@ -96,6 +102,16 @@ all six assets, leave A running until its icon appears, then click it and confir
 B launches with projects and interrupted thread history intact. Also verify an
 ordinary quit/relaunch after staging. Unit and native security tests use synthetic
 fixtures and do not replace this signed distribution check.
+
+Production sign-off is still pending. Exercise signed distribution on a fresh Mac
+and an existing installation, including an offline launch, network interruption
+and sleep/resume during download, low disk space, a read-only or translocated app,
+a rejected signature/corrupted archive, and quitting with pending design edits or
+active harness runs. Verify a failure preserves the installed version and local
+project files, and that a subsequent retry or manual reinstall recovers. Native
+download timeouts/resume and filesystem failure recovery require testing in the
+actual bundled Electron/Squirrel version; unit mocks do not establish them.
+Windows/Linux auto-updates and an Intel release pipeline are outside this release.
 
 The future download page can select the highest beta version from published
 `desktop-v*` prereleases and consume that release's `desktop-release.json`.
