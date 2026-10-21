@@ -73,6 +73,11 @@ selects the highest compatible version rather than the last publication. Beta
 installs can receive newer betas or stable releases; stable installs ignore betas.
 Failed checks and downloads retry on the next interval without interrupting work;
 the sidebar also offers an immediate retry using the same update control.
+Discovery caches each page's ETag and parsed releases for conditional requests.
+GitHub rate-limit responses quietly defer checks, including manual retries, until
+the server's retry/reset deadline or an increasing backoff of at least 30 minutes.
+An app restart clears this in-memory cache and backoff. Unauthenticated requests
+still share GitHub's public-IP quota, so large shared networks can delay discovery.
 Development builds and the browser development gateway never check or install.
 They display a preview of the sidebar update icon; its tooltip identifies the
 development preview, and clicking it does not install or restart anything.

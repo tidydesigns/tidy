@@ -81,7 +81,10 @@ Automatic macOS updates use Electron's native Squirrel updater, which requires t
 replacement app to satisfy the running app's code-signing requirement. Discovery
 runs only in packaged macOS apps, at startup and every 30 minutes, using the public
 GitHub releases API for the fixed `tidydesigns/tidy` repository. These requests send
-no project data, credentials, account IDs or local paths. Version/channel checks
+no project data, credentials, account IDs or local paths. Release discovery requests
+use an in-memory conditional-response cache; rate limits defer automatic and manual
+checks with retry/reset deadlines and increasing backoff. Discovery requests still
+share the public IP's unauthenticated GitHub quota. Version/channel checks
 reject downgrades, drafts, unrelated tags and missing/wrong-architecture assets;
 asset URLs must exactly match the selected release in that repository. The release
 publisher verifies the ZIP checksum and the feed's version/URL before publication,

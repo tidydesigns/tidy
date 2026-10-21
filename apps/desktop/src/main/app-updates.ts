@@ -93,6 +93,9 @@ export class AppUpdates {
   private stopped = false;
   private checking = false;
   private preparing = false;
+  private pages = new Map<number, { etag: string; releases: Release[] }>();
+  private retryAt = 0;
+  private rateLimitFailures = 0;
   private restoreWorkspace?: () => void;
   private readonly unavailable = () => {
     if (this.state.status === "downloading") this.set({ status: "idle" });
@@ -121,6 +124,7 @@ export class AppUpdates {
       arch: string;
       native: NativeUpdater;
       fetch(url: string, init: RequestInit): Promise<Response>;
+      now?(): number;
       prepareInstall(): Promise<void | (() => void)>;
     },
   ) {
@@ -155,26 +159,68 @@ export class AppUpdates {
   }
 
   async check() {
-    if (this.stopped || this.checking || !["idle", "error"].includes(this.state.status)) return;
+    if (
+      this.stopped ||
+      this.checking ||
+      !["idle", "error"].includes(this.state.status) ||
+      (this.options.now?.() ?? Date.now()) < this.retryAt
+    )
+      return;
     this.checking = true;
     this.set({ status: "checking" });
     try {
       const discovered: Release[] = [];
       // Include prereleases and tolerate releases being published out of version order.
       for (let page = 1; page <= 3; page++) {
+        const cached = this.pages.get(page);
         const response = await this.options.fetch(
           `https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}`,
           {
-            headers: { Accept: "application/vnd.github+json" },
+            headers: {
+              Accept: "application/vnd.github+json",
+              ...(cached ? { "If-None-Match": cached.etag } : {}),
+            },
             signal: AbortSignal.timeout(20_000),
           },
         );
-        if (!response.ok) throw new Error("Release discovery failed.");
-        const releases = releasesSchema.parse(await response.json());
+        if (response.status === 403 || response.status === 429) {
+          const now = this.options.now?.() ?? Date.now();
+          const retry = response.headers.get("retry-after");
+          const retryAfter =
+            retry === null
+              ? 0
+              : /^\d+$/.test(retry)
+                ? now + Number(retry) * 1000
+                : Date.parse(retry);
+          const reset =
+            response.headers.get("x-ratelimit-remaining") === "0"
+              ? Number(response.headers.get("x-ratelimit-reset")) * 1000
+              : 0;
+          // Conditional requests still share an unauthenticated IP's quota. Back off even
+          // when GitHub omits retry headers, and prevent manual retries from bypassing it.
+          const backoff = interval * 2 ** Math.min(this.rateLimitFailures++, 5);
+          this.retryAt = Math.max(
+            now + backoff,
+            Number.isFinite(retryAfter) ? retryAfter : 0,
+            Number.isFinite(reset) ? reset : 0,
+          );
+          this.set({ status: "idle" });
+          return;
+        }
+        let releases: Release[];
+        if (response.status === 304 && cached) releases = cached.releases;
+        else {
+          if (!response.ok) throw new Error("Release discovery failed.");
+          releases = releasesSchema.parse(await response.json());
+          const etag = response.headers.get("etag");
+          if (etag) this.pages.set(page, { etag, releases });
+          else this.pages.delete(page);
+        }
         discovered.push(...releases);
         if (releases.length < 100) break;
       }
       if (this.stopped) return;
+      this.rateLimitFailures = 0;
       const candidate = selectAppUpdate(discovered, this.options.version, this.options.arch);
       if (!candidate) {
         this.set({ status: "idle" });
