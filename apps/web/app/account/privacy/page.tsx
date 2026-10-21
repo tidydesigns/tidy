@@ -38,7 +38,6 @@ export default async function AccountPrivacyPage() {
           return null;
         })
       : Promise.resolve([]),
-
   ]);
   return (
     <main className="mx-auto max-w-2xl space-y-8 px-6 py-12 pb-24">

@@ -1,16 +1,17 @@
 import { MCP_NOTICE_VERSION } from "./consent";
+import { z } from "zod";
+import { readJsonResponse } from "@/lib/http/json-response";
 
 async function choice(response: Response) {
-  if (!response.ok) throw new Error("Your MCP privacy choice could not be confirmed.");
-  const result = await response.json();
-  if (
-    !result ||
-    typeof result !== "object" ||
-    !("enabled" in result) ||
-    typeof result.enabled !== "boolean"
-  )
-    throw new Error("Invalid MCP privacy choice.");
-  return result as { enabled: boolean; signedIn?: boolean; pending?: boolean };
+  return readJsonResponse({
+    response,
+    schema: z.object({
+      enabled: z.boolean(),
+      signedIn: z.boolean().optional(),
+      pending: z.boolean().optional(),
+    }),
+    message: "Your MCP privacy choice could not be confirmed.",
+  });
 }
 export async function recordMcpChoice(enabled: boolean) {
   return choice(

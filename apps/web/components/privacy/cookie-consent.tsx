@@ -7,6 +7,7 @@ import { loadMcpChoice, recordMcpChoice } from "@/lib/privacy/mcp-choice-client"
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 import { recordBrowserConsent, recordBrowserWithdrawal } from "@/lib/privacy/receipt-client";
 import { browserCollectionEnabled } from "@/lib/posthog-client";
+import { useErrorNotice } from "@/lib/use-error-notice";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { SelectMenu } from "@/components/ui/select-menu";
@@ -59,6 +60,8 @@ export function CookieConsent() {
   const [mcpLoading, setMcpLoading] = useState(true);
   const [mcpError, setMcpError] = useState(false);
   const [pending, setPending] = useState(false);
+  const [, setChoiceError] = useErrorNotice("", "user_action", "inline");
+  const [, setMcpNotice] = useErrorNotice("", "user_action", "inline");
   const mcpGeneration = useRef(0);
   const pendingRef = useRef(false);
   const retryMcp = useRef<boolean | undefined>(undefined);
@@ -71,16 +74,20 @@ export function CookieConsent() {
           if (generation === mcpGeneration.current) {
             setMcpEnabled(result.enabled);
             setMcpError(false);
+            setMcpNotice("");
           }
         },
-        () => {
-          if (generation === mcpGeneration.current) setMcpError(true);
+        (cause) => {
+          if (generation === mcpGeneration.current) {
+            setMcpError(true);
+            setMcpNotice(cause, "Could not check your MCP privacy choice.");
+          }
         },
       )
       .finally(() => {
         if (generation === mcpGeneration.current) setMcpLoading(false);
       });
-  }, []);
+  }, [setMcpNotice]);
   useEffect(() => {
     void refreshMcp();
     window.addEventListener("focus", refreshMcp);
@@ -117,6 +124,7 @@ export function CookieConsent() {
   }, []);
   async function choose(next: ConsentChoices, close = false, mcp?: boolean) {
     if (pendingRef.current) return;
+    const notifyError = setChoiceError("");
     pendingRef.current = true;
     const generation = ++choiceGeneration.current;
     if (mcp !== undefined) ++mcpGeneration.current;
@@ -151,12 +159,18 @@ export function CookieConsent() {
         setMcpEnabled(mcpResult.value.enabled);
         setMcpLoading(false);
         setMcpError(false);
+        setMcpNotice("");
       }
-      if (browserResult.status === "rejected" || mcpResult.status === "rejected")
-        throw new Error("Privacy choice confirmation failed");
+      const failures = [browserResult, mcpResult]
+        .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+        .map((result) => result.reason);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length > 1)
+        throw new AggregateError(failures, "Privacy choice confirmation failed");
       if (close && generation === choiceGeneration.current) dialog.current?.close();
-    } catch {
+    } catch (cause) {
       if (generation !== choiceGeneration.current) return;
+      notifyError(cause, "Your privacy choices could not all be confirmed. Please retry.");
       setNeedsRetry(true);
       setMessage(
         "Your privacy choices could not all be confirmed. Please retry. Browser and MCP choices are applied only when their server confirmation succeeds.",

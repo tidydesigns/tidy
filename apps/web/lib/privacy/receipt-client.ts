@@ -1,4 +1,5 @@
 import { browserConsent, consentRevision } from "./consent";
+import { readJsonValue, responseError } from "@/lib/http/json-response";
 
 export type ConsentReceipt = {
   id: string;
@@ -27,7 +28,8 @@ export async function recordBrowserWithdrawal() {
         body: JSON.stringify({ revoke: true }),
         signal: AbortSignal.timeout(10_000),
       });
-      if (!response.ok) throw new Error("Withdrawal could not be recorded");
+      if (!response.ok)
+        throw responseError(response, undefined, "Withdrawal could not be recorded");
     });
   queue = task;
   return task;
@@ -60,8 +62,12 @@ export function recordBrowserConsent(): Promise<ConsentReceipt> {
         typeof navigator !== "undefined" && navigator.locks
           ? await navigator.locks.request("tidy-privacy-receipt", send)
           : await send();
-      if (!response.ok) throw new Error("Privacy choice could not be recorded");
-      const receipt = (await response.json()) as ConsentReceipt;
+      if (!response.ok)
+        throw responseError(response, undefined, "Privacy choice could not be recorded");
+      const receipt = (await readJsonValue(
+        response,
+        "Privacy choice could not be recorded",
+      )) as ConsentReceipt;
       if (
         !receipt ||
         !/^[a-f0-9-]{36}$/.test(receipt.id) ||
