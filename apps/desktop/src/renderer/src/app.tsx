@@ -20,6 +20,7 @@ import {
 import { ProjectFiles } from "./project-files";
 import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
+import { AppUpdate } from "./app-update";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
@@ -904,6 +905,7 @@ export function App() {
             />
           </>
         )}
+        <AppUpdate api={api} />
       </aside>
       <main className="workspace">
         {!project ? (

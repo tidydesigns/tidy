@@ -109,6 +109,8 @@ app.on("browser-window-created", (_event, window) => {
       await wait("document.querySelector('[aria-label=\"New file options\"]')!==null");
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(await evaluate("typeof window.tidy.invoke"), "undefined");
+      assert.deepEqual(await api("updateState"), { status: "unsupported" });
+      await assert.rejects(api("installUpdate"), /No desktop update is ready/);
       const exported = await evaluate(
         `${await readFile(exportProbe, "utf8")};globalThis.__tidyExportSecurityResult`,
       );
@@ -160,6 +162,33 @@ app.on("browser-window-created", (_event, window) => {
       );
       assert.equal(denied.ok, false);
       assert.match(denied.error, /Untrusted desktop request/);
+      for (const name of ["update-state", "install-update"]) {
+        const message = await foreign.webContents.executeJavaScript(
+          `window.probe.invoke(${JSON.stringify(name)}).then(()=>null,error=>error.message)`,
+        );
+        assert.match(message, /Untrusted desktop request/);
+      }
+
+      // Exercise automatic update delivery and its sole sidebar action with a synthetic state.
+      assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);
+      page.send("tidy:update", { status: "ready", version: "0.1.0-beta.999" });
+      await wait("document.querySelector('.app-update-button')!==null");
+      assert.equal(
+        await evaluate(`(() => {
+          const button=document.querySelector('.app-update-button');
+          const sidebar=document.querySelector('.desktop-navigation');
+          return button.title==='Restart to update to Tidy 0.1.0-beta.999' &&
+            button.getBoundingClientRect().bottom <= sidebar.getBoundingClientRect().bottom &&
+            sidebar.getBoundingClientRect().bottom - button.getBoundingClientRect().bottom < 20;
+        })()`),
+        true,
+      );
+      // There is intentionally no staged native update: installation must fail safely and retry.
+      await evaluate("document.querySelector('.app-update-button').click();true");
+      await wait("document.querySelector('.app-update-error')!==null");
+      assert.equal(await evaluate("document.querySelector('.app-update-button').disabled"), false);
+      page.send("tidy:update", { status: "idle" });
+      await wait("document.querySelector('.app-update-button')===null");
 
       // A real canvas must still work under the restricted custom protocol.
       const design = await api("createDesign", projectId);

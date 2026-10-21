@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import {
   publishDesktopBeta,
   releaseIdentity,
+  releaseArtifactNames,
   validateReleaseArtifacts,
   writeReleaseMetadata,
 } from "./desktop-release.mjs";
@@ -47,6 +48,13 @@ async function setInstaller(directory, bytes) {
   await writeFile(join(directory, identity.name), bytes);
   const checksum = createHash("sha256").update(bytes).digest("hex");
   await writeFile(join(directory, `${identity.name}.sha256`), `${checksum}  ${identity.name}\n`);
+  const zip = identity.name.replace(/\.dmg$/, ".zip");
+  const zipBytes = Buffer.from("synthetic update archive");
+  await writeFile(join(directory, zip), zipBytes);
+  await writeFile(
+    join(directory, `${zip}.sha256`),
+    `${createHash("sha256").update(zipBytes).digest("hex")}  ${zip}\n`,
+  );
   await writeReleaseMetadata(directory, identity);
 }
 
@@ -111,7 +119,11 @@ function fakeGitHub() {
         }));
         return "";
       case "edit":
-        assert.equal(state.release.assets.length, 3, "all assets must exist before publication");
+        assert.equal(
+          state.release.assets.length,
+          releaseArtifactNames(identity).length,
+          "all assets must exist before publication",
+        );
         assert.ok(
           state.calls.some((call) => call[1] === "download"),
           "remote assets must be read back before publication",
@@ -226,7 +238,19 @@ test("metadata binds the download URL, exact source, run and installer hash", as
 });
 
 test("artifact tampering, unexpected files and symlinks stop publication before GitHub access", async (t) => {
-  for (const change of ["bytes", "checksum", "metadata", "extra", "symlink"]) {
+  for (const change of [
+    "bytes",
+    "checksum",
+    "metadata",
+    "extra",
+    "symlink",
+    "zip-bytes",
+    "zip-checksum",
+    "zip-symlink",
+    "feed-url",
+    "feed-version",
+    "feed-symlink",
+  ]) {
     const directory = await candidate(t);
     if (change === "bytes") await writeFile(join(directory, identity.name), "modified");
     if (change === "checksum")
@@ -246,6 +270,24 @@ test("artifact tampering, unexpected files and symlinks stop publication before 
       await rm(join(directory, identity.name));
       await symlink(outside, join(directory, identity.name));
     }
+    const zip = identity.name.replace(/\.dmg$/, ".zip");
+    if (change === "zip-bytes") await writeFile(join(directory, zip), "modified");
+    if (change === "zip-checksum") await writeFile(join(directory, `${zip}.sha256`), "invalid");
+    if (change === "feed-url" || change === "feed-version") {
+      const feedPath = join(directory, "desktop-update-arm64.json");
+      const feed = JSON.parse(await readFile(feedPath, "utf8"));
+      if (change === "feed-url") feed.url = "https://example.invalid/update.zip";
+      else feed.name = "0.1.0-beta.999";
+      await writeFile(feedPath, JSON.stringify(feed));
+    }
+    if (change === "zip-symlink" || change === "feed-symlink") {
+      const path = join(directory, change === "zip-symlink" ? zip : "desktop-update-arm64.json");
+      const outside = `${directory}-outside`;
+      await copyFile(path, outside);
+      t.after(() => rm(outside, { force: true }));
+      await rm(path);
+      await symlink(outside, path);
+    }
     const { state, gh } = fakeGitHub();
     await assert.rejects(publishDesktopBeta({ directory, identity, gh }));
     assert.equal(state.calls.length, 0);
@@ -260,7 +302,7 @@ test("a release is published as a prerelease only after all assets are uploaded"
     url: identity.releaseUrl,
   });
   assert.equal(state.release.isDraft, false);
-  assert.equal(state.files.size, 3);
+  assert.equal(state.files.size, releaseArtifactNames(identity).length);
   const operations = state.calls.map((args) => args[1]);
   const publish = operations.indexOf("edit");
   assert.ok(operations.indexOf("download") < publish);
@@ -283,7 +325,7 @@ test("same-size remote replacements must match the original local digests", asyn
       }
       const result = await original(args);
       if (args[1] === "upload" && replaceAt === "upload") {
-        // All three replacement files are self-consistent and retain their original sizes.
+        // All replacement files are self-consistent and retain their original sizes.
         for (const [name, previous] of state.files) {
           const next = await readFile(join(replacement, name));
           assert.equal(next.length, previous.length);

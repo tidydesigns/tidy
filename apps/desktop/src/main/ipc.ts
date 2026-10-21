@@ -4,6 +4,35 @@ import { WorkspaceService } from "./workspace-service";
 import { trustedRendererURL } from "./renderer-security";
 import { readLocalFile } from "./local-files";
 import { createWorkspaceRequests } from "./workspace-requests";
+import type { AppUpdates } from "./app-updates";
+
+function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
+  return Boolean(
+    BrowserWindow.fromWebContents(event.sender) &&
+    event.senderFrame === event.sender.mainFrame &&
+    trustedRendererURL(event.senderFrame.url, rendererURL),
+  );
+}
+
+export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
+  for (const name of ["update-state", "install-update"]) {
+    ipcMain.handle(`tidy:${name}`, async (event, ...args: unknown[]) => {
+      if (!trustedRequest(event, rendererURL) || args.length)
+        throw new Error("Untrusted desktop request.");
+      if (name === "update-state") return updates.state;
+      await updates.install();
+    });
+  }
+  return updates.subscribe((state) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (
+        !window.isDestroyed() &&
+        trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
+      )
+        window.webContents.send("tidy:update", state);
+    }
+  });
+}
 
 export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: string) {
   const requests = createWorkspaceRequests<IpcMainInvokeEvent>(service, {
@@ -32,12 +61,7 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
   for (const name of requests.names) {
     ipcMain.handle(`tidy:${name}`, async (event, input: unknown) => {
       try {
-        if (
-          !BrowserWindow.fromWebContents(event.sender) ||
-          event.senderFrame !== event.sender.mainFrame ||
-          !trustedRendererURL(event.senderFrame.url, rendererURL)
-        )
-          throw new Error("Untrusted desktop request.");
+        if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
         return { ok: true, data: await requests.invoke(name, input, event) };
       } catch (error) {
         return {

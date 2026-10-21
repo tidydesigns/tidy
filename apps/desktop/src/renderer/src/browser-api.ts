@@ -55,6 +55,11 @@ function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
 }
 
 const api: DesktopAPI = {
+  updateState: async () => ({ status: "unsupported" }),
+  installUpdate: async () => {
+    throw new Error("Updates require the installed desktop app.");
+  },
+  onUpdate: () => () => {},
   bootstrap: async () => {
     const value = await request("bootstrap");
     remember(value.activeProject);

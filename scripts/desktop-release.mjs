@@ -58,6 +58,26 @@ export function releaseIdentity(manifest, env) {
   };
 }
 
+/** Every published asset is verified before the release becomes visible. */
+export function releaseArtifactNames(identity) {
+  const zip = identity.name.replace(/\.dmg$/, ".zip");
+  return [
+    identity.name,
+    `${identity.name}.sha256`,
+    zip,
+    `${zip}.sha256`,
+    "desktop-update-arm64.json",
+    manifestName,
+  ];
+}
+
+function updateFeed(identity) {
+  return {
+    name: identity.version,
+    url: identity.downloadUrl.replace(/\.dmg$/, ".zip"),
+  };
+}
+
 /** Return file metadata only for regular files; reject symlinks and other entry types. */
 async function regularFile(path) {
   const info = await lstat(path);
@@ -75,20 +95,20 @@ async function sha256(path) {
 }
 
 /** Validate the nonempty installer and exact checksum sidecar, then describe its download. */
-async function checkedDownload(directory, identity) {
-  const path = join(directory, identity.name);
+async function checkedDownload(directory, identity, name = identity.name) {
+  const path = join(directory, name);
   const info = await regularFile(path);
   if (info.size === 0) throw new Error("Empty desktop installer.");
   const digest = await sha256(path);
   const checksumPath = `${path}.sha256`;
   await regularFile(checksumPath);
   const checksum = await readFile(checksumPath, "utf8");
-  if (checksum !== `${digest}  ${identity.name}\n`) throw new Error("Installer checksum mismatch.");
+  if (checksum !== `${digest}  ${name}\n`) throw new Error("Installer checksum mismatch.");
   return {
     platform: "darwin",
     arch: "arm64",
-    name: identity.name,
-    url: identity.downloadUrl,
+    name,
+    url: identity.downloadUrl.replace(identity.name, name),
     sha256: digest,
     size: info.size,
   };
@@ -108,14 +128,19 @@ export async function writeReleaseMetadata(directory, identity) {
     runId: identity.runId,
     releaseUrl: identity.releaseUrl,
     downloads: [download],
+    update: await checkedDownload(directory, identity, identity.name.replace(/\.dmg$/, ".zip")),
   };
+  await writeFile(
+    join(directory, "desktop-update-arm64.json"),
+    `${JSON.stringify(updateFeed(identity), null, 2)}\n`,
+  );
   await writeFile(join(directory, manifestName), `${JSON.stringify(metadata, null, 2)}\n`);
   return metadata;
 }
 
 /** Reject extra files, symlinks, tampered bytes, or metadata that differs from this release. */
 export async function validateReleaseArtifacts(directory, identity) {
-  const names = [identity.name, `${identity.name}.sha256`, manifestName].sort();
+  const names = releaseArtifactNames(identity).sort();
   const entries = (await readdir(directory)).sort();
   if (JSON.stringify(entries) !== JSON.stringify(names))
     throw new Error("Unexpected release artifact set.");
@@ -133,7 +158,12 @@ export async function validateReleaseArtifacts(directory, identity) {
     runId: identity.runId,
     releaseUrl: identity.releaseUrl,
     downloads: [await checkedDownload(directory, identity)],
+    update: await checkedDownload(directory, identity, identity.name.replace(/\.dmg$/, ".zip")),
   };
+  const feedPath = join(directory, "desktop-update-arm64.json");
+  await regularFile(feedPath);
+  if (!isDeepStrictEqual(JSON.parse(await readFile(feedPath, "utf8")), updateFeed(identity)))
+    throw new Error("Update feed does not match this release.");
   // Compare parsed values without trusting property order or allowing extra metadata.
   if (!isDeepStrictEqual(metadata, expected))
     throw new Error("Release metadata does not match this workflow run and installer.");
@@ -221,10 +251,7 @@ function checkRelease(release, identity) {
 export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
   await validateReleaseArtifacts(directory, identity);
   const digests = await Promise.all(
-    [identity.name, `${identity.name}.sha256`, manifestName].map(async (name) => [
-      name,
-      await sha256(join(directory, name)),
-    ]),
+    releaseArtifactNames(identity).map(async (name) => [name, await sha256(join(directory, name))]),
   );
   await checkTag(identity, gh);
   let release = await getRelease(identity, gh);
@@ -234,7 +261,7 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
       checkRelease(release, identity);
       if (!release.isDraft) {
         // A retry must never replace a published installer, even if re-signing changed its bytes.
-        const expectedNames = [identity.name, `${identity.name}.sha256`, manifestName].sort();
+        const expectedNames = releaseArtifactNames(identity).sort();
         if (
           JSON.stringify(release.assets.map((asset) => asset.name).sort()) !==
           JSON.stringify(expectedNames)
@@ -254,11 +281,7 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
         await checkTag(identity, gh, true);
         return { published: false, url: identity.releaseUrl };
       }
-      if (
-        release.assets.some(
-          (asset) => ![identity.name, `${identity.name}.sha256`, manifestName].includes(asset.name),
-        )
-      )
+      if (release.assets.some((asset) => !releaseArtifactNames(identity).includes(asset.name)))
         throw new Error("Draft contains unexpected release assets.");
     }
     const notes = join(temporary, "notes.md");
@@ -268,7 +291,7 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
         `Tidy desktop ${identity.version}`,
         "",
         "Public beta for Apple Silicon Macs.",
-        "Download the DMG, open it, and drag Tidy into Applications. This beta uses manual updates.",
+        "Download the DMG, open it, and drag Tidy into Applications. Future updates appear automatically at the bottom of the app sidebar; click the update icon to restart and install.",
         "",
         `Source: https://github.com/${identity.repository}/commit/${identity.commit}`,
         `Build: https://github.com/${identity.repository}/actions/runs/${identity.runId}`,
@@ -305,14 +328,12 @@ export async function publishDesktopBeta({ directory, identity, gh = runGh }) {
       "--repo",
       identity.repository,
       "--clobber",
-      ...[identity.name, `${identity.name}.sha256`, manifestName].map((name) =>
-        join(directory, name),
-      ),
+      ...releaseArtifactNames(identity).map((name) => join(directory, name)),
     ]);
     release = await getRelease(identity, gh);
     if (!release) throw new Error("Release draft disappeared.");
     checkRelease(release, identity);
-    const expectedFiles = [identity.name, `${identity.name}.sha256`, manifestName];
+    const expectedFiles = releaseArtifactNames(identity);
     if (!release.isDraft || release.assets.length !== expectedFiles.length)
       throw new Error("Draft asset set is incomplete or release is already published.");
     for (const name of expectedFiles) {

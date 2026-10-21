@@ -273,7 +273,8 @@ This opt-in command builds for the current Mac's architecture. It applies the
 existing security fuses, signs with Hardened Runtime and the JIT entitlement,
 notarizes and staples the app, then creates a signed, notarized and stapled DMG
 with an Applications shortcut. It verifies signatures, tickets and Gatekeeper
-acceptance and writes a SHA-256 sidecar in `apps/desktop/release/`. Keychain may
+acceptance, creates a ZIP of the final stapled app for in-app updates, and writes
+SHA-256 sidecars in `apps/desktop/release/`. Keychain may
 prompt to authorize the signing key. No private keys or passwords are exported.
 
 Notarization uploads the compiled app and DMG to Apple. Submission IDs are printed
@@ -287,15 +288,18 @@ signature failures and other permanent errors stop immediately; exhausted retrie
 also fail the release. Successful verification is still required before publishing.
 
 If app notarization has completed and the app is already stapled, append `--resume`
-to retry only the DMG stage without rebuilding or re-uploading the app. This
+to recreate the update ZIP and retry the DMG stage without rebuilding or re-uploading the app. This
 requires the existing app's version/build metadata, signature, notarization ticket
 and Gatekeeper assessment to pass. Keep the source and build number unchanged.
 
 The command does not publish, install, or deploy anything. Test the DMG on another
 Mac before public distribution. The [desktop beta release workflow](RELEASING.md)
 can automate signing and publishing after merges to `main` once its environment
-is configured and enabled. These betas use manual updates; automatic updates and
-website download links are separate work. Existing `package:desktop` remains an
+is configured and enabled. Installed macOS apps check at startup and every 30
+minutes; once an update is staged, click the icon at the bottom of the sidebar to
+restart and install. Older builds need one manual DMG update to get the updater.
+See [in-app updates](RELEASING.md#in-app-updates) for channels and release verification.
+Website download links remain separate work. Existing `package:desktop` remains an
 unsigned local development package, including in pull-request CI.
 
 ## Shared foundations

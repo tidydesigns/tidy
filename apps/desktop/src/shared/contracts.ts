@@ -9,6 +9,7 @@ import {
   type HarnessDetails,
 } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
+import type { AppUpdateState } from "./app-updates";
 
 const id = z.string().uuid();
 export const harnessIdSchema = z.enum(["codex", "claude"]);
@@ -124,6 +125,9 @@ export type Bootstrap = {
 };
 export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
+  updateState(): Promise<AppUpdateState>;
+  installUpdate(): Promise<void>;
+  onUpdate(listener: (state: AppUpdateState) => void): () => void;
   bootstrap(): Promise<Bootstrap>;
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;

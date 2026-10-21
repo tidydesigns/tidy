@@ -6,6 +6,7 @@ import {
 } from "../shared/workspace-response";
 import { desktopEventSchema } from "../shared/contracts";
 import type { DesktopAPI } from "../shared/contracts";
+import { appUpdateStateSchema } from "../shared/app-updates";
 
 async function request<Name extends WorkspaceOperation>(
   name: Name,
@@ -15,6 +16,19 @@ async function request<Name extends WorkspaceOperation>(
 }
 
 const api: DesktopAPI = {
+  updateState: async () =>
+    appUpdateStateSchema.parse(await ipcRenderer.invoke("tidy:update-state")),
+  installUpdate: async () => {
+    await ipcRenderer.invoke("tidy:install-update");
+  },
+  onUpdate(listener) {
+    const receive = (_event: Electron.IpcRendererEvent, value: unknown) =>
+      listener(appUpdateStateSchema.parse(value));
+    ipcRenderer.on("tidy:update", receive);
+    return () => {
+      ipcRenderer.removeListener("tidy:update", receive);
+    };
+  },
   bootstrap: () => request("bootstrap"),
   openProject: () => request("open-project"),
   selectProject: (projectId) => request("select-project", projectId),

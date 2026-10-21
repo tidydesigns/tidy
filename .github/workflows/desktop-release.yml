@@ -154,6 +154,9 @@ jobs:
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.dmg.sha256
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.zip.sha256
+            apps/desktop/release/desktop-update-arm64.json
             apps/desktop/release/desktop-release.json
           if-no-files-found: error
           compression-level: 0

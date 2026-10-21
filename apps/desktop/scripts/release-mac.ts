@@ -107,6 +107,8 @@ const app = join(paths[0], "Tidy.app");
 const temporary = await mkdtemp(join(tmpdir(), "tidy-release-"));
 const artifactName = `Tidy-${manifest.version}-mac-${process.arch}.dmg`;
 const artifact = join(appDirectory, "release", artifactName);
+const updateName = `Tidy-${manifest.version}-mac-${process.arch}.zip`;
+const updateArtifact = join(appDirectory, "release", updateName);
 
 try {
   if (resume) {
@@ -150,6 +152,20 @@ try {
   await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
   await stapler("validate", app);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
+
+  // Archive the final stapled app, preserving framework symlinks and signatures.
+  // Squirrel.Mac installs ZIPs; a DMG is only for the initial manual installation.
+  await rm(updateArtifact, { force: true });
+  await run("ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", app, updateArtifact]);
+  const extracted = join(temporary, "update-check");
+  await run("ditto", ["-x", "-k", updateArtifact, extracted]);
+  const extractedApp = join(extracted, "Tidy.app");
+  await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", extractedApp]);
+  await stapler("validate", extractedApp);
+  await run("spctl", ["--assess", "--type", "execute", "--verbose=2", extractedApp]);
+  const updateHash = createHash("sha256");
+  for await (const chunk of createReadStream(updateArtifact)) updateHash.update(chunk);
+  await writeFile(`${updateArtifact}.sha256`, `${updateHash.digest("hex")}  ${updateName}\n`);
 
   const contents = join(temporary, "contents");
   const copiedApp = join(contents, "Tidy.app");
