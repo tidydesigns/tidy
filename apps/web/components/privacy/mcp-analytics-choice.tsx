@@ -27,10 +27,8 @@ export function McpAnalyticsChoice({
         />
       </div>
       <p className="text-sm text-secondary-ink">
-        Link MCP tool counts, timings, failures and client application names and versions to your
-        account for troubleshooting for 90 days. A choice made before sign-in applies to the next
-        account you sign in to. Service monitoring continues when off. No prompts or tool content
-        are sent, and MCP access is unaffected.
+        Link MCP usage, performance and errors to your account for 90 days to help troubleshoot
+        problems. No prompts or tool content are sent.
       </p>
     </div>
   );
