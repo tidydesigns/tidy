@@ -27,8 +27,10 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     let failing = false;
     const poll = async () => {
       if (Date.now() - started > 10 * 60_000) {
+        notifyError.dismiss();
+        const notifyExpired = setError("");
+        notifyExpired("Sign-in expired. Connect again to get a new code.");
         setLogin(null);
-        notifyError("Sign-in expired. Connect again to get a new code.");
         return;
       }
       try {
