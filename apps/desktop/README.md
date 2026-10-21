@@ -228,7 +228,7 @@ bun run package:desktop    # Create an unpacked app in apps/desktop/release
 
 Packaging uses Electron Packager to create an unsigned app for the current platform
 and architecture. It stages only compiled output, package metadata and licence
-notices and the runtime icon; source code and local environment files are excluded. Packaging is separate
+notices and a runtime icon on Linux; source code and local environment files are excluded. Packaging is separate
 from the monorepo build. Native icons come from [the Tidy logo export](resources/README.md).
 Installers, signing and notarization can be
 configured before public distribution. Packaging enables the Electron security
