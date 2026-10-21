@@ -464,8 +464,9 @@ for (const { fixture, format } of cases) {
       await panel.getByRole("button", { name: "Vector colours" }).click();
       await page.getByRole("menuitemradio", { name: "2 colours", exact: true }).click();
       await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
-      await panel.getByRole("alert").waitFor();
-      assert.match(await panel.getByRole("alert").innerText(), /loses too much detail/);
+      await expect(
+        page.getByRole("alert").filter({ hasText: "Could not vectorise this image." }),
+      ).toBeVisible();
       assert.equal(await root.locator("img[data-vector-path]").count(), 0);
       assert.equal(await root.locator("[data-adjustable-image]").count(), 1);
 
@@ -616,7 +617,9 @@ test("a malformed worker request preserves the image and allows retry", async ({
   const { root, panel, openImage } = imageEditor(page);
   await openImage();
   await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
-  await expect(panel.getByRole("alert")).toHaveText("Invalid vectorisation request.");
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not vectorise this image." }),
+  ).toBeVisible();
   await expect(root.locator("img[data-vector-path]")).toHaveCount(0);
   await expect(root.locator("[data-adjustable-image]")).toBeVisible();
   await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
