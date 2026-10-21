@@ -11,7 +11,11 @@
     "./button": "./button.tsx",
     "./select-menu": "./select-menu.tsx",
     "./tidy-logo": "./tidy-logo.tsx",
-    "./harness-icon": "./harness-icon.tsx"
+    "./harness-icon": "./harness-icon.tsx",
+    "./errors": "./errors.ts",
+    "./toast": "./toast.tsx",
+    "./toast.css": "./toast.css",
+    "./use-error-notice": "./use-error-notice.ts"
   },
   "scripts": {
     "typecheck": "tsrs --noEmit",
@@ -19,12 +23,14 @@
     "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
-    "react": "19.2.8"
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@types/react": "^19",
     "typescript": "^5",
     "eslint": "^9",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.0.0",
+    "@types/react-dom": "^19"
   }
 }

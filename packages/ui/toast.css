@@ -1,0 +1,60 @@
+.tidy-toast-viewport {
+  position: fixed;
+  inset: auto 20px 20px auto;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(360px, calc(100vw - 40px));
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  pointer-events: none;
+}
+.tidy-toast {
+  pointer-events: auto;
+  border: 1px solid var(--color-border, #777);
+  border-radius: 8px;
+  background: var(--color-panel, Canvas);
+  color: var(--color-ink, CanvasText);
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 4px 20px #0002;
+}
+.tidy-toast-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.tidy-toast-content p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.tidy-toast-icon {
+  flex-shrink: 0;
+  width: 18px;
+  text-align: center;
+  font-weight: 600;
+}
+.tidy-toast-content button {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin: -4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 20px;
+  cursor: pointer;
+}
+.tidy-toast-content button:hover {
+  background: var(--color-hover-surface, #8882);
+}
+.tidy-toast-content button:focus-visible {
+  outline: 2px solid var(--color-primary-orange, #f5733f);
+  outline-offset: 2px;
+}

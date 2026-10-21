@@ -1,6 +1,9 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
+
+import { useId, useRef } from "react";
 import { Avatar } from "@/components/ui/avatar";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { useOrganizationNames } from "@/components/workspace/organization-names";
@@ -26,14 +29,15 @@ export function AvatarControl({
   const input = useRef<HTMLInputElement>(null);
   const busy = useRef(false);
   const pending = pendingImages[path] ?? false;
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "account_update");
   const errorId = useId();
 
   async function change(file: File | null) {
+    const notifyError = setError("");
     if (busy.current || pending) return;
-    setError("");
+
     if (file && (!IMAGE_TYPES.includes(file.type) || !file.size || file.size > MAX_IMAGE_BYTES)) {
-      setError("Choose a PNG, JPEG or WebP image under 5 MB.");
+      notifyError("Choose a PNG, JPEG or WebP image under 5 MB.");
       return;
     }
     busy.current = true;
@@ -47,11 +51,11 @@ export function AvatarControl({
         error?: string;
       } | null;
       if (!response.ok || !result || !(typeof result.image === "string" || result.image === null)) {
-        throw new Error(result?.error ?? "Could not update the image. Please try again.");
+        throw responseError(response, result, "Could not update the image. Please try again.");
       }
       updateImage(path, result.image);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not update the image.");
+      notifyError(error, "Could not update the image.");
     } finally {
       busy.current = false;
       setImagePending(path, false);
@@ -149,9 +153,9 @@ export function AvatarControl({
         )}
       </div>
       {error && (
-        <p id={errorId} role="alert" className="text-sm text-danger">
+        <span id={errorId} className="sr-only">
           {error}
-        </p>
+        </span>
       )}
     </div>
   );

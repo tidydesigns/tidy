@@ -1,3 +1,4 @@
+import { diagnosticError } from "@tidy/ui/errors";
 import type { PostHog, PostHogConfig } from "posthog-js";
 import {
   browserConsent,
@@ -338,7 +339,7 @@ export function appErrorReporter(operation: AppErrorOperation) {
       (error instanceof Error && error.name === "AbortError")
     )
       return;
-    posthog.captureException(error, { app_error_operation: operation });
+    posthog.captureException(diagnosticError(error), { app_error_operation: operation });
   };
 }
 

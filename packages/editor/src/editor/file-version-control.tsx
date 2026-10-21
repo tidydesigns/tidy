@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "./use-error-notice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   fileVersionListSchema,
@@ -118,7 +119,7 @@ export function FileVersionControl({
   const [preview, setPreview] = useState<VersionPreview | null>(null),
     [frameId, setFrameId] = useState("");
   const [name, setName] = useState(""),
-    [error, setError] = useState(""),
+    [error, setError] = useEditorErrorNotice(),
     [pending, setPending] = useState(false),
     [imageFailed, setImageFailed] = useState(false);
   const selection = useRef(versionId);
@@ -187,21 +188,22 @@ export function FileVersionControl({
       (cause) => {
         if (request === requests.current) {
           setPreview(null);
-          setError(cause instanceof Error ? cause.message : "Could not read version.");
+          setError(cause, "Could not read version.");
         }
       },
     );
     return () => {
       invalidateRequests();
     };
-  }, [base, versionId, open, invalidateRequests]);
+  }, [base, versionId, open, invalidateRequests, setError]);
   async function create() {
+    const notifyError = setError("");
     const submitted = name.trim(),
       selected = selection.current,
       interaction = interactions.current;
     if (!submitted) return;
     setPending(true);
-    setError("");
+
     try {
       const result = await api(
         z.object({ id: z.string() }),
@@ -214,24 +216,23 @@ export function FileVersionControl({
         if (selection.current === selected) setVersionId(result.id);
       }
     } catch (cause) {
-      if (interactions.current === interaction)
-        setError(cause instanceof Error ? cause.message : "Could not create version.");
+      if (interactions.current === interaction) notifyError(cause, "Could not create version.");
     } finally {
       setPending(false);
     }
   }
   async function restore() {
+    const notifyError = setError("");
     if (!preview || preview.version.id !== versionId) return;
     const interaction = interactions.current;
     setPending(true);
-    setError("");
+
     try {
       await onRestore(versionId, preview.currentRevision);
       await load();
       if (interactions.current === interaction) setOpen(false);
     } catch (cause) {
-      if (interactions.current === interaction)
-        setError(cause instanceof Error ? cause.message : "Could not restore version.");
+      if (interactions.current === interaction) notifyError(cause, "Could not restore version.");
     } finally {
       setPending(false);
     }
@@ -270,9 +271,7 @@ export function FileVersionControl({
           interactions.current++;
           setError("");
           setOpen(true);
-          void load().catch((cause) =>
-            setError(cause instanceof Error ? cause.message : "Could not read file history."),
-          );
+          void load().catch((cause) => setError(cause, "Could not read file history."));
         }}
       />
       <Dialog
@@ -425,11 +424,6 @@ export function FileVersionControl({
           {pending && (
             <p data-ph-public role="status" className="text-xs">
               Updating history…
-            </p>
-          )}
-          {error && (
-            <p role="alert" className="text-xs text-danger">
-              {error}
             </p>
           )}
         </div>

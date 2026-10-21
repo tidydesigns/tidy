@@ -1,3 +1,4 @@
+import { useErrorNotice } from "@tidy/ui/use-error-notice";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@tidy/ui/button";
@@ -102,7 +103,7 @@ export function ProjectFiles({
   const [editing, setEditing] = useState<Editing | null>(null);
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice();
   const [renamed, setRenamed] = useState<Record<string, string>>({});
   const [moving, setMoving] = useState<string | null>(null);
   const [moves, setMoves] = useState<Record<string, string | null>>({});
@@ -135,6 +136,7 @@ export function ProjectFiles({
     setName(initial);
   }
   async function finishName() {
+    const notifyError = setError("");
     if (cancelled.current || finishing.current || !editing) return;
     const target = editing,
       next = name.trim();
@@ -144,7 +146,7 @@ export function ProjectFiles({
     }
     finishing.current = true;
     setPending(true);
-    setError("");
+
     if (target.kind !== "create") {
       setRenamed((current) => ({ ...current, [target.id]: next }));
       setEditing(null);
@@ -180,7 +182,7 @@ export function ProjectFiles({
           delete next[target.id];
           return next;
         });
-      setError(cause instanceof Error ? cause.message : "Could not rename this item.");
+      notifyError(cause, "Could not rename this item.");
     } finally {
       finishing.current = false;
       setPending(false);
@@ -213,26 +215,28 @@ export function ProjectFiles({
     );
   }
   async function create(importing = false) {
+    const notifyError = setError("");
     if (pending) return;
     setPending(true);
-    setError("");
+
     try {
       const file = importing
         ? await api.importDesign(projectId, activeFolderId)
         : await api.createDesign(projectId, activeFolderId);
       if (file) onCreated(file);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create this file.");
+      notifyError(cause, "Could not create this file.");
     } finally {
       setPending(false);
     }
   }
   async function move(file: DesignSummary, nextFolderId: string | null) {
+    const notifyError = setError("");
     setMoving(null);
     if (fileFolder(file) === nextFolderId) return;
     setMoves((current) => ({ ...current, [file.id]: nextFolderId }));
     setPending(true);
-    setError("");
+
     try {
       const current = await api.readDesign(projectId, file.id);
       onUpdate(
@@ -254,7 +258,7 @@ export function ProjectFiles({
         delete next[file.id];
         return next;
       });
-      setError(cause instanceof Error ? cause.message : "Could not move this file.");
+      notifyError(cause, "Could not move this file.");
     } finally {
       setPending(false);
     }
@@ -447,11 +451,7 @@ export function ProjectFiles({
             />
           </div>
         </div>
-        {error && (
-          <p className="file-browser-error" role="alert">
-            {error}
-          </p>
-        )}
+
         {files.length > 0 ? (
           <ul className={view === "grid" ? filesGrid : "local-file-rows"}>
             {files.map((file) => fileItem(file))}

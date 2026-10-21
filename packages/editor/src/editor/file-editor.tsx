@@ -1,4 +1,5 @@
 "use client";
+import { handleError } from "@tidy/ui/errors";
 import { CanvasAlignment } from "./canvas-alignment";
 import { isFigmaClipboard } from "@tidy/design/figma-input";
 import { readFigma, remapFigmaAssets } from "../design/figma-client";
@@ -390,7 +391,7 @@ export function FileEditor({
   useLayoutEffect(() => {
     activeRef.current = active;
   }, [active]);
-  const { renameFile: renameDesignFile } = useEditorHost();
+  const { renameFile: renameDesignFile, reportError: createReporter } = useEditorHost();
   // Archived snapshots use the static viewer: no live room, comments or writes.
   const preview = previewMode || archived;
   const mobileLayout = useMobileEditor();
@@ -475,9 +476,16 @@ export function FileEditor({
   const [errorNotice, setErrorNotice] = useState<EditorErrorNotice>({ message: "" });
   const error = errorNotice.message;
   const setError = useCallback((message: string) => setErrorNotice({ message }), []);
-  const reportError = useCallback((cause: unknown, fallback: string) => {
-    setErrorNotice(editorErrorNotice(cause, fallback));
-  }, []);
+  const reportError = useCallback(
+    (cause: unknown, fallback: string) => {
+      handleError(cause, {
+        fallback: editorErrorMessage(cause, fallback),
+        report: createReporter("user_action"),
+        notify: (message) => setErrorNotice({ ...editorErrorNotice(cause, fallback), message }),
+      });
+    },
+    [createReporter],
+  );
   const [busy, setBusy] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [prototypeMode, setPrototypeMode] = useState(false);
@@ -1241,6 +1249,7 @@ export function FileEditor({
       setAssetError("");
     } catch (cause) {
       if (version !== assetRequests.current.version) return;
+      createReporter("user_action")(cause);
       setAssetError(editorErrorMessage(cause, "Could not load assets."));
     } finally {
       if (version === assetRequests.current.version) setAssetLoading(false);
@@ -1514,6 +1523,7 @@ export function FileEditor({
       for (const file of result.files) downloadBlob(file.blob, file.name);
       setExportWarnings(result.warnings);
     } catch (cause) {
+      createReporter("user_action")(cause);
       setExportError(editorErrorMessage(cause, "Could not export selection."));
     } finally {
       exportRunning.current = false;

@@ -1,3 +1,4 @@
+import { actionError } from "@/lib/action-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
@@ -34,10 +35,7 @@ async function post(request: Request) {
     const denied = operationFailure(error);
     if (denied) return denied;
     console.error("Stripe portal failed", error);
-    return Response.json(
-      { error: error instanceof Error ? error.message : "Could not open billing." },
-      { status: 400 },
-    );
+    return Response.json({ error: actionError(error, "Could not open billing.") }, { status: 400 });
   }
 }
 

@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { roleLabel } from "@/lib/organizations/roles";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { headers } from "next/headers";
@@ -47,7 +48,8 @@ export default async function InvitationPage({ params }: PageProps<"/accept-invi
   let invitation: Awaited<ReturnType<typeof auth.api.getInvitation>> | null = null;
   try {
     invitation = await auth.api.getInvitation({ headers: requestHeaders, query: { id } });
-  } catch {
+  } catch (cause) {
+    reportHandledError(cause);
     // Better Auth rejects expired, accepted, and wrong-recipient invitations.
   }
 

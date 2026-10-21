@@ -1,4 +1,7 @@
 "use client";
+
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
 import {
   FileCard,
   FileViewToggle,
@@ -144,7 +147,7 @@ export function FilesBrowser({
   const [newestFirst, setNewestFirst] = useState(true);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "file_manage");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderDraft, setFolderDraft] = useState("");
   const [renaming, setRenaming] = useState<RenameTarget | null>(null);
@@ -301,9 +304,10 @@ export function FilesBrowser({
     action: () => Promise<{ error?: string }>,
     options: { movedFile?: File; hideFolderId?: string; refresh?: boolean } = {},
   ) {
+    const notifyError = setError("");
     setMenu(null);
     setBusy(true);
-    setError("");
+
     const movedFile = options.movedFile;
     const hadPreviousMove = movedFile ? Object.hasOwn(movedFromByFileId, movedFile.id) : false;
     const previousMove = movedFile ? movedFromByFileId[movedFile.id] : null;
@@ -312,7 +316,7 @@ export function FilesBrowser({
     if (options.hideFolderId) setHiddenFolderIds((current) => [...current, options.hideFolderId!]);
     try {
       const result = await action();
-      if (result.error) throw new Error(result.error);
+      if (result.error) throw new UserFacingError(result.error);
       if (options.refresh) router.refresh();
       return true;
     } catch (cause) {
@@ -325,9 +329,7 @@ export function FilesBrowser({
         });
       if (options.hideFolderId)
         setHiddenFolderIds((current) => current.filter((id) => id !== options.hideFolderId));
-      setError(
-        cause instanceof Error ? cause.message : "Could not update this item. Please try again.",
-      );
+      notifyError(cause, "Could not update this item. Please try again.");
       return false;
     } finally {
       setBusy(false);
@@ -335,30 +337,30 @@ export function FilesBrowser({
   }
 
   async function archiveFile(file: File) {
+    const notifyError = setError("");
     setMenu(null);
-    setError("");
+
     setHiddenFileIds((current) => [...current, file.id]);
     try {
       const result = await setDesignFileArchived(file.id, !archived);
-      if (result.error) throw new Error(result.error);
+      if (result.error) throw new UserFacingError(result.error);
     } catch (error) {
       setHiddenFileIds((current) => current.filter((id) => id !== file.id));
-      setError(
-        error instanceof Error ? error.message : "Could not update this file. Please try again.",
-      );
+      notifyError(error, "Could not update this file. Please try again.");
     }
   }
 
   async function deleteFile(file: File) {
+    const notifyError = setError("");
     setBusy(true);
-    setError("");
+
     setHiddenFileIds((current) => [...current, file.id]);
     try {
       const result = await deleteArchivedDesignFile(file.id);
-      if (result.error) throw new Error(result.error);
+      if (result.error) throw new UserFacingError(result.error);
     } catch (cause) {
       setHiddenFileIds((current) => current.filter((id) => id !== file.id));
-      setError(cause instanceof Error ? cause.message : "Could not delete this file.");
+      notifyError(cause, "Could not delete this file.");
     } finally {
       setBusy(false);
     }
@@ -380,6 +382,7 @@ export function FilesBrowser({
   }
 
   async function finishFolder() {
+    const notifyError = setError("");
     setCreatingFolder(false);
     if (cancelFolderRef.current) {
       cancelFolderRef.current = false;
@@ -401,10 +404,10 @@ export function FilesBrowser({
       ...current,
     ]);
     setBusy(true);
-    setError("");
+
     try {
       const result = await createDesignFolder(name);
-      if (!result.id) throw new Error(result.error ?? "Could not create the folder.");
+      if (!result.id) throw new UserFacingError(result.error ?? "Could not create the folder.");
       setAddedFolders((current) =>
         current.map((folder) =>
           folder.id === temporaryId ? { ...folder, id: result.id! } : folder,
@@ -412,43 +415,45 @@ export function FilesBrowser({
       );
     } catch (cause) {
       setAddedFolders((current) => current.filter((folder) => folder.id !== temporaryId));
-      setError(cause instanceof Error ? cause.message : "Could not create the folder.");
+      notifyError(cause, "Could not create the folder.");
     } finally {
       setBusy(false);
     }
   }
 
   async function duplicateFolder(folder: Folder) {
+    const notifyError = setError("");
     const temporaryId = `pending-${crypto.randomUUID()}`;
     setMenu(null);
-    setError("");
+
     setAddedFolders((current) => [
       { ...folder, id: temporaryId, name: `${folder.name.slice(0, 115)} copy` },
       ...current,
     ]);
     try {
       const result = await duplicateDesignFolder(folder.id);
-      if (!result.id) throw new Error(result.error ?? "Could not duplicate the folder.");
+      if (!result.id) throw new UserFacingError(result.error ?? "Could not duplicate the folder.");
       setAddedFolders((current) =>
         current.map((item) => (item.id === temporaryId ? { ...item, id: result.id! } : item)),
       );
     } catch (cause) {
       setAddedFolders((current) => current.filter((item) => item.id !== temporaryId));
-      setError(cause instanceof Error ? cause.message : "Could not duplicate the folder.");
+      notifyError(cause, "Could not duplicate the folder.");
     }
   }
 
   async function duplicateFile(file: File) {
+    const notifyError = setError("");
     const temporaryId = `pending-${crypto.randomUUID()}`;
     setMenu(null);
-    setError("");
+
     setAddedFiles((current) => [
       { ...file, id: temporaryId, name: `${file.name.slice(0, 115)} copy` },
       ...current,
     ]);
     try {
       const result = await duplicateDesignFile(file.id);
-      if (!result.id) throw new Error(result.error ?? "Could not duplicate the file.");
+      if (!result.id) throw new UserFacingError(result.error ?? "Could not duplicate the file.");
       setAddedFiles((current) =>
         archived
           ? current.filter((item) => item.id !== temporaryId)
@@ -456,7 +461,7 @@ export function FilesBrowser({
       );
     } catch (cause) {
       setAddedFiles((current) => current.filter((item) => item.id !== temporaryId));
-      setError(cause instanceof Error ? cause.message : "Could not duplicate the file.");
+      notifyError(cause, "Could not duplicate the file.");
     }
   }
 
@@ -625,11 +630,6 @@ export function FilesBrowser({
           <FileViewToggle view={view} onChange={changeView} />
         </div>
       </div>
-      {error && (
-        <p role="alert" className="mt-5 text-sm text-danger">
-          {error}
-        </p>
-      )}
 
       {view === "grid" &&
         !archived &&

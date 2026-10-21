@@ -41,6 +41,8 @@ const failureEvents = new Set([
   "operation_failed",
 ]);
 const operations = new Set([
+  "action.failed",
+  "files.manage",
   "workspace.session",
   "workspace.organizations",
   "workspace.role",

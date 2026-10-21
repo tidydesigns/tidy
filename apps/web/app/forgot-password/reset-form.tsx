@@ -1,4 +1,6 @@
 "use client";
+
+import { useErrorNotice } from "@/lib/use-error-notice";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
 import { TextField } from "@/components/ui/text-field";
@@ -6,12 +8,13 @@ import { Button } from "@/components/ui/button";
 
 export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boolean }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
   const [sent, setSent] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
     setPending(true);
-    setError("");
+
     const email = String(new FormData(event.currentTarget).get("email"));
     try {
       const result = await authClient.requestPasswordReset({
@@ -21,7 +24,7 @@ export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boole
       if (result.error) throw new Error("Could not send a reset link. Please try again later.");
       setSent(true);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not send a reset link.");
+      notifyError(error, "Could not send a reset link.");
     } finally {
       setPending(false);
     }

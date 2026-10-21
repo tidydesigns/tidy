@@ -22,13 +22,14 @@ self.onmessage = (
       { transfer: result.assets.map((asset) => asset.bytes.buffer as ArrayBuffer) },
     );
   } catch (cause) {
+    // Structured cloning Error retains its original stack and cause across the
+    // local worker boundary; presentation copy travels separately.
     self.postMessage({
-      error:
+      error: cause,
+      message:
         cause instanceof ZodError
           ? "This design contains unsupported geometry or exceeds the import limits. Try importing fewer pages."
-          : cause instanceof Error
-            ? cause.message.slice(0, 500)
-            : "Could not read this Figma design.",
+          : "Could not read this Figma design. Try exporting a new .fig copy.",
     });
   }
 };

@@ -1,5 +1,6 @@
 "use client";
 
+import { appErrorReporter } from "@/lib/posthog-client";
 import { catchError, type ErrorInfo } from "next/error";
 import {
   Suspense,
@@ -24,9 +25,12 @@ export function SectionLoading({ label }: { label: string }) {
 
 const SectionError = catchError(function SectionRetry(
   { label, source }: { label: string; source: unknown },
-  { retry, reset }: ErrorInfo,
+  { error, retry, reset }: ErrorInfo,
 ) {
   const failedSource = useRef(source);
+  useEffect(() => {
+    appErrorReporter("page_render")(error);
+  }, [error]);
   useEffect(() => {
     if (!Object.is(failedSource.current, source)) {
       failedSource.current = source;

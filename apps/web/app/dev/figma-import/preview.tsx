@@ -1,4 +1,5 @@
 "use client";
+import { useErrorNotice } from "@/lib/use-error-notice";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileEditor } from "@/app/files/[uid]/file-editor";
 import { NewFileButton } from "@/app/files/new-file-button";
@@ -12,8 +13,8 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
   const router = useRouter();
   const [draft, setDraft] = useState<LocalDraft | null>(null);
   const [assets, setAssets] = useState<Record<string, string>>({});
-  const [ready, setReady] = useState(false),
-    [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+  const [, setError] = useErrorNotice();
   const urls = useRef<string[]>([]);
   useEffect(() => {
     let mounted = true;
@@ -43,9 +44,9 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
           });
         }
       })
-      .catch(() => {
+      .catch((cause) => {
         if (mounted)
-          setError("Local storage is unavailable. Keep this tab open to retain your work.");
+          setError(cause, "Local storage is unavailable. Keep this tab open to retain your work.");
       })
       .finally(() => {
         if (mounted) setReady(true);
@@ -54,17 +55,18 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
       mounted = false;
       urls.current.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, []);
+  }, [setError]);
   const changed = useCallback(
     (document: DesignDocument, assets: Record<string, string>) => {
       if (!draft) return;
-      void writeLocalDraft({ ...draft, document }, assets).catch(() =>
+      void writeLocalDraft({ ...draft, document }, assets).catch((cause) =>
         setError(
+          cause,
           "Could not retain this draft locally. Keep this tab open and free browser storage.",
         ),
       );
     },
-    [draft],
+    [draft, setError],
   );
   async function imported(result: FigmaImport) {
     const next: Record<string, string> = {};
@@ -128,11 +130,7 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
           </div>
           <NewFileButton onImported={imported} onCreate={createBlank} />
         </div>
-        {error && (
-          <p role="alert" className="mb-4 text-sm text-danger">
-            {error}
-          </p>
-        )}
+
         {draft && (draft.document.nodes.length > 0 || draft.name !== "Figma import prototype") && (
           <button
             type="button"
@@ -162,14 +160,6 @@ export function FigmaImportPreview({ editor = false }: { editor?: boolean }) {
     );
   return (
     <>
-      {error && (
-        <p
-          role="alert"
-          className="fixed bottom-6 left-1/2 z-50 max-w-sm -translate-x-1/2 rounded-lg border border-primary-grey bg-surface p-3 text-xs text-danger"
-        >
-          {error}
-        </p>
-      )}
       <FileEditor
         key={draft?.id ?? "empty"}
         fileId={draft?.id ?? "figma-empty"}

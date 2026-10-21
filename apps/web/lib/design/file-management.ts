@@ -1,4 +1,5 @@
 import "server-only";
+import { reportHandledError } from "@/lib/handled-error";
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { planLimitMessage } from "@/lib/billing/plans";
@@ -34,6 +35,7 @@ function randomDesignFileName() {
 }
 
 function publicError(error: unknown, fallback: string) {
+  reportHandledError(error, "files.manage");
   if (
     error instanceof FileManagementError ||
     error instanceof OrganizationAccessError ||

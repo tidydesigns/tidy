@@ -1,3 +1,4 @@
+import { useErrorNotice } from "@tidy/ui/use-error-notice";
 import { useEffect, useId, useState } from "react";
 import { browser } from "wxt/browser";
 import {
@@ -27,12 +28,13 @@ export function App() {
   const [organizationId, setOrganizationId] = useState("");
   const [fileId, setFileId] = useState("");
   const [job, setJob] = useState<ImportJob>();
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice();
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
     let live = true;
     const refresh = async () => {
+      const notifyError = setError("");
       try {
         const data = parseExtensionResponse(
           extensionAccountSchema,
@@ -41,7 +43,7 @@ export function App() {
         const stored = await browser.storage.local.get("destination");
         if (!live) return;
         setAccount(data);
-        setError("");
+
         const last = destinationSchema.safeParse(stored.destination).data;
         const organization =
           data.organizations.find(
@@ -60,7 +62,7 @@ export function App() {
       } catch (error) {
         if (live) {
           setAccount(undefined);
-          setError(error instanceof Error ? error.message : "Could not connect to Tidy.");
+          notifyError(error, "Could not connect to Tidy.");
         }
       } finally {
         if (live) setLoading(false);
@@ -94,8 +96,9 @@ export function App() {
           ? "Import complete. Open imported design is available."
           : "";
   const copy = async (mode: "page" | "element") => {
+    const notifyError = setError("");
     if (!account) return;
-    setError("");
+
     setStarting(true);
     const destination = { organizationId, fileId: fileId || undefined, userId: account.user.id };
     try {
@@ -103,7 +106,7 @@ export function App() {
       await send({ type: "bella:start", mode, destination });
       if (mode === "element") window.close();
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not copy page.");
+      notifyError(error, "Could not copy page.");
     } finally {
       setStarting(false);
     }
@@ -131,13 +134,15 @@ export function App() {
         <p role="status">Connecting to Tidy…</p>
       ) : !account ? (
         <>
-          <p role="alert">{error}</p>
+          <p>Sign in to import designs.</p>
           <Button
             className="primary"
             onClick={() =>
               void send({ type: "bella:login" })
                 .then(() => window.close())
-                .catch((error) => setError(error.message))
+                .catch((error) =>
+                  setError(error, "Could not complete the action. Please try again."),
+                )
             }
           >
             Sign in to Tidy
@@ -213,7 +218,9 @@ export function App() {
               <Button
                 className="secondary"
                 onClick={() =>
-                  void send({ type: "bella:cancel" }).catch((error) => setError(error.message))
+                  void send({ type: "bella:cancel" }).catch((error) =>
+                    setError(error, "Could not complete the action. Please try again."),
+                  )
                 }
               >
                 Cancel selection
@@ -240,11 +247,7 @@ export function App() {
               )}
             </div>
           )}
-          {(error || activeJob?.state === "error") && (
-            <p role="alert">
-              {error || (activeJob?.state === "error" ? activeJob.error : undefined)}
-            </p>
-          )}
+          {activeJob?.state === "error" && <p role="alert">{activeJob.error}</p>}
         </>
       )}
     </main>

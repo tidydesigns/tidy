@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
@@ -23,12 +25,13 @@ export function VerificationForm({
 }) {
   const [pending, setPending] = useState(false);
   const [delivered, setDelivered] = useState(sent);
-  const [error, setError] = useState(initialError);
+  const [error, setError] = useErrorNotice(initialError, "user_action", "inline");
 
   async function resend(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
     setPending(true);
-    setError("");
+
     setDelivered(false);
     try {
       const form = new FormData(event.currentTarget);
@@ -37,14 +40,15 @@ export function VerificationForm({
         callbackURL: verificationCallbackPath(next),
       });
       if (result.error) {
-        setError(
+        notifyError(
+          result.error ?? result,
           result.error.status === 429
             ? "Too many requests. Wait a moment before trying again."
             : "Could not send the verification email. Please try again later.",
         );
       } else setDelivered(true);
-    } catch {
-      setError("Could not send the verification email. Please try again later.");
+    } catch (cause) {
+      notifyError(cause, "Could not send the verification email. Please try again later.");
     } finally {
       setPending(false);
     }

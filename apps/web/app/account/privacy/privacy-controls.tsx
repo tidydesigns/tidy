@@ -1,4 +1,7 @@
 "use client";
+
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { NavigationLink } from "@/components/ui/navigation-link";
@@ -75,11 +78,10 @@ export function PrivacyControls({ email }: { email: string }) {
   const [operation, setOperation] = useState<"export" | "check-delete" | "delete" | null>(null);
   const pending = operation !== null;
   const [organizations, setOrganizations] = useState<BlockingOrganization[]>([]);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
   const [message, setMessage] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [authOperation, setAuthOperation] = useState<"delete" | "export" | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
   const id = useId();
   async function request(operation: "delete" | "export", checkOnly = false) {
@@ -113,36 +115,35 @@ export function PrivacyControls({ email }: { email: string }) {
         setAuthOperation(operation);
         throw new ReauthRequired();
       }
-      throw new Error(result?.error ?? "Could not complete your request. Please try again.");
+      throw responseError(response, result, "Could not complete your request. Please try again.");
     }
     return response;
   }
   function confirmDeletion() {
     setConfirmation("");
-    setDialogOpen(true);
     dialog.current?.showModal();
   }
   async function beginDeletion() {
+    const notifyError = setError("");
     if (pending) return;
     setOperation("check-delete");
-    setError("");
+
     setOrganizations([]);
     try {
       await request("delete", true);
       confirmDeletion();
     } catch (error) {
       if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
-        setError(
-          error instanceof Error ? error.message : "Could not check authentication. Try again.",
-        );
+        notifyError(error, "Could not check authentication. Try again.");
     } finally {
       setOperation(null);
     }
   }
   async function download() {
+    const notifyError = setError("");
     if (pending) return;
     setOperation("export");
-    setError("");
+
     setOrganizations([]);
     setMessage("");
     try {
@@ -161,16 +162,17 @@ export function PrivacyControls({ email }: { email: string }) {
       setMessage("Your personal data download is ready.");
     } catch (error) {
       if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
-        setError(error instanceof Error ? error.message : "Download failed.");
+        notifyError(error, "Download failed.");
     } finally {
       setOperation(null);
     }
   }
   async function remove(event: FormEvent) {
+    const notifyError = setError("");
     event.preventDefault();
     if (pending) return;
     setOperation("delete");
-    setError("");
+
     try {
       await request("delete");
       resetPostHogUser();
@@ -178,7 +180,7 @@ export function PrivacyControls({ email }: { email: string }) {
       window.location.replace("/login?deleted=1");
     } catch (error) {
       if (!(error instanceof ReauthRequired) && !(error instanceof OwnershipRequired))
-        setError(error instanceof Error ? error.message : "Deletion failed.");
+        notifyError(error, "Deletion failed.");
       setOperation(null);
     }
   }
@@ -193,15 +195,6 @@ export function PrivacyControls({ email }: { email: string }) {
     }
   }
   const cancelAuth = useCallback(() => setAuthOperation(null), []);
-  const status = (
-    <>
-      {error && (
-        <p role="alert" className="my-4 text-sm text-danger">
-          {error}
-        </p>
-      )}
-    </>
-  );
   return (
     <div id="account-data" className="scroll-mt-8 space-y-10">
       <NavigationLink
@@ -260,7 +253,6 @@ export function PrivacyControls({ email }: { email: string }) {
           </span>
         </Button>
       </section>
-      {!dialogOpen && status}
       {organizations.length > 0 && (
         <OwnershipAlert
           organizations={organizations}
@@ -273,7 +265,6 @@ export function PrivacyControls({ email }: { email: string }) {
       {authOperation && <ReauthDialog email={email} onVerified={verified} onCancel={cancelAuth} />}
       <Dialog
         ref={dialog}
-        onClose={() => setDialogOpen(false)}
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-description`}
         onCancel={(event) => {
@@ -297,7 +288,6 @@ export function PrivacyControls({ email }: { email: string }) {
             required
             disabled={pending}
           />
-          {status}
           <div className="flex gap-4">
             <Button
               type="button"

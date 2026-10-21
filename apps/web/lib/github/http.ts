@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { auth } from "@/lib/auth";
 import { githubConfig } from "./config";
 import { GitHubError } from "./client";
@@ -37,6 +38,7 @@ export function json(value: unknown) {
   return Response.json(value, { headers: { "Cache-Control": "private, no-store" } });
 }
 export function apiError(error: unknown) {
+  reportHandledError(error);
   if (
     error instanceof MutationBudgetError ||
     error instanceof ImageBudgetUnavailableError ||

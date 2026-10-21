@@ -1,3 +1,4 @@
+import { UserFacingError } from "@tidy/ui/errors";
 import type { FigmaImport, FigmaPage } from "@tidy/design/figma";
 type Input = {
   bytes?: Uint8Array;
@@ -22,19 +23,34 @@ function runFigmaWorker<T>(input: Input, signal?: AbortSignal): Promise<T> {
       if (cause) reject(cause);
       else resolve(result!);
     };
-    const abort = () => finish(new Error("Figma import cancelled."));
+    const abort = () => finish(new DOMException("Figma import cancelled.", "AbortError"));
     const timer = setTimeout(
       () =>
-        finish(new Error("This Figma design took too long to decode. Export a smaller selection.")),
+        finish(
+          new UserFacingError(
+            "This Figma design took too long to decode. Export a smaller selection.",
+            { cause: new DOMException("Figma worker timed out", "TimeoutError") },
+          ),
+        ),
       20_000,
     );
-    worker.onmessage = (event: MessageEvent<{ result?: T; pages?: T; error?: string }>) =>
+    worker.onmessage = (
+      event: MessageEvent<{ result?: T; pages?: T; error?: unknown; message?: string }>,
+    ) =>
       finish(
-        event.data.error ? new Error(event.data.error) : undefined,
+        Object.hasOwn(event.data, "error")
+          ? new UserFacingError(event.data.message ?? "Could not read this Figma design.", {
+              cause: event.data.error,
+            })
+          : undefined,
         event.data.result ?? event.data.pages,
       );
-    worker.onerror = () =>
-      finish(new Error("Could not read this Figma design. Try exporting a new .fig copy."));
+    worker.onerror = (event) =>
+      finish(
+        new UserFacingError("Could not read this Figma design. Try exporting a new .fig copy.", {
+          cause: event.error ?? event,
+        }),
+      );
     signal?.addEventListener("abort", abort, { once: true });
     if (signal?.aborted) {
       abort();

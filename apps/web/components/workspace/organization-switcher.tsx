@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError, errorMessage } from "@tidy/ui/errors";
+
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { Avatar } from "@/components/ui/avatar";
@@ -31,7 +34,7 @@ export function OrganizationSwitcher({
   const [, startTransition] = useTransition();
   const switching = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
   const [creating, setCreating] = useState(false);
   const [createPending, setCreatePending] = useState(false);
   const { names, profileName, images } = useOrganizationNames();
@@ -53,15 +56,19 @@ export function OrganizationSwitcher({
   }
 
   async function switchOrganizationAction(id: string) {
+    const notifyError = setError("");
     try {
       const result = await authClient.organization.setActive({ organizationId: id });
-      if (result.error) throw new Error(result.error.message || "Unable to switch organization.");
+      if (result.error)
+        throw new UserFacingError(errorMessage(result.error, "Unable to switch organization."), {
+          cause: result.error,
+        });
       posthog.capture("organization_switched");
       await navigateWithFreshSession("/files");
     } catch (error) {
       unstable_rethrow(error);
       switching.current = false;
-      setError(error instanceof Error ? error.message : "Unable to switch organization.");
+      notifyError(error, "Unable to switch organization.");
       setPending(false);
     }
   }
@@ -164,11 +171,7 @@ export function OrganizationSwitcher({
             </button>
           )}
         </div>
-        {error && (
-          <p role="alert" className="px-3 py-2 text-xs text-danger">
-            {error}
-          </p>
-        )}
+
         <div className="mt-1 border-t border-primary-grey pt-1">
           <ThemePreferenceControl compact />
           <div className="px-3 py-2">

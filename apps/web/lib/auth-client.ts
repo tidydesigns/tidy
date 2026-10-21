@@ -1,3 +1,4 @@
+import { clearToasts } from "@tidy/ui/toast";
 import { createAuthClient } from "better-auth/react";
 import { organizationClient } from "better-auth/client/plugins";
 import { oauthProviderClient } from "@better-auth/oauth-provider/client";
@@ -20,10 +21,12 @@ export const passwordAuthClient = createAuthClient({
 });
 
 export function identifyPostHogUser(user: { id: string; email: string; name: string }) {
+  clearToasts();
   posthog.identify(user.id, { email: user.email });
 }
 
 export function resetPostHogUser() {
+  clearToasts();
   clearThumbnailCache();
   posthog.reset();
 }

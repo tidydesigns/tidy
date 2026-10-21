@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "./use-error-notice";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   hasImageAdjustments,
@@ -73,7 +74,7 @@ export function ImageEditor({
   const [traceColors, setTraceColors] = useState<TraceColors>("auto");
   const [traceStage, setTraceStage] = useState<TraceStage>("reading");
   const [tracing, setTracing] = useState(false);
-  const [traceError, setTraceError] = useState("");
+  const [, setTraceError] = useEditorErrorNotice();
   const traceController = useRef<AbortController | null>(null);
   useEffect(() => () => traceController.current?.abort(), []);
   function closeEditor() {
@@ -81,18 +82,18 @@ export function ImageEditor({
     onClose();
   }
   async function vectorise() {
+    const notifyTraceError = setTraceError("");
     if (!onVectorise || traceController.current) return;
     const controller = new AbortController();
     traceController.current = controller;
     setTracing(true);
-    setTraceError("");
+
     try {
       await onVectorise(traceColors, controller.signal, (stage) => {
         if (!controller.signal.aborted) setTraceStage(stage);
       });
     } catch (error) {
-      if (!controller.signal.aborted)
-        setTraceError(error instanceof Error ? error.message : "Could not vectorise this image.");
+      if (!controller.signal.aborted) notifyTraceError(error, "Could not vectorise this image.");
     } finally {
       if (traceController.current === controller) {
         traceController.current = null;
@@ -306,11 +307,6 @@ export function ImageEditor({
                     checking: "Checking result…",
                   }[traceStage]
                 }
-              </p>
-            )}
-            {traceError && (
-              <p role="alert" className="mt-2 text-xs text-secondary-ink">
-                {traceError}
               </p>
             )}
           </div>

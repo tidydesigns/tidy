@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "./use-error-notice";
 
 import Image from "../host-image";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -24,7 +25,7 @@ export function EditorHeader({
 }) {
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useEditorErrorNotice();
   const [imageFailed, setImageFailed] = useState(false);
   const shareRef = useRef<HTMLDivElement>(null);
   const shareButton = useRef<HTMLButtonElement>(null);
@@ -40,14 +41,14 @@ export function EditorHeader({
   }, [shareOpen]);
 
   async function copyLink() {
+    const notifyError = setError("");
     try {
       await navigator.clipboard.writeText(
         new URL(`/files/${encodeURIComponent(fileId)}`, window.location.origin).href,
       );
       setCopied(true);
-      setError("");
-    } catch {
-      setError("Could not copy the link. Try again.");
+    } catch (cause) {
+      notifyError(cause, "Could not copy the link. Try again.");
     }
   }
 
@@ -135,11 +136,7 @@ export function EditorHeader({
               >
                 {copied ? "Link copied" : "Copy link"}
               </button>
-              {error && (
-                <p role="alert" className="mt-2 text-xs text-danger">
-                  {error}
-                </p>
-              )}
+
               {copied && (
                 <span data-ph-public role="status" className="sr-only">
                   File link copied to clipboard.

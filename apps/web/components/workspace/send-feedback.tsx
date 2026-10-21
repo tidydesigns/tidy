@@ -1,5 +1,9 @@
 "use client";
 
+import { useSuccessToast } from "@tidy/ui/toast";
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
+
 import { Dialog } from "@/components/ui/dialog";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Icon } from "@/components/ui/icon";
@@ -58,9 +62,8 @@ export function SendFeedback({
 
 export function FeedbackProvider({ children }: { children: ReactNode }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState(false);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [, setError] = useErrorNotice("", "user_action");
+  const successToast = useSuccessToast();
 
   const [images, setImages] = useState<{ id: string; file: File; url: string }[]>([]);
   const [busy, setBusy] = useState(false);
@@ -72,16 +75,15 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     const urls = previews.current;
     return () => {
       for (const url of urls) URL.revokeObjectURL(url);
-      if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, []);
+  }, [setError]);
 
   function addImages(files: File[]) {
     if (uploading.current || !files.length) return;
     try {
       validateImages([...images.map((image) => image.file), ...files]);
     } catch (error) {
-      setError((error as Error).message);
+      setError(error, "Could not complete the action. Please try again.");
       return;
     }
     const added = files.map((file) => {
@@ -138,16 +140,15 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       window.removeEventListener(OPEN_FEEDBACK_EVENT, open);
       window.removeEventListener("keydown", shortcut, true);
     };
-  }, []);
+  }, [setError]);
 
   function thankYou() {
     dialog.current?.close();
-    setToast(true);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(false), 5000);
+    successToast("Thanks for your feedback.");
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
     if (uploading.current) return;
     const form = event.currentTarget;
@@ -155,14 +156,14 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
     const type = data.get("type");
     const message = data.get("message")?.toString().trim();
     if ((type !== "broken" && type !== "general") || !message) {
-      setError("Choose a category and enter feedback.");
+      notifyError("Choose a category and enter feedback.");
       return;
     }
 
     const captureSurvey = captureForCurrentSession();
     uploading.current = true;
     setBusy(true);
-    setError("");
+
     try {
       uploadId.current ??= crypto.randomUUID();
       if (images.length) {
@@ -176,16 +177,16 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
         });
         if (!uploaded.ok) {
           const failure = (await uploaded.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(failure?.error ?? "Could not upload images. Please try again.");
+          throw responseError(uploaded, failure, "Could not upload images. Please try again.");
         }
       }
-      setError("");
+
       const saved = await fetch("/api/feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: uploadId.current, category: type, message }),
       });
-      if (!saved.ok) throw new Error("Could not send feedback. Please try again.");
+      if (!saved.ok) throw responseError(saved, null, "Could not send feedback. Please try again.");
       // Support delivery succeeds independently of optional analytics consent.
       // Attachments and their access URLs stay in Tidy's support storage.
       if (surveyId)
@@ -206,9 +207,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
       uploadId.current = null;
       thankYou();
     } catch (error) {
-      setError(
-        error instanceof Error ? error.message : "Could not send feedback. Please try again.",
-      );
+      notifyError(error, "Could not send feedback. Please try again.");
     } finally {
       uploading.current = false;
       setBusy(false);
@@ -348,11 +347,7 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
               </ul>
             )}
           </div>
-          {error && (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          )}
+
           <div className="flex justify-end">
             <button
               data-ph-public
@@ -365,21 +360,6 @@ export function FeedbackProvider({ children }: { children: ReactNode }) {
           </div>
         </form>
       </Dialog>
-      <div
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-        className="pointer-events-none fixed bottom-5 right-5 z-[100] max-w-[calc(100vw-2.5rem)]"
-      >
-        {toast && (
-          <div className="flex items-center gap-3 rounded-lg border border-primary-grey bg-primary-white px-4 py-3 text-sm text-primary-black shadow-lg">
-            <Icon name="check" size={18} />
-            <span data-ph-public style={{ display: "contents" }}>
-              Thanks for your feedback.
-            </span>
-          </div>
-        )}
-      </div>
     </>
   );
 }

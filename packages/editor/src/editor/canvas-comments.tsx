@@ -1,4 +1,7 @@
 "use client";
+import { useEditorHost } from "../host";
+import { errorMessage } from "@tidy/ui/errors";
+import { useEditorErrorNotice } from "./use-error-notice";
 
 import { createPortal } from "react-dom";
 import { EditorNotification } from "./editor-notification";
@@ -97,7 +100,7 @@ const ThreadMessage = memo(function ThreadMessage({
   const [editText, setEditText] = useState(message.body);
   const [pending, setPending] = useState(false);
   const [reactionDrafts, setReactionDrafts] = useState<ReactionDraft[]>([]);
-  const [error, setError] = useState("");
+  const [error, setError] = useEditorErrorNotice("user_action", "inline");
   const editRef = useRef<HTMLTextAreaElement>(null);
   const cancelled = useRef(false);
 
@@ -106,6 +109,7 @@ const ThreadMessage = memo(function ThreadMessage({
   }, [editing]);
 
   async function finishEdit() {
+    const notifyError = setError("");
     if (cancelled.current) {
       cancelled.current = false;
       return;
@@ -116,12 +120,12 @@ const ThreadMessage = memo(function ThreadMessage({
       return;
     }
     if (!editText.trim()) {
-      setError("Write a comment before leaving the field.");
+      notifyError("Write a comment before leaving the field.");
       editRef.current?.focus();
       return;
     }
     setPending(true);
-    setError("");
+
     try {
       const result = await updateComment({
         fileId,
@@ -130,14 +134,14 @@ const ThreadMessage = memo(function ThreadMessage({
         body: editText,
       });
       if (result.kind === "error") {
-        setError(result.error);
+        notifyError(result.error);
         editRef.current?.focus();
         return;
       }
       setEditing(false);
       await refresh();
-    } catch {
-      setError("Could not edit comment. Try again.");
+    } catch (cause) {
+      notifyError(cause, "Could not edit comment. Try again.");
       editRef.current?.focus();
     } finally {
       setPending(false);
@@ -169,10 +173,11 @@ const ThreadMessage = memo(function ThreadMessage({
   }
 
   async function toggleReaction(value: string) {
+    const notifyError = setError("");
     if (pending) return;
     const parsed = commentEmojiSchema.safeParse(value);
     if (!parsed.success) {
-      setError("This reaction is no longer supported.");
+      notifyError("This reaction is no longer supported.");
       return;
     }
     const emoji = parsed.data;
@@ -184,7 +189,7 @@ const ThreadMessage = memo(function ThreadMessage({
       { ...change, kind: "sending" },
     ]);
     setPending(true);
-    setError("");
+
     try {
       const result = await reactToComment({ fileId, messageId: message.id, emoji });
       if (result.kind === "error") throw new Error(result.error);
@@ -197,7 +202,7 @@ const ThreadMessage = memo(function ThreadMessage({
       void refresh();
     } catch (cause) {
       setReactionDrafts(previousDrafts);
-      setError(cause instanceof Error ? cause.message : "Could not update reaction. Try again.");
+      notifyError(cause, "Could not update reaction. Try again.");
       // A lost response may still have committed. Read the state without replaying a toggle.
       void refresh();
     } finally {
@@ -317,7 +322,7 @@ type Submission = {
 } & (
   | { kind: "sending" }
   | { kind: "sent"; legacyReceipt: boolean; ackVersion: number }
-  | { kind: "failed"; error: string }
+  | { kind: "failed"; error: string; cause?: unknown }
 );
 
 export const CanvasComments = forwardRef<
@@ -364,8 +369,8 @@ export const CanvasComments = forwardRef<
     submissionsRef.current = update(submissionsRef.current);
     setSubmissionState(submissionsRef.current);
   }, []);
-  const [error, setError] = useState("");
-  const [loadError, setLoadError] = useState("");
+  const [error, setError] = useEditorErrorNotice("user_action", "inline");
+  const [loadError, setLoadError] = useEditorErrorNotice("user_action", "inline");
   const posting = submissions.some(
     (submission) => submission.thread.id === activeId && submission.kind === "sending",
   );
@@ -402,6 +407,7 @@ export const CanvasComments = forwardRef<
 
   const refresh = useCallback(
     async (ensureThreadId?: string) => {
+      const notifyLoadError = setLoadError("");
       const version = ++refreshVersion.current;
       readController.current?.abort();
       const controller = new AbortController();
@@ -482,12 +488,11 @@ export const CanvasComments = forwardRef<
         if (result.viewer) setViewer(result.viewer);
         setReactionsAvailable(result.reactionsAvailable);
         setCanModerateThreads(result.canModerateThreads);
-        setLoadError("");
-      } catch {
-        if (version === refreshVersion.current) setLoadError("Could not load comments.");
+      } catch (cause) {
+        if (version === refreshVersion.current) notifyLoadError(cause, "Could not load comments.");
       }
     },
-    [fileId, pageId, setSubmissions],
+    [fileId, pageId, setSubmissions, setLoadError],
   );
 
   async function loadMore() {
@@ -532,7 +537,7 @@ export const CanvasComments = forwardRef<
         setError("");
       },
     }),
-    [readOnly, pageId, setBody],
+    [readOnly, pageId, setBody, setError],
   );
 
   const pageThreads = useMemo(
@@ -580,7 +585,9 @@ export const CanvasComments = forwardRef<
     }
   }, [activeId, active?.messages]);
 
+  const { reportError: createReporter } = useEditorHost();
   async function send(submission: Submission) {
+    const reportSubmission = createReporter("user_action");
     const message = submission.thread.messages[0];
     const work = (async () => {
       try {
@@ -644,6 +651,7 @@ export const CanvasComments = forwardRef<
         if (!result.message) void refresh(result.kind === "created" ? result.id : targetId);
         return true;
       } catch (cause) {
+        reportSubmission(cause);
         setSubmissions((current) =>
           current.map((item) =>
             item.thread.messages[0].id !== message.id
@@ -651,7 +659,8 @@ export const CanvasComments = forwardRef<
               : {
                   ...item,
                   kind: "failed",
-                  error: cause instanceof Error ? cause.message : "Could not post comment.",
+                  error: errorMessage(cause, "Could not post comment."),
+                  cause,
                 },
           ),
         );
@@ -713,6 +722,7 @@ export const CanvasComments = forwardRef<
   }
 
   async function changeThread(thread: CommentThread, resolved: boolean | null) {
+    const notifyError = setError("");
     if (
       mutationRef.current ||
       submissionsRef.current.some(
@@ -744,7 +754,7 @@ export const CanvasComments = forwardRef<
     setOptionsOpen(false);
     setBody("");
     setChanging(true);
-    setError("");
+
     try {
       const result =
         resolved === null
@@ -755,7 +765,7 @@ export const CanvasComments = forwardRef<
       setThreads((current) => [...current.filter((item) => item.id !== thread.id), thread]);
       if (interaction === interactionRef.current) {
         setActiveId(thread.id);
-        setError(cause instanceof Error ? cause.message : "Could not update thread. Try again.");
+        notifyError(cause, "Could not update thread. Try again.");
       }
     } finally {
       mutationRef.current = null;

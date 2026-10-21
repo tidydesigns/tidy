@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { reserveOperation, operationFailure } from "@/lib/security/operation-budget";
 import "server-only";
 import { auth } from "@/lib/auth";
@@ -45,6 +46,7 @@ export function agentJson(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 export function agentFailure(error: unknown) {
+  reportHandledError(error);
   const denied = operationFailure(error);
   if (denied) return denied;
   if (error instanceof UserAccessError)

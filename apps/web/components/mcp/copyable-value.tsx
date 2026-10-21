@@ -1,21 +1,24 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { SetupValue } from "@/app/mcp/agent-setup";
 
 export function CopyableValue({ value, copyLabel }: SetupValue) {
   const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "clipboard");
 
   async function copy() {
-    setError("");
+    const notifyError = setError("");
+
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
-    } catch {
+    } catch (cause) {
       setCopied(false);
-      setError("Could not copy. Copy the text manually.");
+      notifyError(cause, "Could not copy. Copy the text manually.");
     }
   }
 
@@ -36,11 +39,6 @@ export function CopyableValue({ value, copyLabel }: SetupValue) {
       <span role="status" className="sr-only">
         {copied ? "Copied" : ""}
       </span>
-      {error && (
-        <p role="alert" className="mt-2 text-xs text-danger">
-          {error}
-        </p>
-      )}
     </div>
   );
 }

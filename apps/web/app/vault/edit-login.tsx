@@ -1,4 +1,5 @@
 "use client";
+import { UserFacingError } from "@tidy/ui/errors";
 import { Dialog } from "@/components/ui/dialog";
 import { useId, useRef, useState } from "react";
 import { ImmediateField } from "@/components/ui/immediate-field";
@@ -21,7 +22,7 @@ export function EditLogin({
     try {
       const result = await editVaultLogin(login.id, field, draft);
       if (result.error || !result.login)
-        throw new Error(result.error ?? "Could not update this login.");
+        throw new UserFacingError(result.error ?? "Could not update this login.");
       if (field === "name") onRename(login.id, result.login.name);
       setNotice(
         field === "name"

@@ -6,7 +6,8 @@ import type { FigmaImport, FigmaPage } from "@tidy/design/figma";
 import { inspectFigma, readFigma } from "@/lib/design/figma-client";
 import { Dialog } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { appErrorReporter } from "@/lib/posthog-client";
+import { responseError } from "@/lib/http/json-response";
+import { useErrorNotice } from "@/lib/use-error-notice";
 
 export function FigmaFileImport({
   onImported,
@@ -29,8 +30,8 @@ export function FigmaFileImport({
     router = useRouter();
   const busy = useRef(false),
     controller = useRef<AbortController | null>(null);
-  const [phase, setPhase] = useState(""),
-    [error, setError] = useState("");
+  const [phase, setPhase] = useState("");
+  const [, setError] = useErrorNotice("", "figma_import");
   const pending = Boolean(phase);
   const committing = phase === "Creating file…" || phase === "Opening file…";
   const [dragging, setDragging] = useState(false);
@@ -41,13 +42,13 @@ export function FigmaFileImport({
   } | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   async function publish(file: File, pages?: string[]) {
+    const notifyError = setError("");
     if (busy.current) return;
     busy.current = true;
     setPhase("Importing pages…");
-    setError("");
+
     controller.current = new AbortController();
     const signal = controller.current.signal;
-    const reportError = appErrorReporter("figma_import");
     try {
       const result = await readFigma(
         {
@@ -77,7 +78,7 @@ export function FigmaFileImport({
         folderId,
       });
       if (new TextEncoder().encode(body).byteLength > 16_000_000) {
-        setError("This import exceeds 16 MB. Select fewer pages or reduce image sizes.");
+        notifyError("This import exceeds 16 MB. Select fewer pages or reduce image sizes.");
         return;
       }
       setPhase("Creating file…");
@@ -88,18 +89,13 @@ export function FigmaFileImport({
         body,
       });
       const value: { fileId?: string; error?: string } = await response.json();
-      if (response.status >= 400 && response.status < 500) {
-        setError(value.error ?? "Could not import this Figma file.");
-        return;
-      }
       if (!response.ok || !value.fileId)
-        throw new Error(value.error ?? "Could not import this Figma file.");
+        throw responseError(response, value, "Could not import this Figma file.");
       router.push(`/files/${encodeURIComponent(value.fileId)}`);
       onOpenChange(false);
     } catch (cause) {
       if (!signal.aborted) {
-        reportError(cause);
-        setError(cause instanceof Error ? cause.message : "Could not import this Figma file.");
+        notifyError(cause, "Could not import this Figma file.");
       }
     } finally {
       busy.current = false;
@@ -107,10 +103,11 @@ export function FigmaFileImport({
     }
   }
   async function choose(file: File) {
+    const notifyError = setError("");
     if (busy.current) return;
     busy.current = true;
     setPhase("Reading file…");
-    setError("");
+
     controller.current = new AbortController();
     const signal = controller.current.signal;
     try {
@@ -133,8 +130,7 @@ export function FigmaFileImport({
         });
       } else setChoice({ file, pages, selected: pages.map((page) => page.id) });
     } catch (cause) {
-      if (!signal.aborted)
-        setError(cause instanceof Error ? cause.message : "Could not read this Figma file.");
+      if (!signal.aborted) notifyError(cause, "Could not read this Figma file.");
     } finally {
       busy.current = false;
       setPhase("");
@@ -340,11 +336,6 @@ export function FigmaFileImport({
               Or drop a .fig file here · up to 32 MB
             </span>
           </button>
-        )}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {error}
-          </p>
         )}
       </div>
       <div className="flex min-h-18 flex-wrap items-center justify-between gap-3 border-t border-primary-grey/60 px-6 py-4">

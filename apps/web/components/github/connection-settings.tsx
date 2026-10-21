@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useState } from "react";
 import posthog from "@/lib/posthog-client";
 import { connectionStatusSchema, type ConnectionStatus } from "@/lib/github/connection-contract";
@@ -20,16 +22,18 @@ export function GitHubSettings({
   callbackStatus?: string;
 }) {
   const [status, setStatus] = useState(initial);
-  const [error, setError] = useState(
+  const [, setError] = useErrorNotice(
     initial.error ??
       (callbackStatus === "retry"
         ? "Authorization could not be verified. Connect GitHub again from here."
         : ""),
+    "integration_update",
   );
   const [busy, setBusy] = useState(false);
   async function attach(installationId: number) {
+    const notifyError = setError("");
     setBusy(true);
-    setError("");
+
     try {
       const response = await fetch("/api/github/connection", {
         method: "POST",
@@ -44,14 +48,15 @@ export function GitHubSettings({
       setStatus(data);
       posthog.capture("github_installation_linked");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not link installation.");
+      notifyError(e, "Could not link installation.");
     } finally {
       setBusy(false);
     }
   }
   async function disconnect() {
+    const notifyError = setError("");
     setBusy(true);
-    setError("");
+
     try {
       const response = await fetch("/api/github/connection", { method: "DELETE" });
       if (!response.ok)
@@ -59,7 +64,7 @@ export function GitHubSettings({
       setStatus((current) => ({ ...current, login: null, installations: [] }));
       posthog.capture("github_account_disconnected");
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not disconnect.");
+      notifyError(e, "Could not disconnect.");
     } finally {
       setBusy(false);
     }
@@ -131,8 +136,9 @@ export function GitHubSettings({
             className={button}
             disabled={busy}
             onClick={async () => {
+              const notifyError = setError("");
               setBusy(true);
-              setError("");
+
               try {
                 const response = await fetch(
                   `/api/github/connection?organizationId=${encodeURIComponent(organizationId)}`,
@@ -143,9 +149,9 @@ export function GitHubSettings({
                   message: "Could not update GitHub connection.",
                 });
                 setStatus(data);
-                setError(data.error ?? "");
+                notifyError(data.error ?? "");
               } catch (e) {
-                setError(e instanceof Error ? e.message : "Could not refresh installations.");
+                notifyError(e, "Could not refresh installations.");
               } finally {
                 setBusy(false);
               }
@@ -180,11 +186,6 @@ export function GitHubSettings({
               </div>
             ))}
         </>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
       )}
     </div>
   );

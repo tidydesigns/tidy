@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import type { ConnectorStatus } from "@/lib/connectors/catalog";
@@ -16,19 +18,21 @@ export function LinearSettings({
   callbackStatus?: string;
 }) {
   const [connections, setConnections] = useState(initial.connections);
-  const [error, setError] = useState(
+  const [error, setError] = useErrorNotice(
     initial.error ??
       (callbackStatus === "retry"
         ? "Linear could not be connected. Try again and choose the same workspace when reconnecting."
         : ""),
+    "integration_update",
   );
   const [busy, setBusy] = useState<string | null>(null);
   const inFlight = useRef(false);
   async function disconnect(connectionId: string) {
+    const notifyError = setError("");
     if (inFlight.current) return;
     inFlight.current = true;
     setBusy(connectionId);
-    setError("");
+
     try {
       const response = await fetch("/api/linear/connection", {
         method: "DELETE",
@@ -41,7 +45,7 @@ export function LinearSettings({
         );
       setConnections((current) => current.filter((connection) => connection.id !== connectionId));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not disconnect Linear.");
+      notifyError(error, "Could not disconnect Linear.");
     } finally {
       inFlight.current = false;
       setBusy(null);
@@ -118,11 +122,7 @@ export function LinearSettings({
           Linear is not available yet. Contact your Tidy administrator.
         </p>
       )}
-      {error && (
-        <p role="alert" className="text-sm text-danger">
-          {error}
-        </p>
-      )}
+
       {callbackStatus === "connected" && !error && (
         <p data-ph-public role="status" className="text-sm text-secondary-ink">
           Linear connected.

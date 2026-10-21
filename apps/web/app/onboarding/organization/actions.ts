@@ -1,4 +1,5 @@
 "use server";
+import { reportHandledError } from "@/lib/handled-error";
 
 import { headers } from "next/headers";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
@@ -18,6 +19,7 @@ export async function createOrganization(name: string) {
       error: null,
     };
   } catch (error) {
+    reportHandledError(error);
     return {
       data: null,
       error: {

@@ -1,3 +1,4 @@
+import { actionError } from "@/lib/action-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { revalidatePath } from "next/cache";
 import { listDesignFolders } from "@/lib/design/folder-service";
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
       );
     if (cause instanceof RequestBodyError) return requestBodyError(cause);
     return Response.json(
-      { error: cause instanceof Error ? cause.message : "Could not import Figma file." },
+      { error: actionError(cause, "Could not import this Figma file. Please try again.") },
       { status: 400 },
     );
   }

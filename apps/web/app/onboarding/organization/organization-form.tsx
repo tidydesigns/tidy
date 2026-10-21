@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { unstable_rethrow } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { useRef, useTransition, useState, type FormEvent } from "react";
@@ -19,7 +21,7 @@ export function OrganizationForm({
   const [, startTransition] = useTransition();
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -33,12 +35,13 @@ export function OrganizationForm({
   }
 
   async function submit(name: string) {
+    const notifyError = setError("");
     try {
       const result = await createOrganizationAndContinue({
         name,
         destination: inviteTeam ? "team" : "files",
       });
-      setError(result.error);
+      notifyError(result.error);
     } catch (cause) {
       if (isRedirectError(cause)) {
         // Match file creation: count only committed mutations, and preserve the
@@ -50,7 +53,7 @@ export function OrganizationForm({
         }
       }
       unstable_rethrow(cause);
-      setError("Unable to create your organisation. Please try again.");
+      notifyError(cause, "Unable to create your organisation. Please try again.");
     } finally {
       submitting.current = false;
       setPending(false);

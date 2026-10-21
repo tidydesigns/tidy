@@ -1,8 +1,9 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { FormMessage } from "@/components/ui/form-message";
 import { Icon } from "@/components/ui/icon";
 import { mcpSetupPrompt } from "@/lib/mcp/setup-prompt";
 import styles from "./setup-prompt.module.css";
@@ -27,18 +28,19 @@ export function McpPromptButton({
   onCopied,
 }: SetupPromptProps) {
   const [copying, setCopying] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "clipboard");
 
   async function copyPrompt() {
+    const notifyError = setError("");
     if (copying) return;
     setCopying(true);
-    setError("");
+
     try {
       await navigator.clipboard.writeText(mcpSetupPrompt(resourceUrl, organizationId));
       onCopied(true);
-    } catch {
+    } catch (cause) {
       onCopied(false);
-      setError("Could not copy the setup prompt. Please try again.");
+      notifyError(cause, "Could not copy the setup prompt. Please try again.");
     } finally {
       setCopying(false);
     }
@@ -46,7 +48,6 @@ export function McpPromptButton({
 
   return (
     <div className={styles.copyControl}>
-      {error && <FormMessage>{error}</FormMessage>}
       <Button
         type="button"
         data-ph-public

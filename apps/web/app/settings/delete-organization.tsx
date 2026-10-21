@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError, errorMessage } from "@tidy/ui/errors";
+
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { Dialog } from "@/components/ui/dialog";
@@ -22,7 +25,7 @@ export function DeleteOrganization({
   const [confirmation, setConfirmation] = useState("");
   const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "account_update");
   const [billingRequired, setBillingRequired] = useState(false);
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -34,7 +37,8 @@ export function DeleteOrganization({
   }
 
   async function remove() {
-    setError("");
+    const notifyError = setError("");
+
     setBillingRequired(false);
     try {
       const result = await authClient.organization.delete({
@@ -45,14 +49,16 @@ export function DeleteOrganization({
       });
       if (result.error) {
         setBillingRequired(result.error.code === "ORGANIZATION_BILLING_REQUIRED");
-        throw new Error(result.error.message || "Unable to delete organization.");
+        throw new UserFacingError(errorMessage(result.error, "Unable to delete organization."), {
+          cause: result.error,
+        });
       }
       // Workspace pages resolve another membership, or show the account options.
       await navigateWithFreshSession(returnToAccount ? "/account/privacy" : "/files");
     } catch (error) {
       unstable_rethrow(error);
       deleting.current = false;
-      setError(error instanceof Error ? error.message : "Unable to delete organization.");
+      notifyError(error, "Unable to delete organization.");
       setPending(false);
     }
   }
@@ -105,11 +111,7 @@ export function DeleteOrganization({
             required
             disabled={pending}
           />
-          {error && (
-            <p role="alert" className="text-sm text-danger">
-              {error}
-            </p>
-          )}
+
           {billingRequired && (
             <NavigationLink
               href={`/settings?tab=billing&organization=${encodeURIComponent(organization.id)}${returnToAccount ? "&returnTo=account" : ""}`}

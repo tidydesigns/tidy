@@ -1,3 +1,5 @@
+import { errorMessage } from "@tidy/ui/errors";
+import { showToast, dismissToast } from "@tidy/ui/toast";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
@@ -46,7 +48,7 @@ type Draft = {
 };
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : "The operation could not be completed.";
+  errorMessage(error, "The operation could not be completed. Please try again.");
 
 export function App() {
   const api = window.tidy;
@@ -85,6 +87,7 @@ export function App() {
   draftsRef.current = drafts;
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<{
+    original?: unknown;
     projectId?: string;
     text: string;
   } | null>(null);
@@ -207,7 +210,7 @@ export function App() {
               },
             };
       });
-      setError({ projectId, text: errorText(cause) });
+      setError({ projectId, text: errorText(cause), original: cause });
     } finally {
       setSettingsPending((current) => ({ ...current, [previous.id]: false }));
     }
@@ -315,7 +318,7 @@ export function App() {
         initialEvents.clear();
       })
       .catch((value) => {
-        if (mounted) setError({ text: errorText(value) });
+        if (mounted) setError({ text: errorText(value), original: value });
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -339,7 +342,7 @@ export function App() {
           }));
       })
       .catch((value) => {
-        if (active) setError({ projectId: project.id, text: errorText(value) });
+        if (active) setError({ projectId: project.id, text: errorText(value), original: value });
       });
     return () => {
       active = false;
@@ -362,7 +365,7 @@ export function App() {
         if (active) setDesigns((current) => ({ ...current, [value.id]: value }));
       })
       .catch((value) => {
-        if (active) setError({ projectId: project.id, text: errorText(value) });
+        if (active) setError({ projectId: project.id, text: errorText(value), original: value });
       });
     return () => {
       active = false;
@@ -380,7 +383,7 @@ export function App() {
       const value = projectId ? await api.selectProject(projectId) : await api.openProject();
       if (value && navigation.current === generation) applySnapshot(value);
     } catch (value) {
-      setError({ text: errorText(value) });
+      setError({ text: errorText(value), original: value });
     } finally {
       if (navigation.current === generation) setOpening(false);
     }
@@ -638,7 +641,7 @@ export function App() {
         setSelectedThreads((current) =>
           current[projectId] === id ? { ...current, [projectId]: null } : current,
         );
-      setError({ projectId, text: errorText(value) });
+      setError({ projectId, text: errorText(value), original: value });
     } finally {
       sendingKeys.current.delete(key);
       setSending((current) => ({ ...current, [key]: false }));
@@ -718,7 +721,7 @@ export function App() {
             }
           : current;
       });
-      setError({ projectId, text: errorText(cause) });
+      setError({ projectId, text: errorText(cause), original: cause });
     } finally {
       setUpdatingDone((current) => ({ ...current, [item.id]: false }));
     }
@@ -729,7 +732,7 @@ export function App() {
     try {
       await api.stopThread(project.id, thread.id);
     } catch (value) {
-      setError({ projectId: project.id, text: errorText(value) });
+      setError({ projectId: project.id, text: errorText(value), original: value });
     }
   }
 
@@ -738,7 +741,7 @@ export function App() {
     try {
       setHarnesses(await api.checkHarnesses());
     } catch (value) {
-      setError({ text: errorText(value) });
+      setError({ text: errorText(value), original: value });
     }
   }
 
@@ -779,7 +782,11 @@ export function App() {
       )}
     />
   );
-  const visibleError = error && (!error.projectId || error.projectId === activeProjectId);
+  useEffect(() => {
+    if (!error || (error.projectId && error.projectId !== activeProjectId)) return;
+    const id = showToast(error.text, "error", () => setError(null));
+    return () => dismissToast(id);
+  }, [error, activeProjectId]);
 
   const projectFiles = useMemo(() => {
     const project = designSnapshot?.project;
@@ -898,14 +905,6 @@ export function App() {
           </>
         )}
       </aside>
-      {visibleError && (
-        <div className="error-banner" role="alert">
-          <span>{error.text}</span>
-          <Button className="quiet-button" onClick={() => setError(null)}>
-            Dismiss
-          </Button>
-        </div>
-      )}
       <main className="workspace">
         {!project ? (
           <div className="project-home">

@@ -1,4 +1,5 @@
 "use client";
+import { useEditorErrorNotice } from "../../editor/use-error-notice";
 
 import { NavigationLink as Link } from "../../host-navigation";
 import { Dialog } from "../ui/dialog";
@@ -59,7 +60,7 @@ export function ReviewControl({
   const [list, setList] = useState(initial);
   const [reviewId, setReviewId] = useState<string | null>(linkedInitialId);
   const [context, setContext] = useState<ReviewContext | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useEditorErrorNotice();
   const [busy, setBusy] = useState(false);
   const [url, setUrl] = useState("");
   const [frames, setFrames] = useState<string[]>([]);
@@ -76,25 +77,29 @@ export function ReviewControl({
     liveReviewId.current = reviewId;
     editing.current = Boolean(feedback || point || nodeId);
   }, [reviewId, feedback, point, nodeId]);
-  const load = useCallback(async (id: string, background = false) => {
-    const version = ++requestVersion.current;
-    try {
-      const next = await api(reviewContextSchema, `/api/github/reviews/${id}`);
-      if (
-        version === requestVersion.current &&
-        liveReviewId.current === id &&
-        !(background && (editing.current || mutation.current))
-      ) {
-        setContext(next);
-        if (!background) setError("");
+  const load = useCallback(
+    async (id: string, background = false) => {
+      const notifyError = setError("");
+      const version = ++requestVersion.current;
+      try {
+        const next = await api(reviewContextSchema, `/api/github/reviews/${id}`);
+        if (
+          version === requestVersion.current &&
+          liveReviewId.current === id &&
+          !(background && (editing.current || mutation.current))
+        ) {
+          setContext(next);
+          if (!background) setError("");
+        }
+      } catch (e) {
+        if (version === requestVersion.current && liveReviewId.current === id) {
+          setContext(null);
+          notifyError(e, "Could not read review.");
+        }
       }
-    } catch (e) {
-      if (version === requestVersion.current && liveReviewId.current === id) {
-        setContext(null);
-        setError(e instanceof Error ? e.message : "Could not read review.");
-      }
-    }
-  }, []);
+    },
+    [setError],
+  );
   useEffect(() => {
     if (open && !dialog.current?.open) dialog.current?.showModal();
     if (!open) dialog.current?.close();
@@ -128,14 +133,15 @@ export function ReviewControl({
     setError("");
   }
   async function mutate(operation: () => Promise<unknown>) {
+    const notifyError = setError("");
     mutation.current = true;
     setBusy(true);
-    setError("");
+
     requestVersion.current++;
     try {
       await operation();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not complete the action.");
+      notifyError(e, "Could not complete the action.");
     } finally {
       mutation.current = false;
       setBusy(false);
@@ -159,7 +165,7 @@ export function ReviewControl({
     setOpen(true);
     void api(reviewListSchema, `/api/files/${encodeURIComponent(fileId)}/reviews`)
       .then(setList)
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e, "Could not complete the action. Please try again."));
   }
   return (
     <>
@@ -659,11 +665,6 @@ export function ReviewControl({
             Loading review…
           </p>
         ) : null}
-        {error && (
-          <p role="alert" className="mt-4 text-sm text-danger">
-            {error}
-          </p>
-        )}
       </Dialog>
     </>
   );

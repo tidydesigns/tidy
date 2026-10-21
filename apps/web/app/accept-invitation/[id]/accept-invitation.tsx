@@ -1,17 +1,18 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { useRef, useTransition, useState } from "react";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
-import { FormMessage } from "@/components/ui/form-message";
 
 export function AcceptInvitation({ invitationId }: { invitationId: string }) {
   const [, startTransition] = useTransition();
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
 
   function accept() {
     if (submitting.current) return;
@@ -22,10 +23,11 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
   }
 
   async function acceptAction() {
+    const notifyError = setError("");
     try {
       const result = await authClient.organization.acceptInvitation({ invitationId });
       if (result.error || !result.data) {
-        setError(result.error?.message || "Unable to accept this invitation.");
+        notifyError(result.error, "Unable to accept this invitation.");
         return;
       }
 
@@ -36,7 +38,7 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
       await navigateWithFreshSession("/");
     } catch (cause) {
       unstable_rethrow(cause);
-      setError("Unable to accept this invitation. Please try again.");
+      notifyError(cause, "Unable to accept this invitation. Please try again.");
     } finally {
       submitting.current = false;
       setPending(false);
@@ -45,7 +47,6 @@ export function AcceptInvitation({ invitationId }: { invitationId: string }) {
 
   return (
     <div className="mt-10 space-y-5">
-      {error && <FormMessage>{error}</FormMessage>}
       <Button type="button" onClick={accept} disabled={pending}>
         <span data-ph-public style={{ display: "contents" }}>
           {pending ? "Joining…" : "Accept invitation"}
@@ -59,7 +60,7 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
   const [, startTransition] = useTransition();
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
 
   function switchAccount() {
     if (submitting.current) return;
@@ -70,10 +71,11 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
   }
 
   async function switchAccountAction() {
+    const notifyError = setError("");
     try {
       const result = await authClient.signOut();
       if (result.error) {
-        setError("Unable to sign out. Please try again.");
+        notifyError(result.error, "Unable to sign out. Please try again.");
         return;
       }
       resetPostHogUser();
@@ -82,7 +84,7 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
       );
     } catch (cause) {
       unstable_rethrow(cause);
-      setError("Unable to sign out. Please try again.");
+      notifyError(cause, "Unable to sign out. Please try again.");
     } finally {
       submitting.current = false;
       setPending(false);
@@ -100,7 +102,6 @@ export function SwitchAccountButton({ invitationId }: { invitationId: string }) 
       >
         Switch account
       </button>
-      {error && <FormMessage>{error}</FormMessage>}
     </div>
   );
 }

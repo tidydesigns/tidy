@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
+
 import { Dialog } from "@/components/ui/dialog";
 import { useRef, useState } from "react";
 import { Icon } from "@/components/ui/icon";
@@ -22,11 +25,12 @@ export function UpgradeDialog({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
 
   async function checkout() {
+    const notifyError = setError("");
     setBusy(true);
-    setError("");
+
     try {
       const response = await fetch("/api/billing/checkout", {
         method: "POST",
@@ -34,10 +38,11 @@ export function UpgradeDialog({
         body: JSON.stringify({ organizationId }),
       });
       const data = (await response.json()) as { url?: string; error?: string };
-      if (!response.ok || !data.url) throw new Error(data.error ?? "Could not start checkout.");
+      if (!response.ok || !data.url)
+        throw responseError(response, data, "Could not start checkout.");
       window.location.assign(data.url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not start checkout.");
+      notifyError(cause, "Could not start checkout.");
       setBusy(false);
     }
   }
@@ -130,11 +135,6 @@ export function UpgradeDialog({
         ) : (
           <p data-ph-public className="mt-7 text-sm text-secondary-ink">
             Ask an organization owner to upgrade.
-          </p>
-        )}
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {error}
           </p>
         )}
       </Dialog>

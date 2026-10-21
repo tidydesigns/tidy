@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
+
 import { Dialog } from "@/components/ui/dialog";
 import { useRef, useState, type FormEvent } from "react";
 import posthog from "@/lib/posthog-client";
@@ -12,7 +15,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
   const [currentLogins, setLogins] = useState(logins);
   const dialog = useRef<HTMLDialogElement>(null);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
   const [showPassword, setShowPassword] = useState(false);
 
   function resetDialog() {
@@ -27,15 +30,15 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
     setPending(true);
-    setError("");
 
     const form = event.currentTarget;
     try {
       const result = await addVaultLogin(new FormData(form));
       if (!result.ok) {
-        setError(result.error || "Could not save this login.");
+        notifyError(result.error || "Could not save this login.");
         return;
       }
       form.reset();
@@ -45,8 +48,8 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
         setLogins((current) => [login, ...current]);
         posthog.capture("vault_login_created");
       }
-    } catch {
-      setError("Could not save this login. Please try again.");
+    } catch (cause) {
+      notifyError(cause, "Could not save this login. Please try again.");
     } finally {
       setPending(false);
     }
@@ -95,7 +98,7 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
                   title="Delete login?"
                   onConfirm={async () => {
                     const result = await removeVaultLogin(login.id);
-                    if (result.error) throw new Error(result.error);
+                    if (result.error) throw new UserFacingError(result.error);
                     setLogins((current) => current.filter((item) => item.id !== login.id));
                   }}
                 >
@@ -188,11 +191,6 @@ export function VaultContent({ logins }: { logins: { id: string; name: string }[
                 </button>
               </div>
             </div>
-            {error && (
-              <p role="alert" className="text-sm text-primary-black">
-                {error}
-              </p>
-            )}
           </div>
           <div className="flex justify-end gap-3 border-t border-primary-grey/50 px-6 py-5 sm:px-10">
             <button

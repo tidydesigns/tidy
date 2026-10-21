@@ -1,4 +1,7 @@
 "use client";
+
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError, errorMessage } from "@tidy/ui/errors";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
@@ -7,27 +10,31 @@ import { Button } from "@/components/ui/button";
 
 export function ResetPasswordForm({ token }: { token: string }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
   const [complete, setComplete] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
-    setError("");
+
     const form = event.currentTarget;
     const data = new FormData(form);
     const newPassword = String(data.get("password"));
     if (newPassword !== data.get("confirmation")) {
-      setError("The passwords do not match.");
+      notifyError("The passwords do not match.");
       return;
     }
     setPending(true);
     try {
       const result = await authClient.resetPassword({ token, newPassword });
       if (result.error)
-        throw new Error(result.error.message ?? "This reset link is invalid or expired.");
+        throw new UserFacingError(
+          errorMessage(result.error, "This reset link is invalid or expired."),
+          { cause: result.error },
+        );
       form.reset();
       setComplete(true);
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not reset your password.");
+      notifyError(error, "Could not reset your password.");
     } finally {
       setPending(false);
     }

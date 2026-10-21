@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { unstable_rethrow } from "next/navigation";
 import { Dialog } from "@/components/ui/dialog";
 import { useTransition, useId, useRef, useState, type ReactNode } from "react";
@@ -28,7 +30,7 @@ export function ConfirmAction({
   const confirming = useRef(false);
   const [, startTransition] = useTransition();
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
 
   function confirm() {
     if (confirming.current) return;
@@ -39,14 +41,13 @@ export function ConfirmAction({
   }
 
   async function confirmAction() {
+    const notifyError = setError("");
     try {
       await onConfirm();
       dialog.current?.close();
     } catch (error) {
       unstable_rethrow(error);
-      setError(
-        error instanceof Error ? error.message : "Could not complete the action. Try again.",
-      );
+      notifyError(error, "Could not complete the action. Try again.");
     } finally {
       confirming.current = false;
       setPending(false);
@@ -87,11 +88,7 @@ export function ConfirmAction({
         <div id={`${id}-description`} className="mt-3 text-sm text-secondary-ink">
           {children}
         </div>
-        {error && (
-          <p role="alert" className="mt-3 text-sm text-danger">
-            {error}
-          </p>
-        )}
+
         <div className="mt-6 flex justify-end gap-3">
           <button
             data-ph-public

@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
@@ -23,20 +25,20 @@ export function SignUpForm({
   initialError?: string;
 }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState(initialError);
+  const [error, setError] = useErrorNotice(initialError, "user_action", "inline");
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
     setPending(true);
-    setError("");
 
     try {
       const form = new FormData(event.currentTarget);
       const password = String(form.get("password"));
 
       if (password !== form.get("confirmPassword")) {
-        setError("Passwords do not match.");
+        notifyError("Passwords do not match.");
         return;
       }
 
@@ -48,13 +50,13 @@ export function SignUpForm({
       });
 
       if (result.error || !result.data) {
-        setError(result.error?.message || "Unable to create your account.");
+        notifyError(result.error, "Unable to create your account.");
         return;
       }
 
       setVerificationEmail(String(form.get("email")));
-    } catch {
-      setError("Unable to create your account. Please try again.");
+    } catch (cause) {
+      notifyError(cause, "Unable to create your account. Please try again.");
     } finally {
       setPending(false);
     }

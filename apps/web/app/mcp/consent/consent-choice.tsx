@@ -1,26 +1,30 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
-import { FormMessage } from "@/components/ui/form-message";
 
 export function ConsentChoice({ oauthQuery, approval }: { oauthQuery: string; approval: string }) {
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice();
 
   async function decide(accept: boolean) {
+    const notifyError = setError("");
     setPending(true);
-    setError("");
+
     try {
       const request = { accept, oauth_query: oauthQuery, tidy_consent: approval };
       const response = await authClient.oauth2.consent(request);
       if (response.error)
-        setError(
+        notifyError(
+          response.error,
           "Could not complete authorization. Try again, or restart your agent's login command if it timed out.",
         );
-    } catch {
-      setError(
+    } catch (cause) {
+      notifyError(
+        cause,
         "Could not complete authorization. Try again, or restart your agent's login command if it timed out.",
       );
     } finally {
@@ -30,7 +34,6 @@ export function ConsentChoice({ oauthQuery, approval }: { oauthQuery: string; ap
 
   return (
     <div className="mt-8 space-y-4">
-      {error && <FormMessage>{error}</FormMessage>}
       <div className="flex gap-3">
         <Button type="button" disabled={pending} onClick={() => void decide(true)}>
           <span data-ph-public style={{ display: "contents" }}>

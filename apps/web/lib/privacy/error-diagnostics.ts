@@ -24,6 +24,12 @@ export const appErrorOperations = {
   figma_import: "Tidy Figma import failed",
   file_sync: "Tidy file synchronization failed",
   file_save: "Tidy could not persist an edit",
+  user_action: "Tidy action failed",
+  file_create: "Tidy file creation failed",
+  file_manage: "Tidy file management failed",
+  account_update: "Tidy account update failed",
+  integration_update: "Tidy integration update failed",
+  clipboard: "Tidy clipboard access failed",
   sign_in: "Tidy sign-in request failed",
 } as const;
 export type AppErrorOperation = keyof typeof appErrorOperations;
@@ -38,6 +44,8 @@ export function diagnosticType(value: unknown): string {
   return typeof value === "string" &&
     [
       "Error",
+      "ResponseError",
+      "AggregateError",
       "TypeError",
       "RangeError",
       "ReferenceError",
@@ -58,6 +66,7 @@ export function diagnosticType(value: unknown): string {
 export function diagnosticMessage(value: unknown, type: string): string {
   if (typeof value !== "string" || value.length > 4096) return diagnosticType(type);
   if (messages.has(value)) return value;
+  if (/^HTTP [1-5][0-9]{2}$/.test(value)) return value;
   // Normalize engine/framework templates instead of transmitting their dynamic
   // property names, identifiers, component text, URLs or serialized values.
   if (/^Cannot (?:read|set) propert(?:y|ies) of (?:undefined|null)\b/.test(value))

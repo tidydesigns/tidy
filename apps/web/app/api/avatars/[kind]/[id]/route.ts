@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import {
   operationBudgetResponse,
   operationFailure,
@@ -20,6 +21,7 @@ async function target(context: Context) {
 }
 
 function failure(error: unknown) {
+  reportHandledError(error);
   const denied = operationFailure(error);
   if (denied) return denied;
   if (error instanceof FeedbackError)

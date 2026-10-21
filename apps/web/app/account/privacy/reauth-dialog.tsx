@@ -1,4 +1,7 @@
 "use client";
+
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
 import { useEffect, useEffectEvent, useId, useRef, useState, type FormEvent } from "react";
 import { SocialProviderButton } from "@/components/auth/social-provider-button";
 import { Button } from "@/components/ui/button";
@@ -26,24 +29,24 @@ export function ReauthDialog({
   } | null>(null);
   const [password, setPassword] = useState("");
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
   useEffect(() => {
     dialog.current?.showModal();
     const controller = new AbortController();
     void fetch("/api/privacy/reauth", { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Your session has ended. Sign in to continue.");
+        if (!response.ok)
+          throw responseError(response, null, "Your session has ended. Sign in to continue.");
         setMethods(await response.json());
       })
       .catch((error) => {
-        if (!controller.signal.aborted)
-          setError(error.message ?? "Could not load authentication methods.");
+        if (!controller.signal.aborted) setError(error, "Could not load authentication methods.");
       });
     return () => {
       controller.abort();
       requestAbort.current?.abort();
     };
-  }, []);
+  }, [setError]);
   const notifyVerified = useEffectEvent(onVerified);
   useEffect(() => {
     function message(event: MessageEvent) {
@@ -66,10 +69,11 @@ export function ReauthDialog({
       if (closedTimer.current) clearInterval(closedTimer.current);
       popup.current?.close();
     };
-  }, []);
+  }, [setError]);
   async function verify(provider: "password" | "google" | "github") {
+    const notifyError = setError("");
     if (pending) return;
-    setError("");
+
     if (provider !== "password") {
       popup.current = window.open(
         "about:blank",
@@ -77,7 +81,7 @@ export function ReauthDialog({
         "popup,width=500,height=650",
       );
       if (!popup.current) {
-        setError("Allow the sign-in window, then try again.");
+        notifyError("Allow the sign-in window, then try again.");
         return;
       }
     }
@@ -97,7 +101,7 @@ export function ReauthDialog({
         verified?: boolean;
       };
       if (controller.signal.aborted) return;
-      if (!response.ok) throw new Error(result.error ?? "Could not authenticate. Try again.");
+      if (!response.ok) throw responseError(response, result, "Could not authenticate. Try again.");
       setPassword("");
       if (provider === "password") {
         onVerified();
@@ -117,7 +121,7 @@ export function ReauthDialog({
       if (controller.signal.aborted) return;
       popup.current?.close();
       popup.current = null;
-      setError(error instanceof Error ? error.message : "Could not authenticate. Try again.");
+      notifyError(error, "Could not authenticate. Try again.");
       setPassword("");
       setPending(false);
     }

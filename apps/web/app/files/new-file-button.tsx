@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useRef, useState, useTransition } from "react";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { Dialog } from "@/components/ui/dialog";
@@ -35,12 +37,12 @@ export function NewFileButton({
   const [pending, startTransition] = useTransition();
   const creating = useRef(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "file_create");
 
   function create() {
     if (creating.current) return;
     creating.current = true;
-    setError("");
+    const notifyError = setError("");
     preloadEditor();
     startTransition(async () => {
       try {
@@ -49,7 +51,7 @@ export function NewFileButton({
           return;
         }
         const result = await createDesignFile(folderId, organizationId);
-        setError(result.error);
+        notifyError(result.error);
       } catch (error) {
         if (isRedirectError(error)) {
           // Next delivers successful action redirects as control-flow errors.
@@ -60,7 +62,7 @@ export function NewFileButton({
             throw error;
           }
         }
-        setError("Could not create the file. Please try again.");
+        notifyError(error, "Could not create the file. Please try again.");
       } finally {
         creating.current = false;
       }
@@ -134,11 +136,7 @@ export function NewFileButton({
           <EditorSkeleton />
         </Dialog>
       )}
-      {error && (
-        <p role="alert" className="text-xs text-danger">
-          {error}
-        </p>
-      )}
+
       <FigmaFileImport
         disabled={pending}
         open={importOpen}

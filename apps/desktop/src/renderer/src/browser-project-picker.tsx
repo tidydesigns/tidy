@@ -1,3 +1,4 @@
+import { useErrorNotice } from "@tidy/ui/use-error-notice";
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "@tidy/ui/button";
@@ -11,7 +12,7 @@ function folderError(error: unknown, fallback: string) {
     return "Folder not found. Check the path and try again.";
   if (message.startsWith("EACCES:") || message.startsWith("EPERM:"))
     return "You don't have permission to open this folder.";
-  return message;
+  return fallback;
 }
 
 function FolderIcon() {
@@ -42,7 +43,7 @@ function ProjectPicker({
   const [directory, setDirectory] = useState<Directory | null>(null);
   const [home, setHome] = useState("");
   const [query, setQuery] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice();
   const [pending, setPending] = useState(false);
   const [opening, setOpening] = useState(false);
   const [active, setActive] = useState(0);
@@ -98,14 +99,15 @@ function ProjectPicker({
     }
   }
   async function select() {
+    const notifyError = setError("");
     if (!selectedPath || openingRef.current || pending) return;
     openingRef.current = true;
     setOpening(true);
-    setError("");
+
     try {
       finish(await open(selectedPath));
     } catch (error) {
-      setError(folderError(error, "Unable to open project."));
+      notifyError(error, folderError(error, "Unable to open project."));
       openingRef.current = false;
       setOpening(false);
     }
@@ -124,7 +126,7 @@ function ProjectPicker({
         setQuery((current) => current || "~/");
       })
       .catch((error: unknown) => {
-        if (!cancelled) setError(folderError(error, "Unable to load folders."));
+        if (!cancelled) setError(error, folderError(error, "Unable to load folders."));
       });
     return () => {
       cancelled = true;
@@ -146,7 +148,7 @@ function ProjectPicker({
         }
       })
       .catch((error: unknown) => {
-        if (!cancelled) setError(folderError(error, "Unable to load folders."));
+        if (!cancelled) setError(error, folderError(error, "Unable to load folders."));
       })
       .finally(() => {
         if (!cancelled) setPending(false);
@@ -287,11 +289,7 @@ function ProjectPicker({
         {!home && !error && <p role="status">Loading folders…</p>}
         {ready && !folders.length && <p>{filter ? "No matching folders" : "No subfolders"}</p>}
       </div>
-      {error && (
-        <p className="browser-project-error" role="alert">
-          {error}
-        </p>
-      )}
+
       <div className="browser-project-actions">
         <span title={selectedPath}>{selectedPath ?? "Choose a folder on Linux"}</span>
         <Button

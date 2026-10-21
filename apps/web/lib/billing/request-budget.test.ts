@@ -8,6 +8,7 @@ test("billing attempts are shared across routes and rejected before reading a de
       "--eval",
       `
     import { mock, expect } from "bun:test";
+    mock.module("server-only", () => ({}));
     let remaining = 2, providerCalls = 0;
     mock.module("@/lib/auth", () => ({ auth: { api: { getSession: async () => ({ user: { id: "account", email: "fixture@example.test" } }) } } }));
     mock.module("@/lib/security/operation-budget", () => ({

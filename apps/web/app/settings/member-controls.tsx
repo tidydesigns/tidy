@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
+
 import { memberList, memberRow } from "@/components/workspace/page-layout";
 
 import { useState, type Dispatch, type SetStateAction } from "react";
@@ -24,21 +27,22 @@ export function MemberControls({
   onChange: Dispatch<SetStateAction<Member[]>>;
 }) {
   const [pendingId, setPendingId] = useState("");
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "account_update");
   const owner = role.split(",").includes("owner");
   const manager = owner || role.split(",").includes("admin");
 
   async function changeRole(member: Member, next: OrganizationRole) {
+    const notifyError = setError("");
     setPendingId(member.id);
-    setError("");
+
     try {
       const result = await updateMemberRole(organizationId, member.id, next);
-      if (result.error) throw new Error(result.error);
+      if (result.error) throw new UserFacingError(result.error);
       onChange((current) =>
         current.map((item) => (item.id === member.id ? { ...item, role: next } : item)),
       );
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not change this member's role.");
+      notifyError(error, "Could not change this member's role.");
     } finally {
       setPendingId("");
     }
@@ -85,7 +89,7 @@ export function MemberControls({
                     disabled={Boolean(pendingId)}
                     onConfirm={async () => {
                       const result = await removeOrganizationMember(organizationId, member.id);
-                      if (result.error) throw new Error(result.error);
+                      if (result.error) throw new UserFacingError(result.error);
                       onChange((current) => current.filter((item) => item.id !== member.id));
                     }}
                   >
@@ -99,11 +103,6 @@ export function MemberControls({
           );
         })}
       </ul>
-      {error && (
-        <p role="alert" className="mt-3 text-sm text-danger">
-          {error}
-        </p>
-      )}
     </>
   );
 }

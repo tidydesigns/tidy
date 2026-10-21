@@ -66,8 +66,8 @@ export async function createDesignFolder(name: string): Promise<{ id?: string; e
   let id: string;
   try {
     ({ id } = await createDesignFolderForUser(session.user.id, organization.id, cleanName));
-  } catch {
-    return { error: "Could not create the folder. Please try again." };
+  } catch (error) {
+    return { error: actionError(error, "Could not create the folder. Please try again.") };
   }
   revalidatePath("/files");
   return { id };
@@ -83,8 +83,8 @@ export async function renameDesignFolder(
   if (!session) return { error: "Sign in to rename this folder." };
   try {
     await renameDesignFolderForUser(session.user.id, folderId, cleanName);
-  } catch {
-    return { error: "Could not rename the folder." };
+  } catch (error) {
+    return { error: actionError(error, "Could not rename the folder.") };
   }
   revalidatePath("/files");
   return {};
@@ -107,8 +107,8 @@ export async function deleteDesignFolder(folderId: string): Promise<{ error?: st
   if (!session) return { error: "Sign in to delete this folder." };
   try {
     await deleteDesignFolderForUser(session.user.id, folderId);
-  } catch {
-    return { error: "Could not delete the folder." };
+  } catch (error) {
+    return { error: actionError(error, "Could not delete the folder.") };
   }
   revalidatePath("/files");
   return {};
@@ -119,8 +119,8 @@ export async function renameDesignFile(fileId: string, name: string): Promise<{ 
   if (!session) return { error: "Sign in to rename this file." };
   try {
     await renameDesignFileForUser(session.user.id, fileId, name);
-  } catch {
-    return { error: "Could not rename the file." };
+  } catch (error) {
+    return { error: actionError(error, "Could not rename the file.") };
   }
   revalidatePath("/files");
   revalidatePath(`/files/${fileId}`);
@@ -135,8 +135,8 @@ export async function moveDesignFile(
   if (!session) return { error: "Sign in to move this file." };
   try {
     await moveDesignFileForUser(session.user.id, fileId, folderId);
-  } catch {
-    return { error: "Could not move the file." };
+  } catch (error) {
+    return { error: actionError(error, "Could not move the file.") };
   }
   revalidatePath("/files");
   return {};

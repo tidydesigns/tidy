@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { SocialProviderButton } from "./social-provider-button";
@@ -17,12 +19,13 @@ export function SocialSignIn({
   disabled?: boolean;
 }) {
   const [pending, setPending] = useState<"google" | "github" | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "sign_in", "inline");
   if (!providers.length) return null;
 
   async function signIn(provider: "google" | "github") {
+    const notifyError = setError("");
     setPending(provider);
-    setError("");
+
     try {
       const result = await authClient.signIn.social({
         provider,
@@ -31,15 +34,16 @@ export function SocialSignIn({
         errorCallbackURL: `${page}?next=${encodeURIComponent(next)}`,
       });
       if (result.error || !result.data?.url) {
-        setError(
+        notifyError(
+          result.error ?? result,
           result.error?.status === 429
             ? "Too many sign-in attempts. Wait a moment and try again."
             : "Unable to connect. Please try again.",
         );
         setPending(null);
       }
-    } catch {
-      setError("Unable to connect. Please try again.");
+    } catch (cause) {
+      notifyError(cause, "Unable to connect. Please try again.");
       setPending(null);
     }
   }

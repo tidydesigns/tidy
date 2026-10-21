@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError, errorMessage } from "@tidy/ui/errors";
+
 import { useState, type FormEvent } from "react";
 import { DeferredSection } from "@/components/ui/deferred-section";
 import { authClient } from "@/lib/auth-client";
@@ -43,15 +46,16 @@ export function ProfileControls({
 }) {
   const { profileName, updateProfileName } = useOrganizationNames();
   const [emailMessage, setEmailMessage] = useState("");
-  const [emailError, setEmailError] = useState("");
+  const [, setEmailError] = useErrorNotice("", "account_update");
   const [verifying, setVerifying] = useState(false);
   const [passwordPending, setPasswordPending] = useState(false);
-  const [passwordError, setPasswordError] = useState("");
+  const [, setPasswordError] = useErrorNotice("", "account_update");
   const [passwordMessage, setPasswordMessage] = useState("");
 
   async function verifyEmail() {
+    const notifyEmailError = setEmailError("");
     setVerifying(true);
-    setEmailError("");
+
     setEmailMessage("");
     try {
       const result = await authClient.sendVerificationEmail({
@@ -59,24 +63,30 @@ export function ProfileControls({
         callbackURL: "/settings?tab=profile",
       });
       if (result.error)
-        throw new Error(result.error.message ?? "Could not send verification email.");
+        throw new UserFacingError(
+          errorMessage(result.error, "Could not send verification email."),
+          {
+            cause: result.error,
+          },
+        );
       setEmailMessage(`Verification sent to ${user.email}.`);
     } catch (error) {
-      setEmailError(error instanceof Error ? error.message : "Could not send verification email.");
+      notifyEmailError(error, "Could not send verification email.");
     } finally {
       setVerifying(false);
     }
   }
 
   async function changePassword(event: FormEvent<HTMLFormElement>) {
+    const notifyPasswordError = setPasswordError("");
     event.preventDefault();
     const form = event.currentTarget;
     const data = new FormData(form);
     const newPassword = String(data.get("newPassword"));
-    setPasswordError("");
+
     setPasswordMessage("");
     if (newPassword !== data.get("confirmation")) {
-      setPasswordError("The new passwords do not match.");
+      notifyPasswordError("The new passwords do not match.");
       return;
     }
     setPasswordPending(true);
@@ -86,11 +96,14 @@ export function ProfileControls({
         newPassword,
         revokeOtherSessions: false,
       });
-      if (result.error) throw new Error(result.error.message ?? "Could not change your password.");
+      if (result.error)
+        throw new UserFacingError(errorMessage(result.error, "Could not change your password."), {
+          cause: result.error,
+        });
       form.reset();
       setPasswordMessage("Password changed.");
     } catch (error) {
-      setPasswordError(error instanceof Error ? error.message : "Could not change your password.");
+      notifyPasswordError(error, "Could not change your password.");
     } finally {
       setPasswordPending(false);
     }
@@ -122,10 +135,12 @@ export function ProfileControls({
           maxLength={100}
           onCommit={async (draft) => {
             const parsed = profileNameSchema.safeParse(draft);
-            if (!parsed.success) throw new Error(parsed.error.issues[0].message);
+            if (!parsed.success) throw new UserFacingError(parsed.error.issues[0].message);
             const result = await authClient.updateUser({ name: parsed.data });
             if (result.error)
-              throw new Error(result.error.message ?? "Could not update your name.");
+              throw new UserFacingError(errorMessage(result.error, "Could not update your name."), {
+                cause: result.error,
+              });
             updateProfileName(parsed.data);
             return parsed.data;
           }}
@@ -148,7 +163,10 @@ export function ProfileControls({
               callbackURL: "/settings?tab=profile",
             });
             if (result.error)
-              throw new Error(result.error.message ?? "Could not request an email change.");
+              throw new UserFacingError(
+                errorMessage(result.error, "Could not request an email change."),
+                { cause: result.error },
+              );
             setEmailMessage(
               user.emailVerified
                 ? `Confirm this change in ${user.email}, then verify ${newEmail}.`
@@ -176,11 +194,6 @@ export function ProfileControls({
         {emailMessage && (
           <p role="status" className="text-sm">
             {emailMessage}
-          </p>
-        )}
-        {emailError && (
-          <p role="alert" className="text-sm text-danger">
-            {emailError}
           </p>
         )}
       </div>
@@ -226,11 +239,7 @@ export function ProfileControls({
           required
           disabled={passwordPending}
         />
-        {passwordError && (
-          <p role="alert" className="text-sm text-danger">
-            {passwordError}
-          </p>
-        )}
+
         {passwordMessage && (
           <p role="status" className="text-sm">
             {passwordMessage}
@@ -296,7 +305,7 @@ function SessionControls({
                     title="End this session?"
                     onConfirm={async () => {
                       const result = await revokeAccountSession(session.id);
-                      if (result.error) throw new Error(result.error);
+                      if (result.error) throw new UserFacingError(result.error);
                       onSessionsChange((current) =>
                         current.filter((item) => item.id !== session.id),
                       );

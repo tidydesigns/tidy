@@ -4,6 +4,7 @@ import localFont from "next/font/local";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
 import { NavigationRecoveryProvider } from "@/components/workspace/navigation-recovery";
+import { ToastViewport } from "@tidy/ui/toast";
 import { CookieConsent } from "@/components/privacy/cookie-consent";
 
 const instrumentSans = Instrument_Sans({
@@ -39,6 +40,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="min-h-full bg-primary-white font-sans text-primary-black">
         <NavigationRecoveryProvider>{children}</NavigationRecoveryProvider>
         <CookieConsent />
+        <ToastViewport />
       </body>
     </html>
   );

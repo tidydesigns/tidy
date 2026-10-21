@@ -43,6 +43,7 @@ test("avatar HTTP endpoints enforce ownership, membership, origin, replacement a
       "--eval",
       `
     import { mock, expect } from "bun:test";
+    mock.module("server-only", () => ({}));
     let session = { user: { id: "owner" } }, role = "owner", shared = true;
     let failPut = false, failUpdate = false, failCommit = false, failDelete = false;
     let gets = 0, puts = 0, snapshot;

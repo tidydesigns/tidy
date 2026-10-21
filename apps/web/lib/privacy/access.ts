@@ -1,3 +1,4 @@
+import { reportHandledError } from "@/lib/handled-error";
 import { RequestBodyError } from "@/lib/http/request-body";
 import "server-only";
 import { auth } from "@/lib/auth";
@@ -62,6 +63,7 @@ export async function lockPrivacyAccount(client: PoolClient, userId: string, ses
   return user;
 }
 export function privacyFailure(error: unknown) {
+  reportHandledError(error);
   const known =
     error instanceof PrivacyError ||
     error instanceof PersonalBudgetError ||

@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useId, useRef, useState, type InputHTMLAttributes } from "react";
 import { TextField } from "./text-field";
 
@@ -17,11 +19,12 @@ export function ImmediateField({ label, value, onCommit, disabled, ...props }: P
   const id = useId();
   const [draft, setDraft] = useState(value);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
   const submitting = useRef(false);
   const cancelling = useRef(false);
 
   async function commit() {
+    const notifyError = setError("");
     if (cancelling.current) {
       cancelling.current = false;
       return;
@@ -29,11 +32,11 @@ export function ImmediateField({ label, value, onCommit, disabled, ...props }: P
     if (submitting.current || draft === value) return;
     submitting.current = true;
     setPending(true);
-    setError("");
+
     try {
       setDraft(await onCommit(draft));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not apply the change. Try again.");
+      notifyError(error, "Could not apply the change. Try again.");
     } finally {
       submitting.current = false;
       setPending(false);

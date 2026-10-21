@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { responseError } from "@/lib/http/json-response";
+
 import { useState } from "react";
 import type { BillingStatus } from "@/lib/billing/server";
 import { formatStorage } from "@/lib/billing/plans";
@@ -15,10 +18,11 @@ export function BillingSettings({
   billing: BillingStatus;
 }) {
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "account_update");
   async function openPortal() {
+    const notifyError = setError("");
     setBusy(true);
-    setError("");
+
     try {
       const response = await fetch("/api/billing/portal", {
         method: "POST",
@@ -27,10 +31,10 @@ export function BillingSettings({
       });
       const data = (await response.json()) as { url?: string; error?: string };
       if (!response.ok || !data.url)
-        throw new Error(data.error ?? "Could not open Stripe billing.");
+        throw responseError(response, data, "Could not open Stripe billing.");
       window.location.assign(data.url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not open Stripe billing.");
+      notifyError(cause, "Could not open Stripe billing.");
       setBusy(false);
     }
   }
@@ -135,11 +139,6 @@ export function BillingSettings({
         >
           Manage billing
         </button>
-      )}
-      {error && (
-        <p role="alert" className="text-sm text-red-700">
-          {error}
-        </p>
       )}
     </section>
   );

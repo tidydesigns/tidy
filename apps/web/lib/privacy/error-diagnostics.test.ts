@@ -190,3 +190,8 @@ test("diagnostics retain replay correlation without enabling replay or analytics
     expect(redactTelemetry(event, { ...choices, diagnostics: false }, page, account)).toBeNull();
   }
 });
+
+test("HTTP diagnostics retain only their numeric status", () => {
+  expect(diagnosticMessage("HTTP 503", "ResponseError")).toBe("HTTP 503");
+  expect(diagnosticMessage("HTTP 503 private token", "ResponseError")).toBe("ResponseError");
+});

@@ -1,5 +1,7 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
@@ -12,7 +14,6 @@ import { verificationCallbackPath } from "@/lib/auth-return-path";
 import { SocialSignIn } from "@/components/auth/social-sign-in";
 import { VerificationForm } from "@/components/auth/verification-form";
 import { AuthShell } from "@/components/auth/auth-shell";
-import { appErrorReporter } from "@/lib/posthog-client";
 
 export function LoginForm({
   next = "/",
@@ -30,7 +31,7 @@ export function LoginForm({
   const [, startTransition] = useTransition();
   const submitting = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState(initialError);
+  const [error, setError] = useErrorNotice(initialError, "sign_in", "inline");
   const [verificationEmail, setVerificationEmail] = useState<string | null>(null);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -44,8 +45,7 @@ export function LoginForm({
   }
 
   async function signIn(form: FormData) {
-    const reportError = appErrorReporter("sign_in");
-
+    const notifyError = setError("");
     try {
       const result = await passwordAuthClient.signIn.email({
         email: String(form.get("email")),
@@ -54,13 +54,12 @@ export function LoginForm({
       });
 
       if (result.error || !result.data) {
-        if (result.error && result.error.status >= 500)
-          reportError(new Error("Server unavailable"));
         if (result.error?.code === "EMAIL_NOT_VERIFIED") {
           setVerificationEmail(String(form.get("email")));
           return;
         }
-        setError(
+        notifyError(
+          result.error,
           result.error?.status === 429
             ? "Too many sign-in attempts. Wait a moment and try again."
             : result.error && result.error.status >= 500
@@ -74,8 +73,7 @@ export function LoginForm({
       await navigateWithFreshSession(next);
     } catch (cause) {
       unstable_rethrow(cause);
-      reportError(cause);
-      setError("Unable to sign in. Please try again.");
+      notifyError(cause, "Unable to sign in. Please try again.");
     } finally {
       submitting.current = false;
       setPending(false);

@@ -1,3 +1,4 @@
+import { errorMessage } from "@tidy/ui/errors";
 import { ZodError } from "zod";
 import { ComponentStructureError } from "./component-structure-error";
 import type { DesignDocument } from "./document";
@@ -60,8 +61,13 @@ export function editorErrorMessage(error: unknown, fallback: string): string {
       )
         return fallback;
     } catch {
-      // Ordinary application messages retain their existing wording.
+      // Non-JSON errors use the reviewed mapping below.
     }
   }
-  return message || fallback;
+  const reviewed = new Set([
+    "This layer is locked.",
+    "The file changed elsewhere. Retry after reviewing the latest file.",
+    "You do not have permission to edit this file.",
+  ]);
+  return reviewed.has(message) ? message : errorMessage(error, fallback);
 }

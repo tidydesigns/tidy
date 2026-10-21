@@ -1,5 +1,8 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError, errorMessage } from "@tidy/ui/errors";
+
 import { useState, type FormEvent } from "react";
 import { NavigationLink } from "@/components/ui/navigation-link";
 import posthog from "@/lib/posthog-client";
@@ -35,27 +38,31 @@ export function TeamInvites({
   const [addresses, setAddresses] = useState("");
   const [invites, setInvites] = useState(initialInvites);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useErrorNotice("", "user_action", "inline");
   const [copiedId, setCopiedId] = useState("");
   const [cancellingId, setCancellingId] = useState("");
 
   async function cancelInvite(invite: Invite) {
+    const notifyError = setError("");
     setCancellingId(invite.id);
-    setError("");
+
     try {
       const result = await authClient.organization.cancelInvitation({ invitationId: invite.id });
-      if (result.error) throw new Error(result.error.message || "Could not cancel the invitation.");
+      if (result.error)
+        throw new UserFacingError(errorMessage(result.error, "Could not cancel the invitation."), {
+          cause: result.error,
+        });
       setInvites((current) => current.filter((item) => item.id !== invite.id));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not cancel the invitation.");
+      notifyError(error, "Could not cancel the invitation.");
     } finally {
       setCancellingId("");
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    const notifyError = setError("");
     event.preventDefault();
-    setError("");
 
     const submittedAddresses = addresses;
     const emails = [
@@ -68,7 +75,7 @@ export function TeamInvites({
     ];
     const invalid = emails.filter((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
     if (invalid.length) {
-      setError(`Check ${invalid.join(", ")} and try again.`);
+      notifyError(`Check ${invalid.join(", ")} and try again.`);
       return;
     }
 
@@ -77,24 +84,25 @@ export function TeamInvites({
       (email) => email !== currentEmail.toLowerCase() && !alreadyInvited.has(email),
     );
     if (newEmails.length === 0) {
-      setError("Add an email address that hasn't been invited yet.");
+      notifyError("Add an email address that hasn't been invited yet.");
       return;
     }
 
     setPending(true);
     const failed: string[] = [];
     const created: Invite[] = [];
-    let failureReason = "";
+    const failures: unknown[] = [];
 
     for (const email of newEmails) {
       try {
         const result = await authClient.organization.inviteMember({ email, role, organizationId });
         if (result.error || !result.data) {
           failed.push(email);
-          failureReason ||= result.error?.message ?? "";
+          if (result.error) failures.push(result.error);
         } else
           created.push({ id: result.data.id, email: result.data.email, role: result.data.role });
-      } catch {
+      } catch (cause) {
+        failures.push(cause);
         failed.push(email);
       }
     }
@@ -104,18 +112,22 @@ export function TeamInvites({
       posthog.capture("team_invitations_created", { invitation_count: created.length });
     setAddresses((current) => (current === submittedAddresses ? failed.join("\n") : current));
     if (failed.length)
-      setError(failureReason || `Could not invite ${failed.join(", ")}. Please try again.`);
+      notifyError(
+        new AggregateError(failures, "Team invitations failed"),
+        `Could not invite ${failed.join(", ")}. Please try again.`,
+      );
     setPending(false);
   }
 
   async function copyLink(invite: Invite) {
+    const notifyError = setError("");
     try {
       await navigator.clipboard.writeText(
         `${window.location.origin}/accept-invitation/${invite.id}`,
       );
       setCopiedId(invite.id);
-    } catch {
-      setError("Could not copy the link. Please try again.");
+    } catch (cause) {
+      notifyError(cause, "Could not copy the link. Please try again.");
     }
   }
 
@@ -203,7 +215,9 @@ export function TeamInvites({
                                 ),
                               );
                           })
-                          .catch(() => setError("Could not change this invitation's role."))
+                          .catch((cause) =>
+                            setError(cause, "Could not change this invitation's role."),
+                          )
                           .finally(() => setCancellingId(""));
                       }}
                     />

@@ -1,17 +1,18 @@
 "use client";
 
+import { useErrorNotice } from "@/lib/use-error-notice";
+
 import { useRef, useState, useTransition } from "react";
 import { unstable_rethrow } from "next/navigation";
 import { navigateWithFreshSession } from "@/lib/navigation/actions";
 import { authClient, resetPostHogUser } from "@/lib/auth-client";
 import { Button } from "@/components/ui/button";
-import { FormMessage } from "@/components/ui/form-message";
 
 export function SignOutButton() {
   const [, startTransition] = useTransition();
   const signingOut = useRef(false);
   const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const [, setError] = useErrorNotice("", "user_action");
 
   function signOut() {
     if (signingOut.current) return;
@@ -22,17 +23,18 @@ export function SignOutButton() {
   }
 
   async function signOutAction() {
+    const notifyError = setError("");
     try {
       const result = await authClient.signOut();
       if (result.error) {
-        setError("Unable to sign out. Please try again.");
+        notifyError(result.error, "Unable to sign out. Please try again.");
         return;
       }
       resetPostHogUser();
       await navigateWithFreshSession("/login");
     } catch (cause) {
       unstable_rethrow(cause);
-      setError("Unable to sign out. Please try again.");
+      notifyError(cause, "Unable to sign out. Please try again.");
     } finally {
       signingOut.current = false;
       setPending(false);
@@ -46,7 +48,6 @@ export function SignOutButton() {
           {pending ? "Signing out…" : "Sign out"}
         </span>
       </Button>
-      {error && <FormMessage>{error}</FormMessage>}
     </>
   );
 }

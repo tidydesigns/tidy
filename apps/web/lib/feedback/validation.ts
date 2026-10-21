@@ -1,3 +1,4 @@
+import { UserFacingError } from "@tidy/ui/errors";
 import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 
 export const MAX_IMAGES = 3;
@@ -6,7 +7,7 @@ export const MAX_REQUEST_BYTES = MAX_IMAGES * MAX_IMAGE_BYTES + 64_000;
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-export class FeedbackError extends Error {
+export class FeedbackError extends UserFacingError {
   constructor(
     message: string,
     public status = 400,

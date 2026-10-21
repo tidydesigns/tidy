@@ -1,3 +1,4 @@
+import { actionError } from "@/lib/action-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { boundedRequest, RequestBodyError, requestBodyError } from "@/lib/http/request-body";
 import { auth } from "@/lib/auth";
@@ -37,7 +38,7 @@ async function post(request: Request) {
     if (denied) return denied;
     console.error("Stripe checkout failed", error);
     return Response.json(
-      { error: error instanceof Error ? error.message : "Could not start checkout." },
+      { error: actionError(error, "Could not start checkout.") },
       { status: 400 },
     );
   }
