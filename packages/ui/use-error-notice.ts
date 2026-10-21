@@ -1,11 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { handleError } from "./errors";
-import { showToast } from "./toast-store";
+import { dismissToast, showToast } from "./toast-store";
 
 type Reporter = (error: unknown) => void;
-type Notify = (error: unknown, fallback?: string) => void;
-type Operation = { capture: Reporter; reported: boolean };
+type Notify = ((error: unknown, fallback?: string) => void) & { dismiss: () => void };
+type Operation = { capture: Reporter; reported: boolean; toastId?: number };
 const noop: Reporter = () => {};
 const noReporter = () => noop;
 
@@ -30,15 +30,18 @@ export function useErrorNotice({
   const notify = useCallback(
     (error: unknown, fallback?: string): Notify => {
       const starting = error === "" && fallback === undefined;
-      const current =
+      const current: Operation =
         starting || !operation.current
           ? { capture: reporter(), reported: false }
           : operation.current;
       operation.current = current;
-      const apply: Notify = (value, copy) => {
+      const apply = (value: unknown, copy?: string) => {
         const display = (message: string) => {
           if (operation.current === current) setNotice({ message, original: value });
-          if (presentation === "toast") showToast(message);
+          if (presentation === "toast") {
+            if (current.toastId !== undefined) dismissToast(current.toastId);
+            current.toastId = showToast(message, "error", undefined, current);
+          }
         };
         if (typeof value === "string" && copy === undefined) {
           if (value) display(value);
@@ -52,6 +55,10 @@ export function useErrorNotice({
             },
             notify: display,
           });
+      };
+      apply.dismiss = () => {
+        if (current.toastId !== undefined) dismissToast(current.toastId);
+        if (operation.current === current) setNotice({ message: "" });
       };
       if (starting) setNotice({ message: "" });
       else apply(error, fallback);

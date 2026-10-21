@@ -1,5 +1,6 @@
 "use client";
 import { useEditorErrorNotice } from "../../editor/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
 
 import { NavigationLink as Link } from "../../host-navigation";
 import { threadsPage } from "../workspace/page-layout";
@@ -72,6 +73,7 @@ export function ThreadsWorkspace({
   );
   const [, setError] = useEditorErrorNotice(),
     [busy, setBusy] = useState(false);
+  const [pollError, setPollError] = useEditorErrorNotice("user_action", "inline");
   const [allowOrganizationChanges, setAllowOrganizationChanges] = useState(false);
   const [attachments, setAttachments] = useState<string[]>([]);
   const [renaming, setRenaming] = useState(false);
@@ -123,8 +125,9 @@ export function ThreadsWorkspace({
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     let lastList = 0;
+    let reconnecting = false;
+    setPollError("");
     const poll = async () => {
-      const notifyError = setError("");
       try {
         if (Date.now() - lastList >= 5000) {
           const params = new URLSearchParams({ organizationId });
@@ -187,8 +190,16 @@ export function ThreadsWorkspace({
             if (data.events.length) await loadThread(id, controller.signal);
           }
         }
+        if (!controller.signal.aborted && reconnecting) {
+          reconnecting = false;
+          setPollError("");
+        }
       } catch (error) {
-        if (!controller.signal.aborted) notifyError(error, "Reconnecting…");
+        if (!controller.signal.aborted && !reconnecting) {
+          reconnecting = true;
+          const notifyError = setPollError("");
+          notifyError(new UserFacingError("Reconnecting…", { cause: error }));
+        }
       }
       if (!controller.signal.aborted) timer = setTimeout(poll, 1000);
     };
@@ -197,7 +208,7 @@ export function ThreadsWorkspace({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [organizationId, fileId, scope, loadThread, setError]);
+  }, [organizationId, fileId, scope, loadThread, setPollError]);
   function openThread(id: string | null) {
     selectedRef.current = id;
     setSelected(id);
@@ -618,6 +629,11 @@ export function ThreadsWorkspace({
                   : run.status === "limited"
                     ? "Your Codex usage limit was reached. Stop this run, then start again when usage is available."
                     : "The run could not finish. Completed edits remain. Send a new prompt to continue."}
+            </p>
+          )}
+          {pollError && (
+            <p data-ph-public role="status" className="py-2 text-xs text-secondary-ink">
+              {pollError}
             </p>
           )}
 

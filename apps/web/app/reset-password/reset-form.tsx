@@ -28,7 +28,7 @@ export function ResetPasswordForm({ token }: { token: string }) {
       const result = await authClient.resetPassword({ token, newPassword });
       if (result.error)
         throw new UserFacingError(
-          errorMessage(result.error, "This reset link is invalid or expired."),
+          errorMessage(result.error, "Could not reset your password. Please try again."),
           { cause: result.error },
         );
       form.reset();

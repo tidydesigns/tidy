@@ -46,21 +46,25 @@ export function agentJson(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { "Cache-Control": "private, no-store" } });
 }
 export function agentFailure(error: unknown) {
-  reportHandledError(error);
   const denied = operationFailure(error);
   if (denied) return denied;
   if (error instanceof UserAccessError)
     return agentJson({ error: error.message, code: "access_denied" }, 403);
-  if (error instanceof PersonalBudgetError)
+  if (error instanceof PersonalBudgetError) {
+    if (Object.hasOwn(error, "cause")) reportHandledError(error);
     return agentJson({ error: error.message, code: "account_rate_limit" }, error.status);
-  if (error instanceof AgentError)
+  }
+  if (error instanceof AgentError) {
+    if (error.status >= 500) reportHandledError(error);
     return agentJson({ error: error.message, code: error.code }, error.status);
+  }
   if (error instanceof ZodError)
     return agentJson(
       { error: "Check the request fields and try again.", code: "invalid_input" },
       400,
     );
   // Neither SQL details nor provider error payloads belong in shared UI or logs.
+  reportHandledError(error);
   return agentJson(
     { error: "Could not complete the request. Try again.", code: "request_failed" },
     500,

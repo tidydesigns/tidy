@@ -1,5 +1,7 @@
 "use client";
 import { useEditorErrorNotice } from "./use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
+import { readJsonResponse, responseError } from "../lib/http/json-response";
 import { z } from "zod";
 import { useState } from "react";
 import { parseDesignDocument, type DesignDocument, type DesignNode } from "../design/document";
@@ -19,18 +21,21 @@ async function loadSource(fileUid: string): Promise<Source> {
   const url = new URL(fileUid, window.location.href);
   const candidate = url.pathname.split("/").filter(Boolean).at(-1) ?? fileUid;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(candidate))
-    throw new Error("Enter a file URL or file ID.");
+    throw new UserFacingError("Enter a file URL or file ID.");
   const response = await fetch(`/api/files/${encodeURIComponent(candidate)}/snapshot`, {
     cache: "no-store",
   });
-  if (!response.ok) throw new Error("Source file is unavailable or access was removed.");
-  const source = z
-    .object({
+  if (!response.ok)
+    throw responseError(response, undefined, "Source file is unavailable or access was removed.");
+  const source = await readJsonResponse({
+    response,
+    schema: z.object({
       name: z.string(),
       document: z.object({ revision: z.number().int().min(0), content: z.unknown() }).nullable(),
-    })
-    .parse(await response.json());
-  if (!source.document) throw new Error("Source file has no editable document.");
+    }),
+    message: "Source file is unavailable or access was removed.",
+  });
+  if (!source.document) throw new UserFacingError("Source file has no editable document.");
   return {
     fileUid: candidate,
     name: source.name,
@@ -80,7 +85,7 @@ export function ComponentLibraryPanel({
 
     try {
       const loaded = await (loadLocalSource ?? loadSource)(input);
-      if (loaded.fileUid === fileId) throw new Error("Choose a different source file.");
+      if (loaded.fileUid === fileId) throw new UserFacingError("Choose a different source file.");
       setSource(loaded);
       setSelected(loaded.content.nodes.find((n) => n.isComponent && !n.librarySource)?.id ?? "");
     } catch (cause) {
@@ -123,7 +128,7 @@ export function ComponentLibraryPanel({
     try {
       const loaded = await (loadLocalSource ?? loadSource)(identity.fileUid);
       if (!loaded.content.nodes.some((n) => n.id === identity.componentId && n.isComponent))
-        throw new Error("Library component was removed.");
+        throw new UserFacingError("Library component was removed.");
       if (apply) {
         const payload = await transfer(
           libraryPayload(loaded.content, identity.componentId, loaded.fileUid),

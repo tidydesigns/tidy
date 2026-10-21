@@ -56,7 +56,8 @@ export async function reserveImageOperation(kind: Kind, userId: string, organiza
 }
 
 export function imageFailureResponse(error: unknown) {
-  reportHandledError(error);
+  if (!(error instanceof MutationBudgetError || error instanceof ImageCapacityError))
+    reportHandledError(error);
   const reason =
     error instanceof MutationBudgetError
       ? "rate_limit"

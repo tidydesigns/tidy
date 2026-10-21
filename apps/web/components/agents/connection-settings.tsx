@@ -1,6 +1,7 @@
 "use client";
 
 import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,6 +43,7 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
         });
         if (controller.signal.aborted) return;
         if (failing) {
+          notifyError.dismiss();
           notifyError = setError("");
           failing = false;
         }
@@ -52,7 +54,8 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
         }
       } catch (cause) {
         if (controller.signal.aborted) return;
-        if (!failing) notifyError(cause, "Could not check the connection. Retrying…");
+        if (!failing)
+          notifyError(new UserFacingError("Could not check the connection. Retrying…", { cause }));
         failing = true;
       }
       timer = setTimeout(poll, 2500);
@@ -61,6 +64,7 @@ export function AgentConnectionSettings({ initial }: { initial: ConnectionStatus
     return () => {
       controller.abort();
       clearTimeout(timer);
+      notifyError.dismiss();
     };
   }, [login, setError]);
   async function connect() {

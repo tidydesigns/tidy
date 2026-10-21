@@ -50,6 +50,34 @@ export function ToastViewport() {
   const notices = useSyncExternalStore(subscribeToasts, toastSnapshot, emptyToastSnapshot);
   const [container, setContainer] = useState<HTMLElement | null>(null);
   useEffect(() => {
+    const timers = new Map<number, ReturnType<typeof setTimeout>>();
+    const update = () => {
+      const notices = toastSnapshot();
+      for (const [id, timer] of timers) {
+        if (!notices.some((notice) => notice.id === id)) {
+          clearTimeout(timer);
+          timers.delete(id);
+        }
+      }
+      for (const notice of notices) {
+        if (notice.tone === "success" && !timers.has(notice.id))
+          timers.set(
+            notice.id,
+            setTimeout(() => {
+              timers.delete(notice.id);
+              dismissToast(notice.id);
+            }, 5000),
+          );
+      }
+    };
+    update();
+    const unsubscribe = subscribeToasts(update);
+    return () => {
+      unsubscribe();
+      for (const timer of timers.values()) clearTimeout(timer);
+    };
+  }, []);
+  useEffect(() => {
     // Native modal dialogs make body siblings inert. Mount inside the active
     // modal so errors remain visible, announced and dismissible while it is open.
     const update = () => {
@@ -79,26 +107,5 @@ export function ToastViewport() {
 
 /** Success notices expire; errors remain until explicitly dismissed. */
 export function useSuccessToast() {
-  useEffect(() => {
-    const timers = new Map<number, ReturnType<typeof setTimeout>>();
-    const update = () => {
-      for (const notice of toastSnapshot()) {
-        if (notice.tone === "success" && !timers.has(notice.id))
-          timers.set(
-            notice.id,
-            setTimeout(() => {
-              dismissToast(notice.id);
-              timers.delete(notice.id);
-            }, 5000),
-          );
-      }
-    };
-    update();
-    const unsubscribe = subscribeToasts(update);
-    return () => {
-      unsubscribe();
-      for (const timer of timers.values()) clearTimeout(timer);
-    };
-  }, []);
   return (message: string) => showToast(message, "success");
 }

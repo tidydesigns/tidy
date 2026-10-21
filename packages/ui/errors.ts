@@ -13,26 +13,32 @@ export function isCancellation(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
-/** Presentation never mutates or replaces the diagnostic object. */
-export function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof UserFacingError)
-    return error.displayMessage.trim() ? error.displayMessage : fallback;
-  const authMessages: Record<string, string> = {
-    INVALID_EMAIL_OR_PASSWORD: "Check your email and password and try again.",
-    INVALID_PASSWORD: "The current password is incorrect.",
-    USER_ALREADY_EXISTS: "An account with this email already exists. Sign in instead.",
-    EMAIL_NOT_VERIFIED: "Verify your email before signing in.",
-    PASSWORD_TOO_SHORT: "Use a password with at least 8 characters.",
-    INVALID_TOKEN: "This link is invalid or expired. Request a new one.",
-  };
+const authMessages: Record<string, string> = {
+  INVALID_EMAIL_OR_PASSWORD: "Check your email and password and try again.",
+  INVALID_PASSWORD: "The current password is incorrect.",
+  USER_ALREADY_EXISTS: "An account with this email already exists. Sign in instead.",
+  EMAIL_NOT_VERIFIED: "Verify your email before signing in.",
+  PASSWORD_TOO_SHORT: "Use a password with at least 8 characters.",
+  INVALID_TOKEN: "This link is invalid or expired. Request a new one.",
+};
+function authCode(error: unknown): string | undefined {
   if (
     error &&
     typeof error === "object" &&
+    Object.hasOwn(error, "code") &&
     "code" in error &&
     typeof error.code === "string" &&
     Object.hasOwn(authMessages, error.code)
   )
-    return authMessages[error.code] ?? fallback;
+    return error.code;
+}
+
+/** Presentation never mutates or replaces the diagnostic object. */
+export function errorMessage(error: unknown, fallback: string): string {
+  if (error instanceof UserFacingError)
+    return error.displayMessage.trim() ? error.displayMessage : fallback;
+  const code = authCode(error);
+  if (code) return authMessages[code] ?? fallback;
   if (error instanceof Error) {
     if (
       [
@@ -71,7 +77,16 @@ export function handleError(
   const original = diagnosticError(error);
   if (isCancellation(original)) return "";
   // Expected validation has no technical failure to report. Wrapped failures do.
-  if (!(error instanceof UserFacingError) || Object.hasOwn(error, "cause")) {
+  const expectedAuthResult =
+    error !== null &&
+    typeof error === "object" &&
+    !(error instanceof Error) &&
+    authCode(error) !== undefined &&
+    !Object.hasOwn(error, "cause");
+  if (
+    !expectedAuthResult &&
+    (!(error instanceof UserFacingError) || Object.hasOwn(error, "cause"))
+  ) {
     try {
       report(original);
     } catch {

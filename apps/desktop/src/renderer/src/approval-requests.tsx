@@ -1,4 +1,5 @@
 import { useErrorNotice } from "@tidy/ui/use-error-notice";
+import { errorMessage, UserFacingError } from "@tidy/ui/errors";
 import { useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { ApprovalRequest, ApprovalDecision } from "../../shared/permissions";
@@ -25,7 +26,13 @@ export function ApprovalRequests({
     try {
       await onRespond(id, decision);
     } catch (value) {
-      notifyError(value, "The response could not be sent. Please try again.");
+      const title = requests.find((request) => request.id === id)?.title ?? "Permission request";
+      notifyError(
+        new UserFacingError(
+          `“${title}”: ${errorMessage(value, "The response could not be sent. Please try again.")}`,
+          { cause: value },
+        ),
+      );
     } finally {
       setPending((current) => current.filter((value) => value !== id));
     }

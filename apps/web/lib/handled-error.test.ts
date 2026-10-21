@@ -24,11 +24,46 @@ test("server public responses report the original value before selecting UI copy
     actionError(original, "Other fallback");
     expect(captured.length).toBe(1);
     expect(actionError(new PublicActionError("Enter a folder name."), "Fallback")).toBe("Enter a folder name.");
+    expect(captured.length).toBe(1);
+    // Expected request/validation results must not exhaust exception admission.
+    mock.module("@/lib/auth", () => ({ auth: { api: {} } }));
+    mock.module("@/lib/agents/store", () => ({ agentsSchemaReady: async () => true }));
+    const { agentFailure } = await import("./lib/agents/http.ts");
+    const { AgentError } = await import("./lib/agents/protocol.ts");
+    const { apiError } = await import("./lib/github/http.ts");
+    const { GitHubRequestError } = await import("./lib/github/request-error.ts");
+    const { GitHubError } = await import("./lib/github/client.ts");
+    const { privacyFailure, PrivacyError } = await import("./lib/privacy/access.ts");
+    const { PersonalBudgetError } = await import("./lib/security/personal-budget.ts");
+    const { imageFailureResponse } = await import("./lib/design/image-budget.ts");
+    const { MutationBudgetError } = await import("./lib/security/mutation-budget.ts");
+    const { z } = await import("zod");
+    expect(agentFailure(new AgentError("invalid_input", "Check the input.")).status).toBe(400);
+    expect(agentFailure(z.string().safeParse(12).error).status).toBe(400);
+    expect(apiError(new GitHubRequestError("Expected JSON.", 415)).status).toBe(415);
+    expect(apiError(new GitHubError(404)).status).toBe(404);
+    expect(privacyFailure(new PrivacyError("Sign in.", 401)).status).toBe(401);
+    expect(privacyFailure(new PersonalBudgetError(429)).status).toBe(429);
+    expect(imageFailureResponse(new MutationBudgetError(60)).status).toBe(429);
+    expect(captured.length).toBe(1);
+    for (const boundary of [agentFailure, apiError, privacyFailure]) {
+      const failure = new Error("private database failure", { cause: original });
+      boundary(failure);
+      expect(captured.at(-1).error).toBe(failure);
+      expect(captured.at(-1).error.cause).toBe(original);
+    }
+    const upstream = new GitHubError(503);
+    expect(apiError(upstream).status).toBe(502);
+    expect(captured.at(-1).error).toBe(upstream);
+    const budgetFailure = new PersonalBudgetError(503, { cause: original });
+    privacyFailure(budgetFailure);
+    expect(captured.at(-1).error).toBe(budgetFailure);
+    const beforeNavigation = captured.length;
     const { redirect } = await import("next/navigation");
     let navigation;
     try { redirect("/files"); } catch (error) { navigation = error; }
     expect(() => actionError(navigation, "Fallback")).toThrow(navigation);
-    expect(captured.length).toBe(2);
+    expect(captured.length).toBe(beforeNavigation);
   `,
     ],
     {

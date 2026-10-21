@@ -1,4 +1,5 @@
 import { actionError } from "@/lib/action-error";
+import { PublicActionError } from "@/lib/security/public-error";
 import { operationBudgetResponse, operationFailure } from "@/lib/security/operation-budget";
 import { revalidatePath } from "next/cache";
 import { listDesignFolders } from "@/lib/design/folder-service";
@@ -43,23 +44,25 @@ export async function POST(request: Request) {
   try {
     const input = inputSchema.parse(await (await boundedRequest(request, 16_000_000)).json());
     const document = parseDesignDocument(input.document);
-    if (!document.nodes.length) throw new Error("This Figma file contains no editable layers.");
+    if (!document.nodes.length)
+      throw new PublicActionError("This Figma file contains no editable layers.");
     const organizations = await auth.api.listOrganizations({ headers: request.headers });
     const organization =
       organizations.find((o) => o.id === session.session.activeOrganizationId) ?? organizations[0];
-    if (!organization) throw new Error("Choose a Tidy workspace first.");
+    if (!organization) throw new PublicActionError("Choose a Tidy workspace first.");
     if (input.folderId) {
       const folders = await listDesignFolders(session.user.id, organization.id);
       if (!folders.some((folder) => folder.id === input.folderId && folder.canEdit))
-        throw new Error("Folder not found or access denied.");
+        throw new PublicActionError("Folder not found or access denied.");
     }
     const supplied = new Set(input.assets.map((asset) => asset.id));
-    if (supplied.size !== input.assets.length) throw new Error("Duplicate Figma asset identity.");
+    if (supplied.size !== input.assets.length)
+      throw new PublicActionError("Duplicate Figma asset identity.");
     if (documentAssetIds(document).some((id) => !supplied.has(id)))
-      throw new Error("Figma image data is missing.");
+      throw new PublicActionError("Figma image data is missing.");
     const ids = new Map<string, string>();
     for (const asset of input.assets) {
-      if (ids.has(asset.id)) throw new Error("Duplicate Figma asset identity.");
+      if (ids.has(asset.id)) throw new PublicActionError("Duplicate Figma asset identity.");
       const uploaded = await putAsset(
         session.user.id,
         organization.id,
@@ -71,7 +74,7 @@ export async function POST(request: Request) {
     const remap = (id: string | undefined) => {
       if (!id) return;
       const target = ids.get(id);
-      if (!target) throw new Error("Figma image data is missing.");
+      if (!target) throw new PublicActionError("Figma image data is missing.");
       return target;
     };
     document.nodes = document.nodes.map((node) => ({

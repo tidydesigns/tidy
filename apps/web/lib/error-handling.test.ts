@@ -112,6 +112,28 @@ test("auth code mapping uses reviewed copy and ignores arbitrary messages and in
     "The current password is incorrect.",
   );
   expect(errorMessage({ code: "constructor", message: "private" }, fallback)).toBe(fallback);
+  expect(errorMessage(Object.create({ code: "INVALID_PASSWORD" }), fallback)).toBe(fallback);
+  expect(errorMessage({ code: "INVALID_TOKEN" }, fallback)).toContain("invalid or expired");
+  expect(errorMessage({ code: "INTERNAL_SERVER_ERROR" }, fallback)).toBe(fallback);
+});
+
+test("expected auth results stay quiet while technical and wrapped causes remain reportable", () => {
+  const captured: unknown[] = [];
+  const handlers = { fallback, report: (value: unknown) => captured.push(value), notify: () => {} };
+  const expected = { code: "INVALID_EMAIL_OR_PASSWORD", message: "private provider copy" };
+  handleError(expected, handlers);
+  expect(captured).toEqual([]);
+  const original = new Error("connection reset");
+  for (const error of [
+    { code: "INTERNAL_SERVER_ERROR" },
+    Object.assign(new Error("technical failure"), { code: "INVALID_PASSWORD" }),
+    { ...expected, cause: original },
+  ]) {
+    handleError(error, handlers);
+    expect(captured.at(-1)).toBe(error);
+  }
+  handleError(new UserFacingError("Safe copy", { cause: expected }), handlers);
+  expect(captured.at(-1)).toBe(expected);
 });
 
 test("HTTP failures retain the response and payload without displaying server internals", async () => {
@@ -186,4 +208,21 @@ test("malformed HTTP responses retain the exact parsing failure, status and resp
   expect(diagnostic.response.status).toBe(503);
   expect(diagnostic.cause).toBe(original);
   expect(errorMessage(caught, "other")).toBe(fallback);
+});
+
+test("identical toasts from separate owners can be dismissed independently", async () => {
+  const { showToast, dismissToast, clearToasts, toastSnapshot } =
+    await import("../../../packages/ui/toast-store");
+  clearToasts();
+  const firstOwner = {},
+    secondOwner = {};
+  const shared = showToast("Could not load.");
+  const first = showToast("Could not load.", "error", undefined, firstOwner);
+  const second = showToast("Could not load.", "error", undefined, secondOwner);
+  expect(first).not.toBe(shared);
+  expect(second).not.toBe(first);
+  expect(showToast("Could not load.", "error", undefined, firstOwner)).toBe(first);
+  dismissToast(first);
+  expect(toastSnapshot().map((notice) => notice.id)).toEqual([shared, second]);
+  clearToasts();
 });

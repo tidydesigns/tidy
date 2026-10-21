@@ -182,7 +182,10 @@ export function ProjectFiles({
           delete next[target.id];
           return next;
         });
-      notifyError(cause, "Could not rename this item.");
+      notifyError(
+        cause,
+        target.kind === "create" ? "Could not create this folder." : "Could not rename this item.",
+      );
     } finally {
       finishing.current = false;
       setPending(false);

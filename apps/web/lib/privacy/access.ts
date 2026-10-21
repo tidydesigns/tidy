@@ -63,11 +63,11 @@ export async function lockPrivacyAccount(client: PoolClient, userId: string, ses
   return user;
 }
 export function privacyFailure(error: unknown) {
-  reportHandledError(error);
   const known =
     error instanceof PrivacyError ||
     error instanceof PersonalBudgetError ||
     error instanceof RequestBodyError;
+  if (!known || error.status >= 500 || Object.hasOwn(error, "cause")) reportHandledError(error);
   if (!known) console.error(JSON.stringify({ event: "privacy_request_failed" }));
   return Response.json(
     {

@@ -38,13 +38,22 @@ export function json(value: unknown) {
   return Response.json(value, { headers: { "Cache-Control": "private, no-store" } });
 }
 export function apiError(error: unknown) {
-  reportHandledError(error);
   if (
     error instanceof MutationBudgetError ||
     error instanceof ImageBudgetUnavailableError ||
     error instanceof ImageCapacityError
   )
     return imageFailureResponse(error);
+  const expected =
+    error instanceof ZodError ||
+    error instanceof GitHubRequestError ||
+    error instanceof OrganizationAccessError ||
+    error instanceof OAuthSessionError ||
+    error instanceof GitHubWorkLimitError ||
+    error instanceof RequestBodyError ||
+    error instanceof GitHubHistoryLimitError ||
+    (error instanceof GitHubError && [401, 403, 404].includes(error.status));
+  if (!expected || Object.hasOwn(error, "cause")) reportHandledError(error);
   const message = publicGitHubMessage(error);
   return Response.json(
     { error: message },

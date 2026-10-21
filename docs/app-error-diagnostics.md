@@ -78,19 +78,25 @@ alone do not prove the new release is deployed or that its errors resolve correc
 `cause`. `handleError` maps known network, timeout, storage and auth failures to
 reviewed text, otherwise uses the caller's fallback. It passes the original value
 to the reporter without modifying its stack, cause or custom properties. Expected
-validation messages do not create fake exceptions. Cancellation stays silent.
+validation messages and reviewed plain auth rejection codes do not create
+exception events. Technical failures and wrapped causes remain reportable.
+Cancellation stays silent.
 
 Web actions use `useErrorNotice` from `lib/use-error-notice`; editor components use
 `useEditorErrorNotice`. Capture `const notifyError = setError("")` immediately before starting an
 operation, then pass `notifyError(cause, fallback)` in the catch. Each returned
 notifier keeps its original session binding when actions overlap. Passing a string alone means deliberate UI copy, not a technical failure.
-Retry loops report once until a new operation starts. Forms and failed-content
+Each operation owns its toast; `notifyError.dismiss()` clears that operation's
+notice on recovery without dismissing another action's notice. Success expiry
+belongs to the root viewport, so it continues after the caller unmounts.
+Retry loops report once per outage and clear their status after recovery. Forms and failed-content
 sections may opt into inline presentation; other action failures use the shared
 bottom-right toast. Notifications keep private text masked for replay. The
 viewport moves into the active native modal to remain accessible.
 
-Server `actionError`, file management and API failure helpers report caught values
-before selecting public response copy. Original server errors stay on the server;
+The action, avatar, agent, GitHub and privacy boundaries return reviewed validation,
+authorization and limit results without spending exception admission. Unexpected failures and technical causes
+remain reportable before selecting public response copy. Original server errors stay on the server;
 clients receive only reviewed messages. `readJsonResponse` retains response and
 validation failures as causes, and the Figma worker uses structured cloning to
 retain Error stacks and causes across its local message boundary. Existing

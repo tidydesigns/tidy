@@ -1,6 +1,7 @@
 "use client";
 
 import { useErrorNotice } from "@/lib/use-error-notice";
+import { UserFacingError } from "@tidy/ui/errors";
 import { useState, type FormEvent } from "react";
 import { authClient } from "@/lib/auth-client";
 import { TextField } from "@/components/ui/text-field";
@@ -21,7 +22,10 @@ export function ForgotPasswordForm({ emailConfigured }: { emailConfigured: boole
         email,
         redirectTo: "/reset-password",
       });
-      if (result.error) throw new Error("Could not send a reset link. Please try again later.");
+      if (result.error)
+        throw new UserFacingError("Could not send a reset link. Please try again later.", {
+          cause: result.error,
+        });
       setSent(true);
     } catch (error) {
       notifyError(error, "Could not send a reset link.");

@@ -784,7 +784,7 @@ export function App() {
   );
   useEffect(() => {
     if (!error || (error.projectId && error.projectId !== activeProjectId)) return;
-    const id = showToast(error.text, "error", () => setError(null));
+    const id = showToast(error.text, "error", () => setError(null), error);
     return () => dismissToast(id);
   }, [error, activeProjectId]);
 

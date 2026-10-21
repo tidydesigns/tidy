@@ -21,7 +21,6 @@ async function target(context: Context) {
 }
 
 function failure(error: unknown) {
-  reportHandledError(error);
   const denied = operationFailure(error);
   if (denied) return denied;
   if (error instanceof FeedbackError)
@@ -29,6 +28,7 @@ function failure(error: unknown) {
       { error: error.message },
       { status: error.status, headers: { "Cache-Control": "no-store" } },
     );
+  reportHandledError(error);
   console.error("Avatar request failed", error);
   return Response.json(
     { error: "Could not update the image. Please try again." },
