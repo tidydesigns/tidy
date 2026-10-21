@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 if (process.platform !== "darwin")
   throw new Error("Icon generation requires macOS sips and iconutil.");
 execFileSync("oxipng", ["--version"], { stdio: "ignore" });
+/** Losslessly compress a PNG while retaining the RGBA encoding native icons require. */
 const optimizePng = (path: string) =>
   execFileSync("oxipng", ["-o", "max", "-z", "--fast", "--strip", "safe", "--quiet", "--nx", path]);
 const resources = fileURLToPath(new URL("../resources/", import.meta.url));

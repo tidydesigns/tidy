@@ -24,11 +24,12 @@ const appIcon = app.isPackaged
     ? join(app.getAppPath(), "icon.png")
     : undefined
   : join(
-      app.getAppPath(),
-      "resources",
+      import.meta.dirname,
+      "../../resources",
       process.platform === "darwin" ? "icon-macos.png" : "icon.png",
     );
 
+/** Open the workspace with its platform icon and restricted renderer permissions. */
 async function createWindow() {
   const window = new BrowserWindow({
     title: "Tidy",
