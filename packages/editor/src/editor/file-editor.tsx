@@ -3595,7 +3595,7 @@ export function FileEditor({
               <path d="M10 3L17 14H3Z" />
             </svg>
           }
-          triggerClassName={`flex h-9 w-9 items-center justify-center rounded-md ${isShapeKind(tool) ? "bg-primary-orange/15" : ""}`}
+          triggerClassName={`flex h-10 w-10 items-center justify-center rounded-lg ${isShapeKind(tool) ? "bg-primary-orange/15" : ""}`}
           size="sm"
         />
       )}

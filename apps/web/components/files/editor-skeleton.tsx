@@ -24,7 +24,7 @@ function Tools({ horizontal = false }: { horizontal?: boolean }) {
       {Array.from({ length: 10 }, (_, tool) => (
         <div
           key={tool}
-          className={`${tool === 5 ? "size-9" : "size-10"} shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse`}
+          className="size-10 shrink-0 rounded-lg bg-subtle-fill motion-safe:animate-pulse"
         />
       ))}
     </div>
