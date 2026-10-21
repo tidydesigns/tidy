@@ -386,11 +386,18 @@ export const CanvasComments = forwardRef<
     version: 0,
     messageIds: new Set<string>(),
   }));
+  const undoBlocked = Boolean(
+    resolvedNotice &&
+    ((changing && mutationRef.current?.thread.id !== resolvedNotice.id) ||
+      submissions.some(
+        (submission) => submission.thread.id === resolvedNotice.id && submission.kind === "sending",
+      )),
+  );
   useEffect(() => {
-    if (!resolvedNotice || noticePaused) return;
+    if (!resolvedNotice || noticePaused || undoBlocked) return;
     const timer = window.setTimeout(() => setResolvedNotice(null), 6000);
     return () => window.clearTimeout(timer);
-  }, [resolvedNotice, noticePaused]);
+  }, [resolvedNotice, noticePaused, undoBlocked]);
   useEffect(() => setResolvedNotice(null), [fileId, pageId]);
   const latestReadVersion = useCallback(() => refreshVersion.current, []);
   const loadedPages = useRef(1);
@@ -801,7 +808,13 @@ export const CanvasComments = forwardRef<
 
   function undoResolve(thread: CommentThread) {
     const mutation = mutationRef.current;
-    if (mutation && mutation.thread.id !== thread.id) return;
+    if (
+      (mutation && mutation.thread.id !== thread.id) ||
+      submissionsRef.current.some(
+        (submission) => submission.thread.id === thread.id && submission.kind === "sending",
+      )
+    )
+      return;
     setResolvedNotice(null);
     if (mutation?.resolved === true) {
       mutation.undoRequested = true;
@@ -814,7 +827,8 @@ export const CanvasComments = forwardRef<
       );
       return;
     }
-    void changeThread({ ...thread, resolved: true }, false, true);
+    const latestThread = pageThreads.find((item) => item.id === thread.id) ?? thread;
+    void changeThread({ ...latestThread, resolved: true }, false, true);
   }
 
   return (
@@ -1167,7 +1181,7 @@ export const CanvasComments = forwardRef<
               action={{
                 label: "Undo",
                 onClick: () => undoResolve(resolvedNotice),
-                disabled: changing && mutationRef.current?.thread.id !== resolvedNotice.id,
+                disabled: undoBlocked,
               }}
             />
           </div>,
