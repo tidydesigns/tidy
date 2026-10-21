@@ -1,2 +1,6 @@
 /_next/static/*
   Cache-Control: public,max-age=31536000,immutable
+
+# Public build assets include SVG masks loaded from the session replay origin.
+/_next/static/media/*
+  Access-Control-Allow-Origin: *

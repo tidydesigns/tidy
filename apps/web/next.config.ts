@@ -48,6 +48,11 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [{ key: "Strict-Transport-Security", value: "max-age=31536000" }],
       },
+      {
+        // Mirror public/_headers when Next serves assets instead of Cloudflare.
+        source: "/_next/static/media/:path*",
+        headers: [{ key: "Access-Control-Allow-Origin", value: "*" }],
+      },
       ...[
         "/api/auth/:path*",
         "/login",
