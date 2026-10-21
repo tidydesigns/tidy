@@ -210,7 +210,7 @@ export function CornerRadiusHandles({
             <output
               id={`radius-value-${node.id}`}
               data-radius-value
-              className="pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-primary-orange px-1.5 py-0.5 text-[10px] leading-4 text-on-brand shadow-sm"
+              className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded bg-primary-orange px-1.5 py-0.5 text-[10px] leading-4 text-on-brand shadow-sm"
               style={{ left: matrix.a * x + matrix.c * y, top: matrix.b * x + matrix.d * y - 18 }}
             >
               <span data-ph-public style={{ display: "contents" }}>
