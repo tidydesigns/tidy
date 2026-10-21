@@ -14,7 +14,7 @@ export const test = base.extend({
       }),
     );
     await page.addLocatorHandler(
-      page.getByRole("button", { name: "Use essential storage", exact: true }),
+      page.getByRole("button", { name: "Reject all optional", exact: true }),
       async (button) => {
         await button.click();
       },
