@@ -115,6 +115,7 @@ export class WorkspaceService {
     return this.store.readThread(projectId, threadId);
   }
 
+  /** Mark a finished thread done/reopened without admitting delayed writes during shutdown. */
   async setThreadDone(projectId: string, threadId: string, done: boolean) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (this.starting.has(threadId) || this.jobs.has(threadId))
@@ -122,6 +123,7 @@ export class WorkspaceService {
     this.starting.set(threadId, projectId);
     try {
       const thread = await this.store.readThread(projectId, threadId);
+      if (this.closing) throw new Error("Tidy is closing.");
       if (thread.status === "running")
         throw new Error("Wait for this run to finish before marking the thread done.");
       if (Boolean(thread.doneAt) === done) return thread;
@@ -136,13 +138,17 @@ export class WorkspaceService {
     }
   }
 
+  /** Validate settings and reject delayed requests once shutdown begins. */
   async setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
-    if (this.closing || this.starting.has(threadId) || this.jobs.has(threadId))
+    if (this.closing) throw new Error("Tidy is closing.");
+    if (this.starting.has(threadId) || this.jobs.has(threadId))
       throw new Error("Wait for this run to finish before changing its settings.");
     this.starting.set(threadId, projectId);
     try {
       const thread = await this.store.readThread(projectId, threadId);
+      if (this.closing) throw new Error("Tidy is closing.");
       await this.configure(thread.harness, this.store.project(projectId).path, settings);
+      if (this.closing) throw new Error("Tidy is closing.");
       thread.settings = settings;
       thread.revision++;
       await this.store.writeThread(thread);

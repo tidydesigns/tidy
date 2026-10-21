@@ -13,7 +13,10 @@ const cleanups: Array<() => Promise<void>> = [];
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
-async function fixture() {
+/** Create an isolated workspace with fake harnesses and injectable settings validation. */
+async function fixture(
+  configure: ConstructorParameters<typeof WorkspaceService>[3] = async () => {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const store = new ProjectStore(join(directory, "app"));
@@ -55,7 +58,7 @@ async function fixture() {
       };
     },
     async () => "/fixture/harness",
-    async () => {},
+    configure,
   );
   cleanups.push(() => service.close());
   return { directory, store, service, project: snapshot.project, runs };
@@ -215,6 +218,85 @@ test("an old update recovery callback cannot release a newer preparation", async
   });
   expect(thread.status).toBe("running");
 });
+
+for (const shutdown of ["update", "quit"] as const) {
+  for (const stage of ["done read", "settings read", "settings validation"] as const) {
+    test(`${shutdown} rejects metadata writes delayed at ${stage}`, async () => {
+      let paused = false;
+      let enter!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { service, store, project, runs } = await fixture(async () => {
+        if (paused && stage === "settings validation") {
+          enter();
+          await gate;
+        }
+      });
+      const thread = await service.startThread({
+        projectId: project.id,
+        harness: "claude",
+        prompt: "Existing thread",
+        designIds: [],
+      });
+      const completed = finished(service, thread.id);
+      runs[0].complete();
+      await completed;
+      await store.flush();
+      const before = await store.readThread(project.id, thread.id);
+      const read = store.readThread.bind(store);
+      const write = store.writeThread.bind(store);
+      let writes = 0;
+      store.readThread = async (...args) => {
+        const value = await read(...args);
+        if (paused && stage !== "settings validation") {
+          enter();
+          await gate;
+        }
+        return value;
+      };
+      store.writeThread = (value) => {
+        writes++;
+        return write(value);
+      };
+      paused = true;
+      const edit = (
+        stage === "done read"
+          ? service.setThreadDone(project.id, thread.id, true)
+          : service.setThreadSettings(project.id, thread.id, { model: "new-model" })
+      ).then(
+        (value) => value,
+        (error: unknown) => error,
+      );
+      let restore: (() => void) | undefined;
+      try {
+        await entered;
+        if (shutdown === "update") restore = await service.prepareUpdate();
+        else await service.close();
+        release();
+        expect(String(await edit)).toContain("closing");
+        expect(writes).toBe(0);
+        expect(await read(project.id, thread.id)).toEqual(before);
+        paused = false;
+        if (restore) {
+          restore();
+          // Rejection must also release the per-thread guard so retry remains usable.
+          expect((await service.setThreadDone(project.id, thread.id, true)).doneAt).toBeDefined();
+        }
+      } finally {
+        release();
+        await edit;
+        store.readThread = read;
+        store.writeThread = write;
+        restore?.();
+      }
+    });
+  }
+}
 
 test("design references reach the harness and follow-up messages resume the same session", async () => {
   const { service, store, project, runs } = await fixture();
