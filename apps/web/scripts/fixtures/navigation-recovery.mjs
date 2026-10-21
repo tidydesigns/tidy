@@ -68,7 +68,7 @@ export async function testNavigationRecovery({ context, base, database, artifact
   const unexpected = [];
   page.on("pageerror", (error) => unexpected.push(error.message));
   await page.goto(`${base}/files`);
-  await page.getByRole("button", { name: /Reject optional|Use essential storage/ }).click();
+  await page.getByRole("button", { name: /Reject browser options|Use essential storage/ }).click();
   await link(page, "MCP").click();
   await ready(page, "/mcp");
   await link(page, "Settings").click();

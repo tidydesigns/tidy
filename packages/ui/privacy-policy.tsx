@@ -126,7 +126,10 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           <strong>Optional browser features. Consent.</strong> In the app, including login and
           sign-up, optional collection starts only for the purposes you turn on in{" "}
           <strong>Privacy choices</strong>. Rejecting, closing the dialog or doing nothing leaves
-          unselected purposes off. You can accept all, reject all or change each purpose separately.
+          unselected purposes off. <strong>Accept browser options</strong> enables all three browser
+          purposes; <strong>Reject browser options</strong> disables them. You can also change each
+          purpose separately. These browser choices continue to apply after sign-in on the same
+          browser. They do not enable MCP account linking, which has its own account-wide choice.
         </p>
         <dl>
           <dt>Usage analytics</dt>

@@ -143,14 +143,28 @@ export function CookieConsent({
       </section>
     );
   }
-  const mcpChoice = initialMcpAnalytics && (
-    <DeferredSection value={initialMcpAnalytics} label="MCP privacy choice">
-      {(choice) => {
-        if (!choice) return null;
-        const control = <McpAnalyticsChoice initialEnabled={choice.enabled} />;
-        return collectionEnabled ? control : diagnosticsSection(control);
-      }}
+  const browserDiagnostics = collectionEnabled
+    ? purposes.filter(({ key }) => key === "diagnostics").map(renderPurpose)
+    : null;
+  const diagnosticsChoices = initialMcpAnalytics ? (
+    <DeferredSection
+      value={initialMcpAnalytics}
+      label="MCP privacy choice"
+      fallback={browserDiagnostics}
+    >
+      {(choice) =>
+        choice
+          ? diagnosticsSection(
+              <>
+                {browserDiagnostics}
+                <McpAnalyticsChoice initialEnabled={choice.enabled} />
+              </>,
+            )
+          : browserDiagnostics
+      }
     </DeferredSection>
+  ) : (
+    browserDiagnostics
   );
   return (
     <aside data-ph-public-label className="ph-no-capture" aria-label="Privacy choices">
@@ -191,12 +205,12 @@ export function CookieConsent({
           className="mt-3 text-sm leading-6 text-secondary-ink"
         >
           {collectionEnabled
-            ? "Optional PostHog analytics, masked replay and browser diagnostics stay off until you choose."
+            ? "Choose optional PostHog analytics, masked replay and browser diagnostics for this browser. Your choices also apply after you sign in."
             : "This browser uses only essential storage for sign-in and preferences. Optional PostHog browser collection is off."}
         </p>
         {collectionEnabled && (
           <p data-ph-public className="mt-3 text-sm leading-6 text-secondary-ink">
-            When signed in, optional browser activity is linked to your account ID and email.
+            When signed in, the browser activity you allow is linked to your account ID and email.
           </p>
         )}
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
@@ -212,14 +226,7 @@ export function CookieConsent({
           <div className="mt-5 space-y-5">
             {collectionEnabled &&
               purposes.filter(({ key }) => key !== "diagnostics").map(renderPurpose)}
-            {collectionEnabled
-              ? diagnosticsSection(
-                  <>
-                    {purposes.filter(({ key }) => key === "diagnostics").map(renderPurpose)}
-                    {mcpChoice}
-                  </>,
-                )
-              : mcpChoice}
+            {diagnosticsChoices}
           </div>
         )}
         {message && (
@@ -241,11 +248,7 @@ export function CookieConsent({
             onClick={() => choose(ESSENTIAL_ONLY, true)}
           >
             <span data-ph-public style={{ display: "contents" }}>
-              {collectionEnabled
-                ? accountChoices
-                  ? "Reject browser options"
-                  : "Reject optional"
-                : "Use essential storage"}
+              {collectionEnabled ? "Reject browser options" : "Use essential storage"}
             </span>
           </Button>
           {collectionEnabled && (
@@ -255,7 +258,7 @@ export function CookieConsent({
               onClick={() => choose({ analytics: true, replay: true, diagnostics: true }, true)}
             >
               <span data-ph-public style={{ display: "contents" }}>
-                {accountChoices ? "Accept browser options" : "Accept all optional"}
+                Accept browser options
               </span>
             </Button>
           )}
