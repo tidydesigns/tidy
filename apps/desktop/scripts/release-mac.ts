@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import manifest from "../package.json";
 import { packageDesktop } from "./package";
+import { retryStapler } from "./stapler";
 
 const execute = promisify(execFile);
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -32,6 +33,11 @@ async function run(command: string, args: string[]) {
       : args;
   const result = await execute(command, keychainArgs, { maxBuffer: 10 * 1024 * 1024 });
   return result.stdout;
+}
+
+/** Attach or verify a ticket, retrying bounded transient Apple connection failures. */
+async function stapler(action: "staple" | "validate", path: string) {
+  return retryStapler(() => run("xcrun", ["stapler", action, path]));
 }
 
 /** Identify non-Mach-O resources sealed by their bundle instead of individually signed. */
@@ -139,10 +145,10 @@ try {
     const archive = join(temporary, "Tidy.zip");
     await run("ditto", ["-c", "-k", "--keepParent", app, archive]);
     await notarize(archive);
-    await run("xcrun", ["stapler", "staple", app]);
+    await stapler("staple", app);
   }
   await run("codesign", ["--verify", "--deep", "--strict", "--verbose=2", app]);
-  await run("xcrun", ["stapler", "validate", app]);
+  await stapler("validate", app);
   await run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
 
   const contents = join(temporary, "contents");
@@ -169,8 +175,8 @@ try {
     artifact,
   ]);
   await notarize(artifact);
-  await run("xcrun", ["stapler", "staple", artifact]);
-  await run("xcrun", ["stapler", "validate", artifact]);
+  await stapler("staple", artifact);
+  await stapler("validate", artifact);
   await run("codesign", ["--verify", "--strict", artifact]);
   await run("spctl", [
     "--assess",

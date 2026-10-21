@@ -281,6 +281,11 @@ before waiting (up to 15 minutes for each submission). If Apple takes longer,
 inspect the submission with `xcrun notarytool info <id> --keychain-profile <profile>`;
 an incomplete or rejected run is not a verified release candidate.
 
+Stapling and ticket validation retry known transient Apple network failures up to
+three total attempts, waiting 5 and 10 seconds between attempts. Invalid tickets,
+signature failures and other permanent errors stop immediately; exhausted retries
+also fail the release. Successful verification is still required before publishing.
+
 If app notarization has completed and the app is already stapled, append `--resume`
 to retry only the DMG stage without rebuilding or re-uploading the app. This
 requires the existing app's version/build metadata, signature, notarization ticket
