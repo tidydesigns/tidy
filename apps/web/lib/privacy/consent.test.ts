@@ -22,6 +22,7 @@ test("only explicit, current, unexpired, unambiguous choices grant consent", () 
     {},
     { ...valid, version: 1 },
     { ...valid, version: 2 },
+    { ...valid, version: CONSENT_VERSION - 1 },
     { ...valid, at: now + 1 },
     { ...valid, at: now - CONSENT_MAX_AGE * 1000 },
     { ...valid, analytics: "true" },

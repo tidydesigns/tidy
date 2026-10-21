@@ -17,7 +17,7 @@ async function record(request: Request) {
     const bodyText = await request.text();
     const revoking = bodyText.length > 0;
     // A refusal must still reach the operator when a browser rejects JS cookie writes.
-    // This body can only revoke every optional purpose; it cannot grant tracking.
+    // This body can only revoke every optional browser purpose; it cannot grant tracking.
     if (revoking) {
       let body: unknown;
       try {

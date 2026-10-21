@@ -151,6 +151,22 @@ function createAuth() {
               });
             }
           },
+          after: async (session, context) => {
+            // A recorded privacy choice is independent of analytics SDK startup,
+            // so MCP-only consent also follows password, verification and OAuth sign-in.
+            const cookie = context?.headers?.get("cookie") ?? null;
+            if (!cookie?.includes("tidy_mcp_privacy_intent=")) return;
+            try {
+              const { claimMcpConsentIntent, mcpIntentToken } =
+                await import("./privacy/mcp-consent");
+              const token = mcpIntentToken(cookie);
+              if (token) await claimMcpConsentIntent(session.userId, session.id, token);
+            } catch {
+              // Optional diagnostics cannot prevent sign-in. The privacy dialog
+              // retries the recorded intent; until then monitoring stays unlinked.
+              console.warn(JSON.stringify({ event: "mcp_privacy_choice_pending" }));
+            }
+          },
         },
       },
     },

@@ -90,8 +90,18 @@ is anonymous. The privacy notice provides an online contact for Article 21
 objections; the operator must assess and act on valid objections. Do not treat the
 absence of an optional toggle for baseline monitoring as removal of that right.
 
-Account linking is a separate consent purpose, off by default. Browser consent and
-OAuth grants do not authorise it. This assessment applies only to the described
+Account linking is an individually controllable consent purpose, off until chosen.
+The combined Privacy choices dialog offers Accept all optional and Reject all
+optional for the three browser purposes and MCP linking. Its first layer discloses
+the account scope and 90-day duration. Accepting under older browser-only notices,
+changing only browser purposes, or authorising OAuth access does not grant it.
+A pre-authentication choice is stored against a hashed HttpOnly intent token and
+can bind once to the next authenticated account. It retains its original expiry,
+never overrides a newer account decision, and cannot apply to another account
+later. The same mechanism records an explicit pre-authentication refusal. Expired
+unclaimed decisions produce no telemetry-erasure jobs because no linked events
+were sent. Browser consent notice version 6 and MCP notice version 4 require fresh acknowledgement.
+This assessment applies only to the described
 fields and purpose; adding identifiers, content or broader product analytics needs
 reassessment before collection. Owner: the Tidy operator identified in the privacy
 notice. Confirm these safeguards and provider arrangements before activation and
@@ -102,10 +112,11 @@ ePrivacy Regulation 5(3)/(5), including whether any applicable access is strictl
 necessary for the requested service. A normal protocol field, absence of cookies,
 or a GDPR legitimate-interests basis does not itself establish an exemption.
 Publish the matching privacy notice with the release. Account-linking notice
-version 3 requires a fresh opt-in before these additional fields are linked to an
-account; previous choices fall back to unlinked monitoring and the existing
-privacy cleanup process queues outdated consent IDs for erasure. Browser choices
-are unchanged. No database migration is needed for harness diagnostics.
+version 4 records the combined consent flow and requires a fresh opt-in before
+these fields are linked to an account; previous choices fall back to unlinked monitoring and the existing
+privacy cleanup process queues outdated consent IDs for erasure. Browser telemetry
+fields stay the same, but the combined consent notice requires a fresh choice.
+Apply the combined privacy migration described below before the matching app release.
 
 References: [DPC lawful bases](https://www.dataprotection.ie/sites/default/files/uploads/2020-04/Guidance%20on%20Legal%20Bases.pdf),
 [DPC cookies](https://www.dataprotection.ie/en/dpc-guidance/guidance-cookies-and-other-tracking-technologies),
@@ -115,7 +126,8 @@ Additional references: [Irish ePrivacy Regulation 5](https://www.irishstatuteboo
 
 ## Enable after review
 
-1. Apply `20261016-mcp-analytics-consent.sql` and runtime grants to the explicitly
+1. Apply `20261016-mcp-analytics-consent.sql`, its runtime grants, and
+   `20261021-combined-privacy-consent.sql` to the explicitly
    approved database **before deploying the app**. Production changes need separate
    approval. Both local setup scripts and account fixtures include the migration.
 2. Verify the ingestion key/host target project 289840 on EU Cloud. Local credentials
@@ -129,7 +141,8 @@ Additional references: [Irish ePrivacy Regulation 5](https://www.irishstatuteboo
    in the Worker runtime. The global rollout switch defaults off and runtime `0`
    overrides its environment fallback. Browser/error switches remain independent.
 5. Check a test account with linking Off produces one unlinked event per tool call.
-   Opt in at Settings → Preferences → Privacy → Link MCP monitoring to my account;
+   Opt in at Settings → Preferences → Privacy → Privacy choices using Accept all
+   optional or Account-linked MCP diagnostics;
    subsequent calls should carry the consent ID. Turn it off and verify service
    monitoring continues without that identifier. Users without an organisation have
    the same control on their account privacy page.

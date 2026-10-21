@@ -215,9 +215,7 @@ try {
         documents.push(request.url());
     });
     await page.goto(`${base}/files`);
-    await page
-      .getByRole("button", { name: /Reject browser options|Use essential storage/ })
-      .click();
+    await page.getByRole("button", { name: /Reject all optional|Use essential storage/ }).click();
     await page.getByRole("heading", { name: "Files", exact: true }).waitFor();
     await testResponsiveNavigation(page, base);
     await page.evaluate(() => {

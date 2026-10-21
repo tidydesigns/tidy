@@ -7,11 +7,9 @@ import { EditorToolbarPreferenceControl } from "@/components/ui/editor-toolbar-p
 import type { EditorToolbarPlacement } from "@/lib/editor-preferences";
 
 export function PreferenceControls({
-  initialMcpAnalytics,
   initialEditorPanelsOpen,
   initialEditorToolbarPlacement,
 }: {
-  initialMcpAnalytics?: { enabled: boolean } | null | Promise<{ enabled: boolean } | null>;
   initialEditorPanelsOpen?: boolean;
   initialEditorToolbarPlacement?: EditorToolbarPlacement;
 }) {
@@ -48,7 +46,7 @@ export function PreferenceControls({
         >
           Privacy
         </h2>
-        <PrivacyChoicesButton initialMcpAnalytics={initialMcpAnalytics ?? null} />
+        <PrivacyChoicesButton />
       </section>
     </div>
   );

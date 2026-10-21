@@ -1,4 +1,3 @@
-import { mcpConsentPreference } from "@/lib/privacy/mcp-consent";
 import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import {
@@ -76,7 +75,6 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
   const sessions = listAccountSessions(session.user.id);
   const billing = showBilling ? billingStatus(session.user.id, organization.id, true) : undefined;
   const invitations = canInvite ? listPendingInvitations(session.user.id, organization.id) : [];
-  const mcpAnalytics = mcpConsentPreference(session.user.id).catch(() => null);
   const callbackStatus = params.github;
   return (
     <SettingsTabs
@@ -89,7 +87,6 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       flags={flags}
       showBilling={showBilling}
       showAgents={showAgents}
-      initialMcpAnalytics={mcpAnalytics}
       initialEditorPanelsOpen={cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open"}
       initialEditorToolbarPlacement={editorToolbarPlacement(
         cookieStore.get(EDITOR_TOOLBAR_COOKIE)?.value,

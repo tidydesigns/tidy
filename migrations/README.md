@@ -143,3 +143,15 @@ checked within six hours. Keep the privacy cleanup secret configured independent
 Run `bun test:plans`, the GitHub disposable database suite, and
 `bun test:runtime:db` for validation. Production migration, secret configuration,
 and deployment remain separate approved operations.
+
+## Combined privacy choices
+
+`20261021-combined-privacy-consent.sql` follows `20261016-mcp-analytics-consent.sql`.
+Apply it before deploying the combined privacy dialog. It allows an unbound MCP
+consent decision protected by a hashed, HttpOnly intent token. Successful sign-in
+can bind it once to one account, retaining its original 90-day expiry. A newer
+account decision wins, and ordinary browser consent or OAuth access never implies
+MCP consent. Both local setup scripts include the migration. No new table or
+runtime privilege is introduced. Production migration and deployment require
+separate approval. Browser notice version 6 and MCP notice version 4 require fresh choices and do not
+upgrade previous browser-only acceptances.

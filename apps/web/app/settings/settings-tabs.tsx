@@ -87,7 +87,6 @@ export function SettingsTabs({
   currentSessionId,
   emailConfigured,
   verificationError,
-  initialMcpAnalytics,
   initialEditorPanelsOpen,
   initialEditorToolbarPlacement,
 }: {
@@ -99,7 +98,6 @@ export function SettingsTabs({
   currentSessionId: string;
   emailConfigured: boolean;
   verificationError: boolean;
-  initialMcpAnalytics?: { enabled: boolean } | null | Promise<{ enabled: boolean } | null>;
   initialEditorPanelsOpen?: boolean;
   initialEditorToolbarPlacement?: EditorToolbarPlacement;
   initialTab: Tab;
@@ -287,7 +285,6 @@ export function SettingsTabs({
 
           <SettingsPanel item="preferences" selected={tab}>
             <PreferenceControls
-              initialMcpAnalytics={initialMcpAnalytics}
               initialEditorPanelsOpen={initialEditorPanelsOpen}
               initialEditorToolbarPlacement={initialEditorToolbarPlacement}
             />

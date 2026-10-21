@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import { usePathname } from "next/navigation";
+import { loadMcpChoice, recordMcpChoice } from "@/lib/privacy/mcp-choice-client";
 import { privacyPolicyUrl } from "@/lib/privacy-notice";
 import { recordBrowserConsent, recordBrowserWithdrawal } from "@/lib/privacy/receipt-client";
 import { browserCollectionEnabled } from "@/lib/posthog-client";
 import { Dialog } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { SelectMenu } from "@/components/ui/select-menu";
-import { DeferredSection } from "@/components/ui/deferred-section";
 import { McpAnalyticsChoice } from "./mcp-analytics-choice";
 import {
   browserConsent,
@@ -20,11 +21,6 @@ import {
 } from "@/lib/privacy/consent";
 
 export const OPEN_PRIVACY_CHOICES = "tidy-open-privacy-choices";
-export type McpPrivacyPreference =
-  | { enabled: boolean }
-  | null
-  | Promise<{ enabled: boolean } | null>;
-
 const purposes: { key: ConsentPurpose; title: string; description: string }[] = [
   {
     key: "analytics",
@@ -47,27 +43,55 @@ const purposes: { key: ConsentPurpose; title: string; description: string }[] = 
 const actionClass =
   "flex min-h-11 flex-1 items-center justify-center rounded-lg border border-border bg-surface px-4 py-3 text-sm font-medium text-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink";
 
-export function CookieConsent({
-  id = "privacy-choices-dialog",
-  initialMcpAnalytics,
-}: {
-  id?: string;
-  initialMcpAnalytics?: McpPrivacyPreference;
-}) {
-  const accountChoices = initialMcpAnalytics !== undefined;
+export function CookieConsent() {
+  const id = "privacy-choices-dialog";
+  const pathname = usePathname();
   const collectionEnabled = browserCollectionEnabled();
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const choiceGeneration = useRef(0);
   const [choices, setChoices] = useState<ConsentChoices>(ESSENTIAL_ONLY);
-  const [customize, setCustomize] = useState(accountChoices);
+  const [customize, setCustomize] = useState(false);
   const [message, setMessage] = useState("");
   const [needsRetry, setNeedsRetry] = useState(false);
+  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const [mcpLoading, setMcpLoading] = useState(true);
+  const [mcpError, setMcpError] = useState(false);
+  const [pending, setPending] = useState(false);
+  const mcpGeneration = useRef(0);
+  const pendingRef = useRef(false);
+  const retryMcp = useRef<boolean | undefined>(undefined);
+  const refreshMcp = useCallback(() => {
+    if (pendingRef.current) return;
+    const generation = ++mcpGeneration.current;
+    return loadMcpChoice()
+      .then(
+        (result) => {
+          if (generation === mcpGeneration.current) {
+            setMcpEnabled(result.enabled);
+            setMcpError(false);
+          }
+        },
+        () => {
+          if (generation === mcpGeneration.current) setMcpError(true);
+        },
+      )
+      .finally(() => {
+        if (generation === mcpGeneration.current) setMcpLoading(false);
+      });
+  }, []);
+  useEffect(() => {
+    void refreshMcp();
+    window.addEventListener("focus", refreshMcp);
+    return () => {
+      window.removeEventListener("focus", refreshMcp);
+    };
+  }, [pathname, refreshMcp]);
   useEffect(() => {
     const refresh = () => setChoices(browserConsent() ?? ESSENTIAL_ONLY);
     refresh();
-    if (!accountChoices && location.pathname !== "/privacy" && !browserConsent()) {
+    if (location.pathname !== "/privacy" && !browserConsent()) {
       dialog.current?.showModal();
       heading.current?.focus({ preventScroll: true });
     }
@@ -90,27 +114,59 @@ export function CookieConsent({
       window.removeEventListener(OPEN_PRIVACY_CHOICES, open);
       unsubscribe();
     };
-  }, [accountChoices, id]);
-  async function choose(next: ConsentChoices, close = false) {
+  }, []);
+  async function choose(next: ConsentChoices, close = false, mcp?: boolean) {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     const generation = ++choiceGeneration.current;
+    if (mcp !== undefined) ++mcpGeneration.current;
+    retryMcp.current = mcp;
     setNeedsRetry(false);
-    const remembered = chooseConsent(next);
+    setPending(true);
+    const current = browserConsent();
+    const unchanged =
+      current &&
+      (["analytics", "replay", "diagnostics"] as const).every(
+        (purpose) => current[purpose] === next[purpose],
+      );
+    const remembered = unchanged || chooseConsent(next);
     setChoices(remembered ? next : ESSENTIAL_ONLY);
     setMessage(
       remembered
         ? ""
-        : "Your browser could not remember the choice. Optional collection stays off in this tab.",
+        : "Your browser could not remember the choice. Optional browser collection stays off in this tab.",
     );
-    if (close) dialog.current?.close();
     try {
-      if (remembered) await recordBrowserConsent();
-      else await recordBrowserWithdrawal();
+      // Independent purposes must both be attempted: a browser receipt failure
+      // must never prevent an explicit MCP withdrawal (or vice versa).
+      const [browserResult, mcpResult] = await Promise.allSettled([
+        remembered ? recordBrowserConsent() : recordBrowserWithdrawal(),
+        mcp === undefined ? Promise.resolve(undefined) : recordMcpChoice(mcp),
+      ]);
+      if (
+        mcpResult.status === "fulfilled" &&
+        mcpResult.value &&
+        generation === choiceGeneration.current
+      ) {
+        setMcpEnabled(mcpResult.value.enabled);
+        setMcpLoading(false);
+        setMcpError(false);
+      }
+      if (browserResult.status === "rejected" || mcpResult.status === "rejected")
+        throw new Error("Privacy choice confirmation failed");
+      if (close && generation === choiceGeneration.current) dialog.current?.close();
     } catch {
       if (generation !== choiceGeneration.current) return;
       setNeedsRetry(true);
       setMessage(
-        "Your browser choice has changed. Server confirmation is pending; optional collection stays off. Please retry or contact seandowdall22@gmail.com for help with deletion.",
+        "Your privacy choices could not all be confirmed. Please retry. Browser and MCP choices are applied only when their server confirmation succeeds.",
       );
+    } finally {
+      if (generation === choiceGeneration.current) {
+        pendingRef.current = false;
+        setPending(false);
+        if (mcp !== undefined) setMcpLoading(false);
+      }
     }
   }
   function renderPurpose({ key, title, description }: (typeof purposes)[number]) {
@@ -120,6 +176,7 @@ export function CookieConsent({
           <span className="text-sm font-semibold">{title}</span>
           <SelectMenu
             replayOptions
+            disabled={pending}
             label={title}
             value={choices[key] ? "on" : "off"}
             options={[
@@ -133,39 +190,6 @@ export function CookieConsent({
       </div>
     );
   }
-  function diagnosticsSection(children: ReactNode) {
-    return (
-      <section aria-labelledby={`${id}-diagnostics`} className="space-y-5">
-        <h3 id={`${id}-diagnostics`} className="text-sm font-semibold">
-          Diagnostics and troubleshooting
-        </h3>
-        {children}
-      </section>
-    );
-  }
-  const browserDiagnostics = collectionEnabled
-    ? purposes.filter(({ key }) => key === "diagnostics").map(renderPurpose)
-    : null;
-  const diagnosticsChoices = initialMcpAnalytics ? (
-    <DeferredSection
-      value={initialMcpAnalytics}
-      label="MCP privacy choice"
-      fallback={browserDiagnostics}
-    >
-      {(choice) =>
-        choice
-          ? diagnosticsSection(
-              <>
-                {browserDiagnostics}
-                <McpAnalyticsChoice initialEnabled={choice.enabled} />
-              </>,
-            )
-          : browserDiagnostics
-      }
-    </DeferredSection>
-  ) : (
-    browserDiagnostics
-  );
   return (
     <aside data-ph-public-label className="ph-no-capture" aria-label="Privacy choices">
       <Dialog
@@ -186,7 +210,7 @@ export function CookieConsent({
             tabIndex={-1}
             className="text-xl font-semibold outline-none"
           >
-            {accountChoices ? "Privacy choices" : "Your browser privacy choices"}
+            Privacy choices
           </h2>
           <Button
             type="button"
@@ -205,14 +229,14 @@ export function CookieConsent({
           className="mt-3 text-sm leading-6 text-secondary-ink"
         >
           {collectionEnabled
-            ? "Choose optional PostHog analytics, masked replay and browser diagnostics for this browser. Your choices also apply after you sign in."
-            : "This browser uses only essential storage for sign-in and preferences. Optional PostHog browser collection is off."}
+            ? "Choose optional PostHog usage analytics, masked session replay, browser performance and errors, and account-linked MCP diagnostics. Optional collection starts only after you choose."
+            : "Optional browser collection is currently off. You can choose whether to link MCP diagnostics to your account for troubleshooting."}
         </p>
-        {collectionEnabled && (
-          <p data-ph-public className="mt-3 text-sm leading-6 text-secondary-ink">
-            When signed in, the browser activity you allow is linked to your account ID and email.
-          </p>
-        )}
+        <p data-ph-public className="mt-3 text-sm leading-6 text-secondary-ink">
+          Browser choices continue after sign-in on this browser; allowed browser activity is linked
+          to your account ID and email. MCP linking applies across your account for 90 days. Before
+          sign-in, your MCP choice applies to the next account you sign in to.
+        </p>
         <p className="mt-3 text-sm leading-6 text-secondary-ink">
           <a
             data-ph-public
@@ -222,11 +246,30 @@ export function CookieConsent({
             Privacy and cookie policy
           </a>
         </p>
-        {customize && (collectionEnabled || initialMcpAnalytics) && (
+        {customize && (
           <div className="mt-5 space-y-5">
             {collectionEnabled &&
               purposes.filter(({ key }) => key !== "diagnostics").map(renderPurpose)}
-            {diagnosticsChoices}
+            <section aria-labelledby={`${id}-diagnostics`} className="space-y-5">
+              <h3 id={`${id}-diagnostics`} className="text-sm font-semibold">
+                Diagnostics and troubleshooting
+              </h3>
+              {collectionEnabled &&
+                purposes.filter(({ key }) => key === "diagnostics").map(renderPurpose)}
+              <McpAnalyticsChoice
+                enabled={mcpEnabled}
+                pending={pending || mcpLoading}
+                onChange={(enabled) => void choose(choices, false, enabled)}
+              />
+              {mcpError && (
+                <div className="text-sm text-danger" role="alert">
+                  Could not load your MCP privacy choice.
+                  <Button type="button" variant="text" onClick={refreshMcp}>
+                    Try again
+                  </Button>
+                </div>
+              )}
+            </section>
           </div>
         )}
         {message && (
@@ -235,7 +278,12 @@ export function CookieConsent({
           </p>
         )}
         {needsRetry && (
-          <Button type="button" variant="text" onClick={() => choose(choices)}>
+          <Button
+            type="button"
+            variant="text"
+            disabled={pending}
+            onClick={() => choose(choices, false, retryMcp.current)}
+          >
             <span data-ph-public style={{ display: "contents" }}>
               Retry recording choice
             </span>
@@ -245,25 +293,35 @@ export function CookieConsent({
           <Button
             type="button"
             className={actionClass}
-            onClick={() => choose(ESSENTIAL_ONLY, true)}
+            disabled={pending}
+            onClick={() => choose(ESSENTIAL_ONLY, true, false)}
           >
             <span data-ph-public style={{ display: "contents" }}>
-              {collectionEnabled ? "Reject browser options" : "Use essential storage"}
+              Reject all optional
             </span>
           </Button>
-          {collectionEnabled && (
-            <Button
-              type="button"
-              className={actionClass}
-              onClick={() => choose({ analytics: true, replay: true, diagnostics: true }, true)}
-            >
-              <span data-ph-public style={{ display: "contents" }}>
-                Accept browser options
-              </span>
-            </Button>
-          )}
+          <Button
+            type="button"
+            className={actionClass}
+            disabled={pending}
+            onClick={() =>
+              choose(
+                {
+                  analytics: collectionEnabled,
+                  replay: collectionEnabled,
+                  diagnostics: collectionEnabled,
+                },
+                true,
+                true,
+              )
+            }
+          >
+            <span data-ph-public style={{ display: "contents" }}>
+              Accept all optional
+            </span>
+          </Button>
         </div>
-        {collectionEnabled && !customize && (
+        {!customize && (
           <Button
             type="button"
             className="mt-3 flex min-h-11 w-full items-center justify-center rounded-lg px-4 py-3 text-sm font-medium text-secondary-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"

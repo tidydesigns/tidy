@@ -1029,7 +1029,7 @@ integration(
     const exported = await exportAccount("alice", "alice-session");
     expect(exported.mcpAnalyticsChoices).toHaveLength(1);
     expect(exported.mcpAnalyticsChoices[0].enabled).toBe(true);
-    expect(exported.mcpAnalyticsChoices[0].noticeVersion).toContain("mcp-account-linking");
+    expect(exported.mcpAnalyticsChoices[0].noticeVersion).toBe(MCP_NOTICE_VERSION);
   },
 );
 
@@ -1119,7 +1119,7 @@ integration(
 );
 
 integration(
-  "MCP preference API rejects anonymous, cross-origin, forged-account and stale-session changes",
+  "MCP preference API records anonymous intent and rejects cross-origin, forged-account and stale-session changes",
   async () => {
     const { auth } = await import("../auth");
     const { POST } = await import("../../app/api/privacy/mcp-analytics/route");
@@ -1136,7 +1136,12 @@ integration(
         }),
       );
     try {
-      expect((await request({ enabled: true })).status).toBe(401);
+      const anonymous = await request({ enabled: true });
+      expect(anonymous.status).toBe(200);
+      expect(anonymous.headers.get("set-cookie")).toContain("HttpOnly");
+      expect(anonymous.headers.get("set-cookie")).toContain("SameSite=Strict");
+      expect(await activeMcpConsent("alice")).toBeUndefined();
+      expect(await activeMcpConsent("bob")).toBeUndefined();
       session.mockResolvedValue({ user: { id: "alice" }, session: { id: "alice-session" } });
       expect((await request({ enabled: true }, { origin: "https://attacker.test" })).status).toBe(
         403,
@@ -1239,5 +1244,126 @@ integration(
       (await admin.query('select id from "privacyCleanupReceipt" where id=$1', [due.id])).rowCount,
     ).toBe(1);
     expect((await admin.query('select id from "privacyCleanup"')).rowCount).toBe(1);
+  },
+);
+
+const { recordMcpConsentIntent, pendingMcpConsent, claimMcpConsentIntent, mcpIntentToken } =
+  await import("./mcp-consent");
+
+integration(
+  "a pre-auth MCP choice binds once, retains its expiry and cannot follow another account",
+  async () => {
+    const { token } = await recordMcpConsentIntent(true);
+    expect(await pendingMcpConsent(token)).toEqual({ enabled: true });
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    const before = (
+      await admin.query('select id,"expiresAt","intentTokenHash" from "mcpAnalyticsConsent"')
+    ).rows[0];
+    expect(before.intentTokenHash).not.toBe(token);
+    await expect(claimMcpConsentIntent("alice", "bob-session", token)).rejects.toThrow("Sign in");
+    await claimMcpConsentIntent("alice", "alice-session", "f".repeat(64));
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    await claimMcpConsentIntent("alice", "alice-session", token);
+    expect(await activeMcpConsent("alice")).toBe(before.id);
+    expect(await pendingMcpConsent(token)).toBeUndefined();
+    await claimMcpConsentIntent("bob", "bob-session", token);
+    expect(await activeMcpConsent("bob")).toBeUndefined();
+    const after = (
+      await admin.query('select "expiresAt" from "mcpAnalyticsConsent" where id=$1', [before.id])
+    ).rows[0];
+    expect(after.expiresAt).toEqual(before.expiresAt);
+    await setMcpConsent("alice", "alice-session", false);
+    await claimMcpConsentIntent("alice", "alice-session", token);
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    const data = await exportAccount("alice", "alice-session");
+    expect(JSON.stringify(data.mcpAnalyticsChoices)).not.toContain(token);
+    expect(JSON.stringify(data.mcpAnalyticsChoices)).not.toContain("intentTokenHash");
+  },
+);
+
+integration(
+  "pending MCP decisions preserve newer account choices and explicit refusals supersede pending grants",
+  async () => {
+    const old = await recordMcpConsentIntent(true);
+    await setMcpConsent("alice", "alice-session", false);
+    await claimMcpConsentIntent("alice", "alice-session", old.token);
+    expect(await activeMcpConsent("alice")).toBeUndefined();
+    const grant = await recordMcpConsentIntent(true);
+    const refusal = await recordMcpConsentIntent(false, grant.token);
+    expect(await pendingMcpConsent(grant.token)).toBeUndefined();
+    await setMcpConsent("bob", "bob-session", true);
+    // Make the account choice older than the explicit pre-auth refusal.
+    await admin.query(
+      `update "mcpAnalyticsConsent" set "createdAt"=now()-interval '1 day',"lastChosenAt"=now()-interval '1 day' where "userId"='bob'`,
+    );
+    await claimMcpConsentIntent("bob", "bob-session", refusal.token);
+    expect(await activeMcpConsent("bob")).toBeUndefined();
+    expect(
+      (await admin.query('select subject from "privacyCleanup"')).rows.some(
+        (r) => JSON.parse(r.subject).reason === "mcp-consent-ended",
+      ),
+    ).toBe(true);
+  },
+);
+
+integration("concurrent accounts cannot both claim a pending MCP decision", async () => {
+  const intent = await recordMcpConsentIntent(true);
+  await Promise.all([
+    claimMcpConsentIntent("alice", "alice-session", intent.token),
+    claimMcpConsentIntent("bob", "bob-session", intent.token),
+  ]);
+  expect(
+    [await activeMcpConsent("alice"), await activeMcpConsent("bob")].filter(Boolean),
+  ).toHaveLength(1);
+});
+
+integration(
+  "expired or outdated anonymous choices never grant linking or create provider erasure work",
+  async () => {
+    for (const condition of [`"expiresAt"=now()-interval '1 second'`, `"noticeVersion"='old'`]) {
+      const intent = await recordMcpConsentIntent(true);
+      await admin.query(
+        `update "mcpAnalyticsConsent" set ${condition} where "userId" is null and "retiredAt" is null`,
+      );
+      expect(await pendingMcpConsent(intent.token)).toBeUndefined();
+      await claimMcpConsentIntent("alice", "alice-session", intent.token);
+      expect(await activeMcpConsent("alice")).toBeUndefined();
+      await maintainMcpConsentRecords();
+    }
+    expect((await admin.query('select id from "privacyCleanup"')).rowCount).toBe(0);
+  },
+);
+
+test("MCP intent cookies reject duplicates and malformed tokens", () => {
+  const token = "a".repeat(64);
+  expect(mcpIntentToken(`tidy_mcp_privacy_intent=${token}`)).toBe(token);
+  expect(
+    mcpIntentToken(`tidy_mcp_privacy_intent=${token}; tidy_mcp_privacy_intent=${token}`),
+  ).toBeUndefined();
+  expect(mcpIntentToken("tidy_mcp_privacy_intent=forged")).toBeUndefined();
+  expect(mcpIntentToken(null)).toBeUndefined();
+});
+
+integration(
+  "reaffirming an account choice defeats an older pending opposite choice without extending expiry",
+  async () => {
+    for (const enabled of [false, true]) {
+      await setMcpConsent("alice", "alice-session", enabled);
+      const before = (
+        await admin.query(
+          `select id,"expiresAt" from "mcpAnalyticsConsent" where "userId"='alice' and "retiredAt" is null`,
+        )
+      ).rows[0];
+      const pending = await recordMcpConsentIntent(!enabled);
+      await setMcpConsent("alice", "alice-session", enabled);
+      await claimMcpConsentIntent("alice", "alice-session", pending.token);
+      expect(Boolean(await activeMcpConsent("alice"))).toBe(enabled);
+      const after = (
+        await admin.query(
+          `select id,"expiresAt" from "mcpAnalyticsConsent" where "userId"='alice' and "retiredAt" is null`,
+        )
+      ).rows[0];
+      expect(after).toEqual(before);
+    }
   },
 );
