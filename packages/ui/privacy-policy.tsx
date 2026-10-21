@@ -251,7 +251,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           as a pending decision and applies once to the next account you sign in to. It cannot
           enable linking for a different account later, override a newer account decision, or extend
           an existing consent period. Pending choices and account linking expire 90 days after the
-          original choice. Browser-only controls and MCP access do not enable linking. Turning off
+          original choice. Browser-only controls and MCP access do not enable linking. Declining or
+          withdrawing account linking does not affect MCP access. Turning off
           its individual control or choosing <strong>Reject all optional</strong> after sign-in
           withdraws account linking; rejecting before sign-in records that refusal for the next
           account you sign in to. Withdrawal or expiry stops new account linking and queues the
