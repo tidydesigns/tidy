@@ -1,6 +1,7 @@
 - Always implement changes in a new conventionally named branch and worktree based on the latest `main`, and symlink `apps/web/.env.local` from the primary checkout into the worktree.
 - Keep Git history linear; never create merge commits.
 - Run a security audit before opening any pull request, including dependency and secret checks and a review of the changed security boundaries.
+- Run a performance review before opening or updating any pull request, checking interaction responsiveness, loading behavior, and unnecessary rendering, network, or database work affected by the change.
 - Keep PRs focused on the requested implementation; keep ad hoc benchmark harnesses, reports, and other investigation artifacts local unless the user explicitly asks to commit them.
 - Keep separate commits on pull request branches. Add follow-up changes as new commits instead of amending or squashing published commits. Squash only when merging the pull request into its target branch.
 - Rebase branches onto the latest target branch when needed. If a rebase rewrites a published branch, use `--force-with-lease`; do not force-push merely to keep a pull request at one commit.
