@@ -5,7 +5,27 @@ import { spawnSync } from "node:child_process";
 // subprocess. It exits here, before any Worker or test requests are started.
 export async function buildWorkerFixture(options) {
   if (process.env.TIDY_WORKER_BUILD_ONLY === "1") {
-    const build = await Bun.build(options);
+    const build = await Bun.build({
+      ...options,
+      plugins: [
+        ...(options.plugins ?? []),
+        {
+          // Next removes this compile-time marker in server bundles. These
+          // standalone server fixtures must give it the same empty runtime.
+          name: "server-only-marker",
+          setup(builder) {
+            builder.onResolve({ filter: /^server-only$/ }, () => ({
+              path: "server-only",
+              namespace: "server-only-marker",
+            }));
+            builder.onLoad({ filter: /.*/, namespace: "server-only-marker" }, () => ({
+              contents: "",
+              loader: "js",
+            }));
+          },
+        },
+      ],
+    });
     if (!build.success) throw new AggregateError(build.logs, "Worker fixture build failed");
     const script = await build.outputs[0].text();
     await new Promise((resolve) => process.stdout.write(script, resolve));
