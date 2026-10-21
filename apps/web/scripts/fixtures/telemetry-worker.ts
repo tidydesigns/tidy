@@ -3,7 +3,7 @@ import { evaluateFunctionalFlags } from "../../lib/functional-feature-flags";
 
 const worker = {
   async fetch(request: Request) {
-    // This fixture isolates outbound transport; public-budget.worker.test.ts
+    // This fixture isolates outbound transport; test-public-budget-worker.mjs
     // exercises real Durable Object admission and persistence separately.
     Object.assign(globalThis, {
       [Symbol.for("__cloudflare-context__")]: {
