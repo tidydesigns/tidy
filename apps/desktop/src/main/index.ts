@@ -82,8 +82,7 @@ app
     service = new WorkspaceService(store);
     registerWorkspaceIPC(service, entryURL);
     updates = new AppUpdates({
-      supported:
-        app.isPackaged && process.platform === "darwin" && ["arm64", "x64"].includes(process.arch),
+      supported: app.isPackaged && process.platform === "darwin" && process.arch === "arm64",
       version,
       arch: process.arch,
       native: autoUpdater,

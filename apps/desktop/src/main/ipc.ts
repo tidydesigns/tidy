@@ -6,6 +6,7 @@ import { readLocalFile } from "./local-files";
 import { createWorkspaceRequests } from "./workspace-requests";
 import type { AppUpdates } from "./app-updates";
 
+/** Accept requests only from an app-owned window's main frame at the expected renderer URL. */
 function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
   return Boolean(
     BrowserWindow.fromWebContents(event.sender) &&
@@ -36,6 +37,7 @@ export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
   });
 }
 
+/** Register validated workspace operations and forward events only to trusted app renderers. */
 export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: string) {
   const requests = createWorkspaceRequests<IpcMainInvokeEvent>(service, {
     async chooseProject(event) {

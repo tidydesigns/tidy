@@ -295,7 +295,7 @@ and Gatekeeper assessment to pass. Keep the source and build number unchanged.
 The command does not publish, install, or deploy anything. Test the DMG on another
 Mac before public distribution. The [desktop beta release workflow](RELEASING.md)
 can automate signing and publishing after merges to `main` once its environment
-is configured and enabled. Installed macOS apps check at startup and every 30
+is configured and enabled. Installed Apple Silicon macOS apps check at startup and every 30
 minutes; once an update is staged, click the icon at the bottom of the sidebar to
 restart and install. Older builds need one manual DMG update to get the updater.
 See [in-app updates](RELEASING.md#in-app-updates) for channels and release verification.

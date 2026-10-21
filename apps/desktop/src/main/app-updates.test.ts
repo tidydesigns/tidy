@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { AppUpdates, compareAppVersions, selectAppUpdate } from "./app-updates";
 import type { AppUpdateState } from "../shared/app-updates";
 
+/** Build a synthetic release with the complete trusted asset pair for discovery tests. */
 function release(version = "0.1.0-beta.12", arch = "arm64") {
   const tag_name = `desktop-v${version}`;
   return {
@@ -61,6 +62,7 @@ test("drafts, unrelated tags, wrong architectures, incomplete assets and foreign
   }
 });
 
+/** Inject fake native/network dependencies so updater tests never download or restart an app. */
 function fixture(overrides: Partial<ConstructorParameters<typeof AppUpdates>[0]> = {}) {
   const native = Object.assign(new EventEmitter(), {
     feeds: [] as string[],

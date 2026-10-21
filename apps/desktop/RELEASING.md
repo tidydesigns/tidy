@@ -66,7 +66,7 @@ Intel/Windows/Linux installers remain separate work.
 
 ## In-app updates
 
-Installed macOS apps check the public `tidydesigns/tidy` GitHub releases API at
+Installed Apple Silicon macOS apps check the public `tidydesigns/tidy` GitHub releases API at
 startup and every 30 minutes. Discovery reads up to three pages of 100 releases,
 ignores drafts, unrelated tags, incomplete assets and other architectures, and
 selects the highest compatible version rather than the last publication. Beta
@@ -78,7 +78,8 @@ GitHub rate-limit responses quietly defer checks, including manual retries, unti
 the server's retry/reset deadline or an increasing backoff of at least 30 minutes.
 An app restart clears this in-memory cache and backoff. Unauthenticated requests
 still share GitHub's public-IP quota, so large shared networks can delay discovery.
-Development builds and the browser development gateway never check or install.
+Intel builds remain disabled until the release pipeline publishes matching feeds
+and ZIPs. Development builds and the browser development gateway never check or install.
 They display a preview of the sidebar update icon; its tooltip identifies the
 development preview, and clicking it does not install or restart anything.
 

@@ -79,7 +79,7 @@ Latest release. An unsigned package is not a public-release artifact.
 
 Automatic macOS updates use Electron's native Squirrel updater, which requires the
 replacement app to satisfy the running app's code-signing requirement. Discovery
-runs only in packaged macOS apps, at startup and every 30 minutes, using the public
+runs only in packaged Apple Silicon macOS apps, at startup and every 30 minutes, using the public
 GitHub releases API for the fixed `tidydesigns/tidy` repository. These requests send
 no project data, credentials, account IDs or local paths. Release discovery requests
 use an in-memory conditional-response cache; rate limits defer automatic and manual
