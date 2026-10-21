@@ -111,6 +111,34 @@ test("rapid choices persist in order and stale responses do not undo the next in
   await expect(page.getByRole("dialog", { name: "Privacy choices", exact: true })).toBeVisible();
 });
 
+test("returning to the tab preserves an unconfirmed MCP selection for retry", async ({ page }) => {
+  let reads = 0;
+  await page.route("**/api/privacy/mcp-analytics", (route) => {
+    if (route.request().method() === "POST") return route.fulfill({ status: 503, json: {} });
+    reads++;
+    return route.fulfill({ json: { enabled: false } });
+  });
+  await page.goto("/reset-password?token=privacy-fixture");
+  await page.getByRole("button", { name: "Choose individually", exact: true }).click();
+  const mcp = page.getByRole("button", { name: /^Account-linked MCP diagnostics:/ });
+  await expect(mcp).toBeEnabled();
+  await expect(mcp).toContainText("Off");
+  await mcp.click();
+  await page.getByRole("menuitemradio", { name: "On", exact: true }).click();
+  const notice = page
+    .getByRole("dialog", { name: "Privacy choices", exact: true })
+    .getByRole("status");
+  await expect(notice).toContainText("server confirmation is pending");
+  const initialReads = reads;
+  await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+  await expect(mcp).toBeEnabled();
+  await expect(mcp).toContainText("On");
+  await expect(
+    page.getByRole("button", { name: "Retry recording choice", exact: true }),
+  ).toBeVisible();
+  expect(reads).toBe(initialReads);
+});
+
 test("failed confirmation stays dismissed and offers a background retry", async ({ page }) => {
   let fail = true;
   await page.route("**/api/privacy/mcp-analytics", (route) =>

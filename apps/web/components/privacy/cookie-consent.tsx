@@ -67,7 +67,7 @@ export function CookieConsent() {
   const pendingRef = useRef(false);
   const retryMcp = useRef<boolean | undefined>(undefined);
   const refreshMcp = useCallback(() => {
-    if (pendingRef.current) return;
+    if (pendingRef.current || retryMcp.current !== undefined) return;
     const generation = ++mcpGeneration.current;
     return loadMcpChoice()
       .then(
