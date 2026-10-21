@@ -71,6 +71,7 @@ export function releaseArtifactNames(identity) {
   ];
 }
 
+/** Point Squirrel at the immutable ZIP asset belonging to this release identity. */
 function updateFeed(identity) {
   return {
     name: identity.version,

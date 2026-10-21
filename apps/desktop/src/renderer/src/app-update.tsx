@@ -4,6 +4,7 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI } from "../../shared/contracts";
 import type { AppUpdateState } from "../../shared/app-updates";
 
+/** Show update progress and restart/retry actions with hover and keyboard-focus details. */
 export function AppUpdate({ api }: { api: DesktopAPI | undefined }) {
   const [state, setState] = useState<AppUpdateState>({ status: "unsupported" });
   const [error, setError] = useState(false);

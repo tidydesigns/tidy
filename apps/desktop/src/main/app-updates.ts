@@ -19,6 +19,7 @@ const releasesSchema = z
 type Release = z.infer<typeof releasesSchema>[number];
 type Candidate = { version: string; feed: string };
 
+/** Parse supported release versions, rejecting noncanonical or unsafe numeric components. */
 function parts(version: string) {
   const match = versionPattern.exec(version);
   if (!match) return null;
@@ -43,6 +44,7 @@ export function compareAppVersions(left: string, right: string) {
   return a.beta - b.beta;
 }
 
+/** Select the highest newer release with a compatible channel, architecture and trusted assets. */
 export function selectAppUpdate(
   releases: Release[],
   current: string,
@@ -141,6 +143,7 @@ export class AppUpdates {
     return this.state.status === "installing";
   }
 
+  /** Observe subsequent sanitized states; the returned function removes this subscription. */
   subscribe(listener: (state: AppUpdateState) => void) {
     this.listeners.add(listener);
     return () => {
@@ -148,6 +151,7 @@ export class AppUpdates {
     };
   }
 
+  /** Attach native events and start immediate/periodic checks once for supported packages. */
   start() {
     if (this.state.status === "unsupported" || this.timer || this.stopped) return;
     this.options.native.on("error", this.failed);
@@ -158,6 +162,7 @@ export class AppUpdates {
     void this.check();
   }
 
+  /** Discover and stage an update without overlapping work or bypassing rate-limit backoff. */
   async check() {
     if (
       this.stopped ||
@@ -238,6 +243,7 @@ export class AppUpdates {
     }
   }
 
+  /** Prepare workspace shutdown and restart a staged update, preserving it if installation fails. */
   async install() {
     if (this.stopped || this.preparing || this.state.status !== "ready")
       throw new Error("No desktop update is ready.");
@@ -260,6 +266,7 @@ export class AppUpdates {
     }
   }
 
+  /** Permanently stop polling and notifications; pending discovery cannot start a download. */
   stop() {
     this.stopped = true;
     clearInterval(this.timer);

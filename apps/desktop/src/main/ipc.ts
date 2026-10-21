@@ -14,6 +14,7 @@ function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
   );
 }
 
+/** Expose argument-free update actions to trusted app frames and return broadcast cleanup. */
 export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
   for (const name of ["update-state", "check-updates", "install-update"]) {
     ipcMain.handle(`tidy:${name}`, async (event, ...args: unknown[]) => {
