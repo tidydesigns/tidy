@@ -46,7 +46,7 @@ export class WorkspaceService {
   private starting = new Map<string, string>();
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
-  private closing = false;
+  private closing: symbol | "quit" | undefined;
 
   constructor(
     readonly store: ProjectStore,
@@ -512,18 +512,20 @@ export class WorkspaceService {
     this.emit({ type: "thread", thread: job.thread });
   }
 
-  /** Quiesce harnesses and persist their work, retaining a recovery path if restart fails. */
+  /** Persist harness work; recovery releases only this update's shutdown reservation. */
   async prepareUpdate() {
     if (this.closing) throw new Error("Tidy is closing.");
-    this.closing = true;
+    const update = Symbol("update");
+    this.closing = update;
     try {
       await this.stopAndFlush();
     } catch (error) {
-      this.closing = false;
+      if (this.closing === update) this.closing = undefined;
       throw error;
     }
     return () => {
-      this.closing = false;
+      // An ordinary quit or a later preparation owns its own shutdown reservation.
+      if (this.closing === update) this.closing = undefined;
     };
   }
 
@@ -540,7 +542,7 @@ export class WorkspaceService {
   }
 
   async close() {
-    this.closing = true;
+    this.closing = "quit";
     for (const watcher of this.watchers.values()) watcher.close();
     await this.stopAndFlush();
   }

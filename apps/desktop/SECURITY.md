@@ -102,7 +102,9 @@ no update installation endpoint. Clicking install checkpoints/stops harness jobs
 and flushes storage before the native updater closes windows; background checks do
 not restart the app. Native restart errors restore the workspace admission state
 and preserve the staged update for a retry; they cannot leave the UI in an
-installing state. Native error details remain outside the renderer.
+installing state. Recovery releases only its own update reservation and cannot
+reopen harness admission or cancel an ordinary quit that began during preparation.
+Native error details remain outside the renderer.
 
 Run from the repository root:
 

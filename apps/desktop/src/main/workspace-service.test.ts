@@ -126,6 +126,96 @@ test("a failed update flush releases the workspace instead of leaving it permane
   expect(thread.status).toBe("running");
 });
 
+for (const fails of [false, true]) {
+  test(`ordinary quit keeps work blocked when pending update preparation ${fails ? "fails" : "recovers"}`, async () => {
+    const { service, store, project, runs } = await fixture();
+    const originalFlush = store.flush.bind(store);
+    let finishUpdate!: () => void;
+    let failUpdate!: (error: Error) => void;
+    let finishQuit!: () => void;
+    let enteredUpdate!: () => void;
+    let enteredQuit!: () => void;
+    const updateEntered = new Promise<void>((resolve) => {
+      enteredUpdate = resolve;
+    });
+    const quitEntered = new Promise<void>((resolve) => {
+      enteredQuit = resolve;
+    });
+    const updateFlush = new Promise<void>((resolve, reject) => {
+      finishUpdate = resolve;
+      failUpdate = reject;
+    });
+    const quitFlush = new Promise<void>((resolve) => {
+      finishQuit = resolve;
+    });
+    let flushes = 0;
+    store.flush = () => {
+      if (++flushes === 1) {
+        enteredUpdate();
+        return updateFlush;
+      }
+      enteredQuit();
+      return quitFlush;
+    };
+    const preparing = service.prepareUpdate().then(
+      (restore) => ({ restore }),
+      (error: unknown) => ({ error }),
+    );
+    await updateEntered;
+    const quitting = service.close();
+    try {
+      await quitEntered;
+      if (fails) failUpdate(new Error("update flush failed"));
+      else finishUpdate();
+      const prepared = await preparing;
+      if ("restore" in prepared) prepared.restore();
+      else expect(String(prepared.error)).toContain("update flush failed");
+      await expect(
+        service.startThread({
+          projectId: project.id,
+          harness: "claude",
+          prompt: "Must stay blocked",
+          designIds: [],
+        }),
+      ).rejects.toThrow("closing");
+      expect(runs.length).toBe(0);
+      finishQuit();
+      await quitting;
+      await expect(service.prepareUpdate()).rejects.toThrow("closing");
+    } finally {
+      finishUpdate();
+      finishQuit();
+      store.flush = originalFlush;
+      await preparing;
+      await quitting;
+    }
+  });
+}
+
+test("an old update recovery callback cannot release a newer preparation", async () => {
+  const { service, project } = await fixture();
+  const first = await service.prepareUpdate();
+  first();
+  const second = await service.prepareUpdate();
+  first();
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "Still updating",
+      designIds: [],
+    }),
+  ).rejects.toThrow("closing");
+  second();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Recovered",
+    designIds: [],
+  });
+  expect(thread.status).toBe("running");
+});
+
 test("design references reach the harness and follow-up messages resume the same session", async () => {
   const { service, store, project, runs } = await fixture();
   const design = await store.createDesign(project.id);

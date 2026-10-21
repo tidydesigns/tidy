@@ -19,7 +19,7 @@ protocol.registerSchemesAsPrivileged([
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 
 let service: WorkspaceService | undefined;
-let quitting = false;
+let quitting: symbol | "quit" | undefined;
 let updates: AppUpdates | undefined;
 const appIcon = app.isPackaged
   ? process.platform === "linux"
@@ -89,9 +89,10 @@ app
       fetch: net.fetch.bind(net),
       async prepareInstall() {
         const resumeWorkspace = await service!.prepareUpdate();
-        quitting = true;
+        const update = Symbol("update");
+        if (!quitting) quitting = update;
         return () => {
-          quitting = false;
+          if (quitting === update) quitting = undefined;
           resumeWorkspace();
         };
       },
@@ -148,6 +149,6 @@ app.on("before-quit", (event) => {
   if (!quitting) updates?.stop();
   if (quitting || !service) return;
   event.preventDefault();
-  quitting = true;
+  quitting = "quit";
   void service.close().finally(() => app.quit());
 });
