@@ -30,6 +30,8 @@ export function useErrorNotice({
   const notify = useCallback(
     (error: unknown, fallback?: string): Notify => {
       const starting = error === "" && fallback === undefined;
+      if (starting && operation.current?.toastId !== undefined)
+        dismissToast(operation.current.toastId);
       const current: Operation =
         starting || !operation.current
           ? { capture: reporter(), reported: false }

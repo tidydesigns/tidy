@@ -87,7 +87,8 @@ Web actions use `useErrorNotice` from `lib/use-error-notice`; editor components 
 operation, then pass `notifyError(cause, fallback)` in the catch. Each returned
 notifier keeps its original session binding when actions overlap. Passing a string alone means deliberate UI copy, not a technical failure.
 Each operation owns its toast; `notifyError.dismiss()` clears that operation's
-notice on recovery without dismissing another action's notice. Success expiry
+notice on recovery without dismissing another action's notice. Starting a retry
+also clears the hook's previous operation toast. Success expiry
 belongs to the root viewport, so it continues after the caller unmounts.
 Retry loops report once per outage and clear their status after recovery. Forms and failed-content
 sections may opt into inline presentation; other action failures use the shared
