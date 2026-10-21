@@ -354,7 +354,13 @@ export function CookieConsent() {
       </Dialog>
       {needsRetry && !dialogOpen && (
         <div className="fixed right-4 bottom-4 z-50 max-w-sm">
-          <EditorNotification message={message} onDismiss={() => setNeedsRetry(false)}>
+          <EditorNotification
+            message={message}
+            onDismiss={() => {
+              setNeedsRetry(false);
+              setMessage("");
+            }}
+          >
             <Button
               type="button"
               variant="text"

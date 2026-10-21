@@ -130,4 +130,15 @@ test("failed confirmation stays dismissed and offers a background retry", async 
   await notice.getByRole("button", { name: "Retry recording choice", exact: true }).click();
   await expect(notice).toBeHidden();
   await expect(dialog).toBeHidden();
+
+  fail = true;
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  await page.getByRole("button", { name: "Reject all optional", exact: true }).click();
+  await expect(notice).toContainText("server confirmation is pending");
+  await notice.getByRole("button", { name: "Dismiss notification", exact: true }).click();
+  await expect(notice).toBeHidden();
+  await page.getByRole("button", { name: "Privacy choices", exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("status")).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Retry recording choice" })).toHaveCount(0);
 });
