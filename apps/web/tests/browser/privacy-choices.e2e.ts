@@ -136,6 +136,9 @@ test("returning to the tab preserves an unconfirmed MCP selection for retry", as
   await expect(
     page.getByRole("button", { name: "Retry recording choice", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("complementary", { name: "Privacy choices" }).getByRole("alert"),
+  ).toHaveCount(0);
   expect(reads).toBe(initialReads);
 });
 

@@ -60,7 +60,6 @@ export function CookieConsent() {
   const [mcpEnabled, setMcpEnabled] = useState(false);
   const [mcpLoading, setMcpLoading] = useState(true);
   const [mcpError, setMcpError] = useState(false);
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [, setChoiceError] = useErrorNotice("", "user_action", "inline");
   const [, setMcpNotice] = useErrorNotice("", "user_action", "inline");
   const mcpGeneration = useRef(0);
@@ -211,14 +210,17 @@ export function CookieConsent() {
     );
   }
   return (
-    <aside data-ph-public-label className="ph-no-capture" aria-label="Privacy choices">
+    <aside
+      data-ph-public-label
+      className="ph-no-capture group/privacy"
+      aria-label="Privacy choices"
+    >
       <Dialog
         ref={dialog}
         id={id}
         size="lg"
         aria-labelledby={`${id}-title`}
         aria-describedby={`${id}-description`}
-        onToggle={(event) => setDialogOpen(event.currentTarget.open)}
         onClose={() => {
           if (dialog.current?.open) return;
           if (trigger.current?.isConnected) trigger.current.focus();
@@ -352,8 +354,8 @@ export function CookieConsent() {
           </Button>
         )}
       </Dialog>
-      {needsRetry && !dialogOpen && (
-        <div className="fixed right-4 bottom-4 z-50 max-w-sm">
+      {needsRetry && (
+        <div className="fixed right-4 bottom-4 z-50 max-w-sm group-has-[dialog[open]]/privacy:hidden">
           <EditorNotification
             message={message}
             onDismiss={() => {
