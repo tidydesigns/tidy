@@ -1,4 +1,4 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, useLayoutEffect, useRef, useState } from "react";
 import { toolStatusLabel, type ToolActivity } from "../../shared/tool-activity";
 const kinds = {
   command: "Command",
@@ -131,21 +131,41 @@ function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
   );
 }
 export const ToolActivityGroup = memo(
-  function ToolActivityGroup({ activities }: { activities: ToolActivity[] }) {
+  function ToolActivityGroup({
+    activities,
+    visible,
+  }: {
+    activities: ToolActivity[];
+    visible: boolean;
+  }) {
     const [now, setNow] = useState(Date.now);
+    const group = useRef<HTMLDetailsElement>(null);
     const active = activities.filter((tool) => tool.status === "running");
     const running = active.length > 0;
-    useEffect(() => {
-      if (!running) return;
-      setNow(Date.now());
-      const timer = setInterval(() => setNow(Date.now()), 1000);
-      return () => clearInterval(timer);
-    }, [running]);
+    useLayoutEffect(() => {
+      const element = group.current;
+      if (!running || !visible || !element) return;
+      let timer: ReturnType<typeof setInterval> | undefined;
+      const syncClock = () => {
+        clearInterval(timer);
+        if (!element.open || document.hidden) return;
+        setNow(Date.now());
+        timer = setInterval(() => setNow(Date.now()), 1000);
+      };
+      element.addEventListener("toggle", syncClock);
+      document.addEventListener("visibilitychange", syncClock);
+      syncClock();
+      return () => {
+        clearInterval(timer);
+        element.removeEventListener("toggle", syncClock);
+        document.removeEventListener("visibilitychange", syncClock);
+      };
+    }, [running, visible]);
     if (!activities.length) return null;
     const failed = activities.filter((tool) => tool.status === "failed").length;
     const current = active.at(-1);
     return (
-      <details className="tool-activity-group">
+      <details className="tool-activity-group" ref={group}>
         <summary
           aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}${failed ? `, ${failed} failed` : ""}`}
         >
@@ -172,6 +192,7 @@ export const ToolActivityGroup = memo(
     );
   },
   (previous, next) =>
+    previous.visible === next.visible &&
     previous.activities.length === next.activities.length &&
     previous.activities.every((tool, index) => tool === next.activities[index]),
 );

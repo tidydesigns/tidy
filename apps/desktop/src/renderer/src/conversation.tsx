@@ -215,7 +215,10 @@ export function Conversation({
                   />
                 )}
               </article>
-              <ToolActivityGroup activities={toolsByMessage.get(message.id) ?? []} />
+              <ToolActivityGroup
+                activities={toolsByMessage.get(message.id) ?? []}
+                visible={active}
+              />
             </div>
           ))}
           {running &&
