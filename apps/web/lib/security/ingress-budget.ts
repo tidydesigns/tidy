@@ -65,15 +65,14 @@ export async function checkIngress(
   const limits = INGRESS_LIMITS[kind];
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   try {
-    // Global rejection must happen before allocating any identity counter.
-    let decision = await consume(
-      `ingress:${kind}`,
-      ...windowChecks("global", limits.minute, limits.hour),
-    );
-    if (!decision.allowed) return admissionResponse(429, decision.retryAfter ?? 60);
-    decision = await consume(
+    const ipDecision = await consume(
       `ingress:${kind}:ip:${await budgetShard(ip)}`,
       ...windowChecks(ip, limits.ipMinute, limits.ipHour),
+    );
+    if (!ipDecision.allowed) return admissionResponse(429, ipDecision.retryAfter ?? 60);
+    const decision = await consume(
+      `ingress:${kind}`,
+      ...windowChecks("global", limits.minute, limits.hour),
     );
     return decision.allowed ? null : admissionResponse(429, decision.retryAfter ?? 60);
   } catch {
