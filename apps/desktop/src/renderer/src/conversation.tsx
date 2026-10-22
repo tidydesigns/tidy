@@ -103,9 +103,12 @@ export function Conversation({
     setAtEnd(end);
     const top = element.getBoundingClientRect().top + 48;
     let index = 0;
-    for (let i = 0; i < turns.length; i++) {
+    for (let i = turns.length - 1; i >= 0; i--) {
       const node = nodes.current.get(turns[i].id);
-      if (node && node.getBoundingClientRect().top <= top) index = i;
+      if (node && node.getBoundingClientRect().top <= top) {
+        index = i;
+        break;
+      }
     }
     setCurrent(index);
     rememberPosition(element);
