@@ -2528,24 +2528,33 @@ summary:focus-visible {
   position: relative;
 }
 .composer:has(.skill-picker) {
-  border-start-start-radius: 0;
-  border-start-end-radius: 0;
-  border-top-color: var(--color-border);
+  position: relative;
+  isolation: isolate;
+}
+.composer:has(.skill-picker)::before {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  z-index: -1;
+  border: 1px solid var(--color-muted-ink);
+  border-radius: inherit;
+  background: var(--desktop-surface);
+  pointer-events: none;
 }
 .skill-picker {
   position: absolute;
-  bottom: calc(100% + 10px);
-  inset-inline-start: -11px;
-  z-index: 10;
-  width: calc(100% + 22px);
-  max-height: min(250px, 40dvh);
+  bottom: calc(100% - 6px);
+  inset-inline-start: 10px;
+  z-index: -2;
+  width: calc(100% - 20px);
+  max-height: min(267px, 40dvh);
+  scroll-padding-bottom: 22px;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
-  padding: 5px;
-  border: 1px solid var(--color-muted-ink);
-  border-bottom: 0;
-  border-radius: 10px 10px 0 0;
+  padding: 5px 5px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
   background: var(--desktop-surface);
   box-shadow: 0 -8px 24px light-dark(#00000006, #0000001a);
 }
