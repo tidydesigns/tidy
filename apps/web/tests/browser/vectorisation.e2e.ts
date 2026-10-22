@@ -729,3 +729,37 @@ test("dense illustration retains hundreds of details in bounded native layers", 
   await page.keyboard.press("ControlOrMeta+Shift+z");
   await expect(vectors).toHaveCount(count);
 });
+
+test("a malformed worker reply preserves the image and allows retry", async ({ page, baseURL }) => {
+  await page.addInitScript(() => {
+    const NativeWorker = window.Worker;
+    let corruptNextReply = true;
+    window.Worker = class extends NativeWorker {
+      constructor(url: string | URL, options?: WorkerOptions) {
+        super(url, options);
+        this.addEventListener("message", (event: MessageEvent<unknown>) => {
+          if (!corruptNextReply) return;
+          corruptNextReply = false;
+          event.stopImmediatePropagation();
+          this.dispatchEvent(new MessageEvent("message", { data: null }));
+        });
+      }
+    };
+  });
+  const image = await sharp(Buffer.from(artwork)).png().toBuffer();
+  await page.route("**/image-editor-test.svg*", (route) =>
+    route.fulfill({ body: image, contentType: "image/png" }),
+  );
+  await page.goto(`${baseURL}/dev/import-preview?edit=1&images=1`);
+  const { root, panel, openImage } = imageEditor(page);
+  await openImage();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not vectorise this image." }),
+  ).toBeVisible();
+  await expect(root.locator("img[data-vector-path]")).toHaveCount(0);
+  await expect(root.locator("[data-adjustable-image]")).toBeVisible();
+  await panel.getByRole("button", { name: "Vectorise image", exact: true }).click();
+  await panel.waitFor({ state: "hidden" });
+  await root.locator("img[data-vector-path]").first().waitFor();
+});

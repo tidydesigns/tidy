@@ -1,6 +1,6 @@
 import { verifyRasterTrace } from "./quality";
 import { traceRaster } from "./trace";
-import { rasterTraceRequestSchema } from "./contract";
+import { rasterTraceRequestSchema, type RasterTraceResponse } from "./contract";
 
 self.addEventListener("message", (event: MessageEvent<unknown>) => {
   try {
@@ -22,6 +22,7 @@ self.addEventListener("message", (event: MessageEvent<unknown>) => {
     const original = context ? { ...image, data: image.data.slice() } : undefined;
     const trace = traceRaster(image, data.colors, { lossy: data.lossy });
     self.postMessage({
+      kind: "success",
       trace: original
         ? verifyRasterTrace(original, trace, context, {
             automatic: data.colors === "auto",
@@ -29,10 +30,11 @@ self.addEventListener("message", (event: MessageEvent<unknown>) => {
           })
         : trace,
       verified: !!original,
-    });
+    } satisfies RasterTraceResponse);
   } catch (error) {
     self.postMessage({
+      kind: "error",
       error: error instanceof Error ? error.message : "Could not trace this image.",
-    });
+    } satisfies RasterTraceResponse);
   }
 });

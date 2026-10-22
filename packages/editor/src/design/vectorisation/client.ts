@@ -3,6 +3,7 @@ import { imageAdjustmentFilter, hasImageAdjustments } from "@tidy/design/image-a
 import type { DesignNode } from "../document";
 import { imageViewport } from "../image-viewport";
 import {
+  rasterTraceResponseSchema,
   traceLimits,
   traceSize,
   type RasterTrace,
@@ -156,35 +157,46 @@ export async function traceImage(
           type: "module",
         });
         let settled = false;
-        const finish = (error?: Error, trace?: RasterTrace, verified = false) => {
+        const finish = (
+          result:
+            | { kind: "error"; error: Error }
+            | { kind: "success"; trace: RasterTrace; verified: boolean },
+        ) => {
           if (settled) return;
           settled = true;
           clearTimeout(timeout);
           signal.removeEventListener("abort", cancel);
           worker.onmessage = worker.onmessageerror = null;
           worker.terminate();
-          if (error) reject(error);
-          else resolve({ trace: trace!, verified });
+          if (result.kind === "error") reject(result.error);
+          else resolve({ trace: result.trace, verified: result.verified });
         };
-        const cancel = () => finish(aborted());
+        const fail = (error: Error) => finish({ kind: "error", error });
+        const cancel = () => fail(aborted());
         const timeout = setTimeout(
-          () => finish(new Error("Vectorisation took too long. Try a simpler image.")),
+          () => fail(new Error("Vectorisation took too long. Try a simpler image.")),
           traceLimits.timeout,
         );
         signal.addEventListener("abort", cancel, { once: true });
-        worker.onmessage = ({
-          data,
-        }: MessageEvent<{ trace?: RasterTrace; error?: string; verified?: boolean }>) => {
-          if (data.error || !data.trace) finish(new Error(data.error ?? "No trace returned."));
-          else finish(undefined, data.trace, data.verified);
+        worker.onmessage = ({ data }: MessageEvent<unknown>) => {
+          const parsed = rasterTraceResponseSchema.safeParse(data);
+          if (!parsed.success) {
+            fail(new Error("Invalid vectorisation response."));
+            return;
+          }
+          const response = parsed.data;
+          if (response.kind === "error") fail(new Error(response.error));
+          else if (response.trace.width !== size.width || response.trace.height !== size.height)
+            fail(new Error("Invalid vectorisation response dimensions."));
+          else finish(response);
         };
         worker.onerror = (event) => {
           // Terminating during the bundler's importScripts bootstrap can queue
           // a late load error. Keep it handled after cancellation has settled.
           event.preventDefault();
-          finish(new Error("The image tracing worker failed."));
+          fail(new Error("The image tracing worker failed."));
         };
-        worker.onmessageerror = () => finish(new Error("Could not read the trace result."));
+        worker.onmessageerror = () => fail(new Error("Could not read the trace result."));
         if (signal.aborted) cancel();
         else
           worker.postMessage(

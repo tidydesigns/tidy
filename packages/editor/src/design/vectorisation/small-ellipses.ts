@@ -2,6 +2,7 @@ import { serializeContours } from "@tidy/design/vector-geometry";
 import type { RasterPixels, RasterTrace } from "./contract";
 
 type Path = RasterTrace["paths"][number];
+type EllipseModel = [x: number, y: number, radiusX: number, radiusY: number];
 type Bounds = { left: number; top: number; right: number; bottom: number };
 
 function bounds(path: Path): Bounds {
@@ -75,8 +76,13 @@ function fit(image: RasterPixels, path: Path, box: Bounds) {
     yy += (s.y + 0.5 - cy) ** 2 * s.coverage;
   }
   const ratio = Math.sqrt(Math.max(0.1, xx / mass - 1 / 12) / Math.max(0.1, yy / mass - 1 / 12));
-  let model = [cx, cy, Math.sqrt((mass * ratio) / Math.PI), Math.sqrt(mass / ratio / Math.PI)];
-  const coverageAt = (x: number, y: number, m: number[]) => {
+  let model: EllipseModel = [
+    cx,
+    cy,
+    Math.sqrt((mass * ratio) / Math.PI),
+    Math.sqrt(mass / ratio / Math.PI),
+  ];
+  const coverageAt = (x: number, y: number, m: EllipseModel) => {
     let sum = 0;
     for (let i = 0; i < 8; i++) {
       const dy = (y + (i + 0.5) / 8 - m[1]) / m[3];
@@ -86,7 +92,7 @@ function fit(image: RasterPixels, path: Path, box: Bounds) {
     }
     return sum / 8;
   };
-  const error = (m: number[]) => {
+  const error = (m: EllipseModel) => {
     if (
       Math.min(m[2], m[3]) < 1 ||
       m[0] - m[2] <= left ||
@@ -102,7 +108,7 @@ function fit(image: RasterPixels, path: Path, box: Bounds) {
     for (let axis = 0; axis < 4; axis++) {
       const origin = model;
       for (const direction of [-1, 1]) {
-        const candidate = [...origin];
+        const candidate: EllipseModel = [...origin];
         candidate[axis] += step * direction;
         const value = error(candidate);
         if (value < best) {

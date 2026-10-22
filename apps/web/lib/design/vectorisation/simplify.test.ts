@@ -5,7 +5,12 @@ import {
   simplifyRasterContour,
   simplifyRasterPaths,
 } from "../../../../../packages/editor/src/design/vectorisation/simplify";
-import { rasterTraceRequestSchema, traceLimits, type RasterTrace } from "./contract";
+import {
+  rasterTraceRequestSchema,
+  rasterTraceResponseSchema,
+  traceLimits,
+  type RasterTrace,
+} from "./contract";
 
 function subdividedCurve(): VectorContour {
   const count = 12;
@@ -183,4 +188,37 @@ test("merging collinear segments keeps a native straight line", () => {
   expect(result.points).toHaveLength(2);
   expect(result.points.every((point) => !point.in && !point.out)).toBe(true);
   expect(serializeContours([result])).toBe("M 0 5 L 40 5");
+});
+
+test("worker replies validate geometry and discriminate success from failure", async () => {
+  const { traceRaster } = await import("./trace");
+  const trace = traceRaster({ width: 2, height: 2, data: new Uint8ClampedArray(16).fill(255) }, 2);
+  const success = { kind: "success" as const, trace, verified: true };
+  expect(rasterTraceResponseSchema.parse(success)).toEqual(success);
+  expect(
+    rasterTraceResponseSchema.parse({ kind: "error", error: "Cannot trace image." }).kind,
+  ).toBe("error");
+  const invalid: unknown[] = [
+    null,
+    {},
+    { trace, verified: true },
+    { ...success, verified: "true" },
+    { ...success, error: "Ambiguous reply" },
+    { kind: "error" },
+    { ...success, trace: { ...trace, pointCount: trace.pointCount + 1 } },
+    { ...success, trace: { ...trace, width: Infinity } },
+    { ...success, trace: { ...trace, paths: [{ ...trace.paths[0], opacity: NaN }] } },
+    {
+      ...success,
+      trace: {
+        ...trace,
+        paths: [
+          { ...trace.paths[0], vectorPath: { ...trace.paths[0].vectorPath, d: "<script/>" } },
+        ],
+      },
+    },
+    { ...success, trace: { ...trace, fallback: { ...trace, pointCount: 0 } } },
+  ];
+  for (const reply of invalid)
+    expect(rasterTraceResponseSchema.safeParse(reply).success).toBe(false);
 });
