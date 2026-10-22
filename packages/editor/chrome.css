@@ -245,7 +245,7 @@ html:has(dialog:modal) body {
 
 [data-picking-canvas-color] [aria-label="Design canvas"],
 [data-picking-canvas-color] [aria-label="Design canvas"] * {
-  cursor: none !important;
+  cursor: crosshair !important;
 }
 
 .quiet-inspector .inspector-disclosure > summary::-webkit-details-marker {

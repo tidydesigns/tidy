@@ -89,12 +89,14 @@ export function canvasColorAtPoint({
   tokens,
   x,
   y,
+  textOnly = false,
 }: {
   surface: HTMLElement;
   nodes: ReadonlyMap<string, DesignNode>;
   tokens: Record<string, string>;
   x: number;
   y: number;
+  textOnly?: boolean;
 }): string | undefined {
   const styles = new WeakMap<HTMLElement, CSSStyleDeclaration>();
   const visibility = new WeakMap<HTMLElement, boolean>();
@@ -148,6 +150,7 @@ export function canvasColorAtPoint({
           return;
         }
       }
+      if (textOnly) continue;
       let onBorder = false;
       const widths = strokeWidths(node.style);
       if (widths.some((width) => width > 0)) {

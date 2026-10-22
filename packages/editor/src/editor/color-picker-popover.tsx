@@ -108,6 +108,23 @@ export function ColorPickerPopover({
   useLayoutEffect(() => {
     latest.current = onClose;
   });
+  const dismiss = useEditorEvent((event: PointerEvent) => {
+    const popup = panel.current;
+    if (
+      !(event.target instanceof Node) ||
+      popup?.contains(event.target) ||
+      anchor.current?.contains(event.target)
+    )
+      return;
+    if (sampler?.picking) {
+      if (event.target instanceof Element && event.target.closest('[aria-label="Design canvas"]'))
+        return;
+      sampler.cancel(false);
+    }
+    if (document.activeElement instanceof HTMLElement && popup?.contains(document.activeElement))
+      document.activeElement.blur();
+    latest.current();
+  });
   useLayoutEffect(() => {
     const popup = panel.current;
     if (!popup) return;
@@ -128,17 +145,6 @@ export function ColorPickerPopover({
     observer.observe(popup);
     document.addEventListener("scroll", position, true);
     window.addEventListener("resize", position);
-    function dismiss(event: PointerEvent) {
-      if (
-        !(event.target instanceof Node) ||
-        popup?.contains(event.target) ||
-        anchor.current?.contains(event.target)
-      )
-        return;
-      if (document.activeElement instanceof HTMLElement && popup?.contains(document.activeElement))
-        document.activeElement.blur();
-      latest.current();
-    }
     document.addEventListener("pointerdown", dismiss, true);
     return () => {
       observer.disconnect();
@@ -147,18 +153,30 @@ export function ColorPickerPopover({
       document.removeEventListener("pointerdown", dismiss, true);
       if (popup.matches(":popover-open")) popup.hidePopover();
     };
-  }, [anchor]);
+  }, [anchor, dismiss]);
   function close() {
     anchor.current?.focus({ preventScroll: true });
+    sampler?.cancel(false);
     onClose();
   }
   return (
     <div
       ref={panel}
       popover="manual"
+      data-canvas-color-picker-control
       role="dialog"
       aria-label="Colour picker"
       tabIndex={-1}
+      onPointerDownCapture={(event) => {
+        if (
+          sampler?.picking &&
+          !(
+            event.target instanceof Element &&
+            event.target.closest('[aria-label="Pick from canvas"]')
+          )
+        )
+          sampler.cancel(false);
+      }}
       onPointerUp={commit}
       onLostPointerCapture={commit}
       onPointerCancel={cancel}
@@ -182,10 +200,11 @@ export function ColorPickerPopover({
             type="button"
             aria-label="Pick from canvas"
             title="Pick from canvas"
-            className={action}
+            aria-pressed={sampler.picking}
+            className={`${action} ${sampler.picking ? "bg-hover-surface text-primary-orange" : ""}`}
             onClick={() => {
-              onClose();
-              sampler.pick(onChange, anchor.current);
+              if (sampler.picking) sampler.cancel();
+              else sampler.pick(onChange, anchor.current);
             }}
           >
             <Icon name="eyedropper" size={16} />
