@@ -40,6 +40,66 @@ describe("skill catalog boundaries", () => {
     ).rejects.toThrow("no longer available");
   });
 
+  test("expired selections resolve while one background refresh is pending, then honor removals", async () => {
+    let now = 0;
+    let calls = 0;
+    const refresh = Promise.withResolvers<Awaited<ReturnType<SkillAdapter["discover"]>>>();
+    const adapter: SkillAdapter = {
+      discover(input) {
+        return ++calls === 1 ? provider.discover(input) : refresh.promise;
+      },
+    };
+    const catalog = new HarnessSkills(
+      async () => "/fixture",
+      { codex: adapter, claude: adapter },
+      () => now,
+    );
+    const input = { harness: "claude" as const, cwd: "/project" };
+    const { skills } = await catalog.list(input);
+    now = 60_001;
+    const selection = { ...input, id: skills[0].id, prompt: "/review changes" };
+    expect((await catalog.resolve(selection)).name).toBe("review");
+    expect((await catalog.resolve(selection)).name).toBe("review");
+    expect(calls).toBe(2);
+    let listed = false;
+    const listing = catalog.list(input).then((value) => {
+      listed = true;
+      return value;
+    });
+    await Promise.resolve();
+    expect(listed).toBe(false);
+    refresh.resolve([]);
+    expect((await listing).skills).toEqual([]);
+    await expect(catalog.resolve(selection)).rejects.toThrow("no longer available");
+  });
+
+  test("failed background refresh preserves the last successful selection and can retry", async () => {
+    let now = 0;
+    const refresh = Promise.withResolvers<Awaited<ReturnType<SkillAdapter["discover"]>>>();
+    let calls = 0;
+    const adapter: SkillAdapter = {
+      discover(input) {
+        return ++calls === 2 ? refresh.promise : provider.discover(input);
+      },
+    };
+    const catalog = new HarnessSkills(
+      async () => "/fixture",
+      { codex: adapter, claude: adapter },
+      () => now,
+    );
+    const input = { harness: "claude" as const, cwd: "/project" };
+    const { skills } = await catalog.list(input);
+    const selection = { ...input, id: skills[0].id, prompt: "/review" };
+    now = 60_001;
+    expect((await catalog.resolve(selection)).name).toBe("review");
+    const listing = catalog.list(input);
+    refresh.reject(new Error("offline"));
+    await expect(listing).rejects.toThrow("offline");
+    expect((await catalog.resolve(selection)).name).toBe("review");
+    expect((await catalog.list(input)).skills).toEqual(skills);
+    expect(calls).toBe(3);
+  });
+
   test("refresh removes disabled or deleted skills and failed discovery can retry", async () => {
     let mode: "ready" | "failed" | "empty" = "failed";
     const adapter: SkillAdapter = {

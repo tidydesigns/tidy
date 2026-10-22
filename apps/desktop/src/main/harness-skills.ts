@@ -18,6 +18,12 @@ const nativeSkillSchema = z.discriminatedUnion("kind", [
 ]);
 type NativeSkill = z.infer<typeof nativeSkillSchema>;
 type CatalogEntry = { public: Skill; native: NativeSkill };
+type CachedCatalog = {
+  until: number;
+  value: Promise<CatalogEntry[]>;
+  ready?: CatalogEntry[];
+  pending: boolean;
+};
 type DiscoveryInput = { executable: string; harness: HarnessId; cwd: string };
 export type SkillAdapter = {
   discover(input: DiscoveryInput): Promise<NativeSkill[]>;
@@ -79,17 +85,28 @@ const adapters = {
 } satisfies Record<HarnessId, SkillAdapter>;
 
 export class HarnessSkills {
-  private cache = new Map<string, { until: number; value: Promise<CatalogEntry[]> }>();
+  private cache = new Map<string, CachedCatalog>();
 
   constructor(
     private locate = findHarness,
     private providers: Record<HarnessId, SkillAdapter> = adapters,
+    private now = Date.now,
   ) {}
 
-  private entries(harness: HarnessId, cwd: string, refresh = false) {
+  private entries(
+    harness: HarnessId,
+    cwd: string,
+    refresh = false,
+    allowStale = false,
+  ): Promise<CatalogEntry[]> {
     const key = JSON.stringify([harness, cwd]);
     const cached = this.cache.get(key);
-    if (!refresh && cached && cached.until > Date.now()) return cached.value;
+    if (allowStale && cached?.ready) {
+      if (cached.until <= this.now() && !cached.pending)
+        void this.entries(harness, cwd, true).catch(() => {});
+      return Promise.resolve(cached.ready);
+    }
+    if (cached && (cached.pending || (!refresh && cached.until > this.now()))) return cached.value;
     const value = (async () => {
       const executable = await this.locate(harness);
       if (!executable) throw new Error("Install and sign in to this harness to load skills.");
@@ -109,12 +126,26 @@ export class HarnessSkills {
         ];
       });
     })();
-    const entry = { until: Date.now() + 60_000, value };
+    const entry: CachedCatalog = {
+      until: this.now() + 60_000,
+      value,
+      ready: cached?.ready,
+      pending: true,
+    };
     if (this.cache.size >= 100) this.cache.delete(this.cache.keys().next().value ?? "");
     this.cache.set(key, entry);
-    void value.catch(() => {
-      if (this.cache.get(key) === entry) this.cache.delete(key);
-    });
+    void value.then(
+      (ready) => {
+        entry.ready = ready;
+        entry.pending = false;
+        entry.until = this.now() + 60_000;
+      },
+      () => {
+        entry.pending = false;
+        entry.until = 0;
+        if (!entry.ready && this.cache.get(key) === entry) this.cache.delete(key);
+      },
+    );
     return value;
   }
 
@@ -132,7 +163,7 @@ export class HarnessSkills {
     id: string;
     prompt: string;
   }): Promise<NativeSkill> {
-    const entries = await this.entries(input.harness, input.cwd);
+    const entries = await this.entries(input.harness, input.cwd, false, true);
     const entry = entries.find((entry) => entry.public.id === input.id);
     if (!entry || skillCommand(input.prompt)?.name !== entry.native.name)
       throw new Error("This skill is no longer available. Select it again before sending.");

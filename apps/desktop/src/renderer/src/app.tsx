@@ -165,11 +165,21 @@ export function App() {
       const key = `${target.projectId}:${failedStarts.current.has(target.id) ? "new" : target.id}`;
       setDrafts((current) => {
         const previous = current[key] ?? { ...emptyDraft, harness: target.harness };
+        const command = skillCommand(message.text);
         return {
           ...current,
           [key]: {
             ...previous,
             text: [previous.text, message.text].filter(Boolean).join("\n\n"),
+            skill: previous.text
+              ? previous.skill
+              : message.skillId && command
+                ? {
+                    id: message.skillId,
+                    name: command.name,
+                    harness: target.harness,
+                  }
+                : undefined,
             attachments: [...(previous.attachments ?? []), ...(message.attachments ?? [])].filter(
               (file, index, all) => all.findIndex((item) => item.id === file.id) === index,
             ),
@@ -603,23 +613,6 @@ export function App() {
       (thread && settingsPending[thread.id])
     )
       return;
-    if (thread && (running || queue.messages.length > 0)) {
-      if (queue.messages.length >= MAX_QUEUED_MESSAGES) {
-        setError({
-          projectId: project.id,
-          text: "The queue is full. Remove a message before adding another.",
-        });
-        return;
-      }
-      queue.enqueue(
-        { id: crypto.randomUUID(), text: draft.text, attachments: draft.attachments },
-        delivery,
-      );
-      setDrafts((current) => ({ ...current, [draftKey]: { ...draft, text: "", attachments: [] } }));
-      return;
-    }
-    const projectId = project.id;
-    const key = draftKey;
     const submitted = draft.text;
     const command = skillCommand(submitted);
     const rememberedSkill =
@@ -634,11 +627,33 @@ export function App() {
       (skillCatalog.key !== detailKey || skillCatalog.status !== "ready")
     ) {
       setError({
-        projectId,
+        projectId: project.id,
         text: "Skills are not available yet. Retry loading skills before sending this command.",
       });
       return;
     }
+    if (thread && (running || queue.messages.length > 0)) {
+      if (queue.messages.length >= MAX_QUEUED_MESSAGES) {
+        setError({
+          projectId: project.id,
+          text: "The queue is full. Remove a message before adding another.",
+        });
+        return;
+      }
+      queue.enqueue(
+        {
+          id: crypto.randomUUID(),
+          text: draft.text,
+          attachments: draft.attachments,
+          skillId: selectedSkill?.id,
+        },
+        delivery,
+      );
+      setDrafts((current) => ({ ...current, [draftKey]: { ...draft, text: "", attachments: [] } }));
+      return;
+    }
+    const projectId = project.id;
+    const key = draftKey;
     const selection = threadSelection.current[projectId] ?? 0;
     const id = selectedThreadId ?? crypto.randomUUID();
     const messageId = crypto.randomUUID();

@@ -10,13 +10,15 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-test("native steering waits for the active turn and sends text and images to that exact turn", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "tidy-native-steering-"));
-  cleanups.push(() => rm(cwd, { recursive: true, force: true }));
-  const executable = join(cwd, "agent");
-  await writeFile(
-    executable,
-    `#!/usr/bin/env node
+test.each([false, true])(
+  "native steering preserves text, images and selected skills: %s",
+  async (withSkill) => {
+    const cwd = await mkdtemp(join(tmpdir(), "tidy-native-steering-"));
+    cleanups.push(() => rm(cwd, { recursive: true, force: true }));
+    const executable = join(cwd, "agent");
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
 import { createInterface } from 'node:readline';
 import { writeFileSync } from 'node:fs';
 const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
@@ -34,44 +36,64 @@ for await (const line of createInterface({ input: process.stdin })) {
   }
 }
 `,
-  );
-  await chmod(executable, 0o700);
-  const updates: HarnessUpdate[] = [];
-  const run = startHarness({
-    harness: "codex",
-    executable,
-    cwd,
-    prompt: "Original task",
-    onUpdate: (update) => updates.push(update),
-  });
-  cleanups.push(async () => {
-    run.stop();
-    await run.done.catch(() => {});
-  });
-  expect(
-    await run.steer?.({
-      prompt: "Use the new direction",
-      images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "" }],
-    }),
-  ).toBe(true);
-  await run.done;
-  const sent: unknown = JSON.parse(await readFile(join(cwd, "steer.json"), "utf8"));
-  expect(sent).toEqual({
-    threadId: "b56ba7bb-00aa-4a56-a64c-593c3c377dcc",
-    expectedTurnId: "active-turn",
-    input: [
-      { type: "text", text: "Use the new direction", text_elements: [] },
-      { type: "localImage", path: join(cwd, "image.png") },
-    ],
-  });
-  expect(updates).toContainEqual({
-    type: "message",
-    id: "answer",
-    text: "Direction changed",
-    append: true,
-  });
-  expect(await run.steer?.({ prompt: "Too late", images: [] })).toBe(false);
-});
+    );
+    await chmod(executable, 0o700);
+    const updates: HarnessUpdate[] = [];
+    const run = startHarness({
+      harness: "codex",
+      executable,
+      cwd,
+      prompt: "Original task",
+      onUpdate: (update) => updates.push(update),
+    });
+    cleanups.push(async () => {
+      run.stop();
+      await run.done.catch(() => {});
+    });
+    expect(
+      await run.steer?.({
+        prompt: "Use the new direction",
+        skill: withSkill
+          ? {
+              invocation: {
+                kind: "file",
+                name: "review",
+                description: "Review",
+                path: join(cwd, "SKILL.md"),
+              },
+              context: "Project context",
+              prompt: "/review new direction",
+            }
+          : undefined,
+        images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "" }],
+      }),
+    ).toBe(true);
+    await run.done;
+    const sent: unknown = JSON.parse(await readFile(join(cwd, "steer.json"), "utf8"));
+    expect(sent).toEqual({
+      threadId: "b56ba7bb-00aa-4a56-a64c-593c3c377dcc",
+      expectedTurnId: "active-turn",
+      input: [
+        {
+          type: "text",
+          text: withSkill
+            ? "Project context\n\nUser request:\n\n$review new direction"
+            : "Use the new direction",
+          text_elements: [],
+        },
+        ...(withSkill ? [{ type: "skill", name: "review", path: join(cwd, "SKILL.md") }] : []),
+        { type: "localImage", path: join(cwd, "image.png") },
+      ],
+    });
+    expect(updates).toContainEqual({
+      type: "message",
+      id: "answer",
+      text: "Direction changed",
+      append: true,
+    });
+    expect(await run.steer?.({ prompt: "Too late", images: [] })).toBe(false);
+  },
+);
 
 test.each(["thread/start", "turn/start"])(
   "native startup rejection tracks retry safety at %s",

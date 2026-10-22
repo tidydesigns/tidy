@@ -102,6 +102,7 @@ export function useMessageQueue({
             threadId: thread.id,
             messageId: message.id,
             text: message.text,
+            skillId: message.skillId,
             attachmentIds: message.attachments?.map((file) => file.id),
             delivery,
           }),

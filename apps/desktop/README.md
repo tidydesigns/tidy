@@ -124,8 +124,18 @@ URLs and slash text elsewhere in the message remain ordinary text.
 Skills come from the harness's native catalog for the current project. Codex uses
 its enabled skill catalog; Claude Code exposes callable skills and custom commands.
 Discovery runs in the background, caches for one minute and refreshes when the
-window regains focus. A failed lookup can be retried in the picker. Selecting a
-skill does not change the thread's permissions.
+window regains focus. Sending a selected skill uses the last successful catalog
+while an expired catalog refreshes in the background. A failed refresh does not
+block that selection; a successful refresh replaces the cached catalog, including
+removed or disabled entries. A failed lookup can be retried in the picker.
+Selecting a skill does not change the thread's permissions.
+
+Queued follow-ups retain their selected skill through persistence and delivery.
+Editing arguments preserves the selection; changing the opening command clears it.
+Send now carries the native skill invocation into steering or a resumed turn.
+Discovery uses the installed provider's project and global skill configuration.
+Tidy sends no user turn during discovery and rejects tool approval requests, but
+provider initialization and native skill validation remain provider-controlled.
 
 The renderer receives only skill IDs, names and descriptions. The main process
 resolves IDs against the project and harness before sending native file references

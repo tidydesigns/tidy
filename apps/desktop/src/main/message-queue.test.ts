@@ -1,3 +1,4 @@
+import { HarnessSkills, type SkillAdapter } from "./harness-skills";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -14,7 +15,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(native = false, finishOnStop = true) {
+async function fixture(native = false, finishOnStop = true, skills?: HarnessSkills) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-queue-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const store = new ProjectStore(join(directory, "state"));
@@ -29,7 +30,7 @@ async function fixture(native = false, finishOnStop = true) {
     deliveryState: NonNullable<RunningHarness["deliveryState"]>;
     stopped: boolean;
     shutdownWait: Promise<void>;
-    steers: Array<{ prompt: string }>;
+    steers: Array<Parameters<NonNullable<RunningHarness["steer"]>>[0]>;
   }> = [];
   const runWaiters = new Map<number, () => void>();
   const service = new WorkspaceService(
@@ -37,7 +38,7 @@ async function fixture(native = false, finishOnStop = true) {
     (input) => {
       const deferred = Promise.withResolvers<void>();
       const shutdown = Promise.withResolvers<void>();
-      const steers: Array<{ prompt: string }> = [];
+      const steers: Array<Parameters<NonNullable<RunningHarness["steer"]>>[0]> = [];
       const run: (typeof runs)[number] = {
         input,
         finish: () => deferred.resolve(),
@@ -64,7 +65,7 @@ async function fixture(native = false, finishOnStop = true) {
         },
         ...(native
           ? {
-              async steer(message: { prompt: string }) {
+              async steer(message: Parameters<NonNullable<RunningHarness["steer"]>>[0]) {
                 run.steers.push(message);
                 return true;
               },
@@ -73,6 +74,8 @@ async function fixture(native = false, finishOnStop = true) {
       };
     },
     async () => "/fixture/agent",
+    undefined,
+    skills,
   );
   cleanups.push(async () => {
     for (const run of runs) run.finish();
@@ -505,3 +508,42 @@ test("Stop during replacement initialization restores its queued instruction", a
   expect((await read()).queuedMessages?.map((message) => message.text)).toEqual(["Replacement"]);
   expect((await read()).messages.some((message) => message.text === "Replacement")).toBe(false);
 });
+
+for (const native of [false, true]) {
+  test(`queued skills survive persistence and immediate delivery with native steering: ${native}`, async () => {
+    const adapter: SkillAdapter = {
+      async discover() {
+        return [{ kind: "command", name: "review", description: "Review changes" }];
+      },
+    };
+    const skills = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+    const { service, project, thread, runs, read, action, store } = await fixture(
+      native,
+      true,
+      skills,
+    );
+    const catalog = await skills.list({ harness: thread.harness, cwd: project.path });
+    const skillId = catalog.skills[0].id;
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "/review changes",
+      skillId,
+      delivery: "queue",
+    });
+    const queued = (await store.readThread(project.id, thread.id)).queuedMessages![0];
+    expect(queued.skillId).toBe(skillId);
+    await action({ kind: "edit", messageId: queued.id, text: "/review edited arguments" });
+    expect((await read()).queuedMessages![0].skillId).toBe(skillId);
+    await action({ kind: "steer", messageId: queued.id });
+    const delivered = native ? runs[0].steers[0] : runs[1].input;
+    expect(delivered.skill?.invocation.name).toBe("review");
+    expect(delivered.skill?.prompt).toBe("/review edited arguments");
+    expect(delivered.prompt).toEndWith("/review edited arguments");
+    expect((await read()).queuedMessages).toHaveLength(0);
+    expect(
+      applyQueueAction([queued], { kind: "edit", messageId: queued.id, text: "/different" })[0]
+        .skillId,
+    ).toBeUndefined();
+  });
+}

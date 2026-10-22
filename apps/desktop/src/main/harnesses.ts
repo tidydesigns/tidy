@@ -1,3 +1,4 @@
+import type { SkillInvocation } from "./harness-skills";
 import { execFile } from "node:child_process";
 import { access, realpath, stat } from "node:fs/promises";
 import { constants } from "node:fs";
@@ -28,6 +29,7 @@ export type RunningHarness = {
   stop(): void;
   steer?(input: {
     prompt: string;
+    skill?: { invocation: SkillInvocation; context: string; prompt: string };
     images: Array<{ path: string; mimeType: string; data: string }>;
   }): Promise<boolean>;
   respondToApproval?(id: string, decision: ApprovalDecision): boolean;

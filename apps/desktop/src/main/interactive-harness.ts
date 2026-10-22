@@ -551,15 +551,15 @@ export function startInteractiveHarness(input: {
           message: {
             role: "user",
             content: [
-            ...(input.skill?.invocation.kind === "command"
-              ? [
-                  { type: "text", text: input.skill.context },
-                  {
-                    type: "text",
-                    text: `/${input.skill.invocation.name}${input.skill.prompt.slice(skillCommand(input.skill.prompt)?.end ?? 0)}`,
-                  },
-                ]
-              : [{ type: "text", text: input.prompt }]),
+              ...(input.skill?.invocation.kind === "command"
+                ? [
+                    { type: "text", text: input.skill.context },
+                    {
+                      type: "text",
+                      text: `/${input.skill.invocation.name}${input.skill.prompt.slice(skillCommand(input.skill.prompt)?.end ?? 0)}`,
+                    },
+                  ]
+                : [{ type: "text", text: input.prompt }]),
               ...(input.images ?? []).map((image) => ({
                 type: "image",
                 source: { type: "base64", media_type: image.mimeType, data: image.data },
@@ -592,8 +592,23 @@ export function startInteractiveHarness(input: {
         threadId,
         expectedTurnId: turnId,
         input: [
-          { type: "text", text: message.prompt, text_elements: [] },
-          ...message.images.map((image) => ({ type: "localImage", path: image.path })),
+          {
+            type: "text",
+            text: message.skill
+              ? `${message.skill.context}\n\nUser request:\n\n$${message.skill.prompt.slice(1)}`
+              : message.prompt,
+            text_elements: [],
+          },
+          ...(message.skill?.invocation.kind === "file"
+            ? [
+                {
+                  type: "skill",
+                  name: message.skill.invocation.name,
+                  path: message.skill.invocation.path,
+                },
+              ]
+            : []),
+          ...(message.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
         ],
       });
       return true;

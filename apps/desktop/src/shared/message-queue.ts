@@ -1,3 +1,4 @@
+import { skillIdSchema, skillCommand } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, MAX_ATTACHMENTS } from "./attachments";
 
@@ -6,6 +7,7 @@ const id = z.string().uuid();
 export const queuedMessageSchema = z.object({
   id,
   text: z.string().max(32_000),
+  skillId: skillIdSchema.optional(),
   attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
 });
 export type QueuedMessage = z.infer<typeof queuedMessageSchema>;
@@ -33,7 +35,16 @@ export function applyQueueAction(messages: QueuedMessage[], action: QueueAction)
       return messages.filter((message) => message.id !== action.messageId);
     case "edit":
       return messages.map((message) =>
-        message.id === action.messageId ? { ...message, text: action.text } : message,
+        message.id === action.messageId
+          ? {
+              ...message,
+              text: action.text,
+              skillId:
+                skillCommand(message.text)?.name === skillCommand(action.text)?.name
+                  ? message.skillId
+                  : undefined,
+            }
+          : message,
       );
     case "move": {
       const message = messages.find((item) => item.id === action.messageId);

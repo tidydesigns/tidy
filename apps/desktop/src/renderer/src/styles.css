@@ -1210,27 +1210,6 @@ summary:focus-visible {
   gap: 8px;
   padding-top: 8px;
 }
-.composer-submit {
-  display: inline-flex;
-  flex-shrink: 0;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  border: 1px solid light-dark(#00000012, #ffffff12);
-  border-radius: 50%;
-  background: var(--color-ink);
-  color: var(--desktop-surface);
-  cursor: pointer;
-}
-.composer-submit:active:not(:disabled) {
-  transform: scale(0.95);
-}
-.composer-stop {
-  background: #e83545;
-  color: #fff;
-}
 .composer-spacer {
   flex: 1;
 }
@@ -1254,6 +1233,10 @@ summary:focus-visible {
   color: var(--color-on-strong-action);
   background: var(--color-strong-action);
   cursor: pointer;
+}
+.composer-stop {
+  background: #e83545;
+  color: #fff;
 }
 .composer-submit:disabled {
   opacity: 0.4;
