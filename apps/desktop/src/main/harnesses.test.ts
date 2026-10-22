@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { afterEach, expect, test } from "bun:test";
 import { chmod, copyFile, mkdtemp, readFile, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -404,3 +405,64 @@ test("images reach both native harness protocols on new and resumed turns", asyn
       }
     }
 });
+
+for (const harness of ["codex", "claude"] as const) {
+  test(`${harness} sends skill invocation separately from context and preserves images on resume`, async () => {
+    const { directory, executable } = await fixture();
+    const image = { path: join(directory, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" };
+    const invocation =
+      harness === "codex"
+        ? {
+            kind: "file" as const,
+            name: "review",
+            description: "Review",
+            path: join(directory, "SKILL.md"),
+          }
+        : { kind: "command" as const, name: "review", description: "Review" };
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      sessionId: "existing-session",
+      prompt: "Context\n/review arguments",
+      skill: { invocation, context: "Project context", prompt: "/review arguments\nsecond line" },
+      images: [image],
+      onUpdate() {},
+    });
+    try {
+      await run.done;
+      const recorded = z
+        .object({ turnParams: z.unknown().optional(), prompt: z.string() })
+        .parse(JSON.parse(await readFile(join(directory, "harness-invocation.json"), "utf8")));
+      if (harness === "codex") {
+        const turn = z.object({ input: z.array(z.unknown()) }).parse(recorded.turnParams);
+        expect(turn.input).toContainEqual({
+          type: "skill",
+          name: "review",
+          path: invocation.kind === "file" ? invocation.path : "",
+        });
+        expect(turn.input[0]).toMatchObject({
+          text: "Project context\n\nUser request:\n\n$review arguments\nsecond line",
+        });
+        expect(turn.input).toContainEqual({ type: "localImage", path: image.path });
+      } else {
+        const message = z
+          .object({ session_id: z.string(), message: z.object({ content: z.array(z.unknown()) }) })
+          .parse(JSON.parse(recorded.prompt));
+        const texts = message.message.content.slice(0, 2);
+        expect(texts).toEqual([
+          { type: "text", text: "Project context" },
+          { type: "text", text: "/review arguments\nsecond line" },
+        ]);
+        expect(message.message.content).toContainEqual({
+          type: "image",
+          source: { type: "base64", media_type: "image/png", data: image.data },
+        });
+        expect(message.session_id).toBe("existing-session");
+      }
+    } finally {
+      run.stop();
+      await run.done.catch(() => {});
+    }
+  });
+}

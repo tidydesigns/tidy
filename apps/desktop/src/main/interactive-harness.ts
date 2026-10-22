@@ -1,3 +1,5 @@
+import { skillCommand } from "../shared/skills";
+import type { SkillInvocation } from "./harness-skills";
 import { version } from "../../package.json";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -35,6 +37,7 @@ export function startInteractiveHarness(input: {
   executable: string;
   cwd: string;
   prompt: string;
+  skill?: { invocation: SkillInvocation; context: string; prompt: string };
   sessionId?: string;
   settings?: HarnessSettings;
   images?: Array<{ path: string; mimeType: string; data: string }>;
@@ -509,7 +512,22 @@ export function startInteractiveHarness(input: {
         await request("turn/start", {
           threadId,
           input: [
-            { type: "text", text: input.prompt, text_elements: [] },
+            {
+              type: "text",
+              text: input.skill
+                ? `${input.skill.context}\n\nUser request:\n\n$${input.skill.prompt.slice(1)}`
+                : input.prompt,
+              text_elements: [],
+            },
+            ...(input.skill?.invocation.kind === "file"
+              ? [
+                  {
+                    type: "skill",
+                    name: input.skill.invocation.name,
+                    path: input.skill.invocation.path,
+                  },
+                ]
+              : []),
             ...(input.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
           ],
           ...(input.settings?.effort ? { effort: input.settings.effort } : {}),
@@ -533,7 +551,15 @@ export function startInteractiveHarness(input: {
           message: {
             role: "user",
             content: [
-              { type: "text", text: input.prompt },
+            ...(input.skill?.invocation.kind === "command"
+              ? [
+                  { type: "text", text: input.skill.context },
+                  {
+                    type: "text",
+                    text: `/${input.skill.invocation.name}${input.skill.prompt.slice(skillCommand(input.skill.prompt)?.end ?? 0)}`,
+                  },
+                ]
+              : [{ type: "text", text: input.prompt }]),
               ...(input.images ?? []).map((image) => ({
                 type: "image",
                 source: { type: "base64", media_type: image.mimeType, data: image.data },

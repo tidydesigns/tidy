@@ -1,3 +1,5 @@
+import { SkillPrompt } from "./skill-prompt";
+import { skillCommand, type Skill } from "../../shared/skills";
 import { errorMessage } from "@tidy/ui/errors";
 import { showToast, dismissToast } from "@tidy/ui/toast";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
@@ -50,6 +52,7 @@ type Draft = {
   designIds: string[];
   settings?: HarnessSettings;
   attachments?: AttachedFile[];
+  skill?: { id: string; name: string; harness: HarnessId };
 };
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 const errorText = (error: unknown) =>
@@ -80,6 +83,12 @@ export function App() {
   const [harnessDetails, setHarnessDetails] = useState<
     Record<string, { info?: HarnessDetails; error?: string; loading: boolean }>
   >({});
+  const [skillCatalog, setSkillCatalog] = useState<{
+    key: string;
+    skills: Skill[];
+    status: "loading" | "ready" | "error";
+  }>({ key: "", skills: [], status: "loading" });
+  const skillRequest = useRef(0);
   const [settingsPending, setSettingsPending] = useState<Record<string, boolean>>({});
   const detailRequests = useRef<Record<string, number>>({});
   const [now, setNow] = useState(Date.now);
@@ -124,6 +133,9 @@ export function App() {
   const selectedHarness = thread?.harness ?? draft.harness;
   const harnessReady = harnesses.some(
     (item) => item.id === selectedHarness && item.status === "ready",
+  );
+  const harnessInstalled = harnesses.some(
+    (item) => item.id === selectedHarness && item.status !== "not-installed",
   );
   const detailKey = `${project?.id ?? ""}:${selectedHarness}`;
   const currentDetails = harnessDetails[detailKey];
@@ -183,6 +195,40 @@ export function App() {
     harnessReady &&
     !(selectedThreadId && !thread) &&
     !(thread && settingsPending[thread.id]);
+
+  const availableSkills = skillCatalog.key === detailKey ? skillCatalog.skills : [];
+  async function loadSkills(refresh = false) {
+    if (!api || !project) return;
+    if (!harnessInstalled) {
+      setSkillCatalog({ key: detailKey, skills: [], status: "ready" });
+      return;
+    }
+    const request = ++skillRequest.current;
+    setSkillCatalog((current) => ({
+      key: detailKey,
+      skills: current.key === detailKey ? current.skills : [],
+      status: "loading",
+    }));
+    try {
+      const catalog = await api.skills(project.id, selectedHarness, refresh);
+      if (request === skillRequest.current)
+        setSkillCatalog({ key: detailKey, skills: catalog.skills, status: "ready" });
+    } catch {
+      if (request === skillRequest.current)
+        setSkillCatalog({ key: detailKey, skills: [], status: "error" });
+    }
+  }
+  useEffect(() => {
+    void loadSkills();
+    const refresh = () => {
+      void loadSkills();
+    };
+    window.addEventListener("focus", refresh);
+    return () => {
+      skillRequest.current++;
+      window.removeEventListener("focus", refresh);
+    };
+  }, [api, project?.id, selectedHarness, harnessInstalled]);
 
   async function loadHarnessDetails(projectId: string, harness: HarnessId, refresh = false) {
     if (!api) return;
@@ -575,6 +621,24 @@ export function App() {
     const projectId = project.id;
     const key = draftKey;
     const submitted = draft.text;
+    const command = skillCommand(submitted);
+    const rememberedSkill =
+      draft.skill?.harness === selectedHarness && draft.skill.name === command?.name
+        ? draft.skill
+        : undefined;
+    const selectedSkill =
+      rememberedSkill ?? availableSkills.find((skill) => skill.name === command?.name);
+    if (
+      command &&
+      !selectedSkill &&
+      (skillCatalog.key !== detailKey || skillCatalog.status !== "ready")
+    ) {
+      setError({
+        projectId,
+        text: "Skills are not available yet. Retry loading skills before sending this command.",
+      });
+      return;
+    }
     const selection = threadSelection.current[projectId] ?? 0;
     const id = selectedThreadId ?? crypto.randomUUID();
     const messageId = crypto.randomUUID();
@@ -640,6 +704,7 @@ export function App() {
             threadId: id,
             messageId,
             text: submitted,
+            skillId: selectedSkill?.id,
             attachmentIds: draft.attachments?.map((file) => file.id),
           })
         : api.startThread({
@@ -648,6 +713,7 @@ export function App() {
             messageId,
             harness: draft.harness,
             prompt: submitted,
+            skillId: selectedSkill?.id,
             designIds: draft.designIds,
             settings: draft.settings,
             attachmentIds: draft.attachments?.map((file) => file.id),
@@ -1177,10 +1243,27 @@ export function App() {
                   <label className="sr-only" htmlFor="thread-prompt">
                     Message
                   </label>
-                  <textarea
+                  <SkillPrompt
+                    key={draftKey + selectedHarness}
+                    skills={availableSkills}
+                    status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
+                    retry={() => {
+                      void loadSkills(true);
+                    }}
                     id="thread-prompt"
                     value={draft.text}
-                    onChange={(event) => updateDraft({ text: event.target.value })}
+                    onChange={(text) => {
+                      const name = skillCommand(text)?.name;
+                      const skill = availableSkills.find((skill) => skill.name === name);
+                      updateDraft({
+                        text,
+                        skill: skill
+                          ? { id: skill.id, name: skill.name, harness: selectedHarness }
+                          : draft.skill?.name === name
+                            ? draft.skill
+                            : undefined,
+                      });
+                    }}
                     onPaste={(event) => {
                       const files = Array.from(event.clipboardData.files);
                       if (files.length) {
@@ -1194,8 +1277,8 @@ export function App() {
                         : running
                           ? "Queue a follow-up, or send it now…"
                           : thread
-                            ? "Continue this thread…"
-                            : "What would you like to work on?"
+                            ? "Continue this thread… / for skills"
+                            : "What would you like to work on? / for skills"
                     }
                     disabled={Boolean(thread?.doneAt) || busy}
                     maxLength={32_000}

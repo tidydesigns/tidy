@@ -1,3 +1,4 @@
+import { skillCatalogSchema } from "./skills";
 import { z } from "zod";
 import { designDocumentSchema } from "@tidy/design/document";
 import { attachmentSchema } from "./attachments";
@@ -34,6 +35,7 @@ const responseSchemas = {
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
   "harness-details": harnessDetailsSchema,
+  skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
   "thread-settings": liveThreadSchema,
   "read-thread": liveThreadSchema,

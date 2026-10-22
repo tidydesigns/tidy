@@ -116,6 +116,22 @@ history on each update. Notifications are coalesced separately from disk checkpo
 immediate durable write before launch and a final flush on completion/shutdown.
 Harness process startup and provider generation time still determine response latency.
 
+Start a message with `/` to search the selected harness's skills. Arrow keys
+navigate; Enter or Tab selects; Escape closes the picker. Add arguments after the
+skill name, then send. One skill can be explicitly selected per message. Paths,
+URLs and slash text elsewhere in the message remain ordinary text.
+
+Skills come from the harness's native catalog for the current project. Codex uses
+its enabled skill catalog; Claude Code exposes callable skills and custom commands.
+Discovery runs in the background, caches for one minute and refreshes when the
+window regains focus. A failed lookup can be retried in the picker. Selecting a
+skill does not change the thread's permissions.
+
+The renderer receives only skill IDs, names and descriptions. The main process
+resolves IDs against the project and harness before sending native file references
+or command blocks. `HarnessSkills` owns catalog caching and provider discovery;
+new harness integrations provide an adapter without changing the slash picker.
+
 Press Enter to send; Shift+Enter adds a new line. While the agent is working,
 Enter or Queue adds a follow-up for the next turn. Send now or Cmd/Ctrl+Enter sends
 the message into the active turn. Codex uses native steering; Claude interrupts

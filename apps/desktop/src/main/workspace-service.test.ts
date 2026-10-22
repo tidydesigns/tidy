@@ -1,3 +1,4 @@
+import { HarnessSkills, type SkillAdapter } from "./harness-skills";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
@@ -17,6 +18,7 @@ afterEach(async () => {
 async function fixture(
   configure: ConstructorParameters<typeof WorkspaceService>[3] = async () => {},
   holdPreparation = false,
+  skills?: HarnessSkills,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -72,6 +74,7 @@ async function fixture(
       return "/fixture/harness";
     },
     configure,
+    skills,
   );
   cleanups.push(async () => {
     resumePreparation();
@@ -1138,4 +1141,45 @@ test("streaming transmits changed rows without replaying earlier conversation co
   expect((await service.readThread(project.id, thread.id)).messages[0].text).toContain(
     "Private earlier request",
   );
+});
+
+test("skill selection resolves in the main process, preserves the transcript and rejects foreign IDs before launch", async () => {
+  const adapter: SkillAdapter = {
+    async discover() {
+      return [{ kind: "command", name: "review", description: "Review changes" }];
+    },
+  };
+  const skills = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+  const { service, store, project, runs } = await fixture(undefined, false, skills);
+  const catalog = await skills.list({ harness: "claude", cwd: project.path });
+  const input = {
+    projectId: project.id,
+    harness: "claude" as const,
+    prompt: "/review current changes",
+    designIds: [],
+    skillId: catalog.skills[0].id,
+  };
+  await expect(service.startThread({ ...input, skillId: "/etc/passwd" })).rejects.toThrow(
+    "no longer available",
+  );
+  expect(runs).toHaveLength(0);
+  expect((await store.snapshot(project.id)).threads).toHaveLength(0);
+  const thread = await service.startThread(input);
+  expect(thread.messages[0].text).toBe(input.prompt);
+  expect(runs[0].input.skill).toMatchObject({
+    invocation: { kind: "command", name: "review" },
+    prompt: input.prompt,
+  });
+  expect(runs[0].input.skill?.context).toContain("local Tidy project");
+  expect(thread.settings?.permissionMode).not.toBe("auto");
+  const done = finished(service, thread.id);
+  runs[0].complete();
+  await done;
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "/review again",
+    skillId: input.skillId,
+  });
+  expect(runs[1].input.skill?.prompt).toBe("/review again");
 });

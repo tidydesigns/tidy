@@ -84,6 +84,7 @@ const api: DesktopAPI = {
       return remember(value);
     }),
   selectProject: (projectId) => request("select-project", projectId).then(remember),
+  skills: (projectId, harness, refresh) => request("skills", { projectId, harness, refresh }),
   harnessDetails: (projectId, harness, refresh) =>
     request("harness-details", { projectId, harness, refresh }),
   async openHarnessUsage(harness, page) {

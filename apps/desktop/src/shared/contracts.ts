@@ -1,3 +1,4 @@
+import type { SkillCatalog } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, type AttachedFile } from "./attachments";
 import { toolActivitySchema, MAX_TOOL_ACTIVITIES } from "./tool-activity";
@@ -153,6 +154,7 @@ export type DesktopAPI = {
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
   checkHarnesses(): Promise<HarnessConnection[]>;
+  skills(projectId: string, harness: HarnessId, refresh?: boolean): Promise<SkillCatalog>;
   harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;
   setThreadSettings(
@@ -170,6 +172,7 @@ export type DesktopAPI = {
     designIds: string[];
     settings?: HarnessSettings;
     attachmentIds?: string[];
+    skillId?: string;
   }): Promise<Thread>;
   sendMessage(input: {
     delivery?: MessageDelivery;
@@ -178,6 +181,7 @@ export type DesktopAPI = {
     threadId: string;
     text: string;
     attachmentIds?: string[];
+    skillId?: string;
   }): Promise<Thread>;
   updateMessageQueue(input: QueueRequest): Promise<Thread>;
   addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;

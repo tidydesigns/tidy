@@ -1,3 +1,4 @@
+import { skillIdSchema } from "../shared/skills";
 import { z } from "zod";
 import { approvalDecisionSchema } from "../shared/permissions";
 import { readHarnessDetails } from "./harness-details";
@@ -64,6 +65,18 @@ export function createWorkspaceRequests<Context>(
     return liveSnapshot(snapshot);
   });
   handle(
+    "skills",
+    z
+      .object({ projectId, harness: z.enum(["codex", "claude"]), refresh: z.boolean().optional() })
+      .strict(),
+    (value) =>
+      service.skills.list({
+        harness: value.harness,
+        cwd: store.project(value.projectId).path,
+        refresh: value.refresh,
+      }),
+  );
+  handle(
     "harness-details",
     z
       .object({ projectId, harness: z.enum(["codex", "claude"]), refresh: z.boolean().optional() })
@@ -106,6 +119,7 @@ export function createWorkspaceRequests<Context>(
         harness: z.enum(["codex", "claude"]),
         prompt: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
+        skillId: skillIdSchema.optional(),
         designIds: z.array(uuid).max(20),
         settings: harnessSettingsSchema.optional(),
       })
@@ -122,6 +136,7 @@ export function createWorkspaceRequests<Context>(
         messageId: uuid.optional(),
         text: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
+        skillId: skillIdSchema.optional(),
       })
       .strict(),
     (value) => service.sendMessage(value),
