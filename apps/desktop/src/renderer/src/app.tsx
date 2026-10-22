@@ -8,6 +8,7 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { LocalCanvas } from "./local-canvas";
+import { DesktopShell } from "./desktop-shell";
 import { Conversation } from "./conversation";
 import { ThreadSidebar, type ThreadOrderControls } from "./thread-sidebar";
 import { ApprovalRequests } from "./approval-requests";
@@ -994,12 +995,8 @@ export function App() {
   }, [api, designSnapshot, designNavigation, updateLocalDesign]);
 
   return (
-    <div className={`desktop ${mode === "design" && design ? "desktop-canvas-focused" : ""}`}>
-      <aside
-        className="desktop-navigation"
-        aria-label="Project workspace"
-        hidden={mode === "design" && Boolean(design)}
-      >
+    <DesktopShell canvasFocused={mode === "design" && Boolean(design)}>
+      <aside id="desktop-navigation" className="desktop-navigation" aria-label="Project workspace">
         <header className="workspace-header">
           <div className="project-picker" title={project?.name}>
             {project && (
@@ -1452,7 +1449,7 @@ export function App() {
           </>
         )}
       </main>
-    </div>
+    </DesktopShell>
   );
 }
 

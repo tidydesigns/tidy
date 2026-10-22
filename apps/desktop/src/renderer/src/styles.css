@@ -203,7 +203,10 @@ body {
   border-right: 1px solid var(--color-border);
   background: var(--desktop-navigation-surface);
 }
-.desktop-navigation[hidden] {
+.desktop-sidebar-hidden > .desktop-navigation {
+  display: none;
+}
+.desktop-titlebar {
   display: none;
 }
 
@@ -220,8 +223,6 @@ body {
   top: 0;
   left: 0;
   height: var(--desktop-titlebar-height);
-  app-region: drag;
-  user-select: none;
 }
 :root[data-titlebar="hidden"] .desktop::before {
   width: 100%;
@@ -231,6 +232,42 @@ body {
   width: var(--project-sidebar-width);
   border-right: 1px solid var(--color-border);
   background: var(--desktop-navigation-surface);
+}
+:root[data-titlebar="hidden"] .desktop-titlebar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  height: var(--desktop-titlebar-height);
+  padding-left: 88px;
+  app-region: drag;
+  user-select: none;
+}
+.desktop-sidebar-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  cursor: pointer;
+  app-region: no-drag;
+}
+.desktop-sidebar-toggle:hover {
+  background: var(--color-hover-surface);
+  border-color: var(--color-border);
+  color: var(--color-ink);
+}
+.desktop-sidebar-toggle:active {
+  transform: scale(0.97);
+}
+.desktop-sidebar-toggle:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
 }
 
 .sidebar-update {
@@ -336,11 +373,11 @@ body {
     transform: none;
   }
 }
-.desktop-canvas-focused {
+.desktop-sidebar-hidden {
   grid-template-columns: minmax(0, 1fr);
 }
-.desktop-canvas-focused > .workspace,
-.desktop-canvas-focused > .error-banner {
+.desktop-sidebar-hidden > .workspace,
+.desktop-sidebar-hidden > .error-banner {
   grid-column: 1;
 }
 .sidebar-mode-content:not([hidden]) {
@@ -448,10 +485,10 @@ body {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 7px;
-  flex: 1;
+  gap: 6px;
+  flex: 1 1 auto;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 7px 8px;
   border: 1px solid transparent;
   border-radius: 6px;
   color: var(--color-muted-ink);
@@ -460,6 +497,7 @@ body {
   font-size: 14px;
   font-weight: 500;
   line-height: 20px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
