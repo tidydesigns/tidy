@@ -1,7 +1,7 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "globalDependencies": ["LICENSE", "licenses/bundled/**", "scripts/bundle-licenses.ts"],
-  "globalPassThroughEnv": ["NODE_OPTIONS"],
+  "globalPassThroughEnv": ["NODE_OPTIONS", "TIDY_CLOUD_URL"],
   "globalEnv": [
     "DATABASE_URL",
     "BETTER_AUTH_URL",

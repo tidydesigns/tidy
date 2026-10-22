@@ -461,6 +461,32 @@ export class ProjectStore {
     return { assetId, url: dataUrl };
   }
 
+  /** Sync uses the same bounded local asset format, without changing portable design IDs. */
+  async readSyncAsset(projectId: string, assetId: string): Promise<string | undefined> {
+    try {
+      return z
+        .object({ dataUrl: z.string().max(3_000_000) })
+        .parse(await this.read(await this.storagePath(projectId, "assets", assetId))).dataUrl;
+    } catch (error) {
+      if (!missing(error)) throw error;
+    }
+  }
+
+  async cacheSyncAsset(projectId: string, assetId: string, dataUrl: string) {
+    if (
+      !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(dataUrl) ||
+      dataUrl.length > 3_000_000
+    )
+      throw new Error("Unsupported cloud image.");
+    const previous = await this.readSyncAsset(projectId, assetId);
+    if (previous !== undefined) {
+      if (previous !== dataUrl)
+        throw new Error("A local image has changed. Keep both copies to continue.");
+      return;
+    }
+    await this.atomicWrite(() => this.storagePath(projectId, "assets", assetId), { dataUrl });
+  }
+
   async designs(projectId: string) {
     const directory = await this.storagePath(projectId, "designs");
     const files = (await readdir(directory)).filter(

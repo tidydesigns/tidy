@@ -90,7 +90,7 @@ async function retainedGrant(source: StoredGrant): Promise<McpGrant> {
   };
   // Protocol scopes don't authorize product operations. Retain every requested
   // product scope, including Linear capabilities, through the provider writes.
-  const scopes = source.scopes.filter((scope) => /^(mcp|linear):/.test(scope));
+  const scopes = source.scopes.filter((scope) => /^(mcp|linear|desktop):/.test(scope));
   const grant = { claims, resource: source.resources[0], scopes };
   for (const resource of source.resources)
     await requireMcpGrant(db, { ...grant, resource }, source.userId);

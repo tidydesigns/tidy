@@ -1,3 +1,4 @@
+import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync";
 import { consumeMutationRateLimitPair } from "./auth/guard-client";
 import { windowChecks } from "./security/worker-budget";
 import { clientAdmissionPlugin } from "@/lib/auth/client-admission";
@@ -407,7 +408,17 @@ function createAuth() {
           "/api/mcp",
           process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
         ).toString(),
+        resources: [
+          {
+            identifier: desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+            allowedScopes: [DESKTOP_SYNC_SCOPE],
+          },
+        ],
+        clientRegistrationDefaultResources: [
+          desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+        ],
         scopes: [
+          DESKTOP_SYNC_SCOPE,
           "openid",
           "profile",
           "offline_access",

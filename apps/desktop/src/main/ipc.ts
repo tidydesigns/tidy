@@ -7,6 +7,58 @@ import { createWorkspaceRequests } from "./workspace-requests";
 import type { AppUpdates } from "./app-updates";
 import type { HarnessUpdates } from "./harness-updates";
 import { updatableHarnessIdSchema } from "../shared/harness-updates";
+import { z } from "zod";
+import {
+  cloudAccountSchema,
+  cloudFilesSchema,
+  cloudStateSchema,
+  type CloudAPI,
+} from "../shared/cloud-sync";
+
+/** Native cloud actions have their own main-frame boundary; no tokens cross IPC. */
+export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
+  const pair = z.tuple([z.uuid(), z.uuid()]);
+  const actions = {
+    state: { input: z.tuple([]), output: cloudStateSchema, run: () => cloud.state() },
+    "sign-in": { input: z.tuple([]), output: z.void(), run: () => cloud.signIn() },
+    "sign-out": { input: z.tuple([]), output: z.void(), run: () => cloud.signOut() },
+    account: { input: z.tuple([]), output: cloudAccountSchema, run: () => cloud.account() },
+    files: {
+      input: z.tuple([z.string().min(1).max(120)]),
+      output: cloudFilesSchema,
+      run: (...args: string[]) => cloud.files(args[0]),
+    },
+    open: {
+      input: z.tuple([z.uuid(), z.uuid(), z.string().min(1).max(120)]),
+      output: z.void(),
+      run: (...args: string[]) => cloud.open(args[0], args[1], args[2]),
+    },
+    disconnect: {
+      input: pair,
+      output: z.void(),
+      run: (...args: string[]) => cloud.disconnect(args[0], args[1]),
+    },
+    connect: {
+      input: z.tuple([z.uuid(), z.uuid(), z.string().min(1).max(120)]),
+      output: z.void(),
+      run: (...args: string[]) => cloud.connectLocal(args[0], args[1], args[2]),
+    },
+  };
+  for (const [name, action] of Object.entries(actions))
+    ipcMain.handle(`tidy:cloud-${name}`, async (event, ...args: unknown[]) => {
+      if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
+      const parsed = action.input.parse(args);
+      return action.output.parse(await action.run(...parsed));
+    });
+  return cloud.onState((state) => {
+    for (const window of BrowserWindow.getAllWindows())
+      if (
+        !window.isDestroyed() &&
+        trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
+      )
+        window.webContents.send("tidy:cloud-state", state);
+  });
+}
 
 /** Accept requests only from an app-owned window's main frame at the expected renderer URL. */
 function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {

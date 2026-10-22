@@ -113,6 +113,70 @@ describe.skipIf(!enabled)("local Postgres multiplayer commands", () => {
       "access denied",
     );
   });
+  test("desktop strict revisions reject stale edits but retain the original lost-ack receipt", async () => {
+    const desktopFile = crypto.randomUUID();
+    await client.query(
+      `insert into "designFile" ("id","organizationId","name","createdBy") values ($1,$2,'Desktop fixture',$3)`,
+      [desktopFile, organization, userA],
+    );
+    const before = { revision: 1, content: base() };
+    await client.query(
+      'insert into "designDocument" ("fileId","revision","content") values ($1,1,$2)',
+      [desktopFile, before.content],
+    );
+    try {
+      const after = {
+        ...before.content,
+        nodes: before.content.nodes.map((node) =>
+          node.id === "a" ? { ...node, name: "Desktop" } : node,
+        ),
+      };
+      const patch = diffDocument(before.content, after),
+        operation = crypto.randomUUID();
+      const strictCommit = (id = operation) =>
+        commitAtRevision(
+          userA,
+          desktopFile,
+          id,
+          before.revision,
+          patch,
+          false,
+          undefined,
+          undefined,
+          undefined,
+          undefined,
+          true,
+        );
+      const first = await strictCommit();
+      const newer = {
+        ...first.snapshot.content,
+        nodes: first.snapshot.content.nodes.map((node) =>
+          node.id === "b" ? { ...node, name: "Newer web edit" } : node,
+        ),
+      };
+      await commitAtRevision(
+        userB,
+        desktopFile,
+        crypto.randomUUID(),
+        first.snapshot.revision,
+        diffDocument(first.snapshot.content, newer),
+        false,
+      );
+      await expect(strictCommit(crypto.randomUUID())).rejects.toThrow("changed in the cloud");
+      const retry = await strictCommit();
+      expect(retry.committedRevision).toBe(first.committedRevision);
+      expect(retry.baseRevision).toBe(before.revision);
+      expect(retry.patch).toEqual(first.patch);
+      const current = (
+        await client.query('select "content" from "designDocument" where "fileId"=$1', [
+          desktopFile,
+        ])
+      ).rows[0];
+      expect(current.content.nodes.find((node) => node.id === "b").name).toBe("Newer web edit");
+    } finally {
+      await client.query('delete from "designFile" where "id"=$1', [desktopFile]);
+    }
+  });
   test("MCP activity routing requires current file membership and import ownership", async () => {
     const { resolveActivityScope } = await import("../mcp/activity-scope");
     expect(await resolveActivityScope(userA, { file_id: fileId, node_id: "a" })).toEqual({

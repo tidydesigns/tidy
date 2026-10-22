@@ -15,6 +15,58 @@ Design selected initially. Both views stay mounted while switching, and each pro
 retains its selected thread, design and composer drafts during the app session.
 The tabs support arrow keys, Home and End.
 
+## Optional cloud sync
+
+Open **Cloud sync** in the sidebar and choose **Sign in to Tidy**. Sign-in opens
+the system browser and requests a separate desktop authorization. Signing in does
+not upload any project. Choose a cloud workspace, then **Sync a local design…** to
+connect one design, or **Open locally** to download an existing cloud design.
+Both paths keep local `.tidy/designs/<id>.json` files and image caches available offline.
+Only explicitly connected designs sync; threads, attachments, repository files,
+local folders, and later name changes remain local in this first implementation.
+
+Local saves never await network requests. The main-process coordinator batches
+work over 250 ms with a one-second maximum wait, uses a separate worker for document
+comparisons, sends patches, and limits transfers to two designs at once. Images
+upload before patches and reuse the server's content-hash deduplication. Sync
+baselines, asset aliases, initial file-creation IDs and unacknowledged operations
+persist in private application data. Restart reconciliation also discovers edits
+made by agents while the app was closed. Local asset IDs represent immutable
+images; replacing an image requires a new asset ID, as editor uploads already do.
+
+Incoming changes currently use incremental catch-up every 15 seconds, with snapshot
+fallback when server patch history has expired. Transient failures retry with
+bounded backoff. Offline edits on both sides pause the connection and preserve both
+versions. **Keep both copies** leaves the original local design unconnected and
+opens a fresh connected cloud copy. **Disconnect** stops transfers and retains
+local files. Signing out stops account-bound transfers and removes local tokens;
+server revocation is attempted, and an offline sign-out cannot guarantee remote
+revocation until the server is reachable. Signing back into the same account
+resumes its bindings; another account or a copied project path cannot inherit them.
+
+Refresh tokens are protected using Electron `safeStorage`, outside projects and the
+renderer. Cloud login is unavailable when protected storage is unavailable,
+including Linux's `basic_text` fallback. Tokens have a dedicated `/api/desktop`
+audience and `desktop:sync` scope, and the API rechecks current OAuth consent,
+session, verified account and workspace membership. The existing database and R2
+services enforce document, asset, quota and role limits. No database credentials
+are shipped to desktop and no schema migration is needed for this increment.
+
+To test against a local or self-hosted web app running this branch:
+
+```sh
+TIDY_CLOUD_URL=http://localhost:3000 bun dev:desktop
+```
+
+The default service origin is `https://app.tidydesign.co`; self-hosted services must
+use HTTPS, with HTTP permitted for loopback development. The browser-only desktop
+development gateway does not expose native cloud credentials or login. Both web
+and desktop code must be running this implementation before cloud sync is usable.
+No deployment happens during development or tests.
+
+Live push notifications, project folder/name/deletion sync, automatic three-way
+merges and large-document latency measurements remain follow-up work.
+
 ## Projects and threads
 
 1. Open a project directory, or choose a recent project from the top-left picker.
@@ -24,7 +76,7 @@ The tabs support arrow keys, Home and End.
    the browser header. New files belong to the selected folder. File menus support
    renaming and moving. Documents use the same editor as web and persist edits
    immediately. Opening a canvas hides the project sidebar; Back restores the
-   previous folder. Web asset downloads are not yet an import path.
+   previous folder. Connected cloud files cache their images for offline use.
 3. In Code, choose Codex or Claude Code, optionally attach design references, and
    start a thread. The harness runs in the project root and receives the attached
    design file paths. Follow-up messages resume the locally bound native harness session.

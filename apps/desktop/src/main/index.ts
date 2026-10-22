@@ -1,10 +1,23 @@
 import { version } from "../../package.json";
-import { app, autoUpdater, BrowserWindow, nativeTheme, net, protocol, session } from "electron";
+import {
+  app,
+  autoUpdater,
+  BrowserWindow,
+  nativeTheme,
+  net,
+  protocol,
+  session,
+  safeStorage,
+  shell,
+} from "electron";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
-import { registerHarnessUpdateIPC, registerUpdateIPC, registerWorkspaceIPC } from "./ipc";
+import { registerHarnessUpdateIPC, registerCloudIPC, registerUpdateIPC, registerWorkspaceIPC } from "./ipc";
+import { CloudAuth } from "./cloud-auth";
+import { CloudService } from "./cloud-service";
+import { PrivateState } from "./private-state";
 import { AppUpdates } from "./app-updates";
 import { HarnessUpdates } from "./harness-updates";
 import { invalidateHarnessDetails } from "./harness-details";
@@ -24,6 +37,7 @@ let service: WorkspaceService | undefined;
 let quitting: symbol | "quit" | undefined;
 let updates: AppUpdates | undefined;
 let harnessUpdates: HarnessUpdates | undefined;
+let cloud: CloudService | undefined;
 const appIcon = app.isPackaged
   ? process.platform === "linux"
     ? join(app.getAppPath(), "icon.png")
@@ -104,6 +118,24 @@ app
     app.on("browser-window-focus", () => {
       void harnessUpdates?.check();
     });
+    const privateState = new PrivateState(join(app.getPath("userData"), "cloud-sync"));
+    const auth = new CloudAuth(
+      process.env.TIDY_CLOUD_URL ?? "https://app.tidydesign.co",
+      privateState,
+      {
+        available: () =>
+          safeStorage.isEncryptionAvailable() &&
+          (process.platform !== "linux" ||
+            safeStorage.getSelectedStorageBackend() !== "basic_text"),
+        encrypt: (value) => safeStorage.encryptString(value),
+        decrypt: (value) => safeStorage.decryptString(value),
+      },
+      (url) => shell.openExternal(url),
+    );
+    cloud = new CloudService(auth, service, privateState);
+    registerCloudIPC(cloud, entryURL);
+    // Do not put credential reads, catch-up, or network access on the first-paint path.
+    void cloud.initialize();
     updates = new AppUpdates({
       supported: app.isPackaged && process.platform === "darwin" && process.arch === "arm64",
       version,
@@ -174,5 +206,5 @@ app.on("before-quit", (event) => {
   if (quitting || !service) return;
   event.preventDefault();
   quitting = "quit";
-  void Promise.all([service.close(), harnessUpdates?.close()]).finally(() => app.quit());
+  void Promise.allSettled([service.close(), harnessUpdates?.close(), cloud?.close()]).finally(() => app.quit());
 });

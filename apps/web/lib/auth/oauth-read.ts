@@ -160,7 +160,7 @@ async function retainToken(
           ? await authorizationVersion(userId, clientId)
           : claims.bella_grant_version,
       },
-      scopes: scopes.filter((scope) => /^(mcp|linear):/.test(scope)),
+      scopes: scopes.filter((scope) => /^(mcp|linear|desktop):/.test(scope)),
       resource: resources[0],
     };
     try {

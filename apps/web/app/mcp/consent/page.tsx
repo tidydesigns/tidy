@@ -1,3 +1,4 @@
+import { DESKTOP_SYNC_SCOPE } from "@tidy/design/cloud-sync";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -41,13 +42,21 @@ export default async function McpConsentPage({ searchParams }: PageProps<"/mcp/c
 
   return (
     <AuthShell
-      title="Connect a coding agent"
+      title={
+        scopes.includes(DESKTOP_SYNC_SCOPE) ? "Connect a desktop app" : "Connect a coding agent"
+      }
       description={`${client.client_name ?? "This agent"} is requesting access to your Tidy account.`}
     >
       <p data-ph-public className="mt-8 text-sm text-primary-black/70">
-        This agent can:
+        This connection can:
       </p>
       <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-primary-black/80">
+        {scopes.includes(DESKTOP_SYNC_SCOPE) && (
+          <li data-ph-public>
+            Read your workspaces and sync designs you choose to connect, including their images.
+            Local projects stay on your computer until you choose to connect them.
+          </li>
+        )}
         {scopes.includes("mcp:read") && (
           <li data-ph-public>Read organizations and design files you can access.</li>
         )}

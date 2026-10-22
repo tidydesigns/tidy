@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./cloud-sync": "./cloud-sync.ts",
     "./token-schema": "./token-schema.ts",
     "./design-tokens": "./design-tokens.ts",
     "./document": "./document.ts",

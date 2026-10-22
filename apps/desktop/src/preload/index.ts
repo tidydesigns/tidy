@@ -8,6 +8,7 @@ import { desktopEventSchema } from "../shared/contracts";
 import type { DesktopAPI } from "../shared/contracts";
 import { appUpdateStateSchema } from "../shared/app-updates";
 import { harnessUpdatesSchema } from "../shared/harness-updates";
+import { cloudAccountSchema, cloudFilesSchema, cloudStateSchema } from "../shared/cloud-sync";
 
 /** Invoke a workspace operation and validate its response before crossing the preload boundary. */
 async function request<Name extends WorkspaceOperation>(
@@ -43,6 +44,34 @@ const api: DesktopAPI = {
     return () => {
       ipcRenderer.removeListener("tidy:harness-updates", receive);
     };
+  },
+  cloud: {
+    state: async () => cloudStateSchema.parse(await ipcRenderer.invoke("tidy:cloud-state")),
+    signIn: async () => {
+      await ipcRenderer.invoke("tidy:cloud-sign-in");
+    },
+    signOut: async () => {
+      await ipcRenderer.invoke("tidy:cloud-sign-out");
+    },
+    account: async () => cloudAccountSchema.parse(await ipcRenderer.invoke("tidy:cloud-account")),
+    files: async (id) => cloudFilesSchema.parse(await ipcRenderer.invoke("tidy:cloud-files", id)),
+    open: async (projectId, fileId, name) => {
+      await ipcRenderer.invoke("tidy:cloud-open", projectId, fileId, name);
+    },
+    disconnect: async (projectId, designId) => {
+      await ipcRenderer.invoke("tidy:cloud-disconnect", projectId, designId);
+    },
+    connectLocal: async (projectId, designId, organizationId) => {
+      await ipcRenderer.invoke("tidy:cloud-connect", projectId, designId, organizationId);
+    },
+    onState(listener) {
+      const receive = (_event: Electron.IpcRendererEvent, value: unknown) =>
+        listener(cloudStateSchema.parse(value));
+      ipcRenderer.on("tidy:cloud-state", receive);
+      return () => {
+        ipcRenderer.removeListener("tidy:cloud-state", receive);
+      };
+    },
   },
   updateState: async () =>
     appUpdateStateSchema.parse(await ipcRenderer.invoke("tidy:update-state")),

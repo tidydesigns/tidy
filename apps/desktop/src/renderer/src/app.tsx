@@ -28,6 +28,7 @@ import { MessageActionIcon } from "./message-action-icon";
 import { useMessageQueue } from "./use-message-queue";
 import { MAX_QUEUED_MESSAGES, type MessageDelivery } from "../../shared/message-queue";
 import { AppUpdate } from "./app-update";
+import { CloudConnection } from "./cloud-connection";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
@@ -1072,6 +1073,11 @@ export function App() {
             />
           </>
         )}
+        <CloudConnection
+          api={api?.cloud}
+          projectId={project?.id}
+          designs={snapshot?.designs ?? []}
+        />
         <AppUpdate api={api} />
       </aside>
       <main className="workspace">

@@ -2,6 +2,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { bundleLicenseBannerForInputs } from "../../scripts/bundle-licenses";
 import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath } from "node:url";
 
 const licenceBanner = (chunk: { modules: Record<string, unknown> }) =>
   bundleLicenseBannerForInputs(Object.keys(chunk.modules));
@@ -39,7 +40,15 @@ export default defineConfig({
   main: {
     build: {
       externalizeDeps: false,
-      rolldownOptions: { output: { banner: licenceBanner } },
+      rolldownOptions: {
+        input: {
+          index: fileURLToPath(new URL("./src/main/index.ts", import.meta.url)),
+          "cloud-compute-worker": fileURLToPath(
+            new URL("./src/main/cloud-compute-worker.ts", import.meta.url),
+          ),
+        },
+        output: { banner: licenceBanner },
+      },
     },
   },
   preload: {

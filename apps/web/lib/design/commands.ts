@@ -15,6 +15,12 @@ import { designNodeChangesSchema, parseDesignDocument } from "./document";
 import type { DesignDocument } from "./document";
 import { publishFileChangesInBackground } from "@/lib/realtime/server";
 
+export class DocumentRevisionConflict extends Error {
+  constructor() {
+    super("This design changed in the cloud. Synchronize before applying this edit.");
+  }
+}
+
 export async function commitDocumentPatch(
   userId: string,
   fileId: string,
@@ -26,6 +32,7 @@ export async function commitDocumentPatch(
   expectedSequence?: number,
   allowedSequences?: number[],
   restore?: { versionId: string; expectedRevision: number },
+  strictRevision = false,
 ) {
   if (!Number.isSafeInteger(requestRevision) || requestRevision < 0 || requestRevision > 2147483647)
     throw new Error("A valid base revision is required.");
@@ -54,6 +61,7 @@ export async function commitDocumentPatch(
         expectedSequence,
         allowedSequences,
         restore,
+        ...(strictRevision ? { strictRevision: true } : {}),
       }),
     )
     .digest("hex");
@@ -110,6 +118,9 @@ export async function commitDocumentPatch(
         committedRevision: prior.rows[0].revision,
       };
     }
+    // Receipts take precedence: a lost response must be retryable after newer edits.
+    if (strictRevision && requestRevision !== current.revision)
+      throw new DocumentRevisionConflict();
     if (conditional) {
       if (expectedSequence === undefined)
         throw new Error("Undo requires the original edit version.");

@@ -19,6 +19,8 @@ const { blankDesignDocument } = await import("../design/document");
 const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
 const { linearReadFixture } = await import("./linear-read-fixture.ts");
 const { renameDesignFileForUser } = await import("../design/service");
+const { GET: desktopGet, POST: desktopPost } =
+  await import("../../app/api/desktop/[...path]/route");
 const { MCP_REQUEST_LIMITS } = await import("../security/resource-limits");
 const { withoutDatabaseScope, inDatabaseScope, scopedDatabaseClient } =
   await import("../database-scope");
@@ -793,6 +795,130 @@ integration("Consent captured before revocation cannot restore the ended grant",
 function consentCode(response) {
   return response.json().then((body) => new URL(body.url).searchParams.get("code"));
 }
+integration(
+  "Desktop browser PKCE login, scoped sync, creation retry, refresh and revocation",
+  async () => {
+    const desktop = "http://localhost:3000/api/desktop";
+    const register = await auth.handler(
+      new Request("http://localhost:3000/api/auth/oauth2/register", {
+        method: "POST",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: "Tidy desktop",
+          application_type: "native",
+          redirect_uris: ["http://127.0.0.1:4319/callback"],
+          token_endpoint_auth_method: "none",
+          grant_types: ["authorization_code", "refresh_token"],
+          response_types: ["code"],
+          scope: "desktop:sync offline_access",
+        }),
+      }),
+    );
+    const registration = await register.json();
+    expect(register.status).toBe(201);
+    expect(typeof registration.client_id).toBe("string");
+    expect(
+      (
+        await admin.query('select "clientId" from "oauthClient" where "clientId"=$1', [
+          registration.client_id,
+        ])
+      ).rows,
+    ).toEqual([{ clientId: registration.client_id }]);
+    const query = new URLSearchParams({
+      client_id: registration.client_id,
+      response_type: "code",
+      redirect_uri: "http://127.0.0.1:4319/callback",
+      resource: desktop,
+      scope: "desktop:sync offline_access",
+      code_challenge: createHash("sha256").update(verifier).digest("base64url"),
+      code_challenge_method: "S256",
+      state: "native-state",
+    });
+    const authorize = await auth.handler(
+      new Request(`http://localhost:3000/api/auth/oauth2/authorize?${query}`, {
+        headers: await sessionHeaders(),
+      }),
+    );
+    const location = authorize.headers.get("location");
+    expect({ status: authorize.status, body: location ?? (await authorize.text()) }).toMatchObject({
+      status: 302,
+      body: expect.stringContaining("/mcp/consent"),
+    });
+    const consentQuery = new URL(location, desktop).searchParams.toString();
+    const binding = await createConsentApproval(
+      "alice",
+      "session-a",
+      consentQuery,
+      process.env.BETTER_AUTH_SECRET,
+    );
+    const code = await consentCode(await approveConsent({ query: consentQuery, binding }));
+    const tokenRequest = (body) =>
+      auth.handler(
+        new Request("http://localhost:3000/api/auth/oauth2/token", {
+          method: "POST",
+          headers: { ...authHeaders(), "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            client_id: registration.client_id,
+            resource: desktop,
+            ...body,
+          }),
+        }),
+      );
+    const exchange = await tokenRequest({
+      grant_type: "authorization_code",
+      code,
+      code_verifier: verifier,
+      redirect_uri: "http://127.0.0.1:4319/callback",
+    });
+    const tokens = await exchange.json();
+    expect(exchange.status).toBe(200);
+    expect(typeof tokens.access_token).toBe("string");
+    expect(typeof tokens.refresh_token).toBe("string");
+    const call = (path, token = tokens.access_token, body) =>
+      (body ? desktopPost : desktopGet)(
+        new Request(`${desktop}/${path}`, {
+          method: body ? "POST" : "GET",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          ...(body ? { body: JSON.stringify(body) } : {}),
+        }),
+      );
+    const account = await call("account");
+    expect(account.status).toBe(200);
+    expect((await account.json()).id).toBe("alice");
+    expect(
+      (await desktopGet(new Request(`${desktop}/account`, { headers: await sessionHeaders() })))
+        .status,
+    ).toBe(401);
+    const agent = await issuedTokens();
+    expect((await call("account", agent.access_token)).status).toBe(401);
+    const fileId = crypto.randomUUID();
+    expect(
+      (await call("organizations/org-a/files", undefined, { id: fileId, name: "From desktop" }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call("organizations/org-a/files", undefined, { id: fileId, name: "From desktop" }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await admin.query('select count(*)::int as n from "designFile" where "id"=$1', [fileId]))
+        .rows[0].n,
+    ).toBe(1);
+    const file = await call(`files/${fileId}`);
+    expect(file.status).toBe(200);
+    expect((await file.json()).snapshot.revision).toBe(1);
+    const refreshed = await tokenRequest({
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+    });
+    const next = await refreshed.json();
+    expect(refreshed.status).toBe(200);
+    expect(typeof next.access_token).toBe("string");
+    expect((await call("account", next.access_token)).status).toBe(200);
+    await revokeMcpAuthorization("alice", registration.client_id);
+    expect((await call("account", next.access_token)).status).toBe(401);
+  },
+);
 integration(
   "Consent approves the displayed grant once, fences old tokens and preserves other clients",
   async () => {
@@ -1848,6 +1974,7 @@ beforeEach(async () => {
   fixtureIp++;
   await admin.query(`truncate "user","organization","oauthClient" cascade; truncate "verification";
     update "billingDeployment" set "selfHosted"=false;
+    update "oauthResource" set "disabled"=false;
     update "oauthResource" set "disabled"=false,"allowedScopes"=null where "identifier"='${resource}';
     insert into "user" ("id","name","email","emailVerified") values ('alice','Alice','alice@example.test',true),('bob','Bob','bob@example.test',true);
     insert into "session" ("id","token","userId","expiresAt","updatedAt") values ('session-a','token-a','alice',now()+interval '1 day',now()),('session-b','token-b','bob',now()+interval '1 day',now());
