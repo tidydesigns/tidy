@@ -85,7 +85,8 @@ Cmd/Ctrl+Shift+Enter sends the oldest queued message into the active turn withou
 
 The collapsed queue above the composer shows the waiting message count. Expand it
 to edit, reorder, remove, or send individual messages immediately. Drag a message by its grip
-to reorder it, or focus the grip and use the up/down arrow keys.
+to reorder it, focus the grip and use the up/down arrow keys, or click its grip
+and then another message's grip to move it there. Escape cancels a selected grip.
 Edits apply on Enter or leaving
 the field; Escape cancels. If a message starts while being edited, unfinished
 changes return to the composer. Up to 20 follow-ups, including attachments, can

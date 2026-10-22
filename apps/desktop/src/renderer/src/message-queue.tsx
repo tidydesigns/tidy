@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { MessageActionIcon } from "./message-action-icon";
-import type { QueueAction, QueuedMessage } from "../../shared/message-queue";
+import { applyQueueAction, type QueueAction, type QueuedMessage } from "../../shared/message-queue";
 
 export function MessageQueue({
   messages,
@@ -19,10 +19,30 @@ export function MessageQueue({
 }) {
   const [expanded, setExpanded] = useState(false);
   const [drag, setDrag] = useState<{ messageId: string; beforeId: string | null } | null>(null);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [announcement, setAnnouncement] = useState("");
   const listId = useId();
+  const helpId = useId();
+  function change(action: QueueAction) {
+    if (action.kind === "move") {
+      setPicked(null);
+      const next = applyQueueAction(messages, action);
+      setAnnouncement(
+        `Message moved to position ${next.findIndex((item) => item.id === action.messageId) + 1} of ${next.length}.`,
+      );
+    }
+    onChange(action);
+  }
   if (!messages.length) return null;
   return (
     <section className="message-queue" aria-label="Message queue">
+      <span id={helpId} className="sr-only">
+        Drag to reorder, use the up and down arrow keys, or click this grip and then another grip to
+        move. Escape cancels selection.
+      </span>
+      <span className="sr-only" role="status">
+        {announcement}
+      </span>
       <div className="queue-heading">
         <Button
           type="button"
@@ -70,7 +90,7 @@ export function MessageQueue({
             messages.some((message) => message.id === drag.messageId) &&
             (drag.beforeId === null || messages.some((message) => message.id === drag.beforeId))
           )
-            onChange({ kind: "move", ...drag });
+            change({ kind: "move", ...drag });
         }}
         onDragLeave={(event) => {
           if (
@@ -87,16 +107,38 @@ export function MessageQueue({
             message={message}
             index={index}
             running={running}
-            onChange={onChange}
+            onChange={change}
             onRecover={onRecover}
             onMove={(direction) =>
-              onChange({
+              change({
                 kind: "move",
                 messageId: message.id,
                 beforeId: messages[index + (direction === -1 ? -1 : 2)]?.id ?? null,
               })
             }
             first={index === 0}
+            helpId={helpId}
+            picked={picked === message.id}
+            onPick={() => {
+              const source = messages.findIndex((item) => item.id === picked);
+              if (source < 0) {
+                setPicked(message.id);
+                setAnnouncement(`Message ${index + 1} selected. Click another grip to place it.`);
+              } else {
+                if (picked !== message.id)
+                  change({
+                    kind: "move",
+                    messageId: messages[source].id,
+                    beforeId: messages[index + (source < index ? 1 : 0)]?.id ?? null,
+                  });
+                else setAnnouncement("Reordering cancelled.");
+                setPicked(null);
+              }
+            }}
+            onCancelPick={() => {
+              setPicked(null);
+              setAnnouncement("Reordering cancelled.");
+            }}
             last={index === messages.length - 1}
             dragging={drag?.messageId === message.id}
             dropPosition={
@@ -108,7 +150,10 @@ export function MessageQueue({
                     : undefined
                 : undefined
             }
-            onDragStart={() => setDrag({ messageId: message.id, beforeId: message.id })}
+            onDragStart={() => {
+              setPicked(null);
+              setDrag({ messageId: message.id, beforeId: message.id });
+            }}
             onDragEnd={() => setDrag(null)}
             onDragOver={(after) => {
               if (!drag) return;
@@ -144,6 +189,10 @@ function QueueRow({
   onDragEnd,
   onDragOver,
   canDrop,
+  helpId,
+  picked,
+  onPick,
+  onCancelPick,
 }: {
   message: QueuedMessage;
   index: number;
@@ -159,11 +208,22 @@ function QueueRow({
   onDragEnd(): void;
   onDragOver(after: boolean): void;
   canDrop: boolean;
+  helpId: string;
+  picked: boolean;
+  onPick(): void;
+  onCancelPick(): void;
 }) {
   const [editing, setEditing] = useState(false);
   const [text, setText] = useState(message.text);
   const cancelled = useRef(false);
   const editButton = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
+  useEffect(() => {
+    if (!editing && restoreFocus.current) {
+      restoreFocus.current = false;
+      editButton.current?.focus();
+    }
+  }, [editing]);
   const recovery = useRef<(() => void) | undefined>(undefined);
   recovery.current =
     editing && text !== message.text ? () => onRecover({ ...message, text }) : undefined;
@@ -178,6 +238,14 @@ function QueueRow({
     setEditing(false);
     if (!cancelled.current && text !== message.text && (text.trim() || message.attachments?.length))
       onChange({ kind: "edit", messageId: message.id, text });
+  }
+  function focusAfterRemoval(button: HTMLButtonElement) {
+    const row = button.closest("li");
+    const next =
+      row?.nextElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
+      row?.previousElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
+      button.closest("section")?.nextElementSibling?.querySelector<HTMLTextAreaElement>("textarea");
+    next?.focus();
   }
   return (
     <li
@@ -198,7 +266,10 @@ function QueueRow({
         draggable={!editing}
         disabled={editing || (first && last)}
         aria-label={`Reorder queued message ${index + 1}`}
-        title="Drag to reorder, or use the arrow keys"
+        aria-describedby={helpId}
+        aria-pressed={picked}
+        title="Drag to reorder, or click two grips to move"
+        onClick={onPick}
         onDragStart={(event) => {
           event.dataTransfer.setData("application/x-tidy-queued-message", message.id);
           event.dataTransfer.effectAllowed = "move";
@@ -206,6 +277,7 @@ function QueueRow({
         }}
         onDragEnd={onDragEnd}
         onKeyDown={(event) => {
+          if (event.key === "Escape") onCancelPick();
           if (event.key === "ArrowUp" || event.key === "ArrowDown") {
             event.preventDefault();
             if (event.key === "ArrowUp" && !first) onMove(-1);
@@ -237,12 +309,12 @@ function QueueRow({
               if (event.key === "Escape") {
                 event.preventDefault();
                 cancelled.current = true;
+                restoreFocus.current = true;
                 setEditing(false);
-                editButton.current?.focus();
               } else if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
+                restoreFocus.current = true;
                 event.currentTarget.blur();
-                editButton.current?.focus();
               }
             }}
           />
@@ -289,7 +361,10 @@ function QueueRow({
           className="quiet-button queue-steer"
           title={running ? "Use this instruction in the active turn" : "Send this message now"}
           aria-label={`Send queued message ${index + 1} now`}
-          onClick={() => onChange({ kind: "steer", messageId: message.id })}
+          onClick={(event) => {
+            focusAfterRemoval(event.currentTarget);
+            onChange({ kind: "steer", messageId: message.id });
+          }}
         >
           <MessageActionIcon action="steer" />
           Send now
@@ -299,8 +374,9 @@ function QueueRow({
           className="queue-icon"
           title="Remove message"
           aria-label={`Remove queued message ${index + 1}`}
-          onClick={() => {
+          onClick={(event) => {
             cancelled.current = true;
+            focusAfterRemoval(event.currentTarget);
             onChange({ kind: "remove", messageId: message.id });
           }}
         >
