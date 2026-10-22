@@ -117,7 +117,10 @@ export function ColorPickerPopover({
     )
       return;
     if (sampler?.picking) {
-      if (event.target instanceof Element && event.target.closest('[aria-label="Design canvas"]'))
+      if (
+        event.target instanceof Element &&
+        event.target.closest('[aria-label="Design canvas"], [data-canvas-color-picker-control]')
+      )
         return;
       sampler.cancel(false);
     }

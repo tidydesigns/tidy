@@ -526,16 +526,22 @@ test("sampling rendered gradient colours updates the selected text and open pick
   );
 });
 
-test("sampling can be toggled off, replaced by a field edit, or closed without leaking a selection", async ({
+test("sampling can be cancelled, toggled off, replaced by a field edit, or closed without leaking a selection", async ({
   page,
 }) => {
   await page.goto("/dev/import-preview?edit=1");
   await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
-  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+  const anchor = page.getByRole("button", { name: "Open text color palette", exact: true });
+  await anchor.click();
   const picker = page.getByRole("dialog", { name: "Colour picker", exact: true });
   const toggle = picker.getByRole("button", { name: "Pick from canvas", exact: true });
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(picker).toBeVisible();
+  await expect(anchor).toBeFocused();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await toggle.click();
   await toggle.click();
   await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
   await toggle.click();
