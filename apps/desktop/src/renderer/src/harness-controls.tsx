@@ -254,9 +254,13 @@ export function HarnessControls({
             <div className="usage-window" key={index}>
               <div>
                 <span>{window.name}</span>
-                <span>{Math.round(window.usedPercent)}% used</span>
+                <span>{Math.round(100 - window.usedPercent)}% left</span>
               </div>
-              <progress value={window.usedPercent} max={100} aria-label={`${window.name} usage`} />
+              <progress
+                value={100 - window.usedPercent}
+                max={100}
+                aria-label={`${window.name} remaining`}
+              />
               {window.resetsAt && (
                 <small>
                   Resets{" "}
