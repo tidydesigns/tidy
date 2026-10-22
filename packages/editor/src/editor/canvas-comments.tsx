@@ -402,6 +402,7 @@ export const CanvasComments = forwardRef<
   const latestReadVersion = useCallback(() => refreshVersion.current, []);
   const loadedPages = useRef(1);
   const focusedThread = useRef<string | null>(null);
+  const reopenedThread = useRef<string | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   useEffect(() => {
@@ -409,6 +410,7 @@ export const CanvasComments = forwardRef<
   }, [activeId]);
   useEffect(() => {
     loadedPages.current = 1;
+    reopenedThread.current = null;
   }, [fileId, pageId]);
 
   const refresh = useCallback(
@@ -433,6 +435,7 @@ export const CanvasComments = forwardRef<
             message: "Could not load comments.",
           });
         };
+        const reopened = reopenedThread.current;
         const selected = ensureThreadId ?? focusedThread.current;
         // The list and focused thread are independent reads; do not make posting wait for both in sequence.
         const [firstPage, detail] = await Promise.all([
@@ -449,6 +452,10 @@ export const CanvasComments = forwardRef<
           if (!cursor) break;
         }
         if (detail) pages.push(detail.threads);
+        if (reopened && !pages.some((page) => page.some((thread) => thread.id === reopened))) {
+          const restored = await read(new URLSearchParams({ pageId, threadId: reopened }));
+          pages.push(restored.threads);
+        }
         if (!result || version !== refreshVersion.current) return;
         const mutation = mutationRef.current;
         const merged = mergeCommentPages(pages);
@@ -816,6 +823,7 @@ export const CanvasComments = forwardRef<
     )
       return;
     setResolvedNotice(null);
+    reopenedThread.current = thread.id;
     if (mutation?.resolved === true) {
       mutation.undoRequested = true;
       mutation.resolved = false;
