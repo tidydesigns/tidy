@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ProjectStore } from "./project-store";
@@ -267,6 +267,13 @@ test("queue ownership, duplicate IDs, limits and empty edits are enforced", asyn
     }),
   ).rejects.toThrow("another project");
   await expect(
+    service.updateMessageQueue({
+      projectId: randomUUID(),
+      threadId: thread.id,
+      action: { kind: "steer", messageId: message.id },
+    }),
+  ).rejects.toThrow("another project");
+  await expect(
     service.sendMessage({
       projectId: project.id,
       threadId: thread.id,
@@ -371,4 +378,59 @@ test("streaming patches do not resend queued message bodies", async () => {
   unsubscribe();
   expect(event).not.toContain("queued text");
   expect(event).toContain('"queuedMessageCount":1');
+});
+
+test("Stop cancels a queued send-now request waiting behind persistence", async () => {
+  const { enqueue, service, store, project, thread, runs, read, action, waitForStatus } =
+    await fixture();
+  await service.stopThread(project.id, thread.id);
+  await waitForStatus("stopped");
+  const state = await enqueue("Keep waiting");
+  const message = state.queuedMessages?.[0];
+  if (!message) throw new Error("Expected the queued message");
+  const admitted = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const write = store.writeThread.bind(store);
+  let blocked = false;
+  store.writeThread = async (value) => {
+    if (!blocked) {
+      blocked = true;
+      admitted.resolve();
+      await release.promise;
+    }
+    return write(value);
+  };
+  const editing = action({ kind: "edit", messageId: message.id, text: "Updated instruction" });
+  await admitted.promise;
+  const sending = action({ kind: "steer", messageId: message.id });
+  await service.stopThread(project.id, thread.id);
+  release.resolve();
+  await Promise.all([editing, sending]);
+  expect(runs).toHaveLength(1);
+  expect((await read()).queuedMessages?.map((item) => item.text)).toEqual(["Updated instruction"]);
+});
+
+test("delivery rejects an attachment changed after enqueue and retains the message", async () => {
+  const { service, store, project, thread, runs, action, read } = await fixture(true);
+  const attachment = await store.addAttachment(
+    project.id,
+    "notes.txt",
+    "data:text/plain;base64,bm90ZXM=",
+  );
+  const state = await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Read these notes",
+    attachmentIds: [attachment.id],
+    delivery: "queue",
+  });
+  const message = state.queuedMessages?.[0];
+  if (!message) throw new Error("Expected the queued message");
+  const file = await store.resolveAttachment(project.id, attachment.id);
+  await writeFile(file.path, "changed attachment");
+  const result = await action({ kind: "steer", messageId: message.id });
+  expect(result.queueError).toContain("changed on disk");
+  expect((await read()).queuedMessages?.[0]?.id).toBe(message.id);
+  expect(runs).toHaveLength(1);
+  expect(runs[0].steers).toHaveLength(0);
 });

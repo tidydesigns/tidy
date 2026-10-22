@@ -1115,7 +1115,7 @@ export function App() {
                 ) : null}
                 {thread && (
                   <MessageQueue
-                    key={thread.id}
+                    key={`queue:${thread.id}`}
                     messages={queue.messages}
                     running={running}
                     error={thread.queueError}

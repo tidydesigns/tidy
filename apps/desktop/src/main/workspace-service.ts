@@ -303,13 +303,18 @@ export class WorkspaceService {
   }
 
   updateMessageQueue(input: QueueRequest) {
+    const stopVersion = this.stopVersions.get(input.threadId) ?? 0;
     return this.serialize(input.threadId, async () => {
       const thread = await this.mutableThread(input.projectId, input.threadId);
       const queue = thread.queuedMessages ?? [];
       const action = input.action;
       const message = queue.find((item) => item.id === action.messageId);
       if (!message) throw new Error("This message has already left the queue.");
-      if (action.kind === "steer") return this.deliverQueued(thread, message, true);
+      if (action.kind === "steer") {
+        if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+          return structuredClone(thread);
+        return this.deliverQueued(thread, message, true);
+      }
       if (action.kind === "edit" && !action.text.trim() && !message.attachments?.length)
         throw new Error("Write a message or attach a file.");
       if (
