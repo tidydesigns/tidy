@@ -225,7 +225,11 @@ export function App() {
         setSkillCatalog({ key: detailKey, skills: catalog.skills, status: "ready" });
     } catch {
       if (request === skillRequest.current)
-        setSkillCatalog({ key: detailKey, skills: [], status: "error" });
+        setSkillCatalog((current) => ({
+          key: detailKey,
+          skills: current.key === detailKey ? current.skills : [],
+          status: "error",
+        }));
     }
   }
   useEffect(() => {
