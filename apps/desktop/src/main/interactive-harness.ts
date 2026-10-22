@@ -104,8 +104,12 @@ export function startInteractiveHarness(input: {
     codexEvent = createCodexEvents(emit);
   function write(value: unknown) {
     if (closed || child.stdin.destroyed || !child.stdin.writable) return false;
-    child.stdin.write(JSON.stringify(value) + "\n");
-    return true;
+    try {
+      child.stdin.write(JSON.stringify(value) + "\n");
+      return true;
+    } catch {
+      return false;
+    }
   }
   function signal(value: NodeJS.Signals) {
     try {
@@ -158,6 +162,8 @@ export function startInteractiveHarness(input: {
       ) {
         clearTimeout(timer);
         waiting.delete(String(id));
+        if (codex && method === "turn/start" && deliveryState === "unknown")
+          deliveryState = "not-submitted";
         reject(new Error("The harness connection closed."));
       }
     });
@@ -519,21 +525,26 @@ export function startInteractiveHarness(input: {
       await request("initialize", {});
       if (stopped || closed) return;
       deliveryState = "unknown";
-      write({
-        type: "user",
-        session_id: input.sessionId ?? "",
-        parent_tool_use_id: null,
-        message: {
-          role: "user",
-          content: [
-            { type: "text", text: input.prompt },
-            ...(input.images ?? []).map((image) => ({
-              type: "image",
-              source: { type: "base64", media_type: image.mimeType, data: image.data },
-            })),
-          ],
-        },
-      });
+      if (
+        !write({
+          type: "user",
+          session_id: input.sessionId ?? "",
+          parent_tool_use_id: null,
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: input.prompt },
+              ...(input.images ?? []).map((image) => ({
+                type: "image",
+                source: { type: "base64", media_type: image.mimeType, data: image.data },
+              })),
+            ],
+          },
+        })
+      ) {
+        deliveryState = "not-submitted";
+        throw new Error("The harness connection closed.");
+      }
     }
   })().catch((error: unknown) => {
     if (!stopped && !closed && !completed) {

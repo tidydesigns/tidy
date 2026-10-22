@@ -1,5 +1,6 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import * as childProcess from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startHarness, type HarnessUpdate } from "./harnesses";
@@ -105,5 +106,59 @@ for await (const line of createInterface({ input: process.stdin })) {
     });
     await expect(run.done).rejects.toThrow("Startup rejected");
     expect(run.deliveryState).toBe(method === "turn/start" ? "rejected" : "not-submitted");
+  },
+);
+
+test.each([
+  ["codex", true],
+  ["claude", true],
+  ["codex", false],
+  ["claude", false],
+] as const)(
+  "input pipe failure for %s before submission: %s",
+  async (harness, beforeSubmission) => {
+    const cwd = await mkdtemp(join(tmpdir(), "tidy-closed-input-"));
+    cleanups.push(() => rm(cwd, { recursive: true, force: true }));
+    const executable = join(cwd, "agent");
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+for await (const line of createInterface({ input: process.stdin })) {
+  const value = JSON.parse(line);
+  if (value.method === 'initialize') send({ id: value.id, result: {} });
+  else if (value.method === 'thread/start') send({ id: value.id, result: { thread: { id: 'b56ba7bb-00aa-4a56-a64c-593c3c377dcc' } } });
+  else if (value.method === 'turn/start' || value.type === 'user') process.exit(1);
+  else if (value.type === 'control_request') send({ type: 'control_response', response: { subtype: 'success', request_id: value.request_id, response: {} } });
+}
+`,
+    );
+    await chmod(executable, 0o700);
+    const spawning = spyOn(childProcess, "spawn");
+    cleanups.push(async () => {
+      spawning.mockRestore();
+    });
+    const run = startHarness({
+      harness,
+      executable,
+      cwd,
+      prompt: "Keep this instruction",
+      onUpdate(update) {
+        if (beforeSubmission && harness === "codex" && update.type === "session")
+          child.stdin?.destroy();
+      },
+    });
+    const result = spawning.mock.results[0];
+    if (result.type !== "return") throw new Error("Expected a real child process");
+    const child = result.value;
+    if (beforeSubmission && harness === "claude")
+      child.stdout?.prependOnceListener("data", () => process?.stdin?.destroy());
+    cleanups.push(async () => {
+      run.stop();
+      await run.done.catch(() => {});
+    });
+    await expect(run.done).rejects.toThrow();
+    expect(run.deliveryState).toBe(beforeSubmission ? "not-submitted" : "unknown");
   },
 );
