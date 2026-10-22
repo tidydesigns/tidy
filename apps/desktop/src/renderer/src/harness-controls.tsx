@@ -257,7 +257,7 @@ export function HarnessControls({
                 <span>{Math.round(100 - window.usedPercent)}% left</span>
               </div>
               <progress
-                value={100 - window.usedPercent}
+                value={Math.round(100 - window.usedPercent)}
                 max={100}
                 aria-label={`${window.name} remaining`}
               />
