@@ -869,6 +869,7 @@ summary:focus-visible {
   scrollbar-color: var(--color-border) transparent;
 }
 .sidebar-scroll .sidebar-list {
+  position: relative;
   overflow: visible;
 }
 .done-threads summary {
@@ -894,23 +895,21 @@ summary:focus-visible {
 .thread-order-row {
   position: relative;
 }
-.thread-item[draggable="true"]:active {
+.thread-order-row .thread-select {
+  touch-action: none;
+}
+.thread-order-row.thread-dragging {
+  z-index: 3;
   cursor: grabbing;
+  will-change: transform;
 }
-.thread-order-row.drop-before::before,
-.thread-order-row.drop-after::after {
-  content: "";
-  position: absolute;
-  inset-inline: 6px;
-  height: 2px;
-  background: var(--color-muted-ink);
-  z-index: 2;
+.thread-dragging .thread-item {
+  background: var(--color-hover-surface);
+  border-color: var(--color-border);
+  box-shadow: 0 5px 18px rgb(0 0 0 / 14%);
 }
-.thread-order-row.drop-before::before {
-  top: 0;
-}
-.thread-order-row.drop-after::after {
-  bottom: 0;
+.thread-dragging .thread-select {
+  cursor: grabbing;
 }
 .thread-done {
   width: 40px;

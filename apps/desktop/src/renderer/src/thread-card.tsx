@@ -90,13 +90,13 @@ export function ThreadCard({
     <div
       ref={root}
       className={`sidebar-item thread-item ${selected ? "selected" : ""} ${!working ? "can-change-status" : ""}`}
-      draggable={Boolean(orderControls)}
-      onDragStart={(event) => {
+      onPointerDown={(event) => {
         close();
-        orderControls?.onDragStart(event);
+        orderControls?.onPointerDown(event);
       }}
-      onDragEnd={orderControls?.onDragEnd}
-      onPointerEnter={show}
+      onPointerEnter={() => {
+        if (!orderControls?.dragging) show();
+      }}
       onPointerLeave={close}
       onBlur={(event) => {
         if (
@@ -176,7 +176,7 @@ export function ThreadCard({
           {thread.doneAt ? "Reopen" : "Done"}
         </Button>
       )}
-      {open && (
+      {open && !orderControls?.dragging && (
         <div ref={preview} id={id} popover="manual" role="tooltip" className="thread-preview">
           <strong>{thread.title}</strong>
           <div className="thread-preview-model">
