@@ -4,7 +4,7 @@ import { browserRecovery } from "../shared/browser-recovery";
 import { desktopEventSchema, storedThreadSchema } from "../shared/contracts";
 import type { DesktopEvent, ProjectSnapshot, Thread } from "../shared/contracts";
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, symlink, realpath } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,7 +19,7 @@ afterEach(async () => {
 });
 
 async function fixture() {
-  const directory = await mkdtemp(join(tmpdir(), "tidy-browser-"));
+  const directory = await realpath(await mkdtemp(join(tmpdir(), "tidy-browser-")));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const project = join(directory, "project");
   await mkdir(project);
