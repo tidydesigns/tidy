@@ -1,21 +1,8 @@
 import { test, expect, required } from "./fixtures";
 import { visibleColourPoint } from "./color-sampling";
 import { z } from "zod";
-import sharp from "sharp";
 import { buildLoginDocument } from "../../lib/design/examples/login";
 import { applyDocumentPatch, documentPatchSchema } from "../../lib/design/document-patch";
-
-test.beforeEach(async ({ page }) => {
-  await page.route("**/api/privacy/mcp-analytics", (route) =>
-    route.fulfill({ json: { enabled: false, signedIn: false, pending: false } }),
-  );
-  await page.addLocatorHandler(
-    page.getByRole("button", { name: "Reject all optional", exact: true }),
-    async (button) => {
-      await button.click();
-    },
-  );
-});
 
 for (const colorScheme of ["light", "dark"] as const) {
   test(`selection colour picker edits continuously beside the row in ${colorScheme} mode`, async ({
