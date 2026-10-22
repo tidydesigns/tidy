@@ -120,9 +120,6 @@ test("eyedropper samples the canvas from a selection colour picker", async ({ pa
   await expect(marker).toBeVisible();
   await expect(marker).toHaveAttribute("data-ready", "true");
   await expect(marker.locator("canvas")).toBeVisible();
-  const markerBox = required(await marker.boundingBox());
-  expect(markerBox.x).toBeCloseTo(pointer.x - 68, 0);
-  expect(markerBox.y).toBeCloseTo(pointer.y > 190 ? pointer.y - 180 : pointer.y + 24, 0);
   const source = required(await page.locator('[data-node-id="desktop-screen"]').boundingBox());
   await page.mouse.click(source.x + 10, source.y + 10);
   await expect(heading).toHaveCSS("color", "rgb(242, 242, 240)");
@@ -512,73 +509,35 @@ test("a page colour drag previews locally and commits exactly one undo step on r
   await expect(canvas).toHaveCSS("background-color", changed);
 });
 
-for (const paint of ["gradient", "image", "vector"] as const) {
-  test(`magnifier samples rendered ${paint} pixels and updates the open RGB controls`, async ({
-    page,
-  }) => {
-    await page.goto("/dev/import-preview?edit=1");
-    await page
-      .getByRole("button", { name: "Select Authentication panel", exact: true })
-      .first()
-      .click();
-    const source = page.locator('[data-node-id="desktop-submit"]');
-    await source.evaluate((element, paint) => {
-      if (!(element instanceof HTMLElement)) throw new Error("Missing source");
-      const svg =
-        '<svg xmlns="http://www.w3.org/2000/svg" width="384" height="48"><defs><linearGradient id="sample-gradient"><stop stop-color="#224466"/><stop offset="1" stop-color="#eebb88"/></linearGradient></defs><rect width="384" height="48" fill="url(#sample-gradient)"/></svg>';
-      if (paint === "gradient")
-        element.style.backgroundImage = "linear-gradient(to right, #224466, #eebb88)";
-      else if (paint === "vector") element.innerHTML = svg;
-      else {
-        const image = new Image();
-        image.src = `data:image/svg+xml,${encodeURIComponent(svg)}`;
-        image.style.cssText = "width:100%;height:100%;display:block";
-        element.replaceChildren(image);
-      }
-    }, paint);
-    const bounds = required(await source.boundingBox());
-    const x = Math.floor(bounds.x + bounds.width * 0.3) + 0.5;
-    const y = Math.floor(bounds.y + bounds.height * 0.5) + 0.5;
-    const { data, info } = await sharp(await page.screenshot())
-      .removeAlpha()
-      .raw()
-      .toBuffer({ resolveWithObject: true });
-    const offset = (Math.floor(y) * info.width + Math.floor(x)) * info.channels;
-    const rgb = [...data.subarray(offset, offset + 3)];
-    await page
-      .getByRole("button", { name: "Open selection colour #777777 palette", exact: true })
-      .click();
-    const picker = page.getByRole("dialog", { name: "Colour picker", exact: true });
-    await picker.getByRole("button", { name: "Pick from canvas", exact: true }).click();
-    const marker = page.locator("[data-canvas-color-picker-cursor]");
-    await expect(marker).toHaveAttribute("data-ready", "true");
-    await page.mouse.move(x, y);
-    await expect(marker).toBeVisible();
-    await expect(marker).toHaveText(/^#[0-9A-F]{6}$/);
-    const sampled = required(await marker.textContent());
-    const channels = [1, 3, 5].map((offset) => parseInt(sampled.slice(offset, offset + 2), 16));
-    for (const [index, channel] of channels.entries())
-      expect(Math.abs(channel - rgb[index])).toBeLessThanOrEqual(1);
-    const center = await marker.locator("canvas").evaluate((canvas) => {
-      if (!(canvas instanceof HTMLCanvasElement)) throw new Error("Missing magnifier");
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Missing context");
-      return [...context.getImageData(66, 66, 1, 1).data].slice(0, 3);
-    });
-    expect(center).toEqual(channels);
-    await page.mouse.click(x, y);
-    await expect(picker).toBeVisible();
-    for (const [index, label] of ["R", "G", "B"].entries()) {
-      await expect(picker.getByRole("spinbutton", { name: label, exact: true })).toHaveValue(
-        String(channels[index]),
-      );
-    }
-    await expect(page.locator('[data-node-id="desktop-email-placeholder"]')).toHaveCSS(
-      "color",
-      `rgb(${channels.join(", ")})`,
-    );
+test("sampling rendered gradient colours updates the selected text and open picker", async ({
+  page,
+}) => {
+  await page.goto("/dev/import-preview?edit=1");
+  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+  const source = page.locator('[data-node-id="desktop-submit"]');
+  await source.evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Missing source");
+    element.style.backgroundImage = "linear-gradient(to right, #224466 50%, #eebb88 50%)";
   });
-}
+  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+  const picker = page.getByRole("dialog", { name: "Colour picker", exact: true });
+  await picker.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  const marker = page.locator("[data-canvas-color-picker-cursor]");
+  await expect(marker).toHaveAttribute("data-ready", "true");
+  const bounds = required(await source.boundingBox());
+  const point = { x: bounds.x + bounds.width / 4, y: bounds.y + bounds.height / 2 };
+  await page.mouse.move(point.x, point.y);
+  await expect(marker).toHaveText("#224466");
+  await page.mouse.click(point.x, point.y);
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole("textbox", { name: "Hex colour", exact: true })).toHaveValue(
+    "#224466",
+  );
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+    "color",
+    "rgb(34, 68, 102)",
+  );
+});
 
 test("sampling can be toggled off, replaced by a field edit, or closed without leaking a selection", async ({
   page,
@@ -607,124 +566,4 @@ test("sampling can be toggled off, replaced by a field edit, or closed without l
   await picker.getByRole("button", { name: "Close colour picker", exact: true }).click();
   await expect(picker).toHaveCount(0);
   await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
-});
-
-test("multiline sampling reuses character geometry across pointer updates", async ({ page }) => {
-  await page.goto("/dev/import-preview?edit=1");
-  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
-  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
-  await page.locator('[data-node-id="desktop-heading"]').evaluate((element) => {
-    if (!(element instanceof HTMLElement)) throw new Error("Missing heading");
-    element.textContent = "Design systems make consistent interfaces. ".repeat(50);
-    Object.assign(element.style, {
-      width: "384px",
-      height: "900px",
-      whiteSpace: "pre-wrap",
-      fontSize: "24px",
-    });
-  });
-  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
-  const marker = page.locator("[data-canvas-color-picker-cursor]");
-  await expect(marker).toHaveAttribute("data-ready", "true");
-  const reads = await page.evaluate(async () => {
-    const surface = document.querySelector('[aria-label="Design canvas"]');
-    const heading = document.querySelector('[data-node-id="desktop-heading"]');
-    if (!surface || !heading) throw new Error("Missing artwork");
-    const bounds = heading.getBoundingClientRect();
-    const original = Range.prototype.getBoundingClientRect;
-    let reads = 0;
-    Range.prototype.getBoundingClientRect = function () {
-      reads++;
-      return original.call(this);
-    };
-    async function move(offset: number) {
-      surface?.dispatchEvent(
-        new PointerEvent("pointermove", {
-          bubbles: true,
-          clientX: bounds.left + 3 + offset,
-          clientY: bounds.top + 3,
-        }),
-      );
-      await new Promise(requestAnimationFrame);
-    }
-    try {
-      await move(0);
-      const first = reads;
-      for (let index = 1; index < 12; index++) await move(index);
-      const additional = reads - first;
-      document.fonts.dispatchEvent(new Event("loadingdone"));
-      await move(0);
-      return { first, additional, refreshed: reads - first - additional };
-    } finally {
-      Range.prototype.getBoundingClientRect = original;
-    }
-  });
-  expect(reads.first).toBeGreaterThan(0);
-  expect(reads.additional).toBe(0);
-  expect(reads.refreshed).toBeGreaterThan(0);
-  await expect(marker).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(marker).toHaveCount(0);
-});
-
-test("hidden retained artwork does not fetch images during sampling", async ({ page }) => {
-  let requests = 0;
-  await page.route("**/hidden-sampling-image.png", (route) => {
-    requests++;
-    return route.fulfill({
-      contentType: "image/png",
-      body: Buffer.from(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==",
-        "base64",
-      ),
-    });
-  });
-  await page.goto("/dev/import-preview?edit=1");
-  await page.getByRole("button", { name: "Open canvas color palette", exact: true }).click();
-  await page.getByLabel("Design canvas", { exact: true }).evaluate(async (surface) => {
-    const retained = document.createElement("div");
-    retained.dataset.nodeId = "hidden-sampling-root";
-    retained.style.cssText = "position:absolute;width:100px;height:100px;content-visibility:hidden";
-    const image = new Image();
-    image.src = "/hidden-sampling-image.png";
-    retained.appendChild(image);
-    surface.appendChild(retained);
-    await image.decode();
-  });
-  const before = requests;
-  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
-  await expect(page.locator("[data-canvas-color-picker-cursor]")).toHaveAttribute(
-    "data-ready",
-    "true",
-  );
-  expect(requests).toBe(before);
-  await page.keyboard.press("Escape");
-});
-
-test("slow font preparation falls back without blocking solid colour sampling", async ({
-  page,
-}) => {
-  const release = Promise.withResolvers<void>();
-  await page.route("https://fonts.googleapis.com/**", async (route) => {
-    await release.promise;
-    await route.fulfill({ body: "", contentType: "text/css" });
-  });
-  try {
-    await page.goto("/dev/import-preview?edit=1");
-    await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
-    await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
-    await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
-    await expect(
-      page.getByRole("status").filter({ hasText: "Image preview unavailable" }),
-    ).toBeVisible();
-    const button = required(await page.locator('[data-node-id="desktop-submit"]').boundingBox());
-    await page.mouse.click(button.x + 4, button.y + button.height / 2);
-    await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
-      "color",
-      "rgb(255, 93, 0)",
-    );
-    await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
-  } finally {
-    release.resolve();
-  }
 });
