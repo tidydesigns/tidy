@@ -608,3 +608,123 @@ test("sampling can be toggled off, replaced by a field edit, or closed without l
   await expect(picker).toHaveCount(0);
   await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
 });
+
+test("multiline sampling reuses character geometry across pointer updates", async ({ page }) => {
+  await page.goto("/dev/import-preview?edit=1");
+  await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+  await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+  await page.locator('[data-node-id="desktop-heading"]').evaluate((element) => {
+    if (!(element instanceof HTMLElement)) throw new Error("Missing heading");
+    element.textContent = "Design systems make consistent interfaces. ".repeat(50);
+    Object.assign(element.style, {
+      width: "384px",
+      height: "900px",
+      whiteSpace: "pre-wrap",
+      fontSize: "24px",
+    });
+  });
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  const marker = page.locator("[data-canvas-color-picker-cursor]");
+  await expect(marker).toHaveAttribute("data-ready", "true");
+  const reads = await page.evaluate(async () => {
+    const surface = document.querySelector('[aria-label="Design canvas"]');
+    const heading = document.querySelector('[data-node-id="desktop-heading"]');
+    if (!surface || !heading) throw new Error("Missing artwork");
+    const bounds = heading.getBoundingClientRect();
+    const original = Range.prototype.getBoundingClientRect;
+    let reads = 0;
+    Range.prototype.getBoundingClientRect = function () {
+      reads++;
+      return original.call(this);
+    };
+    async function move(offset: number) {
+      surface?.dispatchEvent(
+        new PointerEvent("pointermove", {
+          bubbles: true,
+          clientX: bounds.left + 3 + offset,
+          clientY: bounds.top + 3,
+        }),
+      );
+      await new Promise(requestAnimationFrame);
+    }
+    try {
+      await move(0);
+      const first = reads;
+      for (let index = 1; index < 12; index++) await move(index);
+      const additional = reads - first;
+      document.fonts.dispatchEvent(new Event("loadingdone"));
+      await move(0);
+      return { first, additional, refreshed: reads - first - additional };
+    } finally {
+      Range.prototype.getBoundingClientRect = original;
+    }
+  });
+  expect(reads.first).toBeGreaterThan(0);
+  expect(reads.additional).toBe(0);
+  expect(reads.refreshed).toBeGreaterThan(0);
+  await expect(marker).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(marker).toHaveCount(0);
+});
+
+test("hidden retained artwork does not fetch images during sampling", async ({ page }) => {
+  let requests = 0;
+  await page.route("**/hidden-sampling-image.png", (route) => {
+    requests++;
+    return route.fulfill({
+      contentType: "image/png",
+      body: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==",
+        "base64",
+      ),
+    });
+  });
+  await page.goto("/dev/import-preview?edit=1");
+  await page.getByRole("button", { name: "Open canvas color palette", exact: true }).click();
+  await page.getByLabel("Design canvas", { exact: true }).evaluate(async (surface) => {
+    const retained = document.createElement("div");
+    retained.dataset.nodeId = "hidden-sampling-root";
+    retained.style.cssText = "position:absolute;width:100px;height:100px;content-visibility:hidden";
+    const image = new Image();
+    image.src = "/hidden-sampling-image.png";
+    retained.appendChild(image);
+    surface.appendChild(retained);
+    await image.decode();
+  });
+  const before = requests;
+  await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+  await expect(page.locator("[data-canvas-color-picker-cursor]")).toHaveAttribute(
+    "data-ready",
+    "true",
+  );
+  expect(requests).toBe(before);
+  await page.keyboard.press("Escape");
+});
+
+test("slow font preparation falls back without blocking solid colour sampling", async ({
+  page,
+}) => {
+  const release = Promise.withResolvers<void>();
+  await page.route("https://fonts.googleapis.com/**", async (route) => {
+    await release.promise;
+    await route.fulfill({ body: "", contentType: "text/css" });
+  });
+  try {
+    await page.goto("/dev/import-preview?edit=1");
+    await page.getByRole("button", { name: "Select Welcome heading", exact: true }).first().click();
+    await page.getByRole("button", { name: "Open text color palette", exact: true }).click();
+    await page.getByRole("button", { name: "Pick from canvas", exact: true }).click();
+    await expect(
+      page.getByRole("status").filter({ hasText: "Image preview unavailable" }),
+    ).toBeVisible();
+    const button = required(await page.locator('[data-node-id="desktop-submit"]').boundingBox());
+    await page.mouse.click(button.x + 4, button.y + button.height / 2);
+    await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS(
+      "color",
+      "rgb(255, 93, 0)",
+    );
+    await expect(page.locator("[data-picking-canvas-color]")).toHaveCount(0);
+  } finally {
+    release.resolve();
+  }
+});

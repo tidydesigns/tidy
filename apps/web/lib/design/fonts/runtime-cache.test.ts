@@ -96,3 +96,39 @@ test("font exports group glyph requests and reuse embedded public font bytes", (
   );
   expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
 });
+
+test("cancelled font preparation stops before embedding without cancelling a shared font load", () => {
+  const child = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+    import { expect } from "bun:test";
+    const gate = Promise.withResolvers();
+    let fontReads = 0;
+    globalThis.document = {
+      createElement: () => ({ dataset: {}, remove() {} }),
+      head: { appendChild() {} },
+      fonts: { load() { return gate.promise; } },
+    };
+    globalThis.fetch = async url => {
+      if (String(url).startsWith('https://fonts.gstatic.com/')) fontReads++;
+      return new Response('@font-face{font-family:"test";font-weight:400;font-style:normal;src:url(https://fonts.gstatic.com/cancelled.woff2);}');
+    };
+    const { webFonts } = await import('./lib/design/fonts/catalog');
+    const { fontRegistry } = await import('./lib/design/fonts/runtime');
+    const family = webFonts[0].family;
+    const controller = new AbortController();
+    const preparation = fontRegistry.exportCss([{ family, weight: 400, italic: false, text: 'Aa', source: 'web' }], controller.signal);
+    const shared = fontRegistry.load(family, 400, false, 'Aa', 'web');
+    controller.abort(new Error('cancelled'));
+    await expect(preparation).rejects.toThrow('cancelled');
+    gate.resolve([{}]);
+    await shared;
+    expect(fontReads).toBe(0);
+  `,
+    ],
+    { cwd: resolve(import.meta.dir, "../../.."), stdout: "pipe", stderr: "pipe" },
+  );
+  expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
+});

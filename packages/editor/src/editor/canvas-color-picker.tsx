@@ -12,8 +12,14 @@ import {
   type RefObject,
 } from "react";
 import type { DesignNode } from "../design/document";
-import { canvasColorAtPoint } from "./canvas-color-hit";
+import { createCanvasColorSampler } from "./canvas-color-hit";
 import { canvasColorSnapshot } from "./canvas-color-snapshot";
+
+type Snapshot = Awaited<ReturnType<typeof canvasColorSnapshot>>;
+type SamplingSession =
+  | { kind: "preparing" }
+  | { kind: "ready"; snapshot: Snapshot }
+  | { kind: "fallback" };
 
 type Request = { apply: (color: string) => void; origin: HTMLElement | null };
 const Context = createContext<{
@@ -33,8 +39,8 @@ export function CanvasColorPicker({
   "data-mobile-panels-open": mobilePanelsOpen,
 }: {
   canvas: RefObject<HTMLDivElement | null>;
-  nodes: DesignNode[];
-  tokens: Record<string, string>;
+  nodes: readonly DesignNode[];
+  tokens: Readonly<Record<string, string>>;
   children: ReactNode;
   className: string;
   "data-mobile-panels-open": boolean;
@@ -74,7 +80,9 @@ export function CanvasColorPicker({
       delete cursor.current.dataset.ready;
     }
     const controller = new AbortController();
-    let snapshot: Awaited<ReturnType<typeof canvasColorSnapshot>> | undefined;
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]);
+    let authored = createCanvasColorSampler({ surface, nodes: byId, tokens });
+    let session: SamplingSession = { kind: "preparing" };
     let point: { x: number; y: number } | undefined;
     let frame = 0;
     const sample = (x: number, y: number) => {
@@ -83,7 +91,6 @@ export function CanvasColorPicker({
         .find((hit) => surface.contains(hit))
         ?.closest<HTMLElement>("[data-node-id]");
       const node = element?.dataset.nodeId ? byId.get(element.dataset.nodeId) : undefined;
-      const authored = () => canvasColorAtPoint({ surface, nodes: byId, tokens, x, y });
       if (node?.type === "text" && element) {
         let opaque = true;
         for (
@@ -97,12 +104,20 @@ export function CanvasColorPicker({
             break;
           }
         }
-        const color = opaque
-          ? canvasColorAtPoint({ surface, nodes: byId, tokens, x, y, textOnly: true })
-          : undefined;
+        const color = opaque ? authored({ x, y, textOnly: true }) : undefined;
         if (color?.length === 7) return color;
       }
-      return snapshot?.colorAt(x, y) ?? authored();
+      switch (session.kind) {
+        case "ready":
+          return session.snapshot.colorAt(x, y) ?? authored({ x, y });
+        case "preparing":
+        case "fallback":
+          return authored({ x, y });
+        default: {
+          const exhaustive: never = session;
+          return exhaustive;
+        }
+      }
     };
     const draw = () => {
       frame = 0;
@@ -118,7 +133,8 @@ export function CanvasColorPicker({
       context.clearRect(0, 0, 132, 132);
       context.fillStyle = color ?? "#eee";
       context.fillRect(0, 0, 132, 132);
-      if (snapshot) {
+      if (session.kind === "ready") {
+        const snapshot = session.snapshot;
         context.imageSmoothingEnabled = false;
         context.drawImage(
           snapshot.bitmap,
@@ -151,17 +167,18 @@ export function CanvasColorPicker({
       context.lineWidth = 1;
       context.strokeRect(60, 60, 12, 12);
     };
-    void canvasColorSnapshot(surface, nodes, controller.signal)
+    void canvasColorSnapshot({ surface, nodes, signal })
       .then((result) => {
-        if (controller.signal.aborted) {
+        if (signal.aborted) {
           result.dispose();
           return;
         }
-        snapshot = result;
+        session = { kind: "ready", snapshot: result };
         if (cursor.current) cursor.current.dataset.ready = "true";
         if (point && !frame) frame = requestAnimationFrame(draw);
       })
       .catch(() => {
+        session = { kind: "fallback" };
         if (!controller.signal.aborted)
           setMessage("Image preview unavailable. Pick a solid fill or text colour. Esc to cancel.");
       });
@@ -237,6 +254,11 @@ export function CanvasColorPicker({
       restoreFocus.current = request.origin;
       setRequest(null);
     };
+    const refreshText = () => {
+      authored = createCanvasColorSampler({ surface, nodes: byId, tokens });
+      if (point && !frame) frame = requestAnimationFrame(draw);
+    };
+    document.fonts.addEventListener("loadingdone", refreshText);
     window.addEventListener("resize", invalidate);
     surface.addEventListener("scroll", invalidate);
     document.addEventListener("wheel", blockGesture, { capture: true, passive: false });
@@ -247,11 +269,12 @@ export function CanvasColorPicker({
     document.addEventListener("click", choose, true);
     document.addEventListener("keydown", escape, true);
     return () => {
+      document.fonts.removeEventListener("loadingdone", refreshText);
       window.removeEventListener("resize", invalidate);
       surface.removeEventListener("scroll", invalidate);
       document.removeEventListener("wheel", blockGesture, true);
       controller.abort();
-      snapshot?.dispose();
+      if (session.kind === "ready") session.snapshot.dispose();
       cancelAnimationFrame(frame);
       document.removeEventListener("pointermove", moveCursor, true);
       document.removeEventListener("pointerout", hideCursor, true);

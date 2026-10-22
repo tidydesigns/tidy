@@ -12,6 +12,28 @@ import { mapConcurrent } from "../../lib/map-concurrent";
 import { localFontMetadata, localFontExportError } from "./local-metadata";
 import { fontCssForText } from "./export-css";
 import { createEmbeddedFontCache } from "./embedded-font-cache";
+function whileActive<Value>(promise: Promise<Value>, signal?: AbortSignal): Promise<Value> {
+  if (!signal) return promise;
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      signal.removeEventListener("abort", abort);
+      reject(signal.reason);
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", abort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", abort);
+        reject(error);
+      },
+    );
+    if (signal.aborted) abort();
+  });
+}
+
 export type FontStatus = "loading" | "loaded" | "missing" | "error";
 type LocalFont = {
   family: string;
@@ -365,7 +387,7 @@ class FontRegistry {
     return this.load(family, weight, italic, text, source, face);
   }
   async exportCss(
-    values: {
+    values: readonly {
       family: string;
       weight: number;
       italic: boolean;
@@ -373,7 +395,9 @@ class FontRegistry {
       source?: FontSource;
       face?: string;
     }[],
+    signal?: AbortSignal,
   ) {
+    signal?.throwIfAborted();
     const css: string[] = [];
     const groups = new Map<string, { request: (typeof values)[number]; characters: Set<string> }>();
     for (const value of values) {
@@ -384,14 +408,11 @@ class FontRegistry {
     }
     for (const { request, characters } of groups.values()) {
       const value = { ...request, text: [...characters].join("") };
-      await this.load(
-        value.family,
-        value.weight,
-        value.italic,
-        value.text,
-        value.source,
-        value.face,
+      await whileActive(
+        this.load(value.family, value.weight, value.italic, value.text, value.source, value.face),
+        signal,
       );
+      signal?.throwIfAborted();
       const family = fontFamilies(value.family)[0],
         font = this.font(family, value.source);
       if (value.source === "local") {
@@ -403,17 +424,17 @@ class FontRegistry {
           .find(
             (font) => selectedFace && font.fullName.toLowerCase() === selectedFace.toLowerCase(),
           );
-        const blob = await entry?.blob();
+        const blob = entry ? await whileActive(entry.blob(), signal) : undefined;
         if (!blob || !entry)
           throw new Error(
             this.supportsLocal()
               ? `Enable local fonts and select an installed face for ${family}, or replace it with a web font before exporting.`
               : `This browser cannot access local font bytes for ${family}. Choose a web font, or export from a browser with local font access.`,
           );
-        const error = localFontExportError(await blob.arrayBuffer(), entry);
+        const error = localFontExportError(await whileActive(blob.arrayBuffer(), signal), entry);
         if (error) throw new Error(error);
         css.push(
-          `@font-face{font-family:${JSON.stringify(value.face ?? family)};font-weight:${value.weight};font-style:${value.italic ? "italic" : "normal"};src:url(${await asDataUrl(blob)});}`,
+          `@font-face{font-family:${JSON.stringify(value.face ?? family)};font-weight:${value.weight};font-style:${value.italic ? "italic" : "normal"};src:url(${await whileActive(asDataUrl(blob), signal)});}`,
         );
         continue;
       }
@@ -435,7 +456,14 @@ class FontRegistry {
       const weight = font.weightRange
         ? Math.max(font.weightRange[0], Math.min(font.weightRange[1], value.weight))
         : fallback.weight;
-      css.push(fontCssForText(await this.stylesheet(font), weight, fallback.italic, value.text));
+      css.push(
+        fontCssForText(
+          await whileActive(this.stylesheet(font), signal),
+          weight,
+          fallback.italic,
+          value.text,
+        ),
+      );
     }
     const combined = [...new Set(css)].join("\n"),
       urls = [
@@ -446,7 +474,8 @@ class FontRegistry {
         ),
       ];
     const replacements = await mapConcurrent(urls, 4, async (url) => {
-      return [url, await embeddedWebFont(url)] as const;
+      signal?.throwIfAborted();
+      return [url, await whileActive(embeddedWebFont(url), signal)] as const;
     });
     return replacements.reduce((css, [url, data]) => css.split(url).join(data), combined);
   }

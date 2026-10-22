@@ -2,11 +2,12 @@ import type { DesignNode } from "../design/document";
 import { embedDesignImages } from "../design/export-images";
 import { foreignObjectSvg } from "../design/export-dom";
 import { fontRegistry } from "../design/fonts/runtime";
+import { mapConcurrent } from "../lib/map-concurrent";
 import { textFontSegments } from "@tidy/design/rich-text-runtime";
 
 const snapshotProperties =
   `display position inset width height min-width min-height max-width max-height box-sizing
-margin padding overflow overflow-clip-margin visibility opacity color background background-size background-position
+margin padding overflow overflow-clip-margin content-visibility contain contain-intrinsic-size visibility opacity color background background-size background-position
 background-repeat background-origin background-clip background-blend-mode border-top border-right border-bottom border-left border-radius border-top-left-radius
 border-top-right-radius border-bottom-left-radius border-bottom-right-radius corner-shape border-image box-shadow
 outline filter backdrop-filter mix-blend-mode isolation z-index transform transform-origin translate rotate scale
@@ -22,16 +23,35 @@ stroke-linecap stroke-linejoin stroke-miterlimit paint-order vector-effect stop-
     /\s+/,
   );
 
-export async function canvasColorSnapshot(
-  surface: HTMLElement,
-  nodes: readonly DesignNode[],
-  signal: AbortSignal,
-) {
+const instanceProperties = new Set([
+  "inset",
+  "transform",
+  "translate",
+  "rotate",
+  "scale",
+  "z-index",
+  "order",
+  "grid-column",
+  "grid-row",
+  "mask-image",
+]);
+
+export async function canvasColorSnapshot({
+  surface,
+  nodes,
+  signal,
+}: {
+  surface: HTMLElement;
+  nodes: readonly DesignNode[];
+  signal: AbortSignal;
+}) {
   await new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
   signal.throwIfAborted();
   const bounds = surface.getBoundingClientRect();
   const clone = surface.cloneNode(false);
   if (!(clone instanceof HTMLElement)) throw new Error("Canvas unavailable.");
+  const sharedStyles = new Map<string, string>();
+  const visibleIds = new Set<string>();
   let deadline = performance.now() + 6;
   async function copy(from: Element, to: Element) {
     if (performance.now() > deadline) {
@@ -40,10 +60,26 @@ export async function canvasColorSnapshot(
       deadline = performance.now() + 6;
     }
     const style = getComputedStyle(from);
-    to.setAttribute(
-      "style",
-      snapshotProperties.map((key) => `${key}:${style.getPropertyValue(key)};`).join(""),
-    );
+    if (style.display === "none") {
+      to.setAttribute("style", "display:none");
+      return;
+    }
+    const shared: string[] = [],
+      instance: string[] = [];
+    for (const key of snapshotProperties) {
+      const declaration = `${key}:${style.getPropertyValue(key)};`;
+      (instanceProperties.has(key) ? instance : shared).push(declaration);
+    }
+    const css = shared.join("");
+    let name = sharedStyles.get(css);
+    if (!name) {
+      name = `snapshot-${sharedStyles.size}`;
+      sharedStyles.set(css, name);
+    }
+    to.setAttribute("class", name);
+    to.setAttribute("style", instance.join(""));
+    if (style.contentVisibility === "hidden") return;
+    if (from instanceof HTMLElement && from.dataset.nodeId) visibleIds.add(from.dataset.nodeId);
     to.removeAttribute("data-original-src");
     for (const child of from.childNodes) {
       if (!(child instanceof Element)) {
@@ -79,12 +115,7 @@ export async function canvasColorSnapshot(
     height: `${bounds.height}px`,
     overflow: "hidden",
   });
-  const visibleIds = new Set(
-    [...clone.querySelectorAll<HTMLElement>("[data-node-id]")].map(
-      (element) => element.dataset.nodeId,
-    ),
-  );
-  const fonts = new Map<string, Parameters<typeof fontRegistry.exportCss>[0]>();
+  const fonts = new Map<string, Array<Parameters<typeof fontRegistry.exportCss>[0][number]>>();
   for (const node of nodes) {
     if (!node.visible || node.type !== "text" || !visibleIds.has(node.id)) continue;
     const family = node.style.fontFamily ?? "system-ui";
@@ -99,12 +130,17 @@ export async function canvasColorSnapshot(
     fonts.set(family, segments);
   }
   const [fontStyles] = await Promise.all([
-    Promise.all(
-      [...fonts.values()].map((segments) => fontRegistry.exportCss(segments).catch(() => "")),
-    ),
+    mapConcurrent([...fonts.values()], 4, (segments) => {
+      signal.throwIfAborted();
+      return fontRegistry.exportCss(segments, signal).catch(() => {
+        signal.throwIfAborted();
+        return "";
+      });
+    }),
     embedDesignImages(clone, signal),
   ]);
-  const fontCss = fontStyles.join("\n");
+  const fontCss =
+    fontStyles.join("\n") + [...sharedStyles].map(([css, name]) => `.${name}{${css}}`).join("");
   signal.throwIfAborted();
   const scale = Math.min(
     window.devicePixelRatio || 1,
@@ -115,7 +151,16 @@ export async function canvasColorSnapshot(
   const height = Math.max(1, Math.round(bounds.height * scale));
   const image = new Image();
   image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(foreignObjectSvg([clone], { x: 0, y: 0, width: bounds.width, height: bounds.height }, width, height, fontCss))}`;
-  await image.decode();
+  const cancelDecode = () => {
+    image.src = "";
+  };
+  signal.addEventListener("abort", cancelDecode, { once: true });
+  try {
+    signal.throwIfAborted();
+    await image.decode();
+  } finally {
+    signal.removeEventListener("abort", cancelDecode);
+  }
   signal.throwIfAborted();
   const bitmap = document.createElement("canvas");
   bitmap.width = width;
