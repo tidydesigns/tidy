@@ -23,7 +23,7 @@ export function Toast({
   onDismiss: () => void;
   children?: ReactNode;
   action?: { label: string; onClick: () => void; disabled?: boolean };
-  tone?: "error" | "success";
+  tone?: "error" | "success" | "info";
 }) {
   return (
     <div
@@ -36,7 +36,7 @@ export function Toast({
     >
       <div className="tidy-toast-content">
         <span aria-hidden="true" className="tidy-toast-icon">
-          {tone === "error" ? "!" : "✓"}
+          {tone === "error" ? "!" : tone === "info" ? "i" : "✓"}
         </span>
         <p data-ph-private>{message}</p>
         {action && (
@@ -59,7 +59,7 @@ export function Toast({
   );
 }
 
-export function ToastViewport() {
+export function ToastViewport({ children }: { children?: ReactNode }) {
   const notices = useSyncExternalStore(subscribeToasts, toastSnapshot, emptyToastSnapshot);
   const [container, setContainer] = useState<HTMLElement | null>(null);
   useEffect(() => {
@@ -113,6 +113,7 @@ export function ToastViewport() {
       {notices.map((notice) => (
         <Toast key={notice.id} {...notice} onDismiss={() => dismissToast(notice.id, true)} />
       ))}
+      {children}
     </div>,
     container,
   );

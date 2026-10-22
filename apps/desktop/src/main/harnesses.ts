@@ -69,6 +69,7 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
       ...(process.env.PATH ?? "").split(delimiter),
       join(homedir(), ".local/bin"),
       join(homedir(), ".bun/bin"),
+      join(homedir(), ".opencode/bin"),
       "/opt/homebrew/bin",
       "/usr/local/bin",
       "/usr/bin",
@@ -81,7 +82,8 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-export async function findHarness(id: HarnessId, environment = harnessEnvironment()) {
+export async function findExecutable(id: string, environment = harnessEnvironment()) {
+  if (!/^[a-z][a-z0-9-]*$/.test(id)) return null;
   const extensions = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
   for (const directory of (environment.PATH ?? "").split(delimiter).filter(Boolean)) {
     if (!isAbsolute(directory)) continue;
@@ -97,6 +99,10 @@ export async function findHarness(id: HarnessId, environment = harnessEnvironmen
     }
   }
   return null;
+}
+
+export function findHarness(id: HarnessId | "opencode", environment = harnessEnvironment()) {
+  return findExecutable(id, environment);
 }
 
 export async function checkHarnesses(): Promise<HarnessConnection[]> {

@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
-import { registerUpdateIPC, registerWorkspaceIPC } from "./ipc";
+import { registerHarnessUpdateIPC, registerUpdateIPC, registerWorkspaceIPC } from "./ipc";
 import { AppUpdates } from "./app-updates";
+import { HarnessUpdates } from "./harness-updates";
+import { invalidateHarnessDetails } from "./harness-details";
 import {
   APP_SCHEME,
   rendererURL,
@@ -21,6 +23,7 @@ const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 let service: WorkspaceService | undefined;
 let quitting: symbol | "quit" | undefined;
 let updates: AppUpdates | undefined;
+let harnessUpdates: HarnessUpdates | undefined;
 const appIcon = app.isPackaged
   ? process.platform === "linux"
     ? join(app.getAppPath(), "icon.png")
@@ -81,6 +84,15 @@ app
     await store.recover();
     service = new WorkspaceService(store);
     registerWorkspaceIPC(service, entryURL);
+    harnessUpdates = new HarnessUpdates({
+      reserve: (id) => service!.reserveHarnessUpdate(id),
+      installed: invalidateHarnessDetails,
+    });
+    registerHarnessUpdateIPC(harnessUpdates, entryURL);
+    harnessUpdates.start();
+    app.on("browser-window-focus", () => {
+      void harnessUpdates?.check();
+    });
     updates = new AppUpdates({
       supported: app.isPackaged && process.platform === "darwin" && process.arch === "arm64",
       version,
@@ -88,6 +100,7 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
+        if (harnessUpdates?.busy) throw new Error("Wait for harness updates to finish.");
         const resumeWorkspace = await service!.prepareUpdate();
         const update = Symbol("update");
         if (!quitting) quitting = update;
@@ -150,5 +163,5 @@ app.on("before-quit", (event) => {
   if (quitting || !service) return;
   event.preventDefault();
   quitting = "quit";
-  void service.close().finally(() => app.quit());
+  void Promise.all([service.close(), harnessUpdates?.close()]).finally(() => app.quit());
 });

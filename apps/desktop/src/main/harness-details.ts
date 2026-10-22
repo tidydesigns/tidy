@@ -291,6 +291,9 @@ export async function inspectHarness(
   }
 }
 const cache = new Map<string, { until: number; value: Promise<HarnessDetails> }>();
+export function invalidateHarnessDetails(harness: string) {
+  for (const key of cache.keys()) if (key.startsWith(`${harness}:`)) cache.delete(key);
+}
 export function readHarnessDetails(harness: HarnessId, cwd: string, refresh = false) {
   const key = `${harness}:${cwd}`,
     cached = cache.get(key);

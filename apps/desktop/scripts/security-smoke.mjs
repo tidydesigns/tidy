@@ -132,6 +132,10 @@ app.on("browser-window-created", (_event, window) => {
         api("readThread", projectId, "../../outside"),
         /Invalid desktop request/,
       );
+      await assert.rejects(
+        api("installHarnessUpdate", "codex; echo bad"),
+        /Invalid harness update request/,
+      );
       await assert.rejects(api("readThread", randomUUID(), randomUUID()), /Open this project/);
       await assert.rejects(
         api("startThread", {
@@ -162,12 +166,69 @@ app.on("browser-window-created", (_event, window) => {
       );
       assert.equal(denied.ok, false);
       assert.match(denied.error, /Untrusted desktop request/);
-      for (const name of ["update-state", "check-updates", "install-update"]) {
+      for (const name of [
+        "update-state",
+        "check-updates",
+        "install-update",
+        "harness-updates",
+        "install-harness-update",
+      ]) {
         const message = await foreign.webContents.executeJavaScript(
           `window.probe.invoke(${JSON.stringify(name)}).then(()=>null,error=>error.message)`,
         );
         assert.match(message, /Untrusted desktop request/);
       }
+
+      // Synthetic availability events exercise notifications without upgrading any real CLI.
+      const harnessNotice = {
+        id: "codex",
+        status: "available",
+        installedVersion: "0.1.0",
+        latestVersion: "0.2.0",
+        canInstall: true,
+      };
+      page.send("tidy:harness-updates", [harnessNotice]);
+      await wait("document.querySelector('[aria-label=\"Update Codex\"]')!==null");
+      assert.equal(await evaluate("document.querySelectorAll('.tidy-toast-viewport').length"), 1);
+      assert.equal(
+        await evaluate("getComputedStyle(document.querySelector('.tidy-toast-viewport')).position"),
+        "fixed",
+      );
+      const notices = await evaluate(`(() => {
+        const bounds = document.querySelector('.tidy-toast-viewport').getBoundingClientRect();
+        return { right: innerWidth - bounds.right, bottom: innerHeight - bounds.bottom };
+      })()`);
+      assert.equal(notices.right, 20);
+      assert.equal(notices.bottom, 20);
+      // No native candidate exists for the synthetic version, so the click must show a retryable error.
+      await evaluate("document.querySelector('[aria-label=\"Update Codex\"]').click();true");
+      await wait("document.body.textContent.includes('Couldn’t start the Codex update')");
+      page.send("tidy:harness-updates", [{ ...harnessNotice, status: "queued" }]);
+      await wait("document.querySelector('[aria-label=\"Update Codex\"]').disabled");
+      page.send("tidy:harness-updates", [{ ...harnessNotice, status: "installing" }]);
+      await wait("document.body.textContent.includes('Updating Codex to 0.2.0')");
+      page.send("tidy:harness-updates", [
+        { ...harnessNotice, status: "error", message: "Fixture update failed." },
+      ]);
+      await wait("document.querySelector('[aria-label=\"Retry updating Codex\"]')!==null");
+      await evaluate(
+        "document.querySelector('[aria-label=\"Retry updating Codex\"]').closest('.tidy-toast').querySelector('[aria-label=\"Dismiss notification\"]').click();true",
+      );
+      await wait("document.querySelector('[aria-label=\"Retry updating Codex\"]')===null");
+      page.send("tidy:harness-updates", [{ ...harnessNotice, status: "installing" }]);
+      await wait("document.body.textContent.includes('Updating Codex to 0.2.0')");
+      page.send("tidy:harness-updates", [
+        { ...harnessNotice, status: "updated", installedVersion: "0.2.0" },
+      ]);
+      await wait("document.body.textContent.includes('Codex updated to 0.2.0.')");
+      assert.equal(
+        await evaluate("document.querySelector('[aria-label=\"Update Codex\"]')===null"),
+        true,
+      );
+      page.send("tidy:harness-updates", []);
+      await evaluate(
+        "document.querySelectorAll('.tidy-toast [aria-label=\"Dismiss notification\"]').forEach(button=>button.click());true",
+      );
 
       // Exercise renderer update-state rendering and its sidebar action with synthetic events.
       assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);

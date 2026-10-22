@@ -5,6 +5,8 @@ import { trustedRendererURL } from "./renderer-security";
 import { readLocalFile } from "./local-files";
 import { createWorkspaceRequests } from "./workspace-requests";
 import type { AppUpdates } from "./app-updates";
+import type { HarnessUpdates } from "./harness-updates";
+import { updatableHarnessIdSchema } from "../shared/harness-updates";
 
 /** Accept requests only from an app-owned window's main frame at the expected renderer URL. */
 function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
@@ -13,6 +15,31 @@ function trustedRequest(event: IpcMainInvokeEvent, rendererURL: string) {
     event.senderFrame === event.sender.mainFrame &&
     trustedRendererURL(event.senderFrame.url, rendererURL),
   );
+}
+
+/** Renderer callers supply only an allowlisted harness ID, never a command/path/version. */
+export function registerHarnessUpdateIPC(updates: HarnessUpdates, rendererURL: string) {
+  ipcMain.handle("tidy:harness-updates", (event, ...args: unknown[]) => {
+    if (!trustedRequest(event, rendererURL) || args.length)
+      throw new Error("Untrusted desktop request.");
+    return updates.state;
+  });
+  ipcMain.handle("tidy:install-harness-update", (event, ...args: unknown[]) => {
+    if (!trustedRequest(event, rendererURL) || args.length !== 1)
+      throw new Error("Untrusted desktop request.");
+    const id = updatableHarnessIdSchema.safeParse(args[0]);
+    if (!id.success) throw new Error("Invalid harness update request.");
+    updates.install(id.data);
+  });
+  return updates.subscribe((state) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (
+        !window.isDestroyed() &&
+        trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
+      )
+        window.webContents.send("tidy:harness-updates", state);
+    }
+  });
 }
 
 /** Expose argument-free update actions to trusted app frames and return broadcast cleanup. */

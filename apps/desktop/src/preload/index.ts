@@ -7,6 +7,7 @@ import {
 import { desktopEventSchema } from "../shared/contracts";
 import type { DesktopAPI } from "../shared/contracts";
 import { appUpdateStateSchema } from "../shared/app-updates";
+import { harnessUpdatesSchema } from "../shared/harness-updates";
 
 async function request<Name extends WorkspaceOperation>(
   name: Name,
@@ -16,6 +17,21 @@ async function request<Name extends WorkspaceOperation>(
 }
 
 const api: DesktopAPI = {
+  harnessUpdates: async () =>
+    harnessUpdatesSchema.parse(await ipcRenderer.invoke("tidy:harness-updates")),
+  installHarnessUpdate: async (id) => {
+    await ipcRenderer.invoke("tidy:install-harness-update", id);
+  },
+  onHarnessUpdates(listener) {
+    const receive = (_event: Electron.IpcRendererEvent, value: unknown) => {
+      const parsed = harnessUpdatesSchema.safeParse(value);
+      if (parsed.success) listener(parsed.data);
+    };
+    ipcRenderer.on("tidy:harness-updates", receive);
+    return () => {
+      ipcRenderer.removeListener("tidy:harness-updates", receive);
+    };
+  },
   updateState: async () =>
     appUpdateStateSchema.parse(await ipcRenderer.invoke("tidy:update-state")),
   checkUpdates: async () => {

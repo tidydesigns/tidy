@@ -16,6 +16,7 @@ import {
   type MessageDelivery,
   type QueueRequest,
 } from "./message-queue";
+import type { HarnessUpdateState, UpdatableHarnessId } from "./harness-updates";
 
 const id = z.string().uuid();
 export const harnessIdSchema = z.enum(["codex", "claude"]);
@@ -141,6 +142,9 @@ export type Bootstrap = {
 };
 export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
+  harnessUpdates(): Promise<HarnessUpdateState[]>;
+  installHarnessUpdate(id: UpdatableHarnessId): Promise<void>;
+  onHarnessUpdates(listener: (state: HarnessUpdateState[]) => void): () => void;
   updateState(): Promise<AppUpdateState>;
   checkUpdates(): Promise<void>;
   installUpdate(): Promise<void>;

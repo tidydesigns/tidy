@@ -4,6 +4,39 @@
 @source "../../../../../packages/editor/src";
 @source "../../../node_modules/@tidy/ui";
 
+.harness-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+  color: var(--color-muted-ink);
+}
+.harness-update-install {
+  min-width: 76px;
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.harness-update-install:hover {
+  background: var(--color-hover-surface);
+}
+.harness-update-install:active {
+  transform: scale(0.97);
+}
+.harness-update-install:focus-visible {
+  outline: 2px solid var(--color-primary-orange);
+  outline-offset: 2px;
+}
+.harness-update-install:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 :root {
   color-scheme: light dark;
   --color-ink: light-dark(#424242, #ededed);

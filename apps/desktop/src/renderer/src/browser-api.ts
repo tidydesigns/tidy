@@ -55,6 +55,11 @@ function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
 }
 
 const api: DesktopAPI = {
+  harnessUpdates: async () => [],
+  installHarnessUpdate: async () => {
+    throw new Error("Harness updates require the desktop app.");
+  },
+  onHarnessUpdates: () => () => {},
   updateState: async () => ({ status: "unsupported" }),
   checkUpdates: async () => {},
   installUpdate: async () => {

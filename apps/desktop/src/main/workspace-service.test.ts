@@ -78,6 +78,52 @@ function finished(service: WorkspaceService, threadId: string) {
   });
 }
 
+test("harness maintenance reserves an idle CLI, blocks its turns and leaves other harnesses usable", async () => {
+  const { service, project, runs } = await fixture();
+  const release = service.reserveHarnessUpdate("codex");
+  expect(release).not.toBeNull();
+  expect(service.reserveHarnessUpdate("codex")).toBeNull();
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Blocked",
+      designIds: [],
+    }),
+  ).rejects.toThrow("updating");
+  const other = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Other CLI",
+    designIds: [],
+  });
+  expect(service.reserveHarnessUpdate("claude")).toBeNull();
+  const complete = finished(service, other.id);
+  runs[0].complete();
+  await complete;
+  release!();
+  const next = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "After update",
+    designIds: [],
+  });
+  expect(next.status).toBe("running");
+});
+
+test("a preparing turn prevents maintenance from racing harness discovery", async () => {
+  const { service, project } = await fixture();
+  const preparing = service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Starting",
+    designIds: [],
+  });
+  expect(service.reserveHarnessUpdate("codex")).toBeNull();
+  await preparing;
+  expect(service.reserveHarnessUpdate("codex")).toBeNull();
+});
+
 test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {
   const { service, store, project, runs } = await fixture();
   const thread = await service.startThread({

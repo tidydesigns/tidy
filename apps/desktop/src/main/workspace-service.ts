@@ -32,6 +32,7 @@ import {
 } from "../shared/message-queue";
 import { ProjectStore } from "./project-store";
 import { readLocalFile } from "./local-files";
+import type { UpdatableHarnessId } from "../shared/harness-updates";
 
 type Job = {
   thread: Thread;
@@ -59,6 +60,7 @@ export class WorkspaceService {
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
+  private updatingHarnesses = new Set<UpdatableHarnessId>();
 
   constructor(
     readonly store: ProjectStore,
@@ -77,6 +79,21 @@ export class WorkspaceService {
       })
       .catch(() => {});
     return next;
+  }
+
+  /** Reserve an idle harness synchronously so no new turn can race an installation. */
+  reserveHarnessUpdate(id: UpdatableHarnessId): (() => void) | null {
+    if (
+      this.closing ||
+      this.starting.size ||
+      this.updatingHarnesses.has(id) ||
+      [...this.jobs.values()].some((job) => job.thread.harness === id)
+    )
+      return null;
+    this.updatingHarnesses.add(id);
+    return () => {
+      this.updatingHarnesses.delete(id);
+    };
   }
 
   subscribe(listener: (event: DesktopEvent) => void) {
@@ -472,6 +489,8 @@ export class WorkspaceService {
     attachmentIds: string[] = [],
     messageId?: string,
   ) {
+    if (this.updatingHarnesses.has(thread.harness))
+      throw new Error("This harness is updating. Try again when the update finishes.");
     if (messageId && thread.messages.some((message) => message.id === messageId))
       throw new Error("This message was already sent.");
     if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");

@@ -56,6 +56,38 @@ can alter private app data. These controls protect the renderer and project-data
 boundaries; they are not a defense against an already compromised OS account or
 a harness deliberately given full access.
 
+## Harness maintenance
+
+Harness maintenance is separate from the Tidy application updater. Discovery runs
+installed CLIs with `--version` from the user's home directory and fetches bounded,
+stable-version metadata only from fixed npm registry or Homebrew API endpoints.
+Requests contain package identifiers only, without project data or authentication.
+Remote responses cannot supply commands, executable paths, registries or downloads.
+Prereleases and malformed versions are rejected. Offline checks do not install.
+
+Only a trusted app window's main frame can request installation, supplying exactly
+one allowlisted harness ID. The main process owns installation paths, versions and
+argument arrays; the browser-development server exposes no install operation.
+Tidy revalidates the installation, reserves the CLI against new turns, waits for
+active/preparing Tidy runs, serializes installers and verifies `--version` afterward.
+Discovery finishing after an install cannot overwrite the newer state. Shutdown
+waits for an active installer, while queued requests are canceled.
+
+Commands run without a shell, outside project directories, with closed stdin,
+bounded output and a five-minute install timeout. On POSIX, timeouts terminate the
+command's process group. Maintenance excludes inference API keys from its inherited
+environment. Raw updater output, local paths and configuration are never broadcast.
+Global npm/pnpm/Bun installs must match the resolved global package root; npm also
+uses that manager's explicit global prefix. Unknown/project-local installations
+are not overwritten and no privilege elevation is attempted.
+
+The installed native updaters and package managers, their configuration, official
+package/release publishers and OS account remain trusted. Package managers may run
+their usual package lifecycle scripts and use their own credentials/configuration;
+Tidy does not independently verify downloaded CLI code or supervise external CLI
+sessions. Claude's user settings are read only for the update channel; managed
+policies remain enforced by its native updater. These changes add no dependencies.
+
 ## Packaging and verification
 
 Packaging stages compiled output, metadata and licenses only. It enables ASAR-only
