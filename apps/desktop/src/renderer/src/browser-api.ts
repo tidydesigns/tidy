@@ -94,6 +94,7 @@ const api: DesktopAPI = {
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
   startThread: (input) => request("start-thread", input),
   sendMessage: (input) => request("send-message", input),
+  updateMessageQueue: (input) => request("message-queue", input),
   addAttachment: (projectId, name, dataUrl) =>
     request("add-attachment", { projectId, name, dataUrl }),
   readAttachment: (projectId, attachmentId) =>

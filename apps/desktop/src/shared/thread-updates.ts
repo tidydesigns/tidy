@@ -22,6 +22,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     usage: thread.usage,
     preview,
     messageCount: thread.messages.length,
+    queuedMessageCount: thread.queuedMessages?.length ?? 0,
     designIds: thread.designIds,
     status: thread.status,
     activity: thread.activity,

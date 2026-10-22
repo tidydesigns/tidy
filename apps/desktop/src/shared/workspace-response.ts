@@ -39,6 +39,7 @@ const responseSchemas = {
   "read-thread": liveThreadSchema,
   "start-thread": liveThreadSchema,
   "send-message": liveThreadSchema,
+  "message-queue": liveThreadSchema,
   "set-thread-done": liveThreadSchema,
   "respond-approval": liveThreadSchema,
   "stop-thread": z.void(),

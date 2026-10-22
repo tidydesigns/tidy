@@ -10,6 +10,12 @@ import {
 } from "./harness-settings";
 import type { DesignDocument } from "@tidy/design/document";
 import type { AppUpdateState } from "./app-updates";
+import {
+  queuedMessageSchema,
+  MAX_QUEUED_MESSAGES,
+  type MessageDelivery,
+  type QueueRequest,
+} from "./message-queue";
 
 const id = z.string().uuid();
 export const harnessIdSchema = z.enum(["codex", "claude"]);
@@ -57,6 +63,8 @@ export const storedThreadSchema = z.object({
   doneAt: z.string().datetime().optional(),
   designIds: z.array(id).max(20),
   messages: z.array(messageSchema).max(1000),
+  queuedMessages: z.array(queuedMessageSchema).max(MAX_QUEUED_MESSAGES).optional(),
+  queueError: z.string().max(4000).optional(),
   status: z.enum(["idle", "running", "completed", "stopped", "failed", "interrupted"]),
   activity: z.string().max(500).optional(),
   toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
@@ -75,17 +83,25 @@ export const threadSummarySchema = liveThreadSchema
     sessionId: true,
     toolActivities: true,
     pendingApprovals: true,
+    queuedMessages: true,
+    queueError: true,
   })
   .extend({
     pendingApprovalCount: z.number().int().nonnegative().optional(),
     preview: z.string().optional(),
     messageCount: z.number().int().nonnegative().optional(),
+    queuedMessageCount: z.number().int().nonnegative().optional(),
   });
 export const desktopEventSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("thread"), thread: liveThreadSchema }),
   z.object({
     type: z.literal("thread-patch"),
-    thread: liveThreadSchema.omit({ messages: true, toolActivities: true }),
+    thread: liveThreadSchema.omit({
+      messages: true,
+      toolActivities: true,
+      queuedMessages: true,
+      queueError: true,
+    }),
     summary: threadSummarySchema,
     messages: z.array(messageSchema),
     toolActivities: z.array(toolActivitySchema),
@@ -152,12 +168,14 @@ export type DesktopAPI = {
     attachmentIds?: string[];
   }): Promise<Thread>;
   sendMessage(input: {
+    delivery?: MessageDelivery;
     messageId?: string;
     projectId: string;
     threadId: string;
     text: string;
     attachmentIds?: string[];
   }): Promise<Thread>;
+  updateMessageQueue(input: QueueRequest): Promise<Thread>;
   addAttachment(projectId: string, name: string, dataUrl: string): Promise<AttachedFile>;
   readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;

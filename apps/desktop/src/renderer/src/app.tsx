@@ -20,6 +20,10 @@ import {
 import { ProjectFiles } from "./project-files";
 import { HarnessControls } from "./harness-controls";
 import { ThreadCard } from "./thread-card";
+import { MessageQueue } from "./message-queue";
+import { MessageActionIcon } from "./message-action-icon";
+import { useMessageQueue } from "./use-message-queue";
+import { MAX_QUEUED_MESSAGES, type MessageDelivery } from "../../shared/message-queue";
 import { AppUpdate } from "./app-update";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
@@ -81,6 +85,8 @@ export function App() {
   const [now, setNow] = useState(Date.now);
   const [updatingDone, setUpdatingDone] = useState<Record<string, boolean>>({});
   const [sending, setSending] = useState<Record<string, boolean>>({});
+  const pendingStarts = useRef(new Map<string, Promise<Thread>>());
+  const failedStarts = useRef(new Set<string>());
   const sendingKeys = useRef(new Set<string>());
   const [uploading, setUploading] = useState<Record<string, number>>({});
   const uploads = useRef<Record<string, Promise<void>>>({});
@@ -113,8 +119,7 @@ export function App() {
     selectedDesignId && snapshot?.designs.some((item) => item.id === selectedDesignId)
       ? designs[selectedDesignId]
       : undefined;
-  const running = thread?.status === "running";
-  const busy = Boolean(sending[draftKey] && !running);
+  const busy = Boolean(sending[draftKey] && thread?.status !== "running");
 
   const selectedHarness = thread?.harness ?? draft.harness;
   const harnessReady = harnesses.some(
@@ -122,6 +127,62 @@ export function App() {
   );
   const detailKey = `${project?.id ?? ""}:${selectedHarness}`;
   const currentDetails = harnessDetails[detailKey];
+
+  const queue = useMessageQueue({
+    api,
+    thread,
+    waitForStart: (id) => pendingStarts.current.get(id),
+    onThread(value) {
+      setThreads((current) =>
+        (current[value.id]?.revision ?? -1) > value.revision
+          ? current
+          : { ...current, [value.id]: value },
+      );
+      setSnapshots((current) => {
+        const entry = current[value.projectId];
+        return entry
+          ? {
+              ...current,
+              [value.projectId]: applyProjectEvent(entry, { type: "thread", thread: value }),
+            }
+          : current;
+      });
+    },
+    onError: (projectId, cause) => setError({ projectId, text: errorText(cause), original: cause }),
+    onRecover(target, message) {
+      const key = `${target.projectId}:${failedStarts.current.has(target.id) ? "new" : target.id}`;
+      setDrafts((current) => {
+        const previous = current[key] ?? { ...emptyDraft, harness: target.harness };
+        return {
+          ...current,
+          [key]: {
+            ...previous,
+            text: [previous.text, message.text].filter(Boolean).join("\n\n"),
+            attachments: [...(previous.attachments ?? []), ...(message.attachments ?? [])].filter(
+              (file, index, all) => all.findIndex((item) => item.id === file.id) === index,
+            ),
+          },
+        };
+      });
+    },
+  });
+  const hasMessage = Boolean(draft.text.trim() || draft.attachments?.length);
+  const running = thread?.status === "running" || queue.stopping;
+  const submitLabel = busy
+    ? "Starting…"
+    : running || queue.messages.length
+      ? "Queue"
+      : thread
+        ? "Send"
+        : "Start thread";
+  const canSend =
+    hasMessage &&
+    !uploading[draftKey] &&
+    !busy &&
+    !thread?.doneAt &&
+    harnessReady &&
+    !(selectedThreadId && !thread) &&
+    !(thread && settingsPending[thread.id]);
 
   async function loadHarnessDetails(projectId: string, harness: HarnessId, refresh = false) {
     if (!api) return;
@@ -482,21 +543,35 @@ export function App() {
     uploads.current[key] = queued.catch(() => {});
   }
 
-  async function send() {
+  async function send(delivery: MessageDelivery = "queue") {
     if (
       !api ||
       !project ||
       (!draft.text.trim() && !draft.attachments?.length) ||
       !harnessReady ||
       (selectedThreadId && !thread) ||
-      sendingKeys.current.has(draftKey) ||
+      (!running && sendingKeys.current.has(draftKey)) ||
       uploading[draftKey] ||
       busy ||
-      running ||
       thread?.doneAt ||
       (thread && settingsPending[thread.id])
     )
       return;
+    if (thread && (running || queue.messages.length > 0)) {
+      if (queue.messages.length >= MAX_QUEUED_MESSAGES) {
+        setError({
+          projectId: project.id,
+          text: "The queue is full. Remove a message before adding another.",
+        });
+        return;
+      }
+      queue.enqueue(
+        { id: crypto.randomUUID(), text: draft.text, attachments: draft.attachments },
+        delivery,
+      );
+      setDrafts((current) => ({ ...current, [draftKey]: { ...draft, text: "", attachments: [] } }));
+      return;
+    }
     const projectId = project.id;
     const key = draftKey;
     const submitted = draft.text;
@@ -559,15 +634,15 @@ export function App() {
     setSelectedThreads((current) => ({ ...current, [projectId]: id }));
     setError(null);
     try {
-      const value = selectedThreadId
-        ? await api.sendMessage({
+      const request = selectedThreadId
+        ? api.sendMessage({
             projectId,
             threadId: id,
             messageId,
             text: submitted,
             attachmentIds: draft.attachments?.map((file) => file.id),
           })
-        : await api.startThread({
+        : api.startThread({
             projectId,
             threadId: id,
             messageId,
@@ -577,6 +652,8 @@ export function App() {
             settings: draft.settings,
             attachmentIds: draft.attachments?.map((file) => file.id),
           });
+      pendingStarts.current.set(id, request);
+      const value = await request;
       setThreads((current) => ({
         ...current,
         [value.id]:
@@ -589,6 +666,7 @@ export function App() {
         }));
     } catch (value) {
       // Remove only this pending turn. Preserve navigation, newer drafts and native events.
+      if (!thread) failedStarts.current.add(id);
       setThreads((current) => {
         if (
           current[id]?.revision !== optimistic.revision ||
@@ -644,6 +722,7 @@ export function App() {
         );
       setError({ projectId, text: errorText(value), original: value });
     } finally {
+      pendingStarts.current.delete(id);
       sendingKeys.current.delete(key);
       setSending((current) => ({ ...current, [key]: false }));
     }
@@ -730,15 +809,6 @@ export function App() {
     },
     [api, project, updatingDone],
   );
-
-  async function stop() {
-    if (!api || !project || !thread) return;
-    try {
-      await api.stopThread(project.id, thread.id);
-    } catch (value) {
-      setError({ projectId: project.id, text: errorText(value), original: value });
-    }
-  }
 
   async function refreshHarnesses() {
     if (!api) return;
@@ -1043,6 +1113,16 @@ export function App() {
                     }}
                   />
                 ) : null}
+                {thread && (
+                  <MessageQueue
+                    key={thread.id}
+                    messages={queue.messages}
+                    running={running}
+                    error={thread.queueError}
+                    onChange={queue.change}
+                    onRecover={queue.recover}
+                  />
+                )}
                 <form
                   className="composer"
                   onDragOver={(event) => {
@@ -1111,14 +1191,29 @@ export function App() {
                     placeholder={
                       thread?.doneAt
                         ? "Reopen this thread to continue…"
-                        : thread
-                          ? "Continue this thread…"
-                          : "What would you like to work on?"
+                        : running
+                          ? "Queue a follow-up, or send it now…"
+                          : thread
+                            ? "Continue this thread…"
+                            : "What would you like to work on?"
                     }
                     disabled={Boolean(thread?.doneAt) || busy}
                     maxLength={32_000}
-                    rows={3}
+                    rows={2}
                     onKeyDown={(event) => {
+                      if (
+                        event.key === "Enter" &&
+                        event.shiftKey &&
+                        (event.metaKey || event.ctrlKey) &&
+                        running &&
+                        !event.nativeEvent.isComposing
+                      ) {
+                        event.preventDefault();
+                        const first = queue.messages[0];
+                        if (first && !event.repeat)
+                          queue.change({ kind: "steer", messageId: first.id });
+                        return;
+                      }
                       if (
                         event.key === "Enter" &&
                         !event.shiftKey &&
@@ -1127,7 +1222,8 @@ export function App() {
                         event.nativeEvent.keyCode !== 229
                       ) {
                         event.preventDefault();
-                        void send();
+                        if (!event.repeat)
+                          void send(event.metaKey || event.ctrlKey ? "steer" : "queue");
                       }
                     }}
                   />
@@ -1179,31 +1275,54 @@ export function App() {
                       }}
                     />
                     <span className="composer-spacer" />
-                    {running ? (
-                      <Button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => void stop()}
-                      >
-                        Stop
-                      </Button>
-                    ) : (
-                      <Button
-                        type="submit"
-                        className="primary-button"
-                        disabled={
-                          (!draft.text.trim() && !draft.attachments?.length) ||
-                          Boolean(uploading[draftKey]) ||
-                          busy ||
-                          Boolean(thread && settingsPending[thread.id]) ||
-                          Boolean(thread?.doneAt) ||
-                          !harnessReady ||
-                          Boolean(selectedThreadId && !thread)
-                        }
-                      >
-                        {busy ? "Starting…" : thread ? "Send" : "Start thread"}
-                      </Button>
-                    )}
+                    <div className="composer-delivery">
+                      {running && !hasMessage ? (
+                        <Button
+                          type="button"
+                          className="composer-submit composer-stop"
+                          aria-label={
+                            queue.stopping || thread?.activity === "Stopping" ? "Stopping…" : "Stop"
+                          }
+                          title={
+                            queue.stopping || thread?.activity === "Stopping" ? "Stopping…" : "Stop"
+                          }
+                          disabled={queue.stopping || thread?.activity === "Stopping"}
+                          onClick={() => queue.stop()}
+                        >
+                          <MessageActionIcon action="stop" />
+                        </Button>
+                      ) : (
+                        <>
+                          {running && (
+                            <Button
+                              type="button"
+                              className="quiet-button composer-steer"
+                              disabled={!canSend}
+                              title="Use this instruction now (Ctrl/⌘ Enter)"
+                              onClick={() => void send("steer")}
+                            >
+                              <MessageActionIcon action="steer" />
+                              Send now
+                            </Button>
+                          )}
+                          <Button
+                            type="submit"
+                            className="composer-submit"
+                            disabled={!canSend}
+                            aria-label={submitLabel}
+                            title={`${submitLabel} (Enter)`}
+                          >
+                            {busy ? (
+                              <Icon name="more" size={16} />
+                            ) : (
+                              <MessageActionIcon
+                                action={running || queue.messages.length ? "queue" : "send"}
+                              />
+                            )}
+                          </Button>
+                        </>
+                      )}
+                    </div>
                   </div>
                   {!harnessReady && (
                     <div className="connection-help">

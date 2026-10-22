@@ -465,7 +465,7 @@ export function startInteractiveHarness(input: {
       else resolve();
     });
   });
-  void (async () => {
+  const ready = (async () => {
     if (codex) {
       await request("initialize", {
         clientInfo: { name: "tidy_desktop", title: "Tidy", version },
@@ -530,6 +530,20 @@ export function startInteractiveHarness(input: {
   return {
     done,
     stop,
+    async steer(message) {
+      if (!codex) return false;
+      await ready;
+      if (stopped || closed || completed || !threadId || !turnId) return false;
+      await request("turn/steer", {
+        threadId,
+        expectedTurnId: turnId,
+        input: [
+          { type: "text", text: message.prompt, text_elements: [] },
+          ...message.images.map((image) => ({ type: "localImage", path: image.path })),
+        ],
+      });
+      return true;
+    },
     respondToApproval(id, decision) {
       const approval = approvals.get(id);
       if (stopped || closed || completed || !approval || !approval.choices.includes(decision))

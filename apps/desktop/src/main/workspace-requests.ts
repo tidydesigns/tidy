@@ -5,6 +5,7 @@ import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../shared/attachments";
 import { harnessSettingsSchema } from "../shared/harness-settings";
 import { checkHarnesses } from "./harnesses";
 import { WorkspaceService } from "./workspace-service";
+import { messageDeliverySchema, queueRequestSchema } from "../shared/message-queue";
 
 export type WorkspacePlatform<Context> = {
   chooseProject(context: Context): Promise<string | null>;
@@ -115,6 +116,7 @@ export function createWorkspaceRequests<Context>(
     "send-message",
     z
       .object({
+        delivery: messageDeliverySchema.optional(),
         projectId,
         threadId: uuid,
         messageId: uuid.optional(),
@@ -124,6 +126,7 @@ export function createWorkspaceRequests<Context>(
       .strict(),
     (value) => service.sendMessage(value),
   );
+  handle("message-queue", queueRequestSchema, (value) => service.updateMessageQueue(value));
   handle(
     "add-attachment",
     z

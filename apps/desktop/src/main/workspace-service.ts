@@ -7,7 +7,7 @@ import {
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
-import type { DesktopEvent, HarnessId, Thread, ThreadSummary } from "../shared/contracts";
+import type { DesktopAPI, DesktopEvent, Thread, ThreadSummary } from "../shared/contracts";
 import { findHarness, startHarness, type HarnessUpdate, type RunningHarness } from "./harnesses";
 import {
   attachmentSchema,
@@ -23,12 +23,20 @@ import {
   MAX_TOOL_ACTIVITIES,
   MAX_TOOL_LOG_CHARACTERS,
 } from "../shared/tool-activity";
+import {
+  applyQueueAction,
+  MAX_QUEUED_MESSAGES,
+  queuedMessageSchema,
+  type QueuedMessage,
+  type QueueRequest,
+} from "../shared/message-queue";
 import { ProjectStore } from "./project-store";
 import { readLocalFile } from "./local-files";
 
 type Job = {
   thread: Thread;
   process?: RunningHarness;
+  completion?: Promise<void>;
   stopped: boolean;
   messages: Map<string, string>;
   tools: Map<string, string>;
@@ -40,6 +48,9 @@ type Job = {
 };
 
 export class WorkspaceService {
+  private commands = new Map<string, Promise<unknown>>();
+  private automaticQueues = new Set<string>();
+  private stopVersions = new Map<string, number>();
   private jobs = new Map<string, Job>();
   private watchers = new Map<string, FSWatcher>();
   private listeners = new Set<(event: DesktopEvent) => void>();
@@ -54,6 +65,18 @@ export class WorkspaceService {
     private locate = findHarness,
     private configure = validateHarnessSettings,
   ) {}
+
+  private serialize<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.commands.get(threadId) ?? Promise.resolve();
+    const next = previous.catch(() => {}).then(operation);
+    this.commands.set(threadId, next);
+    void next
+      .finally(() => {
+        if (this.commands.get(threadId) === next) this.commands.delete(threadId);
+      })
+      .catch(() => {});
+    return next;
+  }
 
   subscribe(listener: (event: DesktopEvent) => void) {
     this.listeners.add(listener);
@@ -116,7 +139,11 @@ export class WorkspaceService {
   }
 
   /** Mark a finished thread done/reopened without admitting delayed writes during shutdown. */
-  async setThreadDone(projectId: string, threadId: string, done: boolean) {
+  setThreadDone(projectId: string, threadId: string, done: boolean) {
+    return this.serialize(threadId, () => this.setThreadDoneNow(projectId, threadId, done));
+  }
+
+  private async setThreadDoneNow(projectId: string, threadId: string, done: boolean) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       throw new Error("Wait for this run to finish before marking the thread done.");
@@ -139,7 +166,15 @@ export class WorkspaceService {
   }
 
   /** Validate settings and reject delayed requests once shutdown begins. */
-  async setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
+  setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
+    return this.serialize(threadId, () => this.setThreadSettingsNow(projectId, threadId, settings));
+  }
+
+  private async setThreadSettingsNow(
+    projectId: string,
+    threadId: string,
+    settings: HarnessSettings,
+  ) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       throw new Error("Wait for this run to finish before changing its settings.");
@@ -160,16 +195,15 @@ export class WorkspaceService {
     }
   }
 
-  async startThread(input: {
-    threadId?: string;
-    messageId?: string;
-    projectId: string;
-    harness: HarnessId;
-    prompt: string;
-    designIds: string[];
-    settings?: HarnessSettings;
-    attachmentIds?: string[];
-  }) {
+  startThread(input: Parameters<DesktopAPI["startThread"]>[0]) {
+    const threadId = input.threadId ?? randomUUID();
+    if (this.starting.has(threadId) || this.jobs.has(threadId))
+      return Promise.reject(new Error("This thread is already running."));
+    this.starting.set(threadId, input.projectId);
+    return this.serialize(threadId, () => this.startThreadNow({ ...input, threadId }));
+  }
+
+  private async startThreadNow(input: Parameters<DesktopAPI["startThread"]>[0]) {
     const thread: Thread = {
       revision: 0,
       id: input.threadId ?? randomUUID(),
@@ -182,8 +216,7 @@ export class WorkspaceService {
       status: "idle",
       updatedAt: new Date().toISOString(),
     };
-    if (this.starting.has(thread.id) || this.jobs.has(thread.id))
-      throw new Error("This thread is already running.");
+    if (this.jobs.has(thread.id)) throw new Error("This thread is already running.");
     this.starting.set(thread.id, input.projectId);
     try {
       if (input.threadId && (await this.store.threadExists(input.projectId, input.threadId)))
@@ -195,50 +228,181 @@ export class WorkspaceService {
     }
   }
 
-  async sendMessage(input: {
-    messageId?: string;
-    projectId: string;
-    threadId: string;
-    text: string;
-    attachmentIds?: string[];
-  }) {
-    if (this.starting.has(input.threadId) || this.jobs.has(input.threadId))
-      throw new Error("This thread is already running.");
-    this.starting.set(input.threadId, input.projectId);
-    try {
-      return await this.run(
-        await this.store.readThread(input.projectId, input.threadId),
+  sendMessage(input: Parameters<DesktopAPI["sendMessage"]>[0]) {
+    const stopVersion = this.stopVersions.get(input.threadId) ?? 0;
+    if (!input.delivery && (this.starting.has(input.threadId) || this.jobs.has(input.threadId)))
+      return Promise.reject(new Error("This thread is already running."));
+    return this.serialize(input.threadId, async () => {
+      const thread = await this.mutableThread(input.projectId, input.threadId);
+      if (!input.delivery) {
+        if (this.starting.has(thread.id) || this.jobs.has(thread.id))
+          throw new Error("This thread is already running.");
+        this.automaticQueues.delete(thread.id);
+        if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+          this.cancelledStarts.add(thread.id);
+        return this.run(thread, input.text, input.attachmentIds, input.messageId);
+      }
+      if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
+      const queue = thread.queuedMessages ?? [];
+      if (queue.length >= MAX_QUEUED_MESSAGES)
+        throw new Error("The queue is full. Remove a message before adding another.");
+      const id = input.messageId ?? randomUUID();
+      if (
+        thread.messages.some((message) => message.id === id) ||
+        queue.some((message) => message.id === id)
+      )
+        throw new Error("This message was already sent.");
+      const attachments = await this.resolveAttachments(
+        thread.projectId,
         input.text,
         input.attachmentIds,
-        input.messageId,
       );
-    } finally {
-      this.starting.delete(input.threadId);
-      this.cancelledStarts.delete(input.threadId);
+      const message = queuedMessageSchema.parse({
+        id,
+        text: input.text,
+        attachments,
+      });
+      await this.persistQueue(thread, [...queue, message]);
+      if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion) return structuredClone(thread);
+      const active = this.jobs.get(thread.id);
+      if (active && !active.stopped) this.automaticQueues.add(thread.id);
+      if (input.delivery === "steer") return this.deliverQueued(thread, message, true);
+      if (
+        !active &&
+        !queue.length &&
+        !["stopped", "interrupted", "failed"].includes(thread.status)
+      ) {
+        return this.deliverQueued(thread, message, false);
+      }
+      return structuredClone(thread);
+    });
+  }
+
+  private async mutableThread(projectId: string, threadId: string) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    const thread =
+      this.jobs.get(threadId)?.thread ?? (await this.store.readThread(projectId, threadId));
+    if (thread.projectId !== projectId) throw new Error("This thread belongs to another project.");
+    return thread;
+  }
+
+  private async persistQueue(thread: Thread, messages: QueuedMessage[], delivered = false) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    const previous = thread.queuedMessages;
+    thread.queuedMessages = messages;
+    thread.revision++;
+    try {
+      await this.store.writeThread(thread);
+    } catch (error) {
+      if (!delivered) thread.queuedMessages = previous;
+      thread.revision++;
+      this.emit({ type: "thread", thread });
+      throw error;
+    }
+    this.emit({ type: "thread", thread });
+  }
+
+  updateMessageQueue(input: QueueRequest) {
+    return this.serialize(input.threadId, async () => {
+      const thread = await this.mutableThread(input.projectId, input.threadId);
+      const queue = thread.queuedMessages ?? [];
+      const action = input.action;
+      const message = queue.find((item) => item.id === action.messageId);
+      if (!message) throw new Error("This message has already left the queue.");
+      if (action.kind === "steer") return this.deliverQueued(thread, message, true);
+      if (action.kind === "edit" && !action.text.trim() && !message.attachments?.length)
+        throw new Error("Write a message or attach a file.");
+      if (
+        action.kind === "move" &&
+        action.beforeId !== null &&
+        !queue.some((item) => item.id === action.beforeId)
+      )
+        throw new Error("The queue changed. Try moving this message again.");
+      await this.persistQueue(thread, applyQueueAction(queue, action));
+      return structuredClone(thread);
+    });
+  }
+
+  private async deliverQueued(
+    thread: Thread,
+    message: QueuedMessage,
+    steer: boolean,
+  ): Promise<Thread> {
+    const job = this.jobs.get(thread.id);
+    const stopVersion = this.stopVersions.get(thread.id) ?? 0;
+    const attachmentIds = message.attachments?.map((file) => file.id);
+    try {
+      thread.queueError = undefined;
+      if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
+      if (job) {
+        if (!steer || job.stopped) return structuredClone(thread);
+        const prepared = await this.prepareMessage(thread, message.text, attachmentIds);
+        if (this.closing || job.stopped) return structuredClone(thread);
+        const insertion = thread.messages.length;
+        if (
+          job.process?.steer &&
+          (await job.process.steer({ prompt: prepared.context, images: prepared.images }))
+        ) {
+          thread.messages.splice(insertion, 0, { ...message, role: "user" });
+          if (!job.stopped && !this.closing) this.automaticQueues.add(thread.id);
+          await this.persistQueue(
+            thread,
+            (thread.queuedMessages ?? []).filter((item) => item.id !== message.id),
+            true,
+          );
+          return structuredClone(thread);
+        }
+        if (job.stopped || this.closing) return structuredClone(thread);
+        if (!thread.sessionId)
+          throw new Error("The agent is still starting. Try sending again once it is ready.");
+        job.stopped = true;
+        thread.activity = "Redirecting";
+        thread.pendingApprovals = undefined;
+        thread.revision++;
+        job.process?.stop();
+        this.emit({ type: "thread", thread });
+        await job.process?.done.catch(() => {});
+        await this.finish(job, false);
+        if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+          return structuredClone(thread);
+      }
+      this.automaticQueues.add(thread.id);
+      return await this.run(thread, message.text, attachmentIds, message.id);
+    } catch (error) {
+      this.automaticQueues.delete(thread.id);
+      thread.queueError = (
+        error instanceof Error ? error.message : "The queued message could not be sent."
+      ).slice(0, 4000);
+      thread.revision++;
+      await this.store.writeThread(thread).catch(() => {});
+      this.emit({ type: "thread", thread });
+      return structuredClone(thread);
     }
   }
 
-  private async run(
-    thread: Thread,
+  private async resolveAttachments(
+    projectId: string,
     prompt: string,
     attachmentIds: string[] = [],
-    messageId?: string,
   ) {
-    if (this.closing) throw new Error("Tidy is closing.");
-    if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
-    const project = this.store.project(thread.projectId);
-    if (messageId && thread.messages.some((message) => message.id === messageId))
-      throw new Error("This message was already sent.");
-    const settings = harnessSettingsSchema.parse(thread.settings ?? {});
-    validatePermissionMode(thread.harness, settings.permissionMode);
     z.array(z.string().uuid()).max(MAX_ATTACHMENTS).parse(attachmentIds);
     if (!prompt.trim() && !attachmentIds.length)
       throw new Error("Write a message or attach a file.");
     const attachments = await Promise.all(
-      [...new Set(attachmentIds)].map((id) => this.store.resolveAttachment(project.id, id)),
+      [...new Set(attachmentIds)].map((id) => this.store.resolveAttachment(projectId, id)),
     );
     if (attachments.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_TOTAL_BYTES)
       throw new Error("Keep attachments under 25 MB per message.");
+    return attachments;
+  }
+
+  private async prepareMessage(thread: Thread, prompt: string, attachmentIds: string[] = []) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
+    const project = this.store.project(thread.projectId);
+    const settings = harnessSettingsSchema.parse(thread.settings ?? {});
+    validatePermissionMode(thread.harness, settings.permissionMode);
+    const attachments = await this.resolveAttachments(project.id, prompt, attachmentIds);
     const imagesPromise = Promise.all(
       attachments
         .filter((file) =>
@@ -282,6 +446,44 @@ export class WorkspaceService {
       "User request:",
       prompt || "Review the attached files.",
     ].join("\n\n");
+    return { executable, context, images, attachments, project };
+  }
+
+  private async run(
+    thread: Thread,
+    prompt: string,
+    attachmentIds: string[] = [],
+    messageId?: string,
+  ) {
+    if (messageId && thread.messages.some((message) => message.id === messageId))
+      throw new Error("This message was already sent.");
+    if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
+    this.starting.set(thread.id, thread.projectId);
+    try {
+      return await this.runPrepared(thread, prompt, attachmentIds, messageId);
+    } finally {
+      this.starting.delete(thread.id);
+      this.cancelledStarts.delete(thread.id);
+    }
+  }
+
+  private async runPrepared(
+    thread: Thread,
+    prompt: string,
+    attachmentIds: string[],
+    messageId?: string,
+  ) {
+    const { executable, context, images, attachments, project } = await this.prepareMessage(
+      thread,
+      prompt,
+      attachmentIds,
+    );
+    const queuedMessages = thread.queuedMessages;
+    thread = {
+      ...thread,
+      messages: [...thread.messages],
+      queuedMessages: queuedMessages?.filter((item) => item.id !== messageId),
+    };
     if (this.closing) throw new Error("Tidy is closing.");
     thread.messages.push({
       id: messageId ?? randomUUID(),
@@ -314,6 +516,10 @@ export class WorkspaceService {
     }
     this.emit({ type: "thread", thread });
     if (job.stopped || this.closing) {
+      if (queuedMessages?.some((item) => item.id === messageId)) {
+        thread.queuedMessages = queuedMessages;
+        thread.messages = thread.messages.filter((item) => item.id !== messageId);
+      }
       thread.status = "stopped";
       thread.activity = undefined;
       thread.revision++;
@@ -334,8 +540,13 @@ export class WorkspaceService {
         onUpdate: (update) => this.update(job, update),
       });
       if (job.stopped) job.process.stop();
-      void this.complete(job);
+      job.completion = this.complete(job);
     } catch (error) {
+      if (queuedMessages?.some((item) => item.id === messageId)) {
+        thread.queuedMessages = queuedMessages;
+        thread.messages = thread.messages.filter((item) => item.id !== messageId);
+      }
+      this.automaticQueues.delete(thread.id);
       thread.status = "failed";
       thread.error = error instanceof Error ? error.message : "The harness could not start.";
       this.jobs.delete(thread.id);
@@ -421,6 +632,8 @@ export class WorkspaceService {
       job.notification = setTimeout(() => {
         job.notification = undefined;
         const { messages, toolActivities, ...metadata } = thread;
+        delete metadata.queuedMessages;
+        delete metadata.queueError;
         this.emit({
           type: "thread-patch",
           thread: metadata,
@@ -452,6 +665,11 @@ export class WorkspaceService {
         job.thread.error =
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
     }
+    await this.serialize(job.thread.id, () => this.finish(job, true));
+  }
+
+  private async finish(job: Job, drain: boolean) {
+    if (this.jobs.get(job.thread.id) !== job) return;
     clearTimeout(job.checkpoint);
     clearTimeout(job.notification);
     const ownedTools = new Set(job.tools.values());
@@ -471,7 +689,19 @@ export class WorkspaceService {
     }
     this.jobs.delete(job.thread.id);
     this.emit({ type: "thread", thread: job.thread });
-    await this.refreshDesigns(job.thread.projectId).catch(() => {});
+    void this.refreshDesigns(job.thread.projectId).catch(() => {});
+    const next = job.thread.queuedMessages?.[0];
+    if (!next || job.stopped || job.thread.error || this.closing)
+      this.automaticQueues.delete(job.thread.id);
+    if (
+      drain &&
+      next &&
+      !this.closing &&
+      !job.stopped &&
+      !job.thread.error &&
+      this.automaticQueues.has(job.thread.id)
+    )
+      await this.deliverQueued(job.thread, next, false);
   }
 
   async respondToApproval(
@@ -500,11 +730,17 @@ export class WorkspaceService {
   }
 
   async stopThread(projectId: string, threadId: string) {
+    const active = this.jobs.get(threadId)?.thread;
+    const preparingProject = this.starting.get(threadId);
+    if (
+      (active && active.projectId !== projectId) ||
+      (preparingProject && preparingProject !== projectId)
+    )
+      throw new Error("This thread belongs to another project.");
+    this.stopVersions.set(threadId, (this.stopVersions.get(threadId) ?? 0) + 1);
+    this.automaticQueues.delete(threadId);
     const job = this.jobs.get(threadId);
     if (!job) {
-      const preparingProject = this.starting.get(threadId);
-      if (preparingProject && preparingProject !== projectId)
-        throw new Error("This thread belongs to another project.");
       if (preparingProject) this.cancelledStarts.add(threadId);
       return;
     }
@@ -536,6 +772,7 @@ export class WorkspaceService {
   }
 
   private async stopAndFlush() {
+    const jobs = [...this.jobs.values()];
     for (const job of this.jobs.values()) {
       job.stopped = true;
       job.process?.stop();
@@ -544,6 +781,7 @@ export class WorkspaceService {
     // Final checkpoints are queued after child termination.
     for (const job of this.jobs.values())
       await this.store.writeThread({ ...job.thread, status: "interrupted", activity: undefined });
+    await Promise.all(jobs.map((job) => job.completion));
     await this.store.flush();
   }
 

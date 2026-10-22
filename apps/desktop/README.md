@@ -77,7 +77,23 @@ history on each update. Notifications are coalesced separately from disk checkpo
 immediate durable write before launch and a final flush on completion/shutdown.
 Harness process startup and provider generation time still determine response latency.
 
-Press Enter to send; Shift+Enter adds a new line. Cmd/Ctrl+Enter also sends.
+Press Enter to send; Shift+Enter adds a new line. While the agent is working,
+Enter or Queue adds a follow-up for the next turn. Send now or Cmd/Ctrl+Enter sends
+the message into the active turn. Codex uses native steering; Claude interrupts
+and resumes its existing session. Sending into an active turn is available once a native session is ready.
+Cmd/Ctrl+Shift+Enter sends the oldest queued message into the active turn without changing your draft.
+
+The collapsed queue above the composer shows the waiting message count. Expand it
+to edit, reorder, remove, or send individual messages immediately. Drag a message by its grip
+to reorder it, or focus the grip and use the up/down arrow keys.
+Edits apply on Enter or leaving
+the field; Escape cancels. If a message starts while being edited, unfinished
+changes return to the composer. Up to 20 follow-ups, including attachments, can
+wait in each thread. They run one at a time after successful turns. Stop, errors,
+and app restarts hold remaining messages. Send now on a waiting message starts it
+and continues the remaining queue automatically. Queue contents are
+persisted locally; opening a project never executes a saved queue.
+
 Use the paperclip to attach files, drop them onto the composer, or paste an image.
 Attachments have previews and can be removed before sending. A message can contain
 attachments without text. Images use Codex's native local-image input or Claude's
