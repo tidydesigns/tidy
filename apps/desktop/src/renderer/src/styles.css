@@ -2527,23 +2527,27 @@ summary:focus-visible {
 .skill-prompt {
   position: relative;
 }
+.composer:has(.skill-picker) {
+  border-start-start-radius: 0;
+  border-start-end-radius: 0;
+  border-top-color: var(--color-border);
+}
 .skill-picker {
   position: absolute;
-  bottom: calc(100% + 18px);
-  inset-inline-start: 0;
+  bottom: calc(100% + 10px);
+  inset-inline-start: -11px;
   z-index: 10;
-  width: 100%;
+  width: calc(100% + 22px);
   max-height: min(250px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   padding: 5px;
-  border: 1px solid var(--color-border);
-  border-radius: 10px;
+  border: 1px solid var(--color-muted-ink);
+  border-bottom: 0;
+  border-radius: 10px 10px 0 0;
   background: var(--desktop-surface);
-  box-shadow:
-    0 2px 4px light-dark(#00000004, #00000014),
-    0 8px 24px light-dark(#0000000d, #00000033);
+  box-shadow: 0 -8px 24px light-dark(#00000006, #0000001a);
 }
 .skill-option {
   display: flex;
