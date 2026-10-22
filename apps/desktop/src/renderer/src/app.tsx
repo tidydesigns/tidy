@@ -1323,6 +1323,8 @@ export function App() {
                     thread={thread}
                     active={location === "local" && mode === "code"}
                     api={api!}
+                    designs={snapshot.designs}
+                    onDesignUpdate={updateLocalDesign}
                     references={
                       thread?.designIds.map(
                         (id) =>

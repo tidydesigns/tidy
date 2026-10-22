@@ -1,6 +1,6 @@
-import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FileEditor } from "@tidy/editor";
-import { EditorHostProvider } from "@tidy/editor/host";
+import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../shared/contracts";
 
@@ -12,6 +12,8 @@ export const LocalCanvas = memo(function LocalCanvas({
   onBack,
   onUpdate,
   status,
+  backLabel = "Back to designs",
+  initialPanelsOpen = true,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -20,6 +22,8 @@ export const LocalCanvas = memo(function LocalCanvas({
   onBack(): void;
   onUpdate(design: LocalDesign): void;
   status?: ReactNode;
+  backLabel?: string;
+  initialPanelsOpen?: boolean;
 }) {
   useEffect(() => {
     if (!active || !api.cloud) return;
@@ -102,37 +106,59 @@ export const LocalCanvas = memo(function LocalCanvas({
     }
   }
 
+  const back = useRef(onBack);
+  back.current = onBack;
+  const host = useMemo(
+    () => ({
+      Link: function BackLink({ children, className, onNavigate }: EditorLinkProps) {
+        return (
+          <button
+            className={className}
+            aria-label={backLabel}
+            title={backLabel}
+            onClick={() => {
+              let blocked = false;
+              onNavigate?.({
+                preventDefault() {
+                  blocked = true;
+                },
+              });
+              if (!blocked) back.current();
+            }}
+          >
+            {backLabel === "Minimise canvas" ? (
+              <svg
+                aria-hidden="true"
+                width="18"
+                height="18"
+                viewBox="0 0 20 20"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 8h5V3m9 9h-5v5M8 8 3 3m9 9 5 5" />
+              </svg>
+            ) : (
+              children
+            )}
+          </button>
+        );
+      },
+    }),
+    [backLabel],
+  );
+
   return (
-    <EditorHostProvider
-      value={{
-        Link: function BackLink({ children, className, onNavigate }) {
-          return (
-            <button
-              className={className}
-              aria-label="Back to designs"
-              onClick={() => {
-                let blocked = false;
-                onNavigate?.({
-                  preventDefault() {
-                    blocked = true;
-                  },
-                });
-                if (!blocked) onBack();
-              }}
-            >
-              {children}
-            </button>
-          );
-        },
-      }}
-    >
+    <EditorHostProvider value={host}>
       <FileEditor
         fileId={initial.id}
         fileName={initial.name}
         organizationName=""
         backHref="#"
         initialDocument={{ revision: 0, content: initial.document }}
-        initialPanelsOpen
+        initialPanelsOpen={initialPanelsOpen}
         local
         statusControl={status}
         active={active}

@@ -3061,3 +3061,172 @@ summary:focus-visible {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.thread-design-window {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 20px 0 8px;
+  animation: thread-design-appear 220ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.thread-design-peek {
+  position: relative;
+  display: block;
+  width: min(256px, 100%);
+  height: 176px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 24% 18% 22% 16% / 22% 26% 18% 24%;
+  background: light-dark(#f0efed, #292827);
+  color: var(--color-ink);
+  box-shadow: 0 2px 8px #00000006;
+  cursor: pointer;
+  isolation: isolate;
+  transition:
+    box-shadow 180ms ease,
+    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.thread-design-window[data-working="true"] .thread-design-peek {
+  animation: thread-design-breathe 10s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+}
+.thread-design-peek[data-expanded="true"] {
+  visibility: hidden;
+  animation-play-state: paused;
+}
+.thread-design-peek:active {
+  transform: scale(0.98);
+}
+.thread-design-peek:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 4px;
+}
+.thread-design-artwork {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  pointer-events: none;
+}
+.thread-design-expand {
+  position: absolute;
+  right: 20px;
+  bottom: 14px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  background: var(--desktop-surface);
+  font-size: 16px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.thread-design-peek:focus-visible .thread-design-expand {
+  opacity: 1;
+}
+.thread-design-caption {
+  max-width: 256px;
+  padding-left: 12px;
+  overflow: hidden;
+  color: var(--color-muted-ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 16px;
+}
+.thread-design-dialog {
+  inset: 0;
+  width: 100vw;
+  max-width: none;
+  height: 100dvh;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: light-dark(#f0efed, #292827);
+  box-shadow: none;
+  transform-origin: top left;
+}
+.thread-design-dialog::backdrop {
+  background: transparent;
+}
+.thread-design-canvas {
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+:root[data-titlebar="hidden"] .thread-design-canvas {
+  padding-top: 40px;
+  background: var(--color-panel);
+}
+:root[data-titlebar="hidden"] .thread-design-canvas::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 40px;
+  app-region: drag;
+}
+.thread-design-dialog[data-phase="open"] .thread-design-canvas {
+  opacity: 1;
+}
+.thread-design-transition-artwork {
+  position: absolute;
+  inset: 0;
+  padding: 32px;
+  pointer-events: none;
+  opacity: 1;
+  transition: opacity 100ms ease;
+}
+.thread-design-dialog[data-phase="open"] .thread-design-transition-artwork {
+  opacity: 0;
+}
+@media (hover: hover) and (pointer: fine) {
+  .thread-design-peek:hover {
+    box-shadow: 0 4px 16px #0000000c;
+  }
+  .thread-design-peek:hover .thread-design-expand {
+    opacity: 1;
+  }
+}
+@keyframes thread-design-breathe {
+  0%,
+  100% {
+    border-radius: 24% 18% 22% 16% / 22% 26% 18% 24%;
+  }
+  33% {
+    border-radius: 16% 26% 18% 24% / 28% 18% 26% 16%;
+  }
+  66% {
+    border-radius: 22% 16% 26% 18% / 16% 24% 20% 28%;
+  }
+}
+@keyframes thread-design-appear {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-design-window,
+  .thread-design-window[data-working="true"] .thread-design-peek {
+    animation: none;
+  }
+  .thread-design-peek,
+  .thread-design-canvas,
+  .thread-design-transition-artwork {
+    transition: none;
+  }
+  .thread-design-peek:active {
+    transform: none;
+  }
+}
