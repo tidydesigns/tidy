@@ -145,6 +145,8 @@ export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
   /** The native window controls overlay the renderer on macOS. Absent in browser development. */
   readonly customTitlebar?: boolean;
+  /** Native window notifications; absent in browser development. */
+  onWindowFullscreen?(listener: (fullscreen: boolean) => void): () => void;
   harnessUpdates(): Promise<HarnessUpdateState[]>;
   installHarnessUpdate(id: UpdatableHarnessId): Promise<void>;
   onHarnessUpdates(listener: (state: HarnessUpdateState[]) => void): () => void;

@@ -376,6 +376,56 @@ app.on("browser-window-created", (_event, window) => {
       await wait("document.querySelector('.app-update-button')===null");
 
       // A real canvas must still work under the restricted custom protocol.
+      if (process.platform === "darwin") {
+        // Leave an explicit open preference: immersive designs must override it.
+        await evaluate("document.querySelector('.desktop-sidebar-toggle').click();true");
+        await wait(
+          "getComputedStyle(document.querySelector('#desktop-navigation')).display==='none'",
+        );
+        await evaluate("document.querySelector('.desktop-sidebar-toggle').click();true");
+        await wait(
+          "getComputedStyle(document.querySelector('#desktop-navigation')).display!=='none'",
+        );
+        assert.equal(
+          await evaluate(
+            "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
+          ),
+          88,
+        );
+        primary.setFullScreen(true);
+        await wait("document.documentElement.hasAttribute('data-window-fullscreen')");
+        assert.equal(
+          await evaluate(
+            "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
+          ),
+          8,
+        );
+        // Reloading in fullscreen must restore the inset without another native transition.
+        await new Promise((resolve) => {
+          page.once("did-finish-load", resolve);
+          page.reload();
+        });
+        await wait(
+          "document.querySelector('.desktop-sidebar-toggle')!==null && document.documentElement.hasAttribute('data-window-fullscreen')",
+        );
+        primary.setFullScreen(false);
+        await wait("!document.documentElement.hasAttribute('data-window-fullscreen')");
+        assert.equal(
+          await evaluate(
+            "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
+          ),
+          88,
+        );
+        // The reload resets preferences; set an explicit open preference again.
+        await evaluate("document.querySelector('.desktop-sidebar-toggle').click();true");
+        await wait(
+          "getComputedStyle(document.querySelector('#desktop-navigation')).display==='none'",
+        );
+        await evaluate("document.querySelector('.desktop-sidebar-toggle').click();true");
+        await wait(
+          "getComputedStyle(document.querySelector('#desktop-navigation')).display!=='none'",
+        );
+      }
       const design = await api("createDesign", projectId);
       await wait(
         `Array.from(document.querySelectorAll('.local-file-card')).some(card=>card.textContent.includes(${JSON.stringify(design.name)}))`,
@@ -385,6 +435,28 @@ app.on("browser-window-created", (_event, window) => {
       await wait(
         `document.querySelector('[data-node-id="${design.document.nodes[0].id}"]')!==null`,
       );
+      assert.equal(
+        await evaluate("getComputedStyle(document.querySelector('#desktop-navigation')).display"),
+        "none",
+      );
+      assert.equal(
+        await evaluate("document.querySelector('.desktop-sidebar-toggle')===null"),
+        true,
+      );
+      assert.equal(
+        await evaluate("document.querySelector('.workspace').getBoundingClientRect().left"),
+        0,
+      );
+      await evaluate("document.querySelector('[aria-label=\"Back to designs\"]').click();true");
+      await wait("document.querySelector('[aria-label=\"Design canvas\"]')===null");
+      assert.equal(
+        await evaluate(
+          "getComputedStyle(document.querySelector('#desktop-navigation')).display!=='none'",
+        ),
+        true,
+      );
+      await evaluate("document.querySelector('.file-open-overlay').click();true");
+      await wait("document.querySelector('[aria-label=\"Design canvas\"]')!==null");
       assert.equal(
         await evaluate(
           "document.querySelector('[aria-label=\"Design canvas\"]').getBoundingClientRect().width>0",

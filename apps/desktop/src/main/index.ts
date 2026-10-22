@@ -58,6 +58,14 @@ async function createWindow() {
     },
   });
 
+  // Native fullscreen hides the traffic lights; keep the renderer's inset in sync after reloads too.
+  const syncFullscreen = () => {
+    if (trustedRendererURL(window.webContents.mainFrame.url, entryURL))
+      window.webContents.send("tidy:window-fullscreen", window.isFullScreen());
+  };
+  window.on("enter-full-screen", syncFullscreen);
+  window.on("leave-full-screen", syncFullscreen);
+  window.webContents.on("did-finish-load", syncFullscreen);
   window.once("ready-to-show", () => window.show());
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => event.preventDefault());

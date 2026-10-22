@@ -19,6 +19,13 @@ async function request<Name extends WorkspaceOperation>(
 
 const api: DesktopAPI = {
   customTitlebar: process.platform === "darwin",
+  onWindowFullscreen(listener) {
+    const receive = (_event: Electron.IpcRendererEvent, fullscreen: unknown) => {
+      if (typeof fullscreen === "boolean") listener(fullscreen);
+    };
+    ipcRenderer.on("tidy:window-fullscreen", receive);
+    return () => ipcRenderer.removeListener("tidy:window-fullscreen", receive);
+  },
   /** Validate main-process snapshots before exposing them to the renderer. */
   harnessUpdates: async () =>
     harnessUpdatesSchema.parse(await ipcRenderer.invoke("tidy:harness-updates")),
