@@ -1,6 +1,10 @@
 import { reserveOperation, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
-import { requireOrganizationPermission } from "@/lib/organizations/authorization";
+import {
+  OrganizationAccessError,
+  requireOrganizationPermission,
+} from "@/lib/organizations/authorization";
 import "server-only";
+import type { PoolClient } from "pg";
 import Stripe from "stripe";
 import { createHash } from "node:crypto";
 import { db } from "@/lib/db";
@@ -129,6 +133,27 @@ export async function requireBillingOwner(userId: string, organizationId: string
   await requireOrganizationPermission(userId, organizationId, "own");
 }
 
+/** Admission checks retain no locks. Repeat ownership under the same workspace
+ * gate as membership changes and hold it until the billing URL is published.
+ * Keep organization → user → membership order, including account deletion. */
+async function lockBillingOwner(client: PoolClient, userId: string, organizationId: string) {
+  await client.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [organizationId]);
+  const organization = await client.query(
+    'select "id" from "organization" where "id"=$1 for share',
+    [organizationId],
+  );
+  const user = await client.query(
+    'select "id" from "user" where "id"=$1 and "emailVerified"=true for share',
+    [userId],
+  );
+  const owner = await client.query(
+    `select "id" from "member" where "userId"=$1 and "organizationId"=$2 and "role"='owner' for share`,
+    [userId, organizationId],
+  );
+  if (!organization.rowCount || !user.rowCount || !owner.rowCount)
+    throw new OrganizationAccessError("Workspace access denied.");
+}
+
 export async function validateCatalog(client: Stripe, work = new BillingWorkBudget()) {
   const price = await client.prices.retrieve(process.env.STRIPE_PRO_PRICE_ID!, {}, work.options());
   const coupon = await client.coupons.retrieve(
@@ -175,9 +200,7 @@ export async function checkoutUrl(userId: string, organizationId: string, email:
   const connection = await db.connect();
   try {
     await connection.query("begin");
-    await connection.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
-      organizationId,
-    ]);
+    await lockBillingOwner(connection, userId, organizationId);
     await connection.query(
       'insert into "organization_billing" ("organizationId") values ($1) on conflict do nothing',
       [organizationId],
@@ -262,21 +285,32 @@ export async function portalUrl(userId: string, organizationId: string) {
   await requireBillingOwner(userId, organizationId);
   await reserveWorkspaceOperation("billing", organizationId);
   if (!billingConfigured()) throw new Error("Stripe billing is not configured.");
-  const row = (
-    await db.query<{ stripeCustomerId: string | null }>(
-      'select "stripeCustomerId" from "organization_billing" where "organizationId" = $1',
-      [organizationId],
-    )
-  ).rows[0];
-  if (!row?.stripeCustomerId) throw new Error("This organization has no Stripe billing account.");
-  const session = await stripe().billingPortal.sessions.create(
-    {
-      customer: row.stripeCustomerId,
-      return_url: returnUrl(),
-    },
-    new BillingWorkBudget().options(),
-  );
-  return session.url;
+  const connection = await db.connect();
+  try {
+    await connection.query("begin");
+    await lockBillingOwner(connection, userId, organizationId);
+    const row = (
+      await connection.query<{ stripeCustomerId: string | null }>(
+        'select "stripeCustomerId" from "organization_billing" where "organizationId" = $1 for share',
+        [organizationId],
+      )
+    ).rows[0];
+    if (!row?.stripeCustomerId) throw new Error("This organization has no Stripe billing account.");
+    const session = await stripe().billingPortal.sessions.create(
+      {
+        customer: row.stripeCustomerId,
+        return_url: returnUrl(),
+      },
+      new BillingWorkBudget().options(),
+    );
+    await connection.query("commit");
+    return session.url;
+  } catch (error) {
+    await connection.query("rollback").catch(() => {});
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 export async function assertNoActiveBilling(organizationId: string) {

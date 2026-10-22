@@ -1160,3 +1160,155 @@ integration("scheduled subscription checks continue in bounded batches", async (
     retrieve.mockRestore();
   }
 });
+
+async function billingFixture(kind: "checkout" | "portal", duringRemote = async () => {}) {
+  const keys = ["STRIPE_FIRST_MONTH_COUPON_ID", "STRIPE_WEBHOOK_SECRET"] as const;
+  const previous = keys.map((key) => env[key]);
+  env.STRIPE_FIRST_MONTH_COUPON_ID = "coupon_fixture";
+  env.STRIPE_WEBHOOK_SECRET = "webhook_fixture";
+  await db.query(`update "billingPlan" set "editorLimit"=3 where "id"='free'`);
+  await member(other.id, "owner");
+  await db.query(
+    `insert into "organization_billing" ("organizationId","stripeCustomerId","stripeCheckoutSessionId")
+     values ($1,'cus_authority_fixture','cs_authority_fixture')`,
+    [org],
+  );
+  const client = billing.stripe();
+  const checkout = spyOn(client.checkout.sessions, "retrieve").mockImplementation(async () => {
+    await duringRemote();
+    return {
+      status: "open",
+      url: "https://billing.example.test/session",
+    } as Stripe.Response<Stripe.Checkout.Session>;
+  });
+  const portal = spyOn(client.billingPortal.sessions, "create").mockImplementation(async () => {
+    await duringRemote();
+    return {
+      url: "https://billing.example.test/session",
+    } as Stripe.Response<Stripe.BillingPortal.Session>;
+  });
+  return {
+    invoke: () =>
+      kind === "checkout"
+        ? billing.checkoutUrl(owner.id, org, "owner@example.com")
+        : billing.portalUrl(owner.id, org),
+    checkout,
+    portal,
+    restore() {
+      checkout.mockRestore();
+      portal.mockRestore();
+      keys.forEach((key, index) => {
+        if (previous[index] === undefined) delete env[key];
+        else env[key] = previous[index];
+      });
+    },
+  };
+}
+
+async function waitForBillingLock() {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    await db.query("select pg_stat_clear_snapshot()");
+    const waiting = await db.query(
+      `select 1 from pg_stat_activity where datname=current_database()
+       and pid<>pg_backend_pid() and wait_event_type='Lock'`,
+    );
+    if (waiting.rowCount) return;
+    await Bun.sleep(5);
+  }
+  throw new Error("Expected the concurrent billing authority operation to wait on its lock.");
+}
+
+for (const kind of ["checkout", "portal"] as const) {
+  for (const change of ["role", "membership", "verification"] as const) {
+    integration(
+      `${kind} rejects ${change} revocation committed while waiting for the workspace gate`,
+      async () => {
+        const fixture = await billingFixture(kind);
+        const blocker = await db.connect();
+        let pending: Promise<{ url?: string; error?: unknown }> | undefined;
+        try {
+          await blocker.query("begin");
+          await blocker.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [org]);
+          pending = fixture.invoke().then(
+            (url) => ({ url }),
+            (error: unknown) => ({ error }),
+          );
+          await waitForBillingLock();
+          if (change === "role")
+            await blocker.query(
+              `update "member" set "role"='viewer' where "userId"=$1 and "organizationId"=$2`,
+              [owner.id, org],
+            );
+          else if (change === "membership")
+            await blocker.query(`delete from "member" where "userId"=$1 and "organizationId"=$2`, [
+              owner.id,
+              org,
+            ]);
+          else
+            await blocker.query(`update "user" set "emailVerified"=false where "id"=$1`, [
+              owner.id,
+            ]);
+          await blocker.query("commit");
+          const result = await pending;
+          expect(result.url).toBeUndefined();
+          expect(result.error).toBeInstanceOf(Error);
+          expect((result.error as Error).message).toContain("access denied");
+          expect(fixture.checkout).not.toHaveBeenCalled();
+          expect(fixture.portal).not.toHaveBeenCalled();
+        } finally {
+          await blocker.query("rollback").catch(() => {});
+          blocker.release();
+          await pending;
+          fixture.restore();
+        }
+      },
+    );
+  }
+
+  for (const change of ["role", "verification"] as const) {
+    integration(`${kind} retains ${change} authority through the provider call`, async () => {
+      let enter!: () => void, release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        enter = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const fixture = await billingFixture(kind, async () => {
+        enter();
+        await gate;
+      });
+      let revoke: Promise<unknown> | undefined;
+      const pending = fixture.invoke();
+      void pending.catch(() => {});
+      try {
+        await entered;
+        revoke =
+          change === "role"
+            ? (await import("../organizations/membership")).changeMemberRole(
+                other.id,
+                org,
+                (
+                  await db.query<{ id: string }>(
+                    'select "id" from "member" where "userId"=$1 and "organizationId"=$2',
+                    [owner.id, org],
+                  )
+                ).rows[0]!.id,
+                "viewer",
+              )
+            : db.query(`update "user" set "emailVerified"=false where "id"=$1`, [owner.id]);
+        void revoke.catch(() => {});
+        await waitForBillingLock();
+        release();
+        expect(await pending).toBe("https://billing.example.test/session");
+        await revoke;
+        await expect(fixture.invoke()).rejects.toThrow("access denied");
+        expect(fixture.checkout.mock.calls.length + fixture.portal.mock.calls.length).toBe(1);
+      } finally {
+        release();
+        await Promise.allSettled([pending, ...(revoke ? [revoke] : [])]);
+        fixture.restore();
+      }
+    });
+  }
+}

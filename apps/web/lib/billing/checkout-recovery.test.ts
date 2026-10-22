@@ -17,6 +17,7 @@ test("checkout retry reuses its idempotency key, then reuses the persisted open 
     const query = async (sql, values) => {
       if (sql === "begin") snapshot = { ...row };
       if (sql === "rollback") Object.assign(row, snapshot);
+      if (/^select "id" from "(organization|user|member)"/.test(sql)) return { rows: [{ id: "authorized" }], rowCount: 1 };
       if (sql.startsWith('select * from')) return { rows: [{ ...row }] };
       if (sql.startsWith('update "organization_billing"')) {
         if (failUpdate) throw Error("Database update unavailable");
@@ -25,7 +26,7 @@ test("checkout retry reuses its idempotency key, then reuses the persisted open 
       return { rows: [] };
     };
     mock.module("@/lib/db", () => ({ db: { connect: async () => ({ query, release() {} }) } }));
-    mock.module("@/lib/organizations/authorization", () => ({ requireOrganizationPermission: async () => {} }));
+    mock.module("@/lib/organizations/authorization", () => ({ OrganizationAccessError: class extends Error {}, requireOrganizationPermission: async () => {} }));
     mock.module("@/lib/security/operation-budget", () => ({ reserveOperation: async () => { if (denied) throw Error("Budget exhausted"); }, reserveWorkspaceOperation: async () => {} }));
     mock.module("@/lib/billing/plan-server", () => ({ organizationPlanTier: async () => "free", requireRegisteredProPrice: async () => {}, organizationPlanUsage: async () => ({}), proPlanLimits: async () => ({}) }));
     const check = options => { expect(options.maxNetworkRetries).toBe(0); expect(options.timeout).toBeGreaterThan(0); expect(options.timeout).toBeLessThanOrEqual(5000); };
