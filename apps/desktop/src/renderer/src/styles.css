@@ -1199,8 +1199,7 @@ summary:focus-visible {
   outline: none;
 }
 .composer:focus-within {
-  border-color: color-mix(in srgb, var(--color-muted-ink) 45%, var(--color-border));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ink) 4%, transparent);
+  border-color: var(--color-muted-ink);
 }
 .composer textarea::placeholder {
   color: var(--color-muted-ink);
@@ -2530,11 +2529,11 @@ summary:focus-visible {
 }
 .skill-picker {
   position: absolute;
-  bottom: calc(100% + 20px);
+  bottom: calc(100% + 18px);
   inset-inline-start: 0;
   z-index: 10;
-  width: min(480px, 100%);
-  max-height: min(288px, 40dvh);
+  width: 100%;
+  max-height: min(250px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -2549,9 +2548,8 @@ summary:focus-visible {
 .skill-option {
   display: flex;
   align-items: center;
-  gap: 12px;
-  min-height: 52px;
-  padding: 8px 10px;
+  min-height: 34px;
+  padding: 7px 10px;
   border-radius: 5px;
   cursor: pointer;
 }
@@ -2561,11 +2559,12 @@ summary:focus-visible {
 .skill-option-content {
   display: flex;
   flex: 1;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 16px;
   min-width: 0;
 }
 .skill-option-name {
+  flex: 0 0 36%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2580,22 +2579,14 @@ summary:focus-visible {
   font-weight: 400;
 }
 .skill-option-description {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-muted-ink);
   font-size: 12px;
   line-height: 16px;
-}
-.skill-option-key {
-  flex-shrink: 0;
-  visibility: hidden;
-  color: var(--color-muted-ink);
-  font-size: 14px;
-  line-height: 20px;
-}
-.skill-option[aria-selected="true"] .skill-option-key {
-  visibility: visible;
 }
 .skill-picker-status {
   display: flex;

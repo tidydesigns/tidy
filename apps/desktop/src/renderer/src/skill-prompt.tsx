@@ -103,9 +103,6 @@ export function SkillPrompt({
                     <span className="skill-option-description">{skill.description}</span>
                   )}
                 </span>
-                <span className="skill-option-key" aria-hidden="true">
-                  ↵
-                </span>
               </div>
             ))}
           </div>
