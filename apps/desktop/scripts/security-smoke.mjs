@@ -62,7 +62,8 @@ await writeFile(
     ],
   }),
 );
-for (const name of ["codex", "claude"]) {
+// Cover every discovered provider so a developer's installed CLI cannot overwrite synthetic states.
+for (const name of ["codex", "claude", "opencode"]) {
   const path = join(bin, name);
   await copyFile(new URL("../src/main/fixtures/harness.mjs", import.meta.url), path);
   await chmod(path, 0o700);
