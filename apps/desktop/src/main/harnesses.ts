@@ -23,6 +23,7 @@ export type HarnessUpdate =
   | { type: "message"; id: string; text: string; append?: boolean }
   | { type: "error"; text: string };
 export type RunningHarness = {
+  readonly deliveryState?: "not-submitted" | "unknown" | "accepted" | "rejected";
   done: Promise<void>;
   stop(): void;
   steer?(input: {

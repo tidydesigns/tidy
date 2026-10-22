@@ -35,6 +35,7 @@ import { readLocalFile } from "./local-files";
 
 type Job = {
   thread: Thread;
+  queuedDelivery?: { message: QueuedMessage; index: number };
   process?: RunningHarness;
   completion?: Promise<void>;
   stopped: boolean;
@@ -244,7 +245,10 @@ export class WorkspaceService {
       }
       if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
       const queue = thread.queuedMessages ?? [];
-      if (queue.length >= MAX_QUEUED_MESSAGES)
+      const pendingJob = this.jobs.get(thread.id);
+      const reserved =
+        pendingJob?.queuedDelivery && pendingJob.process?.deliveryState !== "accepted" ? 1 : 0;
+      if (queue.length + reserved >= MAX_QUEUED_MESSAGES)
         throw new Error("The queue is full. Remove a message before adding another.");
       const id = input.messageId ?? randomUUID();
       if (
@@ -492,6 +496,7 @@ export class WorkspaceService {
       attachmentIds,
     );
     const queuedMessages = thread.queuedMessages;
+    const queuedIndex = queuedMessages?.findIndex((item) => item.id === messageId) ?? -1;
     thread = {
       ...thread,
       messages: [...thread.messages],
@@ -513,6 +518,10 @@ export class WorkspaceService {
     thread.updatedAt = new Date().toISOString();
     const job: Job = {
       thread,
+      queuedDelivery:
+        queuedMessages && queuedIndex >= 0
+          ? { message: queuedMessages[queuedIndex], index: queuedIndex }
+          : undefined,
       stopped: this.cancelledStarts.has(thread.id),
       messages: new Map(),
       tools: new Map(),
@@ -683,6 +692,19 @@ export class WorkspaceService {
 
   private async finish(job: Job, drain: boolean) {
     if (this.jobs.get(job.thread.id) !== job) return;
+    const delivery = job.queuedDelivery;
+    if (
+      delivery &&
+      (job.process?.deliveryState === "not-submitted" || job.process?.deliveryState === "rejected")
+    ) {
+      const queue = [...(job.thread.queuedMessages ?? [])];
+      queue.splice(Math.min(delivery.index, queue.length), 0, delivery.message);
+      job.thread.queuedMessages = queue;
+      job.thread.messages = job.thread.messages.filter(
+        (message) => message.id !== delivery.message.id,
+      );
+      this.automaticQueues.delete(job.thread.id);
+    }
     clearTimeout(job.checkpoint);
     clearTimeout(job.notification);
     const ownedTools = new Set(job.tools.values());

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { applyQueueAction, MAX_QUEUED_MESSAGES } from "../shared/message-queue";
-import type { startHarness } from "./harnesses";
+import type { RunningHarness, startHarness } from "./harnesses";
 import type { Thread } from "../shared/contracts";
 
 const cleanups: Array<() => Promise<unknown>> = [];
@@ -26,6 +26,7 @@ async function fixture(native = false, finishOnStop = true) {
     input: Parameters<typeof startHarness>[0];
     finish(): void;
     fail(error: Error): void;
+    deliveryState: NonNullable<RunningHarness["deliveryState"]>;
     stopped: boolean;
     shutdownWait: Promise<void>;
     steers: Array<{ prompt: string }>;
@@ -37,10 +38,11 @@ async function fixture(native = false, finishOnStop = true) {
       const deferred = Promise.withResolvers<void>();
       const shutdown = Promise.withResolvers<void>();
       const steers: Array<{ prompt: string }> = [];
-      const run = {
+      const run: (typeof runs)[number] = {
         input,
         finish: () => deferred.resolve(),
         fail: deferred.reject,
+        deliveryState: "accepted",
         stopped: false,
         shutdownWait: shutdown.promise,
         steers,
@@ -49,6 +51,9 @@ async function fixture(native = false, finishOnStop = true) {
       runWaiters.get(runs.length)?.();
       runWaiters.delete(runs.length);
       return {
+        get deliveryState() {
+          return run.deliveryState;
+        },
         get done() {
           if (run.stopped) shutdown.resolve();
           return deferred.promise;
@@ -104,12 +109,14 @@ async function fixture(native = false, finishOnStop = true) {
       if (
         event.type === "thread" &&
         event.thread.id === thread.id &&
-        event.thread.status === status
+        event.thread.status === status &&
+        !event.thread.activity
       )
         deferred.resolve();
     });
     try {
-      if ((await read()).status !== status) await deferred.promise;
+      const current = await read();
+      if (current.status !== status || current.activity) await deferred.promise;
     } finally {
       unsubscribe();
     }
@@ -466,3 +473,35 @@ test.each([false, true])(
     }
   },
 );
+
+test.each(["not-submitted", "rejected", "accepted", "unknown"] as const)(
+  "failed replacement delivery restores only known unaccepted instructions: %s",
+  async (state) => {
+    const { enqueue, runs, read, waitForRun, waitForStatus } = await fixture();
+    const queued = await enqueue("Replacement");
+    const id = queued.queuedMessages?.[0]?.id;
+    runs[0].finish();
+    await waitForRun(2);
+    runs[1].deliveryState = state;
+    runs[1].fail(new Error("Startup failed"));
+    await waitForStatus("failed");
+    const restored = state === "not-submitted" || state === "rejected";
+    const result = await read();
+    expect(result.queuedMessages?.some((item) => item.id === id)).toBe(restored);
+    expect(result.messages.some((item) => item.id === id)).toBe(!restored);
+    expect(runs).toHaveLength(2);
+  },
+);
+
+test("Stop during replacement initialization restores its queued instruction", async () => {
+  const { enqueue, service, project, thread, runs, read, waitForRun, waitForStatus } =
+    await fixture();
+  await enqueue("Replacement");
+  runs[0].finish();
+  await waitForRun(2);
+  runs[1].deliveryState = "not-submitted";
+  await service.stopThread(project.id, thread.id);
+  await waitForStatus("stopped");
+  expect((await read()).queuedMessages?.map((message) => message.text)).toEqual(["Replacement"]);
+  expect((await read()).messages.some((message) => message.text === "Replacement")).toBe(false);
+});

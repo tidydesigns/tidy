@@ -71,3 +71,39 @@ for await (const line of createInterface({ input: process.stdin })) {
   });
   expect(await run.steer?.({ prompt: "Too late", images: [] })).toBe(false);
 });
+
+test.each(["thread/start", "turn/start"])(
+  "native startup rejection tracks retry safety at %s",
+  async (method) => {
+    const cwd = await mkdtemp(join(tmpdir(), "tidy-startup-rejection-"));
+    cleanups.push(() => rm(cwd, { recursive: true, force: true }));
+    const executable = join(cwd, "agent");
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+const send = value => process.stdout.write(JSON.stringify(value) + '\\n');
+for await (const line of createInterface({ input: process.stdin })) {
+  const value = JSON.parse(line);
+  if (value.method === ${JSON.stringify(method)}) send({ id: value.id, error: { code: -32603, message: 'Startup rejected' } });
+  else if (value.method === 'initialize') send({ id: value.id, result: {} });
+  else if (value.method === 'thread/start') send({ id: value.id, result: { thread: { id: 'b56ba7bb-00aa-4a56-a64c-593c3c377dcc' } } });
+}
+`,
+    );
+    await chmod(executable, 0o700);
+    const run = startHarness({
+      harness: "codex",
+      executable,
+      cwd,
+      prompt: "Try this",
+      onUpdate() {},
+    });
+    cleanups.push(async () => {
+      run.stop();
+      await run.done.catch(() => {});
+    });
+    await expect(run.done).rejects.toThrow("Startup rejected");
+    expect(run.deliveryState).toBe(method === "turn/start" ? "rejected" : "not-submitted");
+  },
+);
