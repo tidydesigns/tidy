@@ -16,6 +16,7 @@ afterEach(async () => {
 /** Create an isolated workspace with fake harnesses and injectable settings validation. */
 async function fixture(
   configure: ConstructorParameters<typeof WorkspaceService>[3] = async () => {},
+  holdPreparation = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -30,6 +31,14 @@ async function fixture(
     stopped: boolean;
     decisions: Array<{ id: string; decision: string }>;
   }> = [];
+  let prepared!: () => void;
+  let resumePreparation!: () => void;
+  const preparation = new Promise<void>((resolve) => {
+    prepared = resolve;
+  });
+  const preparationGate = new Promise<void>((resolve) => {
+    resumePreparation = resolve;
+  });
   const service = new WorkspaceService(
     store,
     (input) => {
@@ -57,11 +66,26 @@ async function fixture(
         },
       };
     },
-    async () => "/fixture/harness",
+    async () => {
+      prepared();
+      if (holdPreparation) await preparationGate;
+      return "/fixture/harness";
+    },
     configure,
   );
-  cleanups.push(() => service.close());
-  return { directory, store, service, project: snapshot.project, runs };
+  cleanups.push(async () => {
+    resumePreparation();
+    await service.close();
+  });
+  return {
+    directory,
+    store,
+    service,
+    project: snapshot.project,
+    runs,
+    preparation,
+    resumePreparation,
+  };
 }
 /** Wait for a running fixture response to checkpoint its final thread state. */
 function finished(service: WorkspaceService, threadId: string) {
@@ -113,29 +137,33 @@ test("harness maintenance reserves an idle CLI, blocks its turns and leaves othe
 });
 
 test("a preparing turn prevents maintenance from racing harness discovery", async () => {
-  const { service, project } = await fixture();
+  const { service, project, preparation, resumePreparation } = await fixture(undefined, true);
   const preparing = service.startThread({
     projectId: project.id,
     harness: "codex",
     prompt: "Starting",
     designIds: [],
   });
+  await preparation;
   expect(service.reserveHarnessUpdate("codex")).toBeNull();
+  resumePreparation();
   await preparing;
   expect(service.reserveHarnessUpdate("codex")).toBeNull();
 });
 
 test("preparing another harness does not hold up an update", async () => {
-  const { service, project } = await fixture();
+  const { service, project, preparation, resumePreparation } = await fixture(undefined, true);
   const preparing = service.startThread({
     projectId: project.id,
     harness: "claude",
     prompt: "Preparing",
     designIds: [],
   });
+  await preparation;
   const release = service.reserveHarnessUpdate("codex");
   expect(release).not.toBeNull();
   expect(service.reserveHarnessUpdate("claude")).toBeNull();
+  resumePreparation();
   await preparing;
   release!();
 });
@@ -188,14 +216,16 @@ test("background-safe native updates leave an active response untouched and guar
 });
 
 test("background-safe updates wait for Claude preparation before overlapping its active response", async () => {
-  const { service, project, runs } = await fixture();
+  const { service, project, runs, preparation, resumePreparation } = await fixture(undefined, true);
   const preparing = service.startThread({
     projectId: project.id,
     harness: "claude",
     prompt: "Preparing a response",
     designIds: [],
   });
+  await preparation;
   expect(service.reserveHarnessUpdate("claude", { allowActiveRuns: true })).toBeNull();
+  resumePreparation();
   const thread = await preparing;
   const release = service.reserveHarnessUpdate("claude", { allowActiveRuns: true });
   expect(release).not.toBeNull();
@@ -203,6 +233,44 @@ test("background-safe updates wait for Claude preparation before overlapping its
   expect(runs[0].stopped).toBe(false);
   expect((await service.readThread(project.id, thread.id)).status).toBe("running");
   release!();
+});
+
+test("queued follow-ups are retained when an update blocks delivery and can be sent after installation", async () => {
+  const { service, project, runs, store } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "First",
+    designIds: [],
+  });
+  const complete = finished(service, thread.id);
+  runs[0].complete();
+  await complete;
+  const release = service.reserveHarnessUpdate("claude");
+  expect(release).not.toBeNull();
+  const messageId = randomUUID();
+  const queued = await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    messageId,
+    text: "Next response",
+    delivery: "queue",
+  });
+  expect(queued.queueError).toContain("updating");
+  expect(queued.queuedMessages?.map((message) => message.id)).toEqual([messageId]);
+  expect((await store.readThread(project.id, thread.id)).queuedMessages?.[0].text).toBe(
+    "Next response",
+  );
+  expect(runs).toHaveLength(1);
+  release!();
+  const sent = await service.updateMessageQueue({
+    projectId: project.id,
+    threadId: thread.id,
+    action: { kind: "steer", messageId },
+  });
+  expect(sent.status).toBe("running");
+  expect(sent.queuedMessages).toHaveLength(0);
+  expect(runs).toHaveLength(2);
 });
 
 test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {

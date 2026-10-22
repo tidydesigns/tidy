@@ -7,7 +7,13 @@ import {
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
-import type { DesktopAPI, DesktopEvent, Thread, ThreadSummary } from "../shared/contracts";
+import type {
+  DesktopAPI,
+  DesktopEvent,
+  HarnessId,
+  Thread,
+  ThreadSummary,
+} from "../shared/contracts";
 import { findHarness, startHarness, type HarnessUpdate, type RunningHarness } from "./harnesses";
 import {
   attachmentSchema,
