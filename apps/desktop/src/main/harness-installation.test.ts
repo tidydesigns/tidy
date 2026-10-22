@@ -121,7 +121,10 @@ test("pnpm and Bun preserve their global manager, and package-local installs are
     "codex",
     "pnpm",
   ).inspect())!;
-  expect(harnessInstallCommand(pnpm, "1.3.0").executable).toBe("/tools/pnpm");
+  expect(harnessInstallCommand(pnpm, "1.3.0")).toEqual({
+    executable: "/tools/pnpm",
+    args: ["add", "--global", "@openai/codex@1.3.0", "--registry=https://registry.npmjs.org"],
+  });
   const bun = (await discovery(
     `${homedir()}/.bun/install/global/node_modules/@openai/codex/bin/codex.js`,
     "codex",

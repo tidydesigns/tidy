@@ -90,9 +90,8 @@ export class WorkspaceService {
     if (
       this.closing ||
       this.updatingHarnesses.has(id) ||
-      (!options.allowActiveRuns &&
-        ([...this.preparingHarnesses.values()].some((harness) => harness === id) ||
-          [...this.jobs.values()].some((job) => job.thread.harness === id)))
+      [...this.preparingHarnesses.values()].some((harness) => harness === id) ||
+      (!options.allowActiveRuns && [...this.jobs.values()].some((job) => job.thread.harness === id))
     )
       return null;
     this.updatingHarnesses.add(id);
@@ -488,6 +487,7 @@ export class WorkspaceService {
     return { executable, context, images, attachments, project };
   }
 
+  /** Reserve preparation before asynchronous work so maintenance cannot race CLI launch. */
   private async run(
     thread: Thread,
     prompt: string,
@@ -510,6 +510,7 @@ export class WorkspaceService {
     }
   }
 
+  /** Launch a prepared turn while its harness preparation reservation remains held. */
   private async runPrepared(
     thread: Thread,
     prompt: string,

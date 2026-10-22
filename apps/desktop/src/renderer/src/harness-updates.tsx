@@ -5,9 +5,12 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI } from "../../shared/contracts";
 import { harnessNames, type HarnessUpdateState } from "../../shared/harness-updates";
 
+/** Namespace persisted availability dismissals by provider. */
 const dismissedKey = (id: string) => `tidy:harness-update-dismissed:${id}`;
+/** Keep queued and installing dismissals together, allowing a new outcome to surface again. */
 const noticeKey = (entry: HarnessUpdateState) =>
   `${entry.latestVersion}:${entry.status === "installing" || entry.status === "queued" ? "busy" : entry.status}`;
+/** Read the dismissed release without making unavailable browser storage a rendering failure. */
 function dismissedVersion(id: string) {
   try {
     return localStorage.getItem(dismissedKey(id));

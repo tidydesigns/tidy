@@ -82,6 +82,7 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
+/** Resolve a simple executable name from absolute PATH entries to its canonical file. */
 export async function findExecutable(id: string, environment = harnessEnvironment()) {
   if (!/^[a-z][a-z0-9-]*$/.test(id)) return null;
   const extensions = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
@@ -101,6 +102,7 @@ export async function findExecutable(id: string, environment = harnessEnvironmen
   return null;
 }
 
+/** Locate a supported conversation CLI or the update-only OpenCode integration. */
 export function findHarness(id: HarnessId | "opencode", environment = harnessEnvironment()) {
   return findExecutable(id, environment);
 }

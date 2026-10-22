@@ -36,27 +36,33 @@ export class HarnessUpdates {
   private generations = new Map<UpdatableHarnessId, number>();
 
   constructor(private readonly options: Options) {}
+  /** Return an isolated renderer snapshot without exposing mutable internal state. */
   get state() {
     return structuredClone([...this.entries.values()]);
   }
+  /** Include queued requests when deciding whether desktop maintenance is pending. */
   get busy() {
     return [...this.entries.values()].some((entry) =>
       ["queued", "installing"].includes(entry.status),
     );
   }
+  /** Subscribe to subsequent state changes and return a listener cleanup callback. */
   subscribe(listener: (state: HarnessUpdateState[]) => void) {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
   }
+  /** Replace one provider's state and broadcast the complete snapshot. */
   private set(entry: HarnessUpdateState) {
     this.entries.set(entry.id, entry);
     this.publish();
   }
+  /** Broadcast cloned state so subscribers cannot modify updater bookkeeping. */
   private publish() {
     for (const listener of this.listeners) listener(this.state);
   }
+  /** Begin immediate discovery and periodic checks without keeping the process alive. */
   start() {
     if (this.timer || this.closing) return;
     this.timer = setInterval(() => void this.check(), interval);
@@ -74,6 +80,7 @@ export class HarnessUpdates {
     });
     return this.checking;
   }
+  /** Discover providers independently while preserving updates queued during metadata requests. */
   private async discover() {
     await Promise.all(
       ids.map(async (id) => {
@@ -135,6 +142,7 @@ export class HarnessUpdates {
     }
     this.pump();
   }
+  /** Reserve an eligible harness and run one installer, skipping providers with active turns. */
   private pump() {
     if (this.closing) return;
     // Serialize package managers, which commonly share global locks and install directories.
@@ -166,12 +174,14 @@ export class HarnessUpdates {
       this.queueTimer = undefined;
     }
   }
+  /** Explain the shared installer wait independently of a provider's own active responses. */
   private queuedBehindInstaller() {
     for (const entry of this.entries.values()) {
       if (entry.status === "queued" && entry.waitReason !== "installer")
         this.set({ ...entry, waitReason: "installer" });
     }
   }
+  /** Revalidate the installation, apply its update and verify the version before success. */
   private async apply(entry: HarnessUpdateState) {
     try {
       // Re-resolve just before install: PATH, symlinks, version and install method can change.

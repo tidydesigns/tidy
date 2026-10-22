@@ -8,6 +8,7 @@ import { readLocalFile } from "./local-files";
 import type { UpdatableHarnessId } from "../shared/harness-updates";
 
 const stableVersion = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
+/** Normalize supported CLI version output, rejecting prereleases and unsafe numeric segments. */
 export function parseHarnessVersion(output: string) {
   const match = /^(?:codex-cli\s+)?(\d+\.\d+\.\d+)(?:\s+\(Claude Code\))?\s*$/.exec(output.trim());
   if (!match || !stableVersion.test(match[1])) throw new Error("Unsupported harness version.");
@@ -15,6 +16,7 @@ export function parseHarnessVersion(output: string) {
     throw new Error("Unsupported harness version.");
   return match[1];
 }
+/** Compare validated stable versions numerically without treating prereleases as upgrades. */
 export function newerHarnessVersion(latest: string, installed: string) {
   const left = parseHarnessVersion(latest).split(".").map(Number);
   const right = parseHarnessVersion(installed).split(".").map(Number);
@@ -200,7 +202,12 @@ export async function inspectHarnessInstallation(
       if (manager === "bun") {
         installation.command = { executable: updater, args: ["add", "--global", packageName] };
       } else {
-        const args = ["install", "--global", packageName, "--registry=https://registry.npmjs.org"];
+        const args = [
+          manager === "pnpm" ? "add" : "install",
+          "--global",
+          packageName,
+          "--registry=https://registry.npmjs.org",
+        ];
         if (manager === "npm") {
           const prefix = (await run({ executable: updater, args: ["prefix", "--global"] })).trim();
           args.push("--prefix", prefix);

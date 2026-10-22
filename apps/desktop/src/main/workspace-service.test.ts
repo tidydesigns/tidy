@@ -186,6 +186,24 @@ test("background-safe native updates leave an active response untouched and guar
   release!();
 });
 
+test("background-safe updates wait for Claude preparation before overlapping its active response", async () => {
+  const { service, project, runs } = await fixture();
+  const preparing = service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Preparing a response",
+    designIds: [],
+  });
+  expect(service.reserveHarnessUpdate("claude", { allowActiveRuns: true })).toBeNull();
+  const thread = await preparing;
+  const release = service.reserveHarnessUpdate("claude", { allowActiveRuns: true });
+  expect(release).not.toBeNull();
+  expect(runs).toHaveLength(1);
+  expect(runs[0].stopped).toBe(false);
+  expect((await service.readThread(project.id, thread.id)).status).toBe("running");
+  release!();
+});
+
 test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {
   const { service, store, project, runs } = await fixture();
   const thread = await service.startThread({

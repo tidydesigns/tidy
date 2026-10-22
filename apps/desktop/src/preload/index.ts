@@ -17,11 +17,14 @@ async function request<Name extends WorkspaceOperation>(
 }
 
 const api: DesktopAPI = {
+  /** Validate main-process snapshots before exposing them to the renderer. */
   harnessUpdates: async () =>
     harnessUpdatesSchema.parse(await ipcRenderer.invoke("tidy:harness-updates")),
+  /** Request an allowlisted provider update; command construction stays in the main process. */
   installHarnessUpdate: async (id) => {
     await ipcRenderer.invoke("tidy:install-harness-update", id);
   },
+  /** Forward only schema-valid broadcasts and release the IPC listener on unsubscribe. */
   onHarnessUpdates(listener) {
     const receive = (_event: Electron.IpcRendererEvent, value: unknown) => {
       const parsed = harnessUpdatesSchema.safeParse(value);
