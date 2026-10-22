@@ -364,6 +364,7 @@ export const CanvasComments = forwardRef<
   const [changing, setChanging] = useState(false);
   const [resolvedNotice, setResolvedNotice] = useState<CommentThread | null>(null);
   const [noticePaused, setNoticePaused] = useState(false);
+  const noticeElement = useRef<HTMLDivElement>(null);
   const [canModerateThreads, setCanModerateThreads] = useState(false);
   const [listOpen, setListOpen] = useState(false);
   const [filter, setFilter] = useState<"open" | "resolved">("open");
@@ -389,9 +390,7 @@ export const CanvasComments = forwardRef<
   const undoBlocked = Boolean(
     resolvedNotice &&
     ((changing && mutationRef.current?.thread.id !== resolvedNotice.id) ||
-      submissions.some(
-        (submission) => submission.thread.id === resolvedNotice.id && submission.kind === "sending",
-      )),
+      !canChangeThread(resolvedNotice)),
   );
   useEffect(() => {
     if (!resolvedNotice || noticePaused || undoBlocked) return;
@@ -736,27 +735,29 @@ export const CanvasComments = forwardRef<
     setError("");
   }
 
+  function canChangeThread(thread: CommentThread) {
+    return (
+      !readOnly &&
+      (canModerateThreads || viewerId === thread.createdBy) &&
+      !submissionsRef.current.some(
+        (submission) => submission.thread.id === thread.id && submission.kind === "sending",
+      )
+    );
+  }
+
   async function changeThread(
     thread: CommentThread,
     resolved: boolean | null,
     preserveInteraction = false,
   ) {
     const notifyError = setError("");
-    if (
-      mutationRef.current ||
-      submissionsRef.current.some(
-        (submission) => submission.thread.id === thread.id && submission.kind === "sending",
-      ) ||
-      readOnly ||
-      !(canModerateThreads || viewerId === thread.createdBy)
-    )
-      return;
+    if (mutationRef.current || !canChangeThread(thread)) return;
     const interaction = preserveInteraction ? interactionRef.current : ++interactionRef.current;
     const mutation = { thread, resolved, undoRequested: false };
     mutationRef.current = mutation;
     let rollbackThread = thread;
     let needsRefresh = resolved === null;
-    setNoticePaused(false);
+    setNoticePaused(Boolean(noticeElement.current?.matches(":hover, :focus-within")));
     setResolvedNotice((current) =>
       resolved === true ? thread : current?.id === thread.id ? null : current,
     );
@@ -815,13 +816,7 @@ export const CanvasComments = forwardRef<
 
   function undoResolve(thread: CommentThread) {
     const mutation = mutationRef.current;
-    if (
-      (mutation && mutation.thread.id !== thread.id) ||
-      submissionsRef.current.some(
-        (submission) => submission.thread.id === thread.id && submission.kind === "sending",
-      )
-    )
-      return;
+    if ((mutation && mutation.thread.id !== thread.id) || !canChangeThread(thread)) return;
     setResolvedNotice(null);
     reopenedThread.current = thread.id;
     if (mutation?.resolved === true) {
@@ -1172,6 +1167,7 @@ export const CanvasComments = forwardRef<
         notificationRoot &&
         createPortal(
           <div
+            ref={noticeElement}
             onPointerEnter={() => setNoticePaused(true)}
             onPointerLeave={(event) =>
               setNoticePaused(event.currentTarget.contains(document.activeElement))
