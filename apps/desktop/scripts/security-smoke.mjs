@@ -447,6 +447,22 @@ app.on("browser-window-created", (_event, window) => {
         await evaluate("document.querySelector('.workspace').getBoundingClientRect().left"),
         0,
       );
+      if (process.platform === "darwin") {
+        primary.setFullScreen(true);
+        await wait("document.documentElement.hasAttribute('data-window-fullscreen')");
+        for (const selector of [
+          ".workspace",
+          '[aria-label="File sidebar"]',
+          '[aria-label="Design canvas"]',
+        ]) {
+          assert.equal(
+            await evaluate(
+              `document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().top`,
+            ),
+            0,
+          );
+        }
+      }
       await evaluate("document.querySelector('[aria-label=\"Back to designs\"]').click();true");
       await wait("document.querySelector('[aria-label=\"Design canvas\"]')===null");
       assert.equal(
@@ -455,8 +471,26 @@ app.on("browser-window-created", (_event, window) => {
         ),
         true,
       );
+      if (process.platform === "darwin") {
+        assert.equal(
+          await evaluate("document.querySelector('.workspace').getBoundingClientRect().top"),
+          40,
+        );
+      }
       await evaluate("document.querySelector('.file-open-overlay').click();true");
       await wait("document.querySelector('[aria-label=\"Design canvas\"]')!==null");
+      if (process.platform === "darwin") {
+        assert.equal(
+          await evaluate("document.querySelector('.workspace').getBoundingClientRect().top"),
+          0,
+        );
+        primary.setFullScreen(false);
+        await wait("!document.documentElement.hasAttribute('data-window-fullscreen')");
+        assert.equal(
+          await evaluate("document.querySelector('.workspace').getBoundingClientRect().top"),
+          40,
+        );
+      }
       assert.equal(
         await evaluate(
           "document.querySelector('[aria-label=\"Design canvas\"]').getBoundingClientRect().width>0",

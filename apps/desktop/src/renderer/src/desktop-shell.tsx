@@ -14,7 +14,9 @@ export function DesktopShell({
   const label = sidebarVisible ? "Hide sidebar" : "Show sidebar";
 
   return (
-    <div className={`desktop ${sidebarVisible ? "" : "desktop-sidebar-hidden"}`}>
+    <div
+      className={`desktop ${sidebarVisible ? "" : "desktop-sidebar-hidden"} ${canvasFocused ? "desktop-canvas-focused" : ""}`}
+    >
       <header className="desktop-titlebar">
         {!canvasFocused && (
           <Button

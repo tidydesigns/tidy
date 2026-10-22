@@ -247,6 +247,9 @@ body {
 :root[data-titlebar="hidden"][data-window-fullscreen] .desktop-titlebar {
   padding-left: 8px;
 }
+:root[data-titlebar="hidden"][data-window-fullscreen] .desktop-canvas-focused {
+  --desktop-titlebar-height: 0px;
+}
 .desktop-sidebar-toggle {
   display: grid;
   place-items: center;
