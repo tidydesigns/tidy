@@ -69,7 +69,12 @@ Only a trusted app window's main frame can request installation, supplying exact
 one allowlisted harness ID. The main process owns installation paths, versions and
 argument arrays; the browser-development server exposes no install operation.
 Tidy revalidates the installation, reserves the CLI against new turns, waits for
-active/preparing Tidy runs, serializes installers and verifies `--version` afterward.
+active/preparing Tidy runs on the same harness, serializes installers and verifies
+`--version` afterward. The only background-install exception is the recognized
+native Claude updater, which installs into versioned directories while retaining
+the running process. That capability is derived in the main process, not supplied
+by the renderer. Idle conversations and unrelated harness preparation do not block
+updates. New turns remain guarded during installation.
 Discovery finishing after an install cannot overwrite the newer state. Shutdown
 waits for an active installer, while queued requests are canceled.
 

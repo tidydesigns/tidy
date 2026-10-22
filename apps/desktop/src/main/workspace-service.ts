@@ -61,6 +61,7 @@ export class WorkspaceService {
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
   private updatingHarnesses = new Set<UpdatableHarnessId>();
+  private preparingHarnesses = new Map<string, HarnessId>();
 
   constructor(
     readonly store: ProjectStore,
@@ -81,13 +82,17 @@ export class WorkspaceService {
     return next;
   }
 
-  /** Reserve an idle harness synchronously so no new turn can race an installation. */
-  reserveHarnessUpdate(id: UpdatableHarnessId): (() => void) | null {
+  /** Guard launches during installation; only an explicitly safe updater may overlap active turns. */
+  reserveHarnessUpdate(
+    id: UpdatableHarnessId,
+    options: { allowActiveRuns?: boolean } = {},
+  ): (() => void) | null {
     if (
       this.closing ||
-      this.starting.size ||
       this.updatingHarnesses.has(id) ||
-      [...this.jobs.values()].some((job) => job.thread.harness === id)
+      (!options.allowActiveRuns &&
+        ([...this.preparingHarnesses.values()].some((harness) => harness === id) ||
+          [...this.jobs.values()].some((job) => job.thread.harness === id)))
     )
       return null;
     this.updatingHarnesses.add(id);
@@ -495,9 +500,11 @@ export class WorkspaceService {
       throw new Error("This message was already sent.");
     if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
     this.starting.set(thread.id, thread.projectId);
+    this.preparingHarnesses.set(thread.id, thread.harness);
     try {
       return await this.runPrepared(thread, prompt, attachmentIds, messageId);
     } finally {
+      this.preparingHarnesses.delete(thread.id);
       this.starting.delete(thread.id);
       this.cancelledStarts.delete(thread.id);
     }

@@ -93,6 +93,8 @@ export type HarnessInstallation = {
   version: string;
   packageName: string;
   channel: "latest" | "stable";
+  /** Native Claude installs into a versioned directory without replacing a running session. */
+  canUpdateWhileRunning?: boolean;
   command?: MaintenanceCommand;
   // Homebrew's channel may intentionally lag behind npm's latest release.
   brew?: { kind: "cask" | "formula"; name: string };
@@ -173,6 +175,7 @@ export async function inspectHarnessInstallation(
         : normalized.endsWith("/.opencode/bin/opencode");
   if (native) {
     installation.command = { executable, args: [id === "opencode" ? "upgrade" : "update"] };
+    installation.canUpdateWhileRunning = id === "claude";
     return installation;
   }
   // Match the resolved global root, including version-manager prefixes. A package-local

@@ -10,6 +10,7 @@ export const harnessUpdateSchema = z.object({
   installedVersion: z.string(),
   latestVersion: z.string(),
   canInstall: z.boolean(),
+  waitReason: z.enum(["turn", "installer"]).optional(),
   message: z.string().optional(),
 });
 export const harnessUpdatesSchema = z.array(harnessUpdateSchema).max(3);

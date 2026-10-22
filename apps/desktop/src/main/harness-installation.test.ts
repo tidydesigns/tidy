@@ -79,6 +79,7 @@ for (const [id, path, action] of [
     const result = (await inspect())!;
     expect(result.command).toEqual({ executable: path, args: [action] });
     expect(result.channel).toBe(id === "claude" ? "stable" : "latest");
+    expect(result.canUpdateWhileRunning).toBe(id === "claude");
     expect(commands).toHaveLength(1);
   });
 

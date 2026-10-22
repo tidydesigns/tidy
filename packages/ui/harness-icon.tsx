@@ -1,6 +1,7 @@
 const icons = {
   codex: new URL("./harness-icons/codex.svg", import.meta.url).href,
   claude: new URL("./harness-icons/claude.svg", import.meta.url).href,
+  opencode: new URL("./harness-icons/opencode.svg", import.meta.url).href,
 };
 export function HarnessIcon({
   harness,

@@ -24,6 +24,7 @@ function fixture() {
   const commands: MaintenanceCommand[] = [];
   const completed: UpdatableHarnessId[] = [];
   const busy = new Set<UpdatableHarnessId>();
+  const reservations: Array<{ id: UpdatableHarnessId; allowActiveRuns: boolean }> = [];
   let releaseCount = 0;
   let run = async (command: MaintenanceCommand) => {
     commands.push(command);
@@ -35,8 +36,9 @@ function fixture() {
   const updater = new HarnessUpdates({
     inspect: async (id) => structuredClone(installed.get(id) ?? null),
     latest: async () => latest(),
-    reserve(id) {
-      if (busy.has(id)) return null;
+    reserve(id, options) {
+      reservations.push({ id, ...options });
+      if (busy.has(id) && !options.allowActiveRuns) return null;
       busy.add(id);
       return () => {
         busy.delete(id);
@@ -55,6 +57,7 @@ function fixture() {
     commands,
     completed,
     busy,
+    reservations,
     releases: () => releaseCount,
     setRun: (value: typeof run) => {
       run = value;
@@ -127,6 +130,7 @@ test("one click queues an active harness, deduplicates clicks and installs once 
   updater.install("codex");
   updater.install("codex");
   expect(updater.state.find((entry) => entry.id === "codex")?.status).toBe("queued");
+  expect(updater.state.find((entry) => entry.id === "codex")?.waitReason).toBe("turn");
   expect(commands).toHaveLength(0);
   busy.delete("codex");
   await until(updater, "codex", "updated");
@@ -156,6 +160,7 @@ test("installers are serialized, failures are sanitized and a retry verifies the
   updater.install("claude");
   expect(calls).toBe(1);
   expect(updater.state.find((entry) => entry.id === "claude")?.status).toBe("queued");
+  expect(updater.state.find((entry) => entry.id === "claude")?.waitReason).toBe("installer");
   setRun(async (command) => {
     installed.set(
       command.executable.endsWith("claude") ? "claude" : "codex",
@@ -180,6 +185,24 @@ test("a successful command without an actual version update is an error", async 
   updater.install("codex");
   await until(updater, "codex", "error");
   expect(completed).toEqual([]);
+});
+
+test("only an explicitly background-safe installation may update during an active response", async () => {
+  const { updater, installed, busy, reservations } = fixture();
+  busy.add("claude");
+  installed.set("claude", { ...installation("claude"), canUpdateWhileRunning: true });
+  await updater.check();
+  updater.install("claude");
+  await until(updater, "claude", "updated");
+  expect(reservations.find((entry) => entry.id === "claude")?.allowActiveRuns).toBe(true);
+  await Promise.resolve();
+  busy.add("codex");
+  updater.install("codex");
+  expect(updater.state.find((entry) => entry.id === "codex")).toMatchObject({
+    status: "queued",
+    waitReason: "turn",
+  });
+  expect(reservations.find((entry) => entry.id === "codex")?.allowActiveRuns).toBe(false);
 });
 
 test("revalidation refuses a changed executable or install method", async () => {

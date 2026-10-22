@@ -85,7 +85,7 @@ app
     service = new WorkspaceService(store);
     registerWorkspaceIPC(service, entryURL);
     harnessUpdates = new HarnessUpdates({
-      reserve: (id) => service!.reserveHarnessUpdate(id),
+      reserve: (id, options) => service!.reserveHarnessUpdate(id, options),
       installed: invalidateHarnessDetails,
     });
     registerHarnessUpdateIPC(harnessUpdates, entryURL);

@@ -124,6 +124,68 @@ test("a preparing turn prevents maintenance from racing harness discovery", asyn
   expect(service.reserveHarnessUpdate("codex")).toBeNull();
 });
 
+test("preparing another harness does not hold up an update", async () => {
+  const { service, project } = await fixture();
+  const preparing = service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Preparing",
+    designIds: [],
+  });
+  const release = service.reserveHarnessUpdate("codex");
+  expect(release).not.toBeNull();
+  expect(service.reserveHarnessUpdate("claude")).toBeNull();
+  await preparing;
+  release!();
+});
+
+test("idle conversations remain open and other harnesses may keep running during an update", async () => {
+  const { service, store, project, runs } = await fixture();
+  const codex = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First reply",
+    designIds: [],
+  });
+  await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Other response",
+    designIds: [],
+  });
+  const complete = finished(service, codex.id);
+  runs[0].complete();
+  await complete;
+  const release = service.reserveHarnessUpdate("codex");
+  expect(release).not.toBeNull();
+  expect((await store.readThread(project.id, codex.id)).doneAt).toBeUndefined();
+  expect(runs[1].stopped).toBe(false);
+  release!();
+});
+
+test("background-safe native updates leave an active response untouched and guard subsequent launches", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "Keep replying",
+    designIds: [],
+  });
+  const release = service.reserveHarnessUpdate("claude", { allowActiveRuns: true });
+  expect(release).not.toBeNull();
+  expect((await service.readThread(project.id, thread.id)).status).toBe("running");
+  expect(runs[0].stopped).toBe(false);
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "Next launch",
+      designIds: [],
+    }),
+  ).rejects.toThrow("updating");
+  release!();
+});
+
 test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {
   const { service, store, project, runs } = await fixture();
   const thread = await service.startThread({

@@ -15,7 +15,7 @@ import {
 const interval = 30 * 60_000;
 const ids = ["codex", "claude", "opencode"] as const;
 type Options = {
-  reserve(id: UpdatableHarnessId): (() => void) | null;
+  reserve(id: UpdatableHarnessId, options: { allowActiveRuns: boolean }): (() => void) | null;
   inspect?: typeof inspectHarnessInstallation;
   latest?: typeof latestHarnessVersion;
   run?: typeof runMaintenance;
@@ -123,7 +123,12 @@ export class HarnessUpdates {
     if (!entry || !entry.canInstall || !["available", "error"].includes(entry.status))
       throw new Error("No installable update is available for this harness.");
     this.generations.set(id, (this.generations.get(id) ?? 0) + 1);
-    this.set({ ...entry, status: "queued", message: undefined });
+    this.set({
+      ...entry,
+      status: "queued",
+      waitReason: this.active.size ? "installer" : "turn",
+      message: undefined,
+    });
     if (!this.queueTimer) {
       this.queueTimer = setInterval(() => this.pump(), 1000);
       this.queueTimer.unref();
@@ -133,23 +138,38 @@ export class HarnessUpdates {
   private pump() {
     if (this.closing) return;
     // Serialize package managers, which commonly share global locks and install directories.
-    if (this.active.size) return;
+    if (this.active.size) {
+      this.queuedBehindInstaller();
+      return;
+    }
     for (const entry of this.entries.values()) {
       if (entry.status !== "queued") continue;
-      const release = this.options.reserve(entry.id);
-      if (!release) continue;
-      this.set({ ...entry, status: "installing" });
+      const release = this.options.reserve(entry.id, {
+        allowActiveRuns: this.installations.get(entry.id)?.canUpdateWhileRunning === true,
+      });
+      if (!release) {
+        if (entry.waitReason !== "turn") this.set({ ...entry, waitReason: "turn" });
+        continue;
+      }
+      this.set({ ...entry, status: "installing", waitReason: undefined });
       const task = this.apply(entry).finally(() => {
         release();
         this.active.delete(entry.id);
         this.pump();
       });
       this.active.set(entry.id, task);
+      this.queuedBehindInstaller();
       return;
     }
     if (![...this.entries.values()].some((entry) => entry.status === "queued")) {
       clearInterval(this.queueTimer);
       this.queueTimer = undefined;
+    }
+  }
+  private queuedBehindInstaller() {
+    for (const entry of this.entries.values()) {
+      if (entry.status === "queued" && entry.waitReason !== "installer")
+        this.set({ ...entry, waitReason: "installer" });
     }
   }
   private async apply(entry: HarnessUpdateState) {
@@ -183,12 +203,14 @@ export class HarnessUpdates {
         status: "updated",
         installedVersion: verified.version,
         latestVersion: verified.version,
+        waitReason: undefined,
       });
     } catch {
       // Updater output can contain local paths/configuration. Never forward it to the renderer.
       this.set({
         ...entry,
         status: "error",
+        waitReason: undefined,
         message: `Couldn’t update ${harnessNames[entry.id]}. Check your CLI’s update policy, network connection and package manager permissions, then retry.`,
       });
     }

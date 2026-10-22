@@ -179,7 +179,7 @@ app.on("browser-window-created", (_event, window) => {
         assert.match(message, /Untrusted desktop request/);
       }
 
-      // Synthetic availability events exercise notifications without upgrading any real CLI.
+      // Synthetic states exercise the real grouped notice without upgrading a CLI.
       const harnessNotice = {
         id: "codex",
         status: "available",
@@ -187,48 +187,89 @@ app.on("browser-window-created", (_event, window) => {
         latestVersion: "0.2.0",
         canInstall: true,
       };
-      page.send("tidy:harness-updates", [harnessNotice]);
+      const otherNotices = ["claude", "opencode"].map((id) => ({ ...harnessNotice, id }));
+      page.send("tidy:harness-updates", [harnessNotice, ...otherNotices]);
       await wait("document.querySelector('[aria-label=\"Update Codex\"]')!==null");
-      assert.equal(await evaluate("document.querySelectorAll('.tidy-toast-viewport').length"), 1);
+      assert.equal(await evaluate("document.querySelectorAll('.harness-update-notice').length"), 1);
       assert.equal(
-        await evaluate("getComputedStyle(document.querySelector('.tidy-toast-viewport')).position"),
-        "fixed",
+        await evaluate("document.querySelectorAll('.harness-update-row .harness-icon').length"),
+        3,
       );
+      assert.equal(await evaluate("document.querySelectorAll('.tidy-toast-viewport').length"), 1);
       const notices = await evaluate(`(() => {
         const bounds = document.querySelector('.tidy-toast-viewport').getBoundingClientRect();
         return { right: innerWidth - bounds.right, bottom: innerHeight - bounds.bottom };
       })()`);
       assert.equal(notices.right, 20);
       assert.equal(notices.bottom, 20);
-      // No native candidate exists for the synthetic version, so the click must show a retryable error.
       await evaluate("document.querySelector('[aria-label=\"Update Codex\"]').click();true");
-      await wait("document.body.textContent.includes('Couldn’t start the Codex update')");
-      page.send("tidy:harness-updates", [{ ...harnessNotice, status: "queued" }]);
-      await wait("document.querySelector('[aria-label=\"Update Codex\"]').disabled");
-      page.send("tidy:harness-updates", [{ ...harnessNotice, status: "installing" }]);
-      await wait("document.body.textContent.includes('Updating Codex to 0.2.0')");
+      await wait("document.body.textContent.includes('Couldn’t start the update')");
+      page.send("tidy:harness-updates", [
+        { ...harnessNotice, status: "queued", waitReason: "turn" },
+        ...otherNotices,
+      ]);
+      await wait("document.querySelector('[data-harness=codex][data-state=queued]')!==null");
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-harness=codex] .harness-update-spinner')===null",
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-harness=codex]').textContent.includes('After its active responses')",
+        ),
+        true,
+      );
+      page.send("tidy:harness-updates", [
+        { ...harnessNotice, status: "installing" },
+        ...otherNotices.map((entry) => ({ ...entry, status: "queued", waitReason: "installer" })),
+      ]);
+      await wait("document.querySelector('[data-harness=codex] .harness-update-spinner')!==null");
+      assert.equal(
+        await evaluate("document.querySelectorAll('.harness-update-spinner').length"),
+        1,
+      );
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-harness=claude]').textContent.includes('Next in line')",
+        ),
+        true,
+      );
+      assert.equal(
+        await evaluate(`getComputedStyle(document.querySelector('.harness-update-spinner')).animationName ===
+        (matchMedia('(prefers-reduced-motion: reduce)').matches ? 'none' : 'harness-update-spin')`),
+        true,
+      );
       page.send("tidy:harness-updates", [
         { ...harnessNotice, status: "error", message: "Fixture update failed." },
       ]);
       await wait("document.querySelector('[aria-label=\"Retry updating Codex\"]')!==null");
       await evaluate(
-        "document.querySelector('[aria-label=\"Retry updating Codex\"]').closest('.tidy-toast').querySelector('[aria-label=\"Dismiss notification\"]').click();true",
+        "document.querySelector('[aria-label=\"Dismiss harness updates\"]').click();true",
       );
-      await wait("document.querySelector('[aria-label=\"Retry updating Codex\"]')===null");
+      await wait("document.querySelector('.harness-update-notice')===null");
       page.send("tidy:harness-updates", [{ ...harnessNotice, status: "installing" }]);
-      await wait("document.body.textContent.includes('Updating Codex to 0.2.0')");
+      await wait("document.querySelector('.harness-update-spinner')!==null");
       page.send("tidy:harness-updates", [
         { ...harnessNotice, status: "updated", installedVersion: "0.2.0" },
       ]);
-      await wait("document.body.textContent.includes('Codex updated to 0.2.0.')");
+      await wait("document.querySelector('[data-harness=codex][data-state=updated]')!==null");
       assert.equal(
-        await evaluate("document.querySelector('[aria-label=\"Update Codex\"]')===null"),
+        await evaluate("document.querySelector('[data-harness=codex] .harness-icon')!==null"),
         true,
       );
-      page.send("tidy:harness-updates", []);
-      await evaluate(
-        "document.querySelectorAll('.tidy-toast [aria-label=\"Dismiss notification\"]').forEach(button=>button.click());true",
+      assert.equal(
+        await evaluate(
+          "document.querySelector('[data-harness=codex] .harness-update-state').textContent",
+        ),
+        "Updated",
       );
+      assert.equal(
+        await evaluate("document.querySelectorAll('.harness-update-spinner').length"),
+        0,
+      );
+      page.send("tidy:harness-updates", []);
 
       // Exercise renderer update-state rendering and its sidebar action with synthetic events.
       assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);

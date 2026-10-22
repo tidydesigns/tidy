@@ -42,12 +42,19 @@ bidirectional streaming JSON; tests exercise both protocols with fixture executa
 The desktop app checks installed Codex, Claude Code and OpenCode CLIs at startup,
 every 30 minutes, and when the app regains focus after that interval. Checks run in
 the background and do not delay the workspace. A bottom-right notification shows
-the installed and available versions, with an **Update** action for recognized
-installations. Dismissing availability hides that version until a newer release
+the installed and available versions in one compact card, with Codex, Claude Code
+and OpenCode marks and an **Update** action for each recognized installation.
+Queued rows explain whether they are waiting for active responses or another
+installer. Only a running update shows a spinner; completed rows retain their
+provider mark and show a checkmark. Dismissing availability hides that version until a newer release
 is found. Offline checks stay quiet and preserve known updates.
 
-One click queues the update until that CLI's active Tidy runs finish. New turns
-for the CLI are blocked during installation; other harnesses remain usable.
+Updates start immediately when possible. Claude's native updater can install in
+the background during an active response; its versioned installer leaves the
+running process intact and the next launch uses the updated version. Other update
+methods wait only for active/preparing responses on that same harness. Idle
+conversations stay open and other harnesses can continue working. New turns for
+the updating CLI are blocked briefly during installation.
 Package-manager installs run sequentially. Tidy verifies the installed version
 before reporting success and offers Retry after a failure. Quitting cancels queued
 updates and waits for an active installer to finish. Runs outside Tidy are managed

@@ -4,14 +4,103 @@
 @source "../../../../../packages/editor/src";
 @source "../../../node_modules/@tidy/ui";
 
-.harness-update-actions {
+.harness-update-notice {
+  padding: 0 14px;
+  animation: harness-update-appear 160ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.harness-update-header {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
   color: var(--color-muted-ink);
+  font-size: 12px;
+  font-weight: 500;
+}
+.harness-update-dismiss {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-right: -5px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  cursor: pointer;
+}
+.harness-update-dismiss:hover {
+  background: var(--color-hover-surface);
+  color: var(--color-ink);
+}
+.harness-update-list {
+  margin: 0;
+  padding: 0 0 3px;
+  list-style: none;
+}
+.harness-update-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) 84px;
+  align-items: center;
+  gap: 10px;
+  min-height: 64px;
+  padding: 12px 0;
+}
+.harness-update-row + .harness-update-row {
+  border-top: 1px solid var(--color-border);
+}
+.harness-update-mark {
+  display: grid;
+  place-items: center;
+  color: var(--color-ink);
+}
+.harness-update-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.harness-update-name {
+  font-weight: 500;
+  line-height: 18px;
+}
+.harness-update-detail {
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+}
+.harness-update-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-height: 30px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.harness-update-state[data-complete] {
+  color: light-dark(#426e46, #a8c8a9);
+}
+.harness-update-spinner {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+  border: 1.5px solid color-mix(in srgb, currentColor 22%, transparent);
+  border-right-color: currentColor;
+  border-radius: 50%;
+  animation: harness-update-spin 750ms linear infinite;
+}
+.harness-update-error {
+  grid-column: 2 / -1;
+  margin: -3px 0 0;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 17px;
 }
 .harness-update-install {
-  min-width: 76px;
+  justify-self: end;
+  min-width: 64px;
   min-height: 30px;
   padding: 4px 12px;
   border: 1px solid var(--color-border);
@@ -28,13 +117,31 @@
 .harness-update-install:active {
   transform: scale(0.97);
 }
-.harness-update-install:focus-visible {
+.harness-update-install:focus-visible,
+.harness-update-dismiss:focus-visible {
   outline: 2px solid var(--color-primary-orange);
   outline-offset: 2px;
 }
-.harness-update-install:disabled {
-  cursor: default;
-  opacity: 0.6;
+@keyframes harness-update-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes harness-update-appear {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .harness-update-notice,
+  .harness-update-spinner {
+    animation: none;
+  }
 }
 
 :root {
