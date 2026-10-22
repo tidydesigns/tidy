@@ -64,7 +64,7 @@ function Output({ text, streaming }: { text: string; streaming: boolean }) {
     </pre>
   );
 }
-function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
+const ToolRow = memo(function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
   const label = elapsed(tool, now);
   return (
     <details className={`tool-call ${tool.parentToolId ? "tool-call-nested" : ""}`}>
@@ -129,7 +129,7 @@ function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
       </div>
     </details>
   );
-}
+});
 export const ToolActivityGroup = memo(
   function ToolActivityGroup({
     activities,
@@ -185,7 +185,7 @@ export const ToolActivityGroup = memo(
         </summary>
         <div className="tool-activity-list">
           {activities.map((tool) => (
-            <ToolRow key={tool.id} tool={tool} now={now} />
+            <ToolRow key={tool.id} tool={tool} now={tool.endedAt ? 0 : now} />
           ))}
         </div>
       </details>
