@@ -43,6 +43,9 @@ async function createWindow() {
     height: 800,
     minWidth: 640,
     minHeight: 480,
+    ...(process.platform === "darwin"
+      ? { titleBarStyle: "hidden" as const, trafficLightPosition: { x: 16, y: 13 } }
+      : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? "#202020" : "#fafafa",
     show: false,
     webPreferences: {

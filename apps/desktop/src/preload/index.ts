@@ -18,6 +18,7 @@ async function request<Name extends WorkspaceOperation>(
 }
 
 const api: DesktopAPI = {
+  customTitlebar: process.platform === "darwin",
   /** Validate main-process snapshots before exposing them to the renderer. */
   harnessUpdates: async () =>
     harnessUpdatesSchema.parse(await ipcRenderer.invoke("tidy:harness-updates")),

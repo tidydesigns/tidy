@@ -9,6 +9,9 @@ import "./styles.css";
 
 if (import.meta.env.DEV && !window.tidy) await import("./browser-api");
 
+// Apply the native controls' inset before the first render to avoid a layout shift.
+if (window.tidy?.customTitlebar) document.documentElement.dataset.titlebar = "hidden";
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />

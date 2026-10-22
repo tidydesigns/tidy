@@ -206,6 +206,33 @@ body {
 .desktop-navigation[hidden] {
   display: none;
 }
+
+/* The macOS title bar blends into each pane and keeps content clear of the native controls. */
+:root[data-titlebar="hidden"] .desktop {
+  --desktop-titlebar-height: 40px;
+  position: relative;
+  padding-top: var(--desktop-titlebar-height);
+}
+:root[data-titlebar="hidden"] .desktop::before,
+:root[data-titlebar="hidden"] .desktop-navigation::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: var(--desktop-titlebar-height);
+  app-region: drag;
+  user-select: none;
+}
+:root[data-titlebar="hidden"] .desktop::before {
+  width: 100%;
+  background: var(--color-panel);
+}
+:root[data-titlebar="hidden"] .desktop-navigation::before {
+  width: var(--project-sidebar-width);
+  border-right: 1px solid var(--color-border);
+  background: var(--desktop-navigation-surface);
+}
+
 .sidebar-update {
   display: flex;
   align-items: center;
