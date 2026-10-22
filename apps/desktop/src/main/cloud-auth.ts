@@ -220,6 +220,7 @@ export class CloudAuth {
       if (!address || typeof address === "string")
         throw new Error("Could not start desktop sign-in.");
       const redirect = `http://127.0.0.1:${address.port}/callback`;
+      const resource = desktopSyncResource(this.origin);
       const registered = this.clientId
         ? { client_id: this.clientId }
         : z.object({ client_id: z.string().min(1) }).parse(
@@ -236,11 +237,11 @@ export class CloudAuth {
                   grant_types: ["authorization_code", "refresh_token"],
                   response_types: ["code"],
                   scope: `${DESKTOP_SYNC_SCOPE} offline_access`,
+                  resources: [resource],
                 }),
               })
             ).json(),
           );
-      const resource = desktopSyncResource(this.origin);
       this.clientId = registered.client_id;
       await this.state.write("oauth-client", {
         origin: this.origin,

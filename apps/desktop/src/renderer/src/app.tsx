@@ -69,6 +69,7 @@ export function App() {
   const [cloudOrganizationId, setCloudOrganizationId] = useState("");
   const [cloudCanvas, setCloudCanvas] = useState(false);
   const cloudAccount = useRef<string | undefined>(undefined);
+  const navigation = useRef(0);
   useEffect(() => {
     if (!cloud.state?.signedIn) {
       cloudAccount.current = undefined;
@@ -91,7 +92,7 @@ export function App() {
     const organization = cloud.account.organizations.find((o) => o.canEdit);
     if (organization) {
       setCloudOrganizationId(organization.id);
-      setLocation("cloud");
+      if (navigation.current === 0) setLocation("cloud");
     }
   }, [cloud.state?.signedIn, cloud.account, cloudOrganizationId]);
   const [mode, setMode] = useState<Mode>("design");
@@ -141,7 +142,6 @@ export function App() {
     projectId?: string;
     text: string;
   } | null>(null);
-  const navigation = useRef(0);
   const threadSelection = useRef<Record<string, number>>({});
   const snapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
   const project = snapshot?.project;
@@ -462,7 +462,7 @@ export function App() {
         if (!mounted) return;
         setProjects(value.projects.filter((p) => !p.cloud));
         setHarnesses(value.harnesses);
-        if (value.activeProject) {
+        if (value.activeProject && !value.activeProject.project.cloud) {
           const snapshot = [...initialEvents.values()].reduce(
             applyProjectEvent,
             value.activeProject,

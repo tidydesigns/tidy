@@ -3,12 +3,15 @@ import { z } from "zod";
 import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync";
 import { auth } from "@/lib/auth";
 import { hasMcpAuthorization, McpGrantError } from "@/lib/mcp/authorizations";
-import { withDesktopAuthority } from "@/lib/desktop/authority";
+import { withDesktopAuthority, DesktopAccessEnded } from "@/lib/desktop/authority";
+import { OrganizationAccessError } from "@/lib/organizations/access-error";
+import { FileManagementError } from "@/lib/design/file-management-authority";
 import {
   createDesktopFile,
   renameDesktopFile,
   desktopManifest,
   DesktopNameConflict,
+  DesktopFileConflict,
 } from "@/lib/desktop/files";
 import { listDesignFolders } from "@/lib/design/folder-service";
 import { thumbnailResponseForUser } from "@/lib/design/thumbnail-service";
@@ -58,8 +61,8 @@ const handle = requireMcpAuth(
     );
     if (denied) return denied;
     const grant = { claims, resource, scopes: scope };
-    const path = url.pathname.slice("/api/desktop/".length).split("/").map(decodeURIComponent);
     try {
+      const path = url.pathname.slice("/api/desktop/".length).split("/").map(decodeURIComponent);
       if (request.method === "POST" && path.join("/") === "manifest") {
         const body = z
           .object({ fileIds: z.array(z.uuid()).min(1).max(1000) })
@@ -240,13 +243,19 @@ const handle = requireMcpAuth(
       if (limited) return limited;
       if (error instanceof RequestBodyError) return requestBodyError(error);
       if (error instanceof McpGrantError) return new Response(null, { status: 401 });
+      if (error instanceof DesktopAccessEnded) return new Response(null, { status: error.status });
+      if (error instanceof OrganizationAccessError) return new Response(null, { status: 403 });
+      if (error instanceof FileManagementError) return new Response(null, { status: 404 });
+      if (error instanceof DesktopFileConflict)
+        return Response.json({ code: "FILE_CONFLICT" }, { status: 409 });
       if (
         error instanceof DocumentRevisionConflict ||
         error instanceof ExpiredDocumentEdit ||
         error instanceof DesktopNameConflict
       )
         return Response.json({ code: "REVISION_CONFLICT" }, { status: 409 });
-      if (error instanceof z.ZodError) return new Response(null, { status: 400 });
+      if (error instanceof z.ZodError || error instanceof SyntaxError || error instanceof URIError)
+        return new Response(null, { status: 400 });
       return Response.json({ error: "Cloud sync is temporarily unavailable." }, { status: 503 });
     }
   },

@@ -215,6 +215,51 @@ test("metadata transport failure reports offline and reconnects without document
   expect(f.remote.reads).toBe(0);
 });
 
+test.each([401, 403])(
+  "manifest HTTP %i pauses and resumes pending edits when access returns",
+  async (status) => {
+    const f = await fixture();
+    let denied = true;
+    f.remote.manifest = async (ids) => {
+      if (denied) throw new CloudHTTPError(status);
+      return ids.map((fileId) => ({ fileId, revision: 1, name: "Cloud design", canEdit: true }));
+    };
+    await expect(f.sync.checkRemote()).rejects.toMatchObject({ status });
+    expect(f.sync.status[0].status).toBe("paused");
+    await f.edit("Edited while access was paused");
+    f.sync.notify(f.project.id, f.design.id);
+    denied = false;
+    await f.sync.checkRemote();
+    await until(() => f.sync.status[0]?.status === "synced");
+    expect(f.remote.snapshot.content.nodes[0].name).toBe("Edited while access was paused");
+  },
+);
+
+for (const phase of ["read", "commit"] as const)
+  test.each([401, 403, 404])(
+    `${phase} HTTP %i resumes after a permitted manifest without restarting`,
+    async (status) => {
+      const f = await fixture();
+      let denied = true;
+      const transfer = f.remote[phase].bind(f.remote) as (
+        ...args: unknown[]
+      ) => Promise<CloudSnapshot>;
+      f.remote[phase] = async (...args: unknown[]) => {
+        if (denied) throw new CloudHTTPError(status);
+        return transfer(...args);
+      };
+      f.remote.manifest = async (ids) =>
+        ids.map((fileId) => ({ fileId, revision: 1, name: "Cloud design", canEdit: true }));
+      await f.edit("Pending transfer");
+      f.sync.notify(f.project.id, f.design.id);
+      await until(() => f.sync.status[0]?.status === "paused");
+      denied = false;
+      await f.sync.checkRemote();
+      await until(() => f.sync.status[0]?.status === "synced");
+      expect(f.remote.snapshot.content.nodes[0].name).toBe("Pending transfer");
+    },
+  );
+
 test("an active design has capacity while an unrelated background transfer is stalled", async () => {
   const f = await fixture();
   const target = randomUUID();

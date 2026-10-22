@@ -795,6 +795,29 @@ integration("Consent captured before revocation cannot restore the ended grant",
 function consentCode(response) {
   return response.json().then((body) => new URL(body.url).searchParams.get("code"));
 }
+integration("MCP dynamic registration does not receive desktop authority by default", async () => {
+  const response = await auth.handler(
+    new Request("http://localhost:3000/api/auth/oauth2/register", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_name: "MCP client",
+        redirect_uris: ["https://example.test/callback"],
+        token_endpoint_auth_method: "none",
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+        scope: "mcp:read",
+      }),
+    }),
+  );
+  expect(response.status).toBe(201);
+  const registration = await response.json();
+  const links = await admin.query(
+    'select "resourceId" from "oauthClientResource" where "clientId"=$1',
+    [registration.client_id],
+  );
+  expect(links.rows).toEqual([{ resourceId: resource }]);
+});
 integration(
   "Desktop browser PKCE login, scoped sync, creation retry, refresh and revocation",
   async () => {
@@ -811,6 +834,7 @@ integration(
           grant_types: ["authorization_code", "refresh_token"],
           response_types: ["code"],
           scope: "desktop:sync offline_access",
+          resources: [desktop],
         }),
       }),
     );
@@ -885,6 +909,30 @@ integration(
     const account = await call("account");
     expect(account.status).toBe(200);
     expect((await account.json()).id).toBe("alice");
+    expect((await call("files/%E0")).status).toBe(400);
+    expect(
+      (
+        await desktopPost(
+          new Request(`${desktop}/manifest`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${tokens.access_token}`,
+              "Content-Type": "application/json",
+            },
+            body: "{",
+          }),
+        )
+      ).status,
+    ).toBe(400);
+    expect(
+      (
+        await call("organizations/org-b/files", undefined, {
+          id: crypto.randomUUID(),
+          name: "Denied",
+        })
+      ).status,
+    ).toBe(403);
+    expect((await call("organizations/org-b/catalog")).status).toBe(403);
     expect(
       (await desktopGet(new Request(`${desktop}/account`, { headers: await sessionHeaders() })))
         .status,
@@ -912,6 +960,10 @@ integration(
       'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,\'org-b\',\'Private file\',\'bob\')',
       [foreignId],
     );
+    expect(
+      (await call("organizations/org-a/files", undefined, { id: foreignId, name: "Collision" }))
+        .status,
+    ).toBe(409);
     const manifest = await call("manifest", undefined, { fileIds: [fileId, foreignId, fileId] });
     expect(manifest.status).toBe(200);
     expect(await manifest.json()).toEqual([

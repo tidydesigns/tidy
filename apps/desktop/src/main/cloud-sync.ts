@@ -287,6 +287,7 @@ export class CloudSync {
           this.defer(wait || 60_000);
         if (error instanceof CloudHTTPError && [401, 403].includes(error.status)) {
           for (const binding of bindings) {
+            this.permissionPaused.add(binding.id);
             this.failures.set(binding.id, 1);
             this.publish(binding, "paused", error.message);
           }
@@ -362,6 +363,8 @@ export class CloudSync {
           if (!binding || this.stopped) return;
           const paused =
             error instanceof CloudHTTPError && [400, 401, 403, 404, 413].includes(error.status);
+          if (error instanceof CloudHTTPError && [401, 403, 404].includes(error.status))
+            this.permissionPaused.add(id);
           this.publish(
             binding,
             paused ? "paused" : "offline",

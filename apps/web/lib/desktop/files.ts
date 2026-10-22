@@ -27,6 +27,7 @@ export async function desktopManifest(userId: string, fileIds: string[]) {
 }
 
 export class DesktopNameConflict extends Error {}
+export class DesktopFileConflict extends Error {}
 export async function renameDesktopFile(
   userId: string,
   fileId: string,
@@ -65,7 +66,7 @@ export async function createDesktopFile(
       row &&
       (row.organizationId !== organizationId || row.createdBy !== userId || row.archivedAt)
     )
-      throw new Error("This cloud file ID is already in use.");
+      throw new DesktopFileConflict("This cloud file ID is already in use.");
     // Check before INSERT so an acknowledged creation remains retryable at the file quota.
     if (!row)
       await client.query(

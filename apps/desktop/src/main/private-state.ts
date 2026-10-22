@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { readLocalFile } from "./local-files";
 
@@ -36,7 +36,13 @@ export class PrivateState {
     const path = this.path(key),
       temporary = `${path}.${randomUUID()}.tmp`;
     try {
-      await writeFile(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600 });
+      const handle = await open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(JSON.stringify(value));
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await rename(temporary, path);
     } finally {
       await rm(temporary, { force: true });

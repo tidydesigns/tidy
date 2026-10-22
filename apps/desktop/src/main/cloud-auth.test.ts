@@ -33,6 +33,7 @@ async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
       const registration = JSON.parse(String(init?.body));
       expect(registration.token_endpoint_auth_method).toBe("none");
       expect(registration.scope).toBe("desktop:sync offline_access");
+      expect(registration.resources).toEqual(["https://example.test/api/desktop"]);
       return Response.json({ client_id: "desktop-fixture" });
     }
     if (url.endsWith("/oauth2/token")) {

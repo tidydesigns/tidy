@@ -414,7 +414,7 @@ function createAuth() {
             allowedScopes: [DESKTOP_SYNC_SCOPE],
           },
         ],
-        clientRegistrationDefaultResources: [
+        clientRegistrationAllowedResources: [
           desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
         ],
         scopes: [

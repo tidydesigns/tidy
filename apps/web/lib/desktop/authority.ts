@@ -5,6 +5,12 @@ import { requireMcpGrant, recheckRetainedMcpGrant } from "@/lib/mcp/authorizatio
 import type { McpGrant } from "@/lib/mcp/grant-context";
 import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 
+export class DesktopAccessEnded extends Error {
+  constructor(public status: 403 | 404) {
+    super("Cloud file or workspace access ended.");
+  }
+}
+
 /** Reuse the OAuth grant/revocation contract, including its workspace → account lock order. */
 export async function withDesktopAuthority<T>(
   grant: McpGrant,
@@ -31,7 +37,7 @@ export async function withDesktopAuthority<T>(
          and "role" in ${VIEW_ROLES_SQL} for share`,
         [organizationId, grant.claims.sub],
       );
-      if (!membership.rowCount) throw new Error("Workspace access ended.");
+      if (!membership.rowCount) throw new DesktopAccessEnded(403);
       if (
         fileId &&
         !(
@@ -41,7 +47,7 @@ export async function withDesktopAuthority<T>(
           )
         ).rowCount
       )
-        throw new Error("File access ended.");
+        throw new DesktopAccessEnded(404);
     }
     const result = await inDatabaseScope(client, transactional ? work : async () => read as T);
     await recheckRetainedMcpGrant(client, grant);
