@@ -1,4 +1,13 @@
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ComponentProps,
+} from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
@@ -30,6 +39,15 @@ const MessageBody = memo(function MessageBody({ message }: { message: Message })
     </div>
   );
 });
+
+function TurnButton({
+  prompt,
+  index,
+  ...props
+}: ComponentProps<typeof Button> & { prompt: string; index: number }) {
+  const label = useMemo(() => prompt.replace(/\s+/g, " ").slice(0, 100) || "Attachment", [prompt]);
+  return <Button {...props} aria-label={`Jump to turn ${index + 1}: ${label}`} />;
+}
 
 export function Conversation({
   thread,
@@ -254,10 +272,11 @@ export function Conversation({
             style={{ height: Math.min(288, (turns.length - 1) * 8) }}
           >
             {turns.map((turn, index) => (
-              <Button
+              <TurnButton
                 key={turn.id}
+                prompt={turn.prompt}
+                index={index}
                 className={`conversation-tick ${preview === index ? "previewing" : ""}`}
-                aria-label={`Jump to turn ${index + 1}: ${turn.prompt.replace(/\s+/g, " ").slice(0, 100) || "Attachment"}`}
                 data-hover-distance={
                   preview === null ? undefined : Math.min(3, Math.abs(index - preview))
                 }
@@ -290,7 +309,7 @@ export function Conversation({
                 }}
               >
                 <span />
-              </Button>
+              </TurnButton>
             ))}
             {selected && (
               <div
