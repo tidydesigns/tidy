@@ -838,7 +838,6 @@ summary:focus-visible {
   background: var(--desktop-surface);
   box-shadow: 0 8px 24px #0003;
   font-size: 13px;
-  pointer-events: none;
 }
 .conversation-turn-preview strong {
   display: block;
