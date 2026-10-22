@@ -5,6 +5,22 @@ import { HTTPCloudRemote } from "./cloud-remote";
 const remote = (request: () => Promise<Response>) =>
   new HTTPCloudRemote({ request } as unknown as CloudAuth);
 
+test("revision manifests are bounded and use one metadata request", async () => {
+  let calls = 0;
+  const fileId = randomUUID();
+  const api = new HTTPCloudRemote({
+    request: async (path: string, init: RequestInit) => {
+      calls++;
+      expect(path).toBe("/api/desktop/manifest");
+      expect(JSON.parse(String(init.body))).toEqual({ fileIds: [fileId] });
+      return Response.json([{ fileId, revision: 4, name: "Design", canEdit: true }]);
+    },
+  } as unknown as CloudAuth);
+  expect((await api.manifest([fileId]))[0].revision).toBe(4);
+  await expect(api.manifest(Array.from({ length: 1001 }, () => randomUUID()))).rejects.toThrow();
+  expect(calls).toBe(1);
+});
+
 test("thumbnail reads only return bounded PNG data URLs", async () => {
   const valid = Buffer.from("89504e470d0a1a0a", "hex");
   expect(

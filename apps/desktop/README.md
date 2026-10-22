@@ -36,17 +36,26 @@ ways; threads, attachments, repository files, and local folder moves remain loca
 
 Local saves never await network requests. The main-process coordinator batches
 work over 250 ms with a one-second maximum wait, uses a separate worker for document
-comparisons, sends patches, and limits transfers to two designs at once. Images
+comparisons and local-file decoding, sends patches, and limits transfers to two designs
+at once. Active and locally changed files take priority, with capacity reserved so a
+slow background transfer cannot block the open design. Images
 upload before patches and reuse the server's content-hash deduplication. Sync
 baselines, asset aliases, initial file-creation IDs and unacknowledged operations
 persist in private application data. Restart reconciliation also discovers edits
 made by agents while the app was closed. Local asset IDs represent immutable
 images; replacing an image requires a new asset ID, as editor uploads already do.
 
-Incoming changes use incremental catch-up every two seconds for the active file
-and every sixteen seconds for other downloaded files, with snapshot fallback when
-server patch history has expired. Returning to the app or reconnecting triggers
-catch-up immediately. Transient failures retry with bounded backoff. Metadata
+Incoming changes use a single bounded revision manifest for up to 1,000 downloaded
+files, checked every two seconds while editing, every fifteen seconds while browsing,
+and every minute when the app is in the background. Only changed designs fetch
+incremental patches, with snapshot fallback when server history has expired.
+Returning to the app or reconnecting triggers catch-up immediately. Unchanged
+files skip document decoding and comparison; metadata fingerprints detect edits
+on disk even if an external writer restores the modification time. A lightweight
+minute scan recovers missed filesystem events. Validated documents are cached
+privately with a bound of eight full documents and 1,000 summaries.
+Transient failures retry with bounded backoff, and Retry-After pauses account-wide
+requests instead of letting individual files overwhelm the service. File-list metadata
 refreshes in the background every thirty seconds while the cloud workspace is open.
 Thumbnails load only near the visible viewport, with at most three transfers at
 once and one cached image per file. Browsing files does not download every document.

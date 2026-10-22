@@ -40,7 +40,10 @@ export function cloudOrigin(value: string) {
   return url.origin;
 }
 export class CloudHTTPError extends Error {
-  constructor(readonly status: number) {
+  constructor(
+    readonly status: number,
+    readonly retryAfterMs = 0,
+  ) {
     super(
       status === 401
         ? "Sign in to reconnect cloud sync."
@@ -59,6 +62,7 @@ export class CloudAuth {
   private epoch = 0;
   private clientId?: string;
   private writes = Promise.resolve();
+  private notBefore = 0;
   readonly origin: string;
   constructor(
     origin: string,
@@ -104,12 +108,17 @@ export class CloudAuth {
         origin: this.origin,
         encrypted: this.protection.encrypt(JSON.stringify(session)).toString("base64"),
       });
-      if (epoch === this.epoch) this.session = session;
+      if (epoch === this.epoch) {
+        if (this.session?.accountId !== session.accountId) this.notBefore = 0;
+        this.session = session;
+      }
     });
     this.writes = write.catch(() => {});
     await write;
   }
   private async raw(path: string, init?: RequestInit) {
+    const epoch = this.epoch,
+      accountId = this.accountId;
     const response = await this.fetcher(`${this.origin}${path}`, {
       ...init,
       redirect: "error",
@@ -118,7 +127,23 @@ export class CloudAuth {
         ...(init?.signal ? [init.signal] : []),
       ]),
     });
-    if (!response.ok) throw new CloudHTTPError(response.status);
+    if (!response.ok) {
+      const retry = response.headers.get("retry-after");
+      const seconds = retry === null ? NaN : Number(retry);
+      const retryAfterMs = Number.isFinite(seconds)
+        ? Math.max(0, seconds * 1000)
+        : Math.max(0, Date.parse(retry ?? "") - Date.now());
+      const wait = Number.isFinite(retryAfterMs) ? retryAfterMs : 0;
+      if (
+        path.startsWith("/api/desktop/") &&
+        epoch === this.epoch &&
+        accountId === this.accountId &&
+        (response.status === 429 || (response.status === 503 && wait > 0))
+      )
+        this.notBefore = Math.max(this.notBefore, Date.now() + (wait || 60_000));
+      await response.body?.cancel().catch(() => {});
+      throw new CloudHTTPError(response.status, wait);
+    }
     return response;
   }
   signIn() {
@@ -148,7 +173,13 @@ export class CloudAuth {
     // Attach immediately so cancellation during client registration never becomes unhandled.
     void code.catch(() => {});
     const server = createServer((request, response) => {
-      const callback = new URL(request.url ?? "/", "http://127.0.0.1");
+      let callback: URL;
+      try {
+        callback = new URL(request.url ?? "/", "http://127.0.0.1");
+      } catch {
+        response.writeHead(400, { Connection: "close" }).end();
+        return;
+      }
       if (
         request.method !== "GET" ||
         callback.pathname !== "/callback" ||
@@ -302,6 +333,7 @@ export class CloudAuth {
   async request(path: string, init?: RequestInit) {
     if (!path.startsWith("/api/desktop/")) throw new Error("Invalid cloud API path.");
     if (!this.session) throw new CloudHTTPError(401);
+    if (Date.now() < this.notBefore) throw new CloudHTTPError(429, this.notBefore - Date.now());
     if (this.session.expiresAt < Date.now() + 60_000) {
       if (!this.refresh)
         this.refresh = this.renew().finally(() => {
@@ -322,6 +354,7 @@ export class CloudAuth {
     this.cancelSignIn();
     const session = this.session;
     this.session = undefined;
+    this.notBefore = 0;
     await this.writes;
     await this.state.remove("credentials");
     if (session)

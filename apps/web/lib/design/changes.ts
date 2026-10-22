@@ -5,6 +5,7 @@ import type { DocumentPatch } from "./document-patch";
 
 export type RevisionPatch = { baseRevision: number; revision: number; patch: DocumentPatch };
 export type FileChanges = {
+  initialized: boolean;
   name: string;
   role: string;
   revision: number;
@@ -18,7 +19,8 @@ export async function readFileChanges(userId: string, fileId: string, revision: 
   const result = await db.query<FileChanges>(
     `
     with authorized as (
-      select m."role", f."name", d."revision", d."content", coalesce(s."sequence",0) as "sequence"
+      select m."role", f."name", d."revision", d."content", coalesce(s."sequence",0) as "sequence",
+        coalesce(d."content"->>'legacyConverted' = 'true', false) as initialized
       from "designFile" f join "designDocument" d on d."fileId" = f."id"
       join "member" m on m."organizationId" = f."organizationId" and m."userId" = $2 and m."role" in ${VIEW_ROLES_SQL}
       join "user" u on u."id" = m."userId" and u."emailVerified" = true
@@ -37,7 +39,7 @@ export async function readFileChanges(userId: string, fileId: string, revision: 
           order by "revision" limit 101) o
       ) p on $3::integer is not null and a."revision" > $3 and a."revision" - $3 <= 100
     )
-    select "role", "name", "revision", "sequence",
+    select "role", "name", "revision", "sequence", initialized,
       case when delta then null else "content" end as content,
       case when delta then coalesce(patches, '[]'::jsonb) else null end as patches
     from catchup`,

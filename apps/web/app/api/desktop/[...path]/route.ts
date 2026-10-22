@@ -4,7 +4,12 @@ import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync
 import { auth } from "@/lib/auth";
 import { hasMcpAuthorization, McpGrantError } from "@/lib/mcp/authorizations";
 import { withDesktopAuthority } from "@/lib/desktop/authority";
-import { createDesktopFile, renameDesktopFile, DesktopNameConflict } from "@/lib/desktop/files";
+import {
+  createDesktopFile,
+  renameDesktopFile,
+  desktopManifest,
+  DesktopNameConflict,
+} from "@/lib/desktop/files";
 import { listDesignFolders } from "@/lib/design/folder-service";
 import { thumbnailResponseForUser } from "@/lib/design/thumbnail-service";
 import { listDesignOrganizations, listDesignFiles, getDesignFile } from "@/lib/design/service";
@@ -44,15 +49,34 @@ const handle = requireMcpAuth(
     if (!(await hasMcpAuthorization(claims, resource, scope)))
       return new Response(null, { status: 401 });
     const userId = claims.sub as string;
+    const url = new URL(request.url);
     const denied = await operationBudgetResponse(
-      request.method === "GET" ? "document-read" : "document-request",
+      request.method === "GET" || url.pathname === "/api/desktop/manifest"
+        ? "document-read"
+        : "document-request",
       userId,
     );
     if (denied) return denied;
     const grant = { claims, resource, scopes: scope };
-    const url = new URL(request.url);
     const path = url.pathname.slice("/api/desktop/".length).split("/").map(decodeURIComponent);
     try {
+      if (request.method === "POST" && path.join("/") === "manifest") {
+        const body = z
+          .object({ fileIds: z.array(z.uuid()).min(1).max(1000) })
+          .strict()
+          .parse(await (await boundedRequest(request, 64_000)).json());
+        // Unlike asset reads this does no external I/O: retain authority through publication.
+        return json(
+          await withDesktopAuthority(
+            grant,
+            undefined,
+            false,
+            () => desktopManifest(userId, [...new Set(body.fileIds)]),
+            undefined,
+            true,
+          ),
+        );
+      }
       if (request.method === "GET" && path.join("/") === "account")
         return json(
           await withDesktopAuthority(grant, undefined, false, async () => ({
@@ -147,14 +171,14 @@ const handle = requireMcpAuth(
           if (request.method === "GET" && path[2] === "thumbnail")
             return thumbnailResponseForUser(userId, fileId, request);
           if (request.method === "GET" && path.length === 2) {
-            // Initialize legacy documents using the existing editor conversion path.
-            await ensureEditorDocument(userId, fileId);
             const since = url.searchParams.get("revision");
-            const row = await readFileChanges(
-              userId,
-              fileId,
-              since === null ? null : revision.parse(since),
-            );
+            const requestedRevision = since === null ? null : revision.parse(since);
+            let row = await readFileChanges(userId, fileId, requestedRevision);
+            // Native documents and empty deltas never fetch a second full snapshot.
+            if (!row?.initialized) {
+              await ensureEditorDocument(userId, fileId);
+              row = await readFileChanges(userId, fileId, requestedRevision);
+            }
             if (!row) return new Response(null, { status: 404 });
             return json({
               name: row.name,

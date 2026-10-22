@@ -14,7 +14,12 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
-import { registerHarnessUpdateIPC, registerCloudIPC, registerUpdateIPC, registerWorkspaceIPC } from "./ipc";
+import {
+  registerHarnessUpdateIPC,
+  registerCloudIPC,
+  registerUpdateIPC,
+  registerWorkspaceIPC,
+} from "./ipc";
 import { CloudAuth } from "./cloud-auth";
 import { CloudService } from "./cloud-service";
 import { PrivateState } from "./private-state";
@@ -117,7 +122,9 @@ app
     harnessUpdates.start();
     app.on("browser-window-focus", () => {
       void harnessUpdates?.check();
+      cloud?.setForeground(true);
     });
+    app.on("browser-window-blur", () => cloud?.setForeground(false));
     const privateState = new PrivateState(join(app.getPath("userData"), "cloud-sync"));
     const auth = new CloudAuth(
       process.env.TIDY_CLOUD_URL ?? "https://app.tidydesign.co",
@@ -206,5 +213,7 @@ app.on("before-quit", (event) => {
   if (quitting || !service) return;
   event.preventDefault();
   quitting = "quit";
-  void Promise.allSettled([service.close(), harnessUpdates?.close(), cloud?.close()]).finally(() => app.quit());
+  void Promise.allSettled([service.close(), harnessUpdates?.close(), cloud?.close()]).finally(() =>
+    app.quit(),
+  );
 });

@@ -12,10 +12,12 @@ export async function withDesktopAuthority<T>(
   write: boolean,
   work: () => Promise<T>,
   fileId?: string,
+  transactionalRead = false,
 ) {
   // Fetch reads without holding a database connection across R2 I/O, then
   // revalidate grant and membership at publication. Writes use the outer transaction.
-  const read = write ? undefined : await work();
+  const transactional = write || transactionalRead;
+  const read = transactional ? undefined : await work();
   const client = await db.connect();
   let afterCommit: (() => Promise<void>) | undefined;
   try {
@@ -41,7 +43,7 @@ export async function withDesktopAuthority<T>(
       )
         throw new Error("File access ended.");
     }
-    const result = await inDatabaseScope(client, write ? work : async () => read as T);
+    const result = await inDatabaseScope(client, transactional ? work : async () => read as T);
     await recheckRetainedMcpGrant(client, grant);
     await client.query("commit");
     afterCommit = result.afterCommit;

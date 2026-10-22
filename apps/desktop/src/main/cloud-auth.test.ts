@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { connect } from "node:net";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,7 +17,7 @@ const protection: CredentialProtection = {
   encrypt: (value) => Buffer.from(value.split("").reverse().join("")),
   decrypt: (value) => value.toString().split("").reverse().join(""),
 };
-async function fixture() {
+async function fixture(beforeCallback?: (callback: URL) => Promise<void>) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-cloud-auth-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const state = new PrivateState(directory);
@@ -66,6 +67,7 @@ async function fixture() {
       authorization = new URL(url);
       expect(authorization.searchParams.get("code_challenge_method")).toBe("S256");
       const callback = new URL(authorization.searchParams.get("redirect_uri")!);
+      await beforeCallback?.(callback);
       expect(callback.hostname).toBe("127.0.0.1");
       const wrong = new URL(callback);
       wrong.searchParams.set("state", "wrong-state");
@@ -116,6 +118,53 @@ test("native login binds the callback to state and PKCE and protects persisted c
   );
   await anotherOrigin.initialize();
   expect(anotherOrigin.accountId).toBeUndefined();
+});
+
+test("malformed loopback targets return 400 without interrupting the valid PKCE login", async () => {
+  const f = await fixture(async (callback) => {
+    const response = await new Promise<string>((resolve, reject) => {
+      const socket = connect(Number(callback.port), "127.0.0.1", () => {
+        socket.write("GET http://[ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+      });
+      let body = "";
+      socket.setEncoding("utf8");
+      socket.setTimeout(1000, () => socket.destroy(new Error("Callback timed out")));
+      socket.on("data", (data) => {
+        body += data;
+      });
+      socket.on("error", reject);
+      socket.on("end", () => resolve(body));
+    });
+    expect(response).toStartWith("HTTP/1.1 400");
+  });
+  await f.auth.signIn();
+  expect(f.auth.accountId).toBe("alice");
+});
+
+test("Retry-After blocks subsequent native API requests across files without another network call", async () => {
+  const f = await fixture();
+  await f.auth.signIn();
+  let calls = 0;
+  const throttled = new CloudAuth(
+    "https://example.test",
+    f.state,
+    protection,
+    async () => {},
+    (async (input, init) => {
+      if (String(input).includes("/api/desktop/")) {
+        calls++;
+        return new Response(null, { status: 429, headers: { "Retry-After": "120" } });
+      }
+      return f.fetcher(input, init);
+    }) as typeof fetch,
+  );
+  await throttled.initialize();
+  await expect(throttled.request("/api/desktop/account")).rejects.toMatchObject({
+    status: 429,
+    retryAfterMs: 120_000,
+  });
+  await expect(throttled.request("/api/desktop/manifest")).rejects.toMatchObject({ status: 429 });
+  expect(calls).toBe(1);
 });
 
 test("concurrent cloud requests share a single refresh-token rotation", async () => {

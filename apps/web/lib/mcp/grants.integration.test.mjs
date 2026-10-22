@@ -907,6 +907,42 @@ integration(
     const file = await call(`files/${fileId}`);
     expect(file.status).toBe(200);
     expect((await file.json()).snapshot.revision).toBe(1);
+    const foreignId = crypto.randomUUID();
+    await admin.query(
+      'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,\'org-b\',\'Private file\',\'bob\')',
+      [foreignId],
+    );
+    const manifest = await call("manifest", undefined, { fileIds: [fileId, foreignId, fileId] });
+    expect(manifest.status).toBe(200);
+    expect(await manifest.json()).toEqual([
+      { fileId, revision: 1, name: "From desktop", canEdit: true },
+    ]);
+    expect(
+      (
+        await call("manifest", undefined, {
+          fileIds: Array.from({ length: 1001 }, () => crypto.randomUUID()),
+        })
+      ).status,
+    ).toBe(400);
+    expect((await call("manifest", agent.access_token, { fileIds: [fileId] })).status).toBe(401);
+    const queries = [];
+    const originalQuery = db.query.bind(db);
+    db.query = (...args) => {
+      queries.push(String(args[0]));
+      return originalQuery(...args);
+    };
+    try {
+      const unchanged = await call(`files/${fileId}?revision=1`);
+      expect(unchanged.status).toBe(200);
+      expect(await unchanged.json()).toMatchObject({ baseRevision: 1, revision: 1, patches: [] });
+      expect(
+        queries.some((sql) =>
+          sql.includes('select d."revision", d."content" from "designDocument"'),
+        ),
+      ).toBe(false);
+    } finally {
+      db.query = originalQuery;
+    }
     const refreshed = await tokenRequest({
       grant_type: "refresh_token",
       refresh_token: tokens.refresh_token,
@@ -917,6 +953,7 @@ integration(
     expect((await call("account", next.access_token)).status).toBe(200);
     await revokeMcpAuthorization("alice", registration.client_id);
     expect((await call("account", next.access_token)).status).toBe(401);
+    expect((await call("manifest", next.access_token, { fileIds: [fileId] })).status).toBe(401);
   },
 );
 integration(

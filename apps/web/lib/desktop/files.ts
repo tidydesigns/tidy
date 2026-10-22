@@ -2,6 +2,29 @@ import "server-only";
 import { discoverFileManagement } from "@/lib/design/file-management-authority";
 import { withOrganizationEditAuthority } from "@/lib/design/organization-authority";
 import { publishFileChanges } from "@/lib/realtime/server";
+import { db } from "@/lib/db";
+import { EDIT_ROLES_SQL, VIEW_ROLES_SQL } from "@/lib/organizations/roles";
+
+/** Metadata only: one bounded query for all downloaded designs, with live access locks. */
+export async function desktopManifest(userId: string, fileIds: string[]) {
+  const result = await db.query<{
+    fileId: string;
+    revision: number;
+    name: string;
+    canEdit: boolean;
+  }>(
+    `select f."id" as "fileId", coalesce(d."revision", 0) as revision, f."name",
+      m."role" in ${EDIT_ROLES_SQL} as "canEdit"
+     from "designFile" f
+     join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${VIEW_ROLES_SQL}
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     left join "designDocument" d on d."fileId"=f."id"
+     where f."id"=any($1::text[]) and f."archivedAt" is null
+     order by f."id" for share of f,m,u`,
+    [fileIds, userId],
+  );
+  return result.rows;
+}
 
 export class DesktopNameConflict extends Error {}
 export async function renameDesktopFile(

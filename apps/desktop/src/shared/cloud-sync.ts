@@ -19,6 +19,17 @@ export const cloudCatalogSchema = z.object({
   files: cloudFilesSchema,
   folders: z.array(z.object({ id: z.string(), name: z.string() })),
 });
+export const cloudManifestSchema = z
+  .array(
+    z.object({
+      fileId: z.uuid(),
+      revision: z.number().int().nonnegative(),
+      name: z.string().max(120),
+      canEdit: z.boolean(),
+    }),
+  )
+  .max(1000);
+export type CloudManifest = z.infer<typeof cloudManifestSchema>;
 export const cloudOpenedSchema = z.object({ projectId: z.uuid(), design: localDesignSchema });
 export type CloudCatalog = z.infer<typeof cloudCatalogSchema>;
 export type CloudOpened = z.infer<typeof cloudOpenedSchema>;

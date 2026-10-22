@@ -1312,311 +1312,320 @@ export function App() {
                 </div>
               </section>
               <section
-              id="workspace-panel-code"
-              role="tabpanel"
-              aria-labelledby="workspace-tab-code"
-              hidden={mode !== "code"}
-              className="project-workspace"
-            >
-              <div className="thread-workspace">
-                <div className="content-heading">
-                  <h1>{thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}</h1>
-                  {thread?.doneAt && (
-                    <Button
-                      className="quiet-button thread-heading-action"
-                      disabled={running || Boolean(updatingDone[thread.id])}
-                      onClick={() => void toggleThreadDone(summarizeThread(thread))}
-                    >
-                      Reopen thread
-                    </Button>
-                  )}
-                </div>
-                <Conversation
-                  key={`${project.id}:${selectedThreadId ?? "draft"}`}
-                  identity={`${project.id}:${selectedThreadId ?? "draft"}`}
-                  thread={thread}
-                  active={mode === "code"}
-                  api={api!}
-                  references={
-                    thread?.designIds.map(
-                      (id) =>
-                        snapshot.designs.find((design) => design.id === id)?.name ??
-                        "Design reference",
-                    ) ?? []
-                  }
-                />
-                {thread?.pendingApprovals?.length && api ? (
-                  <ApprovalRequests
-                    key={thread.id}
-                    requests={thread.pendingApprovals}
-                    onRespond={async (id, decision) => {
-                      const value = await api.respondToApproval(
-                        project.id,
-                        thread.id,
-                        id,
-                        decision,
-                      );
-                      setThreads((current) => ({
-                        ...current,
-                        [value.id]:
-                          (current[value.id]?.revision ?? -1) > value.revision
-                            ? current[value.id]
-                            : value,
-                      }));
-                    }}
-                  />
-                ) : null}
-                {thread && (
-                  <MessageQueue
-                    key={`queue:${thread.id}`}
-                    messages={queue.messages}
-                    running={running}
-                    error={thread.queueError}
-                    onChange={queue.change}
-                    onRecover={queue.recover}
-                  />
-                )}
-                <form
-                  className="composer"
-                  onDragOver={(event) => {
-                    if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
-                      event.preventDefault();
-                  }}
-                  onDrop={(event) => {
-                    if (event.dataTransfer.files.length) {
-                      event.preventDefault();
-                      attachFiles(Array.from(event.dataTransfer.files));
-                    }
-                  }}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void send();
-                  }}
-                >
-                  {!thread && snapshot.designs.length > 0 && (
-                    <DesignReferences
-                      designs={snapshot.designs}
-                      selected={draft.designIds}
-                      onChange={(designIds) => updateDraft({ designIds })}
-                    />
-                  )}
-                  <AttachmentList
-                    files={draft.attachments ?? []}
-                    onRemove={
-                      thread?.doneAt
-                        ? undefined
-                        : (id) =>
-                            updateDraft({
-                              attachments: draft.attachments?.filter((file) => file.id !== id),
-                            })
-                    }
-                  />
-                  {Boolean(uploading[draftKey]) && (
-                    <span className="attachment-progress" role="status">
-                      Adding attachments…
-                    </span>
-                  )}
-                  <input
-                    ref={fileInput}
-                    type="file"
-                    multiple
-                    hidden
-                    aria-label="Attach files"
-                    onChange={(event) => {
-                      attachFiles(Array.from(event.currentTarget.files ?? []));
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                  <label className="sr-only" htmlFor="thread-prompt">
-                    Message
-                  </label>
-                  <SkillPrompt
-                    key={draftKey + selectedHarness}
-                    skills={availableSkills}
-                    status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
-                    retry={() => {
-                      void loadSkills(true);
-                    }}
-                    id="thread-prompt"
-                    value={draft.text}
-                    onChange={(text) => {
-                      const name = skillCommand(text)?.name;
-                      const skill = availableSkills.find((skill) => skill.name === name);
-                      updateDraft({
-                        text,
-                        skill: skill
-                          ? { id: skill.id, name: skill.name, harness: selectedHarness }
-                          : draft.skill?.name === name
-                            ? draft.skill
-                            : undefined,
-                      });
-                    }}
-                    onPaste={(event) => {
-                      const files = Array.from(event.clipboardData.files);
-                      if (files.length) {
-                        event.preventDefault();
-                        attachFiles(files);
-                      }
-                    }}
-                    placeholder={
-                      thread?.doneAt
-                        ? "Reopen this thread to continue…"
-                        : running
-                          ? "Queue a follow-up, or send it now…"
-                          : thread
-                            ? "Continue this thread… / for skills"
-                            : "What would you like to work on? / for skills"
-                    }
-                    disabled={Boolean(thread?.doneAt) || busy}
-                    maxLength={32_000}
-                    rows={2}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key === "Enter" &&
-                        event.shiftKey &&
-                        (event.metaKey || event.ctrlKey) &&
-                        running &&
-                        !event.nativeEvent.isComposing
-                      ) {
-                        event.preventDefault();
-                        const first = queue.messages[0];
-                        if (first && !event.repeat)
-                          queue.change({ kind: "steer", messageId: first.id });
-                        return;
-                      }
-                      if (
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !event.altKey &&
-                        !event.nativeEvent.isComposing &&
-                        event.nativeEvent.keyCode !== 229
-                      ) {
-                        event.preventDefault();
-                        if (!event.repeat)
-                          void send(event.metaKey || event.ctrlKey ? "steer" : "queue");
-                      }
-                    }}
-                  />
-                  <div className="composer-actions">
-                    <Button
-                      type="button"
-                      className="quiet-button attachment-button"
-                      aria-label="Attach files"
-                      title="Attach files"
-                      disabled={Boolean(thread?.doneAt) || busy}
-                      onClick={() => fileInput.current?.click()}
-                    >
-                      <svg
-                        aria-hidden="true"
-                        width="17"
-                        height="17"
-                        viewBox="0 0 24 24"
-                        fill="none"
+                id="workspace-panel-code"
+                role="tabpanel"
+                aria-labelledby="workspace-tab-code"
+                hidden={mode !== "code"}
+                className="project-workspace"
+              >
+                <div className="thread-workspace">
+                  <div className="content-heading">
+                    <h1>
+                      {thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}
+                    </h1>
+                    {thread?.doneAt && (
+                      <Button
+                        className="quiet-button thread-heading-action"
+                        disabled={running || Boolean(updatingDone[thread.id])}
+                        onClick={() => void toggleThreadDone(summarizeThread(thread))}
                       >
-                        <path
-                          d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </Button>
-                    <HarnessControls
-                      api={api!}
-                      connections={harnesses}
-                      harness={selectedHarness}
-                      settings={thread?.settings ?? draft.settings ?? {}}
-                      actualModel={thread?.actualModel}
-                      usage={thread?.usage}
-                      details={currentDetails?.info}
-                      error={currentDetails?.error}
-                      loading={Boolean(currentDetails?.loading)}
-                      disabled={Boolean(
-                        running || busy || (thread && settingsPending[thread.id]) || thread?.doneAt,
-                      )}
-                      onHarnessChange={
-                        thread ? undefined : (harness) => updateDraft({ harness, settings: {} })
-                      }
-                      onSettingsChange={(settings) => void changeSettings(settings)}
-                      onRefresh={() => {
-                        if (project && harnessReady)
-                          void loadHarnessDetails(project.id, selectedHarness, true);
+                        Reopen thread
+                      </Button>
+                    )}
+                  </div>
+                  <Conversation
+                    key={`${project.id}:${selectedThreadId ?? "draft"}`}
+                    identity={`${project.id}:${selectedThreadId ?? "draft"}`}
+                    thread={thread}
+                    active={location === "local" && mode === "code"}
+                    api={api!}
+                    references={
+                      thread?.designIds.map(
+                        (id) =>
+                          snapshot.designs.find((design) => design.id === id)?.name ??
+                          "Design reference",
+                      ) ?? []
+                    }
+                  />
+                  {thread?.pendingApprovals?.length && api ? (
+                    <ApprovalRequests
+                      key={thread.id}
+                      requests={thread.pendingApprovals}
+                      onRespond={async (id, decision) => {
+                        const value = await api.respondToApproval(
+                          project.id,
+                          thread.id,
+                          id,
+                          decision,
+                        );
+                        setThreads((current) => ({
+                          ...current,
+                          [value.id]:
+                            (current[value.id]?.revision ?? -1) > value.revision
+                              ? current[value.id]
+                              : value,
+                        }));
                       }}
                     />
-                    <span className="composer-spacer" />
-                    <div className="composer-delivery">
-                      {running && !hasMessage ? (
-                        <Button
-                          type="button"
-                          className="composer-submit composer-stop"
-                          aria-label={
-                            queue.stopping || thread?.activity === "Stopping" ? "Stopping…" : "Stop"
-                          }
-                          title={
-                            queue.stopping || thread?.activity === "Stopping" ? "Stopping…" : "Stop"
-                          }
-                          disabled={queue.stopping || thread?.activity === "Stopping"}
-                          onClick={() => queue.stop()}
-                        >
-                          <MessageActionIcon action="stop" />
-                        </Button>
-                      ) : (
-                        <>
-                          {running && (
-                            <Button
-                              type="button"
-                              className="quiet-button composer-steer"
-                              disabled={!canSend}
-                              title="Use this instruction now (Ctrl/⌘ Enter)"
-                              onClick={() => void send("steer")}
-                            >
-                              <MessageActionIcon action="steer" />
-                              Send now
-                            </Button>
-                          )}
-                          <Button
-                            type="submit"
-                            className="composer-submit"
-                            disabled={!canSend}
-                            aria-label={submitLabel}
-                            title={`${submitLabel} (Enter)`}
-                          >
-                            {busy ? (
-                              <Icon name="more" size={16} />
-                            ) : (
-                              <MessageActionIcon
-                                action={running || queue.messages.length ? "queue" : "send"}
-                              />
-                            )}
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  {!harnessReady && (
-                    <div className="connection-help">
-                      <span>
-                        {harnesses.find((item) => item.id === selectedHarness)?.name ??
-                          "Your harness"}{" "}
-                        needs to be installed and signed in locally. Run{" "}
-                        <code>
-                          {selectedHarness === "codex" ? "codex login" : "claude auth login"}
-                        </code>{" "}
-                        in your terminal.
+                  ) : null}
+                  {thread && (
+                    <MessageQueue
+                      key={`queue:${thread.id}`}
+                      messages={queue.messages}
+                      running={running}
+                      error={thread.queueError}
+                      onChange={queue.change}
+                      onRecover={queue.recover}
+                    />
+                  )}
+                  <form
+                    className="composer"
+                    onDragOver={(event) => {
+                      if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
+                        event.preventDefault();
+                    }}
+                    onDrop={(event) => {
+                      if (event.dataTransfer.files.length) {
+                        event.preventDefault();
+                        attachFiles(Array.from(event.dataTransfer.files));
+                      }
+                    }}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void send();
+                    }}
+                  >
+                    {!thread && snapshot.designs.length > 0 && (
+                      <DesignReferences
+                        designs={snapshot.designs}
+                        selected={draft.designIds}
+                        onChange={(designIds) => updateDraft({ designIds })}
+                      />
+                    )}
+                    <AttachmentList
+                      files={draft.attachments ?? []}
+                      onRemove={
+                        thread?.doneAt
+                          ? undefined
+                          : (id) =>
+                              updateDraft({
+                                attachments: draft.attachments?.filter((file) => file.id !== id),
+                              })
+                      }
+                    />
+                    {Boolean(uploading[draftKey]) && (
+                      <span className="attachment-progress" role="status">
+                        Adding attachments…
                       </span>
+                    )}
+                    <input
+                      ref={fileInput}
+                      type="file"
+                      multiple
+                      hidden
+                      aria-label="Attach files"
+                      onChange={(event) => {
+                        attachFiles(Array.from(event.currentTarget.files ?? []));
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    <label className="sr-only" htmlFor="thread-prompt">
+                      Message
+                    </label>
+                    <SkillPrompt
+                      key={draftKey + selectedHarness}
+                      skills={availableSkills}
+                      status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
+                      retry={() => {
+                        void loadSkills(true);
+                      }}
+                      id="thread-prompt"
+                      value={draft.text}
+                      onChange={(text) => {
+                        const name = skillCommand(text)?.name;
+                        const skill = availableSkills.find((skill) => skill.name === name);
+                        updateDraft({
+                          text,
+                          skill: skill
+                            ? { id: skill.id, name: skill.name, harness: selectedHarness }
+                            : draft.skill?.name === name
+                              ? draft.skill
+                              : undefined,
+                        });
+                      }}
+                      onPaste={(event) => {
+                        const files = Array.from(event.clipboardData.files);
+                        if (files.length) {
+                          event.preventDefault();
+                          attachFiles(files);
+                        }
+                      }}
+                      placeholder={
+                        thread?.doneAt
+                          ? "Reopen this thread to continue…"
+                          : running
+                            ? "Queue a follow-up, or send it now…"
+                            : thread
+                              ? "Continue this thread… / for skills"
+                              : "What would you like to work on? / for skills"
+                      }
+                      disabled={Boolean(thread?.doneAt) || busy}
+                      maxLength={32_000}
+                      rows={2}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key === "Enter" &&
+                          event.shiftKey &&
+                          (event.metaKey || event.ctrlKey) &&
+                          running &&
+                          !event.nativeEvent.isComposing
+                        ) {
+                          event.preventDefault();
+                          const first = queue.messages[0];
+                          if (first && !event.repeat)
+                            queue.change({ kind: "steer", messageId: first.id });
+                          return;
+                        }
+                        if (
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.altKey &&
+                          !event.nativeEvent.isComposing &&
+                          event.nativeEvent.keyCode !== 229
+                        ) {
+                          event.preventDefault();
+                          if (!event.repeat)
+                            void send(event.metaKey || event.ctrlKey ? "steer" : "queue");
+                        }
+                      }}
+                    />
+                    <div className="composer-actions">
                       <Button
                         type="button"
-                        className="quiet-button"
-                        onClick={() => void refreshHarnesses()}
+                        className="quiet-button attachment-button"
+                        aria-label="Attach files"
+                        title="Attach files"
+                        disabled={Boolean(thread?.doneAt) || busy}
+                        onClick={() => fileInput.current?.click()}
                       >
-                        Check connection
+                        <svg
+                          aria-hidden="true"
+                          width="17"
+                          height="17"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                        >
+                          <path
+                            d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
+                            stroke="currentColor"
+                            strokeWidth="1.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
                       </Button>
+                      <HarnessControls
+                        api={api!}
+                        connections={harnesses}
+                        harness={selectedHarness}
+                        settings={thread?.settings ?? draft.settings ?? {}}
+                        actualModel={thread?.actualModel}
+                        usage={thread?.usage}
+                        details={currentDetails?.info}
+                        error={currentDetails?.error}
+                        loading={Boolean(currentDetails?.loading)}
+                        disabled={Boolean(
+                          running ||
+                          busy ||
+                          (thread && settingsPending[thread.id]) ||
+                          thread?.doneAt,
+                        )}
+                        onHarnessChange={
+                          thread ? undefined : (harness) => updateDraft({ harness, settings: {} })
+                        }
+                        onSettingsChange={(settings) => void changeSettings(settings)}
+                        onRefresh={() => {
+                          if (project && harnessReady)
+                            void loadHarnessDetails(project.id, selectedHarness, true);
+                        }}
+                      />
+                      <span className="composer-spacer" />
+                      <div className="composer-delivery">
+                        {running && !hasMessage ? (
+                          <Button
+                            type="button"
+                            className="composer-submit composer-stop"
+                            aria-label={
+                              queue.stopping || thread?.activity === "Stopping"
+                                ? "Stopping…"
+                                : "Stop"
+                            }
+                            title={
+                              queue.stopping || thread?.activity === "Stopping"
+                                ? "Stopping…"
+                                : "Stop"
+                            }
+                            disabled={queue.stopping || thread?.activity === "Stopping"}
+                            onClick={() => queue.stop()}
+                          >
+                            <MessageActionIcon action="stop" />
+                          </Button>
+                        ) : (
+                          <>
+                            {running && (
+                              <Button
+                                type="button"
+                                className="quiet-button composer-steer"
+                                disabled={!canSend}
+                                title="Use this instruction now (Ctrl/⌘ Enter)"
+                                onClick={() => void send("steer")}
+                              >
+                                <MessageActionIcon action="steer" />
+                                Send now
+                              </Button>
+                            )}
+                            <Button
+                              type="submit"
+                              className="composer-submit"
+                              disabled={!canSend}
+                              aria-label={submitLabel}
+                              title={`${submitLabel} (Enter)`}
+                            >
+                              {busy ? (
+                                <Icon name="more" size={16} />
+                              ) : (
+                                <MessageActionIcon
+                                  action={running || queue.messages.length ? "queue" : "send"}
+                                />
+                              )}
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </div>
-                  )}
-                </form>
-              </div>
-            </section>
+                    {!harnessReady && (
+                      <div className="connection-help">
+                        <span>
+                          {harnesses.find((item) => item.id === selectedHarness)?.name ??
+                            "Your harness"}{" "}
+                          needs to be installed and signed in locally. Run{" "}
+                          <code>
+                            {selectedHarness === "codex" ? "codex login" : "claude auth login"}
+                          </code>{" "}
+                          in your terminal.
+                        </span>
+                        <Button
+                          type="button"
+                          className="quiet-button"
+                          onClick={() => void refreshHarnesses()}
+                        >
+                          Check connection
+                        </Button>
+                      </div>
+                    )}
+                  </form>
+                </div>
+              </section>
             </>
           )}
         </div>

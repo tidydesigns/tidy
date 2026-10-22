@@ -7,7 +7,7 @@ import {
   type DesignDocument,
 } from "@tidy/design/document";
 import { documentPatchSchema } from "@tidy/editor/design/document-patch";
-import type { CloudState } from "../shared/cloud-sync";
+import type { CloudState, CloudManifest } from "../shared/cloud-sync";
 import type { LocalDesign } from "../shared/contracts";
 import type { CloudRemote, CloudSnapshot } from "./cloud-remote";
 import { CloudHTTPError } from "./cloud-auth";
@@ -29,6 +29,8 @@ const bindingSchema = z.object({
   organizationId: z.string().optional(),
   name: z.string().optional(),
   origin: z.string(),
+  localVersion: z.string().optional(),
+  localStamp: z.string().optional(),
   pendingName: z.object({ before: z.string(), name: z.string() }).optional(),
   accountId: z.string(),
   base: snapshotSchema,
@@ -40,6 +42,7 @@ const bindingSchema = z.object({
       base: snapshotSchema,
       patch: documentPatchSchema,
       local: designDocumentSchema,
+      localVersion: z.string().optional(),
     })
     .optional(),
   conflict: snapshotSchema.optional(),
@@ -60,7 +63,20 @@ export class CloudSync {
   private controllers = new Map<string, AbortController>();
   private polling?: ReturnType<typeof setInterval>;
   private active?: { projectId: string; designId: string };
-  private pollTick = 0;
+  private urgent = new Set<string>();
+  private foreground = true;
+  private nextDiscovery = 0;
+  private nextDiskScan = 0;
+  private discovery?: Promise<void>;
+  private discoveryController?: AbortController;
+  private discoveryFailures = 0;
+  private manifest = new Map<string, CloudManifest[number]>();
+  private manifestReady = false;
+  private manifestRequested = new Set<string>();
+  private permissionPaused = new Set<string>();
+  private discoveryOffline = new Set<string>();
+  private blockedUntil = 0;
+  private wake?: ReturnType<typeof setTimeout>;
   private accountId?: string;
   private stopped = true;
   private detached = new Set<string>();
@@ -139,35 +155,42 @@ export class CloudSync {
     this.stopped = false;
     for (const binding of this.bindings.values())
       if (this.owns(binding)) this.schedule(binding.id, 0);
-    // Bounded catch-up until the push-notification transport is connected.
-    this.pollTick = 0;
+    this.nextDiscovery = 0;
+    this.nextDiskScan = Date.now() + 60_000;
     this.polling = setInterval(() => {
-      this.pollTick++;
-      for (const binding of this.bindings.values())
-        if (
-          this.owns(binding) &&
-          !binding.conflict &&
-          !this.failures.has(binding.id) &&
-          (this.pollTick % 8 === 0 ||
-            (binding.projectId === this.active?.projectId &&
-              binding.designId === this.active?.designId))
-        )
-          this.schedule(binding.id, 0);
-    }, 2_000);
+      if (Date.now() >= this.nextDiscovery) void this.checkRemote().catch(() => {});
+      // Recover missed filesystem events without reading or diffing unchanged documents.
+      if (Date.now() >= this.nextDiskScan) {
+        this.nextDiskScan = Date.now() + 60_000;
+        for (const binding of this.bindings.values())
+          if (this.owns(binding) && !this.failures.has(binding.id)) this.schedule(binding.id, 0);
+      }
+    }, 1_000);
     this.polling.unref?.();
     this.changed();
   }
   async stop() {
     this.stopped = true;
     clearInterval(this.polling);
+    clearTimeout(this.wake);
+    this.discoveryController?.abort();
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.firstDirty.clear();
     this.queue.clear();
     for (const controller of this.controllers.values()) controller.abort();
     await Promise.allSettled([...this.running.values()]);
+    await this.discovery?.catch(() => {});
     await this.compute.close();
     this.accountId = undefined;
+    this.manifest.clear();
+    this.manifestReady = false;
+    this.manifestRequested.clear();
+    this.permissionPaused.clear();
+    this.discoveryOffline.clear();
+    this.urgent.clear();
+    this.failures.clear();
+    this.blockedUntil = 0;
     this.changed();
   }
   notify(projectId: string, designId?: string) {
@@ -178,8 +201,10 @@ export class CloudSync {
         (!designId || binding.designId === designId) &&
         this.owns(binding) &&
         !this.failures.has(binding.id)
-      )
+      ) {
+        this.urgent.add(binding.id);
         this.schedule(binding.id);
+      }
   }
   focus(projectId?: string, designId?: string) {
     this.active = projectId && designId ? { projectId, designId } : undefined;
@@ -192,9 +217,106 @@ export class CloudSync {
           this.statuses.get(binding.id)?.status !== "paused"
         ) {
           this.failures.delete(binding.id);
+          this.urgent.add(binding.id);
+          this.manifest.delete(binding.fileId);
+          this.manifestReady = false;
           this.schedule(binding.id, 0);
         }
       }
+  }
+  setForeground(value: boolean) {
+    if (this.foreground === value) return;
+    this.foreground = value;
+    if (value) this.nextDiscovery = 0;
+  }
+  /** One bounded metadata request, regardless of how many designs are downloaded. */
+  checkRemote() {
+    if (this.discovery) return this.discovery;
+    if (this.stopped || Date.now() < this.blockedUntil) return Promise.resolve();
+    const bindings = [...this.bindings.values()].filter(
+      (b) => this.owns(b) && !b.creating && !b.conflict,
+    );
+    if (!bindings.length || !this.remote.manifest) {
+      this.nextDiscovery = Date.now() + 60_000;
+      return Promise.resolve();
+    }
+    const controller = new AbortController();
+    this.discoveryController = controller;
+    const work = (async () => {
+      try {
+        const rows = await this.remote.manifest!(
+          [...new Set(bindings.map((b) => b.fileId))],
+          controller.signal,
+        );
+        controller.signal.throwIfAborted();
+        if (this.stopped) return;
+        this.manifest = new Map(rows.map((row) => [row.fileId, row]));
+        this.manifestRequested = new Set(bindings.map((b) => b.fileId));
+        this.manifestReady = true;
+        this.discoveryFailures = 0;
+        this.nextDiscovery =
+          Date.now() + (this.foreground ? (this.active ? 2_000 : 15_000) : 60_000);
+        for (const binding of bindings) {
+          if (!this.owns(binding)) continue;
+          const row = this.manifest.get(binding.fileId);
+          if (!row?.canEdit) {
+            this.permissionPaused.add(binding.id);
+            this.failures.set(binding.id, 1);
+            this.publish(binding, "paused", "This file is no longer available for editing.");
+          } else {
+            const restored = this.permissionPaused.delete(binding.id);
+            if (restored) this.failures.delete(binding.id);
+            const reconnected = this.discoveryOffline.delete(binding.id);
+            if (
+              restored ||
+              reconnected ||
+              row.revision !== binding.base.revision ||
+              (this.remote.rename && row.name !== binding.name)
+            ) {
+              if (!this.failures.has(binding.id)) this.schedule(binding.id, 0);
+            }
+          }
+        }
+      } catch (error) {
+        if (this.stopped || controller.signal.aborted) return;
+        const wait = error instanceof CloudHTTPError ? error.retryAfterMs : 0;
+        if (
+          error instanceof CloudHTTPError &&
+          (error.status === 429 || (error.status === 503 && wait > 0))
+        )
+          this.defer(wait || 60_000);
+        if (error instanceof CloudHTTPError && [401, 403].includes(error.status)) {
+          for (const binding of bindings) {
+            this.failures.set(binding.id, 1);
+            this.publish(binding, "paused", error.message);
+          }
+        } else {
+          for (const binding of bindings) {
+            if (this.owns(binding) && this.statuses.get(binding.id)?.status === "synced") {
+              this.discoveryOffline.add(binding.id);
+              this.publish(binding, "offline", "Changes stored locally. Retrying automatically.");
+            }
+          }
+        }
+        this.discoveryFailures++;
+        this.nextDiscovery =
+          Date.now() +
+          Math.max(wait, Math.min(60_000, 1000 * 2 ** Math.min(this.discoveryFailures, 6)));
+        throw error;
+      }
+    })().finally(() => {
+      if (this.discovery === work) this.discovery = undefined;
+      if (this.discoveryController === controller) this.discoveryController = undefined;
+    });
+    this.discovery = work;
+    return work;
+  }
+  private defer(wait: number) {
+    this.blockedUntil = Math.max(this.blockedUntil, Date.now() + wait);
+    this.nextDiscovery = Math.max(this.nextDiscovery, this.blockedUntil);
+    clearTimeout(this.wake);
+    this.wake = setTimeout(() => this.pump(), Math.max(0, this.blockedUntil - Date.now()));
+    this.wake.unref?.();
   }
   private schedule(id: string, delay?: number) {
     const binding = this.bindings.get(id);
@@ -216,10 +338,21 @@ export class CloudSync {
     );
   }
   private pump() {
-    if (this.stopped) return;
-    for (const id of this.queue) {
+    if (this.stopped || Date.now() < this.blockedUntil) return;
+    const priority = (id: string) => {
+      const b = this.bindings.get(id);
+      return b?.projectId === this.active?.projectId && b?.designId === this.active?.designId
+        ? 0
+        : this.urgent.has(id)
+          ? 1
+          : 2;
+    };
+    for (const id of [...this.queue].sort((a, b) => priority(a) - priority(b))) {
       if (this.running.size >= 2) break;
       if (this.running.has(id)) continue;
+      // Leave capacity for an active/dirty design even when a background read is slow.
+      if (priority(id) === 2 && [...this.running.keys()].some((key) => priority(key) === 2))
+        continue;
       this.queue.delete(id);
       const controller = new AbortController();
       this.controllers.set(id, controller);
@@ -236,15 +369,24 @@ export class CloudSync {
           );
           const count = (this.failures.get(id) ?? 0) + 1;
           this.failures.set(id, count);
+          if (
+            error instanceof CloudHTTPError &&
+            (error.status === 429 || (error.status === 503 && error.retryAfterMs > 0))
+          )
+            this.defer(error.retryAfterMs || 60_000);
           if (!paused)
             this.schedule(
               id,
-              Math.min(60_000, 1000 * 2 ** Math.min(count, 6)) * (0.8 + Math.random() * 0.4),
+              Math.max(
+                error instanceof CloudHTTPError ? error.retryAfterMs : 0,
+                Math.min(60_000, 1000 * 2 ** Math.min(count, 6)) * (0.8 + Math.random() * 0.4),
+              ),
             );
         })
         .finally(() => {
           this.running.delete(id);
           this.controllers.delete(id);
+          if (!this.queue.has(id) && !this.timers.has(id)) this.urgent.delete(id);
           this.pump();
         });
       this.running.set(id, work);
@@ -256,6 +398,13 @@ export class CloudSync {
   }
   private local(binding: Binding) {
     return this.store.readDesign(binding.projectId, binding.designId, false);
+  }
+  private async rememberLocal(binding: Binding, version: string) {
+    const identity = await this.store.designIdentity(binding.projectId, binding.designId);
+    if (identity.version === version && (!this.remote.rename || identity.name === binding.name)) {
+      binding.localVersion = version;
+      binding.localStamp = identity.stamp;
+    }
   }
   private cloudDocument(binding: Binding, document: DesignDocument) {
     return this.compute.remap(document, binding.aliases);
@@ -293,6 +442,29 @@ export class CloudSync {
     const binding = this.bindings.get(id);
     if (!binding || binding.conflict) return;
     this.check(binding, signal);
+    if (
+      !binding.pending &&
+      !binding.creating &&
+      !binding.pendingName &&
+      binding.localStamp &&
+      (await this.store.designStamp(binding.projectId, binding.designId)) === binding.localStamp
+    ) {
+      if (!this.manifestReady && this.remote.manifest) await this.checkRemote();
+      this.check(binding, signal);
+      const row = this.manifest.get(binding.fileId);
+      if (this.manifestReady && this.manifestRequested.has(binding.fileId) && !row?.canEdit)
+        throw new CloudHTTPError(403);
+      if (
+        row &&
+        row.revision === binding.base.revision &&
+        (!this.remote.rename || row.name === binding.name) &&
+        (await this.store.designStamp(binding.projectId, binding.designId)) === binding.localStamp
+      ) {
+        this.failures.delete(id);
+        this.publish(binding, "synced");
+        return;
+      }
+    }
     if (binding.pending || binding.creating) this.publish(binding, "syncing");
     if (binding.creating) {
       await this.remote.create(
@@ -336,7 +508,10 @@ export class CloudSync {
       }
       this.check(binding, signal);
       const current = await this.local(binding);
-      if (await this.compute.equal(current.document, pending.local)) {
+      if (
+        current.version === pending.localVersion ||
+        (await this.compute.equal(current.document, pending.local))
+      ) {
         const canonical = await this.localDocument(binding, acknowledged.content);
         if (!(await this.compute.equal(current.document, canonical))) {
           await this.store.updateDesign({
@@ -350,15 +525,24 @@ export class CloudSync {
       }
       binding.base = acknowledged;
       binding.pending = undefined;
+      const accepted = await this.local(binding);
+      if (
+        await this.compute.equal(
+          await this.cloudDocument(binding, accepted.document),
+          acknowledged.content,
+        )
+      )
+        await this.rememberLocal(binding, accepted.version);
       await this.save(binding);
       this.failures.delete(id);
       const latest = await this.local(binding);
       if (
         (latest.name !== binding.name && binding.name !== undefined) ||
-        !(await this.compute.equal(
-          await this.cloudDocument(binding, latest.document),
-          binding.base.content,
-        ))
+        (latest.version !== binding.localVersion &&
+          !(await this.compute.equal(
+            await this.cloudDocument(binding, latest.document),
+            binding.base.content,
+          )))
       )
         this.schedule(id);
       else this.publish(binding, "synced");
@@ -369,6 +553,16 @@ export class CloudSync {
     let local = await this.local(binding);
     const remote = await this.remote.read(binding.fileId, binding.base, signal);
     this.check(binding, signal);
+    if (
+      local.version === binding.localVersion &&
+      remote.revision === binding.base.revision &&
+      (!this.remote.rename || remote.name === binding.name) &&
+      !binding.pendingName
+    ) {
+      this.failures.delete(id);
+      this.publish(binding, "synced");
+      return;
+    }
     if (remote.name !== undefined && this.remote.rename) {
       if (binding.name === undefined) {
         binding.name = remote.name;
@@ -464,6 +658,7 @@ export class CloudSync {
           await this.cloudDocument(binding, local.document),
         ),
         local: local.document,
+        localVersion: local.version,
       };
       // Persist the immutable payload and operation ID before sending anything.
       await this.save(binding);
@@ -483,7 +678,11 @@ export class CloudSync {
       ))
     )
       this.schedule(id);
-    else this.publish(binding, "synced");
+    else {
+      await this.rememberLocal(binding, latest.version);
+      await this.save(binding);
+      this.publish(binding, "synced");
+    }
   }
   async open(
     projectId: string,
@@ -498,6 +697,8 @@ export class CloudSync {
       (b) => this.owns(b) && b.projectId === projectId && b.fileId === fileId,
     );
     if (existing) return this.store.readDesign(projectId, existing.designId);
+    if (this.bindings.size >= 1000)
+      throw new Error("This computer has reached its connected-file limit.");
     const remote = await this.remote.read(fileId);
     const binding: Binding = {
       id: randomUUID(),
@@ -519,6 +720,7 @@ export class CloudSync {
       document: remote.content,
     });
     binding.designId = design.id;
+    await this.rememberLocal(binding, design.version);
     await this.save(binding);
     await this.state.write("bindings", [...this.bindings.keys(), binding.id]);
     this.bindings.set(binding.id, binding);
@@ -528,6 +730,8 @@ export class CloudSync {
   }
   async connectLocal(projectId: string, designId: string, organizationId: string) {
     if (!this.accountId || this.stopped) throw new Error("Sign in to sync a local design.");
+    if (this.bindings.size >= 1000)
+      throw new Error("This computer has reached its connected-file limit.");
     if (
       [...this.bindings.values()].some(
         (b) => this.owns(b) && b.projectId === projectId && b.designId === designId,

@@ -23,6 +23,7 @@ async function until(check: () => boolean | Promise<boolean>) {
   throw new Error("Cloud sync did not reach the expected state.");
 }
 class Remote implements CloudRemote {
+  manifest?: CloudRemote["manifest"];
   rename?: CloudRemote["rename"];
   snapshot: CloudSnapshot = {
     revision: 1,
@@ -58,7 +59,8 @@ class Remote implements CloudRemote {
         revision: this.snapshot.revision + 1,
         content: applyDocumentPatch(this.snapshot.content, pending.patch, false),
       };
-      this.snapshot = structuredClone(receipt);
+      // File metadata is stored independently from document receipts on the server.
+      this.snapshot = { ...structuredClone(receipt), name: this.snapshot.name };
       this.receipts.set(pending.operationId, receipt);
     }
     if (this.failAfterCommit) {
@@ -127,6 +129,188 @@ test("local editing persists independently, then batches patches to the cloud", 
   );
   expect(f.remote.requests).toHaveLength(1);
   expect(f.remote.requests[0].patch.length).toBeLessThan(5);
+});
+
+test("100 unchanged downloaded designs use a single manifest and no document reads or diffs", async () => {
+  const f = await fixture();
+  for (let i = 1; i < 100; i++) await f.sync.open(f.project.id, randomUUID(), "Cloud design");
+  let manifests = 0;
+  f.remote.manifest = async (ids) => {
+    manifests++;
+    expect(ids).toHaveLength(100);
+    return ids.map((fileId) => ({
+      fileId,
+      revision: f.remote.snapshot.revision,
+      name: "Cloud design",
+      canEdit: true,
+    }));
+  };
+  f.remote.reads = 0;
+  let localReads = 0;
+  const read = f.store.readDesign.bind(f.store);
+  f.store.readDesign = async (...args) => {
+    localReads++;
+    return read(...args);
+  };
+  await f.sync.checkRemote();
+  const bindings = (await f.state.read("bindings")) as string[];
+  for (const binding of bindings) await f.sync.reconcile(binding);
+  expect(manifests).toBe(1);
+  expect(f.remote.reads).toBe(0);
+  expect(localReads).toBe(0);
+});
+
+test("manifest changes pull only the changed design and revoked access pauses without reading content", async () => {
+  const f = await fixture();
+  const other = randomUUID();
+  await f.sync.open(f.project.id, other, "Cloud design");
+  const revisions = new Map<string, number>([
+    [f.fileId, 1],
+    [other, 1],
+  ]);
+  let editable = true;
+  f.remote.manifest = async (ids) =>
+    ids.map((fileId) => ({
+      fileId,
+      revision: revisions.get(fileId)!,
+      name: "Cloud design",
+      canEdit: editable,
+    }));
+  await f.sync.checkRemote();
+  f.remote.reads = 0;
+  f.remote.snapshot.revision = 2;
+  f.remote.snapshot.content.nodes[0].name = "Remote edit";
+  revisions.set(f.fileId, 2);
+  await f.sync.checkRemote();
+  await until(
+    async () =>
+      (await f.store.readDesign(f.project.id, f.design.id)).document.nodes[0].name ===
+      "Remote edit",
+  );
+  await until(() => f.sync.status[0]?.status === "synced");
+  expect(f.remote.reads).toBe(1);
+  editable = false;
+  await f.sync.checkRemote();
+  expect(f.sync.status.every((binding) => binding.status === "paused")).toBe(true);
+  expect(f.remote.reads).toBe(1);
+  editable = true;
+  await f.sync.checkRemote();
+  await until(() => f.sync.status.every((binding) => binding.status === "synced"));
+  expect(f.remote.reads).toBe(1);
+});
+
+test("metadata transport failure reports offline and reconnects without document downloads", async () => {
+  const f = await fixture();
+  let offline = true;
+  f.remote.manifest = async (ids) => {
+    if (offline) throw Error("Connection lost");
+    return ids.map((fileId) => ({ fileId, revision: 1, name: "Cloud design", canEdit: true }));
+  };
+  await expect(f.sync.checkRemote()).rejects.toThrow("Connection lost");
+  expect(f.sync.status[0].status).toBe("offline");
+  f.remote.reads = 0;
+  offline = false;
+  await f.sync.checkRemote();
+  await until(() => f.sync.status[0]?.status === "synced");
+  expect(f.remote.reads).toBe(0);
+});
+
+test("an active design has capacity while an unrelated background transfer is stalled", async () => {
+  const f = await fixture();
+  const target = randomUUID();
+  const design = await f.sync.open(f.project.id, target, "Cloud design");
+  await f.sync.stop();
+  const calls: string[] = [],
+    releases: (() => void)[] = [];
+  const read = f.remote.read.bind(f.remote);
+  f.remote.read = async (fileId?: string, _base?: CloudSnapshot, signal?: AbortSignal) => {
+    calls.push(fileId!);
+    await new Promise<void>((resolve, reject) => {
+      releases.push(resolve);
+      signal?.addEventListener("abort", () => reject(signal.reason), { once: true });
+    });
+    return read();
+  };
+  await f.sync.start("alice");
+  await until(() => calls.length === 1);
+  f.sync.focus(f.project.id, design.id);
+  await until(() => calls.length === 2);
+  expect(calls).toEqual([f.fileId, target]);
+  for (const release of releases) release();
+});
+
+test("a manifest Retry-After defers document transfers for the account", async () => {
+  const f = await fixture();
+  let limited = true;
+  f.remote.manifest = async (ids) => {
+    if (limited) throw new CloudHTTPError(429, 600);
+    return ids.map((fileId) => ({ fileId, revision: 1, name: "Cloud design", canEdit: true }));
+  };
+  await expect(f.sync.checkRemote()).rejects.toMatchObject({ status: 429 });
+  await f.edit("Pending during limit");
+  f.remote.reads = 0;
+  f.sync.notify(f.project.id, f.design.id);
+  await Bun.sleep(300);
+  expect(f.remote.reads).toBe(0);
+  limited = false;
+  await until(() => f.remote.snapshot.content.nodes[0].name === "Pending during limit");
+});
+
+test("a file opened during manifest discovery is not treated as revoked by an older response", async () => {
+  const f = await fixture();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.remote.manifest = async (ids) => {
+    await gate;
+    return ids.map((fileId) => ({ fileId, revision: 1, name: "Cloud design", canEdit: true }));
+  };
+  const request = f.sync.checkRemote();
+  const other = await f.sync.open(f.project.id, randomUUID(), "Cloud design");
+  f.sync.focus(f.project.id, other.id);
+  release();
+  await request;
+  await Bun.sleep(30);
+  expect(f.sync.status.find((binding) => binding.designId === other.id)?.status).toBe("synced");
+});
+
+test("an upload acknowledgement cannot hide a file rename made while the upload is running", async () => {
+  const f = await fixture();
+  f.remote.snapshot.name = "Cloud design";
+  f.remote.rename = async (_id, _before, name) => {
+    f.remote.snapshot.name = name;
+  };
+  f.remote.manifest = async (ids) =>
+    ids.map((fileId) => ({
+      fileId,
+      revision: f.remote.snapshot.revision,
+      name: f.remote.snapshot.name!,
+      canEdit: true,
+    }));
+  await f.sync.checkRemote();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  f.remote.beforeCommit = () => gate;
+  await f.edit("Document edit");
+  f.sync.notify(f.project.id, f.design.id);
+  await until(() => f.remote.requests.length === 1);
+  const current = await f.store.readDesign(f.project.id, f.design.id);
+  await f.store.updateDesign({
+    projectId: f.project.id,
+    designId: f.design.id,
+    expectedVersion: current.version,
+    name: "Renamed during upload",
+  });
+  f.sync.notify(f.project.id, f.design.id);
+  f.remote.beforeCommit = undefined;
+  release();
+  await until(
+    () =>
+      f.remote.snapshot.name === "Renamed during upload" && f.sync.status[0]?.status === "synced",
+  );
 });
 
 test("a lost acknowledgement survives restart and retries the identical operation once", async () => {

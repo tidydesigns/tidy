@@ -7,11 +7,18 @@ import {
 } from "@tidy/editor/design/document-patch";
 import { fileChangesSchema } from "@tidy/editor/design/sync-protocol";
 import { CloudAuth, CloudHTTPError } from "./cloud-auth";
-import { cloudAccountSchema, cloudFilesSchema, cloudCatalogSchema } from "../shared/cloud-sync";
+import {
+  cloudAccountSchema,
+  cloudFilesSchema,
+  cloudCatalogSchema,
+  cloudManifestSchema,
+  type CloudManifest,
+} from "../shared/cloud-sync";
 
 export type CloudSnapshot = { revision: number; content: DesignDocument; name?: string };
 export type PendingUpload = { operationId: string; base: CloudSnapshot; patch: DocumentPatch };
 export interface CloudRemote {
+  manifest?(fileIds: string[], signal?: AbortSignal): Promise<CloudManifest>;
   rename?(fileId: string, before: string, name: string, signal?: AbortSignal): Promise<void>;
   create(organizationId: string, fileId: string, name: string, signal?: AbortSignal): Promise<void>;
   read(fileId: string, base?: CloudSnapshot, signal?: AbortSignal): Promise<CloudSnapshot>;
@@ -22,6 +29,19 @@ export interface CloudRemote {
 
 export class HTTPCloudRemote implements CloudRemote {
   constructor(readonly auth: CloudAuth) {}
+  async manifest(fileIds: string[], signal?: AbortSignal) {
+    const ids = z.array(z.uuid()).min(1).max(1000).parse(fileIds);
+    return cloudManifestSchema.parse(
+      await (
+        await this.auth.request("/api/desktop/manifest", {
+          method: "POST",
+          signal,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileIds: ids }),
+        })
+      ).json(),
+    );
+  }
   async rename(fileId: string, before: string, name: string, signal?: AbortSignal) {
     await this.auth.request(`${this.path(fileId)}/name`, {
       method: "POST",

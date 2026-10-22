@@ -22,6 +22,7 @@ export class CloudService implements CloudAPI {
   readonly sync: CloudSync;
   private remote: LibraryRemote;
   private listeners = new Set<(state: CloudState) => void>();
+  private emitQueued = false;
   private unsubscribe: () => void;
   private action = Promise.resolve();
   private enabled = true;
@@ -91,8 +92,13 @@ export class CloudService implements CloudAPI {
     };
   }
   private emit() {
-    void this.state().then((state) => {
-      for (const listener of this.listeners) listener(state);
+    if (this.emitQueued) return;
+    this.emitQueued = true;
+    queueMicrotask(() => {
+      this.emitQueued = false;
+      void this.state().then((state) => {
+        for (const listener of this.listeners) listener(state);
+      });
     });
   }
   onState(listener: (state: CloudState) => void) {
@@ -258,6 +264,9 @@ export class CloudService implements CloudAPI {
   }
   async focus(projectId?: string, designId?: string) {
     this.sync.focus(projectId, designId);
+  }
+  setForeground(value: boolean) {
+    this.sync.setForeground(value);
   }
   thumbnail(fileId: string, version: string) {
     const key = this.cacheKey("thumbnail", fileId),

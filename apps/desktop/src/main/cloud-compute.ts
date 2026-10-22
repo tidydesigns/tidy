@@ -1,10 +1,12 @@
 import { Worker } from "node:worker_threads";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DocumentPatch } from "@tidy/editor/design/document-patch";
+import type { ParsedDesignFile, DesignFileSummary } from "./design-file";
 
 export type ComputeRequest = { id: number } & (
   | { kind: "equal" | "diff"; before: DesignDocument; after: DesignDocument }
   | { kind: "remap"; document: DesignDocument; aliases: Record<string, string> }
+  | { kind: "read-file"; path: string; summary: boolean }
 );
 
 /** Diffing and asset translation must not occupy Electron's main event loop,
@@ -19,7 +21,8 @@ export class CloudCompute {
   private run<T>(
     input:
       | Omit<Extract<ComputeRequest, { kind: "equal" | "diff" }>, "id">
-      | Omit<Extract<ComputeRequest, { kind: "remap" }>, "id">,
+      | Omit<Extract<ComputeRequest, { kind: "remap" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "read-file" }>, "id">,
   ): Promise<T> {
     if (!this.worker) {
       const worker = new Worker(
@@ -57,6 +60,7 @@ export class CloudCompute {
     });
   }
   equal(before: DesignDocument, after: DesignDocument) {
+    if (before === after) return Promise.resolve(true);
     return this.run<boolean>({ kind: "equal", before, after });
   }
   diff(before: DesignDocument, after: DesignDocument) {
@@ -65,6 +69,12 @@ export class CloudCompute {
   remap(document: DesignDocument, aliases: Record<string, string>) {
     if (!Object.keys(aliases).length) return Promise.resolve(document);
     return this.run<DesignDocument>({ kind: "remap", document, aliases });
+  }
+  readFile(path: string) {
+    return this.run<ParsedDesignFile>({ kind: "read-file", path, summary: false });
+  }
+  readSummary(path: string) {
+    return this.run<DesignFileSummary>({ kind: "read-file", path, summary: true });
   }
   async close() {
     const worker = this.worker;

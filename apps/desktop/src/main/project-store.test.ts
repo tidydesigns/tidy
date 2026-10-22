@@ -1,6 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, readFile, rename, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  symlink,
+  utimes,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
@@ -33,6 +43,24 @@ function thread(projectId: string): Thread {
     updatedAt: new Date().toISOString(),
   };
 }
+
+test("cached design reads detect external equal-length edits with restored modification times", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const design = await f.store.createDesign(project.id);
+  const original = await f.store.readDesign(project.id, design.id);
+  const before = await stat(original.path);
+  const text = await readFile(original.path, "utf8");
+  await Bun.sleep(2);
+  await writeFile(original.path, text.replace('"Frame"', '"Other"'));
+  await utimes(original.path, before.atime, before.mtime);
+  const next = await f.store.readDesign(project.id, design.id);
+  expect(next.document.nodes[0].name).toBe("Other");
+  expect(next.version).not.toBe(original.version);
+  // A renderer-facing caller cannot mutate the private cached document.
+  next.document.nodes[0].name = "Caller mutation";
+  expect((await f.store.readDesign(project.id, design.id)).document.nodes[0].name).toBe("Other");
+});
 
 test("project files cannot grant permissions or replace a native session, including after restart", async () => {
   const { directory, root, store } = await fixture();
