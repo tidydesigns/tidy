@@ -16,6 +16,7 @@ import { ProjectStore } from "./project-store";
 import { CloudCompute } from "./cloud-compute";
 
 const snapshotSchema = z.object({
+  name: z.string().optional(),
   revision: z.number().int().nonnegative(),
   content: designDocumentSchema,
 });
@@ -25,7 +26,10 @@ const bindingSchema = z.object({
   projectPath: z.string(),
   designId: z.uuid(),
   fileId: z.uuid(),
+  organizationId: z.string().optional(),
+  name: z.string().optional(),
   origin: z.string(),
+  pendingName: z.object({ before: z.string(), name: z.string() }).optional(),
   accountId: z.string(),
   base: snapshotSchema,
   aliases: z.record(z.string(), z.string()),
@@ -55,6 +59,8 @@ export class CloudSync {
   private running = new Map<string, Promise<void>>();
   private controllers = new Map<string, AbortController>();
   private polling?: ReturnType<typeof setInterval>;
+  private active?: { projectId: string; designId: string };
+  private pollTick = 0;
   private accountId?: string;
   private stopped = true;
   private detached = new Set<string>();
@@ -93,9 +99,15 @@ export class CloudSync {
             projectId: b.projectId,
             designId: b.designId,
             fileId: b.fileId,
+            organizationId: b.organizationId,
             status: b.conflict ? ("conflict" as const) : ("offline" as const),
           },
       );
+  }
+  get pendingFileIds() {
+    return [...this.bindings.values()]
+      .filter((b) => this.owns(b) && b.creating)
+      .map((b) => b.fileId);
   }
   private owns(binding: Binding) {
     return (
@@ -110,6 +122,7 @@ export class CloudSync {
       projectId: binding.projectId,
       designId: binding.designId,
       fileId: binding.fileId,
+      organizationId: binding.organizationId,
       status,
       ...(message ? { message } : {}),
     };
@@ -127,11 +140,20 @@ export class CloudSync {
     for (const binding of this.bindings.values())
       if (this.owns(binding)) this.schedule(binding.id, 0);
     // Bounded catch-up until the push-notification transport is connected.
+    this.pollTick = 0;
     this.polling = setInterval(() => {
+      this.pollTick++;
       for (const binding of this.bindings.values())
-        if (this.owns(binding) && !binding.conflict && !this.failures.has(binding.id))
+        if (
+          this.owns(binding) &&
+          !binding.conflict &&
+          !this.failures.has(binding.id) &&
+          (this.pollTick % 8 === 0 ||
+            (binding.projectId === this.active?.projectId &&
+              binding.designId === this.active?.designId))
+        )
           this.schedule(binding.id, 0);
-    }, 15_000);
+    }, 2_000);
     this.polling.unref?.();
     this.changed();
   }
@@ -158,6 +180,21 @@ export class CloudSync {
         !this.failures.has(binding.id)
       )
         this.schedule(binding.id);
+  }
+  focus(projectId?: string, designId?: string) {
+    this.active = projectId && designId ? { projectId, designId } : undefined;
+    if (this.active)
+      for (const binding of this.bindings.values()) {
+        if (
+          this.owns(binding) &&
+          binding.projectId === projectId &&
+          binding.designId === designId &&
+          this.statuses.get(binding.id)?.status !== "paused"
+        ) {
+          this.failures.delete(binding.id);
+          this.schedule(binding.id, 0);
+        }
+      }
   }
   private schedule(id: string, delay?: number) {
     const binding = this.bindings.get(id);
@@ -317,6 +354,7 @@ export class CloudSync {
       this.failures.delete(id);
       const latest = await this.local(binding);
       if (
+        (latest.name !== binding.name && binding.name !== undefined) ||
         !(await this.compute.equal(
           await this.cloudDocument(binding, latest.document),
           binding.base.content,
@@ -328,9 +366,68 @@ export class CloudSync {
       // after every upload; normal catch-up discovers later remote revisions.
       return;
     }
-    const local = await this.local(binding);
+    let local = await this.local(binding);
     const remote = await this.remote.read(binding.fileId, binding.base, signal);
     this.check(binding, signal);
+    if (remote.name !== undefined && this.remote.rename) {
+      if (binding.name === undefined) {
+        binding.name = remote.name;
+        await this.save(binding);
+      }
+      if (binding.pendingName) {
+        const pending = binding.pendingName;
+        if (remote.name !== pending.name) {
+          if (remote.name !== pending.before) {
+            binding.conflict = remote;
+            await this.save(binding);
+            this.publish(
+              binding,
+              "conflict",
+              "Both copies were renamed. Keep both copies to continue.",
+            );
+            return;
+          }
+          await this.remote.rename(binding.fileId, pending.before, pending.name, signal);
+          this.check(binding, signal);
+        }
+        binding.name = pending.name;
+        remote.name = pending.name;
+        binding.pendingName = undefined;
+        await this.save(binding);
+      }
+      const localRenamed = local.name !== binding.name,
+        remoteRenamed = remote.name !== binding.name;
+      if (localRenamed && remoteRenamed && local.name !== remote.name) {
+        binding.conflict = remote;
+        await this.save(binding);
+        this.publish(
+          binding,
+          "conflict",
+          "Both copies were renamed. Keep both copies to continue.",
+        );
+        return;
+      }
+      if (localRenamed) {
+        this.publish(binding, "syncing");
+        binding.pendingName = { before: binding.name, name: local.name };
+        await this.save(binding);
+        await this.remote.rename(binding.fileId, binding.name, local.name, signal);
+        this.check(binding, signal);
+        binding.name = local.name;
+        binding.pendingName = undefined;
+        await this.save(binding);
+      } else if (remoteRenamed) {
+        local = await this.store.updateDesign({
+          projectId: binding.projectId,
+          designId: binding.designId,
+          expectedVersion: local.version,
+          name: remote.name,
+        });
+        binding.name = remote.name;
+        await this.save(binding);
+        await this.designsChanged(binding.projectId);
+      }
+    }
     const document = await this.cloudDocument(binding, local.document);
     const localChanged = !(await this.compute.equal(document, binding.base.content));
     const remoteChanged = !(await this.compute.equal(remote.content, binding.base.content));
@@ -379,6 +476,7 @@ export class CloudSync {
     this.failures.delete(id);
     const latest = await this.local(binding);
     if (
+      (latest.name !== binding.name && binding.name !== undefined) ||
       !(await this.compute.equal(
         await this.cloudDocument(binding, latest.document),
         binding.base.content,
@@ -387,7 +485,12 @@ export class CloudSync {
       this.schedule(id);
     else this.publish(binding, "synced");
   }
-  async open(projectId: string, fileId: string, name: string): Promise<LocalDesign> {
+  async open(
+    projectId: string,
+    fileId: string,
+    name: string,
+    organizationId?: string,
+  ): Promise<LocalDesign> {
     if (!this.accountId || this.stopped) throw new Error("Sign in to open a cloud design.");
     const accountId = this.accountId;
     const project = this.store.project(projectId);
@@ -402,6 +505,8 @@ export class CloudSync {
       projectPath: project.path,
       designId: randomUUID(),
       fileId,
+      organizationId,
+      name: remote.name ?? name,
       origin: this.origin,
       accountId,
       base: remote,
@@ -409,7 +514,10 @@ export class CloudSync {
     };
     await this.cacheAssets(binding, remote.content);
     this.check(binding);
-    const design = await this.store.createDesign(projectId, { name, document: remote.content });
+    const design = await this.store.createDesign(projectId, {
+      name: remote.name ?? name,
+      document: remote.content,
+    });
     binding.designId = design.id;
     await this.save(binding);
     await this.state.write("bindings", [...this.bindings.keys(), binding.id]);
@@ -434,6 +542,8 @@ export class CloudSync {
       projectPath: this.store.project(projectId).path,
       designId,
       fileId: randomUUID(),
+      organizationId,
+      name: local.name,
       origin: this.origin,
       accountId,
       base: { revision: 0, content: blankDesignDocument() },

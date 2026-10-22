@@ -23,6 +23,7 @@ async function until(check: () => boolean | Promise<boolean>) {
   throw new Error("Cloud sync did not reach the expected state.");
 }
 class Remote implements CloudRemote {
+  rename?: CloudRemote["rename"];
   snapshot: CloudSnapshot = {
     revision: 1,
     content: {
@@ -288,4 +289,70 @@ test("connecting a local design persists its cloud file identity before backgrou
   await until(() => f.sync.status[0]?.status === "synced");
   expect(f.remote.creations).toEqual([persisted.fileId]);
   expect(f.remote.snapshot.content).toEqual(f.design.document);
+});
+
+test("file names sync both ways and concurrent renames preserve both versions", async () => {
+  const f = await fixture();
+  f.remote.snapshot.name = "Cloud design";
+  f.remote.rename = async (_id, before, name) => {
+    if (f.remote.snapshot.name !== before && f.remote.snapshot.name !== name)
+      throw new CloudHTTPError(409);
+    f.remote.snapshot.name = name;
+  };
+  const rename = async (name: string) => {
+    const file = await f.store.readDesign(f.project.id, f.design.id);
+    await f.store.updateDesign({
+      projectId: f.project.id,
+      designId: f.design.id,
+      expectedVersion: file.version,
+      name,
+    });
+    f.sync.notify(f.project.id, f.design.id);
+  };
+  await rename("Desktop name");
+  await until(
+    () => f.remote.snapshot.name === "Desktop name" && f.sync.status[0]?.status === "synced",
+  );
+  f.remote.snapshot.name = "Web name";
+  f.sync.focus(f.project.id, f.design.id);
+  await until(
+    async () => (await f.store.readDesign(f.project.id, f.design.id)).name === "Web name",
+  );
+  await rename("Another local name");
+  f.remote.snapshot.name = "Another web name";
+  await until(() => f.sync.status[0]?.status === "conflict");
+  expect((await f.store.readDesign(f.project.id, f.design.id)).name).toBe("Another local name");
+  expect(f.remote.snapshot.name).toBe("Another web name");
+});
+
+test("a lost rename response survives restart without replaying over a newer local name", async () => {
+  const f = await fixture();
+  f.remote.snapshot.name = "Cloud design";
+  let calls = 0;
+  f.remote.rename = async (_id, _before, name) => {
+    calls++;
+    f.remote.snapshot.name = name;
+    if (calls === 1) throw Error("Lost rename acknowledgement");
+  };
+  const file = await f.store.readDesign(f.project.id, f.design.id);
+  await f.store.updateDesign({
+    projectId: f.project.id,
+    designId: f.design.id,
+    expectedVersion: file.version,
+    name: "First name",
+  });
+  f.sync.notify(f.project.id, f.design.id);
+  await until(() => f.sync.status[0]?.status === "offline");
+  await f.sync.stop();
+  const newer = await f.store.readDesign(f.project.id, f.design.id);
+  await f.store.updateDesign({
+    projectId: f.project.id,
+    designId: f.design.id,
+    expectedVersion: newer.version,
+    name: "Newest name",
+  });
+  const resumed = await f.make();
+  await until(() => resumed.status[0]?.status === "synced");
+  expect(f.remote.snapshot.name).toBe("Newest name");
+  expect(calls).toBe(2);
 });

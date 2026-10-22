@@ -12,43 +12,72 @@ import {
   cloudAccountSchema,
   cloudFilesSchema,
   cloudStateSchema,
+  cloudCatalogSchema,
+  cloudOpenedSchema,
+  cloudThumbnailSchema,
   type CloudAPI,
 } from "../shared/cloud-sync";
 
 /** Native cloud actions have their own main-frame boundary; no tokens cross IPC. */
 export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
-  const pair = z.tuple([z.uuid(), z.uuid()]);
+  function endpoint<I extends unknown[], O>(
+    input: z.ZodType<I>,
+    output: z.ZodType<O>,
+    run: (...args: NoInfer<I>) => Promise<O>,
+  ) {
+    return async (args: unknown[]) => output.parse(await run(...input.parse(args)));
+  }
+  const org = z.string().min(1).max(120);
   const actions = {
-    state: { input: z.tuple([]), output: cloudStateSchema, run: () => cloud.state() },
-    "sign-in": { input: z.tuple([]), output: z.void(), run: () => cloud.signIn() },
-    "sign-out": { input: z.tuple([]), output: z.void(), run: () => cloud.signOut() },
-    account: { input: z.tuple([]), output: cloudAccountSchema, run: () => cloud.account() },
-    files: {
-      input: z.tuple([z.string().min(1).max(120)]),
-      output: cloudFilesSchema,
-      run: (...args: string[]) => cloud.files(args[0]),
-    },
-    open: {
-      input: z.tuple([z.uuid(), z.uuid(), z.string().min(1).max(120)]),
-      output: z.void(),
-      run: (...args: string[]) => cloud.open(args[0], args[1], args[2]),
-    },
-    disconnect: {
-      input: pair,
-      output: z.void(),
-      run: (...args: string[]) => cloud.disconnect(args[0], args[1]),
-    },
-    connect: {
-      input: z.tuple([z.uuid(), z.uuid(), z.string().min(1).max(120)]),
-      output: z.void(),
-      run: (...args: string[]) => cloud.connectLocal(args[0], args[1], args[2]),
-    },
+    thumbnail: endpoint(
+      z.tuple([z.uuid(), z.string().max(120)]),
+      cloudThumbnailSchema,
+      (file, version) => cloud.thumbnail(file, version),
+    ),
+    state: endpoint(z.tuple([]), cloudStateSchema, () => cloud.state()),
+    "sign-in": endpoint(z.tuple([]), z.void(), () => cloud.signIn()),
+    "sign-out": endpoint(z.tuple([]), z.void(), () => cloud.signOut()),
+    account: endpoint(z.tuple([z.boolean().optional()]), cloudAccountSchema, (cached?: boolean) =>
+      cloud.account(cached),
+    ),
+    catalog: endpoint(
+      z.tuple([org, z.boolean().optional()]),
+      cloudCatalogSchema,
+      (id: string, cached?: boolean) => cloud.catalog(id, cached),
+    ),
+    "open-file": endpoint(z.tuple([org, z.uuid()]), cloudOpenedSchema, (id, file) =>
+      cloud.openFile(id, file),
+    ),
+    "create-file": endpoint(z.tuple([org]), cloudOpenedSchema, (id) => cloud.createFile(id)),
+    "keep-both": endpoint(
+      z.tuple([org, z.uuid(), z.uuid()]),
+      cloudOpenedSchema,
+      (organization, project, design) => cloud.keepBoth(organization, project, design),
+    ),
+    focus: endpoint(
+      z.tuple([z.uuid().optional(), z.uuid().optional()]),
+      z.void(),
+      (projectId?: string, designId?: string) => cloud.focus(projectId, designId),
+    ),
+    files: endpoint(z.tuple([org]), cloudFilesSchema, (id) => cloud.files(id)),
+    open: endpoint(
+      z.tuple([z.uuid(), z.uuid(), z.string().min(1).max(120)]),
+      z.void(),
+      (project, file, name) => cloud.open(project, file, name),
+    ),
+    disconnect: endpoint(z.tuple([z.uuid(), z.uuid()]), z.void(), (project, design) =>
+      cloud.disconnect(project, design),
+    ),
+    connect: endpoint(
+      z.tuple([z.uuid(), z.uuid(), org]),
+      z.void(),
+      (project, design, organization) => cloud.connectLocal(project, design, organization),
+    ),
   };
-  for (const [name, action] of Object.entries(actions))
+  for (const [name, invoke] of Object.entries(actions))
     ipcMain.handle(`tidy:cloud-${name}`, async (event, ...args: unknown[]) => {
       if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
-      const parsed = action.input.parse(args);
-      return action.output.parse(await action.run(...parsed));
+      return invoke(args);
     });
   return cloud.onState((state) => {
     for (const window of BrowserWindow.getAllWindows())

@@ -2721,71 +2721,199 @@ summary:focus-visible {
   font-size: 13px;
 }
 
-.cloud-connection {
-  flex-shrink: 0;
-  border-top: 1px solid var(--color-border);
-  padding: 8px;
-  font-size: 12px;
+.workspace-view {
+  grid-area: 1 / 1;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
 }
-.cloud-trigger {
-  min-height: 28px;
-  width: 100%;
-  justify-content: flex-start;
-  color: var(--color-muted-ink);
+.workspace-view[hidden],
+.workspace-tabs[hidden],
+.cloud-workspace[hidden] {
+  display: none;
 }
-.cloud-action {
-  min-height: 28px;
-  padding: 4px 6px;
-  text-align: left;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  color: var(--color-ink);
+.cloud-account {
+  padding: 2px 0 6px;
 }
-.cloud-action:hover {
-  background: var(--color-hover-surface);
-  border-color: var(--color-border);
-}
-.cloud-action:disabled {
-  color: var(--color-muted-ink);
-  cursor: default;
-}
-.cloud-action:focus-visible,
-.cloud-trigger:focus-visible {
-  outline: 2px solid var(--color-muted-ink);
-  outline-offset: 2px;
-}
-.cloud-panel {
+.account-trigger {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding-top: 8px;
-  max-height: min(320px, 35dvh);
-  overflow: auto;
-}
-.cloud-files {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 160px;
-  overflow: auto;
-}
-.cloud-files button {
-  justify-content: flex-start;
-  text-align: left;
-}
-.cloud-binding {
-  display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-}
-.cloud-binding > span {
+  gap: 9px;
   width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: transparent;
+  color: var(--color-ink);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.account-trigger > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.cloud-panel p {
+.account-trigger:hover {
+  background: var(--color-hover-surface);
+}
+.account-logo {
+  width: 31px;
+  height: 21px;
+  flex: none;
+}
+.cloud-account-error {
+  margin: 5px 10px;
   color: var(--color-muted-ink);
-  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.cloud-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.cloud-search {
+  width: 190px;
+  min-width: 100px;
+  height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  outline: none;
+}
+.cloud-search:focus-visible {
+  border-color: var(--color-muted-ink);
+}
+.cloud-file-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-muted-ink);
+  background: var(--color-subtle-fill);
+}
+.cloud-file-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.cloud-row-open {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cloud-file-state {
+  font-size: 11px;
+  color: var(--color-muted-ink);
+}
+.cloud-notice,
+.cloud-unavailable {
+  margin: 10px 0 20px;
+  color: var(--color-muted-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.cloud-publish-note {
+  margin: 0 16px 10px;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+  line-height: 1.5;
+}
+.sync-status {
+  position: relative;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.sync-status > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+  background: var(--color-surface);
+  white-space: nowrap;
+}
+.sync-status > summary::-webkit-details-marker {
+  display: none;
+}
+.sync-status > summary:hover {
+  background: var(--color-hover-surface);
+}
+.sync-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+.sync-synced {
+  background: #4a9863;
+  opacity: 1;
+}
+.sync-conflict,
+.sync-paused {
+  background: #d88b2c;
+  opacity: 1;
+}
+.sync-details {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  width: 260px;
+  z-index: 50;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--color-surface);
+  box-shadow: 0 6px 24px #0002;
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.sync-details p {
+  margin: 0;
+}
+.sync-details p + p,
+.sync-details button {
+  margin-top: 8px;
+}
+.sync-status > summary:focus-visible,
+.account-trigger:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: -2px;
+}
+.cloud-file-placeholder > img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.design-navigation .cloud-folder-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cloud-folder-link > span:not(.cloud-count) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }

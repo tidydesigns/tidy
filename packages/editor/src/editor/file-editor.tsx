@@ -342,6 +342,7 @@ export function FileEditor({
   local = false,
   onLocalDocumentChange,
   localPersistence,
+  statusControl,
   externalDocument,
   active = true,
   initialPanelsOpen = false,
@@ -368,6 +369,7 @@ export function FileEditor({
   user?: EditorUser;
   local?: boolean;
   active?: boolean;
+  statusControl?: ReactNode;
   externalDocument?: Snapshot;
   localPersistence?: {
     commit(document: DesignDocument): Promise<void>;
@@ -3960,6 +3962,7 @@ export function FileEditor({
   );
   const canvasControls = (
     <div className="flex items-center gap-2">
+      {statusControl}
       {mobileLayout &&
         toolInspectorActive &&
         !mobilePanelsOpen &&

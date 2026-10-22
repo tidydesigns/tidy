@@ -4,7 +4,9 @@ import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync
 import { auth } from "@/lib/auth";
 import { hasMcpAuthorization, McpGrantError } from "@/lib/mcp/authorizations";
 import { withDesktopAuthority } from "@/lib/desktop/authority";
-import { createDesktopFile } from "@/lib/desktop/files";
+import { createDesktopFile, renameDesktopFile, DesktopNameConflict } from "@/lib/desktop/files";
+import { listDesignFolders } from "@/lib/design/folder-service";
+import { thumbnailResponseForUser } from "@/lib/design/thumbnail-service";
 import { listDesignOrganizations, listDesignFiles, getDesignFile } from "@/lib/design/service";
 import {
   getDocument,
@@ -57,6 +59,21 @@ const handle = requireMcpAuth(
             id: userId,
             organizations: await listDesignOrganizations(userId),
           })),
+        );
+      if (
+        request.method === "GET" &&
+        path.length === 3 &&
+        path[0] === "organizations" &&
+        path[2] === "catalog"
+      )
+        return json(
+          await withDesktopAuthority(grant, path[1], false, async () => {
+            const [files, folders] = await Promise.all([
+              listDesignFiles(userId, path[1]),
+              listDesignFolders(userId, path[1]),
+            ]);
+            return { files, folders };
+          }),
         );
       if (
         request.method === "GET" &&
@@ -117,6 +134,18 @@ const handle = requireMcpAuth(
         file.organizationId,
         write,
         async () => {
+          if (request.method === "POST" && path[2] === "name") {
+            const name = z
+              .string()
+              .trim()
+              .min(1)
+              .max(120)
+              .refine((value) => !/[\u0000-\u001f\u007f]/.test(value));
+            const body = z.object({ before: name, name }).strict().parse(input);
+            return json(await renameDesktopFile(userId, fileId, body.before, body.name));
+          }
+          if (request.method === "GET" && path[2] === "thumbnail")
+            return thumbnailResponseForUser(userId, fileId, request);
           if (request.method === "GET" && path.length === 2) {
             // Initialize legacy documents using the existing editor conversion path.
             await ensureEditorDocument(userId, fileId);
@@ -187,7 +216,11 @@ const handle = requireMcpAuth(
       if (limited) return limited;
       if (error instanceof RequestBodyError) return requestBodyError(error);
       if (error instanceof McpGrantError) return new Response(null, { status: 401 });
-      if (error instanceof DocumentRevisionConflict || error instanceof ExpiredDocumentEdit)
+      if (
+        error instanceof DocumentRevisionConflict ||
+        error instanceof ExpiredDocumentEdit ||
+        error instanceof DesktopNameConflict
+      )
         return Response.json({ code: "REVISION_CONFLICT" }, { status: 409 });
       if (error instanceof z.ZodError) return new Response(null, { status: 400 });
       return Response.json({ error: "Cloud sync is temporarily unavailable." }, { status: 503 });

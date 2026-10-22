@@ -7,11 +7,12 @@ import {
 } from "@tidy/editor/design/document-patch";
 import { fileChangesSchema } from "@tidy/editor/design/sync-protocol";
 import { CloudAuth, CloudHTTPError } from "./cloud-auth";
-import { cloudAccountSchema, cloudFilesSchema } from "../shared/cloud-sync";
+import { cloudAccountSchema, cloudFilesSchema, cloudCatalogSchema } from "../shared/cloud-sync";
 
-export type CloudSnapshot = { revision: number; content: DesignDocument };
+export type CloudSnapshot = { revision: number; content: DesignDocument; name?: string };
 export type PendingUpload = { operationId: string; base: CloudSnapshot; patch: DocumentPatch };
 export interface CloudRemote {
+  rename?(fileId: string, before: string, name: string, signal?: AbortSignal): Promise<void>;
   create(organizationId: string, fileId: string, name: string, signal?: AbortSignal): Promise<void>;
   read(fileId: string, base?: CloudSnapshot, signal?: AbortSignal): Promise<CloudSnapshot>;
   commit(fileId: string, pending: PendingUpload, signal?: AbortSignal): Promise<CloudSnapshot>;
@@ -21,6 +22,14 @@ export interface CloudRemote {
 
 export class HTTPCloudRemote implements CloudRemote {
   constructor(readonly auth: CloudAuth) {}
+  async rename(fileId: string, before: string, name: string, signal?: AbortSignal) {
+    await this.auth.request(`${this.path(fileId)}/name`, {
+      method: "POST",
+      signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ before, name }),
+    });
+  }
   private path(fileId: string) {
     return `/api/desktop/files/${z.uuid().parse(fileId)}`;
   }
@@ -35,6 +44,43 @@ export class HTTPCloudRemote implements CloudRemote {
         )
       ).json(),
     );
+  }
+  async catalog(organizationId: string) {
+    return cloudCatalogSchema.parse(
+      await (
+        await this.auth.request(
+          `/api/desktop/organizations/${encodeURIComponent(organizationId)}/catalog`,
+        )
+      ).json(),
+    );
+  }
+  async thumbnail(fileId: string) {
+    let response: Response;
+    try {
+      response = await this.auth.request(`${this.path(fileId)}/thumbnail`);
+    } catch (cause) {
+      if (cause instanceof CloudHTTPError && cause.status === 404) return null;
+      throw cause;
+    }
+    if (response.headers.get("content-type")?.split(";")[0] !== "image/png") return null;
+    const reader = response.body?.getReader();
+    if (!reader) return null;
+    const chunks: Uint8Array[] = [];
+    let bytes = 0;
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        bytes += value.length;
+        if (bytes > 2_000_000) throw new Error("Thumbnail is too large.");
+        chunks.push(value);
+      }
+    } finally {
+      await reader.cancel().catch(() => {});
+    }
+    const image = Buffer.concat(chunks);
+    if (image.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") return null;
+    return `data:image/png;base64,${image.toString("base64")}`;
   }
   async create(organizationId: string, fileId: string, name: string, signal?: AbortSignal) {
     await this.auth.request(
@@ -56,7 +102,7 @@ export class HTTPCloudRemote implements CloudRemote {
       ).json(),
     );
     if (!value.canEdit) throw new CloudHTTPError(403);
-    if ("snapshot" in value) return value.snapshot;
+    if ("snapshot" in value) return { ...value.snapshot, name: value.name };
     if (!base || value.baseRevision !== base.revision) throw new Error("Invalid cloud revision.");
     let snapshot = base;
     for (const entry of value.patches) {
@@ -68,7 +114,7 @@ export class HTTPCloudRemote implements CloudRemote {
       };
     }
     if (snapshot.revision !== value.revision) throw new Error("Incomplete cloud changes.");
-    return snapshot;
+    return { ...snapshot, name: value.name };
   }
   async commit(fileId: string, pending: PendingUpload, signal?: AbortSignal) {
     const receipt = z

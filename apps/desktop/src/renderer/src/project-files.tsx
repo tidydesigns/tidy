@@ -16,7 +16,7 @@ import type {
   ProjectSnapshot,
 } from "../../shared/contracts";
 
-function LocalPreview({
+export function LocalPreview({
   api,
   projectId,
   file,
@@ -82,6 +82,7 @@ export function ProjectFiles({
   onCreated,
   onUpdate,
   onFolderUpdate,
+  cloud,
 }: {
   api: DesktopAPI;
   snapshot: ProjectSnapshot;
@@ -90,6 +91,12 @@ export function ProjectFiles({
   onCreated(file: LocalDesign): void;
   onUpdate(file: LocalDesign): void;
   onFolderUpdate(folder: DesignFolder): void;
+  cloud?: {
+    organizations: { id: string; name: string }[];
+    publish(designId: string, organizationId: string): Promise<void>;
+    connected: string[];
+    statuses: Record<string, string>;
+  };
 }) {
   const projectId = snapshot.project.id;
   const [folderId, setFolderId] = useState<string | null>(null);
@@ -106,6 +113,7 @@ export function ProjectFiles({
   const [, setError] = useErrorNotice();
   const [renamed, setRenamed] = useState<Record<string, string>>({});
   const [moving, setMoving] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<DesignSummary>();
   const [moves, setMoves] = useState<Record<string, string | null>>({});
   const finishing = useRef(false);
   const cancelled = useRef(false);
@@ -286,11 +294,16 @@ export function ProjectFiles({
         options={[
           { value: "rename", label: "Rename" },
           { value: "move", label: "Move to…" },
+          ...(cloud?.organizations.length && !cloud.connected.includes(file.id)
+            ? [{ value: "publish", label: "Add to workspace…" }]
+            : []),
         ]}
         onChange={(value) =>
           value === "rename"
             ? edit({ kind: "file", id: file.id }, displayName(file))
-            : setMoving(file.id)
+            : value === "publish"
+              ? setPublishing(file)
+              : setMoving(file.id)
         }
       />
     );
@@ -322,7 +335,11 @@ export function ProjectFiles({
             <span title={!currentFolder ? folderName(file) : undefined}>
               {currentFolder ? `${file.nodeCount ?? 0} layers` : folderName(file)}
             </span>
-            <time dateTime={file.updatedAt}>{date(file.updatedAt)}</time>
+            {cloud?.statuses[file.id] ? (
+              <span>{cloud.statuses[file.id]}</span>
+            ) : (
+              <time dateTime={file.updatedAt}>{date(file.updatedAt)}</time>
+            )}
           </div>
         </FileCard>
         {fileMenu(file)}
@@ -346,7 +363,9 @@ export function ProjectFiles({
             </Button>
           )}
         </div>
-        <span className="file-layer-count">{file.nodeCount ?? 0} layers</span>
+        <span className="file-layer-count">
+          {cloud?.statuses[file.id] ?? `${file.nodeCount ?? 0} layers`}
+        </span>
         <time dateTime={file.updatedAt}>{date(file.updatedAt)}</time>
         {fileMenu(file)}
       </li>
@@ -473,8 +492,76 @@ export function ProjectFiles({
             onMove={(id) => void move(movingFile, id)}
           />
         )}
+        {publishing && cloud && (
+          <PublishDialog
+            file={publishing}
+            organizations={cloud.organizations}
+            onClose={() => setPublishing(undefined)}
+            onPublish={async (organizationId) => {
+              const notifyError = setError("");
+              try {
+                await cloud.publish(publishing.id, organizationId);
+                setPublishing(undefined);
+              } catch (cause) {
+                notifyError(cause, "Could not add this design to the workspace.");
+              }
+            }}
+          />
+        )}
       </div>
     </>
+  );
+}
+function PublishDialog({
+  file,
+  organizations,
+  onClose,
+  onPublish,
+}: {
+  file: DesignSummary;
+  organizations: { id: string; name: string }[];
+  onClose(): void;
+  onPublish(id: string): Promise<void>;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <Dialog
+      ref={ref}
+      className="file-move-dialog"
+      aria-label={`Add ${file.name} to workspace`}
+      onCancel={onClose}
+      onClose={onClose}
+    >
+      <div className="file-move-heading">
+        <h2>Add to workspace</h2>
+        <Button className="quiet-button" aria-label="Close" onClick={onClose}>
+          <Icon name="xmark" size={16} />
+        </Button>
+      </div>
+      <p className="cloud-publish-note">
+        {file.name} will sync automatically. The local file stays in your project.
+      </p>
+      <div className="file-move-targets">
+        {organizations.map((o) => (
+          <Button
+            className="file-move-target"
+            key={o.id}
+            disabled={pending}
+            onClick={() => {
+              setPending(true);
+              void onPublish(o.id).finally(() => setPending(false));
+            }}
+          >
+            <Icon name="folder" />
+            {o.name}
+          </Button>
+        ))}
+      </div>
+    </Dialog>
   );
 }
 function MoveDialog({

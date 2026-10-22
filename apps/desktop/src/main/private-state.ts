@@ -12,6 +12,15 @@ export class PrivateState {
     if (!info.isDirectory() || info.isSymbolicLink())
       throw new Error("Invalid private sync directory.");
   }
+  async workspace(key: string) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error("Invalid cloud workspace key.");
+    const path = join(this.directory, `workspace-${key}`);
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    const info = await lstat(path);
+    if (!info.isDirectory() || info.isSymbolicLink())
+      throw new Error("Invalid cloud workspace directory.");
+    return path;
+  }
   private path(key: string) {
     if (!/^[a-zA-Z0-9-]+$/.test(key)) throw new Error("Invalid private state key.");
     return join(this.directory, `${key}.json`);

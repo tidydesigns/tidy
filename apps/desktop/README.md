@@ -17,13 +17,22 @@ The tabs support arrow keys, Home and End.
 
 ## Optional cloud sync
 
-Open **Cloud sync** in the sidebar and choose **Sign in to Tidy**. Sign-in opens
-the system browser and requests a separate desktop authorization. Signing in does
-not upload any project. Choose a cloud workspace, then **Sync a local design…** to
-connect one design, or **Open locally** to download an existing cloud design.
-Both paths keep local `.tidy/designs/<id>.json` files and image caches available offline.
-Only explicitly connected designs sync; threads, attachments, repository files,
-local folders, and later name changes remain local in this first implementation.
+Choose **Sign in to Tidy** at the top of the sidebar. Sign-in opens the system
+browser and requests a separate desktop authorization. Your cloud workspace opens
+automatically with its files, folders, search, and lightweight previews. Use the
+workspace switcher to return to local projects or choose another cloud workspace.
+Workspaces currently require editing access.
+
+Open a file to download it and start editing. Downloads happen in private,
+account-scoped application storage without choosing a project directory. Cached
+files reopen from disk; file lists stay visible during background refreshes.
+**New file** opens locally immediately and publishes in the background. The canvas
+status shows whether work is synced, stored locally while offline, or needs attention.
+
+Signing in never uploads a local project. To publish an existing local design,
+choose **Add to workspace…** in its file actions and choose the destination. Its
+local path stays unchanged. Connected documents, images, and file names sync both
+ways; threads, attachments, repository files, and local folder moves remain local.
 
 Local saves never await network requests. The main-process coordinator batches
 work over 250 ms with a one-second maximum wait, uses a separate worker for document
@@ -34,15 +43,24 @@ persist in private application data. Restart reconciliation also discovers edits
 made by agents while the app was closed. Local asset IDs represent immutable
 images; replacing an image requires a new asset ID, as editor uploads already do.
 
-Incoming changes currently use incremental catch-up every 15 seconds, with snapshot
-fallback when server patch history has expired. Transient failures retry with
-bounded backoff. Offline edits on both sides pause the connection and preserve both
-versions. **Keep both copies** leaves the original local design unconnected and
-opens a fresh connected cloud copy. **Disconnect** stops transfers and retains
-local files. Signing out stops account-bound transfers and removes local tokens;
-server revocation is attempted, and an offline sign-out cannot guarantee remote
-revocation until the server is reachable. Signing back into the same account
-resumes its bindings; another account or a copied project path cannot inherit them.
+Incoming changes use incremental catch-up every two seconds for the active file
+and every sixteen seconds for other downloaded files, with snapshot fallback when
+server patch history has expired. Returning to the app or reconnecting triggers
+catch-up immediately. Transient failures retry with bounded backoff. Metadata
+refreshes in the background every thirty seconds while the cloud workspace is open.
+Thumbnails load only near the visible viewport, with at most three transfers at
+once and one cached image per file. Browsing files does not download every document.
+
+Conflicting edits or names preserve both versions and pause automatic sync. Open
+the canvas status and choose **Keep both copies** to retain the local edits as a
+separately synced cloud file and open the current cloud version. File renames use
+an expected-name check and durable pending state so retries cannot overwrite a
+concurrent rename or clear newer local changes.
+
+Signing out stops account-bound transfers and removes local tokens. Server
+revocation is attempted; an offline sign-out cannot guarantee remote revocation
+until the server is reachable. Signing back into the same account resumes its
+files; another account or a copied project path cannot inherit upload authority.
 
 Refresh tokens are protected using Electron `safeStorage`, outside projects and the
 renderer. Cloud login is unavailable when protected storage is unavailable,

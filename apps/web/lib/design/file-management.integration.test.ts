@@ -1023,3 +1023,20 @@ integration("comment pages validate actual author, preview and reaction rows", a
     { emoji: "👍", count: 1, reacted: true },
   ]);
 });
+
+integration(
+  "desktop renames compare the previous name and retry without overwriting a concurrent rename",
+  async () => {
+    const { renameDesktopFile, DesktopNameConflict } = await import("../desktop/files");
+    await renameDesktopFile("editor", "file", "Source", "Desktop name");
+    await renameDesktopFile("editor", "file", "Source", "Desktop name");
+    await renameDesignFileForUser("editor", "file", "Web name");
+    await expect(
+      renameDesktopFile("editor", "file", "Source", "Desktop name"),
+    ).rejects.toBeInstanceOf(DesktopNameConflict);
+    expect(
+      (await admin.query('select "name" from "designFile" where "id"=$1', ["file"])).rows[0].name,
+    ).toBe("Web name");
+    await expect(renameDesktopFile("viewer", "file", "Web name", "Unauthorized")).rejects.toThrow();
+  },
+);

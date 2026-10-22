@@ -12,7 +12,7 @@ import {
 } from "./contracts";
 import { harnessDetailsSchema } from "./harness-settings";
 
-const localDesignSchema = designSchema.extend({
+export const localDesignSchema = designSchema.extend({
   document: designDocumentSchema,
   version: z.string(),
   assets: z.record(z.string(), z.string()),

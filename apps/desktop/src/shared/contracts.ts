@@ -32,6 +32,7 @@ export const projectSchema = z.object({
   name: z.string(),
   path: z.string(),
   openedAt: z.string(),
+  cloud: z.boolean().optional(),
 });
 export const folderSchema = z.object({
   id: z.string().uuid(),

@@ -8,7 +8,14 @@ import { desktopEventSchema } from "../shared/contracts";
 import type { DesktopAPI } from "../shared/contracts";
 import { appUpdateStateSchema } from "../shared/app-updates";
 import { harnessUpdatesSchema } from "../shared/harness-updates";
-import { cloudAccountSchema, cloudFilesSchema, cloudStateSchema } from "../shared/cloud-sync";
+import {
+  cloudAccountSchema,
+  cloudFilesSchema,
+  cloudStateSchema,
+  cloudCatalogSchema,
+  cloudOpenedSchema,
+  cloudThumbnailSchema,
+} from "../shared/cloud-sync";
 
 /** Invoke a workspace operation and validate its response before crossing the preload boundary. */
 async function request<Name extends WorkspaceOperation>(
@@ -46,6 +53,8 @@ const api: DesktopAPI = {
     };
   },
   cloud: {
+    thumbnail: async (file, version) =>
+      cloudThumbnailSchema.parse(await ipcRenderer.invoke("tidy:cloud-thumbnail", file, version)),
     state: async () => cloudStateSchema.parse(await ipcRenderer.invoke("tidy:cloud-state")),
     signIn: async () => {
       await ipcRenderer.invoke("tidy:cloud-sign-in");
@@ -53,7 +62,21 @@ const api: DesktopAPI = {
     signOut: async () => {
       await ipcRenderer.invoke("tidy:cloud-sign-out");
     },
-    account: async () => cloudAccountSchema.parse(await ipcRenderer.invoke("tidy:cloud-account")),
+    account: async (cached) =>
+      cloudAccountSchema.parse(await ipcRenderer.invoke("tidy:cloud-account", cached)),
+    catalog: async (id, cached) =>
+      cloudCatalogSchema.parse(await ipcRenderer.invoke("tidy:cloud-catalog", id, cached)),
+    openFile: async (id, file) =>
+      cloudOpenedSchema.parse(await ipcRenderer.invoke("tidy:cloud-open-file", id, file)),
+    createFile: async (id) =>
+      cloudOpenedSchema.parse(await ipcRenderer.invoke("tidy:cloud-create-file", id)),
+    keepBoth: async (organization, project, design) =>
+      cloudOpenedSchema.parse(
+        await ipcRenderer.invoke("tidy:cloud-keep-both", organization, project, design),
+      ),
+    focus: async (projectId, designId) => {
+      await ipcRenderer.invoke("tidy:cloud-focus", projectId, designId);
+    },
     files: async (id) => cloudFilesSchema.parse(await ipcRenderer.invoke("tidy:cloud-files", id)),
     open: async (projectId, fileId, name) => {
       await ipcRenderer.invoke("tidy:cloud-open", projectId, fileId, name);

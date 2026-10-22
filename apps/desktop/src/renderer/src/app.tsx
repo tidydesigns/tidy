@@ -28,7 +28,9 @@ import { MessageActionIcon } from "./message-action-icon";
 import { useMessageQueue } from "./use-message-queue";
 import { MAX_QUEUED_MESSAGES, type MessageDelivery } from "../../shared/message-queue";
 import { AppUpdate } from "./app-update";
-import { CloudConnection } from "./cloud-connection";
+import { useCloud } from "./use-cloud";
+import { CloudWorkspace } from "./cloud-workspace";
+import { SyncStatus } from "./sync-status";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
@@ -62,6 +64,36 @@ const errorText = (error: unknown) =>
 
 export function App() {
   const api = window.tidy;
+  const cloud = useCloud(api?.cloud);
+  const [location, setLocation] = useState<"local" | "cloud">("local");
+  const [cloudOrganizationId, setCloudOrganizationId] = useState("");
+  const [cloudCanvas, setCloudCanvas] = useState(false);
+  const cloudAccount = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!cloud.state?.signedIn) {
+      cloudAccount.current = undefined;
+      setLocation("local");
+      setCloudOrganizationId("");
+      return;
+    }
+    if (!cloud.account) return;
+    if (cloudAccount.current === cloud.account.id) {
+      if (
+        cloudOrganizationId &&
+        !cloud.account.organizations.some((o) => o.id === cloudOrganizationId && o.canEdit)
+      ) {
+        setCloudOrganizationId(cloud.account.organizations.find((o) => o.canEdit)?.id ?? "");
+        setLocation("local");
+      }
+      return;
+    }
+    cloudAccount.current = cloud.account.id;
+    const organization = cloud.account.organizations.find((o) => o.canEdit);
+    if (organization) {
+      setCloudOrganizationId(organization.id);
+      setLocation("cloud");
+    }
+  }, [cloud.state?.signedIn, cloud.account, cloudOrganizationId]);
   const [mode, setMode] = useState<Mode>("design");
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -428,7 +460,7 @@ export function App() {
       .bootstrap()
       .then((value) => {
         if (!mounted) return;
-        setProjects(value.projects);
+        setProjects(value.projects.filter((p) => !p.cloud));
         setHarnesses(value.harnesses);
         if (value.activeProject) {
           const snapshot = [...initialEvents.values()].reduce(
@@ -505,7 +537,10 @@ export function App() {
     setError(null);
     try {
       const value = projectId ? await api.selectProject(projectId) : await api.openProject();
-      if (value && navigation.current === generation) applySnapshot(value);
+      if (value && navigation.current === generation) {
+        applySnapshot(value);
+        setLocation("local");
+      }
     } catch (value) {
       setError({ text: errorText(value), original: value });
     } finally {
@@ -969,7 +1004,34 @@ export function App() {
         key={project.id}
         api={api}
         snapshot={designSnapshot}
-        navigationTarget={designNavigation}
+        navigationTarget={location === "local" ? designNavigation : null}
+        cloud={
+          api.cloud && cloud.account
+            ? {
+                organizations: cloud.account.organizations.filter((o) => o.canEdit),
+                connected:
+                  cloud.state?.bindings
+                    .filter((b) => b.projectId === project.id)
+                    .map((b) => b.designId) ?? [],
+                statuses: Object.fromEntries(
+                  (cloud.state?.bindings ?? [])
+                    .filter((b) => b.projectId === project.id)
+                    .map((b) => [
+                      b.designId,
+                      b.status === "synced"
+                        ? "Synced"
+                        : b.status === "syncing"
+                          ? "Syncing…"
+                          : b.status === "offline"
+                            ? "Saved locally"
+                            : "Sync needs attention",
+                    ]),
+                ),
+                publish: (designId, organizationId) =>
+                  api.cloud!.connectLocal(project.id, designId, organizationId),
+              }
+            : undefined
+        }
         onOpen={(id) => setSelectedDesigns((current) => ({ ...current, [project.id]: id }))}
         onCreated={(value) => {
           updateLocalDesign(value);
@@ -993,31 +1055,101 @@ export function App() {
         }
       />
     );
-  }, [api, designSnapshot, designNavigation, updateLocalDesign]);
+  }, [
+    api,
+    designSnapshot,
+    designNavigation,
+    updateLocalDesign,
+    location,
+    cloud.account,
+    cloud.state,
+  ]);
+
+  const canvasFocused = location === "cloud" ? cloudCanvas : mode === "design" && Boolean(design);
 
   return (
-    <DesktopShell canvasFocused={mode === "design" && Boolean(design)}>
+    <DesktopShell canvasFocused={canvasFocused}>
       <aside id="desktop-navigation" className="desktop-navigation" aria-label="Project workspace">
         <header className="workspace-header">
+          {cloud.state?.available && (
+            <div className="cloud-account">
+              {cloud.state.signedIn ? (
+                <SelectMenu
+                  actionMenu
+                  label="Tidy account"
+                  value=""
+                  triggerClassName="account-trigger"
+                  triggerContent={
+                    <>
+                      <TidyLogo className="account-logo" />
+                      <span>Tidy account</span>
+                    </>
+                  }
+                  options={[{ value: "sign-out", label: "Sign out" }]}
+                  onChange={() => void cloud.signOut()}
+                />
+              ) : (
+                <>
+                  <Button
+                    className="account-trigger"
+                    disabled={cloud.busy}
+                    onClick={() => void cloud.signIn()}
+                  >
+                    <TidyLogo className="account-logo" />
+                    <span>{cloud.busy ? "Complete sign-in in browser…" : "Sign in to Tidy"}</span>
+                  </Button>
+                  {cloud.busy && (
+                    <Button className="quiet-button" onClick={() => void cloud.signOut()}>
+                      Cancel sign-in
+                    </Button>
+                  )}
+                </>
+              )}
+              {cloud.error && (
+                <p className="cloud-account-error" role="alert">
+                  {cloud.error}
+                </p>
+              )}
+            </div>
+          )}
           <div className="project-picker" title={project?.name}>
-            {project && (
+            {(project || cloud.account) && (
               <SelectMenu
-                value={project.id}
+                value={location === "cloud" ? `cloud:${cloudOrganizationId}` : (project?.id ?? "")}
                 options={[
+                  ...(cloud.account?.organizations
+                    .filter((o) => o.canEdit)
+                    .map((o) => ({
+                      value: `cloud:${o.id}`,
+                      label: o.name,
+                      description: "Cloud workspace",
+                    })) ?? []),
                   ...projects.map((item) => ({
                     value: item.id,
                     label: item.name,
+                    description: "On this computer",
                   })),
                   { value: "open", label: "Open project…" },
                 ]}
-                label="Project"
+                label="Workspace"
                 disabled={opening}
-                onChange={(value) => void chooseProject(value === "open" ? undefined : value)}
+                onChange={(value) => {
+                  if (value.startsWith("cloud:")) {
+                    navigation.current++;
+                    setCloudOrganizationId(value.slice(6));
+                    setLocation("cloud");
+                  } else void chooseProject(value === "open" ? undefined : value);
+                }}
                 triggerClassName="project-trigger"
               />
             )}
           </div>
-          <div role="tablist" aria-label="Workspace" className="workspace-tabs">
+          <div
+            role="tablist"
+            aria-label="Workspace"
+            className="workspace-tabs"
+            hidden={location === "cloud"}
+          >
             {modes.map((item, index) => (
               <Button
                 key={item.id}
@@ -1056,7 +1188,7 @@ export function App() {
         </header>
         {project && snapshot && (
           <>
-            <div className="sidebar-mode-content" hidden={mode !== "code"}>
+            <div className="sidebar-mode-content" hidden={location === "cloud" || mode !== "code"}>
               <ThreadSidebar
                 key={project.id}
                 projectId={project.id}
@@ -1065,88 +1197,121 @@ export function App() {
                 renderThread={renderThread}
               />
             </div>
-            <nav
-              ref={setDesignNavigation}
-              className="design-navigation"
-              aria-label="Design folders"
-              hidden={mode !== "design"}
-            />
           </>
         )}
-        <CloudConnection
-          api={api?.cloud}
-          projectId={project?.id}
-          designs={snapshot?.designs ?? []}
+        <nav
+          ref={setDesignNavigation}
+          className="design-navigation"
+          aria-label="Design folders"
+          hidden={location === "local" && mode !== "design"}
         />
         <AppUpdate api={api} />
       </aside>
       <main className="workspace">
-        {!project ? (
-          <div className="project-home">
-            <h1 aria-label="Tidy">
-              <TidyLogo className="tidy-logo" />
-            </h1>
-            {loading ? (
-              <p>Opening workspace…</p>
-            ) : api ? (
-              <>
-                <p>Designs and engineering threads, together in your project.</p>
-                <Button
-                  className="primary-button"
-                  disabled={opening}
-                  onClick={() => void chooseProject()}
-                >
-                  {opening ? "Opening…" : "Open project"}
-                </Button>
-                {projects.length > 0 && (
-                  <div className="recent-projects">
-                    {projects.map((item) => (
-                      <Button
-                        key={item.id}
-                        className="recent-project"
-                        disabled={opening}
-                        onClick={() => void chooseProject(item.id)}
-                      >
-                        <span>{item.name}</span>
-                        <small>{item.path}</small>
-                      </Button>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <p>Open Tidy desktop to work with local projects.</p>
-            )}
+        {api && cloud.state?.signedIn && cloudOrganizationId && (
+          <div className="workspace-view" hidden={location !== "cloud"}>
+            <CloudWorkspace
+              api={api}
+              cloud={cloud}
+              organizationId={cloudOrganizationId}
+              navigationTarget={location === "cloud" ? designNavigation : null}
+              active={location === "cloud"}
+              onCanvasChange={setCloudCanvas}
+            />
           </div>
-        ) : (
-          <>
-            <section
-              id="workspace-panel-design"
-              role="tabpanel"
-              aria-labelledby="workspace-tab-design"
-              hidden={mode !== "design"}
-              className="project-workspace canvas-open"
-            >
-              <div className="design-workspace">
-                {design && (
-                  <LocalCanvas
-                    key={design.id}
-                    api={api!}
-                    projectId={project.id}
-                    initial={design}
-                    active={mode === "design"}
-                    onBack={backToFiles}
-                    onUpdate={updateLocalDesign}
-                  />
-                )}
-                {api && (
-                  <div className="project-files-container" hidden={Boolean(design)}>
-                    {projectFiles}
-                  </div>
-                )}
-              </div>
-            </section>
-            <section
+        )}
+        <div className="workspace-view" hidden={location !== "local"}>
+          {!project ? (
+            <div className="project-home">
+              <h1 aria-label="Tidy">
+                <TidyLogo className="tidy-logo" />
+              </h1>
+              {loading ? (
+                <p>Opening workspace…</p>
+              ) : api ? (
+                <>
+                  <p>Designs and engineering threads, together in your project.</p>
+                  <Button
+                    className="primary-button"
+                    disabled={opening}
+                    onClick={() => void chooseProject()}
+                  >
+                    {opening ? "Opening…" : "Open project"}
+                  </Button>
+                  {projects.length > 0 && (
+                    <div className="recent-projects">
+                      {projects.map((item) => (
+                        <Button
+                          key={item.id}
+                          className="recent-project"
+                          disabled={opening}
+                          onClick={() => void chooseProject(item.id)}
+                        >
+                          <span>{item.name}</span>
+                          <small>{item.path}</small>
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p>Open Tidy desktop to work with local projects.</p>
+              )}
+            </div>
+          ) : (
+            <>
+              <section
+                id="workspace-panel-design"
+                role="tabpanel"
+                aria-labelledby="workspace-tab-design"
+                hidden={mode !== "design"}
+                className="project-workspace canvas-open"
+              >
+                <div className="design-workspace">
+                  {design && (
+                    <LocalCanvas
+                      key={design.id}
+                      api={api!}
+                      projectId={project.id}
+                      initial={design}
+                      active={location === "local" && mode === "design"}
+                      onBack={backToFiles}
+                      onUpdate={updateLocalDesign}
+                      status={
+                        <SyncStatus
+                          api={api?.cloud}
+                          state={cloud.state}
+                          projectId={project.id}
+                          designId={design.id}
+                          onKeepBoth={async () => {
+                            const binding = cloud.state?.bindings.find(
+                              (b) => b.projectId === project.id && b.designId === design.id,
+                            );
+                            if (!api?.cloud || !binding?.organizationId)
+                              throw new Error("Reconnect this design to resolve its conflict.");
+                            const value = await api.cloud.keepBoth(
+                              binding.organizationId,
+                              project.id,
+                              design.id,
+                            );
+                            updateLocalDesign(value.design);
+                            setSelectedDesigns((current) => ({
+                              ...current,
+                              [project.id]: value.design.id,
+                            }));
+                          }}
+                        />
+                      }
+                    />
+                  )}
+                  {api && (
+                    <div className="project-files-container" hidden={Boolean(design)}>
+                      {projectFiles}
+                    </div>
+                  )}
+                </div>
+              </section>
+              <section
               id="workspace-panel-code"
               role="tabpanel"
               aria-labelledby="workspace-tab-code"
@@ -1452,8 +1617,9 @@ export function App() {
                 </form>
               </div>
             </section>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </main>
     </DesktopShell>
   );

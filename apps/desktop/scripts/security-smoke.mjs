@@ -186,6 +186,12 @@ app.on("browser-window-created", (_event, window) => {
         "cloud-open",
         "cloud-connect",
         "cloud-disconnect",
+        "cloud-catalog",
+        "cloud-open-file",
+        "cloud-create-file",
+        "cloud-focus",
+        "cloud-keep-both",
+        "cloud-thumbnail",
       ]) {
         const message = await foreign.webContents.executeJavaScript(
           `window.probe.invoke(${JSON.stringify(name)}).then(()=>null,error=>error.message)`,

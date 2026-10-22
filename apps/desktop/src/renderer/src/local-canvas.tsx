@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { FileEditor } from "@tidy/editor";
 import { EditorHostProvider } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
@@ -11,6 +11,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   active,
   onBack,
   onUpdate,
+  status,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -18,7 +19,22 @@ export const LocalCanvas = memo(function LocalCanvas({
   active: boolean;
   onBack(): void;
   onUpdate(design: LocalDesign): void;
+  status?: ReactNode;
 }) {
+  useEffect(() => {
+    if (!active || !api.cloud) return;
+    const focus = () => {
+      if (!document.hidden) void api.cloud?.focus(projectId, initial.id).catch(() => {});
+    };
+    focus();
+    window.addEventListener("focus", focus);
+    window.addEventListener("online", focus);
+    return () => {
+      window.removeEventListener("focus", focus);
+      window.removeEventListener("online", focus);
+      void api.cloud?.focus().catch(() => {});
+    };
+  }, [api, projectId, initial.id, active]);
   const file = useRef(initial);
   const revision = useRef(0);
   const pending = useRef(0);
@@ -118,6 +134,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         initialDocument={{ revision: 0, content: initial.document }}
         initialPanelsOpen
         local
+        statusControl={status}
         active={active}
         previewAssetUrls={assets}
         externalDocument={external}

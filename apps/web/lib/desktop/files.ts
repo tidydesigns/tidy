@@ -1,6 +1,26 @@
 import "server-only";
 import { discoverFileManagement } from "@/lib/design/file-management-authority";
 import { withOrganizationEditAuthority } from "@/lib/design/organization-authority";
+import { publishFileChanges } from "@/lib/realtime/server";
+
+export class DesktopNameConflict extends Error {}
+export async function renameDesktopFile(
+  userId: string,
+  fileId: string,
+  before: string,
+  name: string,
+) {
+  const organizationId = await discoverFileManagement(userId, fileId, "file");
+  await withOrganizationEditAuthority(userId, organizationId, async (client) => {
+    const result = await client.query(
+      'update "designFile" set "name"=$2,"updatedAt"=now() where "id"=$1 and "organizationId"=$3 and "archivedAt" is null and ("name"=$4 or "name"=$2) returning "id"',
+      [fileId, name, organizationId, before],
+    );
+    if (!result.rowCount) throw new DesktopNameConflict("The file was renamed elsewhere.");
+  });
+  await publishFileChanges(fileId);
+  return { name };
+}
 
 /** The native client persists this UUID before creating a file, so lost responses
  * and offline restarts can retry without creating duplicate designs. */

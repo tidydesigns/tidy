@@ -37,7 +37,15 @@ const registrySchema = z.object({
   version: z.literal(1),
   activeProjectId: z.string().nullable(),
   projects: z
-    .array(z.object({ id: z.string(), name: z.string(), path: z.string(), openedAt: z.string() }))
+    .array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        path: z.string(),
+        openedAt: z.string(),
+        cloud: z.boolean().optional(),
+      }),
+    )
     .max(100),
 });
 
@@ -83,14 +91,15 @@ export class ProjectStore {
     return project;
   }
 
-  async open(directory: string) {
+  async open(directory: string, cloudName?: string) {
     const path = await realpath(directory);
     if (!(await stat(path)).isDirectory()) throw new Error("Select a project directory.");
     const project: Project = {
       id: randomUUID(),
-      name: basename(path),
+      name: cloudName ?? basename(path),
       path,
       openedAt: new Date().toISOString(),
+      ...(cloudName ? { cloud: true } : {}),
     };
     await this.prepare(project);
     const metadataPath = join(path, ".tidy", "project.json");
@@ -122,7 +131,7 @@ export class ProjectStore {
       project,
       ...this.projects.filter((item) => item.id !== project.id),
     ].slice(0, 100);
-    this.registry.activeProjectId = project.id;
+    if (!cloudName) this.registry.activeProjectId = project.id;
     await this.writeRegistry();
     return this.snapshot(project.id);
   }
