@@ -234,10 +234,10 @@ export function App() {
     }));
   }
 
-  function selectThread(projectId: string, threadId: string | null) {
+  const selectThread = useCallback((projectId: string, threadId: string | null) => {
     threadSelection.current[projectId] = (threadSelection.current[projectId] ?? 0) + 1;
     setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
-  }
+  }, []);
 
   function applySnapshot(value: ProjectSnapshot) {
     setSnapshots((current) => {
@@ -649,84 +649,87 @@ export function App() {
     }
   }
 
-  async function toggleThreadDone(item: ThreadSummary) {
-    if (!api || !project || updatingDone[item.id] || item.status === "running") return;
-    const projectId = project.id;
-    const next = {
-      ...item,
-      revision: item.revision + 1,
-      doneAt: item.doneAt ? undefined : new Date().toISOString(),
-    };
-    function apply(summary: ThreadSummary) {
-      setSnapshots((current) => {
-        const entry = current[projectId];
-        if (!entry) return current;
-        return {
-          ...current,
-          [projectId]: {
-            ...entry,
-            threads: entry.threads.map((value) =>
-              value.id === summary.id && value.revision <= summary.revision ? summary : value,
-            ),
-          },
-        };
-      });
-      setThreads((current) => {
-        const value = current[summary.id];
-        return value && value.revision <= summary.revision
-          ? {
-              ...current,
-              [summary.id]: {
-                ...value,
-                doneAt: summary.doneAt,
-                revision: summary.revision,
-              },
-            }
-          : current;
-      });
-    }
-    setUpdatingDone((current) => ({ ...current, [item.id]: true }));
-    apply(next);
-    try {
-      const value = await api.setThreadDone(projectId, item.id, Boolean(next.doneAt));
-      apply(summarizeThread(value));
-    } catch (cause) {
-      // Roll back only this optimistic change, without undoing a newer thread event.
-      const isOptimistic = (value: ThreadSummary) =>
-        value.revision === next.revision &&
-        value.doneAt === next.doneAt &&
-        value.status === next.status;
-      setSnapshots((current) => {
-        const entry = current[projectId];
-        if (!entry) return current;
-        return {
-          ...current,
-          [projectId]: {
-            ...entry,
-            threads: entry.threads.map((value) =>
-              value.id === item.id && isOptimistic(value) ? item : value,
-            ),
-          },
-        };
-      });
-      setThreads((current) => {
-        const value = current[item.id];
-        return value && isOptimistic(value)
-          ? {
-              ...current,
-              [item.id]: {
-                ...value,
-                doneAt: item.doneAt,
-                revision: item.revision,
-              },
-            }
-          : current;
-      });
-      setError({ projectId, text: errorText(cause), original: cause });
-    } finally {
-      setUpdatingDone((current) => ({ ...current, [item.id]: false }));
-    }
-  }
+  const toggleThreadDone = useCallback(
+    async (item: ThreadSummary) => {
+      if (!api || !project || updatingDone[item.id] || item.status === "running") return;
+      const projectId = project.id;
+      const next = {
+        ...item,
+        revision: item.revision + 1,
+        doneAt: item.doneAt ? undefined : new Date().toISOString(),
+      };
+      function apply(summary: ThreadSummary) {
+        setSnapshots((current) => {
+          const entry = current[projectId];
+          if (!entry) return current;
+          return {
+            ...current,
+            [projectId]: {
+              ...entry,
+              threads: entry.threads.map((value) =>
+                value.id === summary.id && value.revision <= summary.revision ? summary : value,
+              ),
+            },
+          };
+        });
+        setThreads((current) => {
+          const value = current[summary.id];
+          return value && value.revision <= summary.revision
+            ? {
+                ...current,
+                [summary.id]: {
+                  ...value,
+                  doneAt: summary.doneAt,
+                  revision: summary.revision,
+                },
+              }
+            : current;
+        });
+      }
+      setUpdatingDone((current) => ({ ...current, [item.id]: true }));
+      apply(next);
+      try {
+        const value = await api.setThreadDone(projectId, item.id, Boolean(next.doneAt));
+        apply(summarizeThread(value));
+      } catch (cause) {
+        // Roll back only this optimistic change, without undoing a newer thread event.
+        const isOptimistic = (value: ThreadSummary) =>
+          value.revision === next.revision &&
+          value.doneAt === next.doneAt &&
+          value.status === next.status;
+        setSnapshots((current) => {
+          const entry = current[projectId];
+          if (!entry) return current;
+          return {
+            ...current,
+            [projectId]: {
+              ...entry,
+              threads: entry.threads.map((value) =>
+                value.id === item.id && isOptimistic(value) ? item : value,
+              ),
+            },
+          };
+        });
+        setThreads((current) => {
+          const value = current[item.id];
+          return value && isOptimistic(value)
+            ? {
+                ...current,
+                [item.id]: {
+                  ...value,
+                  doneAt: item.doneAt,
+                  revision: item.revision,
+                },
+              }
+            : current;
+        });
+        setError({ projectId, text: errorText(cause), original: cause });
+      } finally {
+        setUpdatingDone((current) => ({ ...current, [item.id]: false }));
+      }
+    },
+    [api, project, updatingDone],
+  );
 
   async function stop() {
     if (!api || !project || !thread) return;
@@ -763,25 +766,37 @@ export function App() {
     document.getElementById(`workspace-tab-${modes[next].id}`)?.focus();
   }
 
-  const renderThread = (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
-    <ThreadCard
-      key={item.id}
-      thread={item}
-      orderControls={orderControls}
-      selected={selectedThreadId === item.id}
-      now={now}
-      pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
-      onSelect={() => selectThread(project!.id, item.id)}
-      onDone={() => void toggleThreadDone(item)}
-      modelName={
-        harnessDetails[`${project?.id}:${item.harness}`]?.info?.models.find(
-          (model) => model.id === (item.settings?.model ?? item.actualModel),
-        )?.name
-      }
-      designNames={item.designIds.map(
-        (id) => snapshot?.designs.find((design) => design.id === id)?.name ?? "Design reference",
-      )}
-    />
+  const renderThread = useCallback(
+    (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
+      <ThreadCard
+        thread={item}
+        orderControls={orderControls}
+        selected={selectedThreadId === item.id}
+        now={now}
+        pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
+        onSelect={() => selectThread(project!.id, item.id)}
+        onDone={() => void toggleThreadDone(item)}
+        modelName={
+          harnessDetails[`${project?.id}:${item.harness}`]?.info?.models.find(
+            (model) => model.id === (item.settings?.model ?? item.actualModel),
+          )?.name
+        }
+        designNames={item.designIds.map(
+          (id) => snapshot?.designs.find((design) => design.id === id)?.name ?? "Design reference",
+        )}
+      />
+    ),
+    [
+      selectedThreadId,
+      now,
+      updatingDone,
+      settingsPending,
+      selectThread,
+      project,
+      toggleThreadDone,
+      harnessDetails,
+      snapshot?.designs,
+    ],
   );
   useEffect(() => {
     if (!error || (error.projectId && error.projectId !== activeProjectId)) return;
