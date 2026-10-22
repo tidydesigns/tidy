@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { AuthGuardStore, metadataFreshness } from "./guard-store";
+import { AuthGuardStore, metadataFreshness, type RatePair } from "./guard-store";
 
 function store() {
   const database = new Database(":memory:");
@@ -246,3 +246,49 @@ test("expiry cleanup is indexed, bounded and recovers capacity after object rest
     database.close();
   }
 });
+
+test("atomic admission restores SQL and cached accounting after rejection or write failure", () => {
+  const { database, guard } = store();
+  const identity = (key: string): RatePair => [
+    { key: `${key}:minute`, rule: { window: 60, max: 5 } },
+    { key: `${key}:hour`, rule: { window: 3600, max: 20 } },
+  ];
+  const shared = identity("global");
+  const transactionSync = <T>(callback: () => T) => database.transaction(callback)();
+  try {
+    for (let index = 0; index < 5; index++)
+      expect(
+        guard.consumeAdmission({ identity: identity(`ip-${index}`), shared, transactionSync })
+          .allowed,
+      ).toBe(true);
+    const before = database.query("SELECT * FROM auth_bucket ORDER BY key").all();
+    for (let index = 0; index < 10_001; index++)
+      expect(
+        guard.consumeAdmission({ identity: identity(`denied-${index}`), shared, transactionSync })
+          .allowed,
+      ).toBe(false);
+    expect(database.query("SELECT * FROM auth_bucket ORDER BY key").all()).toEqual(before);
+    const otherShared = identity("other-global");
+    expect(() =>
+      guard.consumeAdmission({
+        identity: identity("write-failure"),
+        shared: otherShared,
+        transactionSync: (callback) =>
+          transactionSync(() => {
+            callback();
+            throw new Error("storage failure");
+          }),
+      }),
+    ).toThrow("storage failure");
+    expect(database.query("SELECT * FROM auth_bucket ORDER BY key").all()).toEqual(before);
+    expect(
+      guard.consumeAdmission({
+        identity: identity("recovered"),
+        shared: otherShared,
+        transactionSync,
+      }).allowed,
+    ).toBe(true);
+  } finally {
+    database.close();
+  }
+}, 15_000);

@@ -10,8 +10,15 @@ type CacheRow = {
 type Counter = { count: number };
 export type RateRule = { window: number; max: number; cost?: number };
 export type RateCheck = { key: string; rule: RateRule };
-export type RateDecision = { allowed: boolean; retryAfter: number | null };
+export type RatePair = [RateCheck, RateCheck];
+export type RateDecision = { allowed: boolean; retryAfter: number | null; atomicAdmission?: true };
 export class AuthGuardLimit extends Error {}
+
+class AdmissionDenied extends Error {
+  constructor(readonly decision: RateDecision) {
+    super("Admission denied.");
+  }
+}
 
 // Only completed, validated public metadata is persisted. No sessions, grants,
 // credentials, request objects, or pending promises are retained here.
@@ -50,9 +57,8 @@ export class AuthGuardStore {
       rule.window > 3600
     )
       throw new Error("Invalid auth rate-limit rule.");
-    // Indexed, bounded cleanup, at most once per second per active object. Only
-    // this synchronous store mutates buckets, so the in-memory row count stays
-    // exact across calls and is reconstructed once when an object wakes.
+    // Indexed, bounded cleanup. Only this synchronous store mutates buckets,
+    // so its cached row count stays exact and is reconstructed when an object wakes.
     if (now >= this.nextCleanupAt) {
       const removed = this.sql
         .exec(
@@ -95,6 +101,38 @@ export class AuthGuardStore {
   consumePair(first: RateCheck, second: RateCheck): RateDecision {
     const decision = this.consume(first.key, first.rule);
     return decision.allowed ? this.consume(second.key, second.rule) : decision;
+  }
+
+  /** Both allowances and identity allocation commit together. Restore cached
+   * accounting as well as SQL state when the storage transaction rolls back. */
+  consumeAdmission({
+    identity,
+    shared,
+    transactionSync,
+  }: {
+    identity: RatePair;
+    shared: RatePair;
+    transactionSync: <T>(callback: () => T) => T;
+  }): RateDecision {
+    const bucketCount = this.bucketCount;
+    const nextCleanupAt = this.nextCleanupAt;
+    const now = Date.now();
+    try {
+      return transactionSync(() => {
+        // Admission must reclaim expired rows even during bursts within one second.
+        this.nextCleanupAt = 0;
+        for (const { key, rule } of [...shared, ...identity]) {
+          const decision = this.consume(key, rule, now);
+          if (!decision.allowed) throw new AdmissionDenied(decision);
+        }
+        return { allowed: true, retryAfter: null };
+      });
+    } catch (error) {
+      this.bucketCount = bucketCount;
+      this.nextCleanupAt = nextCleanupAt;
+      if (error instanceof AdmissionDenied) return error.decision;
+      throw error;
+    }
   }
 
   acquireFetch(url: string, now = Date.now()) {

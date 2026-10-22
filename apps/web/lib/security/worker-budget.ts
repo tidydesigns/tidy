@@ -1,17 +1,18 @@
-import type { RateCheck, RateDecision, RateRule } from "../auth/guard-store";
+import type { RateCheck, RateDecision, RatePair, RateRule } from "../auth/guard-store";
 import { waitForSignal } from "../request-lifecycle";
 
 export type BudgetConsumer = (
   scope: string,
   first: RateCheck,
   second: RateCheck,
+  identity?: RatePair,
 ) => Promise<RateDecision>;
 export type BudgetEnvironment = Pick<CloudflareEnv, "AUTH_GUARD" | "BETTER_AUTH_SECRET">;
 
 /** Works before OpenNext installs its request context. No raw identities in DO
  * names/storage and no pending RPCs shared between Worker invocations. */
 export function workerBudgetConsumer(env: BudgetEnvironment, parent?: AbortSignal): BudgetConsumer {
-  return async (scope, first, second) => {
+  return async (scope, first, second, identity) => {
     const signal = AbortSignal.any([AbortSignal.timeout(2000), ...(parent ? [parent] : [])]);
     if (!env.AUTH_GUARD || !env.BETTER_AUTH_SECRET) throw new Error("Missing admission bindings.");
     const secret = await crypto.subtle.importKey(
@@ -28,8 +29,17 @@ export function workerBudgetConsumer(env: BudgetEnvironment, parent?: AbortSigna
     const guard = env.AUTH_GUARD.getByName(`admission-v1:${scope}`);
     const key = await fingerprint(first.key);
     const next = { key: await fingerprint(second.key), rule: second.rule };
+    const identityChecks: RatePair | undefined = identity
+      ? [
+          { key: await fingerprint(identity[0].key), rule: identity[0].rule },
+          { key: await fingerprint(identity[1].key), rule: identity[1].rule },
+        ]
+      : undefined;
     signal.throwIfAborted();
-    const decision = await waitForSignal(guard.consume(key, first.rule, next), signal);
+    const decision = await waitForSignal(
+      guard.consume(key, first.rule, next, identityChecks),
+      signal,
+    );
     if (!decision.allowed || ("batchSupported" in decision && decision.batchSupported === true))
       return decision;
     signal.throwIfAborted();

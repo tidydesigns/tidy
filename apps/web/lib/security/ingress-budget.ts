@@ -65,16 +65,23 @@ export async function checkIngress(
   const limits = INGRESS_LIMITS[kind];
   const ip = request.headers.get("cf-connecting-ip") || "unknown";
   try {
+    // Centralize signup only: at most two overlapping 1,000-request
+    // hourly windows retain identity rows, below its 10,000-counter cap.
+    const decision = await consume(
+      `ingress:${kind}`,
+      ...windowChecks("global", limits.minute, limits.hour),
+      kind === "registration"
+        ? windowChecks(`ip:${ip}`, limits.ipMinute, limits.ipHour)
+        : undefined,
+    );
+    if (!decision.allowed) return admissionResponse(429, decision.retryAfter ?? 60);
+    // Older guards ignore identity checks and still need their existing IP shard.
+    if (kind === "registration" && decision.atomicAdmission) return null;
     const ipDecision = await consume(
       `ingress:${kind}:ip:${await budgetShard(ip)}`,
       ...windowChecks(ip, limits.ipMinute, limits.ipHour),
     );
-    if (!ipDecision.allowed) return admissionResponse(429, ipDecision.retryAfter ?? 60);
-    const decision = await consume(
-      `ingress:${kind}`,
-      ...windowChecks("global", limits.minute, limits.hour),
-    );
-    return decision.allowed ? null : admissionResponse(429, decision.retryAfter ?? 60);
+    return ipDecision.allowed ? null : admissionResponse(429, ipDecision.retryAfter ?? 60);
   } catch {
     // Do not report admission failures to a billable telemetry provider.
     return admissionResponse(503, 5);

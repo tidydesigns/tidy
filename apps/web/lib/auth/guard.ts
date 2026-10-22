@@ -1,6 +1,12 @@
 import { ConnectionLeases } from "../realtime/connection-leases";
 import { DurableObject } from "cloudflare:workers";
-import { AuthGuardLimit, AuthGuardStore, type RateCheck, type RateRule } from "./guard-store";
+import {
+  AuthGuardLimit,
+  AuthGuardStore,
+  type RateCheck,
+  type RatePair,
+  type RateRule,
+} from "./guard-store";
 import { waitForSignal } from "./request-lifecycle";
 
 export class AuthGuard extends DurableObject<CloudflareEnv> {
@@ -11,8 +17,18 @@ export class AuthGuard extends DurableObject<CloudflareEnv> {
     this.store = new AuthGuardStore(ctx.storage.sql);
   }
 
-  consume(key: string, rule: RateRule, next?: RateCheck) {
+  consume(key: string, rule: RateRule, next?: RateCheck, identity?: RatePair) {
     if (!next) return this.store.consume(key, rule);
+    if (identity)
+      return {
+        ...this.store.consumeAdmission({
+          identity,
+          shared: [{ key, rule }, next],
+          transactionSync: (callback) => this.ctx.storage.transactionSync(callback),
+        }),
+        batchSupported: true,
+        atomicAdmission: true as const,
+      };
     return { ...this.store.consumePair({ key, rule }, next), batchSupported: true };
   }
 
