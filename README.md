@@ -148,6 +148,11 @@ Provision `PRIVACY_CLEANUP_SECRET` to authenticate scheduled privacy cleanup.
 Its absence produces a deployment warning; scheduled cleanup remains unavailable
 until it is configured. Manual PostHog deletion is a separate operator process.
 
+Instant personal-data downloads are limited to 8 MB and 10,000 records, with one
+export running per Worker isolate. Accounts above either limit receive an error
+instead of a partial download. Operators must provide a complete export for those
+accounts through their private data-request process.
+
 From the repository root:
 
 ```sh

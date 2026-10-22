@@ -43,6 +43,14 @@ export const DESIGN_READ_LIMITS = {
   exportBytes: 12_000_000,
 } as const;
 
+/** Instant personal-data downloads share one bounded buffer per isolate.
+ * Larger accounts need an operator-assisted complete export, never truncation. */
+export const ACCOUNT_EXPORT_LIMITS = {
+  rows: 10_000,
+  bytes: 8_000_000,
+  concurrent: 1,
+} as const;
+
 /** Bound cross-workspace image copying; same-workspace ID reuse needs no image I/O. */
 export const CLIPBOARD_LIMITS = {
   assetsPerCopy: 100,

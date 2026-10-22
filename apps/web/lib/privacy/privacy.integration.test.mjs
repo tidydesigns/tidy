@@ -3,6 +3,7 @@ import { Client } from "pg";
 mock.module("server-only", () => ({}));
 const { db } = await import("../db");
 const { exportAccount } = await import("./export");
+const { ACCOUNT_EXPORT_LIMITS } = await import("../security/resource-limits");
 const { deleteAccount, DELETED_USER } = await import("./delete");
 const { privacyAccount } = await import("./access");
 const { processPrivacyCleanup } = await import("./cleanup");
@@ -1365,5 +1366,99 @@ integration(
       ).rows[0];
       expect(after).toEqual(before);
     }
+  },
+);
+
+integration(
+  "export rejects aggregate document bytes and recovers without truncating supported exports",
+  async () => {
+    const { parseDesignDocument } = await import("../design/document");
+    const content = JSON.stringify(
+      parseDesignDocument({
+        schemaVersion: 1,
+        warnings: [],
+        nodes: Array.from({ length: 450 }, (_, index) => ({
+          id: `text-${index}`,
+          name: "Text",
+          type: "text",
+          parentId: null,
+          box: { x: 0, y: index, width: 100, height: 20 },
+          text: "漢😊".repeat(1300),
+        })),
+      }),
+    );
+    expect(Buffer.byteLength(content)).toBeLessThan(ACCOUNT_EXPORT_LIMITS.bytes);
+    await admin.query(
+      `insert into "designFile" (id,"organizationId",name,"createdBy") values ('large-second','org','Second design','alice')`,
+    );
+    await admin.query(
+      `insert into "designDocument" ("fileId",content) values ('f',$1),('large-second',$1)`,
+      [content],
+    );
+    const failure = await exportAccount("alice", "alice-session").catch((error) => error);
+    expect(failure.status).toBe(413);
+    expect(failure.message).toContain("complete personal data export");
+    expect((await admin.query('select "fileId" from "designDocument"')).rowCount).toBe(2);
+    // Removing one large fixture restores the complete supported download, and
+    // the failed request must have released its capacity and transaction locks.
+    await admin.query(`delete from "designFile" where id='large-second'`);
+    const complete = await exportAccount("alice", "alice-session");
+    expect(complete.documents).toHaveLength(1);
+    expect(complete.documents[0].content.nodes).toHaveLength(450);
+    expect(complete.comments.map((row) => row.body)).toEqual(["My private comment"]);
+    expect(Buffer.byteLength(JSON.stringify(complete))).toBeLessThanOrEqual(
+      ACCOUNT_EXPORT_LIMITS.bytes,
+    );
+  },
+);
+
+integration(
+  "export bounds the total number of small records before returning any partial download",
+  async () => {
+    await admin.query(
+      `insert into "designFile" (id,"organizationId",name,"createdBy")
+    select 'export-row-' || n,'org','Small file','alice' from generate_series(1,$1::int) n`,
+      [ACCOUNT_EXPORT_LIMITS.rows],
+    );
+    const failure = await exportAccount("alice", "alice-session").catch((error) => error);
+    expect(failure.status).toBe(413);
+    expect(failure.message).toContain("complete personal data export");
+    expect((await exportAccount("bob", "bob-session")).profile[0].id).toBe("bob");
+  },
+);
+
+integration(
+  "export rejects concurrent isolate work without queuing another database connection",
+  async () => {
+    await admin.query("begin");
+    await admin.query(`select id from "user" where id='alice' for update`);
+    const pending = exportAccount("alice", "alice-session");
+    void pending.catch(() => {});
+    try {
+      let waiting = false;
+      for (let attempt = 0; attempt < 200; attempt++) {
+        await db.query("select pg_stat_clear_snapshot()");
+        if (
+          (
+            await db.query(`select 1 from pg_stat_activity where datname=current_database()
+        and pid<>pg_backend_pid() and wait_event_type='Lock'`)
+          ).rowCount
+        ) {
+          waiting = true;
+          break;
+        }
+        await Bun.sleep(5);
+      }
+      expect(waiting).toBe(true);
+      const failure = await exportAccount("bob", "bob-session").catch((error) => error);
+      expect(failure.status).toBe(503);
+      expect(failure.message).toContain("Another data export");
+      await admin.query("commit");
+      expect((await pending).profile[0].id).toBe("alice");
+    } finally {
+      await admin.query("rollback").catch(() => {});
+      await pending.catch(() => {});
+    }
+    expect((await exportAccount("bob", "bob-session")).profile[0].id).toBe("bob");
   },
 );

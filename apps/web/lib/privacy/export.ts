@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/lib/db";
-import { lockPrivacyAccount } from "./access";
+import { ACCOUNT_EXPORT_LIMITS as limits } from "@/lib/security/resource-limits";
+import { lockPrivacyAccount, PrivacyError } from "./access";
 
 // Explicit projections ensure future credential columns cannot leak into exports.
 // Shared content is included only while the requester remains a member.
@@ -59,7 +60,27 @@ export const exportQueries: Record<string, string> = {
     'select id,version,"noticeVersion",at,analytics,replay,diagnostics,"recordedAt","expiresAt" from "privacyConsent" where "userId"=$1',
 };
 
+let activeExports = 0;
+const oversized = () =>
+  new PrivacyError(
+    "Your account is too large for an instant download. Contact the operator for a complete personal data export.",
+    413,
+  );
+
 export async function exportAccount(userId: string, sessionId: string) {
+  // No waiting queue that retains connections or account data. Shared attempt
+  // limits still apply at the route; this bounds simultaneous isolate memory.
+  if (activeExports >= limits.concurrent)
+    throw new PrivacyError("Another data export is running. Try again shortly.", 503);
+  activeExports++;
+  try {
+    return await readAccountExport(userId, sessionId);
+  } finally {
+    activeExports--;
+  }
+}
+
+async function readAccountExport(userId: string, sessionId: string) {
   const client = await db.connect();
   try {
     await client.query("begin isolation level repeatable read");
@@ -70,8 +91,39 @@ export async function exportAccount(userId: string, sessionId: string) {
       scope:
         "Personal account data, feedback stored in Tidy and currently accessible designs you created. Shared organization data belongs to the organization. Authentication secrets and vault credentials are excluded. Export complete design files from the editor, including assets. Contact the operator for historical analytics, legacy feedback held outside Tidy, or other processor records.",
     };
-    for (const [section, query] of Object.entries(exportQueries))
-      data[section] = (await client.query(query, [userId])).rows;
+    const metadataBytes = Buffer.byteLength(JSON.stringify(data));
+    let rows = 0,
+      bytes = metadataBytes;
+    // Measure every section inside the same snapshot before loading any private
+    // records. Only scalar totals cross the database connection during admission.
+    // LIMIT also bounds the work when an account has a huge number of small rows.
+    for (const [section, query] of Object.entries(exportQueries)) {
+      const size = (
+        await client.query<{ count: number; bytes: string }>(
+          `select count(*)::int as count,
+           coalesce(sum(octet_length(row_to_json(export_row)::text)::bigint),0)::text as bytes
+           from (${query} limit $2) export_row`,
+          [userId, limits.rows - rows + 1],
+        )
+      ).rows[0];
+      if (!size || !Number.isSafeInteger(size.count) || size.count < 0) throw oversized();
+      const sectionBytes = Number(size.bytes);
+      if (!Number.isSafeInteger(sectionBytes) || sectionBytes < 0) throw oversized();
+      rows += size.count;
+      // Include property names, array delimiters and commas in the output budget.
+      bytes += sectionBytes + size.count + Buffer.byteLength(JSON.stringify(section)) + 4;
+      if (rows > limits.rows || bytes > limits.bytes) throw oversized();
+    }
+    let serializedBytes = metadataBytes;
+    for (const [section, query] of Object.entries(exportQueries)) {
+      const records = (await client.query(`${query} limit $2`, [userId, limits.rows])).rows;
+      // pg's JavaScript date/number serialization can differ from row_to_json.
+      // Retain a final actual-byte check as well as the database-side preflight.
+      serializedBytes +=
+        Buffer.byteLength(JSON.stringify(records)) + Buffer.byteLength(JSON.stringify(section)) + 2;
+      if (serializedBytes > limits.bytes) throw oversized();
+      data[section] = records;
+    }
     await client.query("commit");
     return data;
   } catch (error) {
