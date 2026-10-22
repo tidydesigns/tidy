@@ -63,6 +63,7 @@ async function fixture(
   cleanups.push(() => service.close());
   return { directory, store, service, project: snapshot.project, runs };
 }
+/** Wait for a running fixture response to checkpoint its final thread state. */
 function finished(service: WorkspaceService, threadId: string) {
   return new Promise<Thread>((resolve) => {
     const unsubscribe = service.subscribe((event) => {

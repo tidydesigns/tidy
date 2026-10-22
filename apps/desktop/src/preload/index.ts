@@ -9,6 +9,7 @@ import type { DesktopAPI } from "../shared/contracts";
 import { appUpdateStateSchema } from "../shared/app-updates";
 import { harnessUpdatesSchema } from "../shared/harness-updates";
 
+/** Invoke a workspace operation and validate its response before crossing the preload boundary. */
 async function request<Name extends WorkspaceOperation>(
   name: Name,
   input?: unknown,

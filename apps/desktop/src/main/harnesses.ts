@@ -36,6 +36,7 @@ const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
+/** Build the CLI environment from an allowlist and include standard user installation paths. */
 export function harnessEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of [
@@ -107,6 +108,7 @@ export function findHarness(id: HarnessId | "opencode", environment = harnessEnv
   return findExecutable(id, environment);
 }
 
+/** Report installation and authentication status for the supported conversation providers. */
 export async function checkHarnesses(): Promise<HarnessConnection[]> {
   return Promise.all(
     (["codex", "claude"] as const).map(async (id) => {

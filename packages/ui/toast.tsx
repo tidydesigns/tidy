@@ -59,6 +59,7 @@ export function Toast({
   );
 }
 
+/** Portal global toasts and actionable notices into the shared bottom-right notification stack. */
 export function ToastViewport({ children }: { children?: ReactNode }) {
   const notices = useSyncExternalStore(subscribeToasts, toastSnapshot, emptyToastSnapshot);
   const [container, setContainer] = useState<HTMLElement | null>(null);

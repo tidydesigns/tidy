@@ -11,6 +11,7 @@ import type { DesktopAPI, ProjectSnapshot } from "../../shared/contracts";
 if (new URLSearchParams(location.hash.slice(1)).has("token"))
   history.replaceState(null, "", location.pathname + location.search);
 
+/** Call the authenticated local development bridge and validate the workspace response. */
 async function request<Name extends WorkspaceOperation>(
   name: Name,
   input?: unknown,
@@ -27,6 +28,7 @@ async function request<Name extends WorkspaceOperation>(
   return parseWorkspaceResponse(name, await response.json());
 }
 
+/** Choose a local JSON design and send its bounded contents through the development bridge. */
 async function importDesign(projectId: string, folderId?: string | null) {
   const input = document.createElement("input");
   input.type = "file";
@@ -49,16 +51,20 @@ async function importDesign(projectId: string, folderId?: string | null) {
 }
 
 const recoveries = new Set<ReturnType<typeof browserRecovery>>();
+/** Keep recovery state in sync with the latest accepted workspace snapshot. */
 function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
   for (const recovery of recoveries) recovery.remember(snapshot);
   return snapshot;
 }
 
 const api: DesktopAPI = {
+  /** Browser development has no native harness discovery or maintenance endpoint. */
   harnessUpdates: async () => [],
+  /** Reject native update requests explicitly instead of exposing them through the dev server. */
   installHarnessUpdate: async () => {
     throw new Error("Harness updates require the desktop app.");
   },
+  /** Match the desktop subscription contract without subscribing to native maintenance events. */
   onHarnessUpdates: () => () => {},
   updateState: async () => ({ status: "unsupported" }),
   checkUpdates: async () => {},

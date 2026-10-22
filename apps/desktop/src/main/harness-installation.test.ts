@@ -34,6 +34,7 @@ test("versions compare numerically and unrecognized/prerelease/command text is n
     expect(() => parseHarnessVersion(value)).toThrow();
 });
 
+/** Simulate an installation and its package manager without inspecting or changing the host. */
 function discovery(
   executable: string,
   id: UpdatableHarnessId = "codex",

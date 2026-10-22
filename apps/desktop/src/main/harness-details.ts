@@ -295,6 +295,7 @@ const cache = new Map<string, { until: number; value: Promise<HarnessDetails> }>
 export function invalidateHarnessDetails(harness: string) {
   for (const key of cache.keys()) if (key.startsWith(`${harness}:`)) cache.delete(key);
 }
+/** Coalesce model and account discovery per harness/workspace for one minute unless refreshed. */
 export function readHarnessDetails(harness: HarnessId, cwd: string, refresh = false) {
   const key = `${harness}:${cwd}`,
     cached = cache.get(key);

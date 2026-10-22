@@ -7,6 +7,7 @@ const updates: HarnessUpdates[] = [];
 afterEach(async () => {
   for (const updater of updates.splice(0)) await updater.close();
 });
+/** Describe a synthetic CLI whose version can advance independently during an update. */
 const installation = (id: UpdatableHarnessId, version = "1.2.3"): HarnessInstallation => ({
   id,
   version,
@@ -15,6 +16,7 @@ const installation = (id: UpdatableHarnessId, version = "1.2.3"): HarnessInstall
   channel: "latest",
   command: { executable: `/global/${id}`, args: ["update"] },
 });
+/** Create an isolated updater with observable reservations, commands and installed versions. */
 function fixture() {
   const installed = new Map<UpdatableHarnessId, HarnessInstallation>([
     ["codex", installation("codex")],
@@ -67,6 +69,7 @@ function fixture() {
     },
   };
 }
+/** Wait for a provider's emitted lifecycle state, failing rather than hanging on a regression. */
 function until(
   updater: HarnessUpdates,
   id: UpdatableHarnessId,
