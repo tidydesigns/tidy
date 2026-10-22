@@ -153,7 +153,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     if (result.type !== "return") throw new Error("Expected a real child process");
     const child = result.value;
     if (beforeSubmission && harness === "claude")
-      child.stdout?.prependOnceListener("data", () => process?.stdin?.destroy());
+      child.stdout?.prependOnceListener("data", () => child.stdin?.destroy());
     cleanups.push(async () => {
       run.stop();
       await run.done.catch(() => {});
