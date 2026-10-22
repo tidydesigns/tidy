@@ -311,8 +311,7 @@ export class WorkspaceService {
       const message = queue.find((item) => item.id === action.messageId);
       if (!message) throw new Error("This message has already left the queue.");
       if (action.kind === "steer") {
-        if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
-          return structuredClone(thread);
+        if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion) return structuredClone(thread);
         return this.deliverQueued(thread, message, true);
       }
       if (action.kind === "edit" && !action.text.trim() && !message.attachments?.length)
@@ -340,7 +339,16 @@ export class WorkspaceService {
       thread.queueError = undefined;
       if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
       if (job) {
-        if (!steer || job.stopped) return structuredClone(thread);
+        if (!steer) return structuredClone(thread);
+        if (job.stopped) {
+          if (this.closing) return structuredClone(thread);
+          await job.process?.done.catch(() => {});
+          await this.finish(job, false);
+          if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
+            return structuredClone(thread);
+          this.automaticQueues.add(thread.id);
+          return await this.run(thread, message.text, attachmentIds, message.id);
+        }
         const prepared = await this.prepareMessage(thread, message.text, attachmentIds);
         if (this.closing || job.stopped) return structuredClone(thread);
         const insertion = thread.messages.length;

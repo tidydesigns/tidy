@@ -14,7 +14,7 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-async function fixture(native = false) {
+async function fixture(native = false, finishOnStop = true) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-queue-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   const store = new ProjectStore(join(directory, "state"));
@@ -27,6 +27,7 @@ async function fixture(native = false) {
     finish(): void;
     fail(error: Error): void;
     stopped: boolean;
+    shutdownWait: Promise<void>;
     steers: Array<{ prompt: string }>;
   }> = [];
   const runWaiters = new Map<number, () => void>();
@@ -34,22 +35,27 @@ async function fixture(native = false) {
     store,
     (input) => {
       const deferred = Promise.withResolvers<void>();
+      const shutdown = Promise.withResolvers<void>();
       const steers: Array<{ prompt: string }> = [];
       const run = {
         input,
         finish: () => deferred.resolve(),
         fail: deferred.reject,
         stopped: false,
+        shutdownWait: shutdown.promise,
         steers,
       };
       runs.push(run);
       runWaiters.get(runs.length)?.();
       runWaiters.delete(runs.length);
       return {
-        done: deferred.promise,
+        get done() {
+          if (run.stopped) shutdown.resolve();
+          return deferred.promise;
+        },
         stop() {
           run.stopped = true;
-          deferred.resolve();
+          if (finishOnStop) deferred.resolve();
         },
         ...(native
           ? {
@@ -63,7 +69,10 @@ async function fixture(native = false) {
     },
     async () => "/fixture/agent",
   );
-  cleanups.push(() => service.close());
+  cleanups.push(async () => {
+    for (const run of runs) run.finish();
+    await service.close();
+  });
   const thread = await service.startThread({
     projectId: project.id,
     harness: native ? "codex" : "claude",
@@ -434,3 +443,26 @@ test("delivery rejects an attachment changed after enqueue and retains the messa
   expect(runs).toHaveLength(1);
   expect(runs[0].steers).toHaveLength(0);
 });
+
+test.each([false, true])(
+  "Send now waits for shutdown and honors a later Stop (%s)",
+  async (stopAgain) => {
+    const { enqueue, service, project, thread, runs, action, read } = await fixture(false, false);
+    const queued = await enqueue("Replacement instruction");
+    const message = queued.queuedMessages?.[0];
+    if (!message) throw new Error("Expected the queued message");
+    await service.stopThread(project.id, thread.id);
+    const sending = action({ kind: "steer", messageId: message.id });
+    await runs[0].shutdownWait;
+    if (stopAgain) await service.stopThread(project.id, thread.id);
+    expect(runs).toHaveLength(1);
+    runs[0].finish();
+    await sending;
+    expect(runs).toHaveLength(stopAgain ? 1 : 2);
+    if (stopAgain) expect((await read()).queuedMessages?.[0]?.id).toBe(message.id);
+    else {
+      expect(runs[1].input.prompt).toEndWith("Replacement instruction");
+      expect((await read()).queuedMessages).toEqual([]);
+    }
+  },
+);
