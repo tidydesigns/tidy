@@ -15,6 +15,7 @@ import {
 import { useLayerWindow } from "./use-layer-window";
 import type { DesignNode } from "../design/document";
 import { createLayerTreeNodes, type LayerTreeNode } from "./layer-tree-nodes";
+import { useEditorEvent } from "./use-editor-event";
 
 type DropPosition = "before" | "inside" | "after";
 export function LayerTree(
@@ -132,7 +133,7 @@ const LayerTreeView = memo(function LayerTreeView({
     }
   }, [focusedId, rows, start, end, tree]);
 
-  function onRowKeyDown(event: KeyboardEvent<HTMLDivElement>, index: number) {
+  const onRowKeyDown = useEditorEvent((event: KeyboardEvent<HTMLDivElement>, index: number) => {
     if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey)
       return;
     const row = rows[index];
@@ -169,7 +170,7 @@ const LayerTreeView = memo(function LayerTreeView({
       pendingFocus.current = id;
       setFocusedId(id);
     }
-  }
+  });
 
   return (
     <div
@@ -212,8 +213,8 @@ const LayerTreeView = memo(function LayerTreeView({
           focused={
             start + index === (focusedIndex >= start && focusedIndex < end ? focusedIndex : start)
           }
-          onFocus={() => setFocusedId(item.node.id)}
-          onKeyDown={(event) => onRowKeyDown(event, start + index)}
+          onFocus={setFocusedId}
+          onKeyDown={onRowKeyDown}
           selected={selection.has(item.node.id)}
           readOnly={readOnly}
           dragged={dragged}
@@ -250,8 +251,8 @@ type LayerRowProps = {
   rowHeight: number;
   labelId: string;
   focused: boolean;
-  onFocus: () => void;
-  onKeyDown: (event: KeyboardEvent<HTMLDivElement>) => void;
+  onFocus: (id: string) => void;
+  onKeyDown: (event: KeyboardEvent<HTMLDivElement>, index: number) => void;
   selected: boolean;
   readOnly: boolean;
   dragged: string | null;
@@ -307,8 +308,8 @@ const LayerRow = memo(function LayerRow({
       data-layer-row={node.id}
       aria-labelledby={labelId}
       tabIndex={focused ? 0 : -1}
-      onFocus={onFocus}
-      onKeyDown={onKeyDown}
+      onFocus={() => onFocus(node.id)}
+      onKeyDown={(event) => onKeyDown(event, position)}
       onContextMenu={(event) => onMenu(event, node.id)}
       className="rounded-md focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-black"
       aria-level={depth + 1}

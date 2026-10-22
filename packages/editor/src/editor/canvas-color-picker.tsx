@@ -13,7 +13,7 @@ import {
 } from "react";
 import type { DesignNode } from "../design/document";
 import { createCanvasColorSampler } from "./canvas-color-hit";
-import { canvasColorSnapshot } from "./canvas-color-snapshot";
+import type { canvasColorSnapshot } from "./canvas-color-snapshot";
 
 type Snapshot = Awaited<ReturnType<typeof canvasColorSnapshot>>;
 type SamplingSession =
@@ -45,7 +45,6 @@ export function CanvasColorPicker({
   className: string;
   "data-mobile-panels-open": boolean;
 }) {
-  const byId = useMemo(() => new Map(nodes.map((node) => [node.id, node])), [nodes]);
   const [request, setRequest] = useState<Request | null>(null);
   const [message, setMessage] = useState(instruction);
   const restoreFocus = useRef<HTMLElement | null>(null);
@@ -74,6 +73,7 @@ export function CanvasColorPicker({
     }
     const surface = canvas.current;
     if (!surface) return;
+    const byId = new Map(nodes.map((node) => [node.id, node]));
     surface.focus({ preventScroll: true });
     if (cursor.current) {
       cursor.current.hidden = true;
@@ -167,7 +167,11 @@ export function CanvasColorPicker({
       context.lineWidth = 1;
       context.strokeRect(60, 60, 12, 12);
     };
-    void canvasColorSnapshot({ surface, nodes, signal })
+    void import("./canvas-color-snapshot")
+      .then(({ canvasColorSnapshot }) => {
+        signal.throwIfAborted();
+        return canvasColorSnapshot({ surface, nodes, signal });
+      })
       .then((result) => {
         if (signal.aborted) {
           result.dispose();
@@ -283,7 +287,7 @@ export function CanvasColorPicker({
       document.removeEventListener("click", choose, true);
       document.removeEventListener("keydown", escape, true);
     };
-  }, [request, canvas, byId, tokens, nodes]);
+  }, [request, canvas, tokens, nodes]);
   return (
     <Context.Provider value={context}>
       <main
