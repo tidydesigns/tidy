@@ -1199,7 +1199,8 @@ summary:focus-visible {
   outline: none;
 }
 .composer:focus-within {
-  border-color: var(--color-muted-ink);
+  border-color: color-mix(in srgb, var(--color-muted-ink) 45%, var(--color-border));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-ink) 4%, transparent);
 }
 .composer textarea::placeholder {
   color: var(--color-muted-ink);
@@ -2529,22 +2530,27 @@ summary:focus-visible {
 }
 .skill-picker {
   position: absolute;
-  bottom: calc(100% + 12px);
-  inset-inline: 0;
+  bottom: calc(100% + 20px);
+  inset-inline-start: 0;
   z-index: 10;
-  max-height: min(280px, 40dvh);
+  width: min(480px, 100%);
+  max-height: min(288px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 4px;
+  scrollbar-width: thin;
+  padding: 5px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--desktop-surface);
-  box-shadow: 0 4px 16px #00000012;
+  box-shadow:
+    0 2px 4px light-dark(#00000004, #00000014),
+    0 8px 24px light-dark(#0000000d, #00000033);
 }
 .skill-option {
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
   padding: 8px 10px;
   border-radius: 5px;
   cursor: pointer;
@@ -2552,9 +2558,26 @@ summary:focus-visible {
 .skill-option[aria-selected="true"] {
   background: var(--color-hover-surface);
 }
+.skill-option-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
 .skill-option-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
   color: var(--color-ink);
+}
+.skill-option-slash {
+  margin-inline-end: 2px;
+  color: var(--color-muted-ink);
+  font-weight: 400;
 }
 .skill-option-description {
   overflow: hidden;
@@ -2562,11 +2585,24 @@ summary:focus-visible {
   white-space: nowrap;
   color: var(--color-muted-ink);
   font-size: 12px;
+  line-height: 16px;
+}
+.skill-option-key {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--color-muted-ink);
+  font-size: 14px;
+  line-height: 20px;
+}
+.skill-option[aria-selected="true"] .skill-option-key {
+  visibility: visible;
 }
 .skill-picker-status {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  min-height: 44px;
   padding: 8px 10px;
   color: var(--color-muted-ink);
   font-size: 13px;

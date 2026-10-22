@@ -92,8 +92,20 @@ export function SkillPrompt({
                 onPointerDown={(event) => event.preventDefault()}
                 onClick={() => choose(skill)}
               >
-                <span className="skill-option-name">/{skill.name}</span>
-                <span className="skill-option-description">{skill.description}</span>
+                <span className="skill-option-content">
+                  <span className="skill-option-name">
+                    <span className="skill-option-slash" aria-hidden="true">
+                      /
+                    </span>
+                    {skill.name}
+                  </span>
+                  {skill.description && (
+                    <span className="skill-option-description">{skill.description}</span>
+                  )}
+                </span>
+                <span className="skill-option-key" aria-hidden="true">
+                  ↵
+                </span>
               </div>
             ))}
           </div>
