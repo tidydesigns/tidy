@@ -9,7 +9,7 @@ import type { DesktopAPI, DesignSummary, LocalDesign, Thread } from "../../share
 import { LocalCanvas } from "./local-canvas";
 
 type Phase = "closed" | "opening" | "open" | "closing";
-const enterEasing = "cubic-bezier(0.7, 0, 0.85, 0.35)";
+const enterEasing = "cubic-bezier(0.6, 0.04, 0.85, 0.24)";
 const exitEasing = "cubic-bezier(0.15, 0.65, 0.3, 1)";
 const previewRatio = 1.5;
 const minimumWidth = 220;
@@ -66,6 +66,7 @@ export function ThreadDesignWindow({
   const resizeHandle = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
+  const transitionEdge = useRef<HTMLDivElement>(null);
   const animations = useRef<Animation[]>([]);
   const generation = useRef(0);
   const restoreFocus = useRef(false);
@@ -223,6 +224,7 @@ export function ThreadDesignWindow({
     dialog.current?.close();
     if (dialog.current) dialog.current.style.clipPath = "";
     if (canvas.current) canvas.current.style.transform = "";
+    transitionEdge.current?.removeAttribute("style");
     setPhase("closed");
   }, []);
 
@@ -251,7 +253,8 @@ export function ThreadDesignWindow({
     const surface = dialog.current;
     const button = trigger.current;
     const content = canvas.current;
-    if (!surface || !button || !content) return;
+    const edge = transitionEdge.current;
+    if (!surface || !button || !content || !edge) return;
     // The editor normally warms during idle time; an immediate click can get there first.
     flushSync(() => setVisited(true));
     const epoch = ++generation.current;
@@ -259,8 +262,33 @@ export function ThreadDesignWindow({
     const corners = getComputedStyle(button).borderTopLeftRadius.split(" ");
     const radius = (value: string, size: number) =>
       parseFloat(value) * (value.endsWith("%") ? size / 100 : 1);
-    const compactClip = `inset(${rect.top}px ${surface.clientWidth - rect.right}px ${surface.clientHeight - rect.bottom}px ${rect.left}px round ${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px)`;
+    const cornerRadius = `${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px`;
+    const compactClip = `inset(${rect.top}px ${surface.clientWidth - rect.right}px ${surface.clientHeight - rect.bottom}px ${rect.left}px round ${cornerRadius})`;
     const fullClip = "inset(0px 0px 0px 0px round 0px)";
+    const compactEdge = {
+      left: `${rect.left}px`,
+      top: `${rect.top}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      borderRadius: cornerRadius,
+    };
+    const fullEdge = {
+      left: "0px",
+      top: "0px",
+      width: `${surface.clientWidth}px`,
+      height: `${surface.clientHeight}px`,
+      borderRadius: "0px",
+    };
+    const measuredEdge = getComputedStyle(edge);
+    const previousEdge = surface.open
+      ? {
+          left: measuredEdge.left,
+          top: measuredEdge.top,
+          width: measuredEdge.width,
+          height: measuredEdge.height,
+          borderRadius: measuredEdge.borderRadius,
+        }
+      : compactEdge;
     const compactTransform = compactCanvasTransform(surface, content, button);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const previousOpacity = surface.open ? getComputedStyle(surface).opacity : "0";
@@ -278,9 +306,16 @@ export function ThreadDesignWindow({
     animations.current.forEach((motion) => motion.cancel());
     surface.style.clipPath = reduced ? fullClip : previousClip;
     content.style.transform = reduced ? "none" : previousTransform;
+    Object.assign(edge.style, reduced ? fullEdge : previousEdge);
+    const previewRim = button
+      .querySelector(".thread-design-rim")
+      ?.getAnimations({ subtree: true })[0];
+    const growingRim = edge.getAnimations({ subtree: true })[0];
+    if (previewRim && growingRim && previewRim.currentTime !== null)
+      growingRim.currentTime = previewRim.currentTime;
     if (open && !surface.open) surface.showModal();
     flushSync(() => setPhase(open ? "opening" : "closing"));
-    const duration = reduced ? 100 : open ? 650 : 450;
+    const duration = reduced ? 100 : open ? 480 : 360;
     const timing = { duration, easing: open ? enterEasing : exitEasing, fill: "both" as const };
     const aperture = surface.animate(
       reduced
@@ -294,16 +329,20 @@ export function ThreadDesignWindow({
         : [{ transform: previousTransform }, { transform: open ? "none" : compactTransform }],
       timing,
     );
+    const outline = edge.animate(
+      reduced ? [fullEdge, fullEdge] : [previousEdge, open ? fullEdge : compactEdge],
+      timing,
+    );
     const controls = chrome.map((element, index) =>
       element.animate([{ opacity: open ? 0 : chromeOpacity[index] }, { opacity: open ? 1 : 0 }], {
-        duration: 100,
-        delay: open && !reduced ? duration - 100 : 0,
+        duration: 70,
+        delay: open && !reduced ? duration - 70 : 0,
         fill: "both",
       }),
     );
-    const motions = [aperture, artwork, ...controls];
+    const motions = [aperture, artwork, outline, ...controls];
     animations.current = motions;
-    void Promise.all([aperture.finished, artwork.finished]).then(
+    void Promise.all([aperture.finished, artwork.finished, outline.finished]).then(
       () => {
         if (generation.current !== epoch) return;
         surface.style.clipPath = open ? fullClip : compactClip;
@@ -319,6 +358,7 @@ export function ThreadDesignWindow({
         animations.current = [];
         surface.style.clipPath = "";
         content.style.transform = "";
+        edge.removeAttribute("style");
       },
       () => {},
     );
@@ -468,6 +508,14 @@ export function ThreadDesignWindow({
               onUpdate={update}
             />
           )}
+        </div>
+        <div
+          ref={transitionEdge}
+          className="thread-design-transition-edge"
+          aria-hidden="true"
+          inert
+        >
+          <span className="thread-design-rim" />
         </div>
       </Dialog>
     </div>
