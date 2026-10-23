@@ -1277,12 +1277,24 @@ summary:focus-visible {
 }
 .composer-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 8px;
   padding: 8px;
 }
-.composer-spacer {
-  flex: 1;
+.composer-settings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  flex: 1 1 160px;
+  min-width: 0;
+  gap: 4px;
+}
+.composer-tools {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 12px;
+  margin-left: auto;
 }
 .composer-delivery {
   display: flex;

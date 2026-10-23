@@ -218,6 +218,8 @@ export function ThreadDesignDock({
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(target);
+    const form = target.closest("form");
+    if (form) observer.observe(form);
     observer.observe(area);
     return () => {
       observer.disconnect();
@@ -272,7 +274,7 @@ export function ThreadDesignDock({
             actionMenu
             closeOnSelect={false}
             placement="top"
-            align="start"
+            align="end"
             className="canvas-dock-menu"
             triggerClassName="quiet-button canvas-dock-trigger"
             triggerContent={
