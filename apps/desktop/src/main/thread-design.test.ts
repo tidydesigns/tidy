@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import type { DesignSummary, Thread } from "../shared/contracts";
 import type { ToolActivity } from "../shared/tool-activity";
-import { threadDesign } from "../shared/thread-design";
+import { threadDesign, threadDesigns } from "../shared/thread-design";
 
 const timestamp = "2026-10-22T12:00:00.000Z";
 const design = (name: string): DesignSummary => {
@@ -73,6 +73,18 @@ test("structured file edits take priority over design paths quoted inside their 
       [first, second],
     ),
   ).toBe(first);
+});
+
+test("collects every known current-turn canvas once for docking", () => {
+  const value = thread({
+    designIds: [first.id, second.id],
+    toolActivities: [
+      tool({ files: [{ path: first.path, kind: "modified" }] }),
+      tool({ files: [{ path: second.path, kind: "modified" }] }),
+      tool({ title: first.path, status: "failed" }),
+    ],
+  });
+  expect(threadDesigns(value, [first, second])).toEqual([second, first]);
 });
 
 test("shell and read tools can identify known local designs without an attached reference", () => {

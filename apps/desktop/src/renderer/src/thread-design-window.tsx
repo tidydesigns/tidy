@@ -1,12 +1,23 @@
-import { useCallback, useEffect, useId, useRef, useState, type PointerEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent,
+  type RefObject,
+} from "react";
 import { flushSync } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
-import { Icon } from "@tidy/editor/components/ui/icon";
-import { threadDesign } from "../../shared/thread-design";
-import type { DesktopAPI, DesignSummary, LocalDesign, Thread } from "../../shared/contracts";
+import type { DesktopAPI, DesignSummary, LocalDesign } from "../../shared/contracts";
 import { LocalCanvas } from "./local-canvas";
+import type { CanvasViewportMemory } from "@tidy/editor";
+import type { CanvasGeometry } from "../../shared/thread-canvas-dock";
+import type { DockSlot } from "./thread-design-dock";
 
 type Phase = "closed" | "opening" | "open" | "closing";
 const enterEasing = "cubic-bezier(0.6, 0.04, 0.85, 0.24)";
@@ -40,26 +51,46 @@ function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, butto
   return `translate(${rect.left + rect.width / 2 - (surface.clientWidth * scale) / 2}px, ${rect.top + rect.height / 2 - (surface.clientHeight * scale) / 2}px) scale(${scale})`;
 }
 
-export function ThreadDesignWindow({
+export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   api,
-  thread,
-  designs,
+  projectId,
+  summary,
   active,
+  working,
+  floating,
+  warm,
+  slot,
+  overflow,
+  initialGeometry,
+  viewportMemory,
+  composer,
+  onDock,
+  onUndock,
+  onGeometry,
+  onDocked,
   onUpdate,
 }: {
   api: DesktopAPI;
-  thread: Thread;
-  designs: DesignSummary[];
+  projectId: string;
+  summary: DesignSummary;
   active: boolean;
+  working: boolean;
+  floating: boolean;
+  warm: boolean;
+  slot: DockSlot;
+  overflow: boolean;
+  initialGeometry?: CanvasGeometry;
+  viewportMemory: CanvasViewportMemory;
+  composer: RefObject<HTMLFormElement | null>;
+  onDock(): void;
+  onUndock(id: string): void;
+  onGeometry(id: string, geometry: CanvasGeometry): void;
+  onDocked(id: string): void;
   onUpdate(design: LocalDesign): void;
 }) {
-  const candidate = threadDesign(thread, designs);
-  // Keep the last window when the agent finishes, including an already expanded canvas.
-  const [targetId, setTargetId] = useState<string>();
   const [value, setValue] = useState<LocalDesign>();
   const [phase, setPhase] = useState<Phase>("closed");
   const [visited, setVisited] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const layer = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -70,8 +101,11 @@ export function ThreadDesignWindow({
   const animations = useRef<Animation[]>([]);
   const generation = useRef(0);
   const restoreFocus = useRef(false);
-  const offset = useRef({ x: 0, y: 0 });
-  const width = useRef(296);
+  const offset = useRef({ x: initialGeometry?.x ?? Number.NaN, y: initialGeometry?.y ?? 64 });
+  const width = useRef(initialGeometry?.width ?? 296);
+  const dockMotion = useRef<Animation[]>([]);
+  const laidOut = useRef(false);
+  const previousFloating = useRef(floating);
   const drag = useRef<{
     kind: "move" | "resize";
     pointerId: number;
@@ -85,33 +119,24 @@ export function ThreadDesignWindow({
   const suppressClick = useRef(false);
   const id = useId();
   const expanded = phase !== "closed";
-  const summary = designs.find((design) => design.id === targetId);
   const ready = Boolean(summary && value?.id === summary.id);
 
   useEffect(() => {
-    if (!ready || !active || dismissed || visited) return;
+    if (!ready || !active || !warm || !floating || visited) return;
     const idle = window.requestIdleCallback(() => setVisited(true), { timeout: 400 });
     return () => window.cancelIdleCallback(idle);
-  }, [ready, active, dismissed, visited]);
+  }, [ready, active, warm, floating, visited]);
 
   const move = useCallback((x: number, y: number) => {
     const button = frame.current;
     const area = layer.current;
     if (!button || !area || !area.clientWidth || !area.clientHeight) return;
-    const bounds = area.getBoundingClientRect();
-    const rect = button.getBoundingClientRect();
-    const left = Math.max(
-      bounds.left + 16,
-      Math.min(bounds.right - rect.width - 16, rect.left + x - offset.current.x),
-    );
-    const top = Math.max(
-      bounds.top + 16,
-      Math.min(bounds.bottom - rect.height - 16, rect.top + y - offset.current.y),
-    );
     offset.current = {
-      x: offset.current.x + left - rect.left,
-      y: offset.current.y + top - rect.top,
+      x: Math.max(16, Math.min(area.clientWidth - button.offsetWidth - 16, x)),
+      y: Math.max(16, Math.min(area.clientHeight - button.offsetHeight - 16, y)),
     };
+    button.style.left = "0px";
+    button.style.top = "0px";
     button.style.transform = `translate(${offset.current.x}px, ${offset.current.y}px)`;
   }, []);
 
@@ -126,9 +151,10 @@ export function ThreadDesignWindow({
       );
       const minimum = Math.min(minimumWidth, limit);
       width.current = Math.max(minimum, Math.min(limit, requested));
+      const previousWidth = surface.offsetWidth;
       surface.style.width = `${width.current}px`;
       // Keep the top-right corner anchored while the bottom-left handle moves.
-      move(offset.current.x, offset.current.y);
+      move(offset.current.x + previousWidth - width.current, offset.current.y);
       resizeHandle.current?.setAttribute("aria-valuemin", String(Math.round(minimum)));
       resizeHandle.current?.setAttribute("aria-valuemax", String(Math.round(limit)));
       resizeHandle.current?.setAttribute("aria-valuenow", String(Math.round(width.current)));
@@ -136,15 +162,110 @@ export function ThreadDesignWindow({
     [move],
   );
 
+  useLayoutEffect(() => {
+    const surface = frame.current;
+    const area = layer.current;
+    if (!surface || !area || !active) return;
+    const bounds = area.getBoundingClientRect();
+    const previous = surface.getBoundingClientRect();
+    const previousClip = getComputedStyle(surface).clipPath;
+    const previousRadius = getComputedStyle(surface).borderRadius;
+    dockMotion.current.forEach((motion) => motion.cancel());
+    if (!Number.isFinite(offset.current.x))
+      offset.current.x = area.clientWidth - width.current - 36;
+    const limit = Math.max(
+      0,
+      Math.min(maximumWidth, area.clientWidth - 32, (area.clientHeight - 32) * previewRatio),
+    );
+    width.current = Math.max(Math.min(minimumWidth, limit), Math.min(limit, width.current));
+    offset.current.x = Math.max(
+      16,
+      Math.min(area.clientWidth - width.current - 16, offset.current.x),
+    );
+    offset.current.y = Math.max(
+      16,
+      Math.min(area.clientHeight - width.current / previewRatio - 16, offset.current.y),
+    );
+    const target = floating ? { ...offset.current, width: width.current } : slot;
+    const height = target.width / previewRatio;
+    const transform = `translate(${target.x}px, ${target.y}px)`;
+    const clip = floating
+      ? "inset(0% 0% 0% 0%)"
+      : `inset(0% 0% ${Math.max(0, 100 - 3600 / height)}% 0%)`;
+    Object.assign(surface.style, {
+      left: "0px",
+      top: "0px",
+      width: `${target.width}px`,
+      transform,
+      clipPath: clip,
+      borderRadius: floating ? "22px" : "14px",
+    });
+    if (
+      laidOut.current &&
+      previous.width &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      surface.dataset.moving = "true";
+      const motion = surface.animate(
+        [
+          {
+            transform: `translate(${previous.left - bounds.left}px, ${previous.top - bounds.top}px) scale(${previous.width / target.width}, ${previous.height / height})`,
+            clipPath: previousClip === "none" ? "inset(0% 0% 0% 0%)" : previousClip,
+            borderRadius: previousRadius,
+          },
+          { transform, clipPath: clip, borderRadius: floating ? "22px" : "14px" },
+        ],
+        { duration: 280, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "both" },
+      );
+      dockMotion.current = [motion];
+      void motion.finished.then(
+        () => {
+          if (dockMotion.current[0] !== motion) return;
+          delete surface.dataset.moving;
+          motion.cancel();
+          dockMotion.current = [];
+          if (!floating) onDocked(summary.id);
+        },
+        () => {},
+      );
+    } else {
+      delete surface.dataset.moving;
+      if (!floating) onDocked(summary.id);
+    }
+    laidOut.current = true;
+    if (previousFloating.current !== floating) {
+      const focus =
+        !floating && overflow
+          ? layer.current?.parentElement?.querySelector<HTMLButtonElement>(
+              ".thread-design-overflow-trigger",
+            )
+          : trigger.current;
+      focus?.focus({ preventScroll: true });
+    }
+    previousFloating.current = floating;
+  }, [floating, slot.x, slot.y, slot.width, active, onDocked, summary.id]);
+
   useEffect(() => {
-    if (!ready || !active || dismissed || !layer.current) return;
+    if (!active || !floating || !layer.current) return;
     const observer = new ResizeObserver(() => resize(width.current));
     observer.observe(layer.current);
     return () => observer.disconnect();
-  }, [ready, active, dismissed, resize]);
+  }, [active, floating, resize]);
+
+  const remember = () => onGeometry(summary.id, { ...offset.current, width: width.current });
+  function acceptsDock(x: number, y: number) {
+    const rect = composer.current?.getBoundingClientRect();
+    return Boolean(
+      rect && x >= rect.left - 16 && x <= rect.right + 16 && y >= rect.top - 40 && y <= rect.bottom,
+    );
+  }
 
   function beginDrag(event: PointerEvent<HTMLButtonElement>, kind: "move" | "resize") {
+    if (!floating) return;
     if (event.button !== 0 || !event.isPrimary || drag.current) return;
+    dockMotion.current.forEach((motion) => motion.cancel());
+    dockMotion.current = [];
+    if (frame.current) delete frame.current.dataset.moving;
     suppressClick.current = false;
     drag.current = {
       kind,
@@ -168,6 +289,8 @@ export function ThreadDesignWindow({
     if (current.kind === "move") {
       if (frame.current) frame.current.dataset.dragging = "true";
       move(current.x + dx, current.y + dy);
+      if (composer.current)
+        composer.current.dataset.canvasDrop = String(acceptsDock(event.clientX, event.clientY));
     } else {
       if (frame.current) frame.current.dataset.resizing = "true";
       const delta = Math.abs(dx) > Math.abs(dy * previewRatio) ? -dx : dy * previewRatio;
@@ -180,6 +303,15 @@ export function ThreadDesignWindow({
     if (!current || current.pointerId !== event.pointerId) return;
     suppressClick.current = current.moved || cancelled;
     drag.current = null;
+    if (composer.current) delete composer.current.dataset.canvasDrop;
+    if (current.moved) {
+      const dropped =
+        !cancelled && current.kind === "move" && acceptsDock(event.clientX, event.clientY);
+      // A drag into the dock should reopen where the window was before that gesture.
+      if (dropped) offset.current = { x: current.x, y: current.y };
+      remember();
+      if (dropped) onDock();
+    }
     if (frame.current) {
       delete frame.current.dataset.dragging;
       delete frame.current.dataset.resizing;
@@ -196,26 +328,20 @@ export function ThreadDesignWindow({
   );
 
   useEffect(() => {
-    // Do not replace the file under someone's pointer while they are inspecting it.
-    if (thread.status === "running" && candidate && !expanded && !dismissed)
-      setTargetId(candidate.id);
-  }, [thread.status, candidate?.id, expanded, dismissed]);
-
-  useEffect(() => {
-    if (!summary || dismissed) return;
+    if (!active) return;
     let current = true;
-    void api.readDesign(thread.projectId, summary.id).then(
+    void api.readDesign(projectId, summary.id).then(
       (design) => {
         if (current) setValue(design);
       },
       () => {
-        // Atomic writes can briefly make a design unavailable. Keep its last valid frame.
+        /* Keep the last valid frame during atomic writes. */
       },
     );
     return () => {
       current = false;
     };
-  }, [api, thread.projectId, summary?.id, summary?.updatedAt, dismissed]);
+  }, [api, projectId, summary.id, summary.updatedAt, active]);
 
   const closeImmediately = useCallback(() => {
     generation.current++;
@@ -229,8 +355,8 @@ export function ThreadDesignWindow({
   }, []);
 
   useEffect(() => {
-    if (!active || !summary) closeImmediately();
-  }, [active, summary?.id, closeImmediately]);
+    if (!active || !floating) closeImmediately();
+  }, [active, floating, closeImmediately]);
   useEffect(() => {
     if (phase === "open")
       dialog.current
@@ -245,6 +371,7 @@ export function ThreadDesignWindow({
     () => () => {
       generation.current++;
       animations.current.forEach((motion) => motion.cancel());
+      dockMotion.current.forEach((motion) => motion.cancel());
     },
     [],
   );
@@ -365,24 +492,35 @@ export function ThreadDesignWindow({
   }, []);
   const minimise = useCallback(() => transition(false), [transition]);
 
-  if (dismissed || !summary || !value || value.id !== summary.id) return null;
   return (
     <div
       ref={layer}
       className="thread-design-window"
-      data-working={thread.status === "running"}
+      data-working={working}
+      data-floating={floating}
       hidden={!active}
     >
-      <div ref={frame} className="thread-design-frame" data-expanded={expanded}>
+      <div
+        ref={frame}
+        className="thread-design-frame"
+        data-expanded={expanded}
+        data-docked={!floating}
+        data-overflow={overflow}
+      >
         <Button
           ref={trigger}
           type="button"
           className="thread-design-peek"
-          aria-label="Expand canvas"
-          aria-haspopup="dialog"
-          aria-controls={id}
+          aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}
+          aria-busy={!ready || undefined}
+          aria-haspopup={floating ? "dialog" : undefined}
+          aria-controls={floating ? id : undefined}
           aria-expanded={expanded}
-          aria-description={`Live view of ${value.name}. Drag to move, resize from the bottom-left corner, or click to expand.`}
+          aria-description={
+            floating
+              ? `Live view of ${summary.name}. Drag to move or dock, resize from the bottom-left corner, or click to expand.`
+              : `Restore the live view of ${summary.name}.`
+          }
           data-expanded={expanded}
           onPointerDown={(event) => beginDrag(event, "move")}
           onPointerMove={continueDrag}
@@ -397,38 +535,54 @@ export function ThreadDesignWindow({
               ArrowDown: [0, 1],
             };
             const direction = directions[event.key];
-            if (!direction) return;
+            if (!floating || !direction) return;
             event.preventDefault();
             event.stopPropagation();
             const step = event.shiftKey ? 40 : 16;
             move(offset.current.x + direction[0] * step, offset.current.y + direction[1] * step);
+            remember();
           }}
           onClick={(event) => {
-            if (!suppressClick.current || event.detail === 0) transition(true);
+            if (!suppressClick.current || event.detail === 0) {
+              if (!floating) onUndock(summary.id);
+              else if (ready) transition(true);
+            }
             suppressClick.current = false;
           }}
         >
           <span className="thread-design-lens" aria-hidden="true" inert>
             <span className="thread-design-artwork">
-              <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
+              {value && (
+                <DocumentPreview
+                  content={value.document}
+                  assetUrl={(id) => value.assets[id] ?? ""}
+                />
+              )}
             </span>
           </span>
+          <span className="thread-design-name">{summary.name}</span>
           <span className="thread-design-rim" aria-hidden="true" />
         </Button>
         <Button
           type="button"
           className="thread-design-close"
-          aria-label="Close preview"
+          aria-label="Dock preview"
           onClick={() => {
-            restoreFocus.current = false;
-            closeImmediately();
-            layer.current?.parentElement
-              ?.querySelector<HTMLElement>(".transcript")
-              ?.focus({ preventScroll: true });
-            setDismissed(true);
+            remember();
+            onDock();
           }}
         >
-          <Icon name="xmark" size={12} />
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.2"
+            aria-hidden="true"
+          >
+            <path d="m3 4.5 3 3 3-3" />
+          </svg>
         </Button>
         <Button
           ref={resizeHandle}
@@ -439,7 +593,7 @@ export function ThreadDesignWindow({
           aria-description="Drag to resize, or use the arrow keys."
           aria-valuemin={minimumWidth}
           aria-valuemax={maximumWidth}
-          aria-valuenow={296}
+          aria-valuenow={Math.round(width.current)}
           onPointerDown={(event) => beginDrag(event, "resize")}
           onPointerMove={continueDrag}
           onPointerUp={(event) => finishDrag(event)}
@@ -461,6 +615,7 @@ export function ThreadDesignWindow({
                   ? maximumWidth
                   : width.current + direction * (event.shiftKey ? 40 : 16),
             );
+            remember();
           }}
         >
           <svg
@@ -495,14 +650,15 @@ export function ThreadDesignWindow({
         }}
       >
         <div ref={canvas} className="thread-design-canvas" inert={phase !== "open"}>
-          {visited && (
+          {visited && warm && value && (
             <LocalCanvas
               key={value.id}
               api={api}
-              projectId={thread.projectId}
+              projectId={projectId}
               initial={value}
               active={phase === "open"}
               initialPanelsOpen={false}
+              viewportMemory={viewportMemory}
               backLabel="Minimise canvas"
               onBack={minimise}
               onUpdate={update}
@@ -520,4 +676,4 @@ export function ThreadDesignWindow({
       </Dialog>
     </div>
   );
-}
+});

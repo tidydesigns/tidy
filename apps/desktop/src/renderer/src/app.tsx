@@ -10,6 +10,7 @@ import { LocalCanvas } from "./local-canvas";
 import { DesktopShell } from "./desktop-shell";
 import { Settings } from "./settings";
 import { Conversation } from "./conversation";
+import { ThreadDesignDock } from "./thread-design-dock";
 import { ThreadSidebar, type ThreadOrderControls } from "./thread-sidebar";
 import { ApprovalRequests } from "./approval-requests";
 import { AttachmentList } from "./message-attachments";
@@ -143,6 +144,7 @@ export function App() {
   const uploads = useRef<Record<string, Promise<void>>>({});
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
+  const composer = useRef<HTMLFormElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<{
     original?: unknown;
@@ -1323,8 +1325,6 @@ export function App() {
                     thread={thread}
                     active={location === "local" && mode === "code"}
                     api={api!}
-                    designs={snapshot.designs}
-                    onDesignUpdate={updateLocalDesign}
                     references={
                       thread?.designIds.map(
                         (id) =>
@@ -1333,7 +1333,12 @@ export function App() {
                       ) ?? []
                     }
                   />
-                  {thread?.pendingApprovals?.length && api ? (
+                  {thread && api && (
+                  <ThreadDesignDock key={`canvases:${project.id}:${thread.id}`} api={api} thread={thread}
+                    designs={snapshot.designs} active={!settingsOpen && location === "local" && mode === "code"}
+                    composer={composer} onUpdate={updateLocalDesign} />
+                )}
+                {thread?.pendingApprovals?.length && api ? (
                     <ApprovalRequests
                       key={thread.id}
                       requests={thread.pendingApprovals}
@@ -1365,6 +1370,7 @@ export function App() {
                     />
                   )}
                   <form
+                    ref={composer}
                     className="composer"
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)

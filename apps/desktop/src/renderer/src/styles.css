@@ -804,6 +804,7 @@ summary:focus-visible {
   overscroll-behavior: contain;
 }
 .thread-workspace {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -3062,26 +3063,46 @@ summary:focus-visible {
   text-overflow: ellipsis;
 }
 
-/* A floating aperture into the live canvas, independent of transcript layout. */
-.thread-design-window {
+/* Canvas windows share a stable home just behind the composer's top edge. */
+.thread-design-dock-layer {
   position: absolute;
   inset: 0;
   z-index: 20;
   pointer-events: none;
+}
+.thread-design-dock-layer[hidden] {
+  display: none;
+}
+.composer[data-canvas-dock="true"] {
+  margin-top: 48px;
+}
+.composer[data-canvas-drop="true"] {
+  border-color: var(--color-muted-ink);
+  box-shadow: 0 0 0 3px light-dark(#00000008, #ffffff08);
+}
+.thread-design-window {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
   container-type: size;
+}
+.thread-design-window[data-floating="true"] {
+  z-index: 3;
 }
 .thread-design-window[hidden] {
   display: none;
 }
 .thread-design-frame {
   position: absolute;
-  top: 24px;
-  right: 36px;
+  top: 0;
+  left: 0;
   width: min(296px, calc(100cqw - 32px), calc((100cqh - 32px) * 1.5));
   aspect-ratio: 1.5;
   border-radius: 7.5% / 11.25%;
   pointer-events: auto;
   user-select: none;
+  transform-origin: top left;
 }
 .thread-design-peek {
   position: absolute;
@@ -3107,6 +3128,59 @@ summary:focus-visible {
 .thread-design-frame[data-expanded="true"] {
   visibility: hidden;
   animation-play-state: paused;
+}
+.thread-design-frame[data-docked="true"] .thread-design-peek {
+  cursor: pointer;
+}
+.thread-design-frame[data-docked="true"] :is(.thread-design-close, .thread-design-resize) {
+  display: none;
+}
+.thread-design-frame[data-docked="true"][data-overflow="true"]:not([data-moving="true"]) {
+  visibility: hidden;
+  pointer-events: none;
+}
+.thread-design-name {
+  position: absolute;
+  inset: 5px 10px auto 12px;
+  display: none;
+  overflow: hidden;
+  color: var(--color-ink);
+  font-size: 11px;
+  line-height: 18px;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-design-frame[data-docked="true"] .thread-design-name {
+  display: block;
+}
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .thread-design-frame {
+    transition: translate 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .thread-design-frame[data-docked="true"]:is(:hover, :focus-within) {
+    translate: 0 -4px;
+  }
+}
+.thread-design-overflow {
+  position: absolute;
+  z-index: 2;
+  pointer-events: auto;
+}
+.thread-design-overflow-trigger {
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  background: light-dark(#f4f4f4, #171717);
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.thread-design-overflow-trigger:hover {
+  color: var(--color-ink);
 }
 .thread-design-frame[data-dragging="true"] .thread-design-peek {
   cursor: grabbing;
@@ -3177,11 +3251,12 @@ summary:focus-visible {
 }
 .thread-design-artwork {
   position: absolute;
-  inset: 20px;
+  inset: 24px 8px -16px;
   display: block;
 }
 .thread-design-artwork > svg {
   transform: scale(0.68);
+  transform-origin: top center;
 }
 .thread-design-rim {
   position: absolute;

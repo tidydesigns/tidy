@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FileEditor } from "@tidy/editor";
+import { FileEditor, type CanvasViewportMemory } from "@tidy/editor";
 import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../shared/contracts";
@@ -14,6 +14,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   status,
   backLabel = "Back to designs",
   initialPanelsOpen = true,
+  viewportMemory,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -24,6 +25,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   status?: ReactNode;
   backLabel?: string;
   initialPanelsOpen?: boolean;
+  viewportMemory?: CanvasViewportMemory;
 }) {
   useEffect(() => {
     if (!active || !api.cloud) return;
@@ -159,6 +161,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         backHref="#"
         initialDocument={{ revision: 0, content: initial.document }}
         initialPanelsOpen={initialPanelsOpen}
+        viewportMemory={viewportMemory}
         local
         statusControl={status}
         active={active}

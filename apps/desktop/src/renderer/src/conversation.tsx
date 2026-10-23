@@ -11,16 +11,9 @@ import {
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
-import type {
-  DesktopAPI,
-  DesignSummary,
-  LocalDesign,
-  Message,
-  Thread,
-} from "../../shared/contracts";
+import type { DesktopAPI, Message, Thread } from "../../shared/contracts";
 import { MessageAttachments } from "./message-attachments";
 import { ToolActivityGroup } from "./tool-activity";
-import { ThreadDesignWindow } from "./thread-design-window";
 
 const positions = new Map<string, { top: number; following: boolean }>();
 const markdownPlugins = [remarkGfm];
@@ -62,16 +55,12 @@ export function Conversation({
   api,
   references,
   active,
-  designs,
-  onDesignUpdate,
 }: {
   thread?: Thread;
   identity: string;
   api: DesktopAPI;
   references: string[];
   active: boolean;
-  designs: DesignSummary[];
-  onDesignUpdate(design: LocalDesign): void;
 }) {
   const previewId = useId();
   const viewport = useRef<HTMLDivElement>(null);
@@ -269,15 +258,6 @@ export function Conversation({
           {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
         </div>
       </div>
-      {thread && (
-        <ThreadDesignWindow
-          api={api}
-          thread={thread}
-          designs={designs}
-          active={active}
-          onUpdate={onDesignUpdate}
-        />
-      )}
       {turns.length > 1 && (
         <nav
           className="conversation-rail"

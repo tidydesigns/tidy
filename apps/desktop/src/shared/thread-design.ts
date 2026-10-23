@@ -1,7 +1,11 @@
 import type { DesignSummary, Thread } from "./contracts";
 
 /** Resolve activity against known project designs; tool text never becomes a filesystem target. */
-export function threadDesign(thread: Thread, designs: DesignSummary[]) {
+export function threadDesigns(thread: Thread, designs: DesignSummary[]) {
+  const result: DesignSummary[] = [];
+  const add = (design: DesignSummary | undefined) => {
+    if (design && !result.some((item) => item.id === design.id)) result.push(design);
+  };
   const turn = [...thread.messages].reverse().find((message) => message.role === "user")?.id;
   const tools = (thread.toolActivities ?? []).filter(
     (tool) =>
@@ -21,8 +25,13 @@ export function threadDesign(thread: Thread, designs: DesignSummary[]) {
       if (tool.files?.some((file) => file.kind === "deleted" && file.path.includes(match[1])))
         continue;
       const design = designs.find((design) => design.id === match[1]);
-      if (design) return design;
+      add(design);
     }
   }
-  return thread.designIds.map((id) => designs.find((design) => design.id === id)).find(Boolean);
+  thread.designIds.forEach((id) => add(designs.find((design) => design.id === id)));
+  return result;
+}
+
+export function threadDesign(thread: Thread, designs: DesignSummary[]) {
+  return threadDesigns(thread, designs)[0];
 }
