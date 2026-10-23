@@ -17,11 +17,12 @@ The tabs support arrow keys, Home and End.
 
 ## Optional cloud sync
 
-Choose **Sign in to Tidy** at the top of the sidebar. Sign-in opens the system
-browser and requests a separate desktop authorization. Your cloud workspace opens
-automatically with its files, folders, search, and lightweight previews. Use the
-workspace switcher to return to local projects or choose another cloud workspace.
-Workspaces currently require editing access.
+Open the **Settings** gear at the bottom of the sidebar, then choose **Sign in**
+under Account. Sign-in opens the system browser and requests a separate desktop
+authorization. Settings has its own sidebar; **Back to app** returns to the same
+workspace without resetting its state. Choose a cloud workspace from the workspace
+switcher to browse its files, folders, search, and lightweight previews. Workspaces
+currently require editing access. Account sign-in and sign-out live only in Settings.
 
 Open a file to download it and start editing. Downloads happen in private,
 account-scoped application storage without choosing a project directory. Cached

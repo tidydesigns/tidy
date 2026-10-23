@@ -4,13 +4,15 @@ import { Button } from "@tidy/ui/button";
 /** Keep sidebar changes local so the active workspace stays mounted and does not rerender. */
 export function DesktopShell({
   canvasFocused,
+  settingsOpen = false,
   children,
 }: {
   canvasFocused: boolean;
+  settingsOpen?: boolean;
   children: ReactNode;
 }) {
   const [sidebarPreference, setSidebarPreference] = useState<boolean | null>(null);
-  const sidebarVisible = !canvasFocused && (sidebarPreference ?? true);
+  const sidebarVisible = settingsOpen || (!canvasFocused && (sidebarPreference ?? true));
   const label = sidebarVisible ? "Hide sidebar" : "Show sidebar";
 
   return (
@@ -18,7 +20,7 @@ export function DesktopShell({
       className={`desktop ${sidebarVisible ? "" : "desktop-sidebar-hidden"} ${canvasFocused ? "desktop-canvas-focused" : ""}`}
     >
       <header className="desktop-titlebar">
-        {!canvasFocused && (
+        {!canvasFocused && !settingsOpen && (
           <Button
             type="button"
             className="desktop-sidebar-toggle"

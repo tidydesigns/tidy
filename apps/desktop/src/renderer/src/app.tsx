@@ -5,10 +5,10 @@ import { showToast, dismissToast } from "@tidy/ui/toast";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
-import { TidyLogo } from "@tidy/ui/tidy-logo";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { LocalCanvas } from "./local-canvas";
 import { DesktopShell } from "./desktop-shell";
+import { Settings } from "./settings";
 import { Conversation } from "./conversation";
 import { ThreadSidebar, type ThreadOrderControls } from "./thread-sidebar";
 import { ApprovalRequests } from "./approval-requests";
@@ -65,6 +65,13 @@ const errorText = (error: unknown) =>
 export function App() {
   const api = window.tidy;
   const cloud = useCloud(api?.cloud);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsTrigger = useRef<HTMLButtonElement>(null);
+  const settingsWasOpen = useRef(false);
+  useEffect(() => {
+    if (settingsWasOpen.current && !settingsOpen) settingsTrigger.current?.focus();
+    settingsWasOpen.current = settingsOpen;
+  }, [settingsOpen]);
   const [location, setLocation] = useState<"local" | "cloud">("local");
   const [cloudOrganizationId, setCloudOrganizationId] = useState("");
   const [cloudCanvas, setCloudCanvas] = useState(false);
@@ -1068,50 +1075,14 @@ export function App() {
   const canvasFocused = location === "cloud" ? cloudCanvas : mode === "design" && Boolean(design);
 
   return (
-    <DesktopShell canvasFocused={canvasFocused}>
-      <aside id="desktop-navigation" className="desktop-navigation" aria-label="Project workspace">
+    <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
+      <aside
+        id="desktop-navigation"
+        className="desktop-navigation"
+        aria-label="Project workspace"
+        hidden={settingsOpen}
+      >
         <header className="workspace-header">
-          {cloud.state?.available && (
-            <div className="cloud-account">
-              {cloud.state.signedIn ? (
-                <SelectMenu
-                  actionMenu
-                  label="Tidy account"
-                  value=""
-                  triggerClassName="account-trigger"
-                  triggerContent={
-                    <>
-                      <TidyLogo className="account-logo" />
-                      <span>Tidy account</span>
-                    </>
-                  }
-                  options={[{ value: "sign-out", label: "Sign out" }]}
-                  onChange={() => void cloud.signOut()}
-                />
-              ) : (
-                <>
-                  <Button
-                    className="account-trigger"
-                    disabled={cloud.busy}
-                    onClick={() => void cloud.signIn()}
-                  >
-                    <TidyLogo className="account-logo" />
-                    <span>{cloud.busy ? "Complete sign-in in browser…" : "Sign in to Tidy"}</span>
-                  </Button>
-                  {cloud.busy && (
-                    <Button className="quiet-button" onClick={() => void cloud.signOut()}>
-                      Cancel sign-in
-                    </Button>
-                  )}
-                </>
-              )}
-              {cloud.error && (
-                <p className="cloud-account-error" role="alert">
-                  {cloud.error}
-                </p>
-              )}
-            </div>
-          )}
           <div className="project-picker" title={project?.name}>
             {(project || cloud.account) && (
               <SelectMenu
@@ -1205,9 +1176,23 @@ export function App() {
           aria-label="Design folders"
           hidden={location === "local" && mode !== "design"}
         />
-        <AppUpdate api={api} />
+        <div className="sidebar-footer">
+          <Button
+            ref={settingsTrigger}
+            className="settings-trigger"
+            aria-label="Settings"
+            title="Settings"
+            onClick={() => {
+              navigation.current++;
+              setSettingsOpen(true);
+            }}
+          >
+            <Icon name="settings" size={18} />
+          </Button>
+          <AppUpdate api={api} />
+        </div>
       </aside>
-      <main className="workspace">
+      <main className="workspace" hidden={settingsOpen}>
         {api && cloud.state?.signedIn && cloudOrganizationId && (
           <div className="workspace-view" hidden={location !== "cloud"}>
             <CloudWorkspace
@@ -1215,7 +1200,7 @@ export function App() {
               cloud={cloud}
               organizationId={cloudOrganizationId}
               navigationTarget={location === "cloud" ? designNavigation : null}
-              active={location === "cloud"}
+              active={!settingsOpen && location === "cloud"}
               onCanvasChange={setCloudCanvas}
             />
           </div>
@@ -1223,9 +1208,7 @@ export function App() {
         <div className="workspace-view" hidden={location !== "local"}>
           {!project ? (
             <div className="project-home">
-              <h1 aria-label="Tidy">
-                <TidyLogo className="tidy-logo" />
-              </h1>
+              <h1>Tidy</h1>
               {loading ? (
                 <p>Opening workspace…</p>
               ) : api ? (
@@ -1274,7 +1257,7 @@ export function App() {
                       api={api!}
                       projectId={project.id}
                       initial={design}
-                      active={location === "local" && mode === "design"}
+                      active={!settingsOpen && location === "local" && mode === "design"}
                       onBack={backToFiles}
                       onUpdate={updateLocalDesign}
                       status={
@@ -1630,6 +1613,7 @@ export function App() {
           )}
         </div>
       </main>
+      {settingsOpen && <Settings cloud={cloud} onBack={() => setSettingsOpen(false)} />}
     </DesktopShell>
   );
 }
