@@ -41,6 +41,10 @@ const messages = new Map([
     "No visible shapes could be traced. Try a clearer or higher-resolution image.",
   ],
   [
+    "This image has no visible pixels to trace.",
+    "No visible shapes could be traced. Try a clearer or higher-resolution image.",
+  ],
+  [
     "Could not decode this image.",
     "This image could not be opened for vectorisation. Try replacing it with a new PNG, JPEG or WebP copy.",
   ],

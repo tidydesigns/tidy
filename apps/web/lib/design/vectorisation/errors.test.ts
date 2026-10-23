@@ -28,6 +28,21 @@ describe("vectorisation error messages", () => {
     expect(diagnosticError(notice)).toBe(failure);
   });
 
+  test("fully transparent artwork explains the missing visible shapes and preserves diagnostics", () => {
+    let failure: unknown;
+    try {
+      traceRaster({ width: 8, height: 8, data: new Uint8ClampedArray(8 * 8 * 4) }, "auto");
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(Error);
+    const notice = vectorisationError(failure);
+    expect(errorMessage(notice, fallback)).toBe(
+      "No visible shapes could be traced. Try a clearer or higher-resolution image.",
+    );
+    expect(diagnosticError(notice)).toBe(failure);
+  });
+
   test.each([
     ["Choose an image under 2 MB.", "under 2 MB"],
     ["Vectorisation supports PNG, JPEG and WebP images.", "Convert this image"],
