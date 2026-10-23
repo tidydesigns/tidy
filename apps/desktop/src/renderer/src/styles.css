@@ -2078,9 +2078,11 @@ summary:focus-visible {
   color: var(--desktop-status-danger);
   font-size: 11px;
 }
-.tool-status-cancelled,
-.tool-status-interrupted {
+.tool-status-cancelled {
   color: var(--color-muted-ink);
+}
+.tool-status-interrupted {
+  color: var(--desktop-status-warning);
 }
 .tool-status-running {
   color: var(--desktop-status-active);
