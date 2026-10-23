@@ -1474,7 +1474,26 @@ summary:focus-visible {
 }
 .composer-actions {
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 8px;
+}
+.composer .harness-setting-trigger,
+.composer .usage-trigger {
+  min-height: 36px;
+  padding: 8px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.composer .harness-setting-trigger {
+  gap: 8px;
+}
+.composer .harness-setting-trigger svg {
+  flex-shrink: 0;
+}
+.composer .harness-icon-trigger,
+.composer .harness-icon-label,
+.composer .attachment-button {
+  width: 36px;
+  height: 36px;
 }
 .thread-harness {
   display: flex;
