@@ -443,6 +443,7 @@ export function ThreadDesignWindow({
         className="thread-design-dialog"
         aria-label="Live design canvas"
         aria-hidden={phase === "closed" || undefined}
+        style={{ opacity: phase === "closed" ? 0 : 1 }}
         data-phase={phase}
         onCancel={(event) => {
           event.preventDefault();

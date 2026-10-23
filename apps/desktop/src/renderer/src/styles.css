@@ -3239,9 +3239,10 @@ summary:focus-visible {
 .thread-design-dialog::backdrop {
   background: transparent;
 }
-/* Keep the editor measurable while hidden so the opening never waits for a new canvas. */
+/* Artwork sets its own visibility. Hide the whole composited surface while keeping it measurable. */
 .thread-design-dialog:not([open]) {
   display: block;
+  opacity: 0;
   visibility: hidden;
   pointer-events: none;
 }
