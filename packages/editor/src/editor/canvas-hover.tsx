@@ -33,7 +33,10 @@ type ClipGroup = {
   children: Map<string, ClipGroup>;
 };
 
-export type CanvasHoverHandle = { previewLayer: (id: string | null) => void };
+export type CanvasHoverHandle = {
+  previewLayer: (id: string | null) => void;
+  cameraMoved: () => void;
+};
 
 /** Owns transient feedback; pointer movement never updates FileEditor or artwork props. */
 export function CanvasHover({
@@ -65,6 +68,7 @@ export function CanvasHover({
   const source = useRef<Source>({ kind: "none" });
   const geometry = useMemo(() => createHoverGeometry(), []);
   const frame = useRef<number | null>(null);
+  const cameraTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const dirty = useRef(true);
   const rehit = useRef(false);
   const measuredId = useRef<string | null>(null);
@@ -82,7 +86,13 @@ export function CanvasHover({
   const measure = useEditorEvent(() => {
     const canvas = viewport.current;
     let input = source.current;
-    if (!canvas || !enabled || input.kind === "pressed" || input.kind === "none") {
+    if (
+      !canvas ||
+      !enabled ||
+      input.kind === "pressed" ||
+      input.kind === "none" ||
+      (input.kind === "canvas" && cameraTimer.current !== undefined)
+    ) {
       clear();
       return;
     }
@@ -136,7 +146,12 @@ export function CanvasHover({
 
   const schedule = useEditorEvent((invalidate = false) => {
     if (invalidate) dirty.current = true;
-    if (!enabled || source.current.kind === "pressed" || source.current.kind === "none") {
+    if (
+      !enabled ||
+      source.current.kind === "pressed" ||
+      source.current.kind === "none" ||
+      (source.current.kind === "canvas" && cameraTimer.current !== undefined)
+    ) {
       clear();
       return;
     }
@@ -148,6 +163,19 @@ export function CanvasHover({
   });
 
   useImperativeHandle(ref, () => ({
+    cameraMoved() {
+      clearTimeout(cameraTimer.current);
+      cameraTimer.current = setTimeout(() => {
+        cameraTimer.current = undefined;
+        rehit.current = true;
+        schedule(true);
+      }, 120);
+      if (source.current.kind === "canvas") {
+        if (frame.current !== null) cancelAnimationFrame(frame.current);
+        frame.current = null;
+        clear();
+      }
+    },
     previewLayer(id) {
       source.current = id ? { kind: "layer", id } : { kind: "none" };
       schedule(true);
@@ -248,6 +276,8 @@ export function CanvasHover({
     document.fonts.addEventListener("loadingdone", refresh);
     document.addEventListener("visibilitychange", visibility);
     return () => {
+      clearTimeout(cameraTimer.current);
+      cameraTimer.current = undefined;
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       frame.current = null;
       observer.current?.disconnect();

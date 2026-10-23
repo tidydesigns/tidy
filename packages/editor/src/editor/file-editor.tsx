@@ -1909,6 +1909,7 @@ export function FileEditor({
     let viewFrame: number | undefined;
     let updates: ((current: typeof view) => typeof view)[] = [];
     function scheduleView(update: (current: typeof view) => typeof view) {
+      hover.current?.cameraMoved();
       updates.push(update);
       if (viewFrame !== undefined) return;
       viewFrame = requestAnimationFrame(() => {
