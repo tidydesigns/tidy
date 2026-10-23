@@ -71,6 +71,7 @@
     "./design/file-version-contract": "./src/design/file-version-contract.ts",
     "./design/editor-error": "./src/design/editor-error.ts",
     "./design/vectorisation/apply": "./src/design/vectorisation/apply.ts",
+    "./design/vectorisation/errors": "./src/design/vectorisation/errors.ts",
     "./design/vectorisation/quality": "./src/design/vectorisation/quality.ts",
     "./design/vectorisation/contract": "./src/design/vectorisation/contract.ts",
     "./design/vectorisation/gradient": "./src/design/vectorisation/gradient.ts",

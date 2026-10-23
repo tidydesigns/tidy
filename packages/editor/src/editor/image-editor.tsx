@@ -14,6 +14,7 @@ import { DesignImage } from "@tidy/design-renderer/design-image";
 import { SelectMenu } from "../components/ui/select-menu";
 import { Icon } from "../components/ui/icon";
 import type { TraceColors, TraceStage } from "../design/vectorisation/contract";
+import { vectorisationError } from "../design/vectorisation/errors";
 
 const keys = Object.keys(imageAdjustmentLabels) as ImageAdjustment[];
 const reset = Object.fromEntries(keys.map((key) => [key, 0])) as ImageAdjustments;
@@ -93,7 +94,8 @@ export function ImageEditor({
         if (!controller.signal.aborted) setTraceStage(stage);
       });
     } catch (error) {
-      if (!controller.signal.aborted) notifyTraceError(error, "Could not vectorise this image.");
+      if (!controller.signal.aborted)
+        notifyTraceError(vectorisationError(error), "Could not vectorise this image.");
     } finally {
       if (traceController.current === controller) {
         traceController.current = null;
