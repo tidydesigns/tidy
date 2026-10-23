@@ -3083,11 +3083,11 @@ summary:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 7.5% / 11.25%;
-  background: #080a0e;
-  color: #dce2ec;
+  background: light-dark(#f4f4f4, #171717);
+  color: var(--color-ink);
   box-shadow:
     0 8px 24px #00000028,
-    0 0 0 1px #b4bfd018;
+    0 0 0 1px light-dark(#00000014, #ffffff14);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -3101,7 +3101,7 @@ summary:focus-visible {
   inset: -4px;
   z-index: -1;
   border-radius: inherit;
-  background: #030406;
+  background: #000000;
   opacity: 0.12;
   filter: blur(8px);
   pointer-events: none;
@@ -3115,7 +3115,7 @@ summary:focus-visible {
   animation-play-state: paused;
 }
 .thread-design-peek:focus-visible {
-  outline: 1px solid #d4deee80;
+  outline: 1px solid var(--color-muted-ink);
   outline-offset: 6px;
 }
 .thread-design-lens {
@@ -3124,19 +3124,17 @@ summary:focus-visible {
   display: block;
   overflow: hidden;
   border-radius: inherit;
-  background: linear-gradient(145deg, #171b23e6, #0b0e13f5);
-  backdrop-filter: blur(12px) saturate(0.8);
+  background: light-dark(#f4f4f4eb, #171717eb);
+  backdrop-filter: blur(12px);
   box-shadow:
-    inset 0 1px 1px #e2ecff14,
-    inset 0 -1px 2px #adbedb0a;
+    inset 0 1px 1px #ffffff14,
+    inset 0 -1px 2px #ffffff0a;
   pointer-events: none;
 }
 .thread-design-artwork {
   position: absolute;
   inset: 20px;
   display: block;
-  background-image: radial-gradient(circle, #b4c1d12e 0.65px, transparent 0.8px);
-  background-size: 12px 12px;
 }
 .thread-design-artwork > svg {
   transform: scale(0.68);
@@ -3146,14 +3144,14 @@ summary:focus-visible {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(to bottom, #e4edff05, transparent 24%, transparent 80%, #00000018);
+  background: linear-gradient(to bottom, #ffffff05, transparent 24%, transparent 80%, #00000018);
   box-shadow: inset 0 0 18px #00000030;
 }
 .thread-design-reflection {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: linear-gradient(125deg, transparent 25%, #dceaff0d 48%, transparent 70%);
+  background: linear-gradient(125deg, transparent 25%, #ffffff08 48%, transparent 70%);
   transform: translateX(-2%);
   opacity: 0.24;
 }
@@ -3177,13 +3175,13 @@ summary:focus-visible {
   background: conic-gradient(
     from 20deg,
     #ffffff00 3%,
-    #dce8f052 12%,
-    #f5f8ffb0 17%,
-    #73839b0d 24%,
+    #ffffff18 12%,
+    #ffffff40 17%,
+    #ffffff05 24%,
     #ffffff00 40%,
-    #8b9fb845 53%,
-    #eff5fa80 58%,
-    #a5b5ce0d 66%,
+    #ffffff14 53%,
+    #ffffff30 58%,
+    #ffffff05 66%,
     #ffffff00 83%
   );
 }
@@ -3208,7 +3206,7 @@ summary:focus-visible {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: #0c0e12;
+  background: var(--color-panel);
   box-shadow: none;
   transform-origin: top left;
   pointer-events: auto;
@@ -3240,8 +3238,6 @@ summary:focus-visible {
   position: absolute;
   inset: 0;
   padding: 14%;
-  background-image: radial-gradient(circle, #b4c1d11c 0.7px, transparent 0.9px);
-  background-size: 16px 16px;
   pointer-events: none;
   opacity: 1;
   transition: opacity 100ms ease;
