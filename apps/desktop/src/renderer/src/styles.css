@@ -3062,80 +3062,140 @@ summary:focus-visible {
   text-overflow: ellipsis;
 }
 
+/* A floating aperture into the live canvas, independent of transcript layout. */
 .thread-design-window {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 9px;
-  margin: 20px 0 8px;
-  animation: thread-design-appear 220ms cubic-bezier(0.23, 1, 0.32, 1);
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+  container-type: size;
+}
+.thread-design-window[hidden] {
+  display: none;
 }
 .thread-design-peek {
-  position: relative;
+  position: absolute;
+  top: 24px;
+  right: 36px;
   display: block;
-  width: min(256px, 100%);
-  height: 176px;
+  width: min(296px, calc(100cqw - 32px), calc((100cqh - 32px) * 1.5));
+  aspect-ratio: 1.5;
   padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 24% 18% 22% 16% / 22% 26% 18% 24%;
-  background: light-dark(#f0efed, #292827);
-  color: var(--color-ink);
-  box-shadow: 0 2px 8px #00000006;
-  cursor: pointer;
+  border: 0;
+  border-radius: 7.5% / 11.25%;
+  background: #080a0e;
+  color: #dce2ec;
+  box-shadow:
+    0 8px 24px #00000028,
+    0 0 0 1px #b4bfd018;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  pointer-events: auto;
   isolation: isolate;
-  transition:
-    box-shadow 180ms ease,
-    transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  animation: thread-design-appear 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.thread-design-window[data-working="true"] .thread-design-peek {
-  animation: thread-design-breathe 10s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+.thread-design-peek::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  border-radius: inherit;
+  background: #030406;
+  opacity: 0.12;
+  filter: blur(8px);
+  pointer-events: none;
 }
 .thread-design-peek[data-expanded="true"] {
   visibility: hidden;
   animation-play-state: paused;
 }
-.thread-design-peek:active {
-  transform: scale(0.98);
+.thread-design-peek[data-dragging="true"] {
+  cursor: grabbing;
+  animation-play-state: paused;
 }
 .thread-design-peek:focus-visible {
-  outline: 2px solid var(--color-ink);
-  outline-offset: 4px;
+  outline: 1px solid #d4deee80;
+  outline-offset: 6px;
 }
-.thread-design-artwork {
+.thread-design-lens {
+  position: absolute;
+  inset: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  padding: 10px;
+  overflow: hidden;
+  border-radius: inherit;
+  background: linear-gradient(145deg, #171b23e6, #0b0e13f5);
+  backdrop-filter: blur(12px) saturate(0.8);
+  box-shadow:
+    inset 0 1px 1px #e2ecff14,
+    inset 0 -1px 2px #adbedb0a;
   pointer-events: none;
 }
-.thread-design-expand {
+.thread-design-artwork {
   position: absolute;
-  right: 20px;
-  bottom: 14px;
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  background: var(--desktop-surface);
-  font-size: 16px;
-  opacity: 0;
-  transition: opacity 140ms ease;
+  inset: 20px;
+  display: block;
+  background-image: radial-gradient(circle, #b4c1d12e 0.65px, transparent 0.8px);
+  background-size: 12px 12px;
 }
-.thread-design-peek:focus-visible .thread-design-expand {
-  opacity: 1;
+.thread-design-artwork > svg {
+  transform: scale(0.68);
+  filter: drop-shadow(0 4px 10px #0008);
 }
-.thread-design-caption {
-  max-width: 256px;
-  padding-left: 12px;
+.thread-design-depth {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(to bottom, #e4edff05, transparent 24%, transparent 80%, #00000018);
+  box-shadow: inset 0 0 18px #00000030;
+}
+.thread-design-reflection {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(125deg, transparent 25%, #dceaff0d 48%, transparent 70%);
+  transform: translateX(-2%);
+  opacity: 0.24;
+}
+.thread-design-rim {
+  position: absolute;
+  inset: 0;
   overflow: hidden;
-  color: var(--color-muted-ink);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  line-height: 16px;
+  padding: 1px;
+  border-radius: inherit;
+  opacity: 0.45;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.thread-design-rim::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  background: conic-gradient(
+    from 20deg,
+    #ffffff00 3%,
+    #dce8f052 12%,
+    #f5f8ffb0 17%,
+    #73839b0d 24%,
+    #ffffff00 40%,
+    #8b9fb845 53%,
+    #eff5fa80 58%,
+    #a5b5ce0d 66%,
+    #ffffff00 83%
+  );
+}
+.thread-design-window[data-working="true"] .thread-design-rim::before {
+  animation: thread-design-orbit 36s linear infinite;
+}
+.thread-design-window[data-working="true"] .thread-design-reflection {
+  animation: thread-design-glass 18s cubic-bezier(0.45, 0, 0.55, 1) infinite alternate;
+}
+.thread-design-peek:is([data-expanded="true"], [data-dragging="true"]) .thread-design-rim::before,
+.thread-design-peek:is([data-expanded="true"], [data-dragging="true"]) .thread-design-reflection {
+  animation-play-state: paused;
 }
 .thread-design-dialog {
   inset: 0;
@@ -3148,9 +3208,10 @@ summary:focus-visible {
   overflow: hidden;
   border: 0;
   border-radius: 0;
-  background: light-dark(#f0efed, #292827);
+  background: #0c0e12;
   box-shadow: none;
   transform-origin: top left;
+  pointer-events: auto;
 }
 .thread-design-dialog::backdrop {
   background: transparent;
@@ -3178,7 +3239,9 @@ summary:focus-visible {
 .thread-design-transition-artwork {
   position: absolute;
   inset: 0;
-  padding: 32px;
+  padding: 14%;
+  background-image: radial-gradient(circle, #b4c1d11c 0.7px, transparent 0.9px);
+  background-size: 16px 16px;
   pointer-events: none;
   opacity: 1;
   transition: opacity 100ms ease;
@@ -3186,47 +3249,34 @@ summary:focus-visible {
 .thread-design-dialog[data-phase="open"] .thread-design-transition-artwork {
   opacity: 0;
 }
-@media (hover: hover) and (pointer: fine) {
-  .thread-design-peek:hover {
-    box-shadow: 0 4px 16px #0000000c;
-  }
-  .thread-design-peek:hover .thread-design-expand {
-    opacity: 1;
+@keyframes thread-design-orbit {
+  to {
+    transform: rotate(360deg);
   }
 }
-@keyframes thread-design-breathe {
-  0%,
-  100% {
-    border-radius: 24% 18% 22% 16% / 22% 26% 18% 24%;
-  }
-  33% {
-    border-radius: 16% 26% 18% 24% / 28% 18% 26% 16%;
-  }
-  66% {
-    border-radius: 22% 16% 26% 18% / 16% 24% 20% 28%;
+@keyframes thread-design-glass {
+  to {
+    transform: translateX(2%);
+    opacity: 0.38;
   }
 }
 @keyframes thread-design-appear {
   from {
     opacity: 0;
-    transform: translateY(6px) scale(0.97);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .thread-design-window,
-  .thread-design-window[data-working="true"] .thread-design-peek {
+  .thread-design-peek,
+  .thread-design-window[data-working="true"] .thread-design-peek,
+  .thread-design-window[data-working="true"] .thread-design-rim::before,
+  .thread-design-window[data-working="true"] .thread-design-reflection {
     animation: none;
   }
-  .thread-design-peek,
   .thread-design-canvas,
   .thread-design-transition-artwork {
     transition: none;
-  }
-  .thread-design-peek:active {
-    transform: none;
   }
 }

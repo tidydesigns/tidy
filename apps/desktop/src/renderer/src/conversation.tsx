@@ -253,15 +253,6 @@ export function Conversation({
               />
             </div>
           ))}
-          {thread && (
-            <ThreadDesignWindow
-              api={api}
-              thread={thread}
-              designs={designs}
-              active={active}
-              onUpdate={onDesignUpdate}
-            />
-          )}
           {running &&
             !thread.pendingApprovals?.length &&
             !thread.toolActivities?.some((tool) => tool.status === "running") && (
@@ -278,6 +269,15 @@ export function Conversation({
           {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
         </div>
       </div>
+      {thread && (
+        <ThreadDesignWindow
+          api={api}
+          thread={thread}
+          designs={designs}
+          active={active}
+          onUpdate={onDesignUpdate}
+        />
+      )}
       {turns.length > 1 && (
         <nav
           className="conversation-rail"

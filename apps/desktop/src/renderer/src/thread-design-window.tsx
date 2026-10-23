@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type PointerEvent } from "react";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
@@ -28,14 +28,64 @@ export function ThreadDesignWindow({
   const [value, setValue] = useState<LocalDesign>();
   const [phase, setPhase] = useState<Phase>("closed");
   const [visited, setVisited] = useState(false);
+  const layer = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const animation = useRef<Animation | null>(null);
   const generation = useRef(0);
   const restoreFocus = useRef(false);
+  const offset = useRef({ x: 0, y: 0 });
+  const drag = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    x: number;
+    y: number;
+    moved: boolean;
+  } | null>(null);
+  const suppressClick = useRef(false);
   const id = useId();
   const expanded = phase !== "closed";
   const summary = designs.find((design) => design.id === targetId);
+  const ready = Boolean(summary && value?.id === summary.id);
+
+  const move = useCallback((x: number, y: number) => {
+    const button = trigger.current;
+    const area = layer.current;
+    if (!button || !area || !area.clientWidth || !area.clientHeight) return;
+    const bounds = area.getBoundingClientRect();
+    const rect = button.getBoundingClientRect();
+    const left = Math.max(
+      bounds.left + 16,
+      Math.min(bounds.right - rect.width - 16, rect.left + x - offset.current.x),
+    );
+    const top = Math.max(
+      bounds.top + 16,
+      Math.min(bounds.bottom - rect.height - 16, rect.top + y - offset.current.y),
+    );
+    offset.current = {
+      x: offset.current.x + left - rect.left,
+      y: offset.current.y + top - rect.top,
+    };
+    button.style.transform = `translate(${offset.current.x}px, ${offset.current.y}px)`;
+  }, []);
+
+  useEffect(() => {
+    if (!ready || !active || !layer.current) return;
+    const observer = new ResizeObserver(() => move(offset.current.x, offset.current.y));
+    observer.observe(layer.current);
+    return () => observer.disconnect();
+  }, [ready, active, move]);
+
+  function finishDrag(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
+    const current = drag.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    suppressClick.current = current.moved || cancelled;
+    drag.current = null;
+    delete event.currentTarget.dataset.dragging;
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  }
   const update = useCallback(
     (design: LocalDesign) => {
       setValue(design);
@@ -143,32 +193,81 @@ export function ThreadDesignWindow({
 
   if (!summary || !value || value.id !== summary.id) return null;
   return (
-    <div className="thread-design-window" data-working={thread.status === "running"}>
+    <div
+      ref={layer}
+      className="thread-design-window"
+      data-working={thread.status === "running"}
+      hidden={!active}
+    >
       <Button
         ref={trigger}
         type="button"
         className="thread-design-peek"
-        aria-label={`Expand ${value.name} canvas`}
+        aria-label="Expand canvas"
         aria-haspopup="dialog"
         aria-controls={id}
         aria-expanded={expanded}
+        aria-description={`Live view of ${value.name}. Drag to move, or use the arrow keys. Click to expand.`}
         data-expanded={expanded}
-        onClick={() => transition(true)}
+        onPointerDown={(event) => {
+          if (event.button !== 0 || !event.isPrimary || drag.current) return;
+          suppressClick.current = false;
+          drag.current = {
+            pointerId: event.pointerId,
+            startX: event.clientX,
+            startY: event.clientY,
+            ...offset.current,
+            moved: false,
+          };
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          const current = drag.current;
+          if (!current || current.pointerId !== event.pointerId) return;
+          const dx = event.clientX - current.startX;
+          const dy = event.clientY - current.startY;
+          if (!current.moved && Math.hypot(dx, dy) < 5) return;
+          current.moved = true;
+          event.currentTarget.dataset.dragging = "true";
+          move(current.x + dx, current.y + dy);
+        }}
+        onPointerUp={(event) => finishDrag(event)}
+        onPointerCancel={(event) => finishDrag(event, true)}
+        onLostPointerCapture={(event) => finishDrag(event, true)}
+        onKeyDown={(event) => {
+          const directions: Record<string, [number, number]> = {
+            ArrowLeft: [-1, 0],
+            ArrowRight: [1, 0],
+            ArrowUp: [0, -1],
+            ArrowDown: [0, 1],
+          };
+          const direction = directions[event.key];
+          if (!direction) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const step = event.shiftKey ? 40 : 16;
+          move(offset.current.x + direction[0] * step, offset.current.y + direction[1] * step);
+        }}
+        onClick={(event) => {
+          if (!suppressClick.current || event.detail === 0) transition(true);
+          suppressClick.current = false;
+        }}
       >
-        <span className="thread-design-artwork" aria-hidden="true" inert>
-          <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
+        <span className="thread-design-lens" aria-hidden="true" inert>
+          <span className="thread-design-artwork">
+            <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
+          </span>
+          <span className="thread-design-depth" />
+          <span className="thread-design-reflection" />
         </span>
-        <span className="thread-design-expand" aria-hidden="true">
-          ↗
-        </span>
+        <span className="thread-design-rim" aria-hidden="true" />
       </Button>
-      <span className="thread-design-caption">{value.name}</span>
       <Dialog
         ref={dialog}
         id={id}
         padded={false}
         className="thread-design-dialog"
-        aria-label={`${value.name} canvas`}
+        aria-label="Live design canvas"
         data-phase={phase}
         onCancel={(event) => {
           event.preventDefault();
