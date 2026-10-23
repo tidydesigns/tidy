@@ -41,8 +41,10 @@ export function CloudWorkspace({
     selection = useRef(0);
   const organization = cloud.account?.organizations.find((o) => o.id === organizationId);
   const refresh = useRef<() => void>(() => {});
+  const refreshCreated = useRef<(organizationId: string, accountId?: string) => void>(() => {});
   useEffect(() => {
     const version = ++epoch.current;
+    const accountId = cloud.state?.accountId;
     selection.current++;
     setOpened(undefined);
     onCanvasChange(false);
@@ -57,14 +59,26 @@ export function CloudWorkspace({
     if (!remote || !organizationId) return;
     let fetching = false;
     let haveCatalog = false;
+    let latestRead = 0;
+    const readCached = async () => {
+      const read = ++latestRead;
+      const value = await remote.catalog(organizationId, true);
+      if (epoch.current === version && latestRead === read) {
+        haveCatalog = true;
+        setCatalog(value);
+      }
+    };
     const update = async () => {
       if (fetching) return;
       fetching = true;
+      const read = ++latestRead;
       try {
         const value = await remote.catalog(organizationId);
         if (epoch.current === version) {
-          haveCatalog = true;
-          setCatalog(value);
+          if (latestRead === read) {
+            haveCatalog = true;
+            setCatalog(value);
+          }
           setOffline(false);
           setError("");
         }
@@ -79,19 +93,17 @@ export function CloudWorkspace({
       }
     };
     refresh.current = () => void update();
-    void remote
-      .catalog(organizationId, true)
-      .then((value) => {
-        if (epoch.current === version) {
-          haveCatalog = true;
-          setCatalog(value);
-        }
-      })
+    refreshCreated.current = (createdOrganizationId, createdAccountId) => {
+      if (createdOrganizationId === organizationId && createdAccountId === accountId)
+        void readCached().catch(() => update());
+    };
+    void readCached()
       .catch(() => {})
       .then(update);
     return () => {
       epoch.current++;
       selection.current++;
+      refreshCreated.current = () => {};
     };
   }, [api, organizationId, cloud.state?.accountId]);
   useEffect(() => {
@@ -147,6 +159,7 @@ export function CloudWorkspace({
   async function create() {
     if (!api.cloud || creating) return;
     const version = ++selection.current;
+    const accountId = cloud.state?.accountId;
     setCreating(true);
     setOpening(undefined);
     setError("");
@@ -155,7 +168,7 @@ export function CloudWorkspace({
       if (selection.current === version) {
         onCanvasChange(true);
         setOpened(value);
-      }
+      } else refreshCreated.current(organizationId, accountId);
     } catch (cause) {
       if (selection.current === version)
         setError(errorMessage(cause, "Could not create this file."));
