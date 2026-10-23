@@ -1,12 +1,12 @@
 export type CanvasGeometry = { x: number; y: number; width: number };
 export type ThreadCanvasDock = {
   ids: string[];
-  floatingId?: string;
+  openIds: string[];
   geometry: Record<string, CanvasGeometry>;
 };
 
 export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
-  const empty: ThreadCanvasDock = { ids: [], geometry: {} };
+  const empty: ThreadCanvasDock = { ids: [], openIds: [], geometry: {} };
   try {
     const value: unknown = JSON.parse(raw ?? "null");
     if (!value || typeof value !== "object" || !("ids" in value) || !Array.isArray(value.ids))
@@ -18,6 +18,18 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
       ids.includes(value.floatingId)
         ? value.floatingId
         : undefined;
+    const openIds =
+      "openIds" in value && Array.isArray(value.openIds)
+        ? [
+            ...new Set(
+              value.openIds.filter(
+                (id): id is string => typeof id === "string" && ids.includes(id),
+              ),
+            ),
+          ]
+        : floatingId
+          ? [floatingId]
+          : [];
     const geometry: Record<string, CanvasGeometry> = Object.create(null);
     if ("geometry" in value && value.geometry && typeof value.geometry === "object") {
       for (const id of ids) {
@@ -31,7 +43,7 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
           geometry[id] = { x: candidate.x, y: candidate.y, width: candidate.width };
       }
     }
-    return { ids, floatingId, geometry };
+    return { ids, openIds, geometry };
   } catch {
     return empty;
   }
@@ -44,6 +56,16 @@ export function discoverCanvases(state: ThreadCanvasDock, ids: string[]): Thread
   return {
     ...state,
     ids: [...state.ids, ...new Set(added)],
-    floatingId: state.ids.length ? state.floatingId : added[0],
+    openIds: state.ids.length ? state.openIds : [added[0]],
+  };
+}
+
+export function toggleCanvas(state: ThreadCanvasDock, id: string): ThreadCanvasDock {
+  if (!state.ids.includes(id)) return state;
+  return {
+    ...state,
+    openIds: state.openIds.includes(id)
+      ? state.openIds.filter((value) => value !== id)
+      : [...state.openIds, id],
   };
 }

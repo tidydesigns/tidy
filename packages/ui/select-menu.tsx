@@ -17,6 +17,7 @@ export type SelectMenuOption = {
   icon?: ReactNode;
   disabled?: boolean;
   ariaLabel?: string;
+  checked?: boolean;
 };
 
 export function SelectMenu({
@@ -39,6 +40,7 @@ export function SelectMenu({
   dismissOnScroll = false,
   showSelectedIcon = false,
   selectionIndicator = "check",
+  closeOnSelect = true,
 }: {
   triggerContent?: ReactNode;
   triggerClassName?: string;
@@ -48,6 +50,7 @@ export function SelectMenu({
   dismissOnScroll?: boolean;
   showSelectedIcon?: boolean;
   selectionIndicator?: "check" | "none";
+  closeOnSelect?: boolean;
   value: string;
   options: SelectMenuOption[];
   onChange: (value: string) => void;
@@ -237,13 +240,21 @@ export function SelectMenu({
             <button
               key={option.value}
               type="button"
-              role={actionMenu ? "menuitem" : "menuitemradio"}
-              aria-checked={actionMenu ? undefined : value === option.value}
+              role={
+                option.checked !== undefined
+                  ? "menuitemcheckbox"
+                  : actionMenu
+                    ? "menuitem"
+                    : "menuitemradio"
+              }
+              aria-checked={option.checked ?? (actionMenu ? undefined : value === option.value)}
               aria-label={option.ariaLabel}
               disabled={option.disabled}
               onClick={() => {
-                setOpen(false);
-                trigger.current?.focus({ preventScroll: true });
+                if (closeOnSelect) {
+                  setOpen(false);
+                  trigger.current?.focus({ preventScroll: true });
+                }
                 if (actionMenu || option.value !== value) onChange(option.value);
               }}
               className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
@@ -271,7 +282,7 @@ export function SelectMenu({
               </span>
               {layout !== "horizontal" && selectionIndicator === "check" && (
                 <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
-                  {!actionMenu && value === option.value ? "✓" : ""}
+                  {(option.checked ?? (!actionMenu && value === option.value)) ? "✓" : ""}
                 </span>
               )}
             </button>

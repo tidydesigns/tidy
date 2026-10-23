@@ -7,12 +7,15 @@ import {
   useState,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
+import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { threadDesigns } from "../../shared/thread-design";
 import {
   discoverCanvases,
   parseCanvasDock,
+  toggleCanvas,
   type CanvasGeometry,
   type ThreadCanvasDock,
 } from "../../shared/thread-canvas-dock";
@@ -22,19 +25,71 @@ import { ThreadDesignWindow } from "./thread-design-window";
 export type DockSlot = { x: number; y: number; width: number };
 const viewports = new Map<string, Map<string, CanvasViewportMemory>>();
 
+function CanvasGlyph() {
+  return (
+    <svg
+      width="17"
+      height="17"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M9 4v16M9 9h11" />
+    </svg>
+  );
+}
+
+function CanvasThumbnail({
+  summary,
+  value,
+  load,
+}: {
+  summary: DesignSummary;
+  value?: LocalDesign;
+  load(summary: DesignSummary): Promise<LocalDesign>;
+}) {
+  const element = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!element.current || value?.updatedAt === summary.updatedAt) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        void load(summary).catch(() => {});
+      },
+      { root: element.current.closest('[role="menu"]') },
+    );
+    observer.observe(element.current);
+    return () => observer.disconnect();
+  }, [summary, value?.updatedAt, load]);
+  return (
+    <span ref={element} className="canvas-dock-thumbnail" aria-hidden="true" inert>
+      {value ? (
+        <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
+      ) : (
+        <CanvasGlyph />
+      )}
+    </span>
+  );
+}
+
 export function ThreadDesignDock({
   api,
   thread,
   designs,
   active,
-  composer,
+  home,
   onUpdate,
 }: {
   api: DesktopAPI;
   thread: Thread;
   designs: DesignSummary[];
   active: boolean;
-  composer: RefObject<HTMLFormElement | null>;
+  home: RefObject<HTMLSpanElement | null>;
   onUpdate(design: LocalDesign): void;
 }) {
   const key = `tidy:canvas-dock:${thread.projectId}:${thread.id}`;
@@ -59,12 +114,23 @@ export function ThreadDesignDock({
         )
       : saved;
   });
-  const [lastId, setLastId] = useState(state.floatingId);
+  const latest = useRef(state);
+  latest.current = state;
+  const [focusedId, setFocusedId] = useState(state.openIds.at(-1));
   const [outgoingIds, setOutgoingIds] = useState<string[]>([]);
-  const selection = useRef(state.floatingId);
-  selection.current = state.floatingId;
   const layer = useRef<HTMLDivElement>(null);
-  const [bounds, setBounds] = useState({ x: 0, y: 0, width: 0 });
+  const [host, setHost] = useState<HTMLSpanElement | null>(null);
+  const [slot, setSlot] = useState<DockSlot | null>(null);
+  const cache = useRef(new Map<string, { stamp: string; value: LocalDesign }>());
+  const pending = useRef(new Map<string, Promise<LocalDesign>>());
+  const [previews, setPreviews] = useState<Record<string, LocalDesign>>({});
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const summaries = useMemo(
     () =>
       state.ids.flatMap((id) => {
@@ -72,13 +138,6 @@ export function ThreadDesignDock({
         return summary ? [summary] : [];
       }),
     [state.ids, designs],
-  );
-  const count = Math.min(3, Math.max(1, Math.floor((bounds.width - 68) / 100)));
-  const visible = useMemo(() => summaries.slice(0, count), [summaries, count]);
-  const overflow = useMemo(() => summaries.slice(count), [summaries, count]);
-  const tileWidth = Math.min(
-    128,
-    Math.max(72, (bounds.width - 24 - (overflow.length ? 48 : 0)) / count - 8),
   );
   const candidates = useMemo(
     () => threadDesigns(thread, designs).map((design) => design.id),
@@ -88,60 +147,99 @@ export function ThreadDesignDock({
     if (thread.status === "running") setState((previous) => discoverCanvases(previous, candidates));
   }, [thread.status, candidates]);
   useEffect(() => {
-    if (state.floatingId) setLastId(state.floatingId);
-  }, [state.floatingId]);
-  useEffect(() => {
-    // Storage is tiny and runs after paint, outside pointer/keyboard handlers.
     try {
       localStorage.setItem(key, JSON.stringify(state));
     } catch {
-      /* A full store must not block the canvas. */
+      /* Keep controls usable when storage is unavailable. */
     }
   }, [key, state]);
+  const readPreview = useCallback(
+    (summary: DesignSummary): Promise<LocalDesign> => {
+      const saved = cache.current.get(summary.id);
+      if (saved?.stamp === summary.updatedAt) return Promise.resolve(saved.value);
+      const requestKey = `${summary.id}:${summary.updatedAt}`;
+      const existing = pending.current.get(requestKey);
+      if (existing) return existing;
+      const request = api
+        .readDesign(thread.projectId, summary.id)
+        .then((value) => {
+          // An older read must not overwrite a newer edit or refresh.
+          const current = cache.current.get(summary.id);
+          if (!current || current === saved || current.value.updatedAt < value.updatedAt) {
+            cache.current.set(summary.id, { stamp: summary.updatedAt, value });
+            if (mounted.current) setPreviews((previous) => ({ ...previous, [value.id]: value }));
+          }
+          return cache.current.get(summary.id)?.value ?? value;
+        })
+        .finally(() => pending.current.delete(requestKey));
+      pending.current.set(requestKey, request);
+      return request;
+    },
+    [api, thread.projectId],
+  );
+  useEffect(() => {
+    if (!active) return;
+    // Preload the first visible rows in idle time; longer lists load only visible thumbnails.
+    const idle = window.requestIdleCallback(
+      () => {
+        void Promise.allSettled(summaries.slice(0, 6).map(readPreview));
+      },
+      { timeout: 600 },
+    );
+    return () => window.cancelIdleCallback(idle);
+  }, [active, summaries, readPreview]);
+  const update = useCallback(
+    (value: LocalDesign) => {
+      cache.current.set(value.id, { stamp: value.updatedAt, value });
+      setPreviews((previous) => ({ ...previous, [value.id]: value }));
+      onUpdate(value);
+    },
+    [onUpdate],
+  );
 
   useLayoutEffect(() => {
+    setHost(home.current);
+  }, [home]);
+  useLayoutEffect(() => {
     const area = layer.current;
-    const form = composer.current;
-    if (!area || !form) return;
-    form.dataset.canvasDock = String(active && summaries.length > 0);
-    if (!active)
-      return () => {
-        delete form.dataset.canvasDock;
-      };
+    const target = home.current;
+    if (!area || !target || !active || !summaries.length) return;
     function measure() {
-      const anchor = form!.getBoundingClientRect();
-      const parent = area!.getBoundingClientRect();
+      const anchor = target!.getBoundingClientRect();
+      if (!anchor.width || !anchor.height) return;
+      const bounds = area!.getBoundingClientRect();
       const next = {
-        x: anchor.left - parent.left,
-        y: anchor.top - parent.top - 36,
-        width: anchor.width,
+        x: anchor.left - bounds.left + (anchor.width - 28) / 2,
+        y: anchor.top - bounds.top + (anchor.height - 28 / 1.5) / 2,
+        width: 28,
       };
-      setBounds((previous) =>
-        previous.x === next.x && previous.y === next.y && previous.width === next.width
-          ? previous
-          : next,
-      );
+      setSlot((previous) => (previous?.x === next.x && previous?.y === next.y ? previous : next));
     }
     measure();
     const observer = new ResizeObserver(measure);
-    observer.observe(form);
+    observer.observe(target);
     observer.observe(area);
     return () => {
       observer.disconnect();
-      delete form.dataset.canvasDock;
-      delete form.dataset.canvasDrop;
+      delete target.dataset.canvasDrop;
     };
-  }, [composer, active, summaries.length]);
+  }, [home, host, active, summaries.length]);
 
-  const open = useCallback((id: string) => {
-    const previous = selection.current;
-    if (previous && previous !== id)
-      setOutgoingIds((ids) => (ids.includes(previous) ? ids : [...ids, previous]));
-    setLastId(id);
-    setState((previous) => ({ ...previous, floatingId: id }));
+  const toggle = useCallback((id: string) => {
+    const previous = latest.current;
+    if (previous.openIds.includes(id)) {
+      setOutgoingIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+      setFocusedId(previous.openIds.filter((value) => value !== id).at(-1) ?? id);
+    } else setFocusedId(id);
+    setState((value) => toggleCanvas(value, id));
   }, []);
-  const dock = useCallback(() => {
-    setState((previous) => ({ ...previous, floatingId: undefined }));
+  const activate = useCallback((id: string) => {
+    setFocusedId(id);
+    setState((previous) =>
+      !previous.openIds.includes(id) || previous.openIds.at(-1) === id
+        ? previous
+        : { ...previous, openIds: [...previous.openIds.filter((value) => value !== id), id] },
+    );
   }, []);
   const rememberGeometry = useCallback((id: string, geometry: CanvasGeometry) => {
     setState((previous) => ({ ...previous, geometry: { ...previous.geometry, [id]: geometry } }));
@@ -149,85 +247,94 @@ export function ThreadDesignDock({
   const settled = useCallback((id: string) => {
     setOutgoingIds((ids) => (ids.includes(id) ? ids.filter((value) => value !== id) : ids));
   }, []);
-  const retained = summaries.find((design) => design.id === (state.floatingId ?? lastId));
-  const windows = useMemo(() => {
-    const result = [...visible];
-    for (const summary of [
-      retained,
-      ...outgoingIds.map((id) => summaries.find((item) => item.id === id)),
-    ])
-      if (summary && !result.includes(summary)) result.push(summary);
-    return result;
-  }, [retained, visible, outgoingIds, summaries]);
-  const slots = useMemo(
+  const warmId = state.openIds.includes(focusedId ?? "")
+    ? focusedId
+    : (state.openIds.at(-1) ?? focusedId);
+  const windows = useMemo(
     () =>
-      new Map(
-        windows.map((summary) => {
-          const index = visible.indexOf(summary);
-          return [
-            summary.id,
-            {
-              x: bounds.x + 16 + (index === -1 ? visible.length : index) * (tileWidth + 8),
-              y: bounds.y,
-              width: index === -1 ? 40 : tileWidth,
-            },
-          ];
-        }),
+      summaries.filter(
+        (summary) =>
+          state.openIds.includes(summary.id) ||
+          outgoingIds.includes(summary.id) ||
+          warmId === summary.id,
       ),
-    [windows, visible, bounds, tileWidth],
+    [summaries, state.openIds, outgoingIds, warmId],
   );
   return (
-    <div ref={layer} className="thread-design-dock-layer" hidden={!active}>
-      {bounds.width > 0 &&
-        windows.map((summary) => {
-          let viewportMemory = memories.get(summary.id);
-          if (!viewportMemory) {
-            viewportMemory = {};
-            memories.set(summary.id, viewportMemory);
-          }
-          const index = visible.indexOf(summary);
-          const extra = index === -1;
-          return (
-            <ThreadDesignWindow
-              key={summary.id}
-              api={api}
-              projectId={thread.projectId}
-              summary={summary}
-              active={active}
-              working={thread.status === "running"}
-              floating={state.floatingId === summary.id}
-              warm={(state.floatingId ?? lastId) === summary.id}
-              slot={slots.get(summary.id)!}
-              overflow={extra}
-              initialGeometry={state.geometry[summary.id]}
-              viewportMemory={viewportMemory}
-              composer={composer}
-              onDock={dock}
-              onUndock={open}
-              onGeometry={rememberGeometry}
-              onDocked={settled}
-              onUpdate={onUpdate}
-            />
-          );
-        })}
-      {overflow.length > 0 && (
-        <div
-          className="thread-design-overflow"
-          style={{ left: bounds.x + 16 + visible.length * (tileWidth + 8), top: bounds.y }}
-        >
+    <>
+      {host &&
+        active &&
+        summaries.length > 0 &&
+        createPortal(
           <SelectMenu
             value=""
-            label="More canvases"
+            label="Canvases"
             actionMenu
+            closeOnSelect={false}
             placement="top"
             align="start"
-            triggerClassName="thread-design-overflow-trigger"
-            triggerContent={`+${overflow.length}`}
-            options={overflow.map((design) => ({ value: design.id, label: design.name }))}
-            onChange={open}
-          />
-        </div>
-      )}
-    </div>
+            className="canvas-dock-menu"
+            triggerClassName="quiet-button canvas-dock-trigger"
+            triggerContent={
+              <>
+                <CanvasGlyph />
+                {summaries.length > 1 && (
+                  <span className="canvas-dock-count">{summaries.length}</span>
+                )}
+              </>
+            }
+            options={summaries.map((summary) => ({
+              value: summary.id,
+              label: summary.name,
+              checked: state.openIds.includes(summary.id),
+              ariaLabel: `${state.openIds.includes(summary.id) ? "Dock" : "Open"} ${summary.name}`,
+              icon: (
+                <CanvasThumbnail
+                  summary={summary}
+                  value={previews[summary.id]}
+                  load={readPreview}
+                />
+              ),
+            }))}
+            onChange={toggle}
+          />,
+          host,
+        )}
+      <div ref={layer} className="thread-design-dock-layer" hidden={!active}>
+        {host &&
+          slot &&
+          windows.map((summary) => {
+            let viewportMemory = memories.get(summary.id);
+            if (!viewportMemory) {
+              viewportMemory = {};
+              memories.set(summary.id, viewportMemory);
+            }
+            return (
+              <ThreadDesignWindow
+                key={summary.id}
+                api={api}
+                projectId={thread.projectId}
+                summary={summary}
+                active={active}
+                working={thread.status === "running"}
+                floating={state.openIds.includes(summary.id)}
+                warm={warmId === summary.id}
+                slot={slot}
+                placement={summaries.indexOf(summary)}
+                stackOrder={state.openIds.indexOf(summary.id) + 2}
+                initialGeometry={state.geometry[summary.id]}
+                viewportMemory={viewportMemory}
+                dockTarget={home}
+                readPreview={readPreview}
+                onDock={toggle}
+                onActivate={activate}
+                onGeometry={rememberGeometry}
+                onDocked={settled}
+                onUpdate={update}
+              />
+            );
+          })}
+      </div>
+    </>
   );
 }

@@ -3063,7 +3063,7 @@ summary:focus-visible {
   text-overflow: ellipsis;
 }
 
-/* Canvas windows share a stable home just behind the composer's top edge. */
+/* Canvas windows return to one quiet control in the composer toolbar. */
 .thread-design-dock-layer {
   position: absolute;
   inset: 0;
@@ -3073,12 +3073,53 @@ summary:focus-visible {
 .thread-design-dock-layer[hidden] {
   display: none;
 }
-.composer[data-canvas-dock="true"] {
-  margin-top: 48px;
+.canvas-dock-home {
+  display: inline-flex;
 }
-.composer[data-canvas-drop="true"] {
-  border-color: var(--color-muted-ink);
-  box-shadow: 0 0 0 3px light-dark(#00000008, #ffffff08);
+.canvas-dock-home:empty {
+  display: none;
+}
+.canvas-dock-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  color: var(--color-muted-ink);
+}
+.canvas-dock-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.canvas-dock-menu [role="menu"] {
+  width: 260px;
+  max-width: calc(100vw - 16px);
+  border-color: var(--color-border);
+  background: var(--color-panel);
+}
+.canvas-dock-menu [role="menuitemcheckbox"] {
+  min-height: 44px;
+}
+.canvas-dock-menu [role="menuitemcheckbox"] > span:last-child {
+  color: var(--color-muted-ink);
+}
+.canvas-dock-thumbnail {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 28px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: light-dark(#f4f4f4, #171717);
+  color: var(--color-muted-ink);
+}
+.canvas-dock-home[data-canvas-drop="true"] .canvas-dock-trigger {
+  outline: 1px solid var(--color-muted-ink);
+  outline-offset: 2px;
+  background: light-dark(#00000008, #ffffff08);
 }
 .thread-design-window {
   position: absolute;
@@ -3129,58 +3170,21 @@ summary:focus-visible {
   visibility: hidden;
   animation-play-state: paused;
 }
-.thread-design-frame[data-docked="true"] .thread-design-peek {
-  cursor: pointer;
+.thread-design-frame[data-docked="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+.thread-design-frame[data-docked="true"]:not([data-moving="true"]) {
+  visibility: hidden;
+}
+.thread-design-frame[data-docked="true"]:not([data-moving="true"]) .thread-design-rim::before {
+  animation-play-state: paused;
 }
 .thread-design-frame[data-docked="true"] :is(.thread-design-close, .thread-design-resize) {
   display: none;
 }
-.thread-design-frame[data-docked="true"][data-overflow="true"]:not([data-moving="true"]) {
-  visibility: hidden;
-  pointer-events: none;
-}
 .thread-design-name {
-  position: absolute;
-  inset: 5px 10px auto 12px;
   display: none;
-  overflow: hidden;
-  color: var(--color-ink);
-  font-size: 11px;
-  line-height: 18px;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.thread-design-frame[data-docked="true"] .thread-design-name {
-  display: block;
-}
-@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
-  .thread-design-frame {
-    transition: translate 160ms cubic-bezier(0.23, 1, 0.32, 1);
-  }
-  .thread-design-frame[data-docked="true"]:is(:hover, :focus-within) {
-    translate: 0 -4px;
-  }
-}
-.thread-design-overflow {
-  position: absolute;
-  z-index: 2;
-  pointer-events: auto;
-}
-.thread-design-overflow-trigger {
-  width: 40px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-bottom: 0;
-  border-radius: 12px 12px 0 0;
-  background: light-dark(#f4f4f4, #171717);
-  color: var(--color-muted-ink);
-  font-size: 12px;
-  cursor: pointer;
-}
-.thread-design-overflow-trigger:hover {
-  color: var(--color-ink);
 }
 .thread-design-frame[data-dragging="true"] .thread-design-peek {
   cursor: grabbing;
@@ -3251,7 +3255,7 @@ summary:focus-visible {
 }
 .thread-design-artwork {
   position: absolute;
-  inset: 24px 8px -16px;
+  inset: 12% 3% -8%;
   display: block;
 }
 .thread-design-artwork > svg {

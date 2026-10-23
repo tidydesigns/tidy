@@ -144,7 +144,7 @@ export function App() {
   const uploads = useRef<Record<string, Promise<void>>>({});
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
-  const composer = useRef<HTMLFormElement>(null);
+  const canvasDockHome = useRef<HTMLSpanElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<{
     original?: unknown;
@@ -1336,7 +1336,7 @@ export function App() {
                   {thread && api && (
                   <ThreadDesignDock key={`canvases:${project.id}:${thread.id}`} api={api} thread={thread}
                     designs={snapshot.designs} active={!settingsOpen && location === "local" && mode === "code"}
-                    composer={composer} onUpdate={updateLocalDesign} />
+                    home={canvasDockHome} onUpdate={updateLocalDesign} />
                 )}
                 {thread?.pendingApprovals?.length && api ? (
                     <ApprovalRequests
@@ -1370,7 +1370,6 @@ export function App() {
                     />
                   )}
                   <form
-                    ref={composer}
                     className="composer"
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
@@ -1516,7 +1515,8 @@ export function App() {
                           />
                         </svg>
                       </Button>
-                      <HarnessControls
+                      <span ref={canvasDockHome} className="canvas-dock-home" />
+                    <HarnessControls
                         api={api!}
                         connections={harnesses}
                         harness={selectedHarness}

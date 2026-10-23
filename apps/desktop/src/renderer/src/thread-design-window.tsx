@@ -60,12 +60,14 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   floating,
   warm,
   slot,
-  overflow,
+  placement,
+  stackOrder,
   initialGeometry,
   viewportMemory,
-  composer,
+  dockTarget,
+  readPreview,
   onDock,
-  onUndock,
+  onActivate,
   onGeometry,
   onDocked,
   onUpdate,
@@ -78,12 +80,14 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   floating: boolean;
   warm: boolean;
   slot: DockSlot;
-  overflow: boolean;
+  placement: number;
+  stackOrder: number;
   initialGeometry?: CanvasGeometry;
   viewportMemory: CanvasViewportMemory;
-  composer: RefObject<HTMLFormElement | null>;
-  onDock(): void;
-  onUndock(id: string): void;
+  dockTarget: RefObject<HTMLSpanElement | null>;
+  readPreview(summary: DesignSummary): Promise<LocalDesign>;
+  onDock(id: string): void;
+  onActivate(id: string): void;
   onGeometry(id: string, geometry: CanvasGeometry): void;
   onDocked(id: string): void;
   onUpdate(design: LocalDesign): void;
@@ -101,7 +105,10 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const animations = useRef<Animation[]>([]);
   const generation = useRef(0);
   const restoreFocus = useRef(false);
-  const offset = useRef({ x: initialGeometry?.x ?? Number.NaN, y: initialGeometry?.y ?? 64 });
+  const offset = useRef({
+    x: initialGeometry?.x ?? Number.NaN,
+    y: initialGeometry?.y ?? 64 + (placement % 5) * 28,
+  });
   const width = useRef(initialGeometry?.width ?? 296);
   const dockMotion = useRef<Animation[]>([]);
   const laidOut = useRef(false);
@@ -167,12 +174,26 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const area = layer.current;
     if (!surface || !area || !active) return;
     const bounds = area.getBoundingClientRect();
-    const previous = surface.getBoundingClientRect();
+    const previous = laidOut.current
+      ? surface.getBoundingClientRect()
+      : {
+          left: bounds.left + slot.x,
+          top: bounds.top + slot.y,
+          width: slot.width,
+          height: slot.width / previewRatio,
+        };
+    const previousOpacity = !laidOut.current
+      ? "0"
+      : dockMotion.current.length
+        ? getComputedStyle(surface).opacity
+        : previousFloating.current
+          ? "1"
+          : "0";
     const previousClip = getComputedStyle(surface).clipPath;
-    const previousRadius = getComputedStyle(surface).borderRadius;
+    const previousRadius = laidOut.current ? getComputedStyle(surface).borderRadius : "4px";
     dockMotion.current.forEach((motion) => motion.cancel());
     if (!Number.isFinite(offset.current.x))
-      offset.current.x = area.clientWidth - width.current - 36;
+      offset.current.x = area.clientWidth - width.current - 36 - (placement % 5) * 28;
     const limit = Math.max(
       0,
       Math.min(maximumWidth, area.clientWidth - 32, (area.clientHeight - 32) * previewRatio),
@@ -189,19 +210,17 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const target = floating ? { ...offset.current, width: width.current } : slot;
     const height = target.width / previewRatio;
     const transform = `translate(${target.x}px, ${target.y}px)`;
-    const clip = floating
-      ? "inset(0% 0% 0% 0%)"
-      : `inset(0% 0% ${Math.max(0, 100 - 3600 / height)}% 0%)`;
+    const clip = "inset(0% 0% 0% 0%)";
     Object.assign(surface.style, {
       left: "0px",
       top: "0px",
       width: `${target.width}px`,
       transform,
       clipPath: clip,
-      borderRadius: floating ? "22px" : "14px",
+      borderRadius: floating ? "22px" : "4px",
     });
     if (
-      laidOut.current &&
+      (laidOut.current || floating) &&
       previous.width &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches
     ) {
@@ -211,18 +230,28 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           {
             transform: `translate(${previous.left - bounds.left}px, ${previous.top - bounds.top}px) scale(${previous.width / target.width}, ${previous.height / height})`,
             clipPath: previousClip === "none" ? "inset(0% 0% 0% 0%)" : previousClip,
-            borderRadius: previousRadius,
+            borderRadius: `${(parseFloat(previousRadius) * target.width) / previous.width}px`,
           },
-          { transform, clipPath: clip, borderRadius: floating ? "22px" : "14px" },
+          { transform, clipPath: clip, borderRadius: floating ? "22px" : "4px" },
         ],
         { duration: 280, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "both" },
       );
-      dockMotion.current = [motion];
+      const opacity = surface.animate(
+        floating
+          ? [{ opacity: previousOpacity }, { opacity: 1, offset: 0.3 }, { opacity: 1 }]
+          : [
+              { opacity: previousOpacity },
+              { opacity: previousOpacity, offset: 0.7 },
+              { opacity: 0 },
+            ],
+        { duration: 280, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "both" },
+      );
+      dockMotion.current = [motion, opacity];
       void motion.finished.then(
         () => {
           if (dockMotion.current[0] !== motion) return;
           delete surface.dataset.moving;
-          motion.cancel();
+          dockMotion.current.forEach((animation) => animation.cancel());
           dockMotion.current = [];
           if (!floating) onDocked(summary.id);
         },
@@ -233,17 +262,12 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       if (!floating) onDocked(summary.id);
     }
     laidOut.current = true;
-    if (previousFloating.current !== floating) {
-      const focus =
-        !floating && overflow
-          ? layer.current?.parentElement?.querySelector<HTMLButtonElement>(
-              ".thread-design-overflow-trigger",
-            )
-          : trigger.current;
-      focus?.focus({ preventScroll: true });
-    }
+    if (!floating && previousFloating.current && surface.contains(document.activeElement))
+      dockTarget.current
+        ?.querySelector<HTMLButtonElement>(".canvas-dock-trigger")
+        ?.focus({ preventScroll: true });
     previousFloating.current = floating;
-  }, [floating, slot.x, slot.y, slot.width, active, onDocked, summary.id]);
+  }, [floating, slot.x, slot.y, slot.width, active, onDocked, summary.id, dockTarget, placement]);
 
   useEffect(() => {
     if (!active || !floating || !layer.current) return;
@@ -254,14 +278,19 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
 
   const remember = () => onGeometry(summary.id, { ...offset.current, width: width.current });
   function acceptsDock(x: number, y: number) {
-    const rect = composer.current?.getBoundingClientRect();
+    const rect = dockTarget.current?.getBoundingClientRect();
     return Boolean(
-      rect && x >= rect.left - 16 && x <= rect.right + 16 && y >= rect.top - 40 && y <= rect.bottom,
+      rect &&
+      x >= rect.left - 20 &&
+      x <= rect.right + 20 &&
+      y >= rect.top - 20 &&
+      y <= rect.bottom + 20,
     );
   }
 
   function beginDrag(event: PointerEvent<HTMLButtonElement>, kind: "move" | "resize") {
     if (!floating) return;
+    onActivate(summary.id);
     if (event.button !== 0 || !event.isPrimary || drag.current) return;
     dockMotion.current.forEach((motion) => motion.cancel());
     dockMotion.current = [];
@@ -289,8 +318,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     if (current.kind === "move") {
       if (frame.current) frame.current.dataset.dragging = "true";
       move(current.x + dx, current.y + dy);
-      if (composer.current)
-        composer.current.dataset.canvasDrop = String(acceptsDock(event.clientX, event.clientY));
+      if (dockTarget.current)
+        dockTarget.current.dataset.canvasDrop = String(acceptsDock(event.clientX, event.clientY));
     } else {
       if (frame.current) frame.current.dataset.resizing = "true";
       const delta = Math.abs(dx) > Math.abs(dy * previewRatio) ? -dx : dy * previewRatio;
@@ -303,14 +332,14 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     if (!current || current.pointerId !== event.pointerId) return;
     suppressClick.current = current.moved || cancelled;
     drag.current = null;
-    if (composer.current) delete composer.current.dataset.canvasDrop;
+    if (dockTarget.current) delete dockTarget.current.dataset.canvasDrop;
     if (current.moved) {
       const dropped =
         !cancelled && current.kind === "move" && acceptsDock(event.clientX, event.clientY);
       // A drag into the dock should reopen where the window was before that gesture.
       if (dropped) offset.current = { x: current.x, y: current.y };
       remember();
-      if (dropped) onDock();
+      if (dropped) onDock(summary.id);
     }
     if (frame.current) {
       delete frame.current.dataset.dragging;
@@ -330,7 +359,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   useEffect(() => {
     if (!active) return;
     let current = true;
-    void api.readDesign(projectId, summary.id).then(
+    void readPreview(summary).then(
       (design) => {
         if (current) setValue(design);
       },
@@ -341,7 +370,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     return () => {
       current = false;
     };
-  }, [api, projectId, summary.id, summary.updatedAt, active]);
+  }, [readPreview, summary.id, summary.updatedAt, active]);
 
   const closeImmediately = useCallback(() => {
     generation.current++;
@@ -499,13 +528,15 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       data-working={working}
       data-floating={floating}
       hidden={!active}
+      style={{ zIndex: stackOrder }}
     >
       <div
         ref={frame}
         className="thread-design-frame"
         data-expanded={expanded}
         data-docked={!floating}
-        data-overflow={overflow}
+        aria-hidden={!floating || undefined}
+        inert={!floating}
       >
         <Button
           ref={trigger}
@@ -544,8 +575,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           }}
           onClick={(event) => {
             if (!suppressClick.current || event.detail === 0) {
-              if (!floating) onUndock(summary.id);
-              else if (ready) transition(true);
+              if (!warm) flushSync(() => onActivate(summary.id));
+              if (ready) transition(true);
             }
             suppressClick.current = false;
           }}
@@ -569,7 +600,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           aria-label="Dock preview"
           onClick={() => {
             remember();
-            onDock();
+            onDock(summary.id);
           }}
         >
           <svg
