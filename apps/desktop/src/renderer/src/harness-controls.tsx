@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Button } from "@tidy/ui/button";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
+import { PermissionIcon } from "./permission-icon";
 import type { DesktopAPI, HarnessConnection, HarnessId } from "../../shared/contracts";
 import type { HarnessDetails, HarnessSettings, TokenUsage } from "../../shared/harness-settings";
 import {
@@ -210,10 +211,15 @@ export function HarnessControls({
         <SelectMenu
           label="Permissions"
           placement="top"
+          showSelectedIcon
+          selectionIndicator="none"
           value={effectivePermissionMode(harness, settings.permissionMode)}
           disabled={disabled}
           triggerClassName="harness-setting-trigger"
-          options={permissionModes[harness]}
+          options={permissionModes[harness].map((option) => ({
+            ...option,
+            icon: <PermissionIcon mode={option.value} />,
+          }))}
           onChange={(value) => {
             const permissionMode = permissionModeSchema.parse(value);
             onSettingsChange({ ...settings, permissionMode });

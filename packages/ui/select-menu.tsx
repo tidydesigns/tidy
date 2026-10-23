@@ -37,6 +37,8 @@ export function SelectMenu({
   layout = "list",
   align,
   dismissOnScroll = false,
+  showSelectedIcon = false,
+  selectionIndicator = "check",
 }: {
   triggerContent?: ReactNode;
   triggerClassName?: string;
@@ -44,6 +46,8 @@ export function SelectMenu({
   layout?: "list" | "horizontal";
   align?: "start" | "end";
   dismissOnScroll?: boolean;
+  showSelectedIcon?: boolean;
+  selectionIndicator?: "check" | "none";
   value: string;
   options: SelectMenuOption[];
   onChange: (value: string) => void;
@@ -193,6 +197,7 @@ export function SelectMenu({
       >
         {triggerContent ?? (
           <>
+            {showSelectedIcon && selected?.icon}
             <span data-ph-private id={valueId} className="truncate">
               {selected?.label ?? value}
             </span>
@@ -243,22 +248,28 @@ export function SelectMenu({
               }}
               className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
             >
-              <span className="flex min-w-0 items-center gap-2">
+              <span data-slot="select-menu-content" className="flex min-w-0 items-center gap-2">
                 {option.icon}
                 <span
+                  data-slot="select-menu-text"
                   data-ph-public={replayOptions || undefined}
                   data-ph-private={!replayOptions || undefined}
                   className="min-w-0"
                 >
-                  <span className="block truncate">{option.label}</span>
+                  <span data-slot="select-menu-label" className="block truncate">
+                    {option.label}
+                  </span>
                   {option.description && (
-                    <span className="mt-0.5 block whitespace-normal text-xs text-secondary-ink">
+                    <span
+                      data-slot="select-menu-description"
+                      className="mt-0.5 block whitespace-normal text-xs text-secondary-ink"
+                    >
                       {option.description}
                     </span>
                   )}
                 </span>
               </span>
-              {layout !== "horizontal" && (
+              {layout !== "horizontal" && selectionIndicator === "check" && (
                 <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
                   {!actionMenu && value === option.value ? "✓" : ""}
                 </span>

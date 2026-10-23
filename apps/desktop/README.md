@@ -195,11 +195,11 @@ the harness is running.
   to the user. Read only uses the read-only sandbox with on-request approvals.
 - Claude Ask before changes prompts for actions needing permission; Accept edits allows file
   edits; Plan explores and asks before changes.
-- Auto — Full access explicitly selects Codex's danger-full-access sandbox with
+- Full access selects Codex's danger-full-access sandbox with
   approval policy never, or Claude's bypassPermissions with the required opt-in
-  flag. Tidy's Auto label means full access, rather than Claude's separate native
-  classifier-based auto mode. Native administrator requirements, deny rules and
-  mandatory confirmation checks still apply; Tidy never silently answers prompts.
+  flag. Claude's classifier-based auto mode is a separate setting.
+  Native administrator requirements, deny rules and mandatory confirmation checks
+  still apply; Tidy never silently answers prompts.
 
 When a harness requests permission, its command/input, reason and supplied paths
 appear above the composer. Allow once or Deny answers only that live request.

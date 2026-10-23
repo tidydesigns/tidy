@@ -3,7 +3,7 @@
 Tidy's Electron renderer is an editor and control pane. Installed Codex and Claude
 Code executables are trusted native programs with their own authentication,
 configuration, hooks, MCP servers and permission systems. The renderer sandbox
-does not sandbox those executables. Auto — Full access deliberately permits
+does not sandbox those executables. Full access permits
 commands, edits and network access without routine approvals; use it only for
 projects and harness configurations you trust.
 

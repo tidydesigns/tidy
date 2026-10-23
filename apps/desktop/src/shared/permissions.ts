@@ -23,20 +23,20 @@ export const approvalRequestSchema = z.object({
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
 const auto = {
   value: "auto" as const,
-  label: "Auto — Full access",
-  description: "Run commands, edit files and access the network without routine approval prompts.",
+  label: "Full access",
+  description: "Work without routine approval prompts.",
 };
 export const permissionModes = {
   codex: [
     {
       value: "default",
       label: "Project access",
-      description: "Work in this project. Ask for access beyond the sandbox.",
+      description: "Edit project files. Ask for extra access.",
     },
     {
       value: "read-only",
       label: "Read only",
-      description: "Explore files. Ask before running actions that need more access.",
+      description: "Read files. Ask before making changes.",
     },
     auto,
   ],
@@ -44,14 +44,14 @@ export const permissionModes = {
     {
       value: "default",
       label: "Ask before changes",
-      description: "Ask before file edits and commands that need permission.",
+      description: "Ask when edits or commands need approval.",
     },
     {
       value: "accept-edits",
       label: "Accept edits",
-      description: "Allow file edits. Ask before commands that need permission.",
+      description: "Ask when commands need approval.",
     },
-    { value: "plan", label: "Plan", description: "Explore and plan. Ask before making changes." },
+    { value: "plan", label: "Plan", description: "Read files and plan. Ask before changes." },
     auto,
   ],
 } satisfies Record<HarnessId, Array<{ value: PermissionMode; label: string; description: string }>>;

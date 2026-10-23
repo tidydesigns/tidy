@@ -1477,6 +1477,58 @@ summary:focus-visible {
 .harness-setting-trigger:hover {
   background: var(--color-hover-surface);
 }
+.permission-control [role="menu"] {
+  width: max-content;
+  max-width: min(352px, calc(100vw - 16px));
+  padding: 5px;
+  border-color: var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px #0002;
+  scrollbar-width: thin;
+}
+.permission-control [role="menuitemradio"] {
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 7px;
+}
+.permission-control [role="menuitemradio"][aria-checked="true"] {
+  background: light-dark(#ededed, #2a2a2a);
+}
+.permission-control [data-slot="select-menu-content"] {
+  position: relative;
+  display: block;
+  flex: 1;
+}
+.permission-control [data-slot="select-menu-text"] {
+  display: block;
+}
+.permission-icon {
+  display: block;
+  flex-shrink: 0;
+}
+.permission-control [role="menu"] .permission-icon {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 0;
+  color: var(--color-muted-ink);
+}
+.permission-control [role="menuitemradio"] + [role="menuitemradio"] {
+  margin-top: 2px;
+}
+.permission-control [data-slot="select-menu-label"] {
+  padding-inline-start: 28px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 18px;
+}
+.permission-control [data-slot="select-menu-description"] {
+  margin-top: 2px;
+  color: var(--color-secondary-ink);
+  font-size: 12px;
+  line-height: 17px;
+  overflow-wrap: anywhere;
+}
 .composer-actions {
   flex-wrap: wrap;
   gap: 8px;
