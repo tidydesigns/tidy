@@ -549,7 +549,7 @@ export function App() {
         setLocation("local");
       }
     } catch (value) {
-      setError({ text: errorText(value), original: value });
+      if (navigation.current === generation) setError({ text: errorText(value), original: value });
     } finally {
       if (navigation.current === generation) setOpening(false);
     }
@@ -1184,6 +1184,7 @@ export function App() {
             title="Settings"
             onClick={() => {
               navigation.current++;
+              setOpening(false);
               setSettingsOpen(true);
             }}
           >

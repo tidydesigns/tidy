@@ -112,7 +112,11 @@ export function CloudWorkspace({
   }, [active]);
   useEffect(() => () => onCanvasChange(false), [onCanvasChange]);
   useEffect(() => {
-    if (!active) selection.current++;
+    if (!active) {
+      selection.current++;
+      setOpening(undefined);
+      setCreating(false);
+    }
   }, [active]);
   const updateDesign = useCallback(
     (design: LocalDesign) =>
@@ -123,6 +127,7 @@ export function CloudWorkspace({
     if (!api.cloud || opening === file.id) return;
     const version = ++selection.current;
     setOpening(file.id);
+    setCreating(false);
     setError("");
     try {
       const value = await api.cloud.openFile(organizationId, file.id);
@@ -143,6 +148,7 @@ export function CloudWorkspace({
     if (!api.cloud || creating) return;
     const version = ++selection.current;
     setCreating(true);
+    setOpening(undefined);
     setError("");
     try {
       const value = await api.cloud.createFile(organizationId);
