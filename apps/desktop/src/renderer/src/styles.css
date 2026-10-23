@@ -3135,13 +3135,13 @@ summary:focus-visible {
 }
 .thread-design-close {
   top: 8px;
-  left: 8px;
+  right: 8px;
   cursor: pointer;
 }
 .thread-design-resize {
-  right: 6px;
+  left: 6px;
   bottom: 6px;
-  cursor: nwse-resize;
+  cursor: nesw-resize;
   touch-action: none;
 }
 .thread-design-frame:is(:hover, :focus-within) :is(.thread-design-close, .thread-design-resize),

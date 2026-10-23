@@ -85,7 +85,6 @@ export function ThreadDesignWindow({
       const surface = frame.current;
       const area = layer.current;
       if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
-      const bounds = surface.getBoundingClientRect();
       const limit = Math.max(
         0,
         Math.min(maximumWidth, area.clientWidth - 32, (area.clientHeight - 32) * previewRatio),
@@ -93,9 +92,7 @@ export function ThreadDesignWindow({
       const minimum = Math.min(minimumWidth, limit);
       width.current = Math.max(minimum, Math.min(limit, requested));
       surface.style.width = `${width.current}px`;
-      // Width is anchored on the right in CSS. Keep the chosen top-left corner while resizing.
-      offset.current.x += bounds.left - surface.getBoundingClientRect().left;
-      surface.style.transform = `translate(${offset.current.x}px, ${offset.current.y}px)`;
+      // Keep the top-right corner anchored while the bottom-left handle moves.
       move(offset.current.x, offset.current.y);
       resizeHandle.current?.setAttribute("aria-valuemin", String(Math.round(minimum)));
       resizeHandle.current?.setAttribute("aria-valuemax", String(Math.round(limit)));
@@ -138,7 +135,7 @@ export function ThreadDesignWindow({
       move(current.x + dx, current.y + dy);
     } else {
       if (frame.current) frame.current.dataset.resizing = "true";
-      const delta = Math.abs(dx) > Math.abs(dy * previewRatio) ? dx : dy * previewRatio;
+      const delta = Math.abs(dx) > Math.abs(dy * previewRatio) ? -dx : dy * previewRatio;
       resize(current.width + delta);
     }
   }
@@ -278,7 +275,7 @@ export function ThreadDesignWindow({
           aria-haspopup="dialog"
           aria-controls={id}
           aria-expanded={expanded}
-          aria-description={`Live view of ${value.name}. Drag to move, resize from the bottom-right corner, or click to expand.`}
+          aria-description={`Live view of ${value.name}. Drag to move, resize from the bottom-left corner, or click to expand.`}
           data-expanded={expanded}
           onPointerDown={(event) => beginDrag(event, "move")}
           onPointerMove={continueDrag}
@@ -368,7 +365,7 @@ export function ThreadDesignWindow({
             stroke="currentColor"
             strokeLinecap="round"
           >
-            <path d="m3 9 6-6M7 9l2-2" />
+            <path d="m9 9-6-6M5 9 3 7" />
           </svg>
         </Button>
       </div>
