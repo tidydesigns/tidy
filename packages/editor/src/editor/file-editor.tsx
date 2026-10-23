@@ -1952,7 +1952,10 @@ export function FileEditor({
       });
     }
     function onWheel(event: WheelEvent) {
-      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+      )
         return;
       event.preventDefault();
       if (gestureActive) return;
@@ -1971,14 +1974,20 @@ export function FileEditor({
       );
     }
     function onGestureStart(event: Event) {
-      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+      )
         return;
       event.preventDefault();
       gestureActive = true;
       lastGestureScale = 1;
     }
     function onGestureChange(event: Event) {
-      if (event.target instanceof Element && event.target.closest("[data-canvas-control], dialog"))
+      if (
+        event.target instanceof Element &&
+        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+      )
         return;
       event.preventDefault();
       const gesture = event as Event & { scale?: number; clientX?: number; clientY?: number };
