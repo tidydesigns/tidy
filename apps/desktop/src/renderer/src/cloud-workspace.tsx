@@ -5,7 +5,7 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import { FileCard, FileViewToggle } from "@tidy/editor/components/files/file-browser-ui";
 import { filesGrid, filesHeader } from "@tidy/editor/components/workspace/page-layout";
 import { errorMessage } from "@tidy/ui/errors";
-import type { DesktopAPI, LocalDesign } from "../../shared/contracts";
+import type { DesktopAPI, DesignSummary, LocalDesign } from "../../shared/contracts";
 import type { CloudCatalog, CloudFile, CloudOpened } from "../../shared/cloud-sync";
 import type { CloudConnection } from "./use-cloud";
 import { LocalCanvas } from "./local-canvas";
@@ -33,6 +33,8 @@ export function CloudWorkspace({
   const [query, setQuery] = useState("");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [opened, setOpened] = useState<CloudOpened>();
+  const [canvasVisible, setCanvasVisible] = useState(false);
+  const [localFiles, setLocalFiles] = useState<Record<string, DesignSummary>>({});
   const [opening, setOpening] = useState<string>();
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -40,6 +42,17 @@ export function CloudWorkspace({
   const epoch = useRef(0),
     selection = useRef(0);
   const organization = cloud.account?.organizations.find((o) => o.id === organizationId);
+  useEffect(
+    () =>
+      api.onEvent((event) => {
+        if (event.type !== "designs") return;
+        setLocalFiles((current) => ({
+          ...current,
+          ...Object.fromEntries(event.designs.map((file) => [file.id, file])),
+        }));
+      }),
+    [api],
+  );
   const refresh = useRef<() => void>(() => {});
   const refreshCreated = useRef<(organizationId: string, accountId?: string) => void>(() => {});
   useEffect(() => {
@@ -47,6 +60,8 @@ export function CloudWorkspace({
     const accountId = cloud.state?.accountId;
     selection.current++;
     setOpened(undefined);
+    setCanvasVisible(false);
+    setLocalFiles({});
     onCanvasChange(false);
     setOpening(undefined);
     setCreating(false);
@@ -138,14 +153,22 @@ export function CloudWorkspace({
   async function open(file: CloudFile) {
     if (!api.cloud || opening === file.id) return;
     const version = ++selection.current;
-    setOpening(file.id);
     setCreating(false);
     setError("");
+    const binding = cloud.state?.bindings.find((binding) => binding.fileId === file.id);
+    if (opened && binding?.designId === opened.design.id) {
+      setOpening(undefined);
+      setCanvasVisible(true);
+      onCanvasChange(true);
+      return;
+    }
+    setOpening(file.id);
     try {
       const value = await api.cloud.openFile(organizationId, file.id);
       if (selection.current === version) {
         onCanvasChange(true);
         setOpened(value);
+        setCanvasVisible(true);
       }
     } catch (cause) {
       if (selection.current === version)
@@ -168,6 +191,7 @@ export function CloudWorkspace({
       if (selection.current === version) {
         onCanvasChange(true);
         setOpened(value);
+        setCanvasVisible(true);
       } else refreshCreated.current(organizationId, accountId);
     } catch (cause) {
       if (selection.current === version)
@@ -202,7 +226,15 @@ export function CloudWorkspace({
       <LocalPreview
         api={api}
         projectId={binding.projectId}
-        file={{ id: binding.designId, name: file.name, path: "", updatedAt: file.updatedAt ?? "" }}
+        file={
+          localFiles[binding.designId] ?? {
+            id: binding.designId,
+            name: file.name,
+            path: "",
+            updatedAt: file.updatedAt ?? "",
+          }
+        }
+        enabled={active && !canvasVisible && !opening}
       />
     ) : (
       <CloudPreview api={api.cloud!} file={file} />
@@ -253,42 +285,44 @@ export function CloudWorkspace({
           navigationTarget,
         )}
       {opened && (
-        <LocalCanvas
-          key={opened.design.id}
-          api={api}
-          projectId={opened.projectId}
-          initial={opened.design}
-          active={active}
-          onBack={() => {
-            selection.current++;
-            onCanvasChange(false);
-            setOpened(undefined);
-            refresh.current();
-          }}
-          onUpdate={updateDesign}
-          status={
-            <SyncStatus
-              api={api.cloud}
-              state={cloud.state}
-              projectId={opened.projectId}
-              designId={opened.design.id}
-              onKeepBoth={async () => {
-                const version = ++selection.current;
-                const value = await api.cloud!.keepBoth(
-                  organizationId,
-                  opened.projectId,
-                  opened.design.id,
-                );
-                if (selection.current === version) {
-                  setOpened(value);
-                  refresh.current();
-                }
-              }}
-            />
-          }
-        />
+        <div className="flex min-h-0 flex-1" hidden={!canvasVisible}>
+          <LocalCanvas
+            key={opened.design.id}
+            api={api}
+            projectId={opened.projectId}
+            initial={opened.design}
+            active={active && canvasVisible}
+            onBack={() => {
+              selection.current++;
+              onCanvasChange(false);
+              setCanvasVisible(false);
+              refresh.current();
+            }}
+            onUpdate={updateDesign}
+            status={
+              <SyncStatus
+                api={api.cloud}
+                state={cloud.state}
+                projectId={opened.projectId}
+                designId={opened.design.id}
+                onKeepBoth={async () => {
+                  const version = ++selection.current;
+                  const value = await api.cloud!.keepBoth(
+                    organizationId,
+                    opened.projectId,
+                    opened.design.id,
+                  );
+                  if (selection.current === version) {
+                    setOpened(value);
+                    refresh.current();
+                  }
+                }}
+              />
+            }
+          />
+        </div>
       )}
-      <div className="project-files cloud-workspace" hidden={Boolean(opened)}>
+      <div className="project-files cloud-workspace" hidden={canvasVisible}>
         <div className={`design-browser-header ${filesHeader}`}>
           <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
             {currentFolder?.name ?? "All files"}

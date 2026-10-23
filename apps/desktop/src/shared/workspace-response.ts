@@ -50,6 +50,8 @@ const responseSchemas = {
   "create-design": localDesignSchema,
   "import-design": localDesignSchema.nullable(),
   "read-design": localDesignSchema,
+  "preview-design": localDesignSchema,
+  "refresh-design": localDesignSchema.nullable(),
   "update-design": localDesignSchema,
   "create-design-folder": folderSchema,
   "rename-design-folder": folderSchema,

@@ -122,6 +122,9 @@ const api: DesktopAPI = {
   renameDesignFolder: (projectId, folderId, name) =>
     request("rename-design-folder", { projectId, folderId, name }),
   readDesign: (projectId, designId) => request("read-design", { projectId, designId }),
+  previewDesign: (projectId, designId) => request("preview-design", { projectId, designId }),
+  refreshDesign: (projectId, designId, version) =>
+    request("refresh-design", { projectId, designId, version }),
   updateDesign: (input) => request("update-design", input),
   uploadDesignAsset: (projectId, dataUrl) => request("upload-design-asset", { projectId, dataUrl }),
   onEvent(listener) {

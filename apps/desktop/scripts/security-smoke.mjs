@@ -157,6 +157,28 @@ app.on("browser-window-created", (_event, window) => {
         `Promise.all([fetch('tidy://app/../../main/index.js'),fetch('tidy://other/index.html')].map(async promise=>{try{return (await promise).status}catch{return 0}}))`,
       );
       assert.ok(resource.every((status) => status === 0 || status === 404));
+      const imageSource =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><style>rect{fill:#ff0000}</style><rect width="20" height="20"/></svg>';
+      const localImage = await api(
+        "uploadDesignAsset",
+        projectId,
+        `data:image/svg+xml;base64,${Buffer.from(imageSource).toString("base64")}`,
+      );
+      assert.match(localImage.url, /^tidy:\/\/app\/__tidy\/assets\//);
+      const imageProbe = await evaluate(`(async () => {
+        const response = await fetch(${JSON.stringify(localImage.url)});
+        const image = new Image(); image.src = ${JSON.stringify(localImage.url)};
+        await image.decode();
+        const canvas = document.createElement('canvas'); canvas.width = 20; canvas.height = 20;
+        const context = canvas.getContext('2d'); context.drawImage(image, 0, 0);
+        return {status: response.status, type: response.headers.get('content-type'),
+          csp: response.headers.get('content-security-policy'),
+          pixel: [...context.getImageData(5, 5, 1, 1).data]};
+      })()`);
+      assert.equal(imageProbe.status, 200);
+      assert.equal(imageProbe.type, "image/svg+xml");
+      assert.match(imageProbe.csp, /sandbox/);
+      assert.deepEqual(imageProbe.pixel, [255, 0, 0, 255]);
       const foreign = new BrowserWindow({
         show: false,
         webPreferences: {

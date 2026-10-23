@@ -126,7 +126,9 @@
     "./design/text-tool-style": "./src/design/text-tool-style.ts",
     "./components/files/document-preview": "./src/components/files/document-preview.tsx",
     "./components/files/file-browser-ui": "./src/components/files/file-browser-ui.tsx",
-    "./design/selection-target": "./src/design/selection-target.ts"
+    "./design/selection-target": "./src/design/selection-target.ts",
+    "./components/files/thumbnail-renderer": "./src/components/files/thumbnail-renderer.tsx",
+    "./lib/thumbnail-queue": "./src/lib/thumbnail-queue.ts"
   },
   "scripts": {
     "typecheck": "tsrs --noEmit",

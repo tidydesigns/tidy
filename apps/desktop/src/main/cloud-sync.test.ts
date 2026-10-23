@@ -131,6 +131,51 @@ test("local editing persists independently, then batches patches to the cloud", 
   expect(f.remote.requests[0].patch.length).toBeLessThan(5);
 });
 
+test("initial image downloads use bounded parallel work before the durable file is returned", async () => {
+  const f = await fixture();
+  const ids = Array.from({ length: 8 }, () => randomUUID());
+  f.remote.snapshot.content.nodes.push(
+    ...ids.map((assetId, index) => ({
+      ...buildDrawnNode(`image-${index}`, "container", "frame", {
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+      type: "image" as const,
+      assetId,
+    })),
+  );
+  let active = 0,
+    maximum = 0,
+    started = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const image = "data:image/png;base64,c3ludGhldGlj";
+  f.remote.downloadAsset = async () => {
+    active++;
+    started++;
+    maximum = Math.max(maximum, active);
+    await gate;
+    active--;
+    return image;
+  };
+  const opening = f.sync.open(f.project.id, randomUUID(), "Images");
+  try {
+    await until(() => started === 4);
+    expect(maximum).toBe(4);
+  } finally {
+    release();
+  }
+  const design = await opening;
+  expect(started).toBe(8);
+  expect(maximum).toBe(4);
+  expect(design.document.nodes).toHaveLength(9);
+  for (const assetId of ids) expect(await f.store.readSyncAsset(f.project.id, assetId)).toBe(image);
+});
+
 test("100 unchanged downloaded designs use a single manifest and no document reads or diffs", async () => {
   const f = await fixture();
   for (let i = 1; i < 100; i++) await f.sync.open(f.project.id, randomUUID(), "Cloud design");

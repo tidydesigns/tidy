@@ -24,7 +24,7 @@ async function drainReads() {
   try {
     while (reads.length) {
       // A canvas open must not wait behind a cold folder's metadata scan.
-      const full = reads.findIndex((request) => !request.summary);
+      const full = reads.findIndex((request) => !request.summary && !request.background);
       await run(reads.splice(full < 0 ? 0 : full, 1)[0]);
     }
   } finally {
@@ -57,7 +57,11 @@ async function run(request: ComputeRequest) {
     });
   }
 }
-parentPort?.on("message", (request: ComputeRequest) => {
+parentPort?.on("message", (request: ComputeRequest | { kind: "prioritize"; path: string }) => {
+  if (request.kind === "prioritize") {
+    for (const queued of reads) if (queued.path === request.path) queued.background = false;
+    return;
+  }
   if (request.kind === "read-file") {
     reads.push(request);
     void drainReads();

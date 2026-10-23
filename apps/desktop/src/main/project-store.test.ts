@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
+import { CloudCompute } from "./cloud-compute";
 import type { Thread } from "../shared/contracts";
 
 const cleanups: string[] = [];
@@ -60,6 +61,45 @@ test("cached design reads detect external equal-length edits with restored modif
   // A renderer-facing caller cannot mutate the private cached document.
   next.document.nodes[0].name = "Caller mutation";
   expect((await f.store.readDesign(project.id, design.id)).document.nodes[0].name).toBe("Other");
+});
+
+test("unchanged canvas refreshes return no document and changed files still load", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const original = await f.store.createDesign(project.id);
+  expect(await f.store.readDesignIfChanged(project.id, original.id, original.version)).toBeNull();
+  const text = await readFile(original.path, "utf8");
+  await writeFile(original.path, text.replace('"Frame"', '"Other"'));
+  const changed = await f.store.readDesignIfChanged(project.id, original.id, original.version);
+  expect(changed?.document.nodes[0].name).toBe("Other");
+  expect(changed?.version).not.toBe(original.version);
+});
+
+test("concurrent card and canvas reads decode one shared disk state", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const original = await f.store.createDesign(project.id);
+  const text = await readFile(original.path, "utf8");
+  await writeFile(original.path, text.replace('"Frame"', '"Other"'));
+  let decodes = 0;
+  const read = CloudCompute.prototype.readFile;
+  CloudCompute.prototype.readFile = function (path, background) {
+    if (path === original.path) decodes++;
+    return read.call(this, path, background);
+  };
+  try {
+    const results = await Promise.all(
+      Array.from({ length: 12 }, (_, index) =>
+        f.store.readDesign(project.id, original.id, true, index !== 0),
+      ),
+    );
+    expect(decodes).toBe(1);
+    expect(results.every((result) => result.document.nodes[0].name === "Other")).toBe(true);
+    results[0].document.nodes[0].name = "Caller edit";
+    expect(results[1].document.nodes[0].name).toBe("Other");
+  } finally {
+    CloudCompute.prototype.readFile = read;
+  }
 });
 
 test("project files cannot grant permissions or replace a native session, including after restart", async () => {

@@ -193,17 +193,40 @@ export class CloudService implements CloudAPI {
     );
     return work;
   }
-  openFile(organizationId: string, fileId: string) {
-    return this.fileAction(async () => {
+  async openFile(organizationId: string, fileId: string) {
+    const generation = this.generation;
+    await this.initialize();
+    if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
+    const cached = this.sync.status.find(
+      (binding) => binding.fileId === fileId && binding.organizationId === organizationId,
+    );
+    const open = async (binding?: typeof cached): Promise<CloudOpened> => {
       const catalog = await this.catalog(organizationId, true).catch(() =>
         this.catalog(organizationId),
       );
       const file = catalog.files.find((f) => f.id === fileId);
       if (!file) throw new Error("This file is no longer in this workspace.");
       const project = await this.workspace(organizationId);
-      const design = await this.sync.open(project.id, fileId, file.name, organizationId);
+      if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
+      const stillBound = () =>
+        this.sync.status.some(
+          (current) =>
+            current.fileId === fileId &&
+            current.projectId === project.id &&
+            current.designId === binding?.designId,
+        );
+      if (binding && !stillBound()) return this.fileAction(() => open());
+      const design = binding
+        ? await this.service.store.readDesign(project.id, binding.designId)
+        : await this.sync.open(project.id, fileId, file.name, organizationId);
+      if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
+      // A concurrent disconnect/keep-both may replace this binding during disk I/O.
+      if (binding && !stillBound()) return this.fileAction(() => open());
       return { projectId: project.id, design };
-    });
+    };
+    // Reading an existing binding is independent of another file's download.
+    // New bindings and destructive/account actions retain their serialization.
+    return cached ? open(cached) : this.fileAction(() => open());
   }
   createFile(organizationId: string) {
     return this.fileAction(async () => {

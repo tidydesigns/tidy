@@ -58,20 +58,19 @@ export const LocalCanvas = memo(function LocalCanvas({
     if (pending.current) return;
     refreshWanted.current = false;
     const epoch = ++refreshEpoch.current;
-    const value = await api.readDesign(projectId, initial.id);
+    const value = await api.refreshDesign(projectId, initial.id, file.current.version);
     if (pending.current || epoch !== refreshEpoch.current) {
       refreshWanted.current = true;
       return;
     }
-    if (value.version === file.current.version) return;
+    if (!value || value.version === file.current.version) return;
     file.current = value;
     setAssets(value.assets);
     setExternal({ revision: ++revision.current, content: value.document });
     notify.current(value);
   }, [api, projectId, initial.id]);
   useEffect(() => {
-    void refresh().catch(console.error);
-    return api.onEvent((event) => {
+    const unsubscribe = api.onEvent((event) => {
       if (
         event.type === "designs" &&
         event.projectId === projectId &&
@@ -81,7 +80,12 @@ export const LocalCanvas = memo(function LocalCanvas({
       )
         void refresh().catch(console.error);
     });
+    // Subscribe before checking the version to cover edits made since open.
+    return unsubscribe;
   }, [api, projectId, initial.id, refresh]);
+  useEffect(() => {
+    if (active) void refresh().catch(console.error);
+  }, [active, refresh]);
 
   async function update(changes: { document?: DesignDocument; name?: string }) {
     pending.current++;

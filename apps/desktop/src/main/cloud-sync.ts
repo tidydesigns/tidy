@@ -14,6 +14,7 @@ import { CloudHTTPError } from "./cloud-auth";
 import { PrivateState } from "./private-state";
 import { ProjectStore } from "./project-store";
 import { CloudCompute } from "./cloud-compute";
+import { mapConcurrent } from "@tidy/editor/lib/map-concurrent";
 
 const snapshotSchema = z.object({
   name: z.string().optional(),
@@ -419,14 +420,14 @@ export class CloudSync {
     );
   }
   private async cacheAssets(binding: Binding, document: DesignDocument, signal?: AbortSignal) {
-    for (const id of documentAssetIds(document)) {
+    await mapConcurrent(documentAssetIds(document), 4, async (id) => {
       const localId =
         Object.entries(binding.aliases).find(([, remote]) => remote === id)?.[0] ?? id;
-      if (await this.store.readSyncAsset(binding.projectId, localId)) continue;
+      if (await this.store.readSyncAsset(binding.projectId, localId)) return;
       const dataUrl = await this.remote.downloadAsset(binding.fileId, id, signal);
       this.check(binding, signal);
       await this.store.cacheSyncAsset(binding.projectId, localId, dataUrl);
-    }
+    });
   }
   private async prepareAssets(binding: Binding, document: DesignDocument, signal?: AbortSignal) {
     const known = new Set(documentAssetIds(binding.base.content));

@@ -202,6 +202,14 @@ export function createWorkspaceRequests<Context>(
   handle("read-design", z.object({ projectId, designId: uuid }).strict(), (value) =>
     store.readDesign(value.projectId, value.designId),
   );
+  handle("preview-design", z.object({ projectId, designId: uuid }).strict(), (value) =>
+    store.readDesign(value.projectId, value.designId, true, true),
+  );
+  handle(
+    "refresh-design",
+    z.object({ projectId, designId: uuid, version: z.string().length(64) }).strict(),
+    (value) => store.readDesignIfChanged(value.projectId, value.designId, value.version),
+  );
   handle(
     "update-design",
     z

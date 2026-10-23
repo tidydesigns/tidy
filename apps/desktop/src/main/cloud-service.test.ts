@@ -156,6 +156,105 @@ test("cloud files open in a private workspace without selecting or uploading the
   expect(await f.store.designs(first.projectId)).toHaveLength(1);
 });
 
+test("a stalled first download cannot block opening an existing offline file", async () => {
+  const f = await fixture();
+  const cachedId = f.remote.library.files[0].id;
+  const cached = await f.cloud.openFile("org", cachedId);
+  const slowId = randomUUID();
+  f.remote.library.files.push({ id: slowId, name: "Downloading", folderId: null });
+  f.remote.snapshots.set(slowId, { revision: 1, content: blankDesignDocument() });
+  await f.cloud.catalog("org");
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const downloading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const read = f.remote.read.bind(f.remote);
+  f.remote.read = async (id) => {
+    if (id === slowId) {
+      started();
+      await gate;
+    }
+    return read(id);
+  };
+  const slow = f.cloud.openFile("org", slowId);
+  await downloading;
+  try {
+    const ready = await Promise.race([
+      f.cloud.openFile("org", cachedId),
+      Bun.sleep(1000).then(() => {
+        throw new Error("Cached open waited behind the download.");
+      }),
+    ]);
+    expect(ready.design.id).toBe(cached.design.id);
+  } finally {
+    release();
+    await slow;
+  }
+});
+
+test("sign-out invalidates a concurrent cached open before it reaches the renderer", async () => {
+  const f = await fixture();
+  const id = f.remote.library.files[0].id;
+  const cached = await f.cloud.openFile("org", id);
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const read = f.store.readDesign.bind(f.store);
+  f.store.readDesign = async (...args) => {
+    if (args[1] === cached.design.id && args[2] !== false) {
+      started();
+      await gate;
+    }
+    return read(...args);
+  };
+  const opening = f.cloud.openFile("org", id).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  await reading;
+  const signingOut = f.cloud.signOut();
+  release();
+  await signingOut;
+  expect(await opening).toEqual(expect.objectContaining({ message: "Cloud sync is stopped." }));
+});
+
+test("a binding disconnected during a cached read is reopened through serialized creation", async () => {
+  const f = await fixture();
+  const id = f.remote.library.files[0].id;
+  const cached = await f.cloud.openFile("org", id);
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const reading = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const read = f.store.readDesign.bind(f.store);
+  f.store.readDesign = async (...args) => {
+    if (args[1] === cached.design.id && args[2] !== false) {
+      started();
+      await gate;
+    }
+    return read(...args);
+  };
+  const opening = f.cloud.openFile("org", id);
+  await reading;
+  await f.cloud.disconnect(cached.projectId, cached.design.id);
+  release();
+  const reopened = await opening;
+  expect(reopened.design.id).not.toBe(cached.design.id);
+  expect((await f.cloud.state()).bindings.find((binding) => binding.fileId === id)?.designId).toBe(
+    reopened.design.id,
+  );
+});
+
 test("metadata is available offline and isolated between accounts", async () => {
   const f = await fixture();
   f.remote.offline = true;

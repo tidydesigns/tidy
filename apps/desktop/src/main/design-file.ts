@@ -7,8 +7,8 @@ import { parseDesignDocument } from "@tidy/design/document";
 import { readLocalFile } from "./local-files";
 import type { LocalDesign } from "../shared/contracts";
 
-export type ParsedDesignFile = Omit<LocalDesign, "assets"> & { stamp: string };
-export type DesignFileSummary = Omit<ParsedDesignFile, "document">;
+export type ParsedDesignFile = Omit<LocalDesign, "assets"> & { stamp: string; bytes: number };
+export type DesignFileSummary = Omit<ParsedDesignFile, "document" | "bytes">;
 export const summarizeDesignFile = (file: ParsedDesignFile): DesignFileSummary => ({
   id: file.id,
   name: file.name,
@@ -47,6 +47,7 @@ export async function readDesignFile(path: string): Promise<ParsedDesignFile> {
       nodeCount: document.nodes.length,
       path,
       stamp,
+      bytes: Number(info.size),
       updatedAt: new Date(Number(info.mtimeMs)).toISOString(),
       document,
       version: createHash("sha256").update(JSON.stringify(data)).digest("hex"),

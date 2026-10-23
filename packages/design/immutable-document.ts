@@ -17,6 +17,9 @@ export function createImmutableDocumentParser(
   // Bounded weak candidates bridge preparation and optimistic patch application.
   // Source objects are never cached, and value equality is required before reuse.
   const recentImmutableNodes = new Map<string, WeakRef<DesignNode>>();
+  // Reuse one iterator: recreating it for each eviction repeatedly walks the
+  // Map's deleted prefix when opening another large file with different IDs.
+  let oldestNode = recentImmutableNodes.keys();
   let recentImmutableDocument: WeakRef<DesignDocument> | undefined;
   const frozenValues = new WeakSet<object>();
   function freezeValue<T>(value: T): T {
@@ -52,8 +55,14 @@ export function createImmutableDocumentParser(
     if (recentImmutableNodes.get(node.id)?.deref() !== node) {
       recentImmutableNodes.delete(node.id);
       recentImmutableNodes.set(node.id, new WeakRef(node));
-      if (recentImmutableNodes.size > DESIGN_DOCUMENT_LIMITS.nodes)
-        recentImmutableNodes.delete(recentImmutableNodes.keys().next().value!);
+      if (recentImmutableNodes.size > DESIGN_DOCUMENT_LIMITS.nodes) {
+        let oldest = oldestNode.next();
+        if (oldest.done) {
+          oldestNode = recentImmutableNodes.keys();
+          oldest = oldestNode.next();
+        }
+        if (!oldest.done) recentImmutableNodes.delete(oldest.value);
+      }
     }
     return node;
   }
@@ -68,7 +77,7 @@ export function createImmutableDocumentParser(
               if (previous && sameParsedValue(previous, input)) return previous;
             }
           }
-          return rememberImmutableNode(immutableNodeSchema.parse(input));
+          return immutableNodeSchema.parse(input);
         }),
       )
       .max(DESIGN_DOCUMENT_LIMITS.nodes),
@@ -98,7 +107,23 @@ export function createImmutableDocumentParser(
   function parse(input: unknown): DesignDocument {
     if (input && typeof input === "object" && immutableDocuments.has(input))
       return input as DesignDocument;
-    const document = immutableDocumentSchema.parse(input);
+    // A newly opened file has no reusable nodes. Parse its array in one schema
+    // pass rather than starting a separate parser/transform for every layer.
+    // Owned snapshots and equivalent transports still take the identity path.
+    const sourceNodes =
+      input && typeof input === "object" && "nodes" in input ? input.nodes : undefined;
+    const reusable =
+      Array.isArray(sourceNodes) &&
+      sourceNodes.some(
+        (node: unknown) =>
+          node &&
+          typeof node === "object" &&
+          (immutableNodes.has(node) ||
+            ("id" in node &&
+              typeof node.id === "string" &&
+              recentImmutableNodes.get(node.id)?.deref())),
+      );
+    const document = reusable ? immutableDocumentSchema.parse(input) : schema.parse(input);
     // Parsing still validates all metadata. Reuse equal, parser-owned immutable
     // values afterward so token/image contexts and page indexes stay stable.
     if (input && typeof input === "object") {

@@ -6,7 +6,7 @@ import type { ParsedDesignFile, DesignFileSummary } from "./design-file";
 export type ComputeRequest = { id: number } & (
   | { kind: "equal" | "diff"; before: DesignDocument; after: DesignDocument }
   | { kind: "remap"; document: DesignDocument; aliases: Record<string, string> }
-  | { kind: "read-file"; path: string; summary: boolean }
+  | { kind: "read-file"; path: string; summary: boolean; background?: boolean }
 );
 
 /** Diffing and asset translation must not occupy Electron's main event loop,
@@ -70,8 +70,11 @@ export class CloudCompute {
     if (!Object.keys(aliases).length) return Promise.resolve(document);
     return this.run<DesignDocument>({ kind: "remap", document, aliases });
   }
-  readFile(path: string) {
-    return this.run<ParsedDesignFile>({ kind: "read-file", path, summary: false });
+  readFile(path: string, background = false) {
+    return this.run<ParsedDesignFile>({ kind: "read-file", path, summary: false, background });
+  }
+  prioritizeFile(path: string) {
+    this.worker?.postMessage({ kind: "prioritize", path });
   }
   readSummary(path: string) {
     return this.run<DesignFileSummary>({ kind: "read-file", path, summary: true });

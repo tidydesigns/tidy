@@ -13,6 +13,7 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./project-store";
+import { projectAssetResponse } from "./project-assets";
 import { WorkspaceService } from "./workspace-service";
 import {
   registerHarnessUpdateIPC,
@@ -109,7 +110,10 @@ app
   .then(async () => {
     if (!ownsWorkspace) return;
     if (process.platform === "darwin" && appIcon) app.dock?.setIcon(appIcon);
-    const store = new ProjectStore(join(app.getPath("userData"), "workspace"));
+    const store = new ProjectStore(
+      join(app.getPath("userData"), "workspace"),
+      "tidy://app/__tidy/assets",
+    );
     await store.initialize();
     await store.recover();
     service = new WorkspaceService(store);
@@ -164,6 +168,15 @@ app
     updates.start();
     protocol.handle(APP_SCHEME, async (request) => {
       try {
+        const url = new URL(request.url);
+        if (url.host !== "app" || url.username || url.password)
+          return new Response(null, { status: 404 });
+        if (url.pathname.startsWith("/__tidy/assets/"))
+          return projectAssetResponse(
+            store,
+            request,
+            entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
+          );
         if (request.method !== "GET" && request.method !== "HEAD")
           return new Response(null, { status: 405 });
         const path = rendererAssetPath(join(import.meta.dirname, "../renderer"), request.url);

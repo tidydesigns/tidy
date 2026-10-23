@@ -206,6 +206,8 @@ export type DesktopAPI = {
   createDesignFolder(projectId: string, name: string): Promise<DesignFolder>;
   renameDesignFolder(projectId: string, folderId: string, name: string): Promise<DesignFolder>;
   readDesign(projectId: string, designId: string): Promise<LocalDesign>;
+  previewDesign(projectId: string, designId: string): Promise<LocalDesign>;
+  refreshDesign(projectId: string, designId: string, version: string): Promise<LocalDesign | null>;
   updateDesign(input: {
     projectId: string;
     designId: string;

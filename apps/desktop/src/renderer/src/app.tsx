@@ -1005,6 +1005,7 @@ export function App() {
     return () => dismissToast(id);
   }, [error, activeProjectId]);
 
+  const filesActive = !settingsOpen && location === "local" && mode === "design" && !design;
   const projectFiles = useMemo(() => {
     const project = designSnapshot?.project;
     if (!api || !designSnapshot || !project) return null;
@@ -1013,6 +1014,7 @@ export function App() {
         key={project.id}
         api={api}
         snapshot={designSnapshot}
+        active={filesActive}
         navigationTarget={location === "local" ? designNavigation : null}
         cloud={
           api.cloud && cloud.account
@@ -1072,6 +1074,7 @@ export function App() {
     location,
     cloud.account,
     cloud.state,
+    filesActive,
   ]);
 
   const canvasFocused = location === "cloud" ? cloudCanvas : mode === "design" && Boolean(design);

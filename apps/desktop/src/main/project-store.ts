@@ -72,9 +72,13 @@ export class ProjectStore {
   private writes = Promise.resolve();
   private designCache = new Map<string, ParsedDesignFile>();
   private summaryCache = new Map<string, DesignFileSummary>();
+  private designReads = new Map<string, Promise<ParsedDesignFile>>();
 
   private authority: ThreadAuthority;
-  constructor(private directory: string) {
+  constructor(
+    private directory: string,
+    private assetBase = "/__tidy/assets",
+  ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
   }
 
@@ -365,19 +369,10 @@ export class ProjectStore {
     projectId: string,
     designId: string,
     includeAssets = true,
+    background = false,
   ): Promise<LocalDesign> {
-    const path = await this.storagePath(projectId, "designs", designId);
-    const stamp = designFileStamp(await stat(path, { bigint: true }));
-    let cached = this.designCache.get(path);
-    if (!cached || cached.stamp !== stamp) {
-      cached = await designReader.readFile(path);
-      this.designCache.delete(path);
-      this.designCache.set(path, cached);
-      while (this.designCache.size > 8)
-        this.designCache.delete(this.designCache.keys().next().value!);
-      this.cacheSummary(path, summarizeDesignFile(cached));
-    }
-    // Internal sync readers treat documents as immutable. Renderer-facing reads get their own copy.
+    const cached = await this.parsedDesign(projectId, designId, background);
+    // Renderer-facing callers own their copy; sync keeps an immutable reference.
     const document = includeAssets ? structuredClone(cached.document) : cached.document;
     return {
       id: cached.id,
@@ -389,20 +384,66 @@ export class ProjectStore {
       document,
       version: cached.version,
       assets: Object.fromEntries(
-        await Promise.all(
-          (includeAssets ? [...documentAssetIds(document)] : []).map(async (assetId) => {
-            try {
-              const asset = z
-                .object({ dataUrl: z.string() })
-                .parse(await this.read(await this.storagePath(projectId, "assets", assetId)));
-              return [assetId, asset.dataUrl];
-            } catch {
-              return [assetId, ""];
-            }
-          }),
-        ),
+        (includeAssets ? documentAssetIds(document) : []).map((assetId) => [
+          assetId,
+          this.assetURL(projectId, assetId),
+        ]),
       ),
     };
+  }
+
+  async readDesignIfChanged(projectId: string, designId: string, version: string) {
+    const cached = await this.parsedDesign(projectId, designId);
+    if (cached.version === version) return null;
+    return this.readDesign(projectId, designId);
+  }
+
+  private async parsedDesign(projectId: string, designId: string, background = false) {
+    const path = await this.storagePath(projectId, "designs", designId);
+    const stamp = designFileStamp(await stat(path, { bigint: true }));
+    let cached = this.designCache.get(path);
+    if (!cached || cached.stamp !== stamp) {
+      // Share concurrent decodes of the same disk state, including card/open races.
+      const key = `${path}:${stamp}`;
+      let read = this.designReads.get(key);
+      if (!read) {
+        read = designReader.readFile(path, background);
+        this.designReads.set(key, read);
+        void read.finally(() => this.designReads.delete(key)).catch(() => {});
+      } else if (!background) designReader.prioritizeFile(path);
+      cached = await read;
+      this.designCache.delete(path);
+      this.designCache.set(path, cached);
+      this.trimDesignCache();
+      this.cacheSummary(path, summarizeDesignFile(cached));
+    } else {
+      this.designCache.delete(path);
+      this.designCache.set(path, cached);
+    }
+    return cached;
+  }
+
+  private trimDesignCache() {
+    // Bound retained scene complexity as well as the number of open files.
+    let nodes = 0;
+    let bytes = 0;
+    for (const file of this.designCache.values()) {
+      nodes += file.document.nodes.length;
+      bytes += file.bytes;
+    }
+    while (
+      this.designCache.size > 16 ||
+      ((nodes > 40_000 || bytes > 32 * 1024 * 1024) && this.designCache.size > 1)
+    ) {
+      const oldest = this.designCache.keys().next().value!;
+      nodes -= this.designCache.get(oldest)!.document.nodes.length;
+      bytes -= this.designCache.get(oldest)!.bytes;
+      this.designCache.delete(oldest);
+    }
+  }
+
+  private assetURL(projectId: string, assetId: string) {
+    return `${this.assetBase}/${id.parse(projectId)}/${id.parse(assetId)}`;
   }
 
   private cacheSummary(path: string, summary: DesignFileSummary) {
@@ -508,7 +549,7 @@ export class ProjectStore {
       throw new Error("Choose a PNG, JPEG, WebP or SVG image under 2 MB.");
     const assetId = randomUUID();
     await this.atomicWrite(() => this.storagePath(projectId, "assets", assetId), { dataUrl });
-    return { assetId, url: dataUrl };
+    return { assetId, url: this.assetURL(projectId, assetId) };
   }
 
   /** Sync uses the same bounded local asset format, without changing portable design IDs. */

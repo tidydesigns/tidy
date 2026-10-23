@@ -5,6 +5,7 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Connect } from "vite";
 import { z } from "zod";
+import { projectAssetResponse } from "./project-assets";
 import { createWorkspaceRequests } from "./workspace-requests";
 import type { WorkspaceService } from "./workspace-service";
 
@@ -153,6 +154,20 @@ else fetch('/__tidy/session', {method:'POST',headers:{'Content-Type':'applicatio
       // Block cross-origin API requests, including requests with browser cookies.
       if (request.method !== "GET" && !trustedOrigin(request)) {
         json(response, 403, { ok: false, error: "Untrusted origin." });
+        return;
+      }
+      if (path?.startsWith("/__tidy/assets/")) {
+        const asset = await projectAssetResponse(
+          service.store,
+          new Request(new URL(request.url!, origin).href, {
+            method: request.method,
+            headers: request.headers["if-none-match"]
+              ? { "If-None-Match": request.headers["if-none-match"] }
+              : undefined,
+          }),
+        );
+        response.writeHead(asset.status, Object.fromEntries(asset.headers));
+        response.end(Buffer.from(await asset.arrayBuffer()));
         return;
       }
       if (path === "/__tidy/directories" && request.method === "GET") {

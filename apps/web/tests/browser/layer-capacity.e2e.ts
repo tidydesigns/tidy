@@ -21,9 +21,27 @@ for (const count of [100, 1000, 5000]) {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
         ),
     );
-    const mounted = await page.locator("[data-node-id]").count();
+    const { mounted, retained } = await page.locator("[data-node-id]").evaluateAll((elements) => {
+      let mounted = 0,
+        retained = 0;
+      for (const element of elements) {
+        let root: Element = element;
+        let parent = root.parentElement?.closest("[data-node-id]");
+        while (parent) {
+          root = parent;
+          parent = root.parentElement?.closest("[data-node-id]");
+        }
+        if (getComputedStyle(root).contentVisibility === "hidden") retained++;
+        else mounted++;
+      }
+      return { mounted, retained };
+    });
     const rows = await tree.getByRole("treeitem").count();
     assert.ok(mounted <= 300, `Only nearby frames mount at 100% (${count}: ${mounted})`);
+    assert.ok(
+      retained <= 4000,
+      `Previously visible frames stay within the cache budget (${retained})`,
+    );
     assert.ok(rows <= 100, `Layer DOM remains bounded (${count}: ${rows})`);
     if (count > 200) {
       await tree.evaluate((element) => {

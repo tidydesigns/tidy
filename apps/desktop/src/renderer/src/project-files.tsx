@@ -6,7 +6,6 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { FileCard, FileViewToggle } from "@tidy/editor/components/files/file-browser-ui";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import { filesGrid, filesHeader } from "@tidy/editor/components/workspace/page-layout";
 import type {
   DesktopAPI,
@@ -16,62 +15,8 @@ import type {
   ProjectSnapshot,
 } from "../../shared/contracts";
 
-export function LocalPreview({
-  api,
-  projectId,
-  file,
-}: {
-  api: DesktopAPI;
-  projectId: string;
-  file: DesignSummary;
-}) {
-  const container = useRef<HTMLDivElement>(null);
-  const [visible, setVisible] = useState(false);
-  const [value, setValue] = useState<LocalDesign>();
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin: "160px" },
-    );
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, []);
-  useEffect(() => {
-    if (!visible) return;
-    let current = true;
-    void api
-      .readDesign(projectId, file.id)
-      .then((value) => {
-        if (current) {
-          setValue(value);
-          setError(false);
-        }
-      })
-      .catch(() => {
-        if (current) setError(true);
-      });
-    return () => {
-      current = false;
-    };
-  }, [api, projectId, file.id, file.updatedAt, visible]);
-  return (
-    <div ref={container} className="local-file-preview" aria-hidden="true">
-      {value ? (
-        <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
-      ) : error ? (
-        <Icon name="frame" size={24} />
-      ) : null}
-    </div>
-  );
-}
+export { LocalPreview } from "./local-preview";
+import { LocalPreview } from "./local-preview";
 
 type Editing = { kind: "create" } | { kind: "folder" | "file"; id: string };
 export function ProjectFiles({
@@ -83,10 +28,12 @@ export function ProjectFiles({
   onUpdate,
   onFolderUpdate,
   cloud,
+  active = true,
 }: {
   api: DesktopAPI;
   snapshot: ProjectSnapshot;
   navigationTarget: HTMLElement | null;
+  active?: boolean;
   onOpen(id: string): void;
   onCreated(file: LocalDesign): void;
   onUpdate(file: LocalDesign): void;
@@ -315,7 +262,7 @@ export function ProjectFiles({
     ) : (
       <span className="block truncate text-sm font-medium">{displayName(file)}</span>
     );
-    const preview = <LocalPreview api={api} projectId={projectId} file={file} />;
+    const preview = <LocalPreview api={api} projectId={projectId} file={file} enabled={active} />;
     return view === "grid" ? (
       <li key={file.id} className="relative local-file-card">
         <FileCard
