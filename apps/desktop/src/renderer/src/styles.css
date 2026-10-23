@@ -146,27 +146,29 @@
 
 :root {
   color-scheme: light dark;
-  --color-ink: light-dark(#424242, #ededed);
-  --color-muted-ink: light-dark(#6b6b6b, #a1a1a1);
-  --color-panel: light-dark(#fafafa, #0a0a0a);
-  --color-border: light-dark(#dedede, #262626);
-  --color-hover-surface: light-dark(#f0f0f0, #171717);
-  --color-subtle-fill: light-dark(#e9e9e9, #1a1a1a);
-  --color-secondary-ink: light-dark(#646464, #a1a1a1);
+  --color-ink: light-dark(#424242, #d4d4d4);
+  --color-muted-ink: light-dark(#6b6b6b, #969696);
+  --color-panel: light-dark(#fafafa, #171717);
+  --color-border: light-dark(#dedede, #353535);
+  --color-hover-surface: light-dark(#f0f0f0, #252525);
+  --color-subtle-fill: light-dark(#e9e9e9, #252525);
+  --color-secondary-ink: light-dark(#646464, #aaaaaa);
   --color-accent-ink: light-dark(#595959, #ededed);
   --color-control-border: light-dark(#888888, #707070);
   --color-accent: light-dark(#595959, #ededed);
-  --color-pressed-surface: light-dark(#e5e5e5, #222222);
-  --color-surface: light-dark(#ffffff, #111111);
-  --color-canvas: light-dark(#f3f3f3, #0a0a0a);
-  --color-on-accent: light-dark(#ffffff, #0a0a0a);
+  --color-pressed-surface: light-dark(#e5e5e5, #303030);
+  --color-surface: light-dark(#ffffff, #171717);
+  --color-canvas: light-dark(#f3f3f3, #262626);
+  --color-on-accent: light-dark(#ffffff, #171717);
   --color-strong-action: light-dark(#424242, #ededed);
   --color-strong-action-hover: light-dark(#595959, #d4d4d4);
-  --color-on-strong-action: light-dark(#ffffff, #0a0a0a);
+  --color-on-strong-action: light-dark(#ffffff, #171717);
   --desktop-surface: var(--color-surface);
   --desktop-status-active: light-dark(#2563b9, var(--color-ink));
   --desktop-status-success: light-dark(#08775b, var(--color-muted-ink));
-  --desktop-navigation-surface: light-dark(#f7f7f7, #000000);
+  --desktop-navigation-surface: light-dark(#f7f7f7, #0f0f0f);
+  --desktop-editor-sidebar-surface: light-dark(#fafafa, #0f0f0f);
+  --desktop-composer-surface: light-dark(#ffffff, #303030);
   --project-sidebar-width: 244px;
   --chat-content-width: 46rem;
   --chat-gutter: 48px;
@@ -1248,7 +1250,7 @@ summary:focus-visible {
   padding: 8px;
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  background: var(--desktop-surface);
+  background: var(--desktop-composer-surface);
 }
 .composer textarea {
   display: block;
@@ -1383,6 +1385,9 @@ summary:focus-visible {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+}
+.design-workspace .editor-panel[data-kind="layers"] > aside {
+  background: var(--desktop-editor-sidebar-surface);
 }
 .error-banner {
   grid-column: 2;
@@ -2613,7 +2618,7 @@ summary:focus-visible {
   z-index: -1;
   border: 1px solid var(--color-muted-ink);
   border-radius: inherit;
-  background: var(--desktop-surface);
+  background: var(--desktop-composer-surface);
   pointer-events: none;
 }
 .skill-picker {
