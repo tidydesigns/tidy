@@ -1954,9 +1954,12 @@ export function FileEditor({
       });
     }
     function onWheel(event: WheelEvent) {
+      // A containing dialog can host the editor; only overlays inside the canvas block navigation.
       if (
         event.target instanceof Element &&
-        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+        canvas?.contains(
+          event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog"),
+        )
       )
         return;
       event.preventDefault();
@@ -1978,7 +1981,9 @@ export function FileEditor({
     function onGestureStart(event: Event) {
       if (
         event.target instanceof Element &&
-        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+        canvas?.contains(
+          event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog"),
+        )
       )
         return;
       event.preventDefault();
@@ -1988,7 +1993,9 @@ export function FileEditor({
     function onGestureChange(event: Event) {
       if (
         event.target instanceof Element &&
-        event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog")
+        canvas?.contains(
+          event.target.closest("[data-canvas-control]:not([data-artboard-label]), dialog"),
+        )
       )
         return;
       event.preventDefault();

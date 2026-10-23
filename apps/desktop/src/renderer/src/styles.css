@@ -3239,11 +3239,28 @@ summary:focus-visible {
 .thread-design-dialog::backdrop {
   background: transparent;
 }
+/* Keep the editor measurable while hidden so the opening never waits for a new canvas. */
+.thread-design-dialog:not([open]) {
+  display: block;
+  visibility: hidden;
+  pointer-events: none;
+}
 .thread-design-canvas {
   width: 100%;
   height: 100%;
+  transform-origin: top left;
+}
+.thread-design-dialog .tidy-editor,
+.thread-design-dialog [aria-label="Design canvas"] {
+  background-color: var(--color-panel);
+}
+.thread-design-canvas [data-canvas-control],
+.thread-design-canvas .editor-panel {
   opacity: 0;
-  transition: opacity 100ms ease;
+}
+.thread-design-dialog[data-phase="open"] .thread-design-canvas [data-canvas-control],
+.thread-design-dialog[data-phase="open"] .thread-design-canvas .editor-panel {
+  opacity: 1;
 }
 :root[data-titlebar="hidden"] .thread-design-canvas {
   padding-top: 40px;
@@ -3255,20 +3272,6 @@ summary:focus-visible {
   inset: 0 0 auto;
   height: 40px;
   app-region: drag;
-}
-.thread-design-dialog[data-phase="open"] .thread-design-canvas {
-  opacity: 1;
-}
-.thread-design-transition-artwork {
-  position: absolute;
-  inset: 0;
-  padding: 14%;
-  pointer-events: none;
-  opacity: 1;
-  transition: opacity 100ms ease;
-}
-.thread-design-dialog[data-phase="open"] .thread-design-transition-artwork {
-  opacity: 0;
 }
 @keyframes thread-design-orbit {
   to {
@@ -3288,9 +3291,5 @@ summary:focus-visible {
   .thread-design-window[data-working="true"] .thread-design-peek,
   .thread-design-window[data-working="true"] .thread-design-rim::before {
     animation: none;
-  }
-  .thread-design-canvas,
-  .thread-design-transition-artwork {
-    transition: none;
   }
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type PointerEvent } from "react";
+import { flushSync } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
@@ -8,10 +9,36 @@ import type { DesktopAPI, DesignSummary, LocalDesign, Thread } from "../../share
 import { LocalCanvas } from "./local-canvas";
 
 type Phase = "closed" | "opening" | "open" | "closing";
-const easing = "cubic-bezier(0.32, 0.72, 0, 1)";
+const enterEasing = "cubic-bezier(0.7, 0, 0.85, 0.35)";
+const exitEasing = "cubic-bezier(0.15, 0.65, 0.3, 1)";
 const previewRatio = 1.5;
 const minimumWidth = 220;
 const maximumWidth = 560;
+
+/** Align the live editor with the thumbnail before growing it into its full-size view. */
+function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, button: HTMLElement) {
+  const rect = button.getBoundingClientRect();
+  const transform = getComputedStyle(canvas).transform;
+  const current = new DOMMatrix(transform === "none" ? undefined : transform);
+  const contentBounds = canvas.getBoundingClientRect();
+  const roots = button.querySelectorAll<HTMLElement>("foreignObject > div > [data-thumbnail-node]");
+  for (const root of roots) {
+    const node = canvas.querySelector<HTMLElement>(
+      `[data-node-id="${CSS.escape(root.dataset.thumbnailNode!)}"]`,
+    );
+    if (!node) continue;
+    const source = root.getBoundingClientRect();
+    const target = node.getBoundingClientRect();
+    if (!source.width || !target.width) continue;
+    const scale = source.width / (target.width / current.a);
+    const x = source.left - ((target.left - contentBounds.left) / current.a) * scale;
+    const y = source.top - ((target.top - contentBounds.top) / current.d) * scale;
+    return `translate(${x}px, ${y}px) scale(${scale})`;
+  }
+  const scale =
+    Math.min(rect.width / surface.clientWidth, rect.height / surface.clientHeight) * 0.68;
+  return `translate(${rect.left + rect.width / 2 - (surface.clientWidth * scale) / 2}px, ${rect.top + rect.height / 2 - (surface.clientHeight * scale) / 2}px) scale(${scale})`;
+}
 
 export function ThreadDesignWindow({
   api,
@@ -38,7 +65,8 @@ export function ThreadDesignWindow({
   const trigger = useRef<HTMLButtonElement>(null);
   const resizeHandle = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
-  const animation = useRef<Animation | null>(null);
+  const canvas = useRef<HTMLDivElement>(null);
+  const animations = useRef<Animation[]>([]);
   const generation = useRef(0);
   const restoreFocus = useRef(false);
   const offset = useRef({ x: 0, y: 0 });
@@ -58,6 +86,12 @@ export function ThreadDesignWindow({
   const expanded = phase !== "closed";
   const summary = designs.find((design) => design.id === targetId);
   const ready = Boolean(summary && value?.id === summary.id);
+
+  useEffect(() => {
+    if (!ready || !active || dismissed || visited) return;
+    const idle = window.requestIdleCallback(() => setVisited(true), { timeout: 400 });
+    return () => window.cancelIdleCallback(idle);
+  }, [ready, active, dismissed, visited]);
 
   const move = useCallback((x: number, y: number) => {
     const button = frame.current;
@@ -184,9 +218,11 @@ export function ThreadDesignWindow({
 
   const closeImmediately = useCallback(() => {
     generation.current++;
-    animation.current?.cancel();
-    animation.current = null;
+    animations.current.forEach((motion) => motion.cancel());
+    animations.current = [];
     dialog.current?.close();
+    if (dialog.current) dialog.current.style.clipPath = "";
+    if (canvas.current) canvas.current.style.transform = "";
     setPhase("closed");
   }, []);
 
@@ -206,7 +242,7 @@ export function ThreadDesignWindow({
   useEffect(
     () => () => {
       generation.current++;
-      animation.current?.cancel();
+      animations.current.forEach((motion) => motion.cancel());
     },
     [],
   );
@@ -214,44 +250,75 @@ export function ThreadDesignWindow({
   const transition = useCallback((open: boolean) => {
     const surface = dialog.current;
     const button = trigger.current;
-    if (!surface || !button) return;
+    const content = canvas.current;
+    if (!surface || !button || !content) return;
+    // The editor normally warms during idle time; an immediate click can get there first.
+    flushSync(() => setVisited(true));
     const epoch = ++generation.current;
     const rect = button.getBoundingClientRect();
-    const compact = `translate(${rect.left}px, ${rect.top}px) scale(${rect.width / window.innerWidth}, ${rect.height / window.innerHeight})`;
-    const radius = getComputedStyle(button).borderRadius;
+    const corners = getComputedStyle(button).borderTopLeftRadius.split(" ");
+    const radius = (value: string, size: number) =>
+      parseFloat(value) * (value.endsWith("%") ? size / 100 : 1);
+    const compactClip = `inset(${rect.top}px ${surface.clientWidth - rect.right}px ${surface.clientHeight - rect.bottom}px ${rect.left}px round ${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px)`;
+    const fullClip = "inset(0px 0px 0px 0px round 0px)";
+    const compactTransform = compactCanvasTransform(surface, content, button);
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const previous = surface.open
-      ? {
-          transform: getComputedStyle(surface).transform,
-          borderRadius: getComputedStyle(surface).borderRadius,
-        }
-      : { transform: compact, borderRadius: radius };
-    animation.current?.cancel();
+    const previousOpacity = surface.open ? getComputedStyle(surface).opacity : "0";
+    const measuredClip = getComputedStyle(surface).clipPath;
+    const previousClip = surface.open
+      ? measuredClip === "none"
+        ? fullClip
+        : measuredClip
+      : compactClip;
+    const previousTransform = surface.open ? getComputedStyle(content).transform : compactTransform;
+    const chrome = [
+      ...content.querySelectorAll<HTMLElement>("[data-canvas-control], .editor-panel"),
+    ];
+    const chromeOpacity = chrome.map((element) => getComputedStyle(element).opacity);
+    animations.current.forEach((motion) => motion.cancel());
+    surface.style.clipPath = reduced ? fullClip : previousClip;
+    content.style.transform = reduced ? "none" : previousTransform;
     if (open && !surface.open) surface.showModal();
-    setPhase(open ? "opening" : "closing");
-    if (open) setVisited(true);
-    const motion = surface.animate(
-      [
-        reduced ? { opacity: open ? 0 : 1 } : previous,
-        reduced
-          ? { opacity: open ? 1 : 0 }
-          : { transform: open ? "none" : compact, borderRadius: open ? "0%" : radius },
-      ],
-      { duration: reduced ? 100 : 280, easing, fill: "both" },
+    flushSync(() => setPhase(open ? "opening" : "closing"));
+    const duration = reduced ? 100 : open ? 650 : 450;
+    const timing = { duration, easing: open ? enterEasing : exitEasing, fill: "both" as const };
+    const aperture = surface.animate(
+      reduced
+        ? [{ opacity: previousOpacity }, { opacity: open ? 1 : 0 }]
+        : [{ clipPath: previousClip }, { clipPath: open ? fullClip : compactClip }],
+      timing,
     );
-    animation.current = motion;
-    void motion.finished.then(
+    const artwork = content.animate(
+      reduced
+        ? [{ transform: "none" }, { transform: "none" }]
+        : [{ transform: previousTransform }, { transform: open ? "none" : compactTransform }],
+      timing,
+    );
+    const controls = chrome.map((element, index) =>
+      element.animate([{ opacity: open ? 0 : chromeOpacity[index] }, { opacity: open ? 1 : 0 }], {
+        duration: 100,
+        delay: open && !reduced ? duration - 100 : 0,
+        fill: "both",
+      }),
+    );
+    const motions = [aperture, artwork, ...controls];
+    animations.current = motions;
+    void Promise.all([aperture.finished, artwork.finished]).then(
       () => {
         if (generation.current !== epoch) return;
+        surface.style.clipPath = open ? fullClip : compactClip;
+        content.style.transform = open ? "none" : compactTransform;
         if (open) {
-          setPhase("open");
+          flushSync(() => setPhase("open"));
         } else {
           restoreFocus.current = true;
           surface.close();
-          setPhase("closed");
+          flushSync(() => setPhase("closed"));
         }
-        motion.cancel();
-        animation.current = null;
+        motions.forEach((motion) => motion.cancel());
+        animations.current = [];
+        surface.style.clipPath = "";
+        content.style.transform = "";
       },
       () => {},
     );
@@ -375,6 +442,7 @@ export function ThreadDesignWindow({
         padded={false}
         className="thread-design-dialog"
         aria-label="Live design canvas"
+        aria-hidden={phase === "closed" || undefined}
         data-phase={phase}
         onCancel={(event) => {
           event.preventDefault();
@@ -385,7 +453,7 @@ export function ThreadDesignWindow({
           setPhase("closed");
         }}
       >
-        <div className="thread-design-canvas" inert={phase !== "open"}>
+        <div ref={canvas} className="thread-design-canvas" inert={phase !== "open"}>
           {visited && (
             <LocalCanvas
               key={value.id}
@@ -399,9 +467,6 @@ export function ThreadDesignWindow({
               onUpdate={update}
             />
           )}
-        </div>
-        <div className="thread-design-transition-artwork" aria-hidden="true" inert>
-          <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
         </div>
       </Dialog>
     </div>
