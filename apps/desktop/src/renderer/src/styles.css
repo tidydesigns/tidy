@@ -3073,16 +3073,25 @@ summary:focus-visible {
 .thread-design-window[hidden] {
   display: none;
 }
-.thread-design-peek {
+.thread-design-frame {
   position: absolute;
   top: 24px;
   right: 36px;
-  display: block;
   width: min(296px, calc(100cqw - 32px), calc((100cqh - 32px) * 1.5));
   aspect-ratio: 1.5;
+  border-radius: 7.5% / 11.25%;
+  pointer-events: auto;
+  user-select: none;
+}
+.thread-design-peek {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 7.5% / 11.25%;
+  border-radius: inherit;
   background: light-dark(#f4f4f4, #171717);
   color: var(--color-ink);
   box-shadow:
@@ -3095,17 +3104,66 @@ summary:focus-visible {
   isolation: isolate;
   animation: thread-design-appear 220ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.thread-design-peek[data-expanded="true"] {
+.thread-design-frame[data-expanded="true"] {
   visibility: hidden;
   animation-play-state: paused;
 }
-.thread-design-peek[data-dragging="true"] {
+.thread-design-frame[data-dragging="true"] .thread-design-peek {
   cursor: grabbing;
   animation-play-state: paused;
 }
 .thread-design-peek:focus-visible {
   outline: 1px solid var(--color-muted-ink);
   outline-offset: 6px;
+}
+.thread-design-close,
+.thread-design-resize {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.thread-design-close {
+  top: 8px;
+  left: 8px;
+  cursor: pointer;
+}
+.thread-design-resize {
+  right: 6px;
+  bottom: 6px;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+.thread-design-frame:is(:hover, :focus-within) :is(.thread-design-close, .thread-design-resize),
+.thread-design-frame[data-resizing="true"] .thread-design-resize {
+  opacity: 1;
+  pointer-events: auto;
+}
+.thread-design-close:hover,
+.thread-design-resize:hover {
+  color: var(--color-ink);
+}
+.thread-design-close:focus-visible,
+.thread-design-resize:focus-visible {
+  outline: 1px solid var(--color-muted-ink);
+  outline-offset: 1px;
+}
+@media (hover: none) {
+  .thread-design-close,
+  .thread-design-resize {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .thread-design-lens {
   position: absolute;
@@ -3158,7 +3216,8 @@ summary:focus-visible {
 .thread-design-window[data-working="true"] .thread-design-rim::before {
   animation: thread-design-orbit 36s linear infinite;
 }
-.thread-design-peek:is([data-expanded="true"], [data-dragging="true"]) .thread-design-rim::before {
+.thread-design-frame:is([data-expanded="true"], [data-dragging="true"], [data-resizing="true"])
+  .thread-design-rim::before {
   animation-play-state: paused;
 }
 .thread-design-dialog {
