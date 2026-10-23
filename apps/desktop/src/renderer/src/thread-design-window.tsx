@@ -257,8 +257,6 @@ export function ThreadDesignWindow({
           <span className="thread-design-artwork">
             <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
           </span>
-          <span className="thread-design-depth" />
-          <span className="thread-design-reflection" />
         </span>
         <span className="thread-design-rim" aria-hidden="true" />
       </Button>
