@@ -80,7 +80,7 @@
   font-size: 12px;
 }
 .harness-update-state[data-complete] {
-  color: light-dark(#426e46, #a8c8a9);
+  color: var(--desktop-status-success);
 }
 .harness-update-spinner {
   width: 13px;
@@ -164,8 +164,10 @@
   --color-strong-action-hover: light-dark(#595959, #d4d4d4);
   --color-on-strong-action: light-dark(#ffffff, #171717);
   --desktop-surface: var(--color-surface);
-  --desktop-status-active: light-dark(#2563b9, var(--color-ink));
-  --desktop-status-success: light-dark(#08775b, var(--color-muted-ink));
+  --desktop-status-active: light-dark(#2563eb, #60a5fa);
+  --desktop-status-success: light-dark(#15803d, #4ade80);
+  --desktop-status-warning: light-dark(#a16207, #fbbf24);
+  --desktop-status-danger: light-dark(#dc2626, #f87171);
   --desktop-navigation-surface: light-dark(#f7f7f7, #0f0f0f);
   --desktop-editor-sidebar-surface: light-dark(#fafafa, #0f0f0f);
   --desktop-composer-surface: light-dark(#ffffff, #303030);
@@ -331,7 +333,7 @@ body {
   color: var(--desktop-status-success);
 }
 .app-update-warning {
-  color: light-dark(#98640b, #e2b66d);
+  color: var(--desktop-status-warning);
 }
 .app-update-tooltip {
   position: absolute;
@@ -979,7 +981,7 @@ summary:focus-visible {
   height: 6px;
   margin-right: 8px;
   border-radius: 50%;
-  background: currentColor;
+  background: var(--desktop-status-active);
 }
 .latest-message {
   position: absolute;
@@ -1197,14 +1199,17 @@ summary:focus-visible {
   opacity: 1;
   animation: thread-working 5s linear infinite;
 }
+.thread-state-idle,
 .thread-state-completed,
 .thread-state-done {
   color: var(--desktop-status-success);
 }
-.thread-state-failed,
+.thread-state-failed {
+  color: var(--desktop-status-danger);
+}
 .thread-state-permission,
 .thread-state-interrupted {
-  color: light-dark(#98640b, #e2b66d);
+  color: var(--desktop-status-warning);
 }
 .can-change-status:has(:focus-visible) .thread-card-status {
   visibility: hidden;
@@ -1239,7 +1244,7 @@ summary:focus-visible {
   overflow-wrap: anywhere;
 }
 .thread-error {
-  color: var(--color-danger);
+  color: var(--desktop-status-danger);
 }
 .composer {
   position: relative;
@@ -2070,7 +2075,7 @@ summary:focus-visible {
   margin-left: 12px;
 }
 .tool-status-failed {
-  color: light-dark(#a33f34, #e39788);
+  color: var(--desktop-status-danger);
   font-size: 11px;
 }
 .tool-status-cancelled,
@@ -2078,7 +2083,10 @@ summary:focus-visible {
   color: var(--color-muted-ink);
 }
 .tool-status-running {
-  color: var(--color-ink);
+  color: var(--desktop-status-active);
+}
+.tool-status-completed {
+  color: var(--desktop-status-success);
 }
 .tool-call-details {
   padding: 8px 8px 12px 34px;
