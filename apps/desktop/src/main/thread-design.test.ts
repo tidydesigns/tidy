@@ -87,6 +87,26 @@ test("collects every known current-turn canvas once for docking", () => {
   expect(threadDesigns(value, [first, second])).toEqual([second, first]);
 });
 
+test("immutable tool rows reuse parsed paths while refreshed metadata and new rows still resolve", () => {
+  let reads = 0;
+  const activity = tool();
+  Object.defineProperty(activity, "input", {
+    get() {
+      reads++;
+      return first.path;
+    },
+  });
+  const value = thread({ toolActivities: [activity] });
+  const cache = new WeakMap<ToolActivity, string[]>();
+  expect(threadDesigns(value, [first, second], cache)).toEqual([first]);
+  const renamed = { ...first, name: "Renamed" };
+  expect(threadDesigns({ ...value, designIds: [] }, [renamed, second], cache)).toEqual([renamed]);
+  expect(reads).toBe(1);
+  const next = { ...value, toolActivities: [activity, tool({ input: second.path })] };
+  expect(threadDesigns(next, [renamed, second], cache)).toEqual([second, renamed]);
+  expect(reads).toBe(1);
+});
+
 test("shell and read tools can identify known local designs without an attached reference", () => {
   for (const path of [second.path, `.tidy/designs/${second.id}.json`]) {
     expect(

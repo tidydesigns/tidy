@@ -5,12 +5,14 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type RefObject,
 } from "react";
 import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import type { CanvasViewportMemory } from "@tidy/editor";
+import { DesignPreviewCache } from "../../shared/design-preview-cache";
 import { threadDesigns } from "../../shared/thread-design";
 import {
   discoverCanvases,
@@ -121,16 +123,12 @@ export function ThreadDesignDock({
   const layer = useRef<HTMLDivElement>(null);
   const [host, setHost] = useState<HTMLSpanElement | null>(null);
   const [slot, setSlot] = useState<DockSlot | null>(null);
-  const cache = useRef(new Map<string, { stamp: string; value: LocalDesign }>());
-  const pending = useRef(new Map<string, Promise<LocalDesign>>());
-  const [previews, setPreviews] = useState<Record<string, LocalDesign>>({});
-  const mounted = useRef(true);
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
+  const cache = useMemo(
+    () => new DesignPreviewCache((id) => api.readDesign(thread.projectId, id)),
+    [api, thread.projectId],
+  );
+  const previews = useSyncExternalStore(cache.subscribe, cache.getSnapshot);
+  const readPreview = cache.load;
   const summaries = useMemo(
     () =>
       state.ids.flatMap((id) => {
@@ -139,9 +137,30 @@ export function ThreadDesignDock({
       }),
     [state.ids, designs],
   );
+  let lastUser: Thread["messages"][number] | undefined;
+  for (let index = thread.messages.length - 1; index >= 0; index--) {
+    if (thread.messages[index].role === "user") {
+      lastUser = thread.messages[index];
+      break;
+    }
+  }
+  const { toolActivities } = thread;
+  const designIdKey = thread.designIds.join(":");
+  const [pathCache] = useState(
+    () => new WeakMap<NonNullable<Thread["toolActivities"]>[number], string[]>(),
+  );
   const candidates = useMemo(
-    () => threadDesigns(thread, designs).map((design) => design.id),
-    [thread, designs],
+    () =>
+      threadDesigns(
+        {
+          messages: lastUser ? [lastUser] : [],
+          toolActivities,
+          designIds: designIdKey ? designIdKey.split(":") : [],
+        },
+        designs,
+        pathCache,
+      ).map((design) => design.id),
+    [lastUser, toolActivities, designIdKey, designs, pathCache],
   );
   useEffect(() => {
     if (thread.status === "running") setState((previous) => discoverCanvases(previous, candidates));
@@ -153,48 +172,33 @@ export function ThreadDesignDock({
       /* Keep controls usable when storage is unavailable. */
     }
   }, [key, state]);
-  const readPreview = useCallback(
-    (summary: DesignSummary): Promise<LocalDesign> => {
-      const saved = cache.current.get(summary.id);
-      if (saved?.stamp === summary.updatedAt) return Promise.resolve(saved.value);
-      const requestKey = `${summary.id}:${summary.updatedAt}`;
-      const existing = pending.current.get(requestKey);
-      if (existing) return existing;
-      const request = api
-        .readDesign(thread.projectId, summary.id)
-        .then((value) => {
-          // An older read must not overwrite a newer edit or refresh.
-          const current = cache.current.get(summary.id);
-          if (!current || current === saved || current.value.updatedAt < value.updatedAt) {
-            cache.current.set(summary.id, { stamp: summary.updatedAt, value });
-            if (mounted.current) setPreviews((previous) => ({ ...previous, [value.id]: value }));
-          }
-          return cache.current.get(summary.id)?.value ?? value;
-        })
-        .finally(() => pending.current.delete(requestKey));
-      pending.current.set(requestKey, request);
-      return request;
-    },
-    [api, thread.projectId],
-  );
   useEffect(() => {
-    if (!active) return;
-    // Preload the first visible rows in idle time; longer lists load only visible thumbnails.
-    const idle = window.requestIdleCallback(
-      () => {
-        void Promise.allSettled(summaries.slice(0, 6).map(readPreview));
-      },
-      { timeout: 600 },
-    );
-    return () => window.cancelIdleCallback(idle);
-  }, [active, summaries, readPreview]);
+    const target = home.current;
+    if (!active || !target) return;
+    let idle: number | undefined;
+    const preload = () => {
+      if (idle !== undefined) return;
+      idle = window.requestIdleCallback(
+        () => {
+          void Promise.allSettled(summaries.slice(0, 6).map(readPreview));
+        },
+        { timeout: 600 },
+      );
+    };
+    target.addEventListener("pointerenter", preload);
+    target.addEventListener("focusin", preload);
+    return () => {
+      target.removeEventListener("pointerenter", preload);
+      target.removeEventListener("focusin", preload);
+      if (idle !== undefined) window.cancelIdleCallback(idle);
+    };
+  }, [active, home, host, summaries, readPreview]);
   const update = useCallback(
     (value: LocalDesign) => {
-      cache.current.set(value.id, { stamp: value.updatedAt, value });
-      setPreviews((previous) => ({ ...previous, [value.id]: value }));
+      cache.update(value);
       onUpdate(value);
     },
-    [onUpdate],
+    [cache, onUpdate],
   );
 
   useLayoutEffect(() => {
@@ -249,9 +253,7 @@ export function ThreadDesignDock({
   const settled = useCallback((id: string) => {
     setOutgoingIds((ids) => (ids.includes(id) ? ids.filter((value) => value !== id) : ids));
   }, []);
-  const warmId = state.openIds.includes(focusedId ?? "")
-    ? focusedId
-    : (state.openIds.at(-1) ?? focusedId);
+  const warmId = state.openIds.includes(focusedId ?? "") ? focusedId : state.openIds.at(-1);
   const windows = useMemo(
     () =>
       summaries.filter(

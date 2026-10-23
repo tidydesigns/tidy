@@ -681,7 +681,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
         }}
       >
         <div ref={canvas} className="thread-design-canvas" inert={phase !== "open"}>
-          {visited && warm && value && (
+          {visited && warm && active && value && (
             <LocalCanvas
               key={value.id}
               api={api}
