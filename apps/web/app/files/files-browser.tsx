@@ -102,7 +102,7 @@ export function FilesBrowser({
   folders,
   currentFolder,
   archived,
-  asOf,
+  asOf: initialAsOf,
   canEdit = true,
   thumbnailScope,
   organizationId,
@@ -118,6 +118,22 @@ export function FilesBrowser({
 }) {
   const router = useRouter();
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [asOf, setAsOf] = useState(initialAsOf);
+  useEffect(() => {
+    if (view !== "list") return;
+    const update = () => {
+      if (!document.hidden) setAsOf(new Date().toISOString());
+    };
+    update();
+    const timer = setInterval(update, 30_000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [view]);
   const [newestFirst, setNewestFirst] = useState(true);
   const [menu, setMenu] = useState<Menu | null>(null);
   const [busy, setBusy] = useState(false);
