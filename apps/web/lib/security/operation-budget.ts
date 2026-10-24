@@ -31,11 +31,13 @@ export class OperationBudgetError extends PublicActionError {
   constructor(
     readonly status: 429 | 503,
     readonly retryAfter: number,
+    options?: ErrorOptions,
   ) {
     super(
       status === 429
         ? "Too many requests. Try again shortly."
         : "Temporarily unavailable. Try again shortly.",
+      options,
     );
   }
 }
@@ -70,7 +72,7 @@ export async function reserveOperation(
     await consumeOperationBudget(kind, userId, organizationId, consumeMutationRateLimitPair);
   } catch (error) {
     if (error instanceof OperationBudgetError) throw error;
-    throw new OperationBudgetError(503, 5);
+    throw new OperationBudgetError(503, 5, { cause: error });
   }
 }
 export function operationFailure(error: unknown): Response | null {
@@ -107,6 +109,6 @@ export async function reserveWorkspaceOperation(kind: OperationKind, organizatio
     if (!decision.allowed) throw new OperationBudgetError(429, decision.retryAfter ?? 60);
   } catch (error) {
     if (error instanceof OperationBudgetError) throw error;
-    throw new OperationBudgetError(503, 5);
+    throw new OperationBudgetError(503, 5, { cause: error });
   }
 }

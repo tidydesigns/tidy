@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import {
   consumeAuthEndpointRateLimit,
@@ -7,10 +7,13 @@ import {
   consumeMutationRateLimitPair,
 } from "./guard-client";
 import type { RateCheck, RateDecision, RateRule } from "./guard-store";
-import { consumeImageBudget } from "../design/image-budget";
 import { MutationBudgetError } from "../security/mutation-budget";
 import { runWithRequestSignal } from "../request-lifecycle";
 import { consumePersonalAttempts, reservePersonalAttempts } from "../security/personal-budget";
+import { reserveOperation, reserveWorkspaceOperation } from "../security/operation-budget";
+
+mock.module("server-only", () => ({}));
+const { consumeImageBudget } = await import("../design/image-budget");
 
 const symbol = Symbol.for("__cloudflare-context__");
 const globals = globalThis as unknown as Record<symbol, unknown>;
@@ -79,6 +82,36 @@ test("a lost account guard response fails closed without retrying or discarding 
       message: "Account requests are temporarily unavailable. Try again.",
     });
     expect(calls).toHaveLength(1);
+  } finally {
+    if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
+    else Reflect.deleteProperty(globalThis, "navigator");
+  }
+});
+
+test("MCP operation guard failures preserve their cause and never retry an ambiguous charge", async () => {
+  const failure = new DOMException("private reservation timeout", "TimeoutError");
+  const calls = fixture(async () => {
+    throw failure;
+  });
+  const navigatorDescriptor = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { userAgent: "Cloudflare-Workers" },
+  });
+  try {
+    for (const reserve of [
+      () => reserveOperation("mcp-request", "private-user"),
+      () => reserveWorkspaceOperation("mcp-request", "private-workspace"),
+    ]) {
+      const before = calls.length;
+      await expect(reserve()).rejects.toMatchObject({
+        status: 503,
+        retryAfter: 5,
+        cause: failure,
+        message: "Temporarily unavailable. Try again shortly.",
+      });
+      expect(calls).toHaveLength(before + 1);
+    }
   } finally {
     if (navigatorDescriptor) Object.defineProperty(globalThis, "navigator", navigatorDescriptor);
     else Reflect.deleteProperty(globalThis, "navigator");

@@ -43,6 +43,7 @@ const failureEvents = new Set([
 const operations = new Set([
   "action.failed",
   "files.manage",
+  "mcp.admission",
   "workspace.session",
   "workspace.organizations",
   "workspace.role",

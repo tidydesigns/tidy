@@ -1,4 +1,4 @@
-import { reserveWorkspaceOperation } from "@/lib/security/operation-budget";
+import { OperationBudgetError, reserveWorkspaceOperation } from "@/lib/security/operation-budget";
 import "server-only";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { db } from "@/lib/db";
@@ -10,6 +10,7 @@ import { VIEW_ROLES_SQL } from "@/lib/organizations/roles";
 import { planLimitMessage } from "@/lib/billing/plans";
 import { record } from "./activity-summary";
 import { traceOperation } from "@/lib/trace-context";
+import { reportHandledError } from "@/lib/handled-error";
 
 class McpUsageAccessError extends PublicActionError {}
 
@@ -163,13 +164,18 @@ export async function retainMcpTargets(
 }
 
 function usageErrorMessage(error: unknown) {
-  return (
-    (error instanceof McpGrantError ? error.message : undefined) ??
-    planLimitMessage(error) ??
-    (error instanceof McpUsageAccessError || (error as { code?: string })?.code === "42501"
-      ? "Workspace not found or access denied. Join or create a workspace in Tidy first."
-      : "Could not verify MCP usage. Try again.")
-  );
+  if (error instanceof McpGrantError) return error.message;
+  const limit = planLimitMessage(error);
+  if (limit) return limit;
+  if (error instanceof McpUsageAccessError || (error as { code?: string })?.code === "42501")
+    return "Workspace not found or access denied. Join or create a workspace in Tidy first.";
+  // A guard outage is different from a monthly quota or authorization denial.
+  // Retain its cause for sanitized diagnostics; never retry an ambiguous charge.
+  if (!(error instanceof OperationBudgetError) || error.status === 503)
+    reportHandledError(error, "mcp.admission");
+  return error instanceof OperationBudgetError
+    ? error.message
+    : "Could not verify MCP usage. Try again.";
 }
 
 /** Only external MCP tools and resource reads are metered; internal agent tools and protocol

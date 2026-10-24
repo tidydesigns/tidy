@@ -5,6 +5,7 @@ import { posthogCollectionEnabled, posthogServerErrorsEnabled } from "./posthog-
 import { consentCookie, ESSENTIAL_ONLY } from "./privacy/consent";
 import { observeRequest } from "./request-observability";
 import { PersonalBudgetError } from "./security/personal-budget";
+import { OperationBudgetError } from "./security/operation-budget";
 
 const original = { ...process.env };
 afterEach(() => {
@@ -354,6 +355,33 @@ test("wrapped account guard failures retain categories without exporting their c
     expect(serverErrorCategory(new Error("AUTH_GUARD binding is required"))).toBe(
       "missing_runtime_binding",
     );
+  } finally {
+    c.transport.mockRestore();
+  }
+});
+
+test("MCP admission reports retain the guard failure category without exposing private data", async () => {
+  const c = collector();
+  try {
+    const failure = new OperationBudgetError(503, 5, {
+      cause: new DOMException("private-guard-details", "TimeoutError"),
+    });
+    await createErrorReporter(runtime)(failure, {
+      source: "operation",
+      event: "operation_failed",
+      operation: "mcp.admission",
+      route: "/api/mcp",
+      method: "POST",
+      phase: "handler",
+    });
+    expect(c.events()[0].properties).toMatchObject({
+      error_category: "timeout",
+      operation: "mcp.admission",
+      route: "/api/mcp",
+      method: "POST",
+      phase: "handler",
+    });
+    expect(c.bodies.join("")).not.toMatch(/private-|\"cause\"/);
   } finally {
     c.transport.mockRestore();
   }

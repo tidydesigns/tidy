@@ -1,0 +1,15 @@
+diff --git a/lib/connection.js b/lib/connection.js
+index 62d38fa6900f7a12075468ea745a084af9f8bbe3..adf8adfdaaa98f087210c888dbed98b466d96b45 100644
+--- a/lib/connection.js
++++ b/lib/connection.js
+@@ -214,7 +214,9 @@ class Connection extends EventEmitter {
+       this.stream.end()
+       return
+     }
+-    return this.stream.write(endBuffer, () => {
++    // pg-cloudflare requires the explicit encoding argument to invoke the
++    // callback. Otherwise released Hyperdrive sockets stay open in Workers.
++    return this.stream.write(endBuffer, 'utf8', () => {
+       this.stream.end()
+     })
+   }

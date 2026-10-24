@@ -1,5 +1,6 @@
 import { expect, mock, test } from "bun:test";
 import type { McpServer } from "@modelcontextprotocol/server";
+import { resolve } from "node:path";
 
 mock.module("server-only", () => ({}));
 const { meterMcpServer } = await import("./usage");
@@ -115,4 +116,62 @@ test("resource reads cannot bypass an exhausted workspace quota", async () => {
     resources.get("design-file")!(new URL("bella://files/file"), { file_id: "file" }),
   ).rejects.toThrow(message);
   expect(callback).not.toHaveBeenCalled();
+});
+
+test("admission failures report infrastructure errors while expected denials stay quiet", () => {
+  // Isolate the reporter mock from the other server telemetry tests.
+  const child = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+      import { expect, mock } from "bun:test";
+      mock.module("server-only", () => ({}));
+      const captured = [];
+      mock.module("@/lib/posthog-server", () => ({ createErrorReporter: () => async (error, details) => { captured.push({ error, details }); } }));
+      const { meterMcpServer } = await import("./lib/mcp/usage.ts");
+      const { OperationBudgetError } = await import("./lib/security/operation-budget.ts");
+      const { McpGrantError } = await import("./lib/mcp/authorizations.ts");
+      let tool, resource, called = false, failure;
+      const server = {
+        registerTool(_name, _config, callback) { tool = callback; },
+        registerResource(_name, _uri, _config, callback) { resource = callback; },
+      };
+      meterMcpServer(server, "private-user", async () => { throw failure; });
+      server.registerTool("create_file", {}, async () => { called = true; });
+      server.registerResource("design-file", {}, {}, async () => { called = true; });
+      const invoke = () => tool({ organization_id: "private-workspace", name: "private-design" });
+      const cause = new DOMException("private guard timeout", "TimeoutError");
+      failure = new OperationBudgetError(503, 5, { cause });
+      expect(await invoke()).toEqual({ content: [{ type: "text", text: "Temporarily unavailable. Try again shortly." }], isError: true });
+      expect(captured).toHaveLength(1);
+      expect(captured[0].error).toBe(failure);
+      expect(captured[0].error.cause).toBe(cause);
+      expect(captured[0].details).toEqual({ source: "operation", event: "operation_failed", operation: "mcp.admission", route: "/api/mcp", method: "POST", phase: "handler" });
+      await expect(resource(new URL("bella://files/private-file"), { file_id: "private-file" })).rejects.toThrow("Temporarily unavailable. Try again shortly.");
+      expect(captured).toHaveLength(1);
+      failure = new OperationBudgetError(429, 60);
+      expect((await invoke()).content[0].text).toBe("Too many requests. Try again shortly.");
+      failure = new McpGrantError();
+      expect((await invoke()).content[0].text).toContain("authorization has ended");
+      failure = { code: "42501", message: "private SQL" };
+      expect((await invoke()).content[0].text).toContain("access denied");
+      failure = { code: "P0001", message: "Monthly quota reached.", detail: JSON.stringify({ code: "PLAN_LIMIT" }) };
+      expect((await invoke()).content[0].text).toBe("Monthly quota reached.");
+      expect(captured).toHaveLength(1);
+      failure = new Error("private database failure");
+      expect((await invoke()).content[0].text).toBe("Could not verify MCP usage. Try again.");
+      expect(captured.at(-1).error).toBe(failure);
+      expect(captured).toHaveLength(2);
+      expect(called).toBe(false);
+    `,
+    ],
+    {
+      cwd: resolve(import.meta.dir, "../.."),
+      env: { ...process.env, NODE_ENV: "test" },
+      stdout: "pipe",
+      stderr: "pipe",
+    },
+  );
+  expect(child.exitCode, new TextDecoder().decode(child.stderr)).toBe(0);
 });
