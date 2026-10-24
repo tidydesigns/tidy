@@ -1,4 +1,5 @@
 import "server-only";
+import { DESKTOP_SYNC_SCOPE } from "@tidy/design/cloud-sync";
 import { createHash } from "node:crypto";
 import type { BetterAuthPlugin } from "better-auth";
 import { APIError, isAPIError } from "better-auth/api";
@@ -201,6 +202,33 @@ async function consentMutation<T>(
  * consumption, signing, rotation and replay cleanup one serialized transaction. */
 export function hardenedMcp(options: Parameters<typeof mcp>[0]) {
   const plugin = mcp(options);
+  const discover = plugin.onRequest;
+  const resourceMetadataPaths = new Set([
+    "/.well-known/oauth-protected-resource",
+    `/.well-known/oauth-protected-resource${new URL(options.resource).pathname.replace(/\/$/, "")}`,
+  ]);
+  plugin.onRequest = async (request, context) => {
+    const result = await discover(request, context);
+    const pathname = new URL(request.url).pathname;
+    const path = context.options.advanced?.skipTrailingSlashes
+      ? pathname.replace(/\/+$/, "") || "/"
+      : pathname;
+    if (
+      !result ||
+      !("response" in result) ||
+      request.method !== "GET" ||
+      !resourceMetadataPaths.has(path) ||
+      !result.response.ok
+    )
+      return result;
+    // The MCP provider advertises every product scope, including scopes for
+    // other resources. Keep cloud sync in AS discovery, but out of MCP discovery.
+    const metadata = (await result.response.json()) as { scopes_supported?: string[] };
+    metadata.scopes_supported = metadata.scopes_supported?.filter(
+      (scope: string) => scope !== DESKTOP_SYNC_SCOPE,
+    );
+    return { response: Response.json(metadata, { headers: result.response.headers }) };
+  };
   const consent = oauthConsentEndpoint(plugin.endpoints.oauth2Consent);
   plugin.endpoints.oauth2UserInfo = oauthUserInfoEndpoint(
     plugin.endpoints.oauth2UserInfo,

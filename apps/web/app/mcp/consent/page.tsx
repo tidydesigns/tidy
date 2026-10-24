@@ -1,4 +1,4 @@
-import { DESKTOP_SYNC_SCOPE } from "@tidy/design/cloud-sync";
+import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -28,6 +28,13 @@ export default async function McpConsentPage({ searchParams }: PageProps<"/mcp/c
   });
   if (!client) notFound();
   const scopes = (query.get("scope") ?? "").split(" ");
+  // MCP clients can retain desktop:sync from older discovery metadata. The
+  // signed resource, rather than a scope or loopback callback, identifies sync.
+  const desktopSync =
+    scopes.includes(DESKTOP_SYNC_SCOPE) &&
+    query
+      .getAll("resource")
+      .includes(desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"));
   const redirectUri = query.get("redirect_uri");
   if (!redirectUri || !URL.canParse(redirectUri)) notFound();
   const callback = new URL(redirectUri);
@@ -42,16 +49,14 @@ export default async function McpConsentPage({ searchParams }: PageProps<"/mcp/c
 
   return (
     <AuthShell
-      title={
-        scopes.includes(DESKTOP_SYNC_SCOPE) ? "Connect a desktop app" : "Connect a coding agent"
-      }
+      title={desktopSync ? "Connect a desktop app" : "Connect a coding agent"}
       description={`${client.client_name ?? "This agent"} is requesting access to your Tidy account.`}
     >
       <p data-ph-public className="mt-8 text-sm text-primary-black/70">
         This connection can:
       </p>
       <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-primary-black/80">
-        {scopes.includes(DESKTOP_SYNC_SCOPE) && (
+        {desktopSync && (
           <li data-ph-public>
             Read your workspaces and sync designs you choose to connect, including their images.
             Local projects stay on your computer until you choose to connect them.

@@ -1,6 +1,56 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
+test("MCP discovery excludes desktop sync while authorization discovery retains it", () => {
+  const child = Bun.spawnSync(
+    [
+      process.execPath,
+      "--eval",
+      `
+    import { expect, mock } from "bun:test";
+    mock.module("server-only", () => ({}));
+    mock.module("@/lib/db", () => ({ db: { connect: async () => ({
+      query: async () => ({ rows: [] }), release() {},
+    }) } }));
+    const { auth } = await import("./lib/auth.ts");
+    const headers = { "x-forwarded-for": "127.0.0.1" };
+    for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp"]) {
+      const response = await auth.handler(new Request("http://localhost:3000" + path, { headers }));
+      expect(response.status).toBe(200);
+      const metadata = await response.json();
+      expect(metadata.resource).toBe("http://localhost:3000/api/mcp");
+      expect(metadata.scopes_supported).toEqual(["mcp:read", "mcp:write", "linear:read", "linear:write"]);
+      expect(response.headers.get("cache-control")).toContain("public");
+      const head = await auth.handler(new Request("http://localhost:3000" + path, { method: "HEAD", headers }));
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe("");
+    }
+    const response = await auth.handler(new Request("http://localhost:3000/.well-known/oauth-authorization-server/api/auth", { headers }));
+    expect(response.status).toBe(200);
+    const metadata = await response.json();
+    expect(metadata.scopes_supported).toContain("desktop:sync");
+    expect(metadata.scopes_supported).toContain("mcp:read");
+    `,
+    ],
+    {
+      cwd: resolve(import.meta.dir, ".."),
+      env: {
+        ...process.env,
+        NODE_ENV: "production",
+        BETTER_AUTH_URL: "http://localhost:3000",
+        BETTER_AUTH_SECRET: "disposable-auth-test-secret-never-used-in-production",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+      timeout: 10_000,
+    },
+  );
+  expect({ exitCode: child.exitCode, stderr: child.stderr.toString() }).toEqual({
+    exitCode: 0,
+    stderr: "",
+  });
+});
+
 test("a stalled Worker auth initialization cannot block a different request", () => {
   const child = Bun.spawnSync(
     [
