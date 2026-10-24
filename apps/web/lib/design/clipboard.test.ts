@@ -66,7 +66,7 @@ test("paste in place preserves canvas position across pages and target frames", 
   });
 });
 
-test("cross-file paste places frames at the cursor and preserves children and spacing", () => {
+test("paste here places copied frames at its point and preserves children and spacing", () => {
   const source = {
     ...blankDesignDocument(),
     nodes: [
@@ -96,7 +96,7 @@ test("cross-file paste places frames at the cursor and preserves children and sp
   expect(pasted.document.nodes[2].box).toMatchObject({ x: 300, y: 340 });
 });
 
-test("copied artboards paste at the cursor even when another frame is selected", () => {
+test("paste here keeps copied artboards on the canvas when another frame is selected", () => {
   const source = {
     ...blankDesignDocument(),
     nodes: [{ ...layer("frame"), type: "artboard" as const }, layer("child", "frame")],
@@ -235,12 +235,8 @@ test("layer relocation preserves absolute position, ordering, and prevents desce
 });
 
 test("Figma paste keeps component dependencies off the destination page and selection", () => {
-  const master = {
-    ...layer("master"),
-    isComponent: true,
-    pageId: "figma-components",
-    box: { x: -10000, y: -20000, width: 100, height: 50 },
-  };
+  const master = { ...layer("master"), isComponent: true, pageId: "figma-components" };
+  master.box = { x: -10000, y: -20000, width: 100, height: 50 };
   const child = { ...layer("child", "master"), pageId: "figma-components" };
   const instance = { ...layer("instance"), instanceOf: master.id, componentSourceId: master.id };
   const copy = { ...layer("copy", "instance"), instanceOf: master.id, componentSourceId: child.id };

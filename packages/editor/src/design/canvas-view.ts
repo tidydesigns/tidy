@@ -3,6 +3,34 @@ import type { CanvasView } from "./canvas-culling";
 
 export const CANVAS_FIT_PADDING = 120;
 
+export function revealCanvasBounds(
+  view: CanvasView,
+  size: { width: number; height: number },
+  bounds: DesignNode["box"],
+): CanvasView {
+  const padding = 40;
+  const zoom = Math.min(
+    view.zoom,
+    Math.max(1, size.width - padding * 2) / bounds.width,
+    Math.max(1, size.height - padding * 2) / bounds.height,
+  );
+  if (zoom !== view.zoom)
+    return {
+      zoom,
+      x: size.width / 2 - (bounds.x + bounds.width / 2) * zoom,
+      y: size.height / 2 - (bounds.y + bounds.height / 2) * zoom,
+    };
+  const left = bounds.x * zoom + view.x,
+    top = bounds.y * zoom + view.y;
+  const dx =
+    left < padding
+      ? padding - left
+      : Math.min(0, size.width - padding - left - bounds.width * zoom);
+  const dy =
+    top < padding ? padding - top : Math.min(0, size.height - padding - top - bounds.height * zoom);
+  return dx || dy ? { ...view, x: view.x + dx, y: view.y + dy } : view;
+}
+
 export function fitCanvasView(nodes: DesignNode[], width: number, height: number): CanvasView {
   const roots = nodes.filter((node) => node.parentId === null);
   if (!roots.length) return { zoom: 1, x: 0, y: 0 };

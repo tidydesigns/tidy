@@ -122,7 +122,7 @@ test("measured flow/fill placement survives copy, same-file paste and reparent i
   expect(applyDocumentPatch(moved, invertPatch(diffDocument(source, moved)))).toEqual(source);
 });
 
-test("selected-frame paste preserves its previous placement even with a cursor outside the frame", () => {
+test("normal paste preserves appearance and relative position inside a transformed destination", () => {
   const source = {
     ...blankDesignDocument(),
     nodes: [{ ...layer("copied"), style: { rotation: 37, flipY: true } }],
@@ -137,13 +137,20 @@ test("selected-frame paste preserves its previous placement even with a cursor o
     fileId: "target",
     pageId: "page-1",
     parentId: parent.id,
-    position: { x: 600, y: -100 },
+    viewport: { x: -500, y: -500, width: 2000, height: 2000 },
     createId: () => "pasted",
   });
+  const before = corners(source.nodes, source.nodes[0]);
+  const after = corners(pasted.document.nodes, pasted.document.nodes[1]);
+  expect(pasted.document.nodes[1].box.x).toBeCloseTo(30, 8);
+  expect(pasted.document.nodes[1].box.y).toBeCloseTo(40, 8);
+  expect(pasted.document.nodes[1].box).toMatchObject({ width: 100, height: 50 });
   sameCorners(
-    corners(source.nodes, source.nodes[0]),
-    corners(pasted.document.nodes, pasted.document.nodes[1]),
-    24,
+    before.map((point) => ({
+      x: point.x + after[0].x - before[0].x,
+      y: point.y + after[0].y - before[0].y,
+    })),
+    after,
   );
 });
 
