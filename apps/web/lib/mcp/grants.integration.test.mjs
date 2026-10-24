@@ -972,6 +972,23 @@ integration(
     });
     expect(Number.isFinite(Date.parse(nativeFile.createdAt))).toBe(true);
     expect(nativeFile).not.toHaveProperty("email");
+    for (const value of [
+      "a".repeat(2048),
+      "a".repeat(2049),
+      "😀".repeat(1024),
+      "😀".repeat(1025),
+    ]) {
+      await admin.query('update "user" set "image"=$1 where "id"=\'alice\'', [value]);
+      const response = await call("organizations/org-a/catalog");
+      expect(response.status).toBe(200);
+      const entry = (await response.json()).files.find((entry) => entry.id === fileId);
+      expect(entry).toMatchObject({
+        creatorId: "alice",
+        creatorName: "Alice",
+        creatorImage: value.length <= 2048 ? value : null,
+      });
+    }
+    await admin.query('update "user" set "image"=$1 where "id"=\'alice\'', [avatarURL]);
     const avatarPath = `files/${fileId}/creator-avatar?${new URLSearchParams({ creator: "alice", v: avatarURL })}`;
     const image = Buffer.from("89504e470d0a1a0a", "hex");
     let avatarReads = 0;

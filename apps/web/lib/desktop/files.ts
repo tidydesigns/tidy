@@ -18,7 +18,8 @@ export async function listDesktopFiles(userId: string, organizationId: string) {
     creatorImage: string | null;
   }>(
     `select f."id", f."name", f."folderId", f."updatedAt", f."createdAt",
-      creator."id" as "creatorId", creator."name" as "creatorName", creator."image" as "creatorImage"
+      creator."id" as "creatorId", creator."name" as "creatorName",
+      case when length(creator."image") <= 2048 then creator."image" end as "creatorImage"
      from "designFile" f
      join "member" m on m."organizationId"=f."organizationId" and m."userId"=$1 and m."role" in ${VIEW_ROLES_SQL}
      join "user" viewer on viewer."id"=m."userId" and viewer."emailVerified"=true
@@ -27,7 +28,10 @@ export async function listDesktopFiles(userId: string, organizationId: string) {
      order by f."updatedAt" desc, f."id"`,
     [userId, organizationId],
   );
-  return result.rows;
+  // PostgreSQL counts Unicode code points; the native schema bounds UTF-16 code units.
+  return result.rows.map((file) =>
+    file.creatorImage && file.creatorImage.length > 2048 ? { ...file, creatorImage: null } : file,
+  );
 }
 
 /** Metadata only: one bounded query for all downloaded designs, with live access locks. */
