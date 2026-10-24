@@ -114,6 +114,7 @@ export function createImmutableDocumentParser(
       input && typeof input === "object" && "nodes" in input ? input.nodes : undefined;
     const reusable =
       Array.isArray(sourceNodes) &&
+      sourceNodes.length <= DESIGN_DOCUMENT_LIMITS.nodes &&
       sourceNodes.some(
         (node: unknown) =>
           node &&
