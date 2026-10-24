@@ -50,10 +50,19 @@ export async function switchRepositoryBranch(cwd: string, value: string) {
     throw new Error("Choose an existing local branch.");
   if (branch !== context.branch) {
     try {
-      await git(cwd, ["-c", "core.hooksPath=/dev/null", "switch", "--no-guess", branch]);
+      await git(cwd, [
+        "-c",
+        "core.hooksPath=/dev/null",
+        "switch",
+        "--no-guess",
+        "--no-overwrite-ignore",
+        branch,
+      ]);
     } catch {
       throw new Error("Could not switch branches. Check local changes and other worktrees.");
     }
+    // A successful switch establishes HEAD; another read must not turn it into a failure.
+    return { ...context, branch };
   }
   return readRepositoryContext(cwd);
 }

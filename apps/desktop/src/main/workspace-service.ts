@@ -58,7 +58,7 @@ type Job = {
 };
 
 export class WorkspaceService {
-  private repositoryChanges = new Set<string>();
+  private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
   private stopVersions = new Map<string, number>();
@@ -85,8 +85,7 @@ export class WorkspaceService {
     const project = this.store.project(projectId);
     if (this.repositoryChanges.size)
       throw new Error("Wait for the active branch switch to finish.");
-    this.repositoryChanges.add(projectId);
-    try {
+    const operation = (async () => {
       const activeProjects = new Set([
         ...[...this.jobs.values()].map((job) => job.thread.projectId),
         ...this.starting.values(),
@@ -105,6 +104,10 @@ export class WorkspaceService {
           "Wait for this repository's active work to finish before switching branches.",
         );
       return await switchRepositoryBranch(project.path, branch);
+    })();
+    this.repositoryChanges.set(projectId, operation);
+    try {
+      return await operation;
     } finally {
       this.repositoryChanges.delete(projectId);
     }
@@ -931,6 +934,7 @@ export class WorkspaceService {
     for (const job of this.jobs.values())
       await this.store.writeThread({ ...job.thread, status: "interrupted", activity: undefined });
     await Promise.all(jobs.map((job) => job.completion));
+    await Promise.allSettled(this.repositoryChanges.values());
     await this.store.flush();
   }
 
