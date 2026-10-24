@@ -2,11 +2,21 @@ import { z } from "zod";
 import { useSessionState } from "./session-state";
 import { selectionSchema } from "../../shared/navigation-state";
 import { useWorkspaceNavigation } from "./use-workspace-navigation";
+import { ComposerContext } from "./composer-context";
+import { useRepositoryContext } from "./use-repository-context";
 import { SkillPrompt } from "./skill-prompt";
 import { skillCommand, type Skill } from "../../shared/skills";
 import { errorMessage } from "@tidy/ui/errors";
 import { showToast, dismissToast } from "@tidy/ui/toast";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Icon } from "@tidy/editor/components/ui/icon";
@@ -136,6 +146,7 @@ export function App() {
   draftsRef.current = drafts;
   const canvasDockHome = useRef<HTMLSpanElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const focusAfterStart = useRef(false);
   const [error, setError] = useState<{
     original?: unknown;
     projectId?: string;
@@ -144,9 +155,28 @@ export function App() {
   const threadSelection = useRef<Record<string, number>>({});
   const snapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
   const project = snapshot?.project;
+  const reportRepositoryError = useCallback(
+    ({ projectId, cause }: { projectId: string; cause: unknown }) =>
+      setError({ projectId, text: errorText(cause), original: cause }),
+    [],
+  );
+  const {
+    repository,
+    switching: switchingBranch,
+    switchBranch,
+  } = useRepositoryContext({
+    api,
+    projectId: project?.id,
+    onError: reportRepositoryError,
+  });
   const selectedThreadId = project ? selectedThreads[project.id] : null;
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
+  useLayoutEffect(() => {
+    if (!focusAfterStart.current) return;
+    focusAfterStart.current = false;
+    document.getElementById("thread-prompt")?.focus({ preventScroll: true });
+  }, [selectedThreadId]);
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
   const designSnapshot = useMemo(
@@ -171,7 +201,6 @@ export function App() {
     (item) => item.id === selectedHarness && item.status !== "not-installed",
   );
   const detailKey = `${project?.id ?? ""}:${selectedHarness}`;
-  const currentDetails = harnessDetails[detailKey];
 
   const queue = useMessageQueue({
     api,
@@ -234,6 +263,7 @@ export function App() {
     hasMessage &&
     !uploading[draftKey] &&
     !busy &&
+    !switchingBranch &&
     !thread?.doneAt &&
     harnessReady &&
     !(selectedThreadId && !thread) &&
@@ -304,6 +334,18 @@ export function App() {
   useEffect(() => {
     if (api && project && harnessReady) void loadHarnessDetails(project.id, selectedHarness);
   }, [api, project?.id, selectedHarness, harnessReady]);
+
+  useEffect(() => {
+    if (!api || !project || thread) return;
+    for (const connection of harnesses) {
+      if (
+        connection.id !== selectedHarness &&
+        connection.status === "ready" &&
+        !harnessDetails[`${project.id}:${connection.id}`]
+      )
+        void loadHarnessDetails(project.id, connection.id);
+    }
+  }, [api, project?.id, Boolean(thread), harnesses]);
 
   async function changeSettings(settings: HarnessSettings) {
     if (!thread) {
@@ -683,6 +725,7 @@ export function App() {
       (!running && sendingKeys.current.has(draftKey)) ||
       uploading[draftKey] ||
       busy ||
+      switchingBranch ||
       thread?.doneAt ||
       (thread && settingsPending[thread.id])
     )
@@ -784,6 +827,7 @@ export function App() {
       [key]: { ...draft, text: "", attachments: [] },
       ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
     }));
+    focusAfterStart.current = !thread;
     setSelectedThreads((current) => ({ ...current, [projectId]: id }));
     setError(null);
     try {
@@ -1352,18 +1396,35 @@ export function App() {
                 className="project-workspace"
               >
                 <div className="thread-workspace">
-                  <div className="content-heading">
-                    <h1>
-                      {thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}
-                    </h1>
-                    {thread?.doneAt && (
-                      <Button
-                        className="quiet-button thread-heading-action"
-                        disabled={running || Boolean(updatingDone[thread.id])}
-                        onClick={() => void toggleThreadDone(summarizeThread(thread))}
-                      >
-                        Reopen thread
-                      </Button>
+                  <div className={`thread-heading${thread ? " thread-heading-active" : ""}`}>
+                    <div className="content-heading">
+                      <h1>
+                        {thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}
+                      </h1>
+                      {thread?.doneAt && (
+                        <Button
+                          className="quiet-button thread-heading-action"
+                          disabled={running || Boolean(updatingDone[thread.id])}
+                          onClick={() => void toggleThreadDone(summarizeThread(thread))}
+                        >
+                          Reopen thread
+                        </Button>
+                      )}
+                    </div>
+                    {thread && (
+                      <div className="thread-context">
+                        <ComposerContext
+                          repository={repository}
+                          designs={snapshot.designs}
+                          selected={thread.designIds}
+                          onBranchChange={(branch) => void switchBranch(branch)}
+                          disabled={running}
+                          branchDisabled={snapshot.threads.some(
+                            (item) => item.status === "running",
+                          )}
+                          pending={Boolean(switchingBranch)}
+                        />
+                      </div>
                     )}
                   </div>
                   <Conversation
@@ -1372,13 +1433,6 @@ export function App() {
                     thread={thread}
                     active={location === "local" && mode === "code"}
                     api={api!}
-                    references={
-                      thread?.designIds.map(
-                        (id) =>
-                          snapshot.designs.find((design) => design.id === id)?.name ??
-                          "Design reference",
-                      ) ?? []
-                    }
                   />
                   {thread && api && (
                     <ThreadDesignDock
@@ -1423,7 +1477,7 @@ export function App() {
                     />
                   )}
                   <form
-                    className="composer"
+                    className={`composer ${thread ? "composer-active" : "composer-new"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
                         event.preventDefault();
@@ -1439,198 +1493,210 @@ export function App() {
                       void send();
                     }}
                   >
-                    {!thread && snapshot.designs.length > 0 && (
-                      <DesignReferences
+                    <div
+                      className="composer-lip"
+                      aria-hidden={Boolean(thread)}
+                      inert={Boolean(thread)}
+                    >
+                      <ComposerContext
+                        repository={repository}
                         designs={snapshot.designs}
                         selected={draft.designIds}
-                        onChange={(designIds) => updateDraft({ designIds })}
+                        onReferencesChange={(designIds) => updateDraft({ designIds })}
+                        onBranchChange={(branch) => void switchBranch(branch)}
+                        disabled={Boolean(thread)}
+                        branchDisabled={snapshot.threads.some((item) => item.status === "running")}
+                        pending={Boolean(switchingBranch)}
                       />
-                    )}
-                    <AttachmentList
-                      files={draft.attachments ?? []}
-                      onRemove={
-                        thread?.doneAt
-                          ? undefined
-                          : (id) =>
-                              updateDraft({
-                                attachments: draft.attachments?.filter((file) => file.id !== id),
-                              })
-                      }
-                    />
-                    {Boolean(uploading[draftKey]) && (
-                      <span className="attachment-progress" role="status">
-                        Adding attachments…
-                      </span>
-                    )}
-                    <input
-                      ref={fileInput}
-                      type="file"
-                      multiple
-                      hidden
-                      aria-label="Attach files"
-                      onChange={(event) => {
-                        attachFiles(Array.from(event.currentTarget.files ?? []));
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                    <label className="sr-only" htmlFor="thread-prompt">
-                      Message
-                    </label>
-                    <SkillPrompt
-                      key={draftKey + selectedHarness}
-                      skills={availableSkills}
-                      status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
-                      retry={() => {
-                        void loadSkills(true);
-                      }}
-                      id="thread-prompt"
-                      value={draft.text}
-                      onChange={(text) => {
-                        const name = skillCommand(text)?.name;
-                        const skill = availableSkills.find((skill) => skill.name === name);
-                        updateDraft({
-                          text,
-                          skill: skill
-                            ? { id: skill.id, name: skill.name, harness: selectedHarness }
-                            : draft.skill?.name === name
-                              ? draft.skill
-                              : undefined,
-                        });
-                      }}
-                      onPaste={(event) => {
-                        const files = Array.from(event.clipboardData.files);
-                        if (files.length) {
-                          event.preventDefault();
-                          attachFiles(files);
+                    </div>
+                    <div className="composer-body">
+                      <AttachmentList
+                        files={draft.attachments ?? []}
+                        onRemove={
+                          thread?.doneAt
+                            ? undefined
+                            : (id) =>
+                                updateDraft({
+                                  attachments: draft.attachments?.filter((file) => file.id !== id),
+                                })
                         }
-                      }}
-                      placeholder={
-                        thread?.doneAt
-                          ? "Reopen this thread to continue…"
-                          : running
-                            ? "Queue a follow-up, or send it now…"
-                            : thread
-                              ? "Continue this thread… / for skills"
-                              : "What would you like to work on? / for skills"
-                      }
-                      disabled={Boolean(thread?.doneAt) || busy}
-                      maxLength={32_000}
-                      rows={2}
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === "Enter" &&
-                          event.shiftKey &&
-                          (event.metaKey || event.ctrlKey) &&
-                          running &&
-                          !event.nativeEvent.isComposing
-                        ) {
-                          event.preventDefault();
-                          const first = queue.messages[0];
-                          if (first && !event.repeat)
-                            queue.change({ kind: "steer", messageId: first.id });
-                          return;
-                        }
-                        if (
-                          event.key === "Enter" &&
-                          !event.shiftKey &&
-                          !event.altKey &&
-                          !event.nativeEvent.isComposing &&
-                          event.nativeEvent.keyCode !== 229
-                        ) {
-                          event.preventDefault();
-                          if (!event.repeat)
-                            void send(event.metaKey || event.ctrlKey ? "steer" : "queue");
-                        }
-                      }}
-                    />
-                    <div className="composer-actions">
-                      <Button
-                        type="button"
-                        className="quiet-button attachment-button"
+                      />
+                      {Boolean(uploading[draftKey]) && (
+                        <span className="attachment-progress" role="status">
+                          Adding attachments…
+                        </span>
+                      )}
+                      <input
+                        ref={fileInput}
+                        type="file"
+                        multiple
+                        hidden
                         aria-label="Attach files"
-                        title="Attach files"
-                        disabled={Boolean(thread?.doneAt) || busy}
-                        onClick={() => fileInput.current?.click()}
-                      >
-                        <svg
-                          aria-hidden="true"
-                          width="17"
-                          height="17"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                        >
-                          <path
-                            d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
-                            stroke="currentColor"
-                            strokeWidth="1.5"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </Button>
-                      <div className="composer-settings">
-                        <HarnessControls
-                          api={api!}
-                          connections={harnesses}
-                          harness={selectedHarness}
-                          settings={thread?.settings ?? draft.settings ?? {}}
-                          actualModel={thread?.actualModel}
-                          usage={thread?.usage}
-                          details={currentDetails?.info}
-                          error={currentDetails?.error}
-                          loading={Boolean(currentDetails?.loading)}
-                          disabled={Boolean(
-                            running ||
-                            busy ||
-                            (thread && settingsPending[thread.id]) ||
-                            thread?.doneAt,
-                          )}
-                          onHarnessChange={
-                            thread ? undefined : (harness) => updateDraft({ harness, settings: {} })
+                        onChange={(event) => {
+                          attachFiles(Array.from(event.currentTarget.files ?? []));
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <label className="sr-only" htmlFor="thread-prompt">
+                        Message
+                      </label>
+                      <SkillPrompt
+                        key={draftKey + selectedHarness}
+                        skills={availableSkills}
+                        status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
+                        retry={() => {
+                          void loadSkills(true);
+                        }}
+                        id="thread-prompt"
+                        value={draft.text}
+                        onChange={(text) => {
+                          const name = skillCommand(text)?.name;
+                          const skill = availableSkills.find((skill) => skill.name === name);
+                          updateDraft({
+                            text,
+                            skill: skill
+                              ? { id: skill.id, name: skill.name, harness: selectedHarness }
+                              : draft.skill?.name === name
+                                ? draft.skill
+                                : undefined,
+                          });
+                        }}
+                        onPaste={(event) => {
+                          const files = Array.from(event.clipboardData.files);
+                          if (files.length) {
+                            event.preventDefault();
+                            attachFiles(files);
                           }
-                          onSettingsChange={(settings) => void changeSettings(settings)}
-                          onRefresh={() => {
-                            if (project && harnessReady)
-                              void loadHarnessDetails(project.id, selectedHarness, true);
-                          }}
-                        />
-                      </div>
-                      <div className="composer-tools">
-                        <span ref={canvasDockHome} className="canvas-dock-home" />
-                        <div className="composer-delivery">
-                          {running && !hasMessage ? (
-                            <Button
-                              type="button"
-                              className="composer-submit composer-stop"
-                              aria-label={
-                                queue.stopping || thread?.activity === "Stopping"
-                                  ? "Stopping…"
-                                  : "Stop"
-                              }
-                              title={
-                                queue.stopping || thread?.activity === "Stopping"
-                                  ? "Stopping…"
-                                  : "Stop"
-                              }
-                              disabled={queue.stopping || thread?.activity === "Stopping"}
-                              onClick={() => queue.stop()}
-                            >
-                              <MessageActionIcon action="stop" />
-                            </Button>
-                          ) : (
-                            <>
-                              {running && (
-                                <Button
-                                  type="button"
-                                  className="quiet-button composer-steer"
-                                  disabled={!canSend}
-                                  title="Use this instruction now (Ctrl/⌘ Enter)"
-                                  onClick={() => void send("steer")}
-                                >
-                                  <MessageActionIcon action="steer" />
-                                  Send now
-                                </Button>
-                              )}
+                        }}
+                        placeholder={
+                          thread?.doneAt
+                            ? "Reopen this thread to continue…"
+                            : running
+                              ? "Queue a follow-up…"
+                              : thread
+                                ? "Continue this thread… / for skills"
+                                : "What would you like to work on? / for skills"
+                        }
+                        disabled={Boolean(thread?.doneAt) || busy}
+                        maxLength={32_000}
+                        rows={2}
+                        onKeyDown={(event) => {
+                          if (
+                            event.key === "Enter" &&
+                            event.shiftKey &&
+                            (event.metaKey || event.ctrlKey) &&
+                            running &&
+                            !event.nativeEvent.isComposing
+                          ) {
+                            event.preventDefault();
+                            const first = queue.messages[0];
+                            if (first && !event.repeat)
+                              queue.change({ kind: "steer", messageId: first.id });
+                            return;
+                          }
+                          if (
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            !event.altKey &&
+                            !event.nativeEvent.isComposing &&
+                            event.nativeEvent.keyCode !== 229
+                          ) {
+                            event.preventDefault();
+                            if (!event.repeat)
+                              void send(event.metaKey || event.ctrlKey ? "steer" : "queue");
+                          }
+                        }}
+                      />
+                      <div className="composer-actions">
+                        <Button
+                          type="button"
+                          className="quiet-button attachment-button"
+                          aria-label="Attach files"
+                          title="Attach files"
+                          disabled={Boolean(thread?.doneAt) || busy}
+                          onClick={() => fileInput.current?.click()}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="17"
+                            height="17"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                          >
+                            <path
+                              d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </Button>
+                        <div className="composer-settings">
+                          <HarnessControls
+                            catalogs={harnesses.map((connection) => ({
+                              connection,
+                              ...harnessDetails[`${project.id}:${connection.id}`],
+                              details: harnessDetails[`${project.id}:${connection.id}`]?.info,
+                              loading: Boolean(
+                                harnessDetails[`${project.id}:${connection.id}`]?.loading,
+                              ),
+                            }))}
+                            onModelChange={({ harness, settings: selection }) => {
+                              if (!thread)
+                                updateDraft({
+                                  harness,
+                                  settings: {
+                                    ...(harness === selectedHarness ? draft.settings : {}),
+                                    ...selection,
+                                  },
+                                });
+                              else void changeSettings({ ...thread.settings, ...selection });
+                            }}
+                            harness={selectedHarness}
+                            settings={thread?.settings ?? draft.settings ?? {}}
+                            actualModel={thread?.actualModel}
+                            disabled={Boolean(
+                              running ||
+                              busy ||
+                              (thread && settingsPending[thread.id]) ||
+                              thread?.doneAt,
+                            )}
+                            onHarnessChange={
+                              thread
+                                ? undefined
+                                : (harness) => updateDraft({ harness, settings: {} })
+                            }
+                            onSettingsChange={(settings) => void changeSettings(settings)}
+                            onRefresh={() => {
+                              if (project && harnessReady)
+                                void loadHarnessDetails(project.id, selectedHarness, true);
+                            }}
+                          />
+                        </div>
+                        <div className="composer-tools">
+                          <span ref={canvasDockHome} className="canvas-dock-home" />
+                          <div className="composer-delivery">
+                            {running && !hasMessage ? (
+                              <Button
+                                type="button"
+                                className="composer-submit composer-stop"
+                                aria-label={
+                                  queue.stopping || thread?.activity === "Stopping"
+                                    ? "Stopping…"
+                                    : "Stop"
+                                }
+                                title={
+                                  queue.stopping || thread?.activity === "Stopping"
+                                    ? "Stopping…"
+                                    : "Stop"
+                                }
+                                disabled={queue.stopping || thread?.activity === "Stopping"}
+                                onClick={() => queue.stop()}
+                              >
+                                <MessageActionIcon action="stop" />
+                              </Button>
+                            ) : (
                               <Button
                                 type="submit"
                                 className="composer-submit"
@@ -1646,31 +1712,31 @@ export function App() {
                                   />
                                 )}
                               </Button>
-                            </>
-                          )}
+                            )}
+                          </div>
                         </div>
                       </div>
+                      {!harnessReady && (
+                        <div className="connection-help">
+                          <span>
+                            {harnesses.find((item) => item.id === selectedHarness)?.name ??
+                              "Your harness"}{" "}
+                            needs to be installed and signed in locally. Run{" "}
+                            <code>
+                              {selectedHarness === "codex" ? "codex login" : "claude auth login"}
+                            </code>{" "}
+                            in your terminal.
+                          </span>
+                          <Button
+                            type="button"
+                            className="quiet-button"
+                            onClick={() => void refreshHarnesses()}
+                          >
+                            Check connection
+                          </Button>
+                        </div>
+                      )}
                     </div>
-                    {!harnessReady && (
-                      <div className="connection-help">
-                        <span>
-                          {harnesses.find((item) => item.id === selectedHarness)?.name ??
-                            "Your harness"}{" "}
-                          needs to be installed and signed in locally. Run{" "}
-                          <code>
-                            {selectedHarness === "codex" ? "codex login" : "claude auth login"}
-                          </code>{" "}
-                          in your terminal.
-                        </span>
-                        <Button
-                          type="button"
-                          className="quiet-button"
-                          onClick={() => void refreshHarnesses()}
-                        >
-                          Check connection
-                        </Button>
-                      </div>
-                    )}
                   </form>
                 </div>
               </section>
@@ -1680,42 +1746,5 @@ export function App() {
       </main>
       {settingsOpen && <Settings cloud={cloud} onBack={() => setSettingsOpen(false)} />}
     </DesktopShell>
-  );
-}
-
-function DesignReferences({
-  designs,
-  selected,
-  onChange,
-}: {
-  designs: DesignSummary[];
-  selected: string[];
-  onChange: (value: string[]) => void;
-}) {
-  return (
-    <details className="design-references">
-      <summary>Design references{selected.length ? ` (${selected.length})` : ""}</summary>
-      <div className="reference-options">
-        {designs.map((design) => (
-          <Button
-            key={design.id}
-            type="button"
-            aria-pressed={selected.includes(design.id)}
-            className="reference-option"
-            disabled={!selected.includes(design.id) && selected.length >= 20}
-            onClick={() =>
-              onChange(
-                selected.includes(design.id)
-                  ? selected.filter((id) => id !== design.id)
-                  : [...selected, design.id],
-              )
-            }
-          >
-            <span>{design.name}</span>
-            <span aria-hidden="true">{selected.includes(design.id) ? "✓" : "+"}</span>
-          </Button>
-        ))}
-      </div>
-    </details>
   );
 }

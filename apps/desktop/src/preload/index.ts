@@ -122,6 +122,8 @@ const api: DesktopAPI = {
   setThreadSettings: (projectId, threadId, settings) =>
     request("thread-settings", { projectId, threadId, settings }),
   checkHarnesses: () => request("harnesses"),
+  repositoryContext: (projectId) => request("repository-context", { projectId }),
+  switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
   startThread: (input) => request("start-thread", input),
   sendMessage: (input) => request("send-message", input),

@@ -53,13 +53,11 @@ export function Conversation({
   thread,
   identity,
   api,
-  references,
   active,
 }: {
   thread?: Thread;
   identity: string;
   api: DesktopAPI;
-  references: string[];
   active: boolean;
 }) {
   const previewId = useId();
@@ -215,15 +213,6 @@ export function Conversation({
         }}
       >
         <div className="conversation-content" ref={content}>
-          {references.length > 0 && (
-            <div className="thread-references">
-              {references.map((name, i) => (
-                <span key={i} className="reference-chip">
-                  {name}
-                </span>
-              ))}
-            </div>
-          )}
           {thread?.toolActivityTruncated && (
             <p className="tool-log-notice">Earlier tool activity omitted</p>
           )}

@@ -1,3 +1,4 @@
+import type { RepositoryContext } from "./repository-context";
 import type { SkillCatalog } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, type AttachedFile } from "./attachments";
@@ -161,6 +162,8 @@ export type DesktopAPI = {
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
   checkHarnesses(): Promise<HarnessConnection[]>;
+  repositoryContext(projectId: string): Promise<RepositoryContext>;
+  switchBranch(projectId: string, branch: string): Promise<RepositoryContext>;
   skills(projectId: string, harness: HarnessId, refresh?: boolean): Promise<SkillCatalog>;
   harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;

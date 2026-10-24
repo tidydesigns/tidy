@@ -1,3 +1,4 @@
+import { repositoryRoot, switchRepositoryBranch } from "./repository-context";
 import { HarnessSkills } from "./harness-skills";
 import { summarizeThread } from "../shared/thread-updates";
 import {
@@ -57,6 +58,7 @@ type Job = {
 };
 
 export class WorkspaceService {
+  private repositoryChanges = new Set<string>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
   private stopVersions = new Map<string, number>();
@@ -77,6 +79,31 @@ export class WorkspaceService {
     private configure = validateHarnessSettings,
     readonly skills = new HarnessSkills(locate),
   ) {}
+
+  async switchBranch(projectId: string, branch: string) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    const project = this.store.project(projectId);
+    if (this.repositoryChanges.size)
+      throw new Error("Wait for the active branch switch to finish.");
+    this.repositoryChanges.add(projectId);
+    try {
+      const root = await repositoryRoot(project.path);
+      const activeProjects = new Set([
+        ...[...this.jobs.values()].map((job) => job.thread.projectId),
+        ...this.starting.values(),
+      ]);
+      const activeRoots = await Promise.all(
+        [...activeProjects].map((id) => repositoryRoot(this.store.project(id).path)),
+      );
+      if (root && activeRoots.includes(root))
+        throw new Error(
+          "Wait for this repository's active work to finish before switching branches.",
+        );
+      return await switchRepositoryBranch(project.path, branch);
+    } finally {
+      this.repositoryChanges.delete(projectId);
+    }
+  }
 
   private serialize<T>(threadId: string, operation: () => Promise<T>): Promise<T> {
     const previous = this.commands.get(threadId) ?? Promise.resolve();
@@ -538,6 +565,8 @@ export class WorkspaceService {
     messageId?: string,
     skillId?: string,
   ) {
+    if (this.repositoryChanges.size)
+      throw new Error("Wait for the branch switch to finish before sending a message.");
     if (this.updatingHarnesses.has(thread.harness))
       throw new Error("This harness is updating. Try again when the update finishes.");
     if (messageId && thread.messages.some((message) => message.id === messageId))

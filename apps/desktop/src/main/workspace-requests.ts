@@ -1,3 +1,5 @@
+import { branchNameSchema } from "../shared/repository-context";
+import { readRepositoryContext } from "./repository-context";
 import { skillIdSchema } from "../shared/skills";
 import { z } from "zod";
 import { approvalDecisionSchema } from "../shared/permissions";
@@ -104,6 +106,12 @@ export function createWorkspaceRequests<Context>(
     "thread-settings",
     z.object({ projectId, threadId: uuid, settings: harnessSettingsSchema }).strict(),
     (value) => service.setThreadSettings(value.projectId, value.threadId, value.settings),
+  );
+  handle("repository-context", z.object({ projectId }).strict(), (value) =>
+    readRepositoryContext(store.project(value.projectId).path),
+  );
+  handle("switch-branch", z.object({ projectId, branch: branchNameSchema }).strict(), (value) =>
+    service.switchBranch(value.projectId, value.branch),
   );
   handle("harnesses", z.undefined(), () => checkHarnesses());
   handle("read-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>

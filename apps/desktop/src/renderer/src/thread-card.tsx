@@ -3,7 +3,7 @@ import { Button } from "@tidy/ui/button";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
 import { relativeThreadTime } from "../../shared/thread-time";
 import type { ThreadSummary } from "../../shared/contracts";
-import { TokenUsageDetails } from "./harness-controls";
+import { TokenUsageDetails } from "./token-usage-details";
 import type { ThreadOrderControls } from "./thread-sidebar";
 
 export function ThreadCard({

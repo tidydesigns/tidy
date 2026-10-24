@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -41,7 +42,15 @@ export function SelectMenu({
   showSelectedIcon = false,
   selectionIndicator = "check",
   closeOnSelect = true,
+  menuHeader,
+  menuSidebar,
+  menuClassName = "",
+  optionAction,
 }: {
+  menuHeader?: ReactNode;
+  menuSidebar?: ReactNode;
+  menuClassName?: string;
+  optionAction?: (option: SelectMenuOption) => ReactNode;
   triggerContent?: ReactNode;
   triggerClassName?: string;
   actionMenu?: boolean;
@@ -71,7 +80,7 @@ export function SelectMenu({
   const valueId = useId();
   const menuId = useId();
   const selected = options.find((option) => option.value === value);
-  const unavailable = disabled || !options.some((option) => !option.disabled);
+  const unavailable = disabled || (!menuHeader && !options.some((option) => !option.disabled));
   const visible = open && !unavailable;
 
   useLayoutEffect(() => {
@@ -103,10 +112,14 @@ export function SelectMenu({
       popup.style.top = `${Math.max(margin, Math.min(top, window.innerHeight - size.height - margin))}px`;
     }
     position();
+    const resize = new ResizeObserver(() => position());
+    resize.observe(popup);
     const active =
+      popup.querySelector<HTMLInputElement>("[data-select-search]") ??
       popup.querySelector<HTMLButtonElement>(
         '[role="menuitemradio"][aria-checked="true"]:not(:disabled)',
-      ) ?? popup.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)');
+      ) ??
+      popup.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)');
     active?.focus({ preventScroll: true });
     if (active)
       popup.scrollTop = Math.max(0, active.offsetTop + active.offsetHeight - popup.clientHeight);
@@ -115,6 +128,7 @@ export function SelectMenu({
       document.addEventListener("wheel", position, { capture: true, passive: true });
     window.addEventListener("resize", position);
     return () => {
+      resize.disconnect();
       document.removeEventListener("scroll", position, true);
       if (dismissOnScroll) document.removeEventListener("wheel", position, true);
       window.removeEventListener("resize", position);
@@ -133,6 +147,11 @@ export function SelectMenu({
   }, [visible]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (menuHeader && event.key === "Enter" && event.target instanceof HTMLInputElement) {
+      event.preventDefault();
+      menu.current?.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)')?.click();
+      return;
+    }
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -140,6 +159,12 @@ export function SelectMenu({
       trigger.current?.focus({ preventScroll: true });
       return;
     }
+    if (
+      menuHeader &&
+      (event.key === "Tab" ||
+        ((event.key === "Home" || event.key === "End") && event.target instanceof HTMLInputElement))
+    )
+      return;
     if (event.key === "Tab") {
       trigger.current?.focus({ preventScroll: true });
       setOpen(false);
@@ -156,7 +181,7 @@ export function SelectMenu({
         '[role^="menuitem"]:not(:disabled)',
       ),
     ];
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    const current = items.findIndex((item) => item === document.activeElement);
     const next =
       event.key === "Home"
         ? 0
@@ -164,7 +189,9 @@ export function SelectMenu({
           ? items.length - 1
           : forward
             ? (current + 1) % items.length
-            : (current - 1 + items.length) % items.length;
+            : current < 0
+              ? items.length - 1
+              : (current - 1 + items.length) % items.length;
     items[next]?.focus();
   }
 
@@ -234,59 +261,90 @@ export function SelectMenu({
           data-ph-public-label={replayLabel || undefined}
           aria-label={label}
           onKeyDown={onMenuKeyDown}
-          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl ${layout === "horizontal" ? "flex" : ""}`}
+          onBlurCapture={(event) => {
+            if (
+              menuHeader &&
+              event.relatedTarget instanceof Node &&
+              !event.currentTarget.contains(event.relatedTarget)
+            )
+              setOpen(false);
+          }}
+          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl ${layout === "horizontal" ? "flex" : ""} ${menuClassName}`}
         >
-          {options.map((option) => (
-            <button
-              key={option.value}
-              type="button"
-              role={
-                option.checked !== undefined
-                  ? "menuitemcheckbox"
-                  : actionMenu
-                    ? "menuitem"
-                    : "menuitemradio"
-              }
-              aria-checked={option.checked ?? (actionMenu ? undefined : value === option.value)}
-              aria-label={option.ariaLabel}
-              disabled={option.disabled}
-              onClick={() => {
-                if (closeOnSelect) {
-                  setOpen(false);
-                  trigger.current?.focus({ preventScroll: true });
-                }
-                if (actionMenu || option.value !== value) onChange(option.value);
-              }}
-              className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
-            >
-              <span data-slot="select-menu-content" className="flex min-w-0 items-center gap-2">
-                {option.icon}
-                <span
-                  data-slot="select-menu-text"
-                  data-ph-public={replayOptions || undefined}
-                  data-ph-private={!replayOptions || undefined}
-                  className="min-w-0"
-                >
-                  <span data-slot="select-menu-label" className="block truncate">
-                    {option.label}
-                  </span>
-                  {option.description && (
-                    <span
-                      data-slot="select-menu-description"
-                      className="mt-0.5 block whitespace-normal text-xs text-secondary-ink"
-                    >
-                      {option.description}
-                    </span>
-                  )}
-                </span>
-              </span>
-              {layout !== "horizontal" && selectionIndicator === "check" && (
-                <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
-                  {(option.checked ?? (!actionMenu && value === option.value)) ? "✓" : ""}
-                </span>
+          {menuHeader}
+          <div className={menuSidebar ? "select-menu-columns" : "contents"}>
+            {menuSidebar}
+            <div className={optionAction ? "select-menu-options" : "contents"}>
+              {options.length === 0 && menuHeader && (
+                <p className="select-menu-empty">No matches</p>
               )}
-            </button>
-          ))}
+              {options.map((option) => {
+                const button = (
+                  <button
+                    type="button"
+                    role={
+                      option.checked !== undefined
+                        ? "menuitemcheckbox"
+                        : actionMenu
+                          ? "menuitem"
+                          : "menuitemradio"
+                    }
+                    aria-checked={
+                      option.checked ?? (actionMenu ? undefined : value === option.value)
+                    }
+                    aria-label={option.ariaLabel}
+                    disabled={option.disabled}
+                    onClick={() => {
+                      if (closeOnSelect) {
+                        setOpen(false);
+                        trigger.current?.focus({ preventScroll: true });
+                      }
+                      if (actionMenu || option.value !== value) onChange(option.value);
+                    }}
+                    className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
+                  >
+                    <span
+                      data-slot="select-menu-content"
+                      className="flex min-w-0 items-center gap-2"
+                    >
+                      {option.icon}
+                      <span
+                        data-slot="select-menu-text"
+                        data-ph-public={replayOptions || undefined}
+                        data-ph-private={!replayOptions || undefined}
+                        className="min-w-0"
+                      >
+                        <span data-slot="select-menu-label" className="block truncate">
+                          {option.label}
+                        </span>
+                        {option.description && (
+                          <span
+                            data-slot="select-menu-description"
+                            className="mt-0.5 block whitespace-normal text-xs text-secondary-ink"
+                          >
+                            {option.description}
+                          </span>
+                        )}
+                      </span>
+                    </span>
+                    {layout !== "horizontal" && selectionIndicator === "check" && (
+                      <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
+                        {(option.checked ?? (!actionMenu && value === option.value)) ? "✓" : ""}
+                      </span>
+                    )}
+                  </button>
+                );
+                return optionAction ? (
+                  <div key={option.value} className="select-menu-option-row">
+                    {button}
+                    {optionAction(option)}
+                  </div>
+                ) : (
+                  <Fragment key={option.value}>{button}</Fragment>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>

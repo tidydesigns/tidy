@@ -1,3 +1,4 @@
+import { repositoryContextSchema } from "./repository-context";
 import { skillCatalogSchema } from "./skills";
 import { z } from "zod";
 import { designDocumentSchema } from "@tidy/design/document";
@@ -34,6 +35,8 @@ const responseSchemas = {
   "select-project": projectSnapshotSchema,
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
+  "repository-context": repositoryContextSchema,
+  "switch-branch": repositoryContextSchema,
   "harness-details": harnessDetailsSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),

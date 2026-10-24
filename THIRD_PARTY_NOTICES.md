@@ -29,11 +29,14 @@ and assets retain their original licenses and copyright notices.
 - **Instrument Sans**: SIL Open Font License 1.1, copyright the Instrument Sans
   Project Authors. Its license accompanies the site font as `OFL-InstrumentSans.txt`
   and the shared offline font as `packages/ui/fonts/OFL-InstrumentSans.txt`.
-- Provider logos and names (Google, GitHub, Linear, Codex, Claude and OpenCode) identify integrations.
+- Provider logos and names (Google, GitHub, Linear, OpenAI, Codex, Claude and OpenCode) identify integrations.
   Their owners retain trademark rights. Follow the attribution and source notes
   in `apps/web/public/connectors/README.md` and `apps/web/public/agents/README.md`;
   desktop copies retain the notice in `packages/ui/harness-icons/README.md`,
   packaged as `licenses/harness-marks.txt`. Do not imply provider endorsement.
+- The desktop OpenAI mark in `apps/desktop/src/renderer/src/openai.svg` is sourced
+  from Simple Icons 13.21.0 (`icons/openai.svg`), distributed under CC0-1.0.
+  OpenAI retains its trademark rights; the mark identifies the connected provider.
 - Tidy branding and application icons are project assets. The Apache License 2.0
   does not grant rights to Tidy trademarks.
 
