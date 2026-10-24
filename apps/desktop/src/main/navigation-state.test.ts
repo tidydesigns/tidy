@@ -46,6 +46,16 @@ test("late cloud startup cannot override a navigation choice", () => {
   expect(restore({ kind: "local" }, { navigated: true })).toEqual({ kind: "local" });
 });
 
+test("startup navigation discards a cloud destination belonging to another account", () => {
+  expect(
+    restore(cloudTarget, {
+      account: { ...account, id: "other" },
+      navigated: true,
+    }),
+  ).toEqual({ kind: "local" });
+  expect(restore(cloudTarget, { navigated: true })).toBe(cloudTarget);
+});
+
 test("a live account change resolves a new destination without inheriting the prior local choice", () => {
   expect(
     restore(

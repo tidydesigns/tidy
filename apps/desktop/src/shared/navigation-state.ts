@@ -40,7 +40,7 @@ export function restoreWorkspaceTarget({
       ? target
       : { kind: "local" };
   }
-  if (navigated && !changedAccount) return target;
+  if (navigated && !changedAccount) return target?.kind === "cloud" ? { kind: "local" } : target;
   const organization = account.organizations.find((o) => o.canEdit);
   return organization
     ? { kind: "cloud", accountId: account.id, organizationId: organization.id }
