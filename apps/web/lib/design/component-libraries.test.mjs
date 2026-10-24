@@ -158,6 +158,39 @@ test("reusable styles propagate updates while preserving explicit local override
   expect(pasted.document.nodes[0].style.fontSize).toBe(24);
 });
 
+test.each([
+  { name: "default paste", options: {}, offset: 24 },
+  { name: "paste at cursor", options: { position: { x: 600, y: 500 } }, offset: 0 },
+  { name: "paste in place", options: { inPlace: true, position: { x: 600, y: 500 } }, offset: 0 },
+])("linked-instance $name preserves cached geometry and instance links", ({ options, offset }) => {
+  const linked = importLibraryComponent(
+    blankDesignDocument(),
+    libraryPayload(source(), "component", uid),
+    1,
+    id,
+  );
+  const instance = createComponentInstance(linked.document, linked.rootId, id);
+  const copied = readDesignClipboard(copyLayers(instance.document, [instance.rootId], "origin"));
+  const pasted = pasteLayers(blankDesignDocument(), copied, {
+    fileId: "other",
+    pageId: "page-1",
+    parentId: null,
+    createId: id,
+    ...options,
+  });
+  const root = pasted.document.nodes.find((node) => node.id === pasted.ids[0]);
+  const master = pasted.document.nodes.find((node) => node.id === root.instanceOf);
+  const sourceMaster = copied.nodes.find((node) => node.librarySource);
+  expect(master.box).toEqual({
+    ...sourceMaster.box,
+    x: sourceMaster.box.x + offset,
+    y: sourceMaster.box.y + offset,
+  });
+  expect(master.librarySource.fileUid).toBe(uid);
+  expect(pasted.ids).toEqual([root.id]);
+  if (options.position && !options.inPlace) expect(root.box).toMatchObject(options.position);
+});
+
 test("cross-file linked-instance copy brings its cached source and still updates predictably", () => {
   const linked = importLibraryComponent(
     blankDesignDocument(),

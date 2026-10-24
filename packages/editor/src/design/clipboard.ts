@@ -206,10 +206,16 @@ export function pasteLayers(
   const resolvedById = new Map(payload.resolvedNodes?.map((node) => [node.id, node]));
   const placedRoots = roots.filter((node) => !node.librarySource && !dependencyIds.has(node.id));
   const offset = { x: options.inPlace ? 0 : 24, y: options.inPlace ? 0 : 24 };
-  if (!options.inPlace && options.position && placedRoots.length) {
+  // A selected parent remains the destination for nested layers. Artboards
+  // always live on the canvas, regardless of the current selection.
+  const position =
+    options.parentId && placedRoots.some((node) => node.type !== "artboard")
+      ? undefined
+      : options.position;
+  if (!options.inPlace && position && placedRoots.length) {
     const boxes = placedRoots.map((node) => (resolvedById.get(node.id) ?? node).box);
-    offset.x = options.position.x - Math.min(...boxes.map((box) => box.x));
-    offset.y = options.position.y - Math.min(...boxes.map((box) => box.y));
+    offset.x = position.x - Math.min(...boxes.map((box) => box.x));
+    offset.y = position.y - Math.min(...boxes.map((box) => box.y));
   }
   const parent = options.parentId ? existing.get(options.parentId) : undefined;
   if (
@@ -243,14 +249,12 @@ export function pasteLayers(
       : ids.get(node.parentId!)!;
     const geometrySource =
       root && hasMaster ? imported.node(resolvedById.get(node.id) ?? appearance) : styled;
+    const preservePosition =
+      dependencyIds.has(node.id) || (position !== undefined && libraryIds.has(node.id));
     const placementBox = {
       ...geometrySource.box,
-      x:
-        geometrySource.box.x +
-        (libraryIds.has(node.id) || dependencyIds.has(node.id) ? 0 : offset.x),
-      y:
-        geometrySource.box.y +
-        (libraryIds.has(node.id) || dependencyIds.has(node.id) ? 0 : offset.y),
+      x: geometrySource.box.x + (preservePosition ? 0 : offset.x),
+      y: geometrySource.box.y + (preservePosition ? 0 : offset.y),
     };
     const placed = root
       ? reparentGeometry(

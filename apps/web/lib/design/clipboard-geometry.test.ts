@@ -122,7 +122,7 @@ test("measured flow/fill placement survives copy, same-file paste and reparent i
   expect(applyDocumentPatch(moved, invertPatch(diffDocument(source, moved)))).toEqual(source);
 });
 
-test("cursor placement preserves world geometry inside a rotated and flipped target", () => {
+test("selected-frame paste preserves its previous placement even with a cursor outside the frame", () => {
   const source = {
     ...blankDesignDocument(),
     nodes: [{ ...layer("copied"), style: { rotation: 37, flipY: true } }],
@@ -140,11 +140,11 @@ test("cursor placement preserves world geometry inside a rotated and flipped tar
     position: { x: 600, y: -100 },
     createId: () => "pasted",
   });
-  const expected = corners(source.nodes, source.nodes[0]).map((point) => ({
-    x: point.x + 600 - source.nodes[0].box.x,
-    y: point.y - 100 - source.nodes[0].box.y,
-  }));
-  sameCorners(expected, corners(pasted.document.nodes, pasted.document.nodes[1]));
+  sameCorners(
+    corners(source.nodes, source.nodes[0]),
+    corners(pasted.document.nodes, pasted.document.nodes[1]),
+    24,
+  );
 });
 
 test("tree reparent rejects hidden ancestry and cycles and preserves transformed geometry", () => {

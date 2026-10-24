@@ -96,6 +96,24 @@ test("cross-file paste places frames at the cursor and preserves children and sp
   expect(pasted.document.nodes[2].box).toMatchObject({ x: 300, y: 340 });
 });
 
+test("copied artboards paste at the cursor even when another frame is selected", () => {
+  const source = {
+    ...blankDesignDocument(),
+    nodes: [{ ...layer("frame"), type: "artboard" as const }, layer("child", "frame")],
+  };
+  const payload = readDesignClipboard(copyLayers(source, ["frame"], "source"))!;
+  let id = 0;
+  const pasted = pasteLayers({ ...blankDesignDocument(), nodes: [layer("destination")] }, payload, {
+    fileId: "target",
+    pageId: "page-1",
+    parentId: "destination",
+    position: { x: 600, y: 500 },
+    createId: () => `copy-${++id}`,
+  });
+  expect(pasted.document.nodes[1]).toMatchObject({ parentId: null, box: { x: 600, y: 500 } });
+  expect(pasted.document.nodes[2]).toMatchObject({ parentId: "copy-1", box: source.nodes[1].box });
+});
+
 test("paste rejects locked, inherited-hidden, or wrong-page target frames", () => {
   const source = { ...blankDesignDocument(), nodes: [layer("source")] };
   const payload = readDesignClipboard(copyLayers(source, ["source"], "source"))!;
