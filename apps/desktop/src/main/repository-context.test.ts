@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFile } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir, hostname } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -162,4 +162,57 @@ test("repository responses reject branch state for folders outside Git", () => {
   expect(repositoryContextSchema.safeParse({ ...plain, branch: "main" }).success).toBe(false);
   expect(repositoryContextSchema.safeParse({ ...plain, branches: ["main"] }).success).toBe(false);
   expect(repositoryContextSchema.safeParse({ ...plain, repository: true }).success).toBe(true);
+});
+
+test("rejects an unverified target root and permits retry after recovery", async () => {
+  const { cwd } = await fixture();
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(store);
+  try {
+    await rename(join(cwd, ".git"), join(cwd, ".git-unavailable"));
+    await expect(service.switchBranch(project.id, "feature")).rejects.toThrow("repository root");
+    expect(await readFile(join(cwd, "file.txt"), "utf8")).toBe("main\n");
+    await rename(join(cwd, ".git-unavailable"), join(cwd, ".git"));
+    expect((await service.switchBranch(project.id, "feature")).branch).toBe("feature");
+  } finally {
+    await service.close();
+  }
+});
+
+test("rejects switching when an active project's root cannot be verified", async () => {
+  const target = await fixture();
+  const active = await fixture();
+  const store = new ProjectStore(join(target.cwd, "state"));
+  await store.initialize();
+  const targetProject = await store.open(target.cwd);
+  const activeProject = await store.open(active.cwd);
+  const completion = Promise.withResolvers<void>();
+  const service = new WorkspaceService(
+    store,
+    () => ({ done: completion.promise, stop: () => completion.resolve() }),
+    async () => "/fixture/agent",
+    async () => {},
+  );
+  try {
+    await service.startThread({
+      projectId: activeProject.project.id,
+      harness: "codex",
+      prompt: "Hello",
+      designIds: [],
+    });
+    await rename(join(active.cwd, ".git"), join(active.cwd, ".git-unavailable"));
+    await expect(service.switchBranch(targetProject.project.id, "feature")).rejects.toThrow(
+      "active project's repository root",
+    );
+    expect((await readRepositoryContext(target.cwd)).branch).toBe("main");
+    await rename(join(active.cwd, ".git-unavailable"), join(active.cwd, ".git"));
+    expect((await service.switchBranch(targetProject.project.id, "feature")).branch).toBe(
+      "feature",
+    );
+  } finally {
+    completion.resolve();
+    await service.close();
+  }
 });

@@ -87,15 +87,20 @@ export class WorkspaceService {
       throw new Error("Wait for the active branch switch to finish.");
     this.repositoryChanges.add(projectId);
     try {
-      const root = await repositoryRoot(project.path);
       const activeProjects = new Set([
         ...[...this.jobs.values()].map((job) => job.thread.projectId),
         ...this.starting.values(),
       ]);
+      const root = await repositoryRoot(project.path);
+      if (!root) throw new Error("Could not verify the repository root. Try switching again.");
       const activeRoots = await Promise.all(
         [...activeProjects].map((id) => repositoryRoot(this.store.project(id).path)),
       );
-      if (root && activeRoots.includes(root))
+      if (activeRoots.some((activeRoot) => !activeRoot))
+        throw new Error(
+          "Could not verify an active project's repository root. Wait for its work to finish.",
+        );
+      if (activeRoots.includes(root))
         throw new Error(
           "Wait for this repository's active work to finish before switching branches.",
         );

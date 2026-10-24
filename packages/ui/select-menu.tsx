@@ -265,7 +265,8 @@ export function SelectMenu({
             if (
               menuHeader &&
               event.relatedTarget instanceof Node &&
-              !event.currentTarget.contains(event.relatedTarget)
+              !event.currentTarget.contains(event.relatedTarget) &&
+              !trigger.current?.contains(event.relatedTarget)
             )
               setOpen(false);
           }}
