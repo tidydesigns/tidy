@@ -2110,29 +2110,29 @@ summary:focus-visible {
   flex-shrink: 0;
 }
 .tool-activity-list {
-  max-height: 420px;
-  overflow: auto;
-  overscroll-behavior: contain;
   padding: 2px 0 2px 18px;
-  border-left: 1px solid var(--color-border);
-  margin: 6px 0 0 6px;
+  margin: 6px 0 0;
 }
 .tool-call > summary {
   display: flex;
   align-items: center;
   gap: 10px;
   min-height: 34px;
-  padding: 5px 8px;
+  padding: 5px 0;
   border-radius: 5px;
   cursor: pointer;
   list-style: none;
 }
-.tool-call > summary:hover {
-  background: var(--color-hover-surface);
+.tool-call > summary:hover .tool-call-title {
+  color: var(--color-ink);
 }
 .tool-call-title {
   flex: 1;
-  color: var(--color-ink);
+  color: var(--color-muted-ink);
+}
+.tool-call[open] > summary .tool-call-title {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .tool-call-nested {
   margin-left: 12px;
@@ -2154,50 +2154,53 @@ summary:focus-visible {
   color: var(--desktop-status-success);
 }
 .tool-call-details {
-  padding: 8px 8px 12px 34px;
+  padding: 4px 0 16px 32px;
 }
-.tool-call-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  margin-bottom: 10px;
-  font-size: 11px;
-}
-.tool-detail-section {
-  margin-top: 10px;
-}
-.tool-detail-section > span {
-  display: block;
-  font-size: 11px;
-  margin-bottom: 6px;
+.tool-detail-section ~ .tool-detail-section,
+.tool-files + .tool-detail-section {
+  margin-top: 16px;
 }
 .tool-input,
 .tool-output {
-  padding: 10px 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 7px;
-  background: var(--desktop-surface);
-  color: var(--color-ink);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  line-height: 1.65;
+  line-height: 1.85;
   tab-size: 2;
-}
-.tool-input {
-  max-height: 200px;
-  overflow: auto;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.tool-output {
-  max-height: 260px;
-  overflow: auto;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   user-select: text;
 }
-.tool-detail-section small {
+.tool-input {
+  color: var(--color-ink);
+}
+.tool-output {
+  color: var(--color-muted-ink);
+}
+.tool-detail-toggle {
+  display: block;
+  margin-top: 7px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  cursor: pointer;
+}
+.tool-detail-toggle:hover {
+  color: var(--color-ink);
+}
+.tool-detail-toggle:active {
+  transform: scale(0.97);
+}
+.tool-call:has(> summary .tool-status-failed) .tool-output {
+  color: var(--desktop-status-danger);
+}
+.tool-truncation-notice {
   display: block;
   margin-top: 5px;
   font-size: 10px;

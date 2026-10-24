@@ -189,8 +189,21 @@ export function Conversation({
         onTouchMove={() => {
           following.current = false;
         }}
+        onClickCapture={(event) => {
+          if (
+            event.target instanceof Element &&
+            event.target.closest(".tool-activity-group summary, .tool-detail-toggle")
+          )
+            following.current = false;
+        }}
         onKeyDown={(event) => {
-          if (["ArrowUp", "PageUp", "Home"].includes(event.key)) following.current = false;
+          if (
+            ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
+            (["Enter", " "].includes(event.key) &&
+              event.target instanceof Element &&
+              event.target.closest(".tool-activity-group summary, .tool-detail-toggle"))
+          )
+            following.current = false;
         }}
         onScroll={(event) => {
           if (!visible.current || !event.currentTarget.clientHeight) return;

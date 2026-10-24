@@ -1,13 +1,5 @@
-import { memo, useLayoutEffect, useRef, useState } from "react";
+import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toolStatusLabel, type ToolActivity } from "../../shared/tool-activity";
-const kinds = {
-  command: "Command",
-  test: "Test",
-  search: "Search",
-  edit: "File edit",
-  read: "Read",
-  tool: "Tool",
-};
 function duration(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return seconds < 60
@@ -43,90 +35,102 @@ function ToolIcon({ kind }: { kind: ToolActivity["kind"] }) {
     </svg>
   );
 }
-function Output({ text, streaming }: { text: string; streaming: boolean }) {
-  const ref = useRef<HTMLPreElement>(null);
-  const following = useRef(streaming);
-  useLayoutEffect(() => {
-    if (ref.current && following.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [text]);
+const ToolText = memo(function ToolText({
+  text,
+  label,
+  className,
+}: {
+  text: string;
+  label: "command" | "input" | "output";
+  className: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const id = useId();
+  const preview = useMemo(() => text.split("\n").slice(0, 4).join("\n").slice(0, 480), [text]);
+  const shortened = preview.length < text.length;
   return (
-    <pre
-      ref={ref}
-      className="tool-output"
-      tabIndex={0}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        if (!element.clientHeight) return;
-        following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
-      }}
-    >
-      {text}
-    </pre>
+    <div className="tool-detail-section">
+      <pre id={id} className={className} aria-label={label}>
+        {expanded || !shortened ? text : `${preview}\n…`}
+      </pre>
+      {shortened && (
+        <button
+          type="button"
+          className="tool-detail-toggle"
+          aria-expanded={expanded}
+          aria-controls={id}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? "Show less" : `Show full ${label}`}
+        </button>
+      )}
+    </div>
   );
-}
+});
 const ToolRow = memo(function ToolRow({ tool, now }: { tool: ToolActivity; now: number }) {
   const label = elapsed(tool, now);
+  const [open, setOpen] = useState(false);
+  const command = tool.kind === "command" || tool.kind === "test";
+  const showInput =
+    tool.input &&
+    !(tool.input === tool.title && !tool.input.includes("\n") && !tool.inputTruncated);
   return (
-    <details className={`tool-call ${tool.parentToolId ? "tool-call-nested" : ""}`}>
+    <details
+      className={`tool-call ${tool.parentToolId ? "tool-call-nested" : ""}`}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
       <summary>
-        <ToolIcon kind={tool.kind} />
-        <span className="tool-call-title" title={tool.title}>
-          {tool.title}
-        </span>
-        <span className={`tool-status tool-status-${tool.status}`}>
-          {toolStatusLabel[tool.status]}
-        </span>
-        {label && <span className="tool-duration">{label}</span>}
         <span className="activity-chevron" aria-hidden="true">
           ›
         </span>
+        <ToolIcon kind={tool.kind} />
+        <span className="tool-call-title" title={tool.title}>
+          {open && command && showInput ? tool.toolName : tool.title}
+        </span>
+        {(tool.status !== "completed" || (tool.exitCode !== undefined && tool.exitCode !== 0)) && (
+          <span className={`tool-status tool-status-${tool.status}`}>
+            {toolStatusLabel[tool.status]}
+            {tool.exitCode !== undefined && tool.exitCode !== 0 && ` · exit ${tool.exitCode}`}
+          </span>
+        )}
+        {label && <span className="tool-duration">{label}</span>}
       </summary>
-      <div className="tool-call-details">
-        <div className="tool-call-meta">
-          <span>{kinds[tool.kind]}</span>
-          <span>{tool.toolName}</span>
-          {tool.parentToolId && <span>Agent tool</span>}
-          {tool.exitCode !== undefined && <span>Exit {tool.exitCode}</span>}
+      {open && (
+        <div className="tool-call-details">
+          {tool.files && tool.files.length > 0 && (
+            <ul className="tool-files" aria-label="File changes">
+              {tool.files.map((file, index) => (
+                <li key={index}>
+                  <span>{file.kind.charAt(0).toUpperCase() + file.kind.slice(1)}</span>
+                  <code>{file.path}</code>
+                </li>
+              ))}
+            </ul>
+          )}
+          {showInput && tool.input && (
+            <ToolText
+              text={tool.input}
+              label={command ? "command" : "input"}
+              className="tool-input"
+            />
+          )}
+          {tool.inputTruncated && <small className="tool-truncation-notice">Input shortened</small>}
+          {tool.output ? (
+            <>
+              <ToolText text={tool.output} label="output" className="tool-output" />
+              {tool.outputTruncated && (
+                <small className="tool-truncation-notice">Earlier output omitted</small>
+              )}
+            </>
+          ) : (
+            !tool.files?.length && (
+              <p className="tool-empty-output">
+                {tool.status === "running" ? "Waiting for output…" : "No text output"}
+              </p>
+            )
+          )}
         </div>
-        {tool.files && tool.files.length > 0 && (
-          <ul className="tool-files" aria-label="File changes">
-            {tool.files.map((file, index) => (
-              <li key={index}>
-                <span>{file.kind.charAt(0).toUpperCase() + file.kind.slice(1)}</span>
-                <code>{file.path}</code>
-              </li>
-            ))}
-          </ul>
-        )}
-        {tool.input && (
-          <div className="tool-detail-section">
-            <span>
-              {tool.kind === "command" || tool.kind === "test"
-                ? "Command"
-                : tool.kind === "edit"
-                  ? "Edit"
-                  : "Input"}
-            </span>
-            <pre className="tool-input" tabIndex={0}>
-              {tool.input}
-            </pre>
-            {tool.inputTruncated && <small>Input shortened</small>}
-          </div>
-        )}
-        {tool.output ? (
-          <div className="tool-detail-section">
-            <span>Output</span>
-            <Output text={tool.output} streaming={tool.status === "running"} />
-            {tool.outputTruncated && <small>Earlier output omitted</small>}
-          </div>
-        ) : (
-          !tool.files?.length && (
-            <p className="tool-empty-output">
-              {tool.status === "running" ? "Waiting for output…" : "No text output"}
-            </p>
-          )
-        )}
-      </div>
+      )}
     </details>
   );
 });
