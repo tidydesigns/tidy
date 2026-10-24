@@ -466,3 +466,68 @@ for (const harness of ["codex", "claude"] as const) {
     }
   });
 }
+
+test.each(["codex", "claude"] as const)(
+  "%s receives only the explicitly supplied workspace design directories",
+  async (harness) => {
+    const { directory, executable } = await fixture();
+    const roots = [join(directory, "designs"), join(directory, "assets")];
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "Hello",
+      additionalDirectories: roots,
+      onUpdate() {},
+    });
+    try {
+      await run.done;
+      const invocation = JSON.parse(
+        await readFile(join(directory, "harness-invocation.json"), "utf8"),
+      );
+      if (harness === "codex") {
+        expect(invocation.threadParams.config["sandbox_workspace_write.writable_roots"]).toEqual(
+          roots,
+        );
+        expect(invocation.threadParams.sandbox).toBe("workspace-write");
+        expect(invocation.threadParams.approvalPolicy).toBe("on-request");
+      } else {
+        for (const root of roots) {
+          const index = invocation.args.indexOf(root);
+          expect(index).toBeGreaterThan(0);
+          expect(invocation.args[index - 1]).toBe("--add-dir");
+        }
+      }
+    } finally {
+      run.stop();
+      await run.done.catch(() => {});
+    }
+  },
+);
+
+test("read-only Codex workspace threads retain read-only permissions with external design references", async () => {
+  const { directory, executable } = await fixture();
+  const run = startHarness({
+    harness: "codex",
+    executable,
+    cwd: directory,
+    prompt: "Inspect",
+    settings: { permissionMode: "read-only" },
+    additionalDirectories: [join(directory, "designs")],
+    onUpdate() {},
+  });
+  try {
+    await run.done;
+    const invocation = JSON.parse(
+      await readFile(join(directory, "harness-invocation.json"), "utf8"),
+    );
+    expect(invocation.threadParams.sandbox).toBe("read-only");
+    expect(invocation.threadParams.approvalPolicy).toBe("on-request");
+    expect(
+      invocation.threadParams.config?.["sandbox_workspace_write.writable_roots"],
+    ).toBeUndefined();
+  } finally {
+    run.stop();
+    await run.done.catch(() => {});
+  }
+});

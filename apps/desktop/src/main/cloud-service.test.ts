@@ -145,7 +145,8 @@ test("sign-out fences a cached avatar read before it reaches the renderer", asyn
     reading.mockRestore();
   }
 });
-async function fixture() {
+async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1]) {
+  const services: WorkspaceService[] = [];
   const root = await mkdtemp(join(tmpdir(), "tidy-cloud-library-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "local-project"));
@@ -181,7 +182,12 @@ async function fixture() {
         throw Error("Offline");
       }) as unknown as typeof fetch,
     );
-    const service = new WorkspaceService(store);
+    const service = new WorkspaceService(
+      store,
+      launch,
+      launch ? async () => "/fixture/agent" : undefined,
+    );
+    services.push(service);
     const cloud = new CloudService(auth, service, state, remote);
     cleanups.push(async () => {
       await cloud.close();
@@ -193,7 +199,7 @@ async function fixture() {
   const cloud = await make();
   await cloud.account();
   await cloud.catalog("org");
-  return { root, store, local, state, remote, cloud, make };
+  return { root, store, local, state, remote, cloud, make, service: services[0] };
 }
 
 test("cloud files open in a private workspace without selecting or uploading the local project", async () => {
@@ -415,4 +421,103 @@ test("thumbnail requests deduplicate, bound concurrency, and cache one version p
   expect(calls).toBe(8);
   await f.cloud.thumbnail(ids[0], "two");
   expect(calls).toBe(9);
+});
+
+test("opening workspace threads downloads no designs, retains the local project and isolates accounts", async () => {
+  const f = await fixture();
+  const [first, simultaneous] = await Promise.all([
+    f.cloud.openWorkspace("org"),
+    f.cloud.openWorkspace("org"),
+  ]);
+  expect(first.project.id).toBe(simultaneous.project.id);
+  expect(first.project.cloud).toBe(true);
+  expect(first.designs).toEqual([]);
+  expect(f.remote.reads).toBe(0);
+  expect(f.store.activeProjectId).toBe(f.local.project.id);
+  f.remote.offline = true;
+  expect((await f.cloud.openWorkspace("org")).project.id).toBe(first.project.id);
+  await expect(f.cloud.openWorkspace("another-org")).rejects.toThrow("editing access");
+  const bob = await f.make("bob");
+  f.remote.accountId = "bob";
+  await bob.account();
+  const other = await bob.openWorkspace("org");
+  expect(other.project.id).not.toBe(first.project.id);
+  expect(other.project.path).not.toBe(first.project.path);
+  await f.cloud.signOut();
+  await expect(f.cloud.openWorkspace("org")).rejects.toThrow();
+});
+
+test("sign-out stops cloud threads and blocks further execution without stopping local threads", async () => {
+  const runs: Array<{ stopped: boolean; finish(): void }> = [];
+  const f = await fixture(() => {
+    const done = Promise.withResolvers<void>();
+    const run = { stopped: false, finish: () => done.resolve() };
+    runs.push(run);
+    return {
+      done: done.promise,
+      stop: () => {
+        run.stopped = true;
+        done.resolve();
+      },
+    };
+  });
+  const workspace = await f.cloud.openWorkspace("org");
+  const localThread = await f.service.startThread({
+    projectId: f.local.project.id,
+    harness: "codex",
+    prompt: "Local work",
+    designIds: [],
+  });
+  const cloudThread = await f.service.startThread({
+    projectId: workspace.project.id,
+    executionProjectId: f.local.project.id,
+    harness: "codex",
+    prompt: "Cloud work",
+    designIds: [],
+  });
+  await f.cloud.signOut();
+  expect(runs[0].stopped).toBe(false);
+  expect(runs[1].stopped).toBe(true);
+  await expect(
+    f.service.sendMessage({
+      projectId: workspace.project.id,
+      threadId: cloudThread.id,
+      text: "Continue",
+    }),
+  ).rejects.toThrow();
+  await expect(
+    f.service.startThread({
+      projectId: workspace.project.id,
+      executionProjectId: f.local.project.id,
+      harness: "codex",
+      prompt: "New",
+      designIds: [],
+    }),
+  ).rejects.toThrow();
+  expect((await f.service.readThread(f.local.project.id, localThread.id)).status).toBe("running");
+});
+
+test("workspace authorization reuses account metadata without disk or network work and adopts membership revocation", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const reads = spyOn(f.state, "read");
+  const accountReads = spyOn(f.remote, "account");
+  try {
+    await Promise.all(
+      Array.from({ length: 20 }, () => f.service.assertProjectAccess(workspace.project.id)),
+    );
+    expect(reads).not.toHaveBeenCalled();
+    expect(accountReads).not.toHaveBeenCalled();
+    accountReads.mockResolvedValue({
+      id: "alice",
+      organizations: [{ id: "org", name: "Team", canEdit: false }],
+    });
+    await f.cloud.account();
+    await expect(f.service.assertProjectAccess(workspace.project.id)).rejects.toThrow(
+      "editing access",
+    );
+  } finally {
+    reads.mockRestore();
+    accountReads.mockRestore();
+  }
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ProjectSnapshot } from "./contracts";
 import { localDesignSchema } from "./workspace-response";
 
 export const cloudAccountSchema = z.object({
@@ -71,6 +72,7 @@ export type CloudAPI = {
   signIn(): Promise<void>;
   signOut(): Promise<void>;
   account(cachedOnly?: boolean): Promise<CloudAccount>;
+  openWorkspace(organizationId: string): Promise<ProjectSnapshot>;
   catalog(organizationId: string, cachedOnly?: boolean): Promise<CloudCatalog>;
   openFile(organizationId: string, fileId: string): Promise<CloudOpened>;
   createFile(organizationId: string): Promise<CloudOpened>;

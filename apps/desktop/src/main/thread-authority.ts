@@ -11,6 +11,8 @@ const authoritySchema = z
     harness: z.enum(["codex", "claude"]),
     sessionId: z.string().uuid().optional(),
     permissionMode: permissionModeSchema.optional(),
+    executionProjectId: z.uuid().optional(),
+    executionProjectPath: z.string().optional(),
   })
   .strict();
 type Authority = z.infer<typeof authoritySchema>;
@@ -52,10 +54,12 @@ export class ThreadAuthority {
   }
 
   /** Called only with trusted in-memory state after a UI action or native protocol update. */
-  async write(projectPath: string, thread: Thread) {
+  async write(projectPath: string, thread: Thread, executionProjectPath?: string) {
     const key = this.key(projectPath, thread);
     const value = authoritySchema.parse({
       harness: thread.harness,
+      executionProjectId: thread.executionProjectId,
+      executionProjectPath,
       sessionId: thread.sessionId,
       permissionMode: thread.settings?.permissionMode,
     });

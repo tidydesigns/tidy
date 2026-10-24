@@ -59,6 +59,8 @@ export const storedThreadSchema = z.object({
   revision: z.number().int().min(0).default(0),
   id,
   projectId: id,
+  /** Thread storage/design context; execution may use a separately selected local project. */
+  executionProjectId: id.optional(),
   title: z.string().max(120),
   harness: harnessIdSchema,
   sessionId: id.optional(),
@@ -178,6 +180,7 @@ export type DesktopAPI = {
     threadId?: string;
     messageId?: string;
     projectId: string;
+    executionProjectId?: string;
     harness: HarnessId;
     prompt: string;
     designIds: string[];

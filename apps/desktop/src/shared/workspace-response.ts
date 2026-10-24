@@ -18,7 +18,7 @@ export const localDesignSchema = designSchema.extend({
   version: z.string(),
   assets: z.record(z.string(), z.string()),
 });
-const projectSnapshotSchema = z.object({
+export const projectSnapshotSchema = z.object({
   project: projectSchema,
   threads: z.array(threadSummarySchema),
   designs: z.array(designSchema),

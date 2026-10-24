@@ -505,3 +505,33 @@ test("image attachments use verified raster MIME types and reject invalid or ove
     ),
   ).rejects.toThrow("5 MB");
 });
+
+test("execution bindings survive restart but cannot be inserted, removed or redirected in portable JSON", async () => {
+  const f = await fixture();
+  const owner = (await f.store.open(f.root, "Team")).project;
+  const executionRoot = join(f.directory, "repository");
+  await mkdir(executionRoot);
+  const execution = (await f.store.open(executionRoot)).project;
+  const value = { ...thread(owner.id), executionProjectId: execution.id };
+  await f.store.writeThread(value);
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  expect((await restarted.readThread(owner.id, value.id)).executionProjectId).toBe(execution.id);
+  const path = await f.store.storagePath(owner.id, "threads", value.id);
+  await writeFile(path, JSON.stringify({ ...value, executionProjectId: owner.id }));
+  await expect(restarted.readThread(owner.id, value.id)).rejects.toThrow(
+    "execution project changed",
+  );
+  await writeFile(path, JSON.stringify({ ...value, executionProjectId: undefined }));
+  await expect(restarted.readThread(owner.id, value.id)).rejects.toThrow(
+    "execution project changed",
+  );
+  const imported = { ...value, id: randomUUID() };
+  await writeFile(
+    await f.store.storagePath(owner.id, "threads", imported.id),
+    JSON.stringify(imported),
+  );
+  await expect(restarted.readThread(owner.id, imported.id)).rejects.toThrow(
+    "execution project changed",
+  );
+});

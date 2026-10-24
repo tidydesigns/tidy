@@ -8,6 +8,7 @@ import type { AppUpdates } from "./app-updates";
 import type { HarnessUpdates } from "./harness-updates";
 import { updatableHarnessIdSchema } from "../shared/harness-updates";
 import { z } from "zod";
+import { projectSnapshotSchema } from "../shared/workspace-response";
 import {
   cloudAccountSchema,
   cloudFilesSchema,
@@ -50,6 +51,9 @@ export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
       z.tuple([org, z.boolean().optional()]),
       cloudCatalogSchema,
       (id: string, cached?: boolean) => cloud.catalog(id, cached),
+    ),
+    "open-workspace": endpoint(z.tuple([org]), projectSnapshotSchema, (id) =>
+      cloud.openWorkspace(id),
     ),
     "open-file": endpoint(z.tuple([org, z.uuid()]), cloudOpenedSchema, (id, file) =>
       cloud.openFile(id, file),

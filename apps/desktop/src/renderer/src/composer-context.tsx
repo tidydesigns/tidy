@@ -12,15 +12,21 @@ export function ComposerContext({
   disabled,
   branchDisabled = false,
   pending,
+  execution,
 }: {
   repository?: RepositoryContext;
-  designs: DesignSummary[];
+  designs: Pick<DesignSummary, "id" | "name">[];
   selected: string[];
   onReferencesChange?: (ids: string[]) => void;
   onBranchChange(branch: string): void;
   disabled: boolean;
   branchDisabled?: boolean;
   pending: boolean;
+  execution?: {
+    value: string;
+    options: Array<{ value: string; label: string; description?: string }>;
+    onChange?(value: string): void;
+  };
 }) {
   const references = designs.filter((design) => selected.includes(design.id));
   return (
@@ -64,6 +70,19 @@ export function ComposerContext({
           {references.length} {references.length === 1 ? "reference" : "references"}
         </span>
       ) : null}
+      {execution && (
+        <SelectMenu
+          label="Local project"
+          value={execution.value}
+          options={execution.options}
+          onChange={(value) => execution.onChange?.(value)}
+          disabled={disabled || !execution.onChange}
+          placement="top"
+          align="start"
+          triggerClassName="context-trigger"
+          menuClassName="compact-composer-menu"
+        />
+      )}
       <span className="context-machine" title={repository?.machine}>
         <ComposerIcon name="machine" />
         <span>{repository?.machine ?? "This machine"}</span>

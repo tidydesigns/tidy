@@ -112,6 +112,7 @@ app.on("browser-window-created", (_event, window) => {
       assert.equal(await evaluate("typeof window.tidy.invoke"), "undefined");
       assert.equal(await evaluate("typeof window.tidy.cloud.state"), "function");
       assert.equal(await evaluate("typeof window.tidy.cloud.creatorAvatar"), "function");
+      assert.equal(await evaluate("typeof window.tidy.cloud.openWorkspace"), "function");
       assert.equal(
         await evaluate("'accessToken' in window.tidy.cloud || 'refreshToken' in window.tidy.cloud"),
         false,
@@ -211,6 +212,7 @@ app.on("browser-window-created", (_event, window) => {
         "cloud-disconnect",
         "cloud-catalog",
         "cloud-open-file",
+        "cloud-open-workspace",
         "cloud-create-file",
         "cloud-focus",
         "cloud-keep-both",

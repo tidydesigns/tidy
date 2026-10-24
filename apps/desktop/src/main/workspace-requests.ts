@@ -34,7 +34,15 @@ export function createWorkspaceRequests<Context>(
     handlers.set(name, async (input, context) => {
       const parsed = schema.safeParse(input);
       if (!parsed.success) throw new Error("Invalid desktop request.");
-      return action(parsed.data, context);
+      const value = parsed.data;
+      const target =
+        typeof value === "object" && value !== null && "projectId" in value
+          ? value.projectId
+          : name === "select-project" || name === "project-snapshot"
+            ? value
+            : undefined;
+      if (typeof target === "string") await service.assertProjectAccess(target);
+      return action(value, context);
     });
   }
   function liveSnapshot(snapshot: Awaited<ReturnType<typeof store.snapshot>>) {
@@ -130,6 +138,7 @@ export function createWorkspaceRequests<Context>(
     z
       .object({
         projectId,
+        executionProjectId: uuid.optional(),
         threadId: uuid.optional(),
         messageId: uuid.optional(),
         harness: z.enum(["codex", "claude"]),

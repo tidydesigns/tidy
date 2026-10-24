@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  projectSnapshotSchema,
   parseWorkspaceResponse,
   type WorkspaceOperation,
   type WorkspaceResponse,
@@ -71,6 +72,8 @@ const api: DesktopAPI = {
       cloudAccountSchema.parse(await ipcRenderer.invoke("tidy:cloud-account", cached)),
     catalog: async (id, cached) =>
       cloudCatalogSchema.parse(await ipcRenderer.invoke("tidy:cloud-catalog", id, cached)),
+    openWorkspace: async (id) =>
+      projectSnapshotSchema.parse(await ipcRenderer.invoke("tidy:cloud-open-workspace", id)),
     openFile: async (id, file) =>
       cloudOpenedSchema.parse(await ipcRenderer.invoke("tidy:cloud-open-file", id, file)),
     createFile: async (id) =>

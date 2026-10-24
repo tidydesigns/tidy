@@ -30,6 +30,21 @@ files reopen from disk; file lists stay visible during background refreshes.
 **New file** opens locally immediately and publishes in the background. The canvas
 status shows whether work is synced, stored locally while offline, or needs attention.
 
+Cloud workspaces also have a **Threads** tab. Start a thread with **Design only**
+to run against the workspace's private local design cache, or choose a local project
+in the composer to run its harness in that repository. Any number of local projects
+can use the same workspace. Select workspace design references before starting;
+only selected files download, and edits use their existing sync bindings. The
+project choice is fixed for that thread, including follow-ups, queues and native
+session resumption. Start another thread to use a different project. Project skills,
+model discovery and branch controls use the selected execution directory.
+
+Conversations, attachments, native session authority and repository files stay local.
+Workspace threads return when the same account reopens the workspace on this machine;
+web conversations and remote execution are separate. Signing out stops workspace
+runs and blocks further cloud thread actions, while independent local threads continue.
+Workspace design access is limited to the signed-in account's editable workspaces.
+
 Signing in never uploads a local project. To publish an existing local design,
 choose **Add to workspace…** in its file actions and choose the destination. Its
 local path stays unchanged. Connected documents, images, and file names sync both

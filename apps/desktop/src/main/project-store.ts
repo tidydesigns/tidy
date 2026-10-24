@@ -339,6 +339,12 @@ export class ProjectStore {
     const authority = await this.authority.read(this.project(projectId).path, thread);
     if (authority && authority.harness !== thread.harness)
       throw new Error("This thread's harness changed on disk. Start a new thread.");
+    if (
+      thread.executionProjectId !== authority?.executionProjectId ||
+      (authority?.executionProjectId &&
+        this.project(authority.executionProjectId).path !== authority.executionProjectPath)
+    )
+      throw new Error("This thread's execution project changed. Start a new thread.");
     thread.sessionId = authority?.sessionId;
     const settings = { ...thread.settings };
     delete settings.permissionMode;
@@ -360,7 +366,11 @@ export class ProjectStore {
     }
     return this.atomicWrite(async () => {
       const path = await this.storagePath(value.projectId, "threads", value.id);
-      await this.authority.write(this.project(value.projectId).path, value);
+      await this.authority.write(
+        this.project(value.projectId).path,
+        value,
+        value.executionProjectId ? this.project(value.executionProjectId).path : undefined,
+      );
       return path;
     }, portable);
   }

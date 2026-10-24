@@ -56,6 +56,29 @@ can alter private app data. These controls protect the renderer and project-data
 boundaries; they are not a defense against an already compromised OS account or
 a harness deliberately given full access.
 
+## Cloud workspace threads
+
+Workspace transcripts and attachments live in the account-scoped private workspace
+cache. A thread can use that cache directly or a separately selected local project
+as its execution directory. The local project ID and canonical path are bound in
+private thread authority; changing portable JSON cannot add, remove or redirect
+that binding. The renderer supplies registered project IDs, never arbitrary paths.
+
+Workspace actions require the current account and cached editing membership. Fresh
+account metadata replaces cached membership; offline work uses the last known
+membership, and the sync API independently checks live access on every transfer.
+Sign-out immediately blocks new workspace actions and stops its native runs, while
+independent local project threads continue. Opening a workspace does not execute
+stored queues or download every design.
+
+When a thread runs in a repository, its native harness also receives the workspace's
+`.tidy/designs` and `.tidy/assets` directories. Codex project access adds those roots
+to its existing workspace-write sandbox; read-only mode remains read-only. Claude
+uses explicit `--add-dir` arguments with its chosen permission mode. Neither action
+grants access to the cache's parent directory or cloud credential storage. Native
+session resumption, skills, model discovery and branch guards use the fixed local
+execution project; transcripts and selected designs retain their workspace owner.
+
 ## Harness maintenance
 
 Harness maintenance is separate from the Tidy application updater. Discovery runs

@@ -30,6 +30,7 @@ export function CloudWorkspace({
   navigationTarget,
   active,
   onCanvasChange,
+  onCatalogChange,
 }: {
   api: DesktopAPI;
   cloud: CloudConnection;
@@ -37,8 +38,12 @@ export function CloudWorkspace({
   navigationTarget: HTMLElement | null;
   active: boolean;
   onCanvasChange(focused: boolean): void;
+  onCatalogChange?(catalog: CloudCatalog): void;
 }) {
   const [catalog, setCatalog] = useState<CloudCatalog>();
+  useEffect(() => {
+    if (catalog) onCatalogChange?.(catalog);
+  }, [catalog, onCatalogChange]);
   const [asOf, setAsOf] = useState(() => new Date().toISOString());
   const [browser, setBrowser] = useSessionState(
     `cloud:${cloud.state?.accountId}:${organizationId}`,

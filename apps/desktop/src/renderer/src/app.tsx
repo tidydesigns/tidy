@@ -46,6 +46,7 @@ import { AppUpdate } from "./app-update";
 import { useCloud } from "./use-cloud";
 import { CloudWorkspace } from "./cloud-workspace";
 import { SyncStatus } from "./sync-status";
+import type { CloudCatalog } from "../../shared/cloud-sync";
 import type { HarnessDetails, HarnessSettings } from "../../shared/harness-settings";
 import { summarizeThread, applyThreadPatch, applyProjectEvent } from "../../shared/thread-updates";
 import type {
@@ -69,6 +70,8 @@ type Draft = {
   text: string;
   harness: HarnessId;
   designIds: string[];
+  cloudFileIds?: string[];
+  executionProjectId?: string;
   settings?: HarnessSettings;
   attachments?: AttachedFile[];
   skill?: { id: string; name: string; harness: HarnessId };
@@ -116,6 +119,17 @@ export function App() {
     z.string().nullable(),
     null,
   );
+  const cloudKey = `${cloud.account?.id ?? ""}:${cloudOrganizationId}`;
+  const [cloudProjects, setCloudProjects] = useState<Record<string, string>>({});
+  const [cloudCatalogs, setCloudCatalogs] = useState<Record<string, CloudCatalog>>({});
+  const [cloudWorkspaceError, setCloudWorkspaceError] = useState("");
+  const [workspaceRetry, setWorkspaceRetry] = useState(0);
+  const rememberCloudCatalog = useCallback(
+    (catalog: CloudCatalog) => {
+      setCloudCatalogs((current) => ({ ...current, [cloudKey]: catalog }));
+    },
+    [cloudKey],
+  );
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
@@ -153,22 +167,15 @@ export function App() {
     text: string;
   } | null>(null);
   const threadSelection = useRef<Record<string, number>>({});
-  const snapshot = activeProjectId ? snapshots[activeProjectId] : undefined;
+  const referenceSelections = useRef(new Map<string, number>());
+  const workspaceProjectId = location === "cloud" ? cloudProjects[cloudKey] : activeProjectId;
+  const snapshot = workspaceProjectId ? snapshots[workspaceProjectId] : undefined;
   const project = snapshot?.project;
   const reportRepositoryError = useCallback(
     ({ projectId, cause }: { projectId: string; cause: unknown }) =>
       setError({ projectId, text: errorText(cause), original: cause }),
     [],
   );
-  const {
-    repository,
-    switching: switchingBranch,
-    switchBranch,
-  } = useRepositoryContext({
-    api,
-    projectId: project?.id,
-    onError: reportRepositoryError,
-  });
   const selectedThreadId = project ? selectedThreads[project.id] : null;
   const thread = selectedThreadId ? threads[selectedThreadId] : undefined;
   const draftKey = `${project?.id ?? ""}:${selectedThreadId ?? "new"}`;
@@ -179,8 +186,36 @@ export function App() {
   }, [selectedThreadId]);
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const executionProjectId =
+    thread?.executionProjectId ?? (!selectedThreadId ? draft.executionProjectId : undefined);
+  const executionProject = executionProjectId
+    ? projects.find((item) => item.id === executionProjectId)
+    : project;
+  const {
+    repository,
+    switching: switchingBranch,
+    switchBranch,
+  } = useRepositoryContext({
+    api,
+    projectId: executionProject?.id,
+    onError: reportRepositoryError,
+  });
+  const referenceDesignIds =
+    location === "cloud"
+      ? (draft.cloudFileIds ?? []).flatMap((fileId) => {
+          const binding = cloud.state?.bindings.find(
+            (item) => item.projectId === project?.id && item.fileId === fileId,
+          );
+          return binding && snapshot?.designs.some((design) => design.id === binding.designId)
+            ? [binding.designId]
+            : [];
+        })
+      : draft.designIds;
+  const referencesReady =
+    location !== "cloud" || referenceDesignIds.length === (draft.cloudFileIds?.length ?? 0);
+  const executionReady = Boolean(executionProject);
   const designSnapshot = useMemo(
-    () => (snapshot ? { ...snapshot, threads: [] } : undefined),
+    () => (snapshot && !snapshot.project.cloud ? { ...snapshot, threads: [] } : undefined),
     [snapshot?.project, snapshot?.designs, snapshot?.folders],
   );
   const selectedDesignId = project ? selectedDesigns[project.id] : null;
@@ -200,7 +235,7 @@ export function App() {
   const harnessInstalled = harnesses.some(
     (item) => item.id === selectedHarness && item.status !== "not-installed",
   );
-  const detailKey = `${project?.id ?? ""}:${selectedHarness}`;
+  const detailKey = `${executionProject?.id ?? ""}:${selectedHarness}`;
 
   const queue = useMessageQueue({
     api,
@@ -261,6 +296,9 @@ export function App() {
         : "Start thread";
   const canSend =
     hasMessage &&
+    referencesReady &&
+    executionReady &&
+    !opening &&
     !uploading[draftKey] &&
     !busy &&
     !switchingBranch &&
@@ -271,7 +309,7 @@ export function App() {
 
   const availableSkills = skillCatalog.key === detailKey ? skillCatalog.skills : [];
   async function loadSkills(refresh = false) {
-    if (!api || !project) return;
+    if (!api || !executionProject) return;
     if (!harnessInstalled) {
       setSkillCatalog({ key: detailKey, skills: [], status: "ready" });
       return;
@@ -283,7 +321,7 @@ export function App() {
       status: "loading",
     }));
     try {
-      const catalog = await api.skills(project.id, selectedHarness, refresh);
+      const catalog = await api.skills(executionProject.id, selectedHarness, refresh);
       if (request === skillRequest.current)
         setSkillCatalog({ key: detailKey, skills: catalog.skills, status: "ready" });
     } catch {
@@ -305,7 +343,7 @@ export function App() {
       skillRequest.current++;
       window.removeEventListener("focus", refresh);
     };
-  }, [api, project?.id, selectedHarness, harnessInstalled]);
+  }, [api, executionProject?.id, selectedHarness, harnessInstalled]);
 
   async function loadHarnessDetails(projectId: string, harness: HarnessId, refresh = false) {
     if (!api) return;
@@ -332,20 +370,21 @@ export function App() {
     }
   }
   useEffect(() => {
-    if (api && project && harnessReady) void loadHarnessDetails(project.id, selectedHarness);
-  }, [api, project?.id, selectedHarness, harnessReady]);
+    if (api && executionProject && harnessReady)
+      void loadHarnessDetails(executionProject.id, selectedHarness);
+  }, [api, executionProject?.id, selectedHarness, harnessReady]);
 
   useEffect(() => {
-    if (!api || !project || thread) return;
+    if (!api || !executionProject || thread) return;
     for (const connection of harnesses) {
       if (
         connection.id !== selectedHarness &&
         connection.status === "ready" &&
-        !harnessDetails[`${project.id}:${connection.id}`]
+        !harnessDetails[`${executionProject?.id}:${connection.id}`]
       )
-        void loadHarnessDetails(project.id, connection.id);
+        void loadHarnessDetails(executionProject!.id, connection.id);
     }
-  }, [api, project?.id, Boolean(thread), harnesses]);
+  }, [api, executionProject?.id, Boolean(thread), harnesses]);
 
   async function changeSettings(settings: HarnessSettings) {
     if (!thread) {
@@ -435,7 +474,7 @@ export function App() {
     setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
   }, []);
 
-  function applySnapshot(value: ProjectSnapshot) {
+  function applySnapshot(value: ProjectSnapshot, activate = true) {
     setSnapshots((current) => {
       const summaries = new Map(value.threads.map((item) => [item.id, item]));
       for (const item of current[value.project.id]?.threads ?? []) {
@@ -449,12 +488,32 @@ export function App() {
         },
       };
     });
+    if (value.project.cloud) return;
     setProjects((current) => [
       value.project,
       ...current.filter((item) => item.id !== value.project.id),
     ]);
-    setActiveProjectId(value.project.id);
+    if (activate) setActiveProjectId(value.project.id);
   }
+
+  useEffect(() => {
+    if (!api?.cloud || !cloudOrganizationId || !cloud.account?.id) return;
+    let active = true;
+    setCloudWorkspaceError("");
+    void api.cloud
+      .openWorkspace(cloudOrganizationId)
+      .then((value) => {
+        if (!active) return;
+        applySnapshot(value, false);
+        setCloudProjects((current) => ({ ...current, [cloudKey]: value.project.id }));
+      })
+      .catch((cause) => {
+        if (active) setCloudWorkspaceError(errorText(cause));
+      });
+    return () => {
+      active = false;
+    };
+  }, [api, cloudKey, workspaceRetry]);
 
   useEffect(() => {
     if (!api) {
@@ -546,7 +605,6 @@ export function App() {
 
   useEffect(() => {
     if (
-      location !== "local" ||
       mode !== "code" ||
       settingsOpen ||
       !api ||
@@ -623,11 +681,113 @@ export function App() {
     }
   }
 
+  async function chooseExecutionProject(value: string) {
+    if (!api || !project?.cloud || selectedThreadId || opening) return;
+    if (value !== "open") {
+      updateDraft({ executionProjectId: value === "design" ? undefined : value, skill: undefined });
+      return;
+    }
+    const key = draftKey;
+    const fallback = draft;
+    setOpening(true);
+    try {
+      const opened = await api.openProject();
+      if (!opened) return;
+      applySnapshot(opened, false);
+      setDrafts((current) => ({
+        ...current,
+        [key]: {
+          ...(current[key] ?? fallback),
+          executionProjectId: opened.project.id,
+          skill: undefined,
+        },
+      }));
+    } catch (cause) {
+      setError({ text: errorText(cause), original: cause });
+    } finally {
+      setOpening(false);
+    }
+  }
+
+  function changeCloudReferences(ids: string[]) {
+    if (!api?.cloud || !project || thread) return;
+    const key = draftKey;
+    const projectId = project.id;
+    const fallback = draft;
+    updateDraft({ cloudFileIds: ids });
+    for (const fileId of new Set([...(draft.cloudFileIds ?? []), ...ids])) {
+      if (Boolean(draft.cloudFileIds?.includes(fileId)) === ids.includes(fileId)) continue;
+      const selectionKey = `${key}:${fileId}`;
+      referenceSelections.current.set(
+        selectionKey,
+        (referenceSelections.current.get(selectionKey) ?? 0) + 1,
+      );
+    }
+    for (const fileId of ids.filter((id) => !draft.cloudFileIds?.includes(id))) {
+      const selectionKey = `${key}:${fileId}`;
+      const selection = referenceSelections.current.get(selectionKey);
+      void api.cloud
+        .openFile(cloudOrganizationId, fileId)
+        .then((opened) => {
+          if (opened.projectId !== projectId)
+            throw new Error("The workspace changed. Attach this design again.");
+          const { id, name, path, updatedAt, folderId, nodeCount } = opened.design;
+          const summary: DesignSummary = { id, name, path, updatedAt, folderId, nodeCount };
+          setSnapshots((current) => {
+            const entry = current[projectId];
+            if (!entry) return current;
+            return {
+              ...current,
+              [projectId]: {
+                ...entry,
+                designs: [summary, ...entry.designs.filter((design) => design.id !== summary.id)],
+              },
+            };
+          });
+        })
+        .catch((cause) => {
+          if (referenceSelections.current.get(selectionKey) !== selection) return;
+          setDrafts((current) => {
+            const latest = current[key] ?? fallback;
+            return {
+              ...current,
+              [key]: {
+                ...latest,
+                cloudFileIds: latest.cloudFileIds?.filter((id) => id !== fileId),
+              },
+            };
+          });
+          setError({ projectId, text: errorText(cause), original: cause });
+        });
+    }
+  }
+
+  const executionContext = project?.cloud
+    ? {
+        value: executionProjectId ?? "design",
+        options: [
+          {
+            value: "design",
+            label: "Design only",
+            description: "Work with workspace designs on this computer",
+          },
+          ...projects.map((item) => ({ value: item.id, label: item.name, description: item.path })),
+          ...(executionProjectId && !projects.some((item) => item.id === executionProjectId)
+            ? [{ value: executionProjectId, label: "Project unavailable" }]
+            : []),
+          ...(!selectedThreadId ? [{ value: "open", label: "Open project…" }] : []),
+        ],
+        ...(!selectedThreadId
+          ? { onChange: (value: string) => void chooseExecutionProject(value) }
+          : {}),
+      }
+    : undefined;
+
   const updateLocalDesign = useCallback(
     (value: LocalDesign) => {
       setDesigns((current) => ({ ...current, [value.id]: value }));
       setSnapshots((current) => {
-        const entry = current[activeProjectId!];
+        const entry = current[workspaceProjectId!];
         if (!entry) return current;
         const summary: DesignSummary = {
           id: value.id,
@@ -648,7 +808,7 @@ export function App() {
         };
       });
     },
-    [activeProjectId],
+    [workspaceProjectId],
   );
 
   function attachFiles(files: File[]) {
@@ -719,6 +879,9 @@ export function App() {
     if (
       !api ||
       !project ||
+      !referencesReady ||
+      !executionReady ||
+      opening ||
       (!draft.text.trim() && !draft.attachments?.length) ||
       !harnessReady ||
       (selectedThreadId && !thread) ||
@@ -781,11 +944,12 @@ export function App() {
         projectId,
         harness: draft.harness,
         settings: draft.settings,
+        executionProjectId: project.cloud ? draft.executionProjectId : undefined,
         title:
           submitted.replace(/\s+/g, " ").slice(0, 80) ||
           draft.attachments?.[0]?.name ||
           "New thread",
-        designIds: draft.designIds,
+        designIds: referenceDesignIds,
         messages: [],
         revision: 0,
       }),
@@ -844,10 +1008,11 @@ export function App() {
             projectId,
             threadId: id,
             messageId,
+            executionProjectId: project.cloud ? draft.executionProjectId : undefined,
             harness: draft.harness,
             prompt: submitted,
             skillId: selectedSkill?.id,
-            designIds: draft.designIds,
+            designIds: referenceDesignIds,
             settings: draft.settings,
             attachmentIds: draft.attachments?.map((file) => file.id),
           });
@@ -1067,10 +1232,16 @@ export function App() {
     ],
   );
   useEffect(() => {
-    if (!error || (error.projectId && error.projectId !== activeProjectId)) return;
+    if (
+      !error ||
+      (error.projectId &&
+        error.projectId !== project?.id &&
+        error.projectId !== executionProject?.id)
+    )
+      return;
     const id = showToast(error.text, "error", () => setError(null), error);
     return () => dismissToast(id);
-  }, [error, activeProjectId]);
+  }, [error, project?.id, executionProject?.id]);
 
   const filesActive = !settingsOpen && location === "local" && mode === "design" && !design;
   const projectFiles = useMemo(() => {
@@ -1146,7 +1317,7 @@ export function App() {
     backToFiles,
   ]);
 
-  const canvasFocused = location === "cloud" ? cloudCanvas : mode === "design" && Boolean(design);
+  const canvasFocused = mode === "design" && (location === "cloud" ? cloudCanvas : Boolean(design));
 
   return (
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
@@ -1196,12 +1367,7 @@ export function App() {
               />
             )}
           </div>
-          <div
-            role="tablist"
-            aria-label="Workspace"
-            className="workspace-tabs"
-            hidden={location === "cloud"}
-          >
+          <div role="tablist" aria-label="Workspace" className="workspace-tabs">
             {modes.map((item, index) => (
               <Button
                 key={item.id}
@@ -1233,14 +1399,14 @@ export function App() {
                     <path d="m6 4-4 4 4 4m4-8 4 4-4 4" />
                   </svg>
                 )}
-                {item.label}
+                {location === "cloud" && item.id === "code" ? "Threads" : item.label}
               </Button>
             ))}
           </div>
         </header>
         {project && snapshot && (
           <>
-            <div className="sidebar-mode-content" hidden={location === "cloud" || mode !== "code"}>
+            <div className="sidebar-mode-content" hidden={mode !== "code"}>
               <ThreadSidebar
                 key={project.id}
                 projectId={project.id}
@@ -1255,7 +1421,7 @@ export function App() {
           ref={setDesignNavigation}
           className="design-navigation"
           aria-label="Design folders"
-          hidden={location === "local" && mode !== "design"}
+          hidden={mode !== "design"}
         />
         <div className="sidebar-footer">
           <Button
@@ -1286,20 +1452,35 @@ export function App() {
           </div>
         )}
         {api && cloud.state?.signedIn && cloudOrganizationId && (
-          <div className="workspace-view" hidden={location !== "cloud"}>
+          <div className="workspace-view" hidden={location !== "cloud" || mode !== "design"}>
             <CloudWorkspace
               key={`${cloud.account?.id}:${cloudOrganizationId}`}
               api={api}
               cloud={cloud}
               organizationId={cloudOrganizationId}
-              navigationTarget={location === "cloud" ? designNavigation : null}
-              active={!settingsOpen && location === "cloud"}
+              navigationTarget={location === "cloud" && mode === "design" ? designNavigation : null}
+              active={!settingsOpen && location === "cloud" && mode === "design"}
               onCanvasChange={setCloudCanvas}
+              onCatalogChange={rememberCloudCatalog}
             />
           </div>
         )}
-        <div className="workspace-view" hidden={location !== "local"}>
-          {!project ? (
+        <div className="workspace-view" hidden={location === "cloud" && mode !== "code"}>
+          {!project && location === "cloud" ? (
+            <div className="cloud-unavailable">
+              <p role={cloudWorkspaceError ? "alert" : "status"}>
+                {cloudWorkspaceError || "Opening threads…"}
+              </p>
+              {cloudWorkspaceError && (
+                <Button
+                  className="quiet-button"
+                  onClick={() => setWorkspaceRetry((value) => value + 1)}
+                >
+                  Try again
+                </Button>
+              )}
+            </div>
+          ) : !project ? (
             <div className="project-home">
               <h1>Tidy</h1>
               {loading ? (
@@ -1340,7 +1521,7 @@ export function App() {
                 id="workspace-panel-design"
                 role="tabpanel"
                 aria-labelledby="workspace-tab-design"
-                hidden={mode !== "design"}
+                hidden={mode !== "design" || location === "cloud"}
                 className="project-workspace canvas-open"
               >
                 <div className="design-workspace">
@@ -1414,6 +1595,7 @@ export function App() {
                       <div className="thread-context">
                         <ComposerContext
                           repository={repository}
+                          execution={executionContext}
                           designs={snapshot.designs}
                           selected={thread.designIds}
                           onBranchChange={(branch) => void switchBranch(branch)}
@@ -1430,7 +1612,7 @@ export function App() {
                     key={`${project.id}:${selectedThreadId ?? "draft"}`}
                     identity={`${project.id}:${selectedThreadId ?? "draft"}`}
                     thread={thread}
-                    active={location === "local" && mode === "code"}
+                    active={!settingsOpen && mode === "code"}
                     api={api!}
                   />
                   {thread && api && (
@@ -1439,7 +1621,7 @@ export function App() {
                       api={api}
                       thread={thread}
                       designs={snapshot.designs}
-                      active={!settingsOpen && location === "local" && mode === "code"}
+                      active={!settingsOpen && mode === "code"}
                       home={canvasDockHome}
                       onUpdate={updateLocalDesign}
                     />
@@ -1499,11 +1681,22 @@ export function App() {
                     >
                       <ComposerContext
                         repository={repository}
-                        designs={snapshot.designs}
-                        selected={draft.designIds}
-                        onReferencesChange={(designIds) => updateDraft({ designIds })}
+                        execution={executionContext}
+                        designs={
+                          location === "cloud"
+                            ? (cloudCatalogs[cloudKey]?.files ?? [])
+                            : snapshot.designs
+                        }
+                        selected={
+                          location === "cloud" ? (draft.cloudFileIds ?? []) : draft.designIds
+                        }
+                        onReferencesChange={
+                          location === "cloud"
+                            ? changeCloudReferences
+                            : (designIds) => updateDraft({ designIds })
+                        }
                         onBranchChange={(branch) => void switchBranch(branch)}
-                        disabled={Boolean(thread)}
+                        disabled={Boolean(thread) || busy || opening}
                         branchDisabled={snapshot.threads.some((item) => item.status === "running")}
                         pending={Boolean(switchingBranch)}
                       />
@@ -1520,6 +1713,11 @@ export function App() {
                                 })
                         }
                       />
+                      {!thread && !referencesReady && (
+                        <span className="attachment-progress" role="status">
+                          Preparing design references…
+                        </span>
+                      )}
                       {Boolean(uploading[draftKey]) && (
                         <span className="attachment-progress" role="status">
                           Adding attachments…
@@ -1635,10 +1833,11 @@ export function App() {
                           <HarnessControls
                             catalogs={harnesses.map((connection) => ({
                               connection,
-                              ...harnessDetails[`${project.id}:${connection.id}`],
-                              details: harnessDetails[`${project.id}:${connection.id}`]?.info,
+                              ...harnessDetails[`${executionProject?.id}:${connection.id}`],
+                              details:
+                                harnessDetails[`${executionProject?.id}:${connection.id}`]?.info,
                               loading: Boolean(
-                                harnessDetails[`${project.id}:${connection.id}`]?.loading,
+                                harnessDetails[`${executionProject?.id}:${connection.id}`]?.loading,
                               ),
                             }))}
                             onModelChange={({ harness, settings: selection }) => {
@@ -1668,8 +1867,12 @@ export function App() {
                             }
                             onSettingsChange={(settings) => void changeSettings(settings)}
                             onRefresh={() => {
-                              if (project && harnessReady)
-                                void loadHarnessDetails(project.id, selectedHarness, true);
+                              if (executionProject && harnessReady)
+                                void loadHarnessDetails(
+                                  executionProject!.id,
+                                  selectedHarness,
+                                  true,
+                                );
                             }}
                           />
                         </div>

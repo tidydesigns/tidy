@@ -1183,3 +1183,115 @@ test("skill selection resolves in the main process, preserves the transcript and
   });
   expect(runs[1].input.skill?.prompt).toBe("/review again");
 });
+
+test("workspace threads keep shared designs and attachments separate from each local execution project", async () => {
+  const { directory, store, service, project, runs } = await fixture();
+  const cloudRoot = join(directory, "cloud-workspace");
+  const secondRoot = join(directory, "second-repository");
+  await mkdir(cloudRoot);
+  await mkdir(secondRoot);
+  const workspace = (await store.open(cloudRoot, "Team")).project;
+  const second = (await store.open(secondRoot)).project;
+  service.authorizeCloudProject = async (id) => {
+    expect(id).toBe(workspace.id);
+  };
+  const design = await store.createDesign(workspace.id);
+  const attachment = await store.addAttachment(
+    workspace.id,
+    "notes.txt",
+    "data:text/plain;base64,aGVsbG8=",
+  );
+  const first = await service.startThread({
+    projectId: workspace.id,
+    executionProjectId: project.id,
+    harness: "codex",
+    prompt: "Implement the shared design",
+    designIds: [design.id],
+    attachmentIds: [attachment.id],
+  });
+  const other = await service.startThread({
+    projectId: workspace.id,
+    executionProjectId: second.id,
+    harness: "claude",
+    prompt: "Implement it for another app",
+    designIds: [design.id],
+  });
+  const designOnly = await service.startThread({
+    projectId: workspace.id,
+    harness: "codex",
+    prompt: "Refine the design",
+    designIds: [design.id],
+  });
+  expect(runs.map((run) => run.input.cwd)).toEqual([project.path, second.path, workspace.path]);
+  expect(runs[0].input.prompt).toContain(design.path);
+  expect(runs[0].input.prompt).toContain("notes.txt");
+  expect(runs[0].input.additionalDirectories).toEqual([
+    await store.storagePath(workspace.id, "designs"),
+    await store.storagePath(workspace.id, "assets"),
+  ]);
+  expect(runs[2].input.additionalDirectories).toEqual([]);
+  expect(await store.designs(project.id)).toHaveLength(0);
+  expect((await store.snapshot(workspace.id)).threads.map((thread) => thread.id).sort()).toEqual(
+    [first.id, other.id, designOnly.id].sort(),
+  );
+  const sessionId = randomUUID();
+  runs[0].input.onUpdate({ type: "session", id: sessionId });
+  const complete = finished(service, first.id);
+  runs[0].complete();
+  await complete;
+  // Changing the app's selected repository cannot redirect a resumed thread.
+  await store.select(second.id);
+  await service.sendMessage({ projectId: workspace.id, threadId: first.id, text: "Continue" });
+  expect(runs[3].input.cwd).toBe(project.path);
+  expect(runs[3].input.sessionId).toBe(sessionId);
+  expect((await store.readThread(workspace.id, first.id)).executionProjectId).toBe(project.id);
+});
+
+test("local threads cannot acquire another execution project and cloud targets must be local", async () => {
+  const { directory, store, service, project, runs } = await fixture();
+  await mkdir(join(directory, "cloud"));
+  const cloud = (await store.open(join(directory, "cloud"), "Team")).project;
+  service.authorizeCloudProject = async () => {};
+  await expect(
+    service.startThread({
+      projectId: project.id,
+      executionProjectId: cloud.id,
+      harness: "codex",
+      prompt: "Invalid",
+      designIds: [],
+    }),
+  ).rejects.toThrow("Choose a local project");
+  await expect(
+    service.startThread({
+      projectId: cloud.id,
+      executionProjectId: cloud.id,
+      harness: "codex",
+      prompt: "Invalid",
+      designIds: [],
+    }),
+  ).rejects.toThrow("Choose a local project");
+  expect(runs).toHaveLength(0);
+});
+
+test("revoked cloud access during preparation prevents native launch", async () => {
+  const { directory, store, service, project, runs, preparation, resumePreparation } =
+    await fixture(undefined, true);
+  await mkdir(join(directory, "cloud"));
+  const cloud = (await store.open(join(directory, "cloud"), "Team")).project;
+  let allowed = true;
+  service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Account changed");
+  };
+  const starting = service.startThread({
+    projectId: cloud.id,
+    executionProjectId: project.id,
+    harness: "codex",
+    prompt: "Start",
+    designIds: [],
+  });
+  await preparation;
+  allowed = false;
+  resumePreparation();
+  await expect(starting).rejects.toThrow("Account changed");
+  expect(runs).toHaveLength(0);
+});

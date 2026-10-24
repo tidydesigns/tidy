@@ -36,6 +36,7 @@ export function startInteractiveHarness(input: {
   harness: HarnessId;
   executable: string;
   cwd: string;
+  additionalDirectories?: string[];
   prompt: string;
   skill?: { invocation: SkillInvocation; context: string; prompt: string };
   sessionId?: string;
@@ -61,6 +62,7 @@ export function startInteractiveHarness(input: {
         "--permission-mode",
         claudePermissionMode(mode),
         ...(mode === "auto" ? ["--allow-dangerously-skip-permissions"] : []),
+        ...(input.additionalDirectories ?? []).flatMap((path) => ["--add-dir", path]),
         ...(input.sessionId ? ["--resume", input.sessionId] : []),
         ...(input.settings?.model ? ["--model", input.settings.model] : []),
         ...(input.settings?.effort ? ["--effort", input.settings.effort] : []),
@@ -492,8 +494,17 @@ export function startInteractiveHarness(input: {
         cwd: input.cwd,
         ...codexPermissions(mode),
         model: input.settings?.model ?? null,
-        ...(input.settings?.effort
-          ? { config: { model_reasoning_effort: input.settings.effort } }
+        ...(input.settings?.effort || (mode === "default" && input.additionalDirectories?.length)
+          ? {
+              config: {
+                ...(input.settings?.effort
+                  ? { model_reasoning_effort: input.settings.effort }
+                  : {}),
+                ...(mode === "default" && input.additionalDirectories?.length
+                  ? { "sandbox_workspace_write.writable_roots": input.additionalDirectories }
+                  : {}),
+              },
+            }
           : {}),
       };
       const response = object(

@@ -6,6 +6,7 @@ import {
   validatePermissionMode,
   type ApprovalDecision,
 } from "../shared/permissions";
+import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
 import { z } from "zod";
@@ -58,6 +59,24 @@ type Job = {
 };
 
 export class WorkspaceService {
+  /** Installed by the native cloud coordinator; cloud data never grants local execution. */
+  authorizeCloudProject?: (projectId: string) => Promise<void>;
+
+  async assertProjectAccess(projectId: string) {
+    if (!this.store.project(projectId).cloud) return;
+    if (!this.authorizeCloudProject)
+      throw new Error("Open this cloud workspace before running agents.");
+    await this.authorizeCloudProject(projectId);
+  }
+
+  private executionProject(thread: Thread) {
+    const owner = this.store.project(thread.projectId);
+    const project = this.store.project(thread.executionProjectId ?? thread.projectId);
+    if (thread.executionProjectId && (!owner.cloud || project.cloud))
+      throw new Error("Choose a local project for this workspace thread.");
+    return project;
+  }
+
   private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
@@ -70,6 +89,7 @@ export class WorkspaceService {
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
   private updatingHarnesses = new Set<UpdatableHarnessId>();
+  private executionProjects = new Map<string, string>();
   private preparingHarnesses = new Map<string, HarnessId>();
 
   constructor(
@@ -87,13 +107,18 @@ export class WorkspaceService {
       throw new Error("Wait for the active branch switch to finish.");
     const operation = (async () => {
       const activeProjects = new Set([
-        ...[...this.jobs.values()].map((job) => job.thread.projectId),
+        ...[...this.jobs.values()].map(
+          (job) => job.thread.executionProjectId ?? job.thread.projectId,
+        ),
         ...this.starting.values(),
+        ...this.executionProjects.values(),
       ]);
       const root = await repositoryRoot(project.path);
       if (!root) throw new Error("Could not verify the repository root. Try switching again.");
       const activeRoots = await Promise.all(
-        [...activeProjects].map((id) => repositoryRoot(this.store.project(id).path)),
+        [...activeProjects]
+          .filter((id) => !this.store.project(id).cloud)
+          .map((id) => repositoryRoot(this.store.project(id).path)),
       );
       if (activeRoots.some((activeRoot) => !activeRoot))
         throw new Error(
@@ -247,7 +272,8 @@ export class WorkspaceService {
     try {
       const thread = await this.store.readThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
-      await this.configure(thread.harness, this.store.project(projectId).path, settings);
+      await this.assertProjectAccess(projectId);
+      await this.configure(thread.harness, this.executionProject(thread).path, settings);
       if (this.closing) throw new Error("Tidy is closing.");
       thread.settings = settings;
       thread.revision++;
@@ -269,7 +295,12 @@ export class WorkspaceService {
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       return Promise.reject(new Error("This thread is already running."));
     this.starting.set(threadId, input.projectId);
-    return this.serialize(threadId, () => this.startThreadNow({ ...input, threadId }));
+    this.executionProjects.set(threadId, input.executionProjectId ?? input.projectId);
+    return this.serialize(threadId, () => this.startThreadNow({ ...input, threadId })).finally(
+      () => {
+        this.executionProjects.delete(threadId);
+      },
+    );
   }
 
   private async startThreadNow(input: Parameters<DesktopAPI["startThread"]>[0]) {
@@ -277,6 +308,7 @@ export class WorkspaceService {
       revision: 0,
       id: input.threadId ?? randomUUID(),
       projectId: input.projectId,
+      executionProjectId: input.executionProjectId,
       harness: input.harness,
       settings: input.settings,
       title: input.prompt.replace(/\s+/g, " ").slice(0, 80),
@@ -505,10 +537,16 @@ export class WorkspaceService {
   ) {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
-    const project = this.store.project(thread.projectId);
+    await this.assertProjectAccess(thread.projectId);
+    const owner = this.store.project(thread.projectId);
+    const project = this.executionProject(thread);
+    if ((await realpath(project.path)) !== project.path)
+      throw new Error(
+        "The execution project directory moved. Open it again and start a new thread.",
+      );
     const settings = harnessSettingsSchema.parse(thread.settings ?? {});
     validatePermissionMode(thread.harness, settings.permissionMode);
-    const attachments = await this.resolveAttachments(project.id, prompt, attachmentIds);
+    const attachments = await this.resolveAttachments(owner.id, prompt, attachmentIds);
     const imagesPromise = Promise.all(
       attachments
         .filter((file) =>
@@ -526,7 +564,7 @@ export class WorkspaceService {
     const [executable, references, images] = await Promise.all([
       this.locate(thread.harness),
       Promise.all(
-        thread.designIds.map((designId) => this.store.readDesign(project.id, designId, false)),
+        thread.designIds.map((designId) => this.store.readDesign(owner.id, designId, false)),
       ),
       imagesPromise,
     ]);
@@ -542,9 +580,19 @@ export class WorkspaceService {
           prompt,
         })
       : undefined;
+    const designDirectory = await this.store.storagePath(owner.id, "designs");
+    const assetDirectory = await this.store.storagePath(owner.id, "assets");
     const context = [
-      "You are working in a local Tidy project. The working directory is the project root.",
-      "Project designs live in .tidy/designs/*.json. Each file contains { id, name, folderId, document }; folderId is a local design-folder ID or null. Preserve id, name and folderId when editing document content. Folder metadata lives in .tidy/folders/<id>.json and design paths remain stable when files move between folders. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Preserve this format when editing designs.",
+      `The working directory is ${JSON.stringify(project.path)}.`,
+      owner.cloud
+        ? `You are working with designs in a synced Tidy workspace. Design files live in ${JSON.stringify(designDirectory)} and image assets in ${JSON.stringify(assetDirectory)}. Edit those original files; the desktop app syncs their changes. Conversations and repository files stay local.`
+        : "You are working in a local Tidy project. The working directory is the project root.",
+      "Each design JSON contains { id, name, folderId, document }; preserve id, name and folderId when editing document. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Design paths remain stable when files move between folders.",
+      ...(!owner.cloud
+        ? [
+            "Project designs live in .tidy/designs/*.json. Folder metadata lives in .tidy/folders/<id>.json; folderId is a local folder ID or null.",
+          ]
+        : []),
       ...(references.length
         ? [
             "The user attached these design files (read them before implementing their UI):",
@@ -564,6 +612,7 @@ export class WorkspaceService {
       images,
       attachments,
       project,
+      additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
       prompt: `${context}\n\nUser request:\n\n${prompt || "Review the attached files."}`,
       skill: skill ? { invocation: skill, context, prompt } : undefined,
     };
@@ -586,10 +635,12 @@ export class WorkspaceService {
     if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
     this.starting.set(thread.id, thread.projectId);
     this.preparingHarnesses.set(thread.id, thread.harness);
+    this.executionProjects.set(thread.id, thread.executionProjectId ?? thread.projectId);
     try {
       return await this.runPrepared(thread, prompt, attachmentIds, messageId, skillId);
     } finally {
       this.preparingHarnesses.delete(thread.id);
+      this.executionProjects.delete(thread.id);
       this.starting.delete(thread.id);
       this.cancelledStarts.delete(thread.id);
     }
@@ -610,7 +661,9 @@ export class WorkspaceService {
       images,
       attachments,
       project,
+      additionalDirectories,
     } = await this.prepareMessage(thread, prompt, attachmentIds, skillId);
+    await this.assertProjectAccess(thread.projectId);
     const queuedMessages = thread.queuedMessages;
     const queuedIndex = queuedMessages?.findIndex((item) => item.id === messageId) ?? -1;
     thread = {
@@ -671,6 +724,7 @@ export class WorkspaceService {
         harness: thread.harness,
         executable,
         cwd: project.path,
+        additionalDirectories,
         prompt: preparedPrompt,
         skill,
         sessionId: thread.sessionId,
@@ -879,6 +933,16 @@ export class WorkspaceService {
     job.thread.revision++;
     this.emit({ type: "thread", thread: job.thread });
     return structuredClone(job.thread);
+  }
+
+  async stopCloudThreads() {
+    const owners = new Map(this.starting);
+    for (const job of this.jobs.values()) owners.set(job.thread.id, job.thread.projectId);
+    await Promise.all(
+      [...owners]
+        .filter(([, id]) => this.store.project(id).cloud)
+        .map(([threadId, projectId]) => this.stopThread(projectId, threadId)),
+    );
   }
 
   async stopThread(projectId: string, threadId: string) {

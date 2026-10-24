@@ -344,3 +344,46 @@ test("rejects switching when an active project's root cannot be verified", async
     await service.close();
   }
 });
+
+test("cloud workspace threads guard their execution repository during preparation and active turns", async () => {
+  const { cwd } = await fixture();
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const cloudPath = join(cwd, "private-workspace");
+  await mkdir(cloudPath);
+  const cloud = (await store.open(cloudPath, "Team")).project;
+  const locating = Promise.withResolvers<void>();
+  const located = Promise.withResolvers<void>();
+  const completion = Promise.withResolvers<void>();
+  const service = new WorkspaceService(
+    store,
+    () => ({ done: completion.promise, stop: () => completion.resolve() }),
+    async () => {
+      locating.resolve();
+      await located.promise;
+      return "/fixture/agent";
+    },
+    async () => {},
+  );
+  service.authorizeCloudProject = async () => {};
+  try {
+    const starting = service.startThread({
+      projectId: cloud.id,
+      executionProjectId: project.id,
+      harness: "codex",
+      prompt: "Implement",
+      designIds: [],
+    });
+    await locating.promise;
+    await expect(service.switchBranch(project.id, "feature")).rejects.toThrow("active work");
+    located.resolve();
+    await starting;
+    await expect(service.switchBranch(project.id, "feature")).rejects.toThrow("active work");
+    expect((await readRepositoryContext(cwd)).branch).toBe("main");
+  } finally {
+    located.resolve();
+    completion.resolve();
+    await service.close();
+  }
+});
