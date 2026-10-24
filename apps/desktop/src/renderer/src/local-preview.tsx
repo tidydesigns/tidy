@@ -66,11 +66,19 @@ export function LocalPreview({
       if (disposed || finished || document.hidden) return;
       const request = new AbortController();
       controller = request;
-      const timeout = setTimeout(() => request.abort(), 15_000);
+      let timedOut = false;
+      let timeout: ReturnType<typeof setTimeout> | undefined;
       try {
         await queueThumbnail(async () => {
+          if (document.hidden) return;
+          // Waiting for another card must not consume this capture's deadline.
+          timeout = setTimeout(() => {
+            timedOut = true;
+            request.abort();
+          }, 15_000);
           const design = await api.previewDesign(projectId, file.id);
           request.signal.throwIfAborted();
+          if (document.hidden) return;
           const result = await new Promise<{ blob: Blob; imagesComplete: boolean }>(
             (resolve, reject) => {
               request.signal.addEventListener("abort", () => reject(request.signal.reason), {
@@ -94,7 +102,7 @@ export function LocalPreview({
         }, request.signal);
       } catch {
         if (!disposed && controller === request) {
-          if (!request.signal.aborted) {
+          if (!request.signal.aborted || timedOut) {
             finished = true;
             retryOnFocus = true;
           }
@@ -116,7 +124,11 @@ export function LocalPreview({
       retryOnFocus = false;
       idle();
     };
-    const visibility = () => (document.hidden ? idle() : retry());
+    const visibility = () => {
+      if (document.hidden) idle();
+      else if (retryOnFocus) retry();
+      else if (!finished) idle();
+    };
     void readLocalThumbnail(projectId, file.id).then((cached) => {
       if (disposed || finished) return;
       if (cached) setBlob(cached.blob);

@@ -4,6 +4,7 @@ import { createExportImageSession, embedDesignImages, embedThumbnailImages } fro
 const originalFetch = globalThis.fetch;
 const originalReader = globalThis.FileReader;
 const originalImageElement = globalThis.HTMLImageElement;
+const originalTimeout = AbortSignal.timeout;
 class TestImage {
   src: string;
   constructor(private original: string) {
@@ -40,6 +41,7 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.FileReader = originalReader;
   globalThis.HTMLImageElement = originalImageElement;
+  AbortSignal.timeout = originalTimeout;
 });
 function images(body = new Uint8Array([1, 2, 3])) {
   const calls: string[] = [];
@@ -122,6 +124,89 @@ test("thumbnail cancellation is not converted into a successful partial capture"
     "Thumbnail canceled",
   );
   expect(image.src).toBe("/__tidy/assets/project/pending");
+});
+
+test("a failed strict export waits for a stalled external image's bounded cleanup", async () => {
+  const deadlines: AbortController[] = [];
+  AbortSignal.timeout = (milliseconds) => {
+    expect(milliseconds).toBe(15_000);
+    const controller = new AbortController();
+    deadlines.push(controller);
+    return controller.signal;
+  };
+  let cleaned = false,
+    settled = false;
+  globalThis.fetch = (async (url: string, options: RequestInit) => {
+    if (url.endsWith("missing")) return new Response(null, { status: 404 });
+    return new Promise<Response>((_resolve, reject) => {
+      options.signal!.addEventListener(
+        "abort",
+        () => {
+          cleaned = true;
+          reject(options.signal!.reason);
+        },
+        { once: true },
+      );
+    });
+  }) as unknown as typeof fetch;
+  const images = [
+    new TestImage("https://external.example/missing"),
+    new TestImage("https://external.example/stalled"),
+  ];
+  const clone = {
+    querySelectorAll(selector: string) {
+      return selector === "img, svg image" ? images : [];
+    },
+  } as unknown as HTMLElement;
+  const result = embedDesignImages(clone).then(
+    () => {
+      settled = true;
+      return undefined;
+    },
+    (error: unknown) => {
+      settled = true;
+      return error;
+    },
+  );
+  try {
+    await Bun.sleep(0);
+    expect(deadlines).toHaveLength(2);
+    expect(settled).toBe(false);
+    expect(cleaned).toBe(false);
+  } finally {
+    for (const deadline of deadlines)
+      deadline.abort(new DOMException("Image timed out", "TimeoutError"));
+  }
+  expect(await result).toEqual(new Error("Could not include an image in the export."));
+  expect(cleaned).toBe(true);
+  expect(settled).toBe(true);
+});
+
+test("external image deadlines also cancel a pending data-URL conversion", async () => {
+  const deadline = new AbortController();
+  AbortSignal.timeout = () => deadline.signal;
+  let converting = false,
+    canceled = false;
+  globalThis.FileReader = class {
+    abort() {
+      canceled = true;
+    }
+    readAsDataURL() {
+      converting = true;
+    }
+  } as unknown as typeof FileReader;
+  images();
+  const session = createExportImageSession();
+  const loading = session.load("https://external.example/original").catch((error) => error);
+  try {
+    await Bun.sleep(0);
+    expect(converting).toBe(true);
+    deadline.abort(new DOMException("Image timed out", "TimeoutError"));
+    expect((await loading).name).toBe("TimeoutError");
+    expect(canceled).toBe(true);
+  } finally {
+    session.dispose();
+  }
 });
 
 test("an export shares identical original bytes and in-flight reads, then releases them", async () => {

@@ -30,9 +30,11 @@ async function originalDataUrl(url: string, signal?: AbortSignal) {
   if (url.startsWith("data:")) return url;
   if (isManagedImage(url))
     return asDataUrl(await fetchImage(url, signal ?? new AbortController().signal), signal);
-  const response = await fetch(url, { signal });
+  const deadline = AbortSignal.timeout(15_000);
+  const loadSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+  const response = await fetch(url, { signal: loadSignal });
   if (!response.ok) throw new Error("Could not include an image in the export.");
-  return asDataUrl(await response.blob(), signal);
+  return asDataUrl(await response.blob(), loadSignal);
 }
 
 export type ExportImageSession = {
