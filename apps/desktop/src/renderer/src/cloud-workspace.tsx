@@ -157,9 +157,8 @@ export function CloudWorkspace({
   }, [active]);
   useEffect(() => () => onCanvasChange(false), [onCanvasChange]);
   useEffect(() => {
-    if (!active) {
+    if (!active && creating) {
       selection.current++;
-      setOpening(undefined);
       setCreating(false);
     }
   }, [active]);
@@ -178,6 +177,9 @@ export function CloudWorkspace({
   async function open(file: CloudFile) {
     if (!api.cloud || opening === file.id) return;
     restored.current = true;
+    setBrowser((current) =>
+      current.fileId === file.id ? current : { ...current, fileId: file.id },
+    );
     const version = ++selection.current;
     setCreating(false);
     setError("");
@@ -186,7 +188,6 @@ export function CloudWorkspace({
       setOpening(undefined);
       setCanvasVisible(true);
       onCanvasChange(true);
-      setBrowser((current) => ({ ...current, fileId: file.id }));
       return;
     }
     setOpening(file.id);
@@ -196,7 +197,6 @@ export function CloudWorkspace({
         onCanvasChange(true);
         setOpened(value);
         setCanvasVisible(true);
-        setBrowser((current) => ({ ...current, fileId: file.id }));
       }
     } catch (cause) {
       if (selection.current === version) {
@@ -213,6 +213,7 @@ export function CloudWorkspace({
     if (!api.cloud || creating) return;
     const version = ++selection.current;
     const accountId = cloud.state?.accountId;
+    setBrowser((current) => ({ ...current, fileId: null }));
     setCreating(true);
     setOpening(undefined);
     setError("");

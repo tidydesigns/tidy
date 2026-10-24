@@ -26,6 +26,7 @@ export function ProjectFiles({
   snapshot,
   navigationTarget,
   onOpen,
+  onNavigate,
   onCreated,
   onUpdate,
   onFolderUpdate,
@@ -37,6 +38,7 @@ export function ProjectFiles({
   navigationTarget: HTMLElement | null;
   active?: boolean;
   onOpen(id: string): void;
+  onNavigate(): void;
   onCreated(file: LocalDesign): void;
   onUpdate(file: LocalDesign): void;
   onFolderUpdate(folder: DesignFolder): void;
@@ -86,6 +88,7 @@ export function ProjectFiles({
     return folder ? displayName(folder) : "Unfiled";
   }
   const openFolder = (id: string | null) => {
+    onNavigate();
     setFolderId(id);
     setError("");
     setEditing(null);

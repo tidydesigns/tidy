@@ -98,6 +98,10 @@ export function App() {
       : "";
   const location = target?.kind === "cloud" ? "cloud" : "local";
   useEffect(() => {
+    if (!api?.cloud) {
+      if (target?.kind === "cloud") setTarget({ kind: "local" });
+      return;
+    }
     if (!cloud.state) return;
     if (!cloud.state.signedIn) {
       cloudAccount.current = undefined;
@@ -116,7 +120,7 @@ export function App() {
       navigated: navigation.current !== 0,
     });
     if (next !== target) setTarget(next);
-  }, [cloud.state, cloud.account, target, setTarget]);
+  }, [api?.cloud, cloud.state, cloud.account, target, setTarget]);
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -487,27 +491,33 @@ export function App() {
     void api
       .bootstrap()
       .then(async (value) => {
-        if (
-          activeProjectId &&
-          value.projects.some((p) => p.id === activeProjectId && !p.cloud) &&
-          value.activeProject?.project.id !== activeProjectId
-        ) {
-          value = { ...value, activeProject: await api.selectProject(activeProjectId) };
-        }
         if (!mounted) return;
         setProjects(value.projects.filter((p) => !p.cloud));
         setHarnesses(value.harnesses);
+        let activeProject = value.activeProject;
         if (
           navigation.current === initialNavigation &&
-          value.activeProject &&
-          !value.activeProject.project.cloud
+          activeProjectId &&
+          value.projects.some((p) => p.id === activeProjectId && !p.cloud) &&
+          activeProject?.project.id !== activeProjectId
         ) {
-          const snapshot = [...initialEvents.values()].reduce(
-            applyProjectEvent,
-            value.activeProject,
-          );
-          setSnapshots((current) => ({ ...current, [snapshot.project.id]: snapshot }));
-          setActiveProjectId(value.activeProject.project.id);
+          try {
+            activeProject = await api.selectProject(activeProjectId);
+          } catch (cause) {
+            if (mounted && navigation.current === initialNavigation)
+              setError({
+                text: "Could not reopen the previous project. Choose a recent project or open its folder again.",
+                original: cause,
+              });
+          }
+        }
+        if (!mounted) return;
+        if (navigation.current === initialNavigation) {
+          if (activeProject && !activeProject.project.cloud) {
+            const snapshot = [...initialEvents.values()].reduce(applyProjectEvent, activeProject);
+            setSnapshots((current) => ({ ...current, [snapshot.project.id]: snapshot }));
+            setActiveProjectId(snapshot.project.id);
+          } else setActiveProjectId(null);
         }
         bootstrapping = false;
         initialEvents.clear();
@@ -1089,6 +1099,7 @@ export function App() {
               }
             : undefined
         }
+        onNavigate={backToFiles}
         onOpen={(id) => setSelectedDesigns((current) => ({ ...current, [project.id]: id }))}
         onCreated={(value) => {
           updateLocalDesign(value);
@@ -1121,6 +1132,7 @@ export function App() {
     cloud.account,
     cloud.state,
     filesActive,
+    backToFiles,
   ]);
 
   const canvasFocused = location === "cloud" ? cloudCanvas : mode === "design" && Boolean(design);
@@ -1142,7 +1154,12 @@ export function App() {
                 }
                 options={[
                   ...(target?.kind === "cloud" && !cloudOrganizationId
-                    ? [{ value: `cloud:${target.organizationId}`, label: "Opening workspace…" }]
+                    ? [
+                        {
+                          value: `cloud:${target.organizationId}`,
+                          label: cloud.error ? "Workspace unavailable" : "Opening workspace…",
+                        },
+                      ]
                     : []),
                   ...(cloud.account?.organizations
                     .filter((o) => o.canEdit)
@@ -1256,7 +1273,12 @@ export function App() {
       <main className="workspace" hidden={settingsOpen}>
         {location === "cloud" && !cloudOrganizationId && (
           <div className="cloud-unavailable">
-            <p>Opening workspace…</p>
+            <p role={cloud.error ? "alert" : "status"}>{cloud.error || "Opening workspace…"}</p>
+            {cloud.error && (
+              <Button className="quiet-button" onClick={cloud.retry}>
+                Try again
+              </Button>
+            )}
           </div>
         )}
         {api && cloud.state?.signedIn && cloudOrganizationId && (

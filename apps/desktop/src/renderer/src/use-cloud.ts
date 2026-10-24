@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { errorMessage } from "@tidy/ui/errors";
 import type { CloudAPI, CloudAccount, CloudState } from "../../shared/cloud-sync";
 
@@ -9,6 +9,8 @@ export function useCloud(api?: CloudAPI) {
   const [error, setError] = useState("");
   const epoch = useRef(0);
   const loginAttempt = useRef(0);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const retry = useCallback(() => setRetryVersion((value) => value + 1), []);
   useEffect(() => {
     if (!api) return;
     let active = true,
@@ -22,12 +24,15 @@ export function useCloud(api?: CloudAPI) {
       .then((value) => {
         if (active && !received) setState(value);
       })
-      .catch(() => {});
+      .catch((cause) => {
+        if (active && !received)
+          setError(errorMessage(cause, "Could not load your workspaces. Try again."));
+      });
     return () => {
       active = false;
       unsubscribe();
     };
-  }, [api]);
+  }, [api, retryVersion]);
   useEffect(() => {
     const version = ++epoch.current;
     setAccount(undefined);
@@ -46,18 +51,25 @@ export function useCloud(api?: CloudAPI) {
           apply(await api.account());
         } catch (cause) {
           if (epoch.current === version)
-            setError(
-              errorMessage(
-                cause,
-                "Could not refresh your workspaces. Cached files are still available.",
-              ),
-            );
+            setError(errorMessage(cause, "Could not refresh your workspaces. Try again."));
         }
       });
     return () => {
       epoch.current++;
     };
-  }, [api, state?.signedIn, state?.accountId]);
+  }, [api, state?.signedIn, state?.accountId, retryVersion]);
+  useEffect(() => {
+    if (!error || (state && (!state.signedIn || account))) return;
+    const recover = () => {
+      if (!document.hidden) retry();
+    };
+    window.addEventListener("online", recover);
+    window.addEventListener("focus", recover);
+    return () => {
+      window.removeEventListener("online", recover);
+      window.removeEventListener("focus", recover);
+    };
+  }, [error, state, account, retry]);
   async function signIn() {
     if (!api || busy) return;
     const attempt = ++loginAttempt.current;
@@ -83,6 +95,6 @@ export function useCloud(api?: CloudAPI) {
       setError(errorMessage(cause, "Could not sign out. Try again."));
     }
   }
-  return { state, account, busy, error, signIn, signOut };
+  return { state, account, busy, error, signIn, signOut, retry };
 }
 export type CloudConnection = ReturnType<typeof useCloud>;
