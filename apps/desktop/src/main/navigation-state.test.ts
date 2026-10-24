@@ -1,60 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-  emptyFileBrowser,
-  fileBrowserSchema,
-  readNavigation,
-  workspaceTargetSchema,
-  restoreWorkspaceTarget,
-} from "../shared/navigation-state";
-
-const stored = (value: string | null) => ({ getItem: () => value });
-
-test("restores a cloud destination with its account and organization", () => {
-  const target = { kind: "cloud", accountId: "account", organizationId: "second" } as const;
-  expect(
-    readNavigation(stored(JSON.stringify(target)), "workspace", workspaceTargetSchema, null),
-  ).toEqual(target);
-  expect(workspaceTargetSchema.safeParse({ kind: "cloud", organizationId: "second" }).success).toBe(
-    false,
-  );
-});
-
-test("restores the file and its containing browser context together", () => {
-  const browser = {
-    folder: "components",
-    fileId: "design",
-    query: "button",
-    view: "list",
-  } as const;
-  expect(
-    readNavigation(
-      stored(JSON.stringify(browser)),
-      "cloud:account:second",
-      fileBrowserSchema,
-      emptyFileBrowser,
-    ),
-  ).toEqual(browser);
-});
-
-test("missing, malformed and unavailable navigation storage falls back safely", () => {
-  for (const value of [null, "{", '"invalid"', '{"folder":42}', '{"view":"invalid"}']) {
-    expect(readNavigation(stored(value), "browser", fileBrowserSchema, emptyFileBrowser)).toEqual(
-      emptyFileBrowser,
-    );
-  }
-  expect(
-    readNavigation(
-      {
-        getItem() {
-          throw new Error("Storage unavailable");
-        },
-      },
-      "browser",
-      fileBrowserSchema,
-      emptyFileBrowser,
-    ),
-  ).toEqual(emptyFileBrowser);
-});
+import { restoreWorkspaceTarget } from "../shared/navigation-state";
 
 const account = {
   id: "account",
@@ -99,4 +44,29 @@ test("restoration falls back when edit access was removed and never inherits ano
 test("late cloud startup cannot override a navigation choice", () => {
   expect(restore(null, { navigated: true })).toBeNull();
   expect(restore({ kind: "local" }, { navigated: true })).toEqual({ kind: "local" });
+});
+
+test("a live account change resolves a new destination without inheriting the prior local choice", () => {
+  expect(
+    restore(
+      { kind: "local" },
+      {
+        changedAccount: true,
+        navigated: true,
+        account: { ...account, id: "other" },
+      },
+    ),
+  ).toEqual({ kind: "cloud", accountId: "other", organizationId: "first" });
+});
+
+test("read-only workspaces cannot be restored or selected as the default", () => {
+  const readOnlyAccount = {
+    ...account,
+    organizations: account.organizations.map((organization) => ({
+      ...organization,
+      canEdit: false,
+    })),
+  };
+  expect(restore(cloudTarget, { account: readOnlyAccount })).toEqual({ kind: "local" });
+  expect(restore(null, { account: readOnlyAccount })).toEqual({ kind: "local" });
 });

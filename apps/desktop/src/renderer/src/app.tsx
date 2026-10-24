@@ -1,10 +1,7 @@
 import { z } from "zod";
 import { useSessionState } from "./session-state";
-import {
-  workspaceTargetSchema,
-  selectionSchema,
-  restoreWorkspaceTarget,
-} from "../../shared/navigation-state";
+import { selectionSchema } from "../../shared/navigation-state";
+import { useWorkspaceNavigation } from "./use-workspace-navigation";
 import { SkillPrompt } from "./skill-prompt";
 import { skillCommand, type Skill } from "../../shared/skills";
 import { errorMessage } from "@tidy/ui/errors";
@@ -80,47 +77,18 @@ export function App() {
     if (settingsWasOpen.current && !settingsOpen) settingsTrigger.current?.focus();
     settingsWasOpen.current = settingsOpen;
   }, [settingsOpen]);
-  const [target, setTarget] = useSessionState("workspace", workspaceTargetSchema, null);
-  const [lastCloudTarget, setLastCloudTarget] = useState(target?.kind === "cloud" ? target : null);
-  useEffect(() => {
-    if (target?.kind === "cloud") setLastCloudTarget(target);
-  }, [target]);
-  const cloudTarget = target?.kind === "cloud" ? target : lastCloudTarget;
+  const {
+    target,
+    location,
+    cloudOrganizationId,
+    navigation,
+    selectLocalWorkspace,
+    selectCloudWorkspace,
+  } = useWorkspaceNavigation({
+    cloud,
+    hasCloudAPI: Boolean(api?.cloud),
+  });
   const [cloudCanvas, setCloudCanvas] = useState(false);
-  const cloudAccount = useRef<string | undefined>(undefined);
-  const navigation = useRef(0);
-  const cloudOrganizationId =
-    cloudTarget &&
-    cloudTarget.accountId === cloud.state?.accountId &&
-    cloudTarget.accountId === cloud.account?.id &&
-    cloud.account.organizations.some((o) => o.id === cloudTarget.organizationId && o.canEdit)
-      ? cloudTarget.organizationId
-      : "";
-  const location = target?.kind === "cloud" ? "cloud" : "local";
-  useEffect(() => {
-    if (!api?.cloud) {
-      if (target?.kind === "cloud") setTarget({ kind: "local" });
-      return;
-    }
-    if (!cloud.state) return;
-    if (!cloud.state.signedIn) {
-      cloudAccount.current = undefined;
-      if (target?.kind === "cloud") setTarget({ kind: "local" });
-      return;
-    }
-    if (!cloud.account || cloud.account.id !== cloud.state.accountId) return;
-    const account = cloud.account;
-    const changedAccount =
-      cloudAccount.current !== undefined && cloudAccount.current !== account.id;
-    cloudAccount.current = account.id;
-    const next = restoreWorkspaceTarget({
-      target,
-      account,
-      changedAccount,
-      navigated: navigation.current !== 0,
-    });
-    if (next !== target) setTarget(next);
-  }, [api?.cloud, cloud.state, cloud.account, target, setTarget]);
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [loading, setLoading] = useState(true);
@@ -604,7 +572,7 @@ export function App() {
       const value = projectId ? await api.selectProject(projectId) : await api.openProject();
       if (value && navigation.current === generation) {
         applySnapshot(value);
-        setTarget({ kind: "local" });
+        selectLocalWorkspace();
       }
     } catch (value) {
       if (navigation.current === generation) setError({ text: errorText(value), original: value });
@@ -1178,15 +1146,8 @@ export function App() {
                 label="Workspace"
                 disabled={opening}
                 onChange={(value) => {
-                  if (value.startsWith("cloud:")) {
-                    navigation.current++;
-                    if (cloud.account)
-                      setTarget({
-                        kind: "cloud",
-                        accountId: cloud.account.id,
-                        organizationId: value.slice(6),
-                      });
-                  } else void chooseProject(value === "open" ? undefined : value);
+                  if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
+                  else void chooseProject(value === "open" ? undefined : value);
                 }}
                 triggerClassName="project-trigger"
               />

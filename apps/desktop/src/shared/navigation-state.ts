@@ -7,6 +7,8 @@ export const workspaceTargetSchema = z
     z.object({ kind: z.literal("cloud"), accountId: z.string(), organizationId: z.string() }),
   ])
   .nullable();
+export type WorkspaceTarget = z.infer<typeof workspaceTargetSchema>;
+
 export const selectionSchema = z.record(z.string(), z.string().nullable());
 export const fileBrowserSchema = z.object({
   folder: z.string().nullable(),
@@ -21,33 +23,17 @@ export const emptyFileBrowser: z.infer<typeof fileBrowserSchema> = {
   view: "grid",
 };
 
-export function readNavigation<T>(
-  storage: Pick<Storage, "getItem">,
-  key: string,
-  schema: z.ZodType<T>,
-  fallback: T,
-): T {
-  try {
-    const parsed = schema.safeParse(
-      JSON.parse(storage.getItem(`tidy:navigation:${key}`) ?? "null"),
-    );
-    return parsed.success ? parsed.data : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 export function restoreWorkspaceTarget({
   target,
   account,
   changedAccount,
   navigated,
 }: {
-  target: z.infer<typeof workspaceTargetSchema>;
+  target: WorkspaceTarget;
   account: CloudAccount;
   changedAccount: boolean;
   navigated: boolean;
-}): z.infer<typeof workspaceTargetSchema> {
+}): WorkspaceTarget {
   if (target?.kind === "local" && !changedAccount) return target;
   if (target?.kind === "cloud" && target.accountId === account.id) {
     return account.organizations.some((o) => o.id === target.organizationId && o.canEdit)
