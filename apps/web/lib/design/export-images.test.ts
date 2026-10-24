@@ -1,8 +1,18 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { createExportImageSession, embedDesignImages } from "./export-images";
+import { createExportImageSession, embedDesignImages, embedThumbnailImages } from "./export-images";
 
 const originalFetch = globalThis.fetch;
 const originalReader = globalThis.FileReader;
+const originalImageElement = globalThis.HTMLImageElement;
+class TestImage {
+  src: string;
+  constructor(private original: string) {
+    this.src = original;
+  }
+  getAttribute(name: string) {
+    return name === "data-original-src" ? this.original : null;
+  }
+}
 class TestFileReader {
   result: string | null = null;
   onload?: () => void;
@@ -24,10 +34,12 @@ class TestFileReader {
 }
 beforeEach(() => {
   globalThis.FileReader = TestFileReader as unknown as typeof FileReader;
+  globalThis.HTMLImageElement = TestImage as unknown as typeof HTMLImageElement;
 });
 afterEach(() => {
   globalThis.fetch = originalFetch;
   globalThis.FileReader = originalReader;
+  globalThis.HTMLImageElement = originalImageElement;
 });
 function images(body = new Uint8Array([1, 2, 3])) {
   const calls: string[] = [];
@@ -55,6 +67,61 @@ test("raster exports embed CSS image masks once and keep the intersection layer"
   expect(style.maskImage).toBe('url("data:image/png;base64,AQID"), linear-gradient(white, white)');
   expect(second.maskImage).toBe(style.maskImage);
   expect(style.webkitMaskImage).toBe(style.maskImage);
+});
+
+test("thumbnail capture tolerates missing local images and masks while exports remain strict", async () => {
+  const missing = "/__tidy/assets/project/missing";
+  const available = "/__tidy/assets/project/available";
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string) => {
+    calls.push(url);
+    return url === missing
+      ? new Response(null, { status: 404 })
+      : new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } });
+  }) as unknown as typeof fetch;
+  const absent = new TestImage(missing),
+    present = new TestImage(available);
+  const style = {
+    maskImage: `url("${missing}"), linear-gradient(white, white)`,
+    webkitMaskImage: "",
+  };
+  const clone = {
+    querySelectorAll(selector: string) {
+      return selector === "img, svg image"
+        ? [absent, present]
+        : selector === "[style]"
+          ? [{ style }]
+          : [];
+    },
+  } as unknown as HTMLElement;
+  expect(await embedThumbnailImages(clone)).toBe(false);
+  expect(calls).toEqual([missing, available]);
+  expect(decodeURIComponent(absent.src)).toContain('fill="#eeeeee"');
+  expect(present.src).toBe("data:image/png;base64,AQID");
+  expect(style.maskImage).not.toContain(missing);
+  expect(style.maskImage).toContain("linear-gradient(white, white)");
+  expect(decodeURIComponent(style.maskImage)).toContain('width="1"');
+  await expect(embedDesignImages(clone)).rejects.toThrow(
+    "Could not include an image in the export.",
+  );
+});
+
+test("thumbnail cancellation is not converted into a successful partial capture", async () => {
+  const controller = new AbortController();
+  globalThis.fetch = (async () => {
+    controller.abort(new Error("Thumbnail canceled"));
+    return new Response(null, { status: 404 });
+  }) as unknown as typeof fetch;
+  const image = new TestImage("/__tidy/assets/project/pending");
+  const clone = {
+    querySelectorAll(selector: string) {
+      return selector === "img, svg image" ? [image] : [];
+    },
+  } as unknown as HTMLElement;
+  await expect(embedThumbnailImages(clone, controller.signal)).rejects.toThrow(
+    "Thumbnail canceled",
+  );
+  expect(image.src).toBe("/__tidy/assets/project/pending");
 });
 
 test("an export shares identical original bytes and in-flight reads, then releases them", async () => {

@@ -176,6 +176,72 @@ test("initial image downloads use bounded parallel work before the durable file 
   for (const assetId of ids) expect(await f.store.readSyncAsset(f.project.id, assetId)).toBe(image);
 });
 
+for (const action of ["stop", "disconnect"] as const) {
+  test(`${action} waits for active downloads after another asset fails`, async () => {
+    const f = await fixture();
+    const ids = Array.from({ length: 8 }, () => randomUUID());
+    f.remote.snapshot.revision++;
+    f.remote.snapshot.content.nodes.push(
+      ...ids.map((assetId, index) => ({
+        ...buildDrawnNode(`image-${index}`, "container", "frame", {
+          x: 0,
+          y: 0,
+          width: 20,
+          height: 20,
+        }),
+        type: "image" as const,
+        assetId,
+      })),
+    );
+    let started = 0,
+      active = 0,
+      failed = false,
+      settled = false;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    f.remote.downloadAsset = async (_fileId, assetId) => {
+      started++;
+      active++;
+      try {
+        if (assetId === ids[0]) {
+          await until(() => started === 4);
+          failed = true;
+          throw new Error("Image download failed");
+        }
+        // Model transport that cannot cancel an already-started read.
+        await gate;
+        return "data:image/png;base64,c3ludGhldGlj";
+      } finally {
+        active--;
+      }
+    };
+    f.sync.focus(f.project.id, f.design.id);
+    let stopping: Promise<void> | undefined;
+    try {
+      await until(() => failed);
+      stopping = (
+        action === "stop" ? f.sync.stop() : f.sync.disconnect(f.project.id, f.design.id)
+      ).then(() => {
+        settled = true;
+      });
+      await Bun.sleep(10);
+      expect(settled).toBe(false);
+      expect(active).toBe(3);
+      expect(started).toBe(4);
+    } finally {
+      release();
+      await stopping;
+    }
+    expect(settled).toBe(true);
+    expect(active).toBe(0);
+    expect(started).toBe(4);
+    for (const id of ids) expect(await f.store.readSyncAsset(f.project.id, id)).toBeUndefined();
+    if (action === "disconnect") expect(await f.state.read("bindings")).toEqual([]);
+  });
+}
+
 test("100 unchanged downloaded designs use a single manifest and no document reads or diffs", async () => {
   const f = await fixture();
   for (let i = 1; i < 100; i++) await f.sync.open(f.project.id, randomUUID(), "Cloud design");

@@ -8,19 +8,21 @@ export async function mapConcurrent<Input, Output>(
     throw new Error("Concurrency must be a positive integer.");
   const results: Output[] = new Array(values.length);
   let next = 0;
-  let failed = false;
+  let failure: { error: unknown } | undefined;
   await Promise.all(
     Array.from({ length: Math.min(limit, values.length) }, async () => {
-      while (!failed && next < values.length) {
+      while (!failure && next < values.length) {
         const index = next++;
         try {
           results[index] = await run(values[index], index);
         } catch (error) {
-          failed = true;
-          throw error;
+          // Stop assigning work, but keep the batch pending until every call
+          // already in flight has finished its side effects and cleanup.
+          failure ??= { error };
         }
       }
     }),
   );
+  if (failure) throw failure.error;
   return results;
 }

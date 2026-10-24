@@ -5,7 +5,7 @@ import { textFontSegments } from "@tidy/design/rich-text-runtime";
 import { useEffect, useRef } from "react";
 import type { DesignDocument } from "../../design/document";
 import { fontRegistry } from "../../design/fonts/runtime";
-import { embedDesignImages } from "../../design/export-images";
+import { embedDesignImages, embedThumbnailImages } from "../../design/export-images";
 import { resolvedDocumentNodes } from "../../design/design-tokens";
 export type Snapshot = {
   document: { content: DesignDocument; revision: number } | null;
@@ -65,12 +65,14 @@ export function ThumbnailRenderer({
   onError,
   assetUrl,
   pixelRatio = 1,
+  allowMissingImages = false,
 }: {
   snapshot: Snapshot;
   signal: AbortSignal;
   assetUrl?: (id: string) => string;
   pixelRatio?: number;
-  onComplete: (blob: Blob) => void;
+  allowMissingImages?: boolean;
+  onComplete: (blob: Blob, imagesComplete: boolean) => void;
   onError: (error: unknown) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
@@ -83,7 +85,7 @@ export function ThumbnailRenderer({
       if (signal.aborted || !active) return;
       const original = container.current?.querySelector("svg");
       if (!original) {
-        onComplete(await blankThumbnail());
+        onComplete(await blankThumbnail(), true);
         return;
       }
       const content = snapshot.document?.content;
@@ -121,7 +123,10 @@ export function ThumbnailRenderer({
         height = 320 * pixelRatio;
       clone.setAttribute("width", String(width));
       clone.setAttribute("height", String(height));
-      await embedDesignImages(clone as unknown as HTMLElement, signal);
+      let imagesComplete = true;
+      if (allowMissingImages)
+        imagesComplete = await embedThumbnailImages(clone as unknown as HTMLElement, signal);
+      else await embedDesignImages(clone as unknown as HTMLElement, signal);
       if (signal.aborted || !active) return;
       const image = new Image();
       image.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(new XMLSerializer().serializeToString(clone))}`;
@@ -138,7 +143,7 @@ export function ThumbnailRenderer({
           "image/png",
         ),
       );
-      if (active && !signal.aborted) onComplete(blob);
+      if (active && !signal.aborted) onComplete(blob, imagesComplete);
     }
     void capture().catch((error) => {
       if (active && !signal.aborted) onError(error);
@@ -146,7 +151,7 @@ export function ThumbnailRenderer({
     return () => {
       active = false;
     };
-  }, [snapshot, signal, onComplete, onError, pixelRatio]);
+  }, [snapshot, signal, onComplete, onError, pixelRatio, allowMissingImages]);
   return (
     <div
       data-thumbnail-renderer

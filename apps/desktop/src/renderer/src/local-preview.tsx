@@ -12,7 +12,7 @@ import {
 type Prepared = {
   design: LocalDesign;
   signal: AbortSignal;
-  complete(blob: Blob): void;
+  complete(blob: Blob, imagesComplete: boolean): void;
   fail(error: unknown): void;
 };
 
@@ -58,11 +58,12 @@ export function LocalPreview({
     if (!visible || !enabled) return;
     const version = `png-v1:2:${file.updatedAt}`;
     let disposed = false;
-    let complete = false;
+    let finished = false;
+    let retryOnFocus = false;
     let controller: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout>;
     const prepare = async () => {
-      if (disposed || complete || document.hidden) return;
+      if (disposed || finished || document.hidden) return;
       const request = new AbortController();
       controller = request;
       const timeout = setTimeout(() => request.abort(), 15_000);
@@ -70,20 +71,35 @@ export function LocalPreview({
         await queueThumbnail(async () => {
           const design = await api.previewDesign(projectId, file.id);
           request.signal.throwIfAborted();
-          const result = await new Promise<Blob>((resolve, reject) => {
-            request.signal.addEventListener("abort", () => reject(request.signal.reason), {
-              once: true,
-            });
-            setPrepared({ design, signal: request.signal, complete: resolve, fail: reject });
-          });
+          const result = await new Promise<{ blob: Blob; imagesComplete: boolean }>(
+            (resolve, reject) => {
+              request.signal.addEventListener("abort", () => reject(request.signal.reason), {
+                once: true,
+              });
+              setPrepared({
+                design,
+                signal: request.signal,
+                complete: (blob, imagesComplete) => resolve({ blob, imagesComplete }),
+                fail: reject,
+              });
+            },
+          );
           request.signal.throwIfAborted();
-          complete = true;
-          setBlob(result);
+          finished = true;
+          retryOnFocus = !result.imagesComplete;
+          setBlob(result.blob);
           setPrepared(undefined);
-          void cacheLocalThumbnail(projectId, file.id, version, result);
+          if (result.imagesComplete)
+            void cacheLocalThumbnail(projectId, file.id, version, result.blob);
         }, request.signal);
       } catch {
-        if (!disposed && controller === request) setPrepared(undefined);
+        if (!disposed && controller === request) {
+          if (!request.signal.aborted) {
+            finished = true;
+            retryOnFocus = true;
+          }
+          setPrepared(undefined);
+        }
       } finally {
         clearTimeout(timeout);
       }
@@ -92,24 +108,35 @@ export function LocalPreview({
       controller?.abort();
       clearTimeout(timer);
       setPrepared(undefined);
-      if (!disposed && !complete) timer = setTimeout(() => void prepare(), 200);
+      if (!disposed && !finished) timer = setTimeout(() => void prepare(), 200);
     };
+    const retry = () => {
+      if (!retryOnFocus || document.hidden) return;
+      finished = false;
+      retryOnFocus = false;
+      idle();
+    };
+    const visibility = () => (document.hidden ? idle() : retry());
     void readLocalThumbnail(projectId, file.id).then((cached) => {
-      if (disposed || complete) return;
+      if (disposed || finished) return;
       if (cached) setBlob(cached.blob);
-      if (cached?.version === version) complete = true;
+      if (cached?.version === version) finished = true;
       else idle();
     });
     const events = ["pointerdown", "keydown", "wheel"] as const;
     for (const event of events) window.addEventListener(event, idle, { passive: true });
-    document.addEventListener("visibilitychange", idle);
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    document.addEventListener("visibilitychange", visibility);
     return () => {
       disposed = true;
       controller?.abort();
       clearTimeout(timer);
       setPrepared(undefined);
       for (const event of events) window.removeEventListener(event, idle);
-      document.removeEventListener("visibilitychange", idle);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+      document.removeEventListener("visibilitychange", visibility);
     };
   }, [api, projectId, file.id, file.updatedAt, visible, enabled]);
   const assetURL = useCallback((id: string) => prepared?.design.assets[id] ?? "", [prepared]);
@@ -118,6 +145,7 @@ export function LocalPreview({
       {url ? <img src={url} alt="" draggable={false} /> : <Icon name="frame" size={24} />}
       {prepared && (
         <ThumbnailRenderer
+          allowMissingImages
           pixelRatio={2}
           snapshot={{
             document: { content: prepared.design.document, revision: 0 },

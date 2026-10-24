@@ -107,6 +107,29 @@ export async function embedDesignImages(
   parent?: AbortSignal,
   session?: ExportImageSession,
 ) {
+  await embedImages(clone, parent, session, false);
+}
+
+/** An unavailable image must not prevent a file card showing the rest of its
+ * artwork. Report incomplete captures so callers never persist them as current. */
+export function embedThumbnailImages(clone: HTMLElement, signal?: AbortSignal) {
+  return embedImages(clone, signal, undefined, true);
+}
+
+const missingPreviewImage =
+  "data:image/svg+xml," +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#eeeeee"/><path d="M22 22l20 20m0-20L22 42" stroke="#888888" stroke-width="2"/></svg>',
+  );
+const emptyMask =
+  "data:image/svg+xml," +
+  encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+async function embedImages(
+  clone: HTMLElement,
+  parent: AbortSignal | undefined,
+  session: ExportImageSession | undefined,
+  allowMissing: boolean,
+) {
   const signal =
     parent && session ? AbortSignal.any([parent, session.signal]) : (parent ?? session?.signal);
   signal?.throwIfAborted();
@@ -123,26 +146,36 @@ export async function embedDesignImages(
     if (!match || match[1].startsWith("data:")) return [];
     return [{ element, css, url: match[1] }];
   });
+  let complete = true;
   const data = new Map(
     await mapConcurrent(
       [...new Set([...sources, ...masks.map((mask) => mask.url)])],
       4,
       async (url) => {
-        return [url, await (session ? session.load(url) : originalDataUrl(url, signal))] as const;
+        try {
+          return [url, await (session ? session.load(url) : originalDataUrl(url, signal))] as const;
+        } catch (error) {
+          signal?.throwIfAborted();
+          if (!allowMissing) throw error;
+          complete = false;
+          return [url, undefined] as const;
+        }
       },
     ),
   );
   signal?.throwIfAborted();
   images.forEach((image, index) => {
-    if (image instanceof HTMLImageElement) image.src = data.get(sources[index])!;
-    else image.setAttribute("href", data.get(sources[index])!);
+    const source = data.get(sources[index]) ?? missingPreviewImage;
+    if (image instanceof HTMLImageElement) image.src = source;
+    else image.setAttribute("href", source);
   });
   for (const mask of masks) {
     const css = mask.css.replace(
       `url(${JSON.stringify(mask.url)})`,
-      `url(${JSON.stringify(data.get(mask.url)!)})`,
+      `url(${JSON.stringify(data.get(mask.url) ?? emptyMask)})`,
     );
     mask.element.style.maskImage = css;
     mask.element.style.webkitMaskImage = css;
   }
+  return complete;
 }

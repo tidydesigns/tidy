@@ -90,6 +90,51 @@ test("bounded concurrency preserves order with out-of-order completion", async (
   await expect(mapConcurrent([1], 0, async (value) => value)).rejects.toThrow("positive integer");
 });
 
+test("failed concurrent work stops assigning jobs and waits for already-started cleanup", async () => {
+  let fail!: () => void, release!: () => void;
+  const failGate = new Promise<void>((resolve) => {
+    fail = resolve;
+  });
+  const activeGate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const error = new Error("Download failed");
+  const started: number[] = [];
+  let settled = false,
+    cleaned = false;
+  const result = mapConcurrent([0, 1, 2, 3], 2, async (index) => {
+    started.push(index);
+    if (index === 0) {
+      await failGate;
+      throw error;
+    }
+    await activeGate;
+    cleaned = true;
+    return index;
+  }).then(
+    () => {
+      settled = true;
+      return undefined;
+    },
+    (error: unknown) => {
+      settled = true;
+      return error;
+    },
+  );
+  fail();
+  try {
+    await Bun.sleep(0);
+    expect(settled).toBe(false);
+    expect(cleaned).toBe(false);
+    expect(started).toEqual([0, 1]);
+  } finally {
+    release();
+  }
+  expect(await result).toBe(error);
+  expect(cleaned).toBe(true);
+  expect(started).toEqual([0, 1]);
+});
+
 test("frame telemetry uses a bounded histogram and ignores invalid timings", () => {
   const stats = new FrameStats();
   for (let i = 0; i < 95; i++) stats.add(16.6);
