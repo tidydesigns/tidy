@@ -765,8 +765,29 @@ export { blankDesignDocument } from "./document-defaults";
 
 export type DocumentParser = (input: unknown) => DesignDocument;
 
+// Stop at the first invalid layer instead of accumulating errors for every
+// layer in an untrusted import. Keep the discovery schema fully descriptive.
+const documentParserSchema = designDocumentSchema.extend({
+  nodes: z
+    .array(z.unknown())
+    .max(DESIGN_DOCUMENT_LIMITS.nodes)
+    .transform((nodes) =>
+      nodes.map((node, index) => {
+        try {
+          return designNodeSchema.parse(node);
+        } catch (error) {
+          if (error instanceof z.ZodError)
+            throw new z.ZodError(
+              error.issues.map((issue) => ({ ...issue, path: ["nodes", index, ...issue.path] })),
+            );
+          throw error;
+        }
+      }),
+    ),
+});
+
 export function parseDesignDocument(input: unknown): DesignDocument {
-  return validateDesignDocument(designDocumentSchema.parse(input));
+  return validateDesignDocument(documentParserSchema.parse(input));
 }
 
 /** Editor-owned frozen snapshots retain identity across equivalent validated states. */

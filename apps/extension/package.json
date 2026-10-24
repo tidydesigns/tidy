@@ -24,6 +24,6 @@
     "@wxt-dev/module-react": "^1.2.2",
     "typescript": "^5",
     "wxt": "^0.21.4",
-    "happy-dom": "^20.0.0"
+    "happy-dom": "^21.0.4"
   }
 }

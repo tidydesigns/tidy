@@ -46,7 +46,12 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/:path*",
-        headers: [{ key: "Strict-Transport-Security", value: "max-age=31536000" }],
+        headers: [
+          { key: "Strict-Transport-Security", value: "max-age=31536000" },
+          { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+        ],
       },
       {
         // Mirror public/_headers when Next serves assets instead of Cloudflare.

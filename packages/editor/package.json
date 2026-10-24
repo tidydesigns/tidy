@@ -140,7 +140,7 @@
     "fflate": "0.8.3",
     "pdf-lib": "1.17.1",
     "imagetracerjs": "1.2.6",
-    "zod": "^4.6.5"
+    "zod": "^4.6.6"
   },
   "peerDependencies": {
     "react": "19.2.8",

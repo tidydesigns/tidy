@@ -1,4 +1,4 @@
-import { withRequestBodyLimit } from "@/lib/http/request-body";
+import { withAuthRequestBodyLimit } from "@/lib/auth/request-body";
 import { auth } from "@/lib/auth";
 import { toNextJsHandler } from "better-auth/next-js";
 import { privacyReauthCallback } from "@/lib/privacy/reauth-callback";
@@ -13,4 +13,4 @@ export function GET(request: Request) {
     return privacyReauthCallback(request, "github");
   return handlers.GET(request);
 }
-export const POST = withRequestBodyLimit(handlers.POST);
+export const POST = withAuthRequestBodyLimit(handlers.POST);
