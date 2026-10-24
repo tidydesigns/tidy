@@ -117,7 +117,9 @@ export function ThreadDesignDock({
       : saved;
   });
   const latest = useRef(state);
-  latest.current = state;
+  useLayoutEffect(() => {
+    latest.current = state;
+  }, [state]);
   const [focusedId, setFocusedId] = useState(state.openIds.at(-1));
   const [outgoingIds, setOutgoingIds] = useState<string[]>([]);
   const layer = useRef<HTMLDivElement>(null);

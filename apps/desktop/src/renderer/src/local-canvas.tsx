@@ -13,6 +13,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   onUpdate,
   status,
   backLabel = "Back to designs",
+  backIcon,
   initialPanelsOpen = true,
   viewportMemory,
 }: {
@@ -24,6 +25,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   onUpdate(design: LocalDesign): void;
   status?: ReactNode;
   backLabel?: string;
+  backIcon?: ReactNode;
   initialPanelsOpen?: boolean;
   viewportMemory?: CanvasViewportMemory;
 }) {
@@ -118,6 +120,7 @@ export const LocalCanvas = memo(function LocalCanvas({
             className={className}
             aria-label={backLabel}
             title={backLabel}
+            data-canvas-back
             onClick={() => {
               let blocked = false;
               onNavigate?.({
@@ -128,28 +131,12 @@ export const LocalCanvas = memo(function LocalCanvas({
               if (!blocked) back.current();
             }}
           >
-            {backLabel === "Minimise canvas" ? (
-              <svg
-                aria-hidden="true"
-                width="18"
-                height="18"
-                viewBox="0 0 20 20"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M3 8h5V3m9 9h-5v5M8 8 3 3m9 9 5 5" />
-              </svg>
-            ) : (
-              children
-            )}
+            {backIcon ?? children}
           </button>
         );
       },
     }),
-    [backLabel],
+    [backLabel, backIcon],
   );
 
   return (

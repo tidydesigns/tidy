@@ -25,6 +25,21 @@ const exitEasing = "cubic-bezier(0.15, 0.65, 0.3, 1)";
 const previewRatio = 1.5;
 const minimumWidth = 220;
 const maximumWidth = 560;
+const minimiseIcon = (
+  <svg
+    aria-hidden="true"
+    width="18"
+    height="18"
+    viewBox="0 0 20 20"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 8h5V3m9 9h-5v5M8 8 3 3m9 9 5 5" />
+  </svg>
+);
 
 /** Align the live editor with the thumbnail before growing it into its full-size view. */
 function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, button: HTMLElement) {
@@ -104,6 +119,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const transitionEdge = useRef<HTMLDivElement>(null);
   const animations = useRef<Animation[]>([]);
   const generation = useRef(0);
+  const openRequest = useRef(0);
   const restoreFocus = useRef(false);
   const offset = useRef({
     x: initialGeometry?.x ?? Number.NaN,
@@ -127,6 +143,14 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const id = useId();
   const expanded = phase !== "closed";
   const ready = Boolean(summary && value?.id === summary.id);
+
+  // A read may finish after docking, switching windows, or leaving the thread.
+  useLayoutEffect(
+    () => () => {
+      openRequest.current++;
+    },
+    [active, floating, warm, summary.id],
+  );
 
   useEffect(() => {
     if (!ready || !active || !warm || !floating || visited) return;
@@ -389,7 +413,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   useEffect(() => {
     if (phase === "open")
       dialog.current
-        ?.querySelector<HTMLButtonElement>('[aria-label="Minimise canvas"]')
+        ?.querySelector<HTMLButtonElement>("[data-canvas-back]")
         ?.focus({ preventScroll: true });
     if (phase === "closed" && restoreFocus.current) {
       restoreFocus.current = false;
@@ -577,6 +601,19 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             if (!suppressClick.current || event.detail === 0) {
               if (!warm) flushSync(() => onActivate(summary.id));
               if (ready) transition(true);
+              else {
+                const request = ++openRequest.current;
+                void readPreview(summary).then(
+                  (design) => {
+                    if (request !== openRequest.current) return;
+                    flushSync(() => setValue(design));
+                    transition(true);
+                  },
+                  () => {
+                    /* Leave the preview available for another explicit retry. */
+                  },
+                );
+              }
             }
             suppressClick.current = false;
           }}
@@ -691,6 +728,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
               initialPanelsOpen={false}
               viewportMemory={viewportMemory}
               backLabel="Minimise canvas"
+              backIcon={minimiseIcon}
               onBack={minimise}
               onUpdate={update}
             />
