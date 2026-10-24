@@ -56,6 +56,7 @@ test("paste in place preserves canvas position across pages and target frames", 
     pageId: "target-page",
     parentId: "target-frame",
     inPlace: true,
+    position: { x: 900, y: 700 },
     createId: () => "pasted",
   });
   expect(pasted.document.nodes.at(-1)).toMatchObject({
@@ -63,6 +64,36 @@ test("paste in place preserves canvas position across pages and target frames", 
     pageId: "target-page",
     box: { x: 50, y: 150 },
   });
+});
+
+test("cross-file paste places frames at the cursor and preserves children and spacing", () => {
+  const source = {
+    ...blankDesignDocument(),
+    nodes: [
+      {
+        ...layer("frame"),
+        type: "artboard" as const,
+        box: { x: 1200, y: 1800, width: 300, height: 200 },
+      },
+      layer("child", "frame"),
+      { ...layer("other"), box: { x: 1600, y: 1900, width: 100, height: 50 } },
+    ],
+  };
+  const payload = readDesignClipboard(copyLayers(source, ["frame", "other"], "source"))!;
+  let id = 0;
+  const pasted = pasteLayers(blankDesignDocument(), payload, {
+    fileId: "target",
+    pageId: "page-1",
+    parentId: null,
+    position: { x: -100, y: 240 },
+    createId: () => `copy-${++id}`,
+  });
+  expect(pasted.document.nodes[0]).toMatchObject({
+    parentId: null,
+    box: { x: -100, y: 240, width: 300, height: 200 },
+  });
+  expect(pasted.document.nodes[1]).toMatchObject({ parentId: "copy-1", box: source.nodes[1].box });
+  expect(pasted.document.nodes[2].box).toMatchObject({ x: 300, y: 340 });
 });
 
 test("paste rejects locked, inherited-hidden, or wrong-page target frames", () => {
@@ -186,7 +217,12 @@ test("layer relocation preserves absolute position, ordering, and prevents desce
 });
 
 test("Figma paste keeps component dependencies off the destination page and selection", () => {
-  const master = { ...layer("master"), isComponent: true, pageId: "figma-components" };
+  const master = {
+    ...layer("master"),
+    isComponent: true,
+    pageId: "figma-components",
+    box: { x: -10000, y: -20000, width: 100, height: 50 },
+  };
   const child = { ...layer("child", "master"), pageId: "figma-components" };
   const instance = { ...layer("instance"), instanceOf: master.id, componentSourceId: master.id };
   const copy = { ...layer("copy", "instance"), instanceOf: master.id, componentSourceId: child.id };
@@ -204,6 +240,7 @@ test("Figma paste keeps component dependencies off the destination page and sele
       fileId: "target",
       pageId: "page-1",
       parentId: null,
+      position: { x: 600, y: 500 },
       createId: () => `copy-${++index}`,
       importedDependencyIds: new Set([master.id, child.id]),
     },
@@ -217,6 +254,8 @@ test("Figma paste keeps component dependencies off the destination page and sele
     pasted.document.nodes.slice(0, 2).every((node) => node.pageId === "figma-components"),
   ).toBe(true);
   expect(pasted.document.nodes[2]).toMatchObject({ pageId: "page-1", instanceOf: "copy-1" });
+  expect(pasted.document.nodes[0].box).toEqual(master.box);
+  expect(pasted.document.nodes[2].box).toMatchObject({ x: 600, y: 500 });
   expect(pasted.document.nodes[3]).toMatchObject({
     parentId: "copy-3",
     componentSourceId: "copy-2",

@@ -187,6 +187,7 @@ export function pasteLayers(
     pageId: string;
     parentId: string | null;
     inPlace?: boolean;
+    position?: { x: number; y: number };
     createId: () => string;
     boxes?: MeasuredBoxes;
     importedDependencyIds?: ReadonlySet<string>;
@@ -202,6 +203,14 @@ export function pasteLayers(
     for (const id of componentSubtreeIds(payload.nodes, n.id)) libraryIds.add(id);
   const dependencyIds = options.importedDependencyIds ?? new Set<string>();
   const roots = payload.nodes.filter((node) => node.parentId === null);
+  const resolvedById = new Map(payload.resolvedNodes?.map((node) => [node.id, node]));
+  const placedRoots = roots.filter((node) => !node.librarySource && !dependencyIds.has(node.id));
+  const offset = { x: options.inPlace ? 0 : 24, y: options.inPlace ? 0 : 24 };
+  if (!options.inPlace && options.position && placedRoots.length) {
+    const boxes = placedRoots.map((node) => (resolvedById.get(node.id) ?? node).box);
+    offset.x = options.position.x - Math.min(...boxes.map((box) => box.x));
+    offset.y = options.position.y - Math.min(...boxes.map((box) => box.y));
+  }
   const parent = options.parentId ? existing.get(options.parentId) : undefined;
   if (
     options.parentId &&
@@ -223,9 +232,7 @@ export function pasteLayers(
     const hasMaster =
       node.instanceOf && (ids.has(node.instanceOf) || (sameFile && existing.has(node.instanceOf)));
     const detached = Boolean(node.instanceOf && !hasMaster);
-    const appearance = detached
-      ? (payload.resolvedNodes?.find((item) => item.id === node.id) ?? node)
-      : node;
+    const appearance = detached ? (resolvedById.get(node.id) ?? node) : node;
     const styled = imported.node(appearance);
     const parentId = root
       ? node.type === "artboard"
@@ -235,13 +242,15 @@ export function pasteLayers(
           : options.parentId
       : ids.get(node.parentId!)!;
     const geometrySource =
-      root && hasMaster
-        ? imported.node(payload.resolvedNodes?.find((item) => item.id === node.id) ?? appearance)
-        : styled;
+      root && hasMaster ? imported.node(resolvedById.get(node.id) ?? appearance) : styled;
     const placementBox = {
       ...geometrySource.box,
-      x: geometrySource.box.x + (options.inPlace || dependencyIds.has(node.id) ? 0 : 24),
-      y: geometrySource.box.y + (options.inPlace || dependencyIds.has(node.id) ? 0 : 24),
+      x:
+        geometrySource.box.x +
+        (libraryIds.has(node.id) || dependencyIds.has(node.id) ? 0 : offset.x),
+      y:
+        geometrySource.box.y +
+        (libraryIds.has(node.id) || dependencyIds.has(node.id) ? 0 : offset.y),
     };
     const placed = root
       ? reparentGeometry(

@@ -1284,6 +1284,7 @@ export function FileEditor({
     );
   }
 
+  const canvasPointer = useRef<{ clientX: number; clientY: number } | null>(null);
   const cursorPresenceFrame = useFrameEvent((clientX: number, clientY: number) => {
     room.publishPresence({ cursor: worldPoint({ clientX, clientY }), away: false });
   });
@@ -2145,6 +2146,7 @@ export function FileEditor({
     selection,
     pageId: currentPageId,
     readOnly,
+    position: canvasPointer.current ? worldPoint(canvasPointer.current) : undefined,
   }));
   const commitClipboard = useEditorEvent(
     (
@@ -2155,6 +2157,7 @@ export function FileEditor({
         pageId: string;
         request: number;
         boxes: Map<string, DesignNode["box"]>;
+        position?: Point;
       },
       inPlace: boolean,
       importWarnings: DesignDocument["warnings"] = [],
@@ -2182,6 +2185,7 @@ export function FileEditor({
             pageId: context.pageId,
             parentId: context.parentId,
             inPlace,
+            position: context.position,
             boxes: current.pageId === context.pageId ? measuredBoxes() : context.boxes,
             createId: () => ids.get(payload.nodes[index++].id)!,
             importedDependencyIds,
@@ -2227,6 +2231,7 @@ export function FileEditor({
       pageId: current.pageId,
       request: origin.request,
       boxes: origin.boxes,
+      position: origin.position,
     };
     const signal = clipboardController.current?.signal;
     try {
@@ -2240,6 +2245,7 @@ export function FileEditor({
           pageId: current.pageId,
           parentId,
           inPlace,
+          position: context.position,
           boxes: context.boxes,
           createId: () => crypto.randomUUID(),
         });
@@ -2282,6 +2288,7 @@ export function FileEditor({
       pageId: origin.pageId,
       request: origin.request,
       boxes: origin.boxes,
+      position: origin.position,
     };
     const signal = clipboardController.current?.signal;
     try {
@@ -2304,8 +2311,11 @@ export function FileEditor({
         fileId,
         pageId: context.pageId,
         parentId,
+        inPlace,
+        position: context.position,
         boxes: context.boxes,
         createId: () => crypto.randomUUID(),
+        importedDependencyIds: dependencies,
       });
       const assetIds = new Map<string, string>();
       for (const asset of result.assets) {
@@ -4525,22 +4535,30 @@ export function FileEditor({
           const node = id ? nodesById.get(id) : undefined;
           if (node) artworkDoubleClick(node, event);
         }}
+        onPointerEnter={(event) => {
+          canvasPointer.current = { clientX: event.clientX, clientY: event.clientY };
+        }}
         onPointerMoveCapture={(event) => {
           if (
             preview ||
             (event.target instanceof Element && event.target.closest("[data-canvas-control]"))
           )
             return;
+          canvasPointer.current = { clientX: event.clientX, clientY: event.clientY };
           cursorPresenceFrame.schedule(event.clientX, event.clientY);
         }}
         onPointerLeave={() => {
+          canvasPointer.current = null;
           cursorPresenceFrame.cancel();
           room.publishPresence({ cursor: null }, true);
         }}
         onContextMenu={(event) => {
           if (viewPreferences.rightClickPan) event.preventDefault();
         }}
-        onPointerDownCapture={beginSelectedLayersDrag}
+        onPointerDownCapture={(event) => {
+          canvasPointer.current = { clientX: event.clientX, clientY: event.clientY };
+          beginSelectedLayersDrag(event);
+        }}
         onContextMenuCapture={(event) => {
           if (selectedIds.length < 2 || readOnly || prototypeMode) return;
           if ((event.target as Element).closest("[data-canvas-control]")) return;
