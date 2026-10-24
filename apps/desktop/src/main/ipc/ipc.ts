@@ -211,3 +211,45 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
     }
   });
 }
+import { analyticsChoicesSchema } from "@tidy/design/analytics";
+import type { DesktopAnalytics } from "../analytics";
+
+/** Privacy capabilities never expose bearer receipts or arbitrary capture/network access. */
+export function registerAnalyticsIPC(analytics: DesktopAnalytics, rendererURL: string) {
+  let lastPerformance = 0;
+  ipcMain.handle("tidy:analytics", async (event, action: unknown, ...args: unknown[]) => {
+    if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
+    if (action === "choose" && args.length === 1)
+      return analytics.choose(analyticsChoicesSchema.parse(args[0]));
+    if (
+      action === "performance" &&
+      args.length === 1 &&
+      ["under_100ms", "under_1s", "under_5s", "over_5s"].includes(String(args[0]))
+    ) {
+      if (Date.now() - lastPerformance >= 60_000) {
+        lastPerformance = Date.now();
+        analytics.capture({
+          name: "desktop_performance",
+          operation: "interaction",
+          duration: args[0] as "under_100ms" | "under_1s" | "under_5s" | "over_5s",
+        });
+      }
+      return;
+    }
+    if (args.length) throw new Error("Invalid privacy request.");
+    if (action === "state") {
+      await analytics.refresh();
+      return analytics.state();
+    }
+    if (action === "link") return analytics.link();
+    if (action === "unlink") return analytics.unlink();
+    if (action === "erase") return analytics.erase();
+    if (action === "reports") return analytics.reports();
+    if (action === "policy") return analytics.policy();
+    if (action === "renderer-error") {
+      analytics.error("renderer");
+      return;
+    }
+    throw new Error("Invalid privacy request.");
+  });
+}

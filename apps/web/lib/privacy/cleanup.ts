@@ -4,6 +4,8 @@ import { designBucket } from "@/lib/storage/design-objects";
 import { feedbackBucket } from "@/lib/feedback/storage";
 import { runnerRequest } from "@/lib/agents/runner-client";
 import { maintainConsentRecords } from "./consent-store";
+import { analyticsStorageEnabled } from "@/lib/analytics/store";
+import { maintainProductAnalytics } from "@/lib/analytics/store";
 import { maintainMcpConsentRecords } from "./mcp-consent";
 
 type CleanupJob = {
@@ -87,6 +89,7 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
 }
 
 export async function processPrivacyCleanup(limit = 1) {
+  if (analyticsStorageEnabled()) await maintainProductAnalytics();
   await maintainConsentRecords();
   await maintainMcpConsentRecords();
   let completed = 0,

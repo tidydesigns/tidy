@@ -110,6 +110,11 @@ export async function recordConsent(
         await client.query('update "privacyConsent" set "retiredAt"=now() where id=$1', [
           previous.id,
         ]);
+      if (analyticsStorageEnabled() && (!consent.analytics || !sameContext))
+        await client.query(
+          `delete from "productAnalyticsEvent" where "browserConsentId" in (select id from "privacyConsent" where "browserId"=$1)`,
+          [previous.browserId],
+        );
     }
     await client.query("commit");
     return { token, decision };
@@ -198,3 +203,4 @@ export async function maintainConsentRecords() {
     client.release();
   }
 }
+import { analyticsStorageEnabled } from "@/lib/analytics/store";

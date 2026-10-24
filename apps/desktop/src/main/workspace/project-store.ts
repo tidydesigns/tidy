@@ -64,6 +64,7 @@ function missing(error: unknown) {
 }
 /** Project directories are explicitly selected on the host, then addressed by IDs. */
 export class ProjectStore {
+  analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   private registry: z.infer<typeof registrySchema> = {
     version: 1,
     activeProjectId: null,
@@ -524,6 +525,11 @@ export class ProjectStore {
       name,
       folderId,
       document: parseDesignDocument(document),
+    });
+    this.analytics?.({
+      name: "design_file_created",
+      storage: this.project(projectId).cloud ? "cloud" : "local",
+      kind: imported ? "import" : "new",
     });
     return this.readDesign(projectId, designId);
   }

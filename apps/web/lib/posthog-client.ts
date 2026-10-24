@@ -1,4 +1,5 @@
 import { diagnosticError } from "@tidy/ui/errors";
+import { captureWebProduct } from "@/lib/analytics/web-client";
 import type { PostHog, PostHogConfig } from "posthog-js";
 import {
   browserConsent,
@@ -223,6 +224,7 @@ async function initializeClient() {
       $app_version: process.env.NEXT_PUBLIC_APP_VERSION,
       tidy_consent_receipt: receipt.id,
     });
+    if (consent.analytics) captureWebProduct("product_active_day");
   } catch {
     // Retry failed essential receipt delivery. Capture stays stopped in the meantime.
     if (generation === revision)
@@ -302,6 +304,7 @@ export function captureForCurrentSession(): PostHog["capture"] {
 const posthog: Pick<PostHog, "capture" | "captureException" | "identify" | "reset"> = {
   capture: (event, properties) => {
     if (!hasOptionalConsent(browserConsent())) return;
+    if (current("analytics")) captureWebProduct(event);
     if (client) return client.capture(event, properties);
     afterInitialization((sdk) => sdk.capture(event, properties));
   },

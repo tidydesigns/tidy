@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import { analyticsStateSchema } from "@tidy/design/analytics";
 import {
   projectSnapshotSchema,
   parseWorkspaceResponse,
@@ -30,6 +31,29 @@ async function request<Name extends WorkspaceOperation>(
 const api: DesktopAPI = {
   reloadApp: async () => {
     await ipcRenderer.invoke("tidy:reload-app");
+  },
+  analytics: {
+    reportError: async () => {
+      await ipcRenderer.invoke("tidy:analytics", "renderer-error");
+    },
+    performance: async (duration) => {
+      await ipcRenderer.invoke("tidy:analytics", "performance", duration);
+    },
+    state: async () =>
+      analyticsStateSchema.parse(await ipcRenderer.invoke("tidy:analytics", "state")),
+    choose: async (choices) =>
+      analyticsStateSchema.parse(await ipcRenderer.invoke("tidy:analytics", "choose", choices)),
+    link: async () => {
+      await ipcRenderer.invoke("tidy:analytics", "link");
+    },
+    unlink: async () =>
+      analyticsStateSchema.parse(await ipcRenderer.invoke("tidy:analytics", "unlink")),
+    erase: async () =>
+      analyticsStateSchema.parse(await ipcRenderer.invoke("tidy:analytics", "erase")),
+    reports: async () => String(await ipcRenderer.invoke("tidy:analytics", "reports")),
+    policy: async () => {
+      await ipcRenderer.invoke("tidy:analytics", "policy");
+    },
   },
   customTitlebar: process.platform === "darwin",
   onWindowFullscreen(listener) {

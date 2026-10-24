@@ -74,7 +74,8 @@
     "test:acceptance:local": "bun apps/web/scripts/run-authenticated-editor-acceptance.ts",
     "dev:desktop:browser": "bun run --cwd apps/desktop dev:browser",
     "release:desktop:mac": "bun run --cwd apps/desktop release:mac",
-    "typecheck:tsc": "turbo run typecheck:tsc"
+    "typecheck:tsc": "turbo run typecheck:tsc",
+    "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

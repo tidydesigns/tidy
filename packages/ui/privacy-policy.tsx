@@ -14,9 +14,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 21 October 2026</p>
+        <p className="policy-date">Last updated: 24 October 2026</p>
         <p>
-          This notice covers tidydesign.co, the hosted Tidy app, registration, login and connected
+          This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login and connected
           features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
           controller for account administration, security, support and the PostHog processing
           described below. Contact <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a> about
@@ -83,6 +83,73 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
       </section>
 
+      <Section id="desktop-privacy" title="Desktop: local data and optional reports">
+        <p>
+          Desktop works without an account or optional reporting. Local projects, designs, paths,
+          thread history and harness credentials are not uploaded for analytics. Connecting to a
+          cloud workspace synchronizes the designs and assets you choose; this functional processing
+          is separate from usage reporting. Release checks contact GitHub, and harness updates and
+          model use contact the relevant providers. Those services receive network connection
+          information. Essential-only use does not mean the app makes no network requests.
+        </p>
+        <p>
+          <strong>Share usage statistics — optional consent.</strong> Off by default, this choice
+          reports first observed use, active days, app version and architecture, actual harness runs
+          and their outcomes, design creation/import and initial cloud publication. Reports use a
+          random, resettable installation identifier. This is pseudonymous data, not anonymous data;
+          an account is not required. First observed use is not proof of the original install date,
+          and resetting choices or reinstalling can change the identifier. Downloads are measured
+          separately using GitHub file counters, which include automated verification.
+        </p>
+        <p>
+          <strong>Share technical diagnostics — separate optional consent.</strong> Also off by
+          default, this reports reviewed error categories, coarse startup/interaction timings,
+          update outcomes and sync state transitions. It does not upload raw error messages, console
+          or terminal output, stack memory, screenshots, prompts, responses, design contents,
+          filenames, paths, credentials or device fingerprints. Desktop has no session replay or
+          click autocapture. A local log is limited to 100 reviewed error categories, pruned to the
+          preceding seven days at startup and hourly while the app runs, and is not automatically
+          uploaded as a log file.
+        </p>
+        <p>
+          <strong>Link desktop and web usage — optional.</strong> After enabling desktop usage, you
+          can request account linking in Settings → Privacy and confirm it in your browser. Signing
+          in or authorizing cloud sync does not grant this permission. Linking applies to future
+          activity only. Web activity is included only with web usage consent. Tidy keeps the
+          account mapping privately; detailed desktop reports are not sent to PostHog and are not
+          merged with legacy web profiles or MCP troubleshooting identifiers. Remove linking from
+          desktop Privacy settings or your web account privacy controls.
+        </p>
+        <p>
+          Tidy stores detailed desktop and newly linked web product reports in its first-party
+          database. Usage reports expire after 90 days and technical reports after 30 days. Expired
+          reports are excluded from reporting immediately and removed by scheduled maintenance,
+          normally every five minutes. Maintenance failures can delay physical removal and require
+          operator action; backup copies follow the hosting retention and restore procedures.
+          Download snapshots have a 400-day limit. Raw desktop reports are not forwarded to PostHog:
+          an independently enabled export sends only aggregate counts under a service identifier,
+          with small product cohorts suppressed. These exports contain no installation or account
+          identifiers and follow the PostHog storage settings described below, rather than the raw
+          first-party expiry periods.
+        </p>
+        <p>
+          Privacy choices expire after 90 days and changed purposes require a new choice. Change
+          either choice, download your reports, or stop sharing and request their deletion in
+          Settings → Privacy. Turning a purpose off immediately stops its local collection; this
+          version resets its reporting identity and removes the previous receipt&#39;s reports.
+          Offline deletion waits for reconnection, while old server records remain subject to
+          expiry. Account deletion removes linked reports. Account-free users can export or erase
+          reports using their private installation receipt; if it is lost, contact us, although we
+          may be unable to identify those records. These controls do not delete your local work.
+        </p>
+        <p>
+          Hosting infrastructure processes connection information, including IP addresses, to
+          deliver and secure requests. We do not use IP addresses to identify installations in
+          product reports or send client IP headers to the aggregate analytics provider. Optional
+          desktop collection can remain unavailable until its storage and maintenance are
+          configured.
+        </p>
+      </Section>
       <Section
         id="posthog"
         title="PostHog: functional settings, server monitoring and optional browser features"

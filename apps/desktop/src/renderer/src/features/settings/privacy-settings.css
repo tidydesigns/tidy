@@ -1,0 +1,33 @@
+.settings-privacy {
+  margin-top: 40px;
+}
+.settings-privacy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin: 24px 0;
+}
+.settings-privacy-row h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.settings-privacy-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.settings-privacy-switch {
+  min-width: 48px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink);
+}
+.settings-privacy-switch[aria-checked="true"] {
+  background: color-mix(in srgb, currentColor 8%, transparent);
+  border-color: var(--color-muted-ink);
+}

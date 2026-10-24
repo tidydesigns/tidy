@@ -191,7 +191,8 @@ integration(
       expect(response.headers.get("set-cookie")).not.toContain("tidy_consent=");
       const body = await response.json();
       expect(body.user).toBeNull();
-      expect(Object.keys(body).sort()).toEqual(["browserId", "id", "user"]);
+      expect(Object.keys(body).sort()).toEqual(["browserId", "id", "productAnalytics", "user"]);
+      expect(body.productAnalytics).toBe(false);
       const consent = {
         ...choice,
         version: CONSENT_VERSION,

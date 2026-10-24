@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 
 // Own the entire cluster so the destructive fixtures never share a real database.
 const suites = {
+  analytics: [
+    "tidy_analytics_test",
+    "ANALYTICS_TEST_DATABASE_URL",
+    "analytics/analytics.integration.test.mjs",
+  ],
   privacy: [
     "tidy_privacy_test",
     "PRIVACY_TEST_DATABASE_URL",
@@ -134,6 +139,7 @@ try {
       "agents",
       "personal",
       "privacy",
+      "analytics",
       "github",
       "mcp",
       "versions",
@@ -161,6 +167,7 @@ try {
       "agents",
       "personal",
       "privacy",
+      "analytics",
       "github",
       "mcp",
       "versions",
@@ -189,6 +196,7 @@ try {
       ...(suite === "linear" ? { LINEAR_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "agents" ? { AGENTS_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "privacy" ? { PRIVACY_SETUP_DATABASE_URL: url } : {}),
+      ...(suite === "analytics" ? { ANALYTICS_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "personal" ? { PERSONAL_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "github" ? { GITHUB_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "mcp" ? { MCP_SETUP_DATABASE_URL: url } : {}),

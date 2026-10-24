@@ -1,6 +1,7 @@
 "use client";
 
 import { PrivacyChoicesButton } from "@/components/privacy/privacy-choices-button";
+import { DesktopAnalyticsControl } from "@/components/privacy/desktop-analytics-control";
 import { ThemePreferenceControl } from "@/components/ui/theme-preference";
 import { EditorPanelPreferenceControl } from "@/components/ui/editor-panel-preference";
 import { EditorToolbarPreferenceControl } from "@/components/ui/editor-toolbar-preference";
@@ -47,6 +48,7 @@ export function PreferenceControls({
           Privacy
         </h2>
         <PrivacyChoicesButton />
+        <DesktopAnalyticsControl />
       </section>
     </div>
   );

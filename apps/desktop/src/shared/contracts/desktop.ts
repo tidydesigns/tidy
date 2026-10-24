@@ -149,6 +149,7 @@ export type Bootstrap = {
 export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
   reloadApp?(): Promise<void>;
+  analytics?: import("@tidy/design/analytics").AnalyticsAPI;
   /** The native window controls overlay the renderer on macOS. Absent in browser development. */
   readonly customTitlebar?: boolean;
   /** Native window notifications; absent in browser development. */

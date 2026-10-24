@@ -41,7 +41,8 @@ for migration in \
   20261016-mcp-analytics-consent.sql \
   20261017-file-history-capacity.sql \
   20261019-service-synchronization.sql \
-  20261021-combined-privacy-consent.sql
+  20261021-combined-privacy-consent.sql \
+  20261024-desktop-analytics.sql
 do
   set -- "$@" -f "$migrations_dir/$migration"
 done

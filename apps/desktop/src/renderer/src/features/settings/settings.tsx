@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { CloudConnection } from "../cloud/use-cloud";
+import { PrivacySettings } from "./privacy-settings";
 
 export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): void }) {
   const back = useRef<HTMLButtonElement>(null);
@@ -26,6 +27,9 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
           <span className="settings-label">Settings</span>
           <a href="#settings-account" className="settings-section" aria-current="page">
             Account
+          </a>
+          <a href="#settings-privacy" className="settings-section">
+            Privacy
           </a>
         </nav>
       </aside>
@@ -75,6 +79,7 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
               Local projects stay on this computer unless you add them to a workspace.
             </p>
           </section>
+          <PrivacySettings />
         </div>
       </main>
     </>
