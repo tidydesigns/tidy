@@ -51,6 +51,51 @@ test("rejects options and missing branches without changing HEAD", async () => {
   expect((await readRepositoryContext(cwd)).branch).toBe("main");
 });
 
+test.each(["repository", "index", "config"] as const)(
+  "ignores inherited Git %s overrides and leaves the other repository untouched",
+  async (override) => {
+    const selected = await fixture();
+    const other = await fixture();
+    const otherIndex = await readFile(join(other.cwd, ".git/index"));
+    const overrides = {
+      repository: {
+        GIT_DIR: join(other.cwd, ".git"),
+        GIT_COMMON_DIR: join(other.cwd, ".git"),
+        GIT_WORK_TREE: other.cwd,
+        GIT_OBJECT_DIRECTORY: join(other.cwd, ".git/objects"),
+      },
+      index: { GIT_INDEX_FILE: join(other.cwd, ".git/index") },
+      config: {
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.bare",
+        GIT_CONFIG_VALUE_0: "true",
+      },
+    }[override];
+    const module = new URL("./repository-context.ts", import.meta.url).href;
+    const { stdout } = await execute(
+      process.execPath,
+      [
+        "-e",
+        `import { repositoryRoot, readRepositoryContext, switchRepositoryBranch } from ${JSON.stringify(module)};
+const cwd = ${JSON.stringify(selected.cwd)};
+console.log(JSON.stringify({root: await repositoryRoot(cwd), before: await readRepositoryContext(cwd), after: await switchRepositoryBranch(cwd, "feature")}));`,
+      ],
+      { env: { ...process.env, ...overrides } },
+    );
+    const result = JSON.parse(stdout);
+    expect(result.root).toBe(
+      await selected.git(["rev-parse", "--show-toplevel"]).then((r) => r.stdout.trim()),
+    );
+    expect(repositoryContextSchema.parse(result.before).branch).toBe("main");
+    expect(repositoryContextSchema.parse(result.after).branch).toBe("feature");
+    expect((await readRepositoryContext(selected.cwd)).branch).toBe("feature");
+    expect((await readRepositoryContext(other.cwd)).branch).toBe("main");
+    expect(await readFile(join(selected.cwd, "file.txt"), "utf8")).toBe("feature\n");
+    expect(await readFile(join(other.cwd, "file.txt"), "utf8")).toBe("main\n");
+    expect(await readFile(join(other.cwd, ".git/index"))).toEqual(otherIndex);
+  },
+);
+
 test("preserves conflicting uncommitted work and does not run checkout hooks", async () => {
   const { cwd } = await fixture();
   await writeFile(join(cwd, "file.txt"), "unsaved work\n");

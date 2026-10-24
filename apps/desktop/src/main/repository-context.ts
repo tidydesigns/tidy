@@ -6,11 +6,15 @@ import { branchNameSchema, repositoryContextSchema } from "../shared/repository-
 const execute = promisify(execFile);
 
 async function git(cwd: string, args: string[]) {
+  // Terminal Git overrides must not redirect operations away from the selected project.
+  const environment = Object.fromEntries(
+    Object.entries(process.env).filter(([name]) => !name.toUpperCase().startsWith("GIT_")),
+  );
   const { stdout } = await execute("git", args, {
     cwd,
     timeout: 10_000,
     maxBuffer: 2 * 1024 * 1024,
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+    env: { ...environment, GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
   });
   return stdout.trim();
 }
