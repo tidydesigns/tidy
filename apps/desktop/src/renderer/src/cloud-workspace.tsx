@@ -39,7 +39,7 @@ export function CloudWorkspace({
   onCanvasChange(focused: boolean): void;
 }) {
   const [catalog, setCatalog] = useState<CloudCatalog>();
-  const [asOf] = useState(() => new Date().toISOString());
+  const [asOf, setAsOf] = useState(() => new Date().toISOString());
   const [browser, setBrowser] = useSessionState(
     `cloud:${cloud.state?.accountId}:${organizationId}`,
     fileBrowserSchema,
@@ -151,7 +151,9 @@ export function CloudWorkspace({
   useEffect(() => {
     if (!active) return;
     const update = () => {
-      if (!document.hidden) refresh.current();
+      if (document.hidden) return;
+      setAsOf(new Date().toISOString());
+      refresh.current();
     };
     const timer = setInterval(update, 30_000);
     window.addEventListener("focus", update);

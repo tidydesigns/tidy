@@ -57,7 +57,7 @@ export function ProjectFiles({
   };
 }) {
   const projectId = snapshot.project.id;
-  const [asOf] = useState(() => new Date().toISOString());
+  const [asOf, setAsOf] = useState(() => new Date().toISOString());
   const [folderId, setFolderId] = useSessionState(
     `folder:${projectId}`,
     z.string().nullable(),
@@ -71,6 +71,21 @@ export function ProjectFiles({
     }
   });
   const [editing, setEditing] = useState<Editing | null>(null);
+  useEffect(() => {
+    if (!active || view !== "list") return;
+    const update = () => {
+      if (!document.hidden) setAsOf(new Date().toISOString());
+    };
+    update();
+    const timer = setInterval(update, 30_000);
+    window.addEventListener("focus", update);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", update);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, [active, view]);
   const [name, setName] = useState("");
   const [pending, setPending] = useState(false);
   const [, setError] = useErrorNotice();
