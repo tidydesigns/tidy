@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { useSessionState } from "./session-state";
 import { useErrorNotice } from "@tidy/ui/use-error-notice";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
@@ -46,7 +48,11 @@ export function ProjectFiles({
   };
 }) {
   const projectId = snapshot.project.id;
-  const [folderId, setFolderId] = useState<string | null>(null);
+  const [folderId, setFolderId] = useSessionState(
+    `folder:${projectId}`,
+    z.string().nullable(),
+    null,
+  );
   const [view, setView] = useState<"grid" | "list">(() => {
     try {
       return localStorage.getItem("tidy:design-file-view") === "list" ? "list" : "grid";

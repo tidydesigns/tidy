@@ -1,3 +1,5 @@
+import { useSessionState } from "./session-state";
+import { fileBrowserSchema, emptyFileBrowser } from "../../shared/navigation-state";
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
@@ -29,9 +31,27 @@ export function CloudWorkspace({
   onCanvasChange(focused: boolean): void;
 }) {
   const [catalog, setCatalog] = useState<CloudCatalog>();
-  const [folder, setFolder] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [browser, setBrowser] = useSessionState(
+    `cloud:${cloud.state?.accountId}:${organizationId}`,
+    fileBrowserSchema,
+    emptyFileBrowser,
+  );
+  const { folder, query, view } = browser;
+  const cancelOpening = () => {
+    restored.current = true;
+    selection.current++;
+    setOpening(undefined);
+  };
+  const setFolder = (folder: string | null) => {
+    cancelOpening();
+    setBrowser((value) => ({ ...value, folder, query: "", fileId: null }));
+  };
+  const setQuery = (query: string) => {
+    cancelOpening();
+    setBrowser((value) => ({ ...value, query, fileId: null }));
+  };
+  const setView = (view: "grid" | "list") => setBrowser((value) => ({ ...value, view }));
+  const restored = useRef(false);
   const [opened, setOpened] = useState<CloudOpened>();
   const [canvasVisible, setCanvasVisible] = useState(false);
   const [localFiles, setLocalFiles] = useState<Record<string, DesignSummary>>({});
@@ -66,8 +86,6 @@ export function CloudWorkspace({
     setOpening(undefined);
     setCreating(false);
     setCatalog(undefined);
-    setFolder(null);
-    setQuery("");
     setError("");
     setOffline(false);
     const remote = api.cloud;
@@ -150,8 +168,16 @@ export function CloudWorkspace({
       setOpened((value) => (value?.design.id === design.id ? { ...value, design } : value)),
     [],
   );
+  useEffect(() => {
+    if (!active || !catalog || restored.current || !browser.fileId) return;
+    const file = catalog.files.find((file) => file.id === browser.fileId);
+    if (!file) return;
+    restored.current = true;
+    void open(file);
+  }, [active, catalog, browser.fileId]);
   async function open(file: CloudFile) {
     if (!api.cloud || opening === file.id) return;
+    restored.current = true;
     const version = ++selection.current;
     setCreating(false);
     setError("");
@@ -160,6 +186,7 @@ export function CloudWorkspace({
       setOpening(undefined);
       setCanvasVisible(true);
       onCanvasChange(true);
+      setBrowser((current) => ({ ...current, fileId: file.id }));
       return;
     }
     setOpening(file.id);
@@ -169,12 +196,15 @@ export function CloudWorkspace({
         onCanvasChange(true);
         setOpened(value);
         setCanvasVisible(true);
+        setBrowser((current) => ({ ...current, fileId: file.id }));
       }
     } catch (cause) {
-      if (selection.current === version)
+      if (selection.current === version) {
+        setBrowser((current) => ({ ...current, fileId: null }));
         setError(
           errorMessage(cause, "Could not open this file. Connect to the internet to download it."),
         );
+      }
     } finally {
       if (selection.current === version) setOpening(undefined);
     }
@@ -200,6 +230,12 @@ export function CloudWorkspace({
       if (selection.current === version) setCreating(false);
     }
   }
+  useEffect(() => {
+    if (!opened || !canvasVisible) return;
+    const binding = cloud.state?.bindings.find((binding) => binding.designId === opened.design.id);
+    if (binding && browser.fileId !== binding.fileId)
+      setBrowser((current) => ({ ...current, fileId: binding.fileId }));
+  }, [opened?.design.id, canvasVisible, cloud.state?.bindings, browser.fileId, setBrowser]);
   const currentFolder = catalog?.folders.find((f) => f.id === folder);
   const files = (catalog?.files ?? []).filter(
     (f) =>
@@ -296,6 +332,7 @@ export function CloudWorkspace({
               selection.current++;
               onCanvasChange(false);
               setCanvasVisible(false);
+              setBrowser((current) => ({ ...current, fileId: null }));
               refresh.current();
             }}
             onUpdate={updateDesign}
@@ -314,6 +351,7 @@ export function CloudWorkspace({
                   );
                   if (selection.current === version) {
                     setOpened(value);
+                    setBrowser((current) => ({ ...current, fileId: null }));
                     refresh.current();
                   }
                 }}
