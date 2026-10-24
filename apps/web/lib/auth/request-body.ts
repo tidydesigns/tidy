@@ -1,6 +1,9 @@
 import { withRequestBodyLimit } from "@/lib/http/request-body";
 
 const registrationLimits = { elements: 2048, depth: 16 };
+// Match Better Call's JSON classification so alternate media types cannot
+// reach its JSON parser without the same metadata admission checks.
+const jsonContentType = /^application\/([a-z0-9.+-]*\+)?json/i;
 
 /** Bound validation work before anonymous client metadata reaches provider schemas. */
 function registrationWithinLimits(input: unknown) {
@@ -27,8 +30,7 @@ export function withAuthRequestBodyLimit(handler: (request: Request) => Promise<
     }
     if (
       path === "/api/auth/oauth2/register" &&
-      request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase() ===
-        "application/json"
+      jsonContentType.test(request.headers.get("content-type") ?? "")
     ) {
       // The outer byte/deadline limit applies before this extra bounded JSON read.
       // Leave malformed JSON to the provider's ordinary protocol error handling.
