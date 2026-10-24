@@ -5,13 +5,17 @@ import { UserFacingError } from "@tidy/ui/errors";
 import {
   FileCard,
   FileViewToggle,
+  FileListHeader,
+  FileListRow,
+  FileListDate,
+  FileListCreator,
+  type FileListColumn,
   folderCardClass as folderCard,
 } from "@tidy/editor/components/files/file-browser-ui";
 
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { filesHeader, filesGrid } from "@/components/workspace/page-layout";
 import { Dialog } from "@/components/ui/dialog";
-import { Avatar } from "@/components/ui/avatar";
 import { Fragment, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
@@ -59,8 +63,7 @@ type RenameTarget = { kind: "file"; file: File } | { kind: "folder"; folder: Fol
 
 const menuItem =
   "block w-full rounded px-3 py-2 text-left text-sm hover:bg-primary-grey/25 focus-visible:bg-hover-surface focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink disabled:opacity-50";
-const listColumns =
-  "grid grid-cols-[minmax(0,1fr)_32px] items-center gap-x-4 sm:grid-cols-[minmax(0,1fr)_110px_32px] lg:grid-cols-[minmax(0,1fr)_110px_110px_150px_32px] xl:grid-cols-[minmax(0,1fr)_110px_110px_150px_100px_32px]";
+const listColumns: readonly FileListColumn[] = ["edited", "created", "creator"];
 
 function restoreItemFocus(invoker: HTMLElement | null, heading: HTMLHeadingElement | null) {
   const destination = invoker?.isConnected
@@ -68,22 +71,6 @@ function restoreItemFocus(invoker: HTMLElement | null, heading: HTMLHeadingEleme
     : (heading?.closest("main")?.querySelector<HTMLButtonElement>("button[data-item-actions]") ??
       heading);
   destination?.focus({ preventScroll: true });
-}
-
-function relativeDate(value: string, asOf: string) {
-  const elapsed = Math.max(0, new Date(asOf).getTime() - new Date(value).getTime());
-  if (elapsed < 3600000) return "Just now";
-  if (elapsed < 86400000) {
-    const hours = Math.floor(elapsed / 3600000);
-    return `${hours} ${hours === 1 ? "hour" : "hours"} ago`;
-  }
-  const days = Math.floor(elapsed / 86400000);
-  if (days === 0) return "Today";
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.floor(days / 7)} ${days < 14 ? "week" : "weeks"} ago`;
-  if (days < 365) return `${Math.floor(days / 30)} ${days < 60 ? "month" : "months"} ago`;
-  return `${Math.floor(days / 365)} ${days < 730 ? "year" : "years"} ago`;
 }
 
 function DateCell({
@@ -96,25 +83,16 @@ function DateCell({
   className?: string;
 }) {
   return (
-    <time
-      dateTime={value}
-      title={new Date(value).toLocaleDateString("en-IE", {
-        day: "numeric",
-        month: "long",
-        year: "numeric",
-      })}
-      className={`truncate text-sm text-secondary-ink ${className}`}
-    >
-      {relativeDate(value, asOf)}
-    </time>
+    <span className={className}>
+      <FileListDate value={value} asOf={asOf} />
+    </span>
   );
 }
 
 function CreatorCell({ name, image }: { name: string; image: string | null }) {
   return (
-    <span className="hidden min-w-0 items-center gap-2 lg:flex">
-      <Avatar name={name} image={image} className="size-7 text-xs" />
-      <span className="truncate text-sm text-secondary-ink">{name}</span>
+    <span className="file-list-cell file-list-creator">
+      <FileListCreator name={name} image={image} />
     </span>
   );
 }
@@ -499,18 +477,19 @@ export function FilesBrowser({
 
   function fileListRow(file: File, nested = false) {
     return (
-      <li
+      <FileListRow
+        columns={listColumns}
         key={file.id}
         aria-busy={file.id.startsWith("pending-")}
-        className={`${listColumns} min-h-24 ${file.id.startsWith("pending-") ? "pointer-events-none opacity-60" : ""} rounded-lg px-3 py-2 transition-colors hover:bg-primary-grey/15`}
+        className={file.id.startsWith("pending-") ? "pointer-events-none opacity-60" : ""}
         onContextMenu={(event) => onContextMenu(event, { kind: "file", file })}
       >
-        <div className={`flex min-w-0 items-center gap-4 ${nested ? "pl-8" : ""}`}>
+        <div className={`file-list-name ${nested ? "pl-8" : ""}`}>
           <Link
             prefetchOnIntent
             href={`/files/${encodeURIComponent(file.id)}`}
             aria-label={`Open ${file.name}`}
-            className="block h-16 w-24 shrink-0 overflow-hidden rounded-md bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
+            className="file-list-preview focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
           >
             <FileThumbnail
               key={`${file.id}:${file.updatedAt}`}
@@ -545,12 +524,9 @@ export function FilesBrowser({
             </Link>
           )}
         </div>
-        <DateCell value={file.updatedAt} asOf={asOf} className="hidden sm:block" />
-        <DateCell value={file.createdAt} asOf={asOf} className="hidden lg:block" />
+        <DateCell value={file.updatedAt} asOf={asOf} className="file-list-cell file-list-edited" />
+        <DateCell value={file.createdAt} asOf={asOf} className="file-list-cell file-list-created" />
         <CreatorCell name={file.creatorName} image={file.creatorImage} />
-        <span data-ph-public className="hidden text-sm text-secondary-ink xl:block">
-          —
-        </span>
         <button
           type="button"
           aria-label={`Actions for ${file.name}`}
@@ -570,7 +546,7 @@ export function FilesBrowser({
         >
           <Icon name="more" />
         </button>
-      </li>
+      </FileListRow>
     );
   }
 
@@ -717,28 +693,23 @@ export function FilesBrowser({
         )}
 
       {view === "list" && (
-        <div className="pt-9">
-          <div
-            data-ph-public
-            className={`${listColumns} border-b border-primary-grey/60 px-3 pb-3 text-xs font-medium text-secondary-ink`}
-          >
-            <span>Name</span>
-            <button
-              type="button"
-              onClick={() => setNewestFirst((current) => !current)}
-              aria-label={`Sort by edited, ${newestFirst ? "oldest first" : "newest first"}`}
-              className="hidden w-fit items-center gap-1 rounded text-left hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange sm:inline-flex"
-            >
-              Edited <span aria-hidden="true">{newestFirst ? "▾" : "▴"}</span>
-            </button>
-            <span className="hidden lg:block">Created</span>
-            <span className="hidden lg:block">Created by</span>
-            <span className="hidden xl:block">Active in file</span>
-            <span className="sr-only">Actions</span>
-          </div>
-          <ul className="divide-y divide-primary-grey/35">
+        <div className="file-list">
+          <FileListHeader
+            columns={listColumns}
+            edited={
+              <button
+                type="button"
+                onClick={() => setNewestFirst((current) => !current)}
+                aria-label={`Sort by edited, ${newestFirst ? "oldest first" : "newest first"}`}
+                className="inline-flex w-fit items-center gap-1 rounded text-left hover:text-primary-black focus-visible:outline-2 focus-visible:outline-primary-orange"
+              >
+                Edited <span aria-hidden="true">{newestFirst ? "▾" : "▴"}</span>
+              </button>
+            }
+          />
+          <ul>
             {!archived && !currentFolder && creatingFolder && (
-              <li className={`${listColumns} min-h-20 px-3 py-2`}>
+              <FileListRow columns={listColumns}>
                 <span className="flex min-w-0 items-center gap-4">
                   <Icon name="folder" size={28} className="opacity-65" />
                   <input
@@ -760,15 +731,18 @@ export function FilesBrowser({
                     className="min-w-0 flex-1 bg-transparent text-sm font-medium outline-none placeholder:text-secondary-ink"
                   />
                 </span>
-              </li>
+              </FileListRow>
             )}
             {!archived &&
               !currentFolder &&
               sortedFolders.map((folder) => (
                 <Fragment key={folder.id}>
-                  <li
+                  <FileListRow
+                    columns={listColumns}
                     aria-busy={folder.id.startsWith("pending-")}
-                    className={`${listColumns} min-h-20 ${folder.id.startsWith("pending-") ? "pointer-events-none opacity-60" : ""} rounded-lg px-3 py-2 transition-colors hover:bg-primary-grey/15`}
+                    className={
+                      folder.id.startsWith("pending-") ? "pointer-events-none opacity-60" : ""
+                    }
                     onContextMenu={(event) => onContextMenu(event, { kind: "folder", folder })}
                   >
                     <div className="flex min-w-0 items-center gap-4">
@@ -823,12 +797,17 @@ export function FilesBrowser({
                         </Link>
                       )}
                     </div>
-                    <DateCell value={folder.updatedAt} asOf={asOf} className="hidden sm:block" />
-                    <DateCell value={folder.createdAt} asOf={asOf} className="hidden lg:block" />
+                    <DateCell
+                      value={folder.updatedAt}
+                      asOf={asOf}
+                      className="file-list-cell file-list-edited"
+                    />
+                    <DateCell
+                      value={folder.createdAt}
+                      asOf={asOf}
+                      className="file-list-cell file-list-created"
+                    />
                     <CreatorCell name={folder.creatorName} image={folder.creatorImage} />
-                    <span data-ph-public className="hidden text-sm text-secondary-ink xl:block">
-                      —
-                    </span>
                     <button
                       type="button"
                       aria-label={`Actions for folder ${folder.name}`}
@@ -848,7 +827,7 @@ export function FilesBrowser({
                     >
                       <Icon name="more" />
                     </button>
-                  </li>
+                  </FileListRow>
                   {expandedFolderIds.includes(folder.id) && (
                     <>
                       {visibleFilesInFolder(folder.id).length === 0 && (

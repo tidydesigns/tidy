@@ -1,5 +1,113 @@
 "use client";
-import type { ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
+import { Avatar } from "@tidy/ui/avatar";
+
+export type FileListColumn = "edited" | "created" | "creator" | "layers" | "status";
+const columnLabels: Record<FileListColumn, string> = {
+  edited: "Edited",
+  created: "Created",
+  creator: "Created by",
+  layers: "Layers",
+  status: "Status",
+};
+
+function listStyle(columns: readonly FileListColumn[], actions = true): CSSProperties {
+  const template = (included: readonly FileListColumn[]) =>
+    `minmax(0,1fr) ${columns
+      .filter((column) => included.includes(column))
+      .map((column) => (column === "creator" ? "150px" : column === "status" ? "120px" : "110px"))
+      .join(" ")} ${actions ? "32px" : ""}`;
+  return {
+    "--file-list-small": `minmax(0,1fr) ${actions ? "32px" : ""}`,
+    "--file-list-medium": `minmax(0,1fr) ${columns.includes("edited") ? "110px" : ""} ${actions ? "32px" : ""}`,
+    "--file-list-expanded": template(["edited", "created", "layers"]),
+    "--file-list-large": template(["edited", "created", "layers", "creator"]),
+    "--file-list-wide": template(columns),
+  } as CSSProperties;
+}
+
+export function FileListHeader({
+  columns,
+  edited,
+  actions = true,
+}: {
+  columns: readonly FileListColumn[];
+  edited?: ReactNode;
+  actions?: boolean;
+}) {
+  return (
+    <div
+      data-ph-public
+      className="file-list-layout file-list-header"
+      style={listStyle(columns, actions)}
+    >
+      <span>Name</span>
+      {columns.map((column) => (
+        <div key={column} className={`file-list-cell file-list-${column}`}>
+          {column === "edited" && edited ? edited : columnLabels[column]}
+        </div>
+      ))}
+      {actions && <span className="sr-only">Actions</span>}
+    </div>
+  );
+}
+
+export function FileListRow({
+  columns,
+  className = "",
+  actions = true,
+  ...props
+}: ComponentProps<"li"> & { columns: readonly FileListColumn[]; actions?: boolean }) {
+  return (
+    <li
+      {...props}
+      className={`file-list-layout file-list-row ${className}`}
+      style={{ ...listStyle(columns, actions), ...props.style }}
+    />
+  );
+}
+
+export function FileListCreator({ name, image }: { name: string; image?: string | null }) {
+  return (
+    <span className="file-list-creator-content">
+      <Avatar name={name} image={image} className="size-7 text-xs" />
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
+export function FileListDate({ value, asOf }: { value: string; asOf?: string }) {
+  if (!value || !Number.isFinite(Date.parse(value))) return null;
+  const date = new Date(value);
+  let label = date.toLocaleDateString("en-IE", { day: "numeric", month: "short", year: "numeric" });
+  if (asOf) {
+    const elapsed = Math.max(0, Date.parse(asOf) - date.getTime());
+    const hours = Math.floor(elapsed / 3600000);
+    const days = Math.floor(elapsed / 86400000);
+    label =
+      elapsed < 3600000
+        ? "Just now"
+        : days < 1
+          ? `${hours} ${hours === 1 ? "hour" : "hours"} ago`
+          : days === 1
+            ? "Yesterday"
+            : days < 7
+              ? `${days} days ago`
+              : days < 30
+                ? `${Math.floor(days / 7)} ${days < 14 ? "week" : "weeks"} ago`
+                : days < 365
+                  ? `${Math.floor(days / 30)} ${days < 60 ? "month" : "months"} ago`
+                  : `${Math.floor(days / 365)} ${days < 730 ? "year" : "years"} ago`;
+  }
+  return (
+    <time
+      dateTime={value}
+      title={date.toLocaleDateString("en-IE", { day: "numeric", month: "long", year: "numeric" })}
+    >
+      {label}
+    </time>
+  );
+}
 
 export const folderCardClass =
   "flex h-24 items-center gap-4 rounded-xl border border-primary-grey/70 px-5 pr-12 transition-colors hover:border-primary-grey hover:bg-surface/40";

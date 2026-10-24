@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
 import { join } from "node:path";
@@ -19,6 +19,9 @@ afterEach(async () => {
 });
 const origin = "https://sync.test";
 class Remote {
+  async creatorAvatar(): Promise<string | null> {
+    return null;
+  }
   async rename(id: string, before: string, name: string) {
     const file = this.library.files.find((file) => file.id === id)!;
     if (file.name !== before && file.name !== name) throw Error("Name conflict");
@@ -87,6 +90,61 @@ class Remote {
     return randomUUID();
   }
 }
+
+test("creator avatars deduplicate across files, cache versions and isolate accounts", async () => {
+  const f = await fixture();
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  let reads = 0;
+  f.remote.creatorAvatar = async () => {
+    reads++;
+    await Bun.sleep(5);
+    return image;
+  };
+  const first = f.cloud.creatorAvatar(randomUUID(), "creator", "one");
+  expect(f.cloud.creatorAvatar(randomUUID(), "creator", "one")).toBe(first);
+  expect(await first).toBe(image);
+  expect(await f.cloud.creatorAvatar(randomUUID(), "creator", "one")).toBe(image);
+  expect(reads).toBe(1);
+  await f.cloud.creatorAvatar(randomUUID(), "creator", "two");
+  expect(reads).toBe(2);
+  const bob = await f.make("bob");
+  await bob.creatorAvatar(randomUUID(), "creator", "two");
+  expect(reads).toBe(3);
+});
+
+test("sign-out fences a cached avatar read before it reaches the renderer", async () => {
+  const f = await fixture();
+  f.remote.creatorAvatar = async () => "data:image/png;base64,iVBORw0KGgo=";
+  const fileId = randomUUID();
+  await f.cloud.creatorAvatar(fileId, "creator", "one");
+  await Bun.sleep(0);
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve;
+  });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const original = f.state.read.bind(f.state);
+  const reading = spyOn(f.state, "read").mockImplementation(async (key) => {
+    const value = await original(key);
+    if (key.startsWith("creator-avatar-")) {
+      enter();
+      await gate;
+    }
+    return value;
+  });
+  try {
+    const request = f.cloud.creatorAvatar(fileId, "creator", "one");
+    await entered;
+    await f.cloud.signOut();
+    release();
+    expect(await request).toBeNull();
+  } finally {
+    release();
+    reading.mockRestore();
+  }
+});
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "tidy-cloud-library-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));

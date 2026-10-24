@@ -15,6 +15,7 @@ import {
   cloudCatalogSchema,
   cloudOpenedSchema,
   cloudThumbnailSchema,
+  cloudAvatarSchema,
   type CloudAPI,
 } from "../shared/cloud-sync";
 
@@ -29,6 +30,11 @@ export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
   }
   const org = z.string().min(1).max(120);
   const actions = {
+    "creator-avatar": endpoint(
+      z.tuple([z.uuid(), z.string().min(1).max(2048), z.string().min(1).max(2048)]),
+      cloudAvatarSchema,
+      (file, creator, version) => cloud.creatorAvatar(file, creator, version),
+    ),
     thumbnail: endpoint(
       z.tuple([z.uuid(), z.string().max(120)]),
       cloudThumbnailSchema,

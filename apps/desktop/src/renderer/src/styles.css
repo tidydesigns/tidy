@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@tidy/editor/theme.css";
 @import "@tidy/editor/chrome.css";
+@import "@tidy/editor/file-browser.css";
 @source "../../../../../packages/editor/src";
 @source "../../../node_modules/@tidy/ui";
 
@@ -1706,13 +1707,13 @@ summary:focus-visible {
   height: 100%;
 }
 .design-browser-header h1 {
-  font-size: 25px;
-  font-weight: 500;
+  font-size: 30px;
+  font-weight: 600;
 }
 .file-row-location {
   display: block;
   color: var(--color-muted-ink);
-  font-size: 11px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -1773,7 +1774,8 @@ summary:focus-visible {
   width: 100%;
   height: 100%;
 }
-.local-file-preview > img {
+.local-file-preview > img,
+.cloud-file-placeholder > img {
   display: block;
   width: 100%;
   height: 100%;
@@ -1824,7 +1826,7 @@ summary:focus-visible {
   flex-wrap: wrap;
   gap: 4px 12px;
   margin-top: 5px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-muted-ink);
 }
 .file-name-input {
@@ -1854,39 +1856,6 @@ summary:focus-visible {
   color: var(--color-danger);
   font-size: 13px;
 }
-.local-file-rows {
-  padding-top: 28px;
-}
-.local-file-row:hover {
-  background: var(--color-hover-surface);
-}
-.local-file-row {
-  display: grid;
-  position: relative;
-  grid-template-columns: minmax(0, 1fr) 90px 110px 32px;
-  gap: 16px;
-  align-items: center;
-  min-height: 88px;
-  padding: 10px 12px;
-  border-radius: 8px;
-}
-.file-row-name {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  gap: 16px;
-}
-.file-row-preview {
-  width: 96px;
-  height: 64px;
-  flex-shrink: 0;
-  border: 0;
-  border-radius: 6px;
-  padding: 0;
-  overflow: hidden;
-  background: var(--color-hover-surface);
-  cursor: pointer;
-}
 .file-row-title {
   min-width: 0;
   border: 0;
@@ -1896,13 +1865,20 @@ summary:focus-visible {
   text-align: left;
   cursor: pointer;
 }
-.local-file-row > time,
-.file-layer-count {
-  color: var(--color-muted-ink);
-  font-size: 12px;
-}
-.local-file-row > .file-actions {
+.file-list-actions .file-actions {
   position: static;
+}
+.file-list-actions .file-action-menu {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.file-row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
 }
 .file-move-dialog {
   width: min(420px, calc(100vw - 32px));
@@ -1955,27 +1931,10 @@ summary:focus-visible {
   .project-files {
     padding: 28px 24px 48px;
   }
-  .local-file-row {
-    grid-template-columns: minmax(0, 1fr) 110px 32px;
-  }
-  .file-layer-count {
-    display: none;
-  }
 }
 @media (max-width: 600px) {
   .project-files {
     padding: 24px 16px 40px;
-  }
-  .local-file-row {
-    grid-template-columns: minmax(0, 1fr) 32px;
-    gap: 8px;
-  }
-  .local-file-row > time {
-    display: none;
-  }
-  .file-row-preview {
-    width: 64px;
-    height: 48px;
   }
 }
 .project-files-container {
@@ -2968,9 +2927,6 @@ summary:focus-visible {
   height: 100%;
   color: var(--color-muted-ink);
   background: var(--color-subtle-fill);
-}
-.cloud-file-row {
-  grid-template-columns: minmax(0, 1fr) auto;
 }
 .cloud-row-open {
   display: flex;

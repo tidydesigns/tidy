@@ -10,9 +10,11 @@ import {
   createDesktopFile,
   renameDesktopFile,
   desktopManifest,
+  listDesktopFiles,
   DesktopNameConflict,
   DesktopFileConflict,
 } from "@/lib/desktop/files";
+import { desktopCreatorAvatar } from "@/lib/desktop/creator-avatar";
 import { listDesignFolders } from "@/lib/design/folder-service";
 import { thumbnailResponseForUser } from "@/lib/design/thumbnail-service";
 import { listDesignOrganizations, listDesignFiles, getDesignFile } from "@/lib/design/service";
@@ -96,7 +98,7 @@ const handle = requireMcpAuth(
         return json(
           await withDesktopAuthority(grant, path[1], false, async () => {
             const [files, folders] = await Promise.all([
-              listDesignFiles(userId, path[1]),
+              listDesktopFiles(userId, path[1]),
               listDesignFolders(userId, path[1]),
             ]);
             return { files, folders };
@@ -173,6 +175,8 @@ const handle = requireMcpAuth(
           }
           if (request.method === "GET" && path[2] === "thumbnail")
             return thumbnailResponseForUser(userId, fileId, request);
+          if (request.method === "GET" && path.length === 3 && path[2] === "creator-avatar")
+            return desktopCreatorAvatar(userId, fileId, request);
           if (request.method === "GET" && path.length === 2) {
             const since = url.searchParams.get("revision");
             const requestedRevision = since === null ? null : revision.parse(since);

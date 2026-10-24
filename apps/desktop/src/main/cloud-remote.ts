@@ -12,6 +12,7 @@ import {
   cloudFilesSchema,
   cloudCatalogSchema,
   cloudManifestSchema,
+  cloudAvatarSchema,
   type CloudManifest,
 } from "../shared/cloud-sync";
 
@@ -101,6 +102,48 @@ export class HTTPCloudRemote implements CloudRemote {
     const image = Buffer.concat(chunks);
     if (image.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") return null;
     return `data:image/png;base64,${image.toString("base64")}`;
+  }
+  async creatorAvatar(fileId: string, creatorId: string, version: string) {
+    const query = new URLSearchParams({ creator: creatorId, v: version });
+    let response: Response;
+    try {
+      response = await this.auth.request(`${this.path(fileId)}/creator-avatar?${query}`);
+    } catch (cause) {
+      if (cause instanceof CloudHTTPError && cause.status === 404) return null;
+      throw cause;
+    }
+    const type = response.headers.get("content-type")?.split(";")[0];
+    if (!type || !["image/png", "image/jpeg", "image/webp"].includes(type)) {
+      await response.body?.cancel().catch(() => {});
+      return null;
+    }
+    const reader = response.body?.getReader();
+    if (!reader) return null;
+    try {
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > 5_000_000) throw new Error("Avatar is too large.");
+        chunks.push(value);
+      }
+      const bytes = Buffer.concat(chunks);
+      const valid =
+        type === "image/png"
+          ? bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a"
+          : type === "image/jpeg"
+            ? bytes.subarray(0, 3).toString("hex") === "ffd8ff"
+            : bytes.subarray(0, 4).toString() === "RIFF" &&
+              bytes.subarray(8, 12).toString() === "WEBP";
+      return valid
+        ? cloudAvatarSchema.parse(`data:${type};base64,${bytes.toString("base64")}`)
+        : null;
+    } finally {
+      await reader.cancel().catch(() => {});
+      reader.releaseLock();
+    }
   }
   async create(organizationId: string, fileId: string, name: string, signal?: AbortSignal) {
     await this.auth.request(

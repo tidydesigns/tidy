@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "@tidy/editor/theme.css";
 @import "@tidy/editor/chrome.css";
+@import "@tidy/editor/file-browser.css";
 @import "@tidy/ui/toast.css";
 @source "../../../packages/ui";
 @source "../../../packages/editor/src";

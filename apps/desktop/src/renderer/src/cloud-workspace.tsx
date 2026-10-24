@@ -4,7 +4,14 @@ import { createPortal } from "react-dom";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import { FileCard, FileViewToggle } from "@tidy/editor/components/files/file-browser-ui";
+import {
+  FileCard,
+  FileViewToggle,
+  FileListHeader,
+  FileListRow,
+  FileListDate,
+  type FileListColumn,
+} from "@tidy/editor/components/files/file-browser-ui";
 import { filesGrid, filesHeader } from "@tidy/editor/components/workspace/page-layout";
 import { errorMessage } from "@tidy/ui/errors";
 import type { DesktopAPI, DesignSummary, LocalDesign } from "../../shared/contracts";
@@ -14,6 +21,7 @@ import { LocalCanvas } from "./local-canvas";
 import { CloudPreview } from "./cloud-preview";
 import { LocalPreview } from "./project-files";
 import { SyncStatus } from "./sync-status";
+import { CloudCreator } from "./cloud-creator";
 
 export function CloudWorkspace({
   api,
@@ -31,6 +39,7 @@ export function CloudWorkspace({
   onCanvasChange(focused: boolean): void;
 }) {
   const [catalog, setCatalog] = useState<CloudCatalog>();
+  const [asOf] = useState(() => new Date().toISOString());
   const [browser, setBrowser] = useSessionState(
     `cloud:${cloud.state?.accountId}:${organizationId}`,
     fileBrowserSchema,
@@ -238,6 +247,12 @@ export function CloudWorkspace({
       setBrowser((current) => ({ ...current, fileId: binding.fileId }));
   }, [opened?.design.id, canvasVisible, cloud.state?.bindings, browser.fileId, setBrowser]);
   const currentFolder = catalog?.folders.find((f) => f.id === folder);
+  const listColumns: FileListColumn[] = [
+    "edited",
+    ...(catalog?.files.some((file) => file.createdAt) ? ["created" as const] : []),
+    ...(catalog?.files.some((file) => file.creatorName) ? ["creator" as const] : []),
+    "status",
+  ];
   const files = (catalog?.files ?? []).filter(
     (f) =>
       (!currentFolder || f.folderId === currentFolder.id) &&
@@ -407,35 +422,33 @@ export function CloudWorkspace({
             )}
           </div>
         ) : files.length ? (
-          <ul className={view === "grid" ? filesGrid : "local-file-rows"}>
-            {files.map((file) => (
-              <li
-                key={file.id}
-                className={
-                  view === "grid" ? "relative local-file-card" : "local-file-row cloud-file-row"
-                }
-              >
-                {view === "grid" ? (
-                  <FileCard
-                    preview={preview(file)}
-                    openLink={
-                      <Button
-                        className="file-open-overlay"
-                        disabled={opening === file.id || !organization?.canEdit}
-                        aria-label={`Open ${file.name}`}
-                        aria-busy={opening === file.id}
-                        onClick={() => void open(file)}
-                      />
-                    }
-                  >
-                    <span className="block truncate text-sm font-medium">{file.name}</span>
-                    <div className="file-card-meta">
-                      <span>{folderName(file)}</span>
-                      <span>{opening === file.id ? "Opening…" : fileStatus(file)}</span>
-                    </div>
-                  </FileCard>
+          <div className={view === "list" ? "file-list" : undefined}>
+            {view === "list" && <FileListHeader columns={listColumns} actions={false} />}
+            <ul className={view === "grid" ? filesGrid : undefined}>
+              {files.map((file) =>
+                view === "grid" ? (
+                  <li key={file.id} className="relative local-file-card">
+                    <FileCard
+                      preview={preview(file)}
+                      openLink={
+                        <Button
+                          className="file-open-overlay"
+                          disabled={opening === file.id || !organization?.canEdit}
+                          aria-label={`Open ${file.name}`}
+                          aria-busy={opening === file.id}
+                          onClick={() => void open(file)}
+                        />
+                      }
+                    >
+                      <span className="block truncate text-sm font-medium">{file.name}</span>
+                      <div className="file-card-meta">
+                        <span>{folderName(file)}</span>
+                        <span>{opening === file.id ? "Opening…" : fileStatus(file)}</span>
+                      </div>
+                    </FileCard>
+                  </li>
                 ) : (
-                  <>
+                  <FileListRow key={file.id} columns={listColumns} actions={false}>
                     <Button
                       className="cloud-row-open"
                       disabled={opening === file.id || !organization?.canEdit}
@@ -443,20 +456,38 @@ export function CloudWorkspace({
                       aria-label={`Open ${file.name}`}
                       aria-busy={opening === file.id}
                     >
-                      <span className="file-row-preview">{preview(file)}</span>
+                      <span className="file-list-preview">{preview(file)}</span>
                       <span className="file-row-title">
                         {file.name}
                         <span className="file-row-location">{folderName(file)}</span>
                       </span>
                     </Button>
-                    <span className="cloud-file-state">
+                    <span className="file-list-cell file-list-edited">
+                      <FileListDate value={file.updatedAt ?? ""} asOf={asOf} />
+                    </span>
+                    {listColumns.includes("created") && (
+                      <span className="file-list-cell file-list-created">
+                        <FileListDate value={file.createdAt ?? ""} asOf={asOf} />
+                      </span>
+                    )}
+                    {listColumns.includes("creator") && (
+                      <span className="file-list-cell file-list-creator">
+                        <CloudCreator
+                          key={cloud.state?.accountId}
+                          api={api.cloud!}
+                          file={file}
+                          active={active && !canvasVisible}
+                        />
+                      </span>
+                    )}
+                    <span className="file-list-cell file-list-status">
                       {opening === file.id ? "Opening…" : fileStatus(file)}
                     </span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
+                  </FileListRow>
+                ),
+              )}
+            </ul>
+          </div>
         ) : (
           <div className="cloud-unavailable">
             <p>

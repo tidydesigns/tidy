@@ -7,7 +7,14 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import { FileCard, FileViewToggle } from "@tidy/editor/components/files/file-browser-ui";
+import {
+  FileCard,
+  FileViewToggle,
+  FileListHeader,
+  FileListRow,
+  FileListDate,
+  type FileListColumn,
+} from "@tidy/editor/components/files/file-browser-ui";
 import { filesGrid, filesHeader } from "@tidy/editor/components/workspace/page-layout";
 import type {
   DesktopAPI,
@@ -50,6 +57,7 @@ export function ProjectFiles({
   };
 }) {
   const projectId = snapshot.project.id;
+  const [asOf] = useState(() => new Date().toISOString());
   const [folderId, setFolderId] = useSessionState(
     `folder:${projectId}`,
     z.string().nullable(),
@@ -83,6 +91,11 @@ export function ProjectFiles({
   const files = currentFolder
     ? snapshot.designs.filter((file) => fileFolder(file) === activeFolderId)
     : snapshot.designs;
+  const listColumns: FileListColumn[] = [
+    "edited",
+    "layers",
+    ...(cloud && Object.keys(cloud.statuses).length ? ["status" as const] : []),
+  ];
   function folderName(file: DesignSummary) {
     const folder = folders.find((folder) => folder.id === fileFolder(file));
     return folder ? displayName(folder) : "Unfiled";
@@ -301,10 +314,10 @@ export function ProjectFiles({
         {fileMenu(file)}
       </li>
     ) : (
-      <li key={file.id} className="local-file-row">
-        <div className="file-row-name">
+      <FileListRow key={file.id} columns={listColumns}>
+        <div className="file-list-name">
           <Button
-            className="file-row-preview"
+            className="file-list-preview"
             aria-label={`Open ${displayName(file)}`}
             onClick={() => onOpen(file.id)}
           >
@@ -319,12 +332,15 @@ export function ProjectFiles({
             </Button>
           )}
         </div>
-        <span className="file-layer-count">
-          {cloud?.statuses[file.id] ?? `${file.nodeCount ?? 0} layers`}
+        <span className="file-list-cell file-list-edited">
+          <FileListDate value={file.updatedAt} asOf={asOf} />
         </span>
-        <time dateTime={file.updatedAt}>{date(file.updatedAt)}</time>
-        {fileMenu(file)}
-      </li>
+        <span className="file-list-cell file-list-layers">{file.nodeCount ?? 0}</span>
+        {listColumns.includes("status") && (
+          <span className="file-list-cell file-list-status">{cloud?.statuses[file.id]}</span>
+        )}
+        <div className="file-list-actions">{fileMenu(file)}</div>
+      </FileListRow>
     );
   }
   function folderItem(folder: DesignFolder) {
@@ -431,9 +447,12 @@ export function ProjectFiles({
         </div>
 
         {files.length > 0 ? (
-          <ul className={view === "grid" ? filesGrid : "local-file-rows"}>
-            {files.map((file) => fileItem(file))}
-          </ul>
+          <div className={view === "list" ? "file-list" : undefined}>
+            {view === "list" && <FileListHeader columns={listColumns} />}
+            <ul className={view === "grid" ? filesGrid : undefined}>
+              {files.map((file) => fileItem(file))}
+            </ul>
+          </div>
         ) : (
           <p className="files-empty">
             {currentFolder ? "No files in this folder" : "No design files yet"}

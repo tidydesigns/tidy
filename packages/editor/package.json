@@ -8,6 +8,7 @@
     "./host": "./src/host.tsx",
     "./theme.css": "./theme.css",
     "./chrome.css": "./chrome.css",
+    "./file-browser.css": "./file-browser.css",
     "./design/image-edit-target": "./src/design/image-edit-target.ts",
     "./design/component-sync": "./src/design/component-sync.ts",
     "./design/canvas-view": "./src/design/canvas-view.ts",

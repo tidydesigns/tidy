@@ -111,6 +111,7 @@ app.on("browser-window-created", (_event, window) => {
       assert.equal(await evaluate("typeof require"), "undefined");
       assert.equal(await evaluate("typeof window.tidy.invoke"), "undefined");
       assert.equal(await evaluate("typeof window.tidy.cloud.state"), "function");
+      assert.equal(await evaluate("typeof window.tidy.cloud.creatorAvatar"), "function");
       assert.equal(
         await evaluate("'accessToken' in window.tidy.cloud || 'refreshToken' in window.tidy.cloud"),
         false,
@@ -214,6 +215,7 @@ app.on("browser-window-created", (_event, window) => {
         "cloud-focus",
         "cloud-keep-both",
         "cloud-thumbnail",
+        "cloud-creator-avatar",
       ]) {
         const message = await foreign.webContents.executeJavaScript(
           `window.probe.invoke(${JSON.stringify(name)}).then(()=>null,error=>error.message)`,

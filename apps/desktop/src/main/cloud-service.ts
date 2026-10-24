@@ -4,6 +4,7 @@ import {
   cloudAccountSchema,
   cloudCatalogSchema,
   cloudThumbnailSchema,
+  cloudAvatarSchema,
   type CloudAPI,
   type CloudState,
   type CloudOpened,
@@ -14,8 +15,7 @@ import { HTTPCloudRemote, type CloudRemote } from "./cloud-remote";
 import { PrivateState } from "./private-state";
 import { WorkspaceService } from "./workspace-service";
 type LibraryRemote = CloudRemote &
-  Pick<HTTPCloudRemote, "account" | "catalog" | "files" | "thumbnail">;
-const thumbnailCacheSchema = z.object({ version: z.string(), image: cloudThumbnailSchema });
+  Pick<HTTPCloudRemote, "account" | "catalog" | "files" | "thumbnail" | "creatorAvatar">;
 
 /** Own the optional account connection separately from local workspace availability. */
 export class CloudService implements CloudAPI {
@@ -292,23 +292,44 @@ export class CloudService implements CloudAPI {
     this.sync.setForeground(value);
   }
   thumbnail(fileId: string, version: string) {
-    const key = this.cacheKey("thumbnail", fileId),
+    return this.cachedImage("thumbnail", fileId, version, () => this.remote.thumbnail(fileId));
+  }
+  creatorAvatar(fileId: string, creatorId: string, version: string) {
+    return this.cachedImage("creator-avatar", creatorId, version, () =>
+      this.remote.creatorAvatar(fileId, creatorId, version),
+    );
+  }
+  private cachedImage(
+    kind: "thumbnail" | "creator-avatar",
+    id: string,
+    version: string,
+    load: () => Promise<string | null>,
+  ) {
+    const schema = z.object({
+      version: z.string(),
+      image: kind === "thumbnail" ? cloudThumbnailSchema : cloudAvatarSchema,
+    });
+    const key = this.cacheKey(kind, id),
       requestKey = `${key}:${version}`,
-      generation = this.generation;
+      generation = this.generation,
+      accountId = this.auth.accountId;
+    const current = () =>
+      generation === this.generation && accountId === this.auth.accountId && !this.closed;
     const existing = this.thumbnailWork.get(requestKey);
     if (existing) return existing;
     const work = new Promise<string | null>((resolve, reject) => {
       const run = () => {
         this.thumbnailCount++;
         void (async () => {
-          if (generation !== this.generation || this.closed) return null;
-          const cached = thumbnailCacheSchema.safeParse(await this.privateState.read(key));
+          if (!current()) return null;
+          const cached = schema.safeParse(await this.privateState.read(key));
+          if (!current()) return null;
           if (cached.success && cached.data.version === version && cached.data.image)
             return cached.data.image;
-          const value = await this.remote.thumbnail(fileId);
-          if (generation !== this.generation || this.closed) return null;
+          const value = await load();
+          if (!current()) return null;
           if (value) await this.privateState.write(key, { version, image: value });
-          return value;
+          return current() ? value : null;
         })()
           .then(resolve, reject)
           .finally(() => {

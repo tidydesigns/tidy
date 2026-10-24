@@ -960,6 +960,83 @@ integration(
       'insert into "designFile" ("id","organizationId","name","createdBy") values ($1,\'org-b\',\'Private file\',\'bob\')',
       [foreignId],
     );
+    const avatarURL = "https://avatars.githubusercontent.com/u/1";
+    await admin.query('update "user" set "image"=$1 where "id"=\'alice\'', [avatarURL]);
+    const catalog = await call("organizations/org-a/catalog");
+    expect(catalog.status).toBe(200);
+    const nativeFile = (await catalog.json()).files.find((entry) => entry.id === fileId);
+    expect(nativeFile).toMatchObject({
+      creatorId: "alice",
+      creatorName: "Alice",
+      creatorImage: avatarURL,
+    });
+    expect(Number.isFinite(Date.parse(nativeFile.createdAt))).toBe(true);
+    expect(nativeFile).not.toHaveProperty("email");
+    const avatarPath = `files/${fileId}/creator-avatar?${new URLSearchParams({ creator: "alice", v: avatarURL })}`;
+    const image = Buffer.from("89504e470d0a1a0a", "hex");
+    let avatarReads = 0;
+    let avatarPause;
+    const avatarFetch = spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (String(url) !== avatarURL) return originalFetch(url, init);
+      avatarReads++;
+      expect(String(url)).toBe(avatarURL);
+      expect(init.redirect).toBe("error");
+      expect(init.credentials).toBe("omit");
+      expect(new Headers(init.headers).has("authorization")).toBe(false);
+      if (avatarPause) await avatarPause.hook();
+      return new Response(image, { headers: { "Content-Type": "image/png" } });
+    });
+    try {
+      const avatar = await call(avatarPath);
+      expect(avatar.status).toBe(200);
+      expect(Buffer.from(await avatar.arrayBuffer())).toEqual(image);
+      expect((await call(avatarPath.replace("creator=alice", "creator=bob"))).status).toBe(404);
+      expect(
+        (
+          await call(
+            `files/${foreignId}/creator-avatar?${new URLSearchParams({ creator: "bob", v: avatarURL })}`,
+          )
+        ).status,
+      ).toBe(404);
+      expect((await call(avatarPath, agent.access_token)).status).toBe(401);
+      expect(avatarReads).toBe(1);
+      const uploadedVersion = crypto.randomUUID();
+      const uploadedURL = `/api/avatars/user/alice?v=${uploadedVersion}`;
+      const storage = await import("../storage/design-objects");
+      const bucketRead = spyOn(storage, "designBucket").mockReturnValue({
+        get: async (key) => {
+          expect(key).toBe(`avatars/user/alice/${uploadedVersion}`);
+          return { body: image, httpMetadata: { contentType: "image/png" } };
+        },
+      });
+      try {
+        await admin.query('update "user" set "image"=$1 where "id"=\'alice\'', [uploadedURL]);
+        const uploaded = await call(
+          `files/${fileId}/creator-avatar?${new URLSearchParams({ creator: "alice", v: uploadedURL })}`,
+        );
+        expect(uploaded.status).toBe(200);
+        expect(Buffer.from(await uploaded.arrayBuffer())).toEqual(image);
+        expect((await call(avatarPath)).status).toBe(404);
+        expect(avatarReads).toBe(1);
+      } finally {
+        bucketRead.mockRestore();
+        await admin.query('update "user" set "image"=$1 where "id"=\'alice\'', [avatarURL]);
+      }
+      const pending = pause();
+      avatarPause = pending;
+      const reading = call(avatarPath);
+      await pending.entered;
+      await admin.query(
+        'delete from "member" where "organizationId"=\'org-a\' and "userId"=\'alice\'',
+      );
+      pending.release();
+      expect((await reading).status).toBe(403);
+    } finally {
+      avatarFetch.mockRestore();
+      await admin.query(
+        'insert into "member" ("id","organizationId","userId","role","createdAt") values (\'restored-avatar-member\',\'org-a\',\'alice\',\'owner\',now()) on conflict do nothing',
+      );
+    }
     expect(
       (await call("organizations/org-a/files", undefined, { id: foreignId, name: "Collision" }))
         .status,
@@ -1004,6 +1081,7 @@ integration(
     expect(typeof next.access_token).toBe("string");
     expect((await call("account", next.access_token)).status).toBe(200);
     await revokeMcpAuthorization("alice", registration.client_id);
+    expect((await call(avatarPath, next.access_token)).status).toBe(401);
     expect((await call("account", next.access_token)).status).toBe(401);
     expect((await call("manifest", next.access_token, { fileIds: [fileId] })).status).toBe(401);
   },

@@ -15,6 +15,7 @@ import {
   cloudCatalogSchema,
   cloudOpenedSchema,
   cloudThumbnailSchema,
+  cloudAvatarSchema,
 } from "../shared/cloud-sync";
 
 /** Invoke a workspace operation and validate its response before crossing the preload boundary. */
@@ -53,6 +54,10 @@ const api: DesktopAPI = {
     };
   },
   cloud: {
+    creatorAvatar: async (file, creator, version) =>
+      cloudAvatarSchema.parse(
+        await ipcRenderer.invoke("tidy:cloud-creator-avatar", file, creator, version),
+      ),
     thumbnail: async (file, version) =>
       cloudThumbnailSchema.parse(await ipcRenderer.invoke("tidy:cloud-thumbnail", file, version)),
     state: async () => cloudStateSchema.parse(await ipcRenderer.invoke("tidy:cloud-state")),
