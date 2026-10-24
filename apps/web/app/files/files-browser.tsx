@@ -11,6 +11,7 @@ import {
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { filesHeader, filesGrid } from "@/components/workspace/page-layout";
 import { Dialog } from "@/components/ui/dialog";
+import { Avatar } from "@/components/ui/avatar";
 import { Fragment, useEffect, useRef, useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/ui/icon";
@@ -109,15 +110,10 @@ function DateCell({
   );
 }
 
-function CreatorCell({ name }: { name: string }) {
+function CreatorCell({ name, image }: { name: string; image: string | null }) {
   return (
     <span className="hidden min-w-0 items-center gap-2 lg:flex">
-      <span
-        aria-hidden="true"
-        className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary-black/10 text-xs font-semibold text-primary-black/70"
-      >
-        {name.trim().charAt(0).toUpperCase()}
-      </span>
+      <Avatar name={name} image={image} className="size-7 text-xs" />
       <span className="truncate text-sm text-secondary-ink">{name}</span>
     </span>
   );
@@ -551,7 +547,7 @@ export function FilesBrowser({
         </div>
         <DateCell value={file.updatedAt} asOf={asOf} className="hidden sm:block" />
         <DateCell value={file.createdAt} asOf={asOf} className="hidden lg:block" />
-        <CreatorCell name={file.creatorName} />
+        <CreatorCell name={file.creatorName} image={file.creatorImage} />
         <span data-ph-public className="hidden text-sm text-secondary-ink xl:block">
           —
         </span>
@@ -829,7 +825,7 @@ export function FilesBrowser({
                     </div>
                     <DateCell value={folder.updatedAt} asOf={asOf} className="hidden sm:block" />
                     <DateCell value={folder.createdAt} asOf={asOf} className="hidden lg:block" />
-                    <CreatorCell name={folder.creatorName} />
+                    <CreatorCell name={folder.creatorName} image={folder.creatorImage} />
                     <span data-ph-public className="hidden text-sm text-secondary-ink xl:block">
                       —
                     </span>
