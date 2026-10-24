@@ -253,6 +253,10 @@ export class WorkspaceService {
   }
 
   startThread(input: Parameters<DesktopAPI["startThread"]>[0]) {
+    if (this.repositoryChanges.size)
+      return Promise.reject(
+        new Error("Wait for the branch switch to finish before sending a message."),
+      );
     const threadId = input.threadId ?? randomUUID();
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       return Promise.reject(new Error("This thread is already running."));

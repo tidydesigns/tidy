@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir, hostname } from "node:os";
@@ -80,6 +80,7 @@ test("serializes branch switches and blocks thread launches during a switch", as
   await store.initialize();
   const { project } = await store.open(cwd);
   const service = new WorkspaceService(store);
+  const threadLookup = spyOn(store, "threadExists");
   try {
     const switching = service.switchBranch(project.id, "feature");
     await expect(service.switchBranch(project.id, "main")).rejects.toThrow("branch switch");
@@ -91,8 +92,10 @@ test("serializes branch switches and blocks thread launches during a switch", as
         designIds: [],
       }),
     ).rejects.toThrow("branch switch");
+    expect(threadLookup).not.toHaveBeenCalled();
     await switching;
   } finally {
+    threadLookup.mockRestore();
     await service.close();
   }
 });
