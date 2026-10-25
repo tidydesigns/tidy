@@ -12,6 +12,7 @@ import {
   forwardRef,
   memo,
   useMemo,
+  useId,
   useLayoutEffect,
   useCallback,
   useEffect,
@@ -58,6 +59,153 @@ function Avatar({ name, image, size = 32 }: { name: string; image: string | null
         name.trim().charAt(0).toUpperCase()
       )}
     </span>
+  );
+}
+
+function CommentPin({
+  thread,
+  selected,
+  previewId,
+  setPreviewId,
+  x,
+  y,
+  viewport,
+  onOpen,
+}: {
+  thread: CommentThread;
+  selected: boolean;
+  previewId: string | null;
+  setPreviewId: React.Dispatch<React.SetStateAction<string | null>>;
+  x: number;
+  y: number;
+  viewport: React.RefObject<HTMLElement | null>;
+  onOpen: () => void;
+}) {
+  const id = useId();
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const card = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: 9, top: -17, maxWidth: 336 });
+  const first = thread.preview ?? thread.messages[0];
+  const open = Boolean(first && !selected && previewId === thread.id);
+  const dismiss = useCallback(() => {
+    setPreviewId((current) => (current === thread.id ? null : current));
+  }, [setPreviewId, thread.id]);
+  const replyCount = Math.max(thread.replyCount ?? 0, thread.messages.length - 1);
+  const createdAt = first && "createdAt" in first ? first.createdAt : undefined;
+
+  useLayoutEffect(() => {
+    if (!open || !card.current || !viewport.current) return;
+    const popup = card.current;
+    const canvas = viewport.current;
+    const place = () => {
+      const width = popup.offsetWidth;
+      const height = popup.offsetHeight;
+      const right = x + 9;
+      const left = right + width <= canvas.clientWidth - 8 ? right : x - width - 9;
+      setPosition({
+        maxWidth: Math.max(0, canvas.clientWidth - 16),
+        left: Math.max(8, Math.min(canvas.clientWidth - width - 8, left)) - x,
+        top: Math.max(8, Math.min(canvas.clientHeight - height - 8, y - 17)) - y,
+      });
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(canvas);
+    observer.observe(popup);
+    return () => observer.disconnect();
+  }, [open, x, y, viewport]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      dismiss();
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [open, dismiss]);
+
+  return (
+    <div
+      className={`pointer-events-auto absolute ${open ? "z-10" : ""}`}
+      style={{ left: x, top: y }}
+      onPointerEnter={(event) => {
+        if (event.pointerType === "touch") return;
+        setHovered(true);
+        setPreviewId(thread.id);
+      }}
+      onPointerLeave={() => {
+        setHovered(false);
+        if (!focused) dismiss();
+      }}
+      onFocus={(event) => {
+        if (!event.target.matches(":focus-visible")) return;
+        setFocused(true);
+        setPreviewId(thread.id);
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) {
+          setFocused(false);
+          if (!hovered) dismiss();
+        }
+      }}
+      onPointerDown={(event) => event.stopPropagation()}
+      onWheel={(event) => event.stopPropagation()}
+    >
+      <button
+        type="button"
+        aria-label={`Open comment by ${first?.authorName ?? "user"}`}
+        aria-describedby={open ? id : undefined}
+        onClick={() => {
+          dismiss();
+          onOpen();
+        }}
+        className={`absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface shadow-md focus-visible:outline-2 focus-visible:outline-primary-orange ${selected ? "border-primary-orange" : "border-handle"}`}
+      >
+        <Avatar name={first?.authorName ?? "User"} image={first?.authorImage ?? null} size={30} />
+      </button>
+      {open && first && (
+        <div ref={card} className="absolute w-[min(21rem,calc(100vw-2rem))] p-2" style={position}>
+          <button
+            type="button"
+            aria-label={`Open thread by ${first.authorName}`}
+            onClick={() => {
+              dismiss();
+              onOpen();
+            }}
+            className="flex w-full gap-2 rounded-xl border border-primary-grey/70 bg-surface p-3 text-left shadow-xl focus-visible:outline-2 focus-visible:outline-primary-orange"
+          >
+            <Avatar name={first.authorName} image={first.authorImage} size={28} />
+            <span id={id} className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 text-xs">
+                <span className="min-w-0 truncate font-semibold">{first.authorName}</span>
+                {createdAt && (
+                  <time dateTime={createdAt} className="text-[11px] text-secondary-ink">
+                    {new Date(createdAt).toLocaleString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </time>
+                )}
+              </span>
+              <span className="mt-1 line-clamp-3 whitespace-pre-wrap break-words text-sm [overflow-wrap:anywhere]">
+                {first.body}
+              </span>
+              {replyCount > 0 && (
+                <span className="mt-2 block text-xs text-secondary-ink">
+                  {replyCount} {replyCount === 1 ? "reply" : "replies"}
+                </span>
+              )}
+            </span>
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -341,6 +489,7 @@ export const CanvasComments = forwardRef<
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [reactionsAvailable, setReactionsAvailable] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [draftState, setDraft] = useState<(Point & { pageId: string }) | null>(null);
   const draft = draftState?.pageId === pageId ? draftState : null;
   const [body, setBodyState] = useState("");
@@ -567,7 +716,26 @@ export const CanvasComments = forwardRef<
               ...(remote ? { resolved: remote.resolved, preview: remote.preview } : {}),
             };
           }),
-      ]).filter((thread) => (thread.pageId ?? "page-1") === pageId),
+      ])
+        .filter((thread) => (thread.pageId ?? "page-1") === pageId)
+        .map((thread) => {
+          const remote = threads.find((item) => item.id === thread.id);
+          if (remote?.replyCount === undefined) return thread;
+          const received = new Set(remote.messages.map((message) => message.id));
+          const localReplies = new Set(
+            submissions
+              .filter(
+                (submission) =>
+                  submission.fileId === fileId &&
+                  !submission.create &&
+                  submission.thread.id === thread.id,
+              )
+              .flatMap((submission) => submission.thread.messages)
+              .filter((message) => !received.has(message.id))
+              .map((message) => message.id),
+          );
+          return { ...thread, replyCount: remote.replyCount + localReplies.size };
+        }),
     [threads, submissions, pageId, fileId],
   );
   const visibleThreads = pageThreads.filter((thread) => !thread.resolved);
@@ -836,27 +1004,19 @@ export const CanvasComments = forwardRef<
 
   return (
     <div data-canvas-control className="pointer-events-none absolute inset-0 z-30">
-      {visibleThreads.map((thread) => {
-        const first = thread.preview ?? thread.messages[0];
-        return (
-          <button
-            key={thread.id}
-            type="button"
-            title={`Comment by ${first?.authorName ?? "user"}`}
-            aria-label={`Open comment by ${first?.authorName ?? "user"}`}
-            onPointerDown={(event) => event.stopPropagation()}
-            onClick={() => openThread(thread.id)}
-            className={`pointer-events-auto absolute -translate-x-1/2 -translate-y-1/2 rounded-full border-2 bg-surface shadow-md focus-visible:outline-2 focus-visible:outline-primary-orange ${activeId === thread.id ? "border-primary-orange" : "border-handle"}`}
-            style={{ left: thread.x * view.zoom + view.x, top: thread.y * view.zoom + view.y }}
-          >
-            <Avatar
-              name={first?.authorName ?? "User"}
-              image={first?.authorImage ?? null}
-              size={30}
-            />
-          </button>
-        );
-      })}
+      {visibleThreads.map((thread) => (
+        <CommentPin
+          key={`${fileId}:${pageId}:${thread.id}`}
+          thread={thread}
+          selected={activeId === thread.id}
+          previewId={previewId}
+          setPreviewId={setPreviewId}
+          x={thread.x * view.zoom + view.x}
+          y={thread.y * view.zoom + view.y}
+          viewport={viewport}
+          onOpen={() => openThread(thread.id)}
+        />
+      ))}
       {(pageThreads.length > 0 || nextCursor || toolbarControls) && (
         <div
           className="absolute left-4 right-4 top-20 flex items-center justify-end gap-2 md:top-4"

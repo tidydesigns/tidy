@@ -157,10 +157,11 @@ export async function listComments(
       )
       select c."id", c."threadId", c."authorId", u."name" as "authorName", u."image" as "authorImage", c."body",
         to_char(c."createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt",
-        t."x", t."y", t."createdBy", t."resolved", jsonb_build_object('authorName', preview.name, 'authorImage', preview.image, 'body', preview.body) as preview, coalesce(d.pages->>t."id", 'page-1') as "pageId"
+        t."x", t."y", t."createdBy", t."resolved", jsonb_build_object('authorName', preview.name, 'authorImage', preview.image, 'body', preview.body, 'createdAt', preview."createdAt") as preview, coalesce(d.pages->>t."id", 'page-1') as "pageId"
       from "designCommentMessage" c join "designCommentThread" t on t."id"=c."threadId"
       join "user" u on u."id"=c."authorId" left join comment_pages d on true
-      join lateral (select first."body" as body, author."name" as name, author."image" as image
+      join lateral (select first."body" as body,
+        to_char(first."createdAt" at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as "createdAt", author."name" as name, author."image" as image
         from "designCommentMessage" first join "user" author on author."id"=first."authorId"
         where first."threadId"=t."id" order by first."createdAt", first."id" limit 1) preview on true
       where t."fileId"=$1 and ($2::text is null or t."id"=$2)
@@ -191,6 +192,14 @@ export async function listComments(
             [rows.map((row) => row.id), userId],
           )
         : { rows: [] };
+    const replyCounts = rows.length
+      ? await client.query<{ threadId: string; replyCount: number }>(
+          `select "threadId", greatest(count(*)::int - 1, 0) as "replyCount"
+           from "designCommentMessage" where "threadId"=any($1::text[]) group by "threadId"`,
+          [[...new Set(rows.map((row) => row.threadId))]],
+        )
+      : { rows: [] };
+    const byThread = new Map(replyCounts.rows.map((row) => [row.threadId, row.replyCount]));
     const byMessage = new Map<string, CommentReaction[]>();
     for (const { messageId, emoji, count, reacted } of reactions.rows) {
       const bucket = byMessage.get(messageId) ?? [];
@@ -207,6 +216,7 @@ export async function listComments(
         createdBy: row.createdBy,
         resolved: row.resolved,
         preview: row.preview,
+        replyCount: byThread.get(row.threadId) ?? 0,
         messages: [],
       };
       thread.messages.push({

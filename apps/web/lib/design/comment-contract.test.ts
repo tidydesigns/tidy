@@ -73,3 +73,32 @@ test("posting receipts validate canonical messages and client IDs are optional U
     }),
   ).toEqual({ action: "reply", threadId: "thread", body: "Reply", messageId: message.id });
 });
+
+test("comment previews retain original timestamps and complete reply counts across message pages", () => {
+  const thread = {
+    id: "thread",
+    pageId: "page-1",
+    x: 0,
+    y: 0,
+    createdBy: "author",
+    resolved: false,
+    messages: [],
+    replyCount: 120,
+    preview: {
+      authorName: "Author",
+      authorImage: null,
+      body: "Initial comment",
+      createdAt: "2026-10-24T15:51:00Z",
+    },
+  };
+  const page = {
+    threads: [thread],
+    viewerId: "viewer",
+    reactionsAvailable: false,
+    canModerateThreads: false,
+  };
+  expect(commentPageSchema.parse(page).threads[0]).toEqual(thread);
+  expect(
+    commentPageSchema.safeParse({ ...page, threads: [{ ...thread, replyCount: -1 }] }).success,
+  ).toBe(false);
+});

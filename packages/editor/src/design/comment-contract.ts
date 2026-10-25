@@ -46,8 +46,10 @@ const commentThreadSchema = z.object({
   createdBy: id,
   resolved: z.boolean(),
   messages: z.array(commentMessageSchema),
+  replyCount: z.number().int().nonnegative().optional(),
   preview: commentMessageSchema
     .pick({ authorName: true, authorImage: true, body: true })
+    .extend({ createdAt: z.string().optional() })
     .optional(),
 });
 export const commentPageSchema = z.object({
