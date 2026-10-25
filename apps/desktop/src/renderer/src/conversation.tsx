@@ -8,16 +8,27 @@ import {
   useState,
   type ComponentProps,
 } from "react";
-import Markdown from "react-markdown";
+import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI, Message, Thread } from "../../shared/contracts";
 import { MessageAttachments } from "./message-attachments";
 import { ToolActivityGroup } from "./tool-activity";
+import { ChatLink } from "./chat-link";
+import { parseChatLink } from "../../shared/chat-links";
+import { MarkdownPreview } from "./markdown-preview";
 
 const positions = new Map<string, { top: number; following: boolean }>();
 const markdownPlugins = [remarkGfm];
-const MessageBody = memo(function MessageBody({ message }: { message: Message }) {
+const MessageBody = memo(function MessageBody({
+  message,
+  api,
+  projectId,
+}: {
+  message: Message;
+  api: DesktopAPI;
+  projectId: string;
+}) {
   return message.role === "user" ? (
     <div className="message-text">{message.text}</div>
   ) : (
@@ -25,11 +36,14 @@ const MessageBody = memo(function MessageBody({ message }: { message: Message })
       <Markdown
         remarkPlugins={markdownPlugins}
         skipHtml
+        urlTransform={(url) =>
+          parseChatLink(url)?.kind === "file" ? url : defaultUrlTransform(url)
+        }
         components={{
           a: ({ href, children }) => (
-            <a href={href} target="_blank" rel="noopener noreferrer">
+            <ChatLink href={href} api={api} projectId={projectId}>
               {children}
-            </a>
+            </ChatLink>
           ),
           img: ({ alt }) => <span className="muted">{alt || "Image"}</span>,
         }}
@@ -229,7 +243,7 @@ export function Conversation({
                 className={`message message-${message.role}`}
                 aria-label={message.role === "user" ? "Your message" : "Assistant message"}
               >
-                <MessageBody message={message} />
+                <MessageBody message={message} api={api} projectId={thread.projectId} />
                 {message.attachments && message.attachments.length > 0 && (
                   <MessageAttachments
                     api={api}
@@ -326,7 +340,7 @@ export function Conversation({
                 }}
               >
                 <strong>{selected.prompt || "Attachment"}</strong>
-                {selected.response && <p>{selected.response.replace(/\s+/g, " ")}</p>}
+                {selected.response && <MarkdownPreview text={selected.response} />}
               </div>
             )}
           </div>

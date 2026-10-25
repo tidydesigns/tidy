@@ -124,6 +124,7 @@ const api: DesktopAPI = {
   harnessDetails: (projectId, harness, refresh) =>
     request("harness-details", { projectId, harness, refresh }),
   openHarnessUsage: (harness, page) => request("harness-usage-page", { harness, page }),
+  openChatLink: (projectId, href) => request("open-chat-link", { projectId, href }),
   setThreadSettings: (projectId, threadId, settings) =>
     request("thread-settings", { projectId, threadId, settings }),
   checkHarnesses: () => request("harnesses"),

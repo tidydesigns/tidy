@@ -74,6 +74,9 @@ export function browserDevelopment(
     openExternal: async () => {
       throw new Error("Open provider usage in your browser.");
     },
+    showItemInFolder: () => {
+      throw new Error("File links can be revealed from the desktop app.");
+    },
   });
   const unsubscribe = service.subscribe((event) => {
     const id = `${epoch}:${++sequence}`;

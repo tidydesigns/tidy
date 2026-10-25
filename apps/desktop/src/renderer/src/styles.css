@@ -929,6 +929,74 @@ summary:focus-visible {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
+.message-markdown .chat-file-link {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  max-width: 100%;
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-panel);
+  font-size: 12px;
+  line-height: 1.65;
+  vertical-align: baseline;
+  text-decoration: none;
+}
+.chat-file-link > span:first-of-type {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.chat-link-icon {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  vertical-align: -2px;
+  color: var(--color-secondary-ink);
+}
+.chat-file-link .chat-link-icon {
+  align-self: center;
+}
+.chat-web-link .chat-link-icon {
+  margin-right: 4px;
+}
+.chat-link-position {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.chat-link-icon[data-icon="react"] {
+  color: light-dark(#087f9f, #68d1db);
+}
+.chat-link-icon:is([data-icon="typescript"], [data-icon="python"]) {
+  color: light-dark(#2374b3, #75b8e8);
+}
+.chat-link-icon[data-icon="javascript"] {
+  color: light-dark(#8a6d08, #e8cc65);
+}
+.chat-link-icon:is([data-icon="css"], [data-icon="linear"]) {
+  color: light-dark(#7050b3, #b19cde);
+}
+.chat-link-icon[data-icon="markdown"] {
+  color: light-dark(#287854, #83bd9f);
+}
+.chat-link-icon:is([data-icon="svelte"], [data-icon="html"], [data-icon="gitlab"]) {
+  color: light-dark(#b14d2a, #e49a78);
+}
+.message-markdown a:is(.chat-file-link, .chat-web-link):focus-visible {
+  outline: 2px solid var(--color-primary-orange);
+  outline-offset: 3px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .message-markdown .chat-file-link:hover {
+    background: var(--color-hover-surface);
+  }
+  .message-markdown .chat-web-link:hover {
+    color: var(--color-accent-ink);
+  }
+}
 .message-markdown blockquote {
   border-left: 2px solid var(--color-border);
   padding-left: 14px;
@@ -1062,21 +1130,89 @@ summary:focus-visible {
   box-shadow: 0 8px 24px #0003;
   font-size: 13px;
 }
-.conversation-turn-preview strong {
+.conversation-turn-preview > strong {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
 }
-.conversation-turn-preview p {
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 6px 0 0;
+.conversation-turn-preview > .markdown-preview {
+  margin-top: 6px;
   color: var(--color-muted-ink);
+}
+.markdown-preview {
+  max-height: 8em;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  font-size: 12px;
   line-height: 1.5;
+}
+.markdown-preview :is(p, ul, ol, pre, blockquote, table) {
+  margin: 0 0 6px;
+}
+.markdown-preview > :last-child {
+  margin-bottom: 0;
+}
+.markdown-preview strong {
+  font-weight: 600;
+}
+.markdown-preview :is(h1, h2, h3, h4, h5, h6) {
+  margin: 6px 0 4px;
+  font-size: inherit;
+  font-weight: 600;
+  line-height: inherit;
+}
+.markdown-preview > :first-child {
+  margin-top: 0;
+}
+.markdown-preview :is(ul, ol) {
+  padding-left: 18px;
+}
+.markdown-preview ul {
+  list-style: disc;
+}
+.markdown-preview ol {
+  list-style: decimal;
+}
+.markdown-preview li {
+  margin: 2px 0;
+}
+.markdown-preview li > p {
+  margin: 0;
+}
+.markdown-preview code {
+  padding: 1px 3px;
+  border-radius: 3px;
+  background: var(--color-hover-surface);
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Consolas,
+    monospace;
+}
+.markdown-preview pre {
+  white-space: pre-wrap;
+}
+.markdown-preview pre code {
+  padding: 0;
+  background: none;
+}
+.markdown-preview blockquote {
+  padding-left: 8px;
+  border-left: 2px solid var(--color-border);
+}
+.markdown-preview table {
+  display: block;
+  overflow: hidden;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.markdown-preview :is(th, td) {
+  padding: 2px 5px;
+  border: 1px solid var(--color-border);
+  text-align: left;
 }
 @media (pointer: coarse) {
   .conversation-rail {
@@ -1531,67 +1667,57 @@ summary:focus-visible {
   white-space: normal;
 }
 .thread-preview > strong {
-  display: block;
-  font-size: 13px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
+  line-height: 1.5;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
-.thread-preview-model {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-top: 10px;
+.thread-preview-details,
+.thread-preview-context {
+  margin: 12px 0 0;
+  color: var(--color-secondary-ink);
+  font-size: 12px;
+  line-height: 1.5;
 }
-.thread-preview-model > span:last-child {
-  overflow-wrap: anywhere;
-}
-.thread-preview-status {
+.thread-preview-context {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 12px;
-  margin-top: 7px;
+  gap: 6px 16px;
+  margin-top: 16px;
   color: var(--color-muted-ink);
   font-size: 11px;
 }
-.thread-preview .thread-preview-message {
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  margin: 12px 0;
-  font-size: 12px;
-  color: var(--color-ink);
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-.thread-preview .thread-preview-designs {
-  font-size: 11px;
-  margin: 10px 0;
-}
-.thread-preview > time {
-  display: block;
-  margin-top: 12px;
-  font-size: 10px;
-  color: var(--color-muted-ink);
-}
-.usage-statistics {
-  margin: 12px 0 0;
+.thread-preview-details > div,
+.thread-preview-context > div {
   display: grid;
-  gap: 6px;
-  font-size: 11px;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
 }
-.usage-statistics > div {
+.thread-preview-details dt,
+.thread-preview-context dt {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-}
-.usage-statistics dt {
+  height: 18px;
   color: var(--color-muted-ink);
 }
-.usage-statistics dd {
+.thread-preview-details dt > :first-child,
+.thread-preview-context dt > :first-child {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.thread-preview-details dd,
+.thread-preview-context dd {
   margin: 0;
-  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .project-files {
   width: 100%;

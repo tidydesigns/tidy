@@ -7,6 +7,7 @@ import {
   type WorkspaceResponse,
 } from "../../shared/workspace-response";
 import type { DesktopAPI, ProjectSnapshot } from "../../shared/contracts";
+import { parseChatLink } from "../../shared/chat-links";
 
 if (new URLSearchParams(location.hash.slice(1)).has("token"))
   history.replaceState(null, "", location.pathname + location.search);
@@ -102,6 +103,12 @@ const api: DesktopAPI = {
   },
   setThreadSettings: (projectId, threadId, settings) =>
     request("thread-settings", { projectId, threadId, settings }),
+  async openChatLink(_projectId, href) {
+    const link = parseChatLink(href);
+    if (!link) throw new Error("This link is not supported.");
+    if (link.kind === "file") throw new Error("File links can be revealed from the desktop app.");
+    window.open(link.url, "_blank", "noopener,noreferrer");
+  },
   checkHarnesses: () => request("harnesses"),
   repositoryContext: (projectId) => request("repository-context", { projectId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),

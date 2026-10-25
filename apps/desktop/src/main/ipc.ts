@@ -175,6 +175,7 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
       };
     },
     openExternal: (url) => shell.openExternal(url),
+    showItemInFolder: (path) => shell.showItemInFolder(path),
   });
   for (const name of requests.names) {
     ipcMain.handle(`tidy:${name}`, async (event, input: unknown) => {

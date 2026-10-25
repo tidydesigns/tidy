@@ -40,6 +40,7 @@ const responseSchemas = {
   "harness-details": harnessDetailsSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
+  "open-chat-link": z.void(),
   "thread-settings": liveThreadSchema,
   "read-thread": liveThreadSchema,
   "start-thread": liveThreadSchema,

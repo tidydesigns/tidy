@@ -1045,14 +1045,13 @@ export function App() {
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
         onSelect={() => selectThread(project!.id, item.id)}
         onDone={() => void toggleThreadDone(item)}
+        projectName={project?.name}
+        repository={repository}
         modelName={
           harnessDetails[`${project?.id}:${item.harness}`]?.info?.models.find(
-            (model) => model.id === (item.settings?.model ?? item.actualModel),
+            (model) => model.id === (item.actualModel ?? item.settings?.model),
           )?.name
         }
-        designNames={item.designIds.map(
-          (id) => snapshot?.designs.find((design) => design.id === id)?.name ?? "Design reference",
-        )}
       />
     ),
     [
@@ -1064,7 +1063,7 @@ export function App() {
       project,
       toggleThreadDone,
       harnessDetails,
-      snapshot?.designs,
+      repository,
     ],
   );
   useEffect(() => {

@@ -3,8 +3,9 @@ import { Button } from "@tidy/ui/button";
 import { HarnessIcon } from "@tidy/ui/harness-icon";
 import { relativeThreadTime } from "../../shared/thread-time";
 import type { ThreadSummary } from "../../shared/contracts";
-import { TokenUsageDetails } from "./token-usage-details";
 import type { ThreadOrderControls } from "./thread-sidebar";
+import type { RepositoryContext } from "../../shared/repository-context";
+import { ThreadPreview } from "./thread-preview";
 
 export function ThreadCard({
   thread,
@@ -14,7 +15,8 @@ export function ThreadCard({
   onSelect,
   onDone,
   modelName,
-  designNames,
+  projectName,
+  repository,
   orderControls,
 }: {
   thread: ThreadSummary;
@@ -24,7 +26,8 @@ export function ThreadCard({
   onSelect(): void;
   onDone(): void;
   modelName?: string;
-  designNames: string[];
+  projectName?: string;
+  repository?: RepositoryContext;
   orderControls?: ThreadOrderControls;
 }) {
   const working = thread.status === "running";
@@ -178,32 +181,12 @@ export function ThreadCard({
       )}
       {open && !orderControls?.dragging && (
         <div ref={preview} id={id} popover="manual" role="tooltip" className="thread-preview">
-          <strong>{thread.title}</strong>
-          <div className="thread-preview-model">
-            <HarnessIcon harness={thread.harness} />
-            <span>
-              {modelName ?? thread.settings?.model ?? thread.actualModel ?? "Model not reported"}
-              {thread.settings?.effort ? ` · ${thread.settings.effort} effort` : ""}
-            </span>
-          </div>
-          <div className="thread-preview-status">
-            <span>
-              {thread.doneAt
-                ? "Done"
-                : thread.status === "completed"
-                  ? "Ready"
-                  : thread.status.charAt(0).toUpperCase() + thread.status.slice(1)}
-            </span>
-            <span>{thread.messageCount ?? 0} messages</span>
-          </div>
-          {thread.preview && <p className="thread-preview-message">{thread.preview}</p>}
-          {designNames.length > 0 && (
-            <p className="thread-preview-designs">Designs: {designNames.join(", ")}</p>
-          )}
-          {thread.usage && <TokenUsageDetails usage={thread.usage} />}
-          <time dateTime={thread.updatedAt}>
-            Last activity {new Date(thread.updatedAt).toLocaleString()}
-          </time>
+          <ThreadPreview
+            thread={thread}
+            projectName={projectName}
+            repository={repository}
+            modelName={modelName}
+          />
         </div>
       )}
     </div>

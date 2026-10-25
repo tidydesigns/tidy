@@ -354,5 +354,9 @@
   "escape-string-regexp": {
     "source": "license",
     "notice": "is-plain-obj.txt"
+  },
+  "simple-icons": {
+    "source": "LICENSE.md",
+    "notice": "simple-icons.txt"
   }
 }

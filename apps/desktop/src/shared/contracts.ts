@@ -167,6 +167,7 @@ export type DesktopAPI = {
   skills(projectId: string, harness: HarnessId, refresh?: boolean): Promise<SkillCatalog>;
   harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;
+  openChatLink(projectId: string, href: string): Promise<void>;
   setThreadSettings(
     projectId: string,
     threadId: string,
