@@ -36,6 +36,7 @@ export class CloudService implements CloudAPI {
   private accountChanging = false;
   private latestAccount?: CloudAccount;
   private accountRequest = 0;
+  private accountWrites = Promise.resolve();
   private designVersions = new Map<string, string>();
   private workspaceWork = new Map<string, Promise<ProjectSnapshot>>();
   private workspaces = new Map<string, { accountId: string; organizationId: string }>();
@@ -209,7 +210,15 @@ export class CloudService implements CloudAPI {
       return structuredClone(this.latestAccount);
     if (request !== this.accountRequest)
       throw new Error("Newer account metadata is loading. Try again.");
-    if (!cachedOnly) await this.privateState.write(key, account);
+    if (!cachedOnly) {
+      const write = this.accountWrites.then(async () => {
+        if (generation !== this.generation || request !== this.accountRequest || this.closed)
+          throw new Error("The account changed.");
+        await this.privateState.write(key, account);
+      });
+      this.accountWrites = write.catch(() => {});
+      await write;
+    }
     if (generation !== this.generation || this.closed) throw new Error("The account changed.");
     if (request !== this.accountRequest)
       throw new Error("Newer account metadata is loading. Try again.");

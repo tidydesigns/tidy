@@ -744,3 +744,44 @@ test("bootstrap never reopens or enumerates private cloud projects after sign-ou
     discovery.mockRestore();
   }
 });
+
+test("overlapping account refreshes keep the newest revocation durable even if an older cache write stalls", async () => {
+  const f = await fixture();
+  const firstWrite = Promise.withResolvers<void>(),
+    release = Promise.withResolvers<void>();
+  const secondRequested = Promise.withResolvers<void>();
+  let requests = 0,
+    writes = 0;
+  let persisted: { organizations: Array<{ canEdit: boolean }> } | undefined;
+  const metadata = spyOn(f.remote, "account").mockImplementation(async () => {
+    const canEdit = ++requests === 1;
+    if (!canEdit) secondRequested.resolve();
+    return { id: "alice", organizations: [{ id: "org", name: "Team", canEdit }] };
+  });
+  const original = f.state.write.bind(f.state);
+  const writing = spyOn(f.state, "write").mockImplementation(async (key, value) => {
+    if (!key.startsWith("account-")) return original(key, value);
+    if (++writes === 1) {
+      firstWrite.resolve();
+      await release.promise;
+    }
+    persisted = value as typeof persisted;
+  });
+  try {
+    const older = f.cloud.account();
+    await firstWrite.promise;
+    const newer = f.cloud.account();
+    await secondRequested.promise;
+    await Promise.resolve();
+    await Promise.resolve();
+    const completed = Promise.allSettled([older, newer]);
+    release.resolve();
+    const results = await completed;
+    expect(results[1].status).toBe("fulfilled");
+    expect(persisted?.organizations[0].canEdit).toBe(false);
+  } finally {
+    release.resolve();
+    metadata.mockRestore();
+    writing.mockRestore();
+  }
+});
