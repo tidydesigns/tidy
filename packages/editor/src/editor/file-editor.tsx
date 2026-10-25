@@ -4723,6 +4723,7 @@ export function FileEditor({
             <div hidden={!viewPreferences.comments}>
               <CanvasComments
                 ref={commentsRef}
+                enabled={active && viewPreferences.comments}
                 notificationRoot={viewPreferences.comments ? notificationRoot : null}
                 fileId={fileId}
                 pageId={currentPageId}

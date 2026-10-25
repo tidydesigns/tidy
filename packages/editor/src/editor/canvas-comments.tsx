@@ -87,7 +87,12 @@ function CommentPin({
   const card = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 9, top: -17, maxWidth: 336 });
   const first = thread.preview ?? thread.messages[0];
-  const open = Boolean(first && !selected && previewId === thread.id);
+  const onCanvas =
+    x >= -17 &&
+    y >= -17 &&
+    x <= (viewport.current?.clientWidth ?? 0) + 17 &&
+    y <= (viewport.current?.clientHeight ?? 0) + 17;
+  const open = Boolean(first && onCanvas && !selected && previewId === thread.id);
   const dismiss = useCallback(() => {
     setPreviewId((current) => (current === thread.id ? null : current));
   }, [setPreviewId, thread.id]);
@@ -102,11 +107,11 @@ function CommentPin({
       const width = popup.offsetWidth;
       const height = popup.offsetHeight;
       const right = x + 9;
-      const left = right + width <= canvas.clientWidth - 8 ? right : x - width - 9;
+      const left = right + width <= canvas.clientWidth ? right : x - width - 9;
       setPosition({
-        maxWidth: Math.max(0, canvas.clientWidth - 16),
-        left: Math.max(8, Math.min(canvas.clientWidth - width - 8, left)) - x,
-        top: Math.max(8, Math.min(canvas.clientHeight - height - 8, y - 17)) - y,
+        maxWidth: canvas.clientWidth,
+        left: Math.max(0, Math.min(canvas.clientWidth - width, left)) - x,
+        top: Math.max(0, Math.min(canvas.clientHeight - height, y - 17)) - y,
       });
     };
     place();
@@ -124,8 +129,22 @@ function CommentPin({
       event.stopPropagation();
       dismiss();
     };
+    const leave = () => {
+      setHovered(false);
+      setFocused(false);
+      dismiss();
+    };
+    const visibility = () => {
+      if (document.hidden) leave();
+    };
     document.addEventListener("keydown", onKeyDown, true);
-    return () => document.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("blur", leave);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("blur", leave);
+      document.removeEventListener("visibilitychange", visibility);
+    };
   }, [open, dismiss]);
 
   return (
@@ -207,6 +226,35 @@ function CommentPin({
       )}
     </div>
   );
+}
+
+function CommentPins({
+  threads,
+  activeId,
+  view,
+  viewport,
+  onOpen,
+}: {
+  threads: CommentThread[];
+  activeId: string | null;
+  view: { zoom: number; x: number; y: number };
+  viewport: React.RefObject<HTMLElement | null>;
+  onOpen: (threadId: string) => void;
+}) {
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  return threads.map((thread) => (
+    <CommentPin
+      key={thread.id}
+      thread={thread}
+      selected={activeId === thread.id}
+      previewId={previewId}
+      setPreviewId={setPreviewId}
+      x={thread.x * view.zoom + view.x}
+      y={thread.y * view.zoom + view.y}
+      viewport={viewport}
+      onOpen={() => onOpen(thread.id)}
+    />
+  ));
 }
 
 type ReactionDraft = {
@@ -468,6 +516,7 @@ export const CanvasComments = forwardRef<
     view: { zoom: number; x: number; y: number };
     viewport: React.RefObject<HTMLElement | null>;
     readOnly?: boolean;
+    enabled?: boolean;
     liveVersion?: number;
     toolbarControls?: ReactNode;
     notificationRoot: HTMLElement | null;
@@ -479,6 +528,7 @@ export const CanvasComments = forwardRef<
     view,
     viewport,
     readOnly = false,
+    enabled = true,
     liveVersion = 0,
     toolbarControls,
     notificationRoot,
@@ -489,7 +539,6 @@ export const CanvasComments = forwardRef<
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [reactionsAvailable, setReactionsAvailable] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [previewId, setPreviewId] = useState<string | null>(null);
   const [draftState, setDraft] = useState<(Point & { pageId: string }) | null>(null);
   const draft = draftState?.pageId === pageId ? draftState : null;
   const [body, setBodyState] = useState("");
@@ -1004,19 +1053,16 @@ export const CanvasComments = forwardRef<
 
   return (
     <div data-canvas-control className="pointer-events-none absolute inset-0 z-30">
-      {visibleThreads.map((thread) => (
-        <CommentPin
-          key={`${fileId}:${pageId}:${thread.id}`}
-          thread={thread}
-          selected={activeId === thread.id}
-          previewId={previewId}
-          setPreviewId={setPreviewId}
-          x={thread.x * view.zoom + view.x}
-          y={thread.y * view.zoom + view.y}
+      {enabled && (
+        <CommentPins
+          key={`${fileId}:${pageId}`}
+          threads={visibleThreads}
+          activeId={activeId}
+          view={view}
           viewport={viewport}
-          onOpen={() => openThread(thread.id)}
+          onOpen={openThread}
         />
-      ))}
+      )}
       {(pageThreads.length > 0 || nextCursor || toolbarControls) && (
         <div
           className="absolute left-4 right-4 top-20 flex items-center justify-end gap-2 md:top-4"
