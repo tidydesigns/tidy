@@ -34,6 +34,11 @@ and assets retain their original licenses and copyright notices.
   in `apps/web/public/connectors/README.md` and `apps/web/public/agents/README.md`;
   desktop copies retain the notice in `packages/ui/harness-icons/README.md`,
   packaged as `licenses/harness-marks.txt`. Do not imply provider endorsement.
+- **Simple Icons 16.35.0**: CC0-1.0. The package licence is retained at
+  `licenses/bundled/simple-icons.txt`. Individual marks retain their applicable
+  licences and trademark rights.
+- **JavaScript logo**: MIT, copyright 2011 Christopher Williams. The full notice
+  is retained at `licenses/bundled/javascript-logo.txt`.
 - The desktop OpenAI mark in `apps/desktop/src/renderer/src/openai.svg` is sourced
   from Simple Icons 13.21.0 (`icons/openai.svg`), distributed under CC0-1.0.
   OpenAI retains its trademark rights; the mark identifies the connected provider.
