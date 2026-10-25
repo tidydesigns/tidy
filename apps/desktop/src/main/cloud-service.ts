@@ -151,6 +151,8 @@ export class CloudService implements CloudAPI {
     };
   }
   signIn() {
+    const previousAccount = this.latestAccount;
+    const previousWorkspaces = new Map(this.workspaces);
     const generation = ++this.generation;
     this.accountChanging = true;
     this.latestAccount = undefined;
@@ -166,10 +168,21 @@ export class CloudService implements CloudAPI {
       this.workspaceWork.clear();
       await this.service.stopCloudThreads();
       await this.sync.stop();
-      await this.auth.signIn();
-      if (generation === this.generation && !this.closed) {
-        this.accountChanging = false;
-        await this.resume();
+      try {
+        await this.auth.signIn();
+      } finally {
+        if (generation === this.generation && !this.closed) {
+          if (previousAccount?.id === this.auth.accountId) await this.account(true).catch(() => {});
+          if (generation === this.generation && !this.closed) {
+            this.accountChanging = false;
+            if (previousAccount?.id === this.auth.accountId) {
+              for (const [id, binding] of previousWorkspaces) {
+                if (binding.accountId === this.auth.accountId) this.workspaces.set(id, binding);
+              }
+            }
+            await this.resume();
+          }
+        }
       }
     });
     this.action = work.catch(() => {});

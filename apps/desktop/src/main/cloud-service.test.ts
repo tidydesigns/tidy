@@ -637,6 +637,7 @@ test("workspace request responses cannot return cached designs after sign-out", 
     chooseProject: async () => null,
     chooseDesign: async () => null,
     openExternal: async () => {},
+    showItemInFolder: () => {},
   });
   try {
     const pending = requests.invoke(
@@ -728,6 +729,7 @@ test("bootstrap never reopens or enumerates private cloud projects after sign-ou
     chooseProject: async () => null,
     chooseDesign: async () => null,
     openExternal: async () => {},
+    showItemInFolder: () => {},
   });
   await requests.invoke("select-project", workspace.project.id, undefined);
   await f.cloud.signOut();
@@ -783,5 +785,107 @@ test("overlapping account refreshes keep the newest revocation durable even if a
     release.resolve();
     metadata.mockRestore();
     writing.mockRestore();
+  }
+});
+
+for (const fails of [false, true]) {
+  test(`same-account sign-in ${fails ? "failure" : "success"} restores open workspace access and sync`, async () => {
+    const f = await fixture();
+    const opened = await f.cloud.openFile("org", f.remote.library.files[0].id);
+    const login = spyOn(f.auth, "signIn").mockImplementation(async () => {
+      await expect(f.service.assertProjectAccess(opened.projectId)).rejects.toThrow();
+      expect(f.service.canAccessCloudProject?.(opened.projectId)).toBe(false);
+      if (fails) throw new Error("Login failed");
+    });
+    try {
+      if (fails) await expect(f.cloud.signIn()).rejects.toThrow("Login failed");
+      else await f.cloud.signIn();
+      await f.service.assertProjectAccess(opened.projectId);
+      expect(f.service.canAccessCloudProject?.(opened.projectId)).toBe(true);
+      expect((await f.cloud.state()).bindings).toHaveLength(1);
+      expect((await f.cloud.openWorkspace("org")).project.id).toBe(opened.projectId);
+    } finally {
+      login.mockRestore();
+    }
+  });
+}
+
+test("sign-out during failed sign-in never restores the previous workspace authority", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const login = spyOn(f.auth, "signIn").mockImplementation(async () => {
+    entered.resolve();
+    await gate.promise;
+    throw new Error("Login cancelled");
+  });
+  try {
+    const signingIn = f.cloud.signIn();
+    const rejected = Promise.allSettled([signingIn]);
+    await entered.promise;
+    const signingOut = f.cloud.signOut();
+    gate.resolve();
+    expect((await rejected)[0].status).toBe("rejected");
+    await signingOut;
+    await expect(f.service.assertProjectAccess(workspace.project.id)).rejects.toThrow();
+    expect(f.service.canAccessCloudProject?.(workspace.project.id)).toBe(false);
+    expect((await f.cloud.state()).bindings).toEqual([]);
+  } finally {
+    gate.resolve();
+    login.mockRestore();
+  }
+});
+
+test("same-account recovery retains membership revocation received during sign-in", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const accounts = spyOn(f.remote, "account").mockResolvedValue({
+    id: "alice",
+    organizations: [{ id: "org", name: "Team", canEdit: false }],
+  });
+  const login = spyOn(f.auth, "signIn").mockImplementation(async () => {
+    await f.cloud.account();
+  });
+  try {
+    await f.cloud.signIn();
+    await expect(f.service.assertProjectAccess(workspace.project.id)).rejects.toThrow(
+      "editing access",
+    );
+    expect(f.service.canAccessCloudProject?.(workspace.project.id)).toBe(false);
+  } finally {
+    login.mockRestore();
+    accounts.mockRestore();
+  }
+});
+
+test("sign-out fences a delayed same-account recovery read", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = f.state.read.bind(f.state);
+  const reading = spyOn(f.state, "read").mockImplementation(async (key) => {
+    const value = await original(key);
+    if (key.startsWith("account-")) {
+      entered.resolve();
+      await gate.promise;
+    }
+    return value;
+  });
+  const login = spyOn(f.auth, "signIn").mockResolvedValue(undefined);
+  try {
+    const signingIn = f.cloud.signIn();
+    await entered.promise;
+    const signingOut = f.cloud.signOut();
+    gate.resolve();
+    await Promise.all([signingIn, signingOut]);
+    await expect(f.service.assertProjectAccess(workspace.project.id)).rejects.toThrow();
+    expect(f.service.canAccessCloudProject?.(workspace.project.id)).toBe(false);
+    expect((await f.cloud.state()).bindings).toEqual([]);
+  } finally {
+    gate.resolve();
+    login.mockRestore();
+    reading.mockRestore();
   }
 });
