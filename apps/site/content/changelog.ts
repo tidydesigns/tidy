@@ -13,6 +13,186 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-25",
+    features: [
+      {
+        title: "Run agents in cloud workspaces",
+        details:
+          "Start a thread from a cloud workspace in the desktop app. Choose Design only or a local project, and attach workspace designs for your agent to edit. Conversations and project files stay on your machine.",
+      },
+      {
+        title: "Open references from chat",
+        details:
+          "File references in desktop conversations show file icons and line numbers and can reveal the file in its folder. Website links are easier to recognise, and thread previews show the model, project and branch.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-24",
+    features: [
+      {
+        title: "Live canvas windows in desktop threads",
+        details:
+          "Open design previews as live canvas windows above your conversation. Move, resize or dismiss each window, and manage open designs from the compact composer dock.",
+      },
+      {
+        title: "Choose models and project context",
+        details:
+          "Search models, mark favourites and choose your project branch from the desktop composer. Model, permission and context controls are grouped beside your message.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Paste where you need it",
+        details:
+          "Pasting respects the selected frame and canvas context. Use Paste here from the context menu to place copied layers at a specific canvas position.",
+      },
+      {
+        title: "Return to your desktop workspace",
+        details:
+          "Refreshing the desktop app restores your workspace, view, file and thread instead of resetting your navigation.",
+      },
+      {
+        title: "Consistent file lists",
+        details:
+          "Web and desktop file lists now show creator profile pictures and consistent file details. Relative dates stay up to date while you browse.",
+      },
+      {
+        title: "Faster cloud file opening",
+        details:
+          "Cloud designs open with less waiting, and interrupted previews recover more reliably.",
+      },
+      {
+        title: "Clearer desktop sign-in",
+        details:
+          "Desktop cloud sync and agent connections now show distinct sign-in requests, making it clearer what you are authorising.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-23",
+    features: [
+      {
+        title: "Cloud workspaces in the desktop app",
+        details:
+          "Sign in from Settings to browse and edit your cloud workspace files. Downloaded designs reopen locally, edits sync in the background, and sync status helps you resolve conflicting changes while keeping both versions.",
+      },
+      {
+        title: "Magnified canvas colour sampling",
+        details:
+          "Use the colour picker to sample a painted canvas colour with a magnified preview for more precise selection.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Smoother trackpad navigation",
+        details:
+          "Panning and zooming avoid unnecessary hover updates, and canvas navigation keeps working when your pointer is over an artboard title.",
+      },
+      {
+        title: "Clearer vectorisation failures",
+        details:
+          "If an image cannot be vectorised, a message explains what went wrong, including when there are no visible pixels to trace.",
+      },
+      {
+        title: "Immersive fullscreen designs",
+        details:
+          "Desktop design files use the full window in fullscreen, without unused titlebar space.",
+      },
+      {
+        title: "Clearer desktop activity states",
+        details:
+          "Tool activity uses distinct status colours, including amber for interrupted work. Dark theme surfaces and composer controls are easier to distinguish.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-22",
+    features: [
+      {
+        title: "Queue agent follow-ups",
+        details:
+          "Write follow-up messages while your desktop agent is working. Queue them for later or send instructions immediately, with queued messages preserved if delivery fails.",
+      },
+      {
+        title: "Choose skills from the composer",
+        details: "Type / in the desktop composer to browse and select available project skills.",
+      },
+      {
+        title: "Update your coding agents",
+        details:
+          "The desktop app checks for updates to supported coding agents and lets you install them when no runs or queued follow-ups are active.",
+      },
+      {
+        title: "Reorder threads and check remaining usage",
+        details:
+          "Drag desktop thread cards to reorder them and see your remaining usage as a percentage.",
+      },
+      {
+        title: "Undo resolved comments",
+        details:
+          "Resolve a comment thread and use Undo to bring it back. Posting feedback appears immediately while your comment is being sent.",
+      },
+      {
+        title: "Toggle the desktop sidebar",
+        details: "Show or hide the sidebar from the integrated macOS window header.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More accurate image vectorisation",
+        details:
+          "Vectorised images preserve fine details more accurately with fewer unnecessary layers and less processing.",
+      },
+      {
+        title: "Smoother desktop conversations",
+        details:
+          "Streaming responses keep the interface more responsive, and conversation previews stay open while you hover over them. The message composer grows before it starts scrolling.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-21",
+    features: [
+      {
+        title: "Automatic desktop updates",
+        details:
+          "Supported macOS builds check for app updates automatically. Use the sidebar update control to see progress and restart when an update is ready.",
+      },
+      {
+        title: "Simpler colour editing",
+        details:
+          "Edit colours in a picker beside the inspector and sample colours directly from the canvas. Selection properties are easier to scan.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Smoother layer dragging",
+        details:
+          "Moving layers across the canvas responds more smoothly, especially in larger designs.",
+      },
+      {
+        title: "Instant privacy choices",
+        details:
+          "Privacy controls respond immediately and group browser analytics and agent diagnostics choices together.",
+      },
+      {
+        title: "Keep the page still behind dialogs",
+        details: "Opening a modal prevents the page behind it from scrolling.",
+      },
+      {
+        title: "Clearer error notifications",
+        details:
+          "Failed actions show consistent, dismissible notices, with clearer feedback when you need to retry or sign in again.",
+      },
+      {
+        title: "Steadier editor controls",
+        details:
+          "Toolbar loading placeholders match the finished controls, and corner-radius tooltips stay visible above selection handles.",
+      },
+    ],
+  },
+  {
     date: "2026-10-20",
     fixes: [
       {
