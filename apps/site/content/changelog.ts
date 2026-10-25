@@ -13,21 +13,6 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
-    date: "2026-10-25",
-    features: [
-      {
-        title: "Run agents in cloud workspaces",
-        details:
-          "Start a thread from a cloud workspace in the desktop app. Choose Design only or a local project, and attach workspace designs for your agent to edit. Conversations and project files stay on your machine.",
-      },
-      {
-        title: "Open references from chat",
-        details:
-          "File references in desktop conversations show file icons and line numbers and can reveal the file in its folder. Website links are easier to recognise, and thread previews show the model, project and branch.",
-      },
-    ],
-  },
-  {
     date: "2026-10-24",
     features: [
       {
