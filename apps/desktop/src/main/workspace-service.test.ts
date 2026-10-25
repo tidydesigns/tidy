@@ -1,5 +1,5 @@
 import { HarnessSkills, type SkillAdapter } from "./harness-skills";
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1294,4 +1294,38 @@ test("revoked cloud access during preparation prevents native launch", async () 
   resumePreparation();
   await expect(starting).rejects.toThrow("Account changed");
   expect(runs).toHaveLength(0);
+});
+
+test("Stop during the final execution authority check never launches a process or leaves a running thread", async () => {
+  const f = await fixture();
+  const id = randomUUID();
+  const entered = Promise.withResolvers<void>(),
+    gate = Promise.withResolvers<void>();
+  const original = f.store.assertThreadExecution.bind(f.store);
+  let calls = 0;
+  const validation = spyOn(f.store, "assertThreadExecution").mockImplementation(async (...args) => {
+    await original(...args);
+    if (++calls === 2) {
+      entered.resolve();
+      await gate.promise;
+    }
+  });
+  try {
+    const starting = f.service.startThread({
+      projectId: f.project.id,
+      threadId: id,
+      harness: "codex",
+      prompt: "Start",
+      designIds: [],
+    });
+    await entered.promise;
+    await f.service.stopThread(f.project.id, id);
+    gate.resolve();
+    expect((await starting).status).toBe("stopped");
+    expect(f.runs).toHaveLength(0);
+    expect((await f.store.readThread(f.project.id, id)).status).toBe("stopped");
+  } finally {
+    gate.resolve();
+    validation.mockRestore();
+  }
 });

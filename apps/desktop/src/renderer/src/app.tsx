@@ -83,6 +83,10 @@ const errorText = (error: unknown) =>
 export function App() {
   const api = window.tidy;
   const cloud = useCloud(api?.cloud);
+  const cloudLibrary = useMemo(
+    () => ({ state: cloud.state, account: cloud.account }),
+    [cloud.state, cloud.account],
+  );
   const [settingsOpen, setSettingsOpen] = useSessionState("settings", z.boolean(), false);
   const settingsTrigger = useRef<HTMLButtonElement>(null);
   const settingsWasOpen = useRef(false);
@@ -186,8 +190,10 @@ export function App() {
   }, [selectedThreadId]);
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
-  const executionProjectId =
-    thread?.executionProjectId ?? (!selectedThreadId ? draft.executionProjectId : undefined);
+  const selectedSummary = snapshot?.threads.find((item) => item.id === selectedThreadId);
+  const executionProjectId = selectedThreadId
+    ? (thread?.executionProjectId ?? selectedSummary?.executionProjectId)
+    : draft.executionProjectId;
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
@@ -200,17 +206,27 @@ export function App() {
     projectId: executionProject?.id,
     onError: reportRepositoryError,
   });
-  const referenceDesignIds =
-    location === "cloud"
-      ? (draft.cloudFileIds ?? []).flatMap((fileId) => {
-          const binding = cloud.state?.bindings.find(
-            (item) => item.projectId === project?.id && item.fileId === fileId,
-          );
-          return binding && snapshot?.designs.some((design) => design.id === binding.designId)
-            ? [binding.designId]
-            : [];
-        })
-      : draft.designIds;
+  const referenceDesignIds = useMemo(
+    () =>
+      location === "cloud"
+        ? (draft.cloudFileIds ?? []).flatMap((fileId) => {
+            const binding = cloud.state?.bindings.find(
+              (item) => item.projectId === project?.id && item.fileId === fileId,
+            );
+            return binding && snapshot?.designs.some((design) => design.id === binding.designId)
+              ? [binding.designId]
+              : [];
+          })
+        : draft.designIds,
+    [
+      location,
+      draft.cloudFileIds,
+      draft.designIds,
+      cloud.state?.bindings,
+      project?.id,
+      snapshot?.designs,
+    ],
+  );
   const referencesReady =
     location !== "cloud" || referenceDesignIds.length === (draft.cloudFileIds?.length ?? 0);
   const executionReady = Boolean(executionProject);
@@ -1456,7 +1472,7 @@ export function App() {
             <CloudWorkspace
               key={`${cloud.account?.id}:${cloudOrganizationId}`}
               api={api}
-              cloud={cloud}
+              cloud={cloudLibrary}
               organizationId={cloudOrganizationId}
               navigationTarget={location === "cloud" && mode === "design" ? designNavigation : null}
               active={!settingsOpen && location === "cloud" && mode === "design"}

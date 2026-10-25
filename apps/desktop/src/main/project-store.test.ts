@@ -535,3 +535,20 @@ test("execution bindings survive restart but cannot be inserted, removed or redi
     "execution project changed",
   );
 });
+
+test("a checkpoint cannot silently rebind a running workspace thread when its repository moves", async () => {
+  const f = await fixture();
+  const owner = (await f.store.open(f.root, "Team")).project;
+  const executionRoot = join(f.directory, "repository");
+  await mkdir(executionRoot);
+  const execution = (await f.store.open(executionRoot)).project;
+  const value = { ...thread(owner.id), executionProjectId: execution.id };
+  await f.store.writeThread(value);
+  const moved = join(f.directory, "moved-repository");
+  await rename(executionRoot, moved);
+  expect((await f.store.open(moved)).project.id).toBe(execution.id);
+  await expect(f.store.writeThread({ ...value, revision: value.revision + 1 })).rejects.toThrow(
+    "execution project changed",
+  );
+  await expect(f.store.readThread(owner.id, value.id)).rejects.toThrow("execution project changed");
+});

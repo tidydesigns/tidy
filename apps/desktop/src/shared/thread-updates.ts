@@ -14,6 +14,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     revision: thread.revision,
     id: thread.id,
     projectId: thread.projectId,
+    executionProjectId: thread.executionProjectId,
     title: thread.title,
     harness: thread.harness,
     doneAt: thread.doneAt,

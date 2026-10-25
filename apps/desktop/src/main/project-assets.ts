@@ -8,6 +8,7 @@ export async function projectAssetResponse(
   store: ProjectStore,
   request: Request,
   developmentOrigin?: string,
+  authorize?: (projectId: string) => Promise<void>,
 ) {
   const url = new URL(request.url);
   const match = /^\/__tidy\/assets\/([^/]+)\/([^/]+)$/.exec(url.pathname);
@@ -16,7 +17,14 @@ export async function projectAssetResponse(
   try {
     const projectId = z.uuid().parse(match[1]);
     const assetId = z.uuid().parse(match[2]);
+    const check = async () => {
+      if (!authorize && store.project(projectId).cloud)
+        throw new Error("Cloud images require account authorization.");
+      await authorize?.(projectId);
+    };
+    await check();
     const dataUrl = await store.readSyncAsset(projectId, assetId);
+    await check();
     const image = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(
       dataUrl ?? "",
     );

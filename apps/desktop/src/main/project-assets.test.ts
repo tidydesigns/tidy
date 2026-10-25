@@ -68,3 +68,21 @@ test("asset requests reject unknown projects, traversal, unsafe MIME types and s
   await symlink(outside, path);
   expect((await projectAssetResponse(f.store, new Request(f.url))).status).toBe(404);
 });
+
+test("private cloud images require account authorization and recheck after disk reads", async () => {
+  const f = await fixture();
+  await f.store.open(join(f.root, "project"), "Team");
+  expect((await projectAssetResponse(f.store, new Request(f.url))).status).toBe(404);
+  let calls = 0;
+  const allowed = await projectAssetResponse(f.store, new Request(f.url), undefined, async () => {
+    calls++;
+  });
+  expect(allowed.status).toBe(200);
+  expect(calls).toBe(2);
+  calls = 0;
+  const denied = await projectAssetResponse(f.store, new Request(f.url), undefined, async () => {
+    if (++calls > 1) throw new Error("Account changed");
+  });
+  expect(denied.status).toBe(404);
+  expect(await denied.text()).toBe("");
+});

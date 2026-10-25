@@ -1,7 +1,7 @@
 import { useSessionState } from "./session-state";
 import { fileBrowserSchema, emptyFileBrowser } from "../../shared/navigation-state";
 import { createPortal } from "react-dom";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import {
@@ -23,7 +23,7 @@ import { LocalPreview } from "./project-files";
 import { SyncStatus } from "./sync-status";
 import { CloudCreator } from "./cloud-creator";
 
-export function CloudWorkspace({
+export const CloudWorkspace = memo(function CloudWorkspace({
   api,
   cloud,
   organizationId,
@@ -33,7 +33,7 @@ export function CloudWorkspace({
   onCatalogChange,
 }: {
   api: DesktopAPI;
-  cloud: CloudConnection;
+  cloud: Pick<CloudConnection, "state" | "account">;
   organizationId: string;
   navigationTarget: HTMLElement | null;
   active: boolean;
@@ -512,4 +512,4 @@ export function CloudWorkspace({
       </div>
     </>
   );
-}
+});

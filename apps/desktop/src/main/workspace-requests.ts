@@ -42,7 +42,9 @@ export function createWorkspaceRequests<Context>(
             ? value
             : undefined;
       if (typeof target === "string") await service.assertProjectAccess(target);
-      return action(value, context);
+      const result = await action(value, context);
+      if (typeof target === "string") await service.assertProjectAccess(target);
+      return result;
     });
   }
   function liveSnapshot(snapshot: Awaited<ReturnType<typeof store.snapshot>>) {
@@ -53,7 +55,10 @@ export function createWorkspaceRequests<Context>(
   }
   handle("bootstrap", z.undefined(), async () => {
     let activeProject = null;
-    if (store.activeProjectId) {
+    if (
+      store.activeProjectId &&
+      store.projects.some((project) => project.id === store.activeProjectId && !project.cloud)
+    ) {
       try {
         activeProject = liveSnapshot(await store.snapshot(store.activeProjectId));
         await service.observe(store.activeProjectId);
@@ -61,7 +66,11 @@ export function createWorkspaceRequests<Context>(
         /* The recent project may be on an unavailable volume. */
       }
     }
-    return { projects: store.projects, activeProject, harnesses: await checkHarnesses() };
+    return {
+      projects: store.projects.filter((project) => !project.cloud),
+      activeProject,
+      harnesses: await checkHarnesses(),
+    };
   });
   handle("open-project", z.undefined(), async (_value, event) => {
     const path = await platform.chooseProject(event);

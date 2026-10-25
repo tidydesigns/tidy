@@ -10,6 +10,8 @@ import { CloudAuth } from "./cloud-auth";
 import { PrivateState } from "./private-state";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
+import * as harnesses from "./harnesses";
+import { createWorkspaceRequests } from "./workspace-requests";
 import type { CloudCatalog } from "../shared/cloud-sync";
 import type { CloudSnapshot, PendingUpload } from "./cloud-remote";
 
@@ -147,6 +149,7 @@ test("sign-out fences a cached avatar read before it reaches the renderer", asyn
 });
 async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1]) {
   const services: WorkspaceService[] = [];
+  const auths: CloudAuth[] = [];
   const root = await mkdtemp(join(tmpdir(), "tidy-cloud-library-"));
   cleanups.push(() => rm(root, { recursive: true, force: true }));
   await mkdir(join(root, "local-project"));
@@ -182,6 +185,7 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
         throw Error("Offline");
       }) as unknown as typeof fetch,
     );
+    auths.push(auth);
     const service = new WorkspaceService(
       store,
       launch,
@@ -199,7 +203,7 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   const cloud = await make();
   await cloud.account();
   await cloud.catalog("org");
-  return { root, store, local, state, remote, cloud, make, service: services[0] };
+  return { root, store, local, state, remote, cloud, make, service: services[0], auth: auths[0] };
 }
 
 test("cloud files open in a private workspace without selecting or uploading the local project", async () => {
@@ -519,5 +523,224 @@ test("workspace authorization reuses account metadata without disk or network wo
   } finally {
     reads.mockRestore();
     accountReads.mockRestore();
+  }
+});
+
+test("opening the same workspace concurrently reads its transcript snapshot only once", async () => {
+  const f = await fixture();
+  const snapshots = spyOn(f.store, "snapshot");
+  try {
+    const values = await Promise.all(Array.from({ length: 8 }, () => f.cloud.openWorkspace("org")));
+    expect(new Set(values.map((value) => value.project.id)).size).toBe(1);
+    expect(snapshots).toHaveBeenCalledTimes(1);
+  } finally {
+    snapshots.mockRestore();
+  }
+});
+
+test("a late cached account read cannot undo freshly received membership revocation", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = f.state.read.bind(f.state);
+  const reading = spyOn(f.state, "read").mockImplementation(async (key) => {
+    const value = await original(key);
+    if (key.startsWith("account-")) {
+      entered.resolve();
+      await gate.promise;
+    }
+    return value;
+  });
+  const accounts = spyOn(f.remote, "account");
+  try {
+    const cached = f.cloud.account(true);
+    await entered.promise;
+    accounts.mockResolvedValue({
+      id: "alice",
+      organizations: [{ id: "org", name: "Team", canEdit: false }],
+    });
+    await f.cloud.account();
+    gate.resolve();
+    const value = await cached;
+    expect(value.organizations[0].canEdit).toBe(false);
+    await expect(f.service.assertProjectAccess(workspace.project.id)).rejects.toThrow(
+      "editing access",
+    );
+  } finally {
+    gate.resolve();
+    reading.mockRestore();
+    accounts.mockRestore();
+  }
+});
+
+test("another account cannot publish a design from a private cloud workspace through the local-design API", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const design = await f.store.createDesign(workspace.project.id);
+  f.remote.accountId = "bob";
+  const bob = await f.make("bob");
+  await bob.account();
+  await expect(bob.connectLocal(workspace.project.id, design.id, "org")).rejects.toThrow();
+  expect((await bob.state()).bindings).toHaveLength(0);
+});
+
+test("signing into another account fences a workspace response already reading transcripts", async () => {
+  const f = await fixture();
+  const workspacePath = f.state.workspace.bind(f.state);
+  const canonical = spyOn(f.state, "workspace").mockImplementation(async (key) =>
+    realpath(await workspacePath(key)),
+  );
+  await f.cloud.openWorkspace("org");
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = f.store.snapshot.bind(f.store);
+  const reading = spyOn(f.store, "snapshot").mockImplementation(async (id) => {
+    const value = await original(id);
+    entered.resolve();
+    await gate.promise;
+    return value;
+  });
+  const login = spyOn(f.auth, "signIn").mockImplementation(async () => {
+    Object.defineProperty(f.auth, "accountId", { configurable: true, get: () => "bob" });
+    f.remote.accountId = "bob";
+  });
+  try {
+    const pending = f.cloud.openWorkspace("org");
+    await entered.promise;
+    await f.cloud.signIn();
+    gate.resolve();
+    await expect(pending).rejects.toThrow();
+  } finally {
+    gate.resolve();
+    reading.mockRestore();
+    login.mockRestore();
+    Reflect.deleteProperty(f.auth, "accountId");
+    canonical.mockRestore();
+  }
+});
+
+test("workspace request responses cannot return cached designs after sign-out", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const design = await f.store.createDesign(workspace.project.id);
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const original = f.store.readDesign.bind(f.store);
+  const reading = spyOn(f.store, "readDesign").mockImplementation(async (...args) => {
+    const value = await original(...args);
+    entered.resolve();
+    await gate.promise;
+    return value;
+  });
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+  });
+  try {
+    const pending = requests.invoke(
+      "read-design",
+      { projectId: workspace.project.id, designId: design.id },
+      undefined,
+    );
+    await entered.promise;
+    await f.cloud.signOut();
+    gate.resolve();
+    await expect(pending).rejects.toThrow();
+  } finally {
+    gate.resolve();
+    reading.mockRestore();
+  }
+});
+
+test("renderer subscriptions stop forwarding private cloud events after sign-out while local events continue", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  const received: string[] = [];
+  const unsubscribe = f.service.subscribeRenderer((event) => {
+    received.push(event.type === "designs" ? event.projectId : event.thread.projectId);
+  });
+  try {
+    await f.service.refreshDesigns(workspace.project.id);
+    expect(received).toEqual([workspace.project.id]);
+    await f.cloud.signOut();
+    await f.service.refreshDesigns(workspace.project.id);
+    await f.service.refreshDesigns(f.local.project.id);
+    expect(received).toEqual([workspace.project.id, f.local.project.id]);
+  } finally {
+    unsubscribe();
+  }
+});
+
+test("cached file metadata cannot return after sign-out", async () => {
+  const f = await fixture();
+  const entered = Promise.withResolvers<void>(),
+    gate = Promise.withResolvers<void>();
+  const original = f.state.read.bind(f.state);
+  const reads = spyOn(f.state, "read").mockImplementation(async (key) => {
+    const value = await original(key);
+    if (key.startsWith("catalog-")) {
+      entered.resolve();
+      await gate.promise;
+    }
+    return value;
+  });
+  try {
+    const pending = f.cloud.catalog("org", true);
+    await entered.promise;
+    await f.cloud.signOut();
+    gate.resolve();
+    await expect(pending).rejects.toThrow("account changed");
+  } finally {
+    gate.resolve();
+    reads.mockRestore();
+  }
+});
+
+test("cached workspace opens reuse their registered canonical directory", async () => {
+  const f = await fixture();
+  await f.cloud.openWorkspace("org");
+  const registration = spyOn(f.store, "register");
+  try {
+    await f.cloud.openWorkspace("org");
+    expect(registration).not.toHaveBeenCalled();
+  } finally {
+    registration.mockRestore();
+  }
+});
+
+test("sign-out removes the previous account's binding metadata from renderer state", async () => {
+  const f = await fixture();
+  await f.cloud.openFile("org", f.remote.library.files[0].id);
+  expect((await f.cloud.state()).bindings).toHaveLength(1);
+  const signingOut = f.cloud.signOut();
+  expect((await f.cloud.state()).bindings).toEqual([]);
+  await signingOut;
+  expect((await f.cloud.state()).bindings).toEqual([]);
+});
+
+test("bootstrap never reopens or enumerates private cloud projects after sign-out", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  await f.store.createDesign(workspace.project.id);
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+  });
+  await requests.invoke("select-project", workspace.project.id, undefined);
+  await f.cloud.signOut();
+  const discovery = spyOn(harnesses, "checkHarnesses").mockResolvedValue([]);
+  try {
+    const result = (await requests.invoke("bootstrap", undefined, undefined)) as {
+      projects: Array<{ cloud?: boolean }>;
+      activeProject: unknown;
+    };
+    expect(result.activeProject).toBeNull();
+    expect(result.projects.every((project) => !project.cloud)).toBe(true);
+    expect(result.projects).toHaveLength(1);
+  } finally {
+    discovery.mockRestore();
   }
 });

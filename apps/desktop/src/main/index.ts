@@ -176,6 +176,7 @@ app
             store,
             request,
             entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
+            (projectId) => service!.assertProjectAccess(projectId),
           );
         if (request.method !== "GET" && request.method !== "HEAD")
           return new Response(null, { status: 405 });

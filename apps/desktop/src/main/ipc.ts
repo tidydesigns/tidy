@@ -194,7 +194,7 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
       }
     });
   }
-  return service.subscribe((event) => {
+  return service.subscribeRenderer((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (
         !window.isDestroyed() &&

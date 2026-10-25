@@ -62,11 +62,15 @@ Workspace transcripts and attachments live in the account-scoped private workspa
 cache. A thread can use that cache directly or a separately selected local project
 as its execution directory. The local project ID and canonical path are bound in
 private thread authority; changing portable JSON cannot add, remove or redirect
-that binding. The renderer supplies registered project IDs, never arbitrary paths.
+that binding. Checkpoints cannot replace a previously authorized execution path.
+The renderer supplies registered project IDs, never arbitrary paths.
 
 Workspace actions require the current account and cached editing membership. Fresh
 account metadata replaces cached membership; offline work uses the last known
 membership, and the sync API independently checks live access on every transfer.
+Account changes fence pending workspace and metadata reads. Image responses recheck
+access after disk reads, and renderer event broadcasts use current account membership.
+Cloud file APIs apply the same ownership checks as thread APIs.
 Sign-out immediately blocks new workspace actions and stops its native runs, while
 independent local project threads continue. Opening a workspace does not execute
 stored queues or download every design.

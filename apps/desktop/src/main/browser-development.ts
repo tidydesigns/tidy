@@ -78,7 +78,7 @@ export function browserDevelopment(
       throw new Error("File links can be revealed from the desktop app.");
     },
   });
-  const unsubscribe = service.subscribe((event) => {
+  const unsubscribe = service.subscribeRenderer((event) => {
     const id = `${epoch}:${++sequence}`;
     const data = `id: ${id}\ndata: ${JSON.stringify(event)}\n\n`;
     history.push({ id, data });

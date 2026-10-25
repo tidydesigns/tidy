@@ -108,6 +108,12 @@ export class ProjectStore {
   }
 
   async open(directory: string, cloudName?: string) {
+    const project = await this.register(directory, cloudName);
+    return this.snapshot(project.id);
+  }
+
+  /** Register native-selected storage without decoding every saved conversation. */
+  async register(directory: string, cloudName?: string): Promise<Project> {
     const path = await realpath(directory);
     if (!(await stat(path)).isDirectory()) throw new Error("Select a project directory.");
     const project: Project = {
@@ -149,7 +155,7 @@ export class ProjectStore {
     ].slice(0, 100);
     if (!cloudName) this.registry.activeProjectId = project.id;
     await this.writeRegistry();
-    return this.snapshot(project.id);
+    return project;
   }
 
   async select(projectId: string) {
@@ -339,12 +345,7 @@ export class ProjectStore {
     const authority = await this.authority.read(this.project(projectId).path, thread);
     if (authority && authority.harness !== thread.harness)
       throw new Error("This thread's harness changed on disk. Start a new thread.");
-    if (
-      thread.executionProjectId !== authority?.executionProjectId ||
-      (authority?.executionProjectId &&
-        this.project(authority.executionProjectId).path !== authority.executionProjectPath)
-    )
-      throw new Error("This thread's execution project changed. Start a new thread.");
+    await this.assertThreadExecution(thread);
     thread.sessionId = authority?.sessionId;
     const settings = { ...thread.settings };
     delete settings.permissionMode;
@@ -353,6 +354,17 @@ export class ProjectStore {
         ? { ...settings, permissionMode: authority?.permissionMode }
         : undefined;
     return thread;
+  }
+
+  async assertThreadExecution(thread: Thread, allowUnbound = false) {
+    const authority = await this.authority.read(this.project(thread.projectId).path, thread);
+    if (!authority && allowUnbound) return;
+    if (
+      thread.executionProjectId !== authority?.executionProjectId ||
+      (authority?.executionProjectId &&
+        this.project(authority.executionProjectId).path !== authority.executionProjectPath)
+    )
+      throw new Error("This thread's execution project changed. Start a new thread.");
   }
 
   writeThread(thread: Thread) {

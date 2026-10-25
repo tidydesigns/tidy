@@ -56,6 +56,13 @@ export class ThreadAuthority {
   /** Called only with trusted in-memory state after a UI action or native protocol update. */
   async write(projectPath: string, thread: Thread, executionProjectPath?: string) {
     const key = this.key(projectPath, thread);
+    const previous = await this.read(projectPath, thread);
+    if (
+      previous &&
+      (previous.executionProjectId !== thread.executionProjectId ||
+        previous.executionProjectPath !== executionProjectPath)
+    )
+      throw new Error("This thread's execution project changed. Start a new thread.");
     const value = authoritySchema.parse({
       harness: thread.harness,
       executionProjectId: thread.executionProjectId,

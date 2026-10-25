@@ -61,6 +61,15 @@ type Job = {
 export class WorkspaceService {
   /** Installed by the native cloud coordinator; cloud data never grants local execution. */
   authorizeCloudProject?: (projectId: string) => Promise<void>;
+  canAccessCloudProject?: (projectId: string) => boolean;
+
+  subscribeRenderer(listener: (event: DesktopEvent) => void) {
+    return this.subscribe((event) => {
+      const id = event.type === "designs" ? event.projectId : event.thread.projectId;
+      const project = this.store.projects.find((item) => item.id === id);
+      if (project && (!project.cloud || this.canAccessCloudProject?.(id))) listener(event);
+    });
+  }
 
   async assertProjectAccess(projectId: string) {
     if (!this.store.project(projectId).cloud) return;
@@ -466,6 +475,8 @@ export class WorkspaceService {
           attachmentIds,
           message.skillId,
         );
+        await this.assertProjectAccess(thread.projectId);
+        await this.store.assertThreadExecution(thread);
         if (this.closing || job.stopped) return structuredClone(thread);
         const insertion = thread.messages.length;
         if (
@@ -538,6 +549,7 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     if (thread.doneAt) throw new Error("Reopen this thread before continuing.");
     await this.assertProjectAccess(thread.projectId);
+    await this.store.assertThreadExecution(thread, thread.messages.length === 0);
     const owner = this.store.project(thread.projectId);
     const project = this.executionProject(thread);
     if ((await realpath(project.path)) !== project.path)
@@ -720,6 +732,17 @@ export class WorkspaceService {
       return structuredClone(thread);
     }
     try {
+      await this.assertProjectAccess(thread.projectId);
+      await this.store.assertThreadExecution(thread);
+      if (job.stopped || this.closing) {
+        if (queuedMessages?.some((item) => item.id === messageId)) {
+          thread.queuedMessages = queuedMessages;
+          thread.messages = thread.messages.filter((item) => item.id !== messageId);
+        }
+        thread.status = "stopped";
+        await this.finish(job, false);
+        return structuredClone(thread);
+      }
       job.process = this.launch({
         harness: thread.harness,
         executable,

@@ -159,3 +159,22 @@ test("project summaries keep early stream updates when bootstrap finishes and re
   expect(latest.folders).toEqual([folder]);
   expect(latest.threads).toBe(added.threads);
 });
+
+test("thread summaries retain the execution project without copying conversation logs", () => {
+  const executionProjectId = randomUUID();
+  const summary = summarizeThread({
+    id: randomUUID(),
+    projectId: randomUUID(),
+    executionProjectId,
+    revision: 1,
+    title: "Implement",
+    harness: "codex",
+    messages: [],
+    status: "idle",
+    designIds: [],
+    updatedAt: new Date().toISOString(),
+  });
+  expect(summary.executionProjectId).toBe(executionProjectId);
+  expect(summary).not.toHaveProperty("messages");
+  expect(summary).not.toHaveProperty("sessionId");
+});
