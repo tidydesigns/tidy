@@ -705,3 +705,9 @@
 .thread-error {
   color: var(--desktop-status-danger);
 }
+.thread-search-empty {
+  margin: 8px 10px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 18px;
+}

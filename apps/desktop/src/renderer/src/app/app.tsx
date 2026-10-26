@@ -101,6 +101,7 @@ export function App() {
     hasCloudAPI: Boolean(api?.cloud),
   });
   const [cloudCanvas, setCloudCanvas] = useState(false);
+  const [threadQueries, setThreadQueries] = useState<Record<string, string>>({});
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [opening, setOpening] = useState(false);
@@ -1223,34 +1224,6 @@ export function App() {
 
   return (
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
-      {project && !settingsOpen && !canvasFocused && (
-        <Button
-          className="desktop-new-thread"
-          aria-label="New thread"
-          title="New thread"
-          onClick={() => {
-            setMode("code");
-            selectThread(project.id, null);
-            requestAnimationFrame(() =>
-              document.querySelector<HTMLElement>("#thread-prompt")?.focus(),
-            );
-          }}
-        >
-          <svg
-            aria-hidden="true"
-            width="14"
-            height="14"
-            viewBox="0 0 16 16"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-          >
-            <path d="M8 3v10M3 8h10" />
-          </svg>
-          <span>New thread</span>
-        </Button>
-      )}
       <aside
         id="desktop-navigation"
         className="desktop-navigation"
@@ -1308,6 +1281,69 @@ export function App() {
               )}
             </div>
           </div>
+          {project && (
+            <div className="workspace-thread-actions">
+              <label className="workspace-thread-search">
+                <svg
+                  aria-hidden="true"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                >
+                  <circle cx="8.5" cy="8.5" r="5.5" />
+                  <path d="m13 13 4 4" />
+                </svg>
+                <input
+                  type="search"
+                  aria-label="Search threads"
+                  placeholder="Search threads"
+                  value={threadQueries[project.id] ?? ""}
+                  onChange={(event) => {
+                    const query = event.currentTarget.value;
+                    setThreadQueries((current) => ({ ...current, [project.id]: query }));
+                    setMode("code");
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Escape") return;
+                    event.preventDefault();
+                    setThreadQueries((current) => ({ ...current, [project.id]: "" }));
+                  }}
+                />
+              </label>
+              <Button
+                className="sidebar-new-thread"
+                aria-label="New thread"
+                title="New thread"
+                onClick={() => {
+                  setThreadQueries((current) => ({ ...current, [project.id]: "" }));
+                  setMode("code");
+                  selectThread(project.id, null);
+                  requestAnimationFrame(() =>
+                    document.querySelector<HTMLElement>("#thread-prompt")?.focus(),
+                  );
+                }}
+              >
+                <svg
+                  aria-hidden="true"
+                  width="17"
+                  height="17"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M9 4H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2v-4" />
+                  <path d="m9 11 1-4 6-6 3 3-6 6-4 1Zm6-9 3 3" />
+                </svg>
+              </Button>
+            </div>
+          )}
           <div
             role="tablist"
             aria-label="Workspace"
@@ -1358,6 +1394,7 @@ export function App() {
                 key={project.id}
                 projectId={project.id}
                 threads={snapshot.threads}
+                search={threadQueries[project.id] ?? ""}
                 renderThread={renderThread}
               />
             </div>

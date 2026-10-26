@@ -15,6 +15,7 @@ const ThreadRow = memo(function ThreadRow({
   previousId,
   nextId,
   dragging,
+  filtered,
   onPointerDown,
   move,
   renderThread,
@@ -23,22 +24,28 @@ const ThreadRow = memo(function ThreadRow({
   previousId?: string;
   nextId?: string;
   dragging: boolean;
+  filtered: boolean;
   onPointerDown: ReturnType<typeof useThreadDrag>["onPointerDown"];
   move: ReturnType<typeof useThreadDrag>["move"];
   renderThread: RenderThread;
 }) {
   return (
     <div className="thread-order-row" data-thread-id={thread.id}>
-      {renderThread(thread, {
-        dragging,
-        onPointerDown(event) {
-          onPointerDown({ event, id: thread.id });
-        },
-        onMove(direction) {
-          const neighbor = direction < 0 ? previousId : nextId;
-          if (neighbor) move({ id: thread.id, to: neighbor, after: direction > 0 });
-        },
-      })}
+      {renderThread(
+        thread,
+        filtered
+          ? undefined
+          : {
+              dragging,
+              onPointerDown(event) {
+                onPointerDown({ event, id: thread.id });
+              },
+              onMove(direction) {
+                const neighbor = direction < 0 ? previousId : nextId;
+                if (neighbor) move({ id: thread.id, to: neighbor, after: direction > 0 });
+              },
+            },
+      )}
     </div>
   );
 });
@@ -69,10 +76,12 @@ function readOrder(projectId: string): string[] {
 export function ThreadSidebar({
   projectId,
   threads,
+  search,
   renderThread,
 }: {
   projectId: string;
   threads: ThreadSummary[];
+  search: string;
   renderThread: RenderThread;
 }) {
   const [order, setOrder] = useState(() => readOrder(projectId));
@@ -96,16 +105,20 @@ export function ThreadSidebar({
       /* A private browser may disable preference storage. */
     }
   }, [projectId, order, drag.draggingId]);
-  const active = ordered.filter((item) => !item.doneAt);
+  const query = search.trim().toLocaleLowerCase();
+  const matches = (item: ThreadSummary) => item.title.toLocaleLowerCase().includes(query);
+  const active = ordered.filter((item) => !item.doneAt && matches(item));
   const done = threads
-    .filter((item) => item.doneAt)
+    .filter((item) => item.doneAt && matches(item))
     .sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
   return (
     <div className="project-sidebar" aria-label="Threads">
-      <div className="sidebar-heading">
-        <span>Threads</span>
-      </div>
       <div className="sidebar-scroll">
+        {query && active.length === 0 && done.length === 0 && (
+          <p className="thread-search-empty" role="status">
+            No matching threads
+          </p>
+        )}
         <div className="sidebar-list" ref={drag.list} onClickCapture={drag.onClickCapture}>
           {active.map((item, index) => (
             <ThreadRow
@@ -114,6 +127,7 @@ export function ThreadSidebar({
               previousId={active[index - 1]?.id}
               nextId={active[index + 1]?.id}
               dragging={drag.draggingId === item.id}
+              filtered={Boolean(query)}
               onPointerDown={drag.onPointerDown}
               move={drag.move}
               renderThread={renderThread}
@@ -122,7 +136,7 @@ export function ThreadSidebar({
         </div>
       </div>
       {done.length > 0 && (
-        <details className="done-threads">
+        <details className="done-threads" open={query ? true : undefined}>
           <summary>
             Done <span>{done.length}</span>
           </summary>
