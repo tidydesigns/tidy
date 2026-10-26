@@ -8,9 +8,15 @@ import { CodexAppServer } from "./app-server";
 export type Runtime = Pick<CodexAppServer, "start" | "request" | "reject" | "respond" | "close"> &
   Pick<EventEmitter, "on" | "off"> &
   Partial<Pick<CodexAppServer, "stop">>;
+export type RuntimeLease = { runtime: Runtime; release: () => void };
+type Entry = { app: Runtime; users: number; lastUsed: number; closing?: Promise<void> };
+class RuntimeCapacityError extends Error {}
 type RunnerOptions = {
   secret: string;
   directory: string;
+  capacity?: number;
+  idleMs?: number;
+  now?: () => number;
   createRuntime?: (directory: string) => Runtime;
   onRuntime?: (owner: string, runtime: Runtime) => void;
 };
@@ -19,30 +25,97 @@ const actions = new Set(["login", "account", "logout", "erase", "limits", "model
 export function createRunnerHandler(options: RunnerOptions) {
   if (options.secret.length < 32)
     throw new Error("AGENT_RUNNER_SECRET must contain at least 32 characters.");
-  const accounts = new Map<string, Runtime>();
+  const accounts = new Map<string, Entry>();
+  const capacity = options.capacity ?? 64;
+  const idleMs = options.idleMs ?? 5 * 60_000;
+  const now = options.now ?? Date.now;
+  if (!Number.isSafeInteger(capacity) || capacity < 1 || !Number.isFinite(idleMs) || idleMs < 1)
+    throw new Error("Invalid runtime capacity or idle timeout.");
+  let closed = false;
   const erased = new Set<string>();
   const logins = new Map<string, { result: Promise<{ loginId?: string }>; expiresAt: number }>();
   const makeRuntime = options.createRuntime ?? ((directory) => new CodexAppServer(directory));
   const secret = Buffer.from(`Bearer ${options.secret}`);
-  async function runtime(owner: string) {
-    if (erased.has(owner)) throw new Error("Account runtime was erased.");
-    let app = accounts.get(owner);
-    if (!app) {
-      app = makeRuntime(resolve(options.directory, owner));
-      // Until an execution session installs its typed tool handlers, deny every
-      // server-initiated operation. Login cannot enable arbitrary local tools.
-      if (options.onRuntime) options.onRuntime(owner, app);
-      else app.on("request", (message: { id: string | number }) => app!.reject(message.id));
-      app.on("notification", (message: { method: string }) => {
-        if (message.method === "account/login/completed") logins.delete(owner);
+  function retire(owner: string, entry: Entry) {
+    if (!entry.closing) {
+      // Retiring processes retain their capacity slot until exit is confirmed.
+      entry.closing = Promise.resolve().then(async () => {
+        if (entry.app.stop) await entry.app.stop();
+        else entry.app.close();
+        if (accounts.get(owner) === entry) {
+          accounts.delete(owner);
+          logins.delete(owner);
+        }
       });
-      accounts.set(owner, app);
     }
-    await app.start();
-    return app;
+    return entry.closing;
+  }
+  async function sweep() {
+    await Promise.all(
+      [...accounts].map(async ([owner, entry]) => {
+        if (entry.users || entry.closing) return;
+        const login = logins.get(owner);
+        if (login ? login.expiresAt <= now() : now() - entry.lastUsed >= idleMs)
+          await retire(owner, entry);
+      }),
+    );
+  }
+  const cleanup = setInterval(() => void sweep().catch(() => {}), 30_000);
+  cleanup.unref();
+  async function acquire(owner: string): Promise<RuntimeLease> {
+    if (closed || erased.has(owner)) throw new Error("Account runtime is unavailable.");
+    let entry = accounts.get(owner);
+    if (entry?.closing) {
+      await entry.closing;
+      return acquire(owner);
+    }
+    if (!entry) {
+      if (accounts.size >= capacity) {
+        const candidate = [...accounts]
+          .filter(
+            ([id, value]) =>
+              !value.users &&
+              !value.closing &&
+              (!logins.has(id) || logins.get(id)!.expiresAt <= now()),
+          )
+          .sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0];
+        if (!candidate) throw new RuntimeCapacityError("Runtime capacity is busy.");
+        await retire(...candidate);
+        return acquire(owner);
+      }
+      const app = makeRuntime(resolve(options.directory, owner));
+      entry = { app, users: 0, lastUsed: now() };
+      accounts.set(owner, entry);
+      if (options.onRuntime) options.onRuntime(owner, app);
+      else app.on("request", (message: { id: string | number }) => app.reject(message.id));
+      app.on("notification", (message: { method: string }) => {
+        if (message.method === "account/login/completed" && accounts.get(owner) === entry)
+          logins.delete(owner);
+      });
+    }
+    const current = entry;
+    current.users++;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      current.users--;
+      current.lastUsed = now();
+    };
+    try {
+      await current.app.start();
+      if (closed || erased.has(owner) || current.closing)
+        throw new Error("Account runtime is unavailable.");
+      return { runtime: current.app, release };
+    } catch (error) {
+      release();
+      await retire(owner, current);
+      throw error;
+    }
   }
   return {
-    runtime,
+    acquire,
+    sweep,
     async fetch(request: Request) {
       const supplied = Buffer.from(request.headers.get("authorization") ?? "");
       if (supplied.length !== secret.length || !timingSafeEqual(supplied, secret))
@@ -53,21 +126,20 @@ export function createRunnerHandler(options: RunnerOptions) {
       if (request.method !== "POST" || !match || !actions.has(match[2]))
         return new Response(null, { status: 404 });
       const [, owner, action] = match;
+      let lease: RuntimeLease | undefined;
       try {
         if (action === "erase") {
           erased.add(owner);
-          const app = accounts.get(owner);
-          if (app?.stop) await app.stop();
-          else app?.close();
-          accounts.delete(owner);
-          logins.delete(owner);
+          const entry = accounts.get(owner);
+          if (entry) await retire(owner, entry);
           await rm(resolve(options.directory, owner), { recursive: true, force: true });
           return Response.json({ ok: true });
         }
-        const app = await runtime(owner);
+        lease = await acquire(owner);
+        const app = lease.runtime;
         if (action === "login") {
           let login = logins.get(owner);
-          if (login && login.expiresAt < Date.now()) {
+          if (login && login.expiresAt < now()) {
             const old = await login.result.catch(() => null);
             if (old?.loginId) await app.request("account/login/cancel", { loginId: old.loginId });
             logins.delete(owner);
@@ -85,7 +157,7 @@ export function createRunnerHandler(options: RunnerOptions) {
                   logins.delete(owner);
                   throw error;
                 }),
-              expiresAt: Date.now() + 9 * 60_000,
+              expiresAt: now() + 9 * 60_000,
             };
             logins.set(owner, login);
           }
@@ -97,8 +169,8 @@ export function createRunnerHandler(options: RunnerOptions) {
             await app.request("account/login/cancel", { loginId: login.loginId }).catch(() => {});
           logins.delete(owner);
           await app.request("account/logout");
-          app.close();
-          accounts.delete(owner);
+          const entry = accounts.get(owner);
+          if (entry) await retire(owner, entry);
           return Response.json({ ok: true });
         }
         const method =
@@ -112,12 +184,21 @@ export function createRunnerHandler(options: RunnerOptions) {
           action === "account" ? { refreshToken: false } : {},
         );
         return Response.json(result, { headers: { "Cache-Control": "no-store" } });
-      } catch {
+      } catch (error) {
+        if (error instanceof RuntimeCapacityError)
+          return Response.json(
+            { error: "Codex is busy. Try again shortly." },
+            { status: 503, headers: { "Retry-After": "5", "Cache-Control": "no-store" } },
+          );
         return Response.json({ error: "Codex runtime request failed." }, { status: 502 });
+      } finally {
+        lease?.release();
       }
     },
     close() {
-      for (const runtime of accounts.values()) runtime.close();
+      closed = true;
+      clearInterval(cleanup);
+      for (const { app } of accounts.values()) app.close();
       accounts.clear();
       logins.clear();
     },

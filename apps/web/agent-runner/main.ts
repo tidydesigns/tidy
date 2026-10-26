@@ -15,7 +15,7 @@ if (import.meta.main) {
     directory,
     onRuntime: (owner, runtime) => executor.attach(owner, runtime),
   });
-  const executor = new AgentExecutor(executionClient(tidyUrl, secret), handler.runtime);
+  const executor = new AgentExecutor(executionClient(tidyUrl, secret), handler.acquire);
   void executor.start();
   const server = Bun.serve({
     hostname: process.env.AGENT_RUNNER_HOST ?? "127.0.0.1",

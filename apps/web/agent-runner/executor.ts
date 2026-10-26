@@ -7,7 +7,7 @@ import type {
   ExecutionWorker,
   DynamicTool,
 } from "../lib/agents/execution-protocol";
-import type { Runtime } from "./server";
+import type { Runtime, RuntimeLease } from "./server";
 import type { RpcMessage } from "./app-server";
 
 type Remote = (request: ExecutionRequest) => Promise<unknown>;
@@ -117,10 +117,11 @@ export class AgentExecutor {
   private jobs = new Map<string, Job>();
   private routing = new Map<string, { job: Job; worker: Worker }>();
   private stopped = false;
+  private admitted = 0;
   private runnerId = randomUUID();
   constructor(
     private remote: Remote,
-    private runtime: (owner: string) => Promise<Runtime>,
+    private acquire: (owner: string) => Promise<RuntimeLease>,
   ) {}
 
   attach(owner: string, app: Runtime) {
@@ -135,7 +136,7 @@ export class AgentExecutor {
   async start() {
     while (!this.stopped) {
       try {
-        if (this.jobs.size < 36) {
+        if (this.admitted < 36) {
           const { run } = z.object({ run: executionRunSchema.nullable() }).parse(
             await this.remote({
               action: "claim",
@@ -177,8 +178,13 @@ export class AgentExecutor {
     }
   }
   private async run(run: ExecutionRun) {
-    const runtime = await this.runtime(run.owner).catch(() => null);
-    if (!runtime) {
+    this.admitted++;
+    let lease: RuntimeLease | undefined;
+    try {
+      lease = await this.acquire(run.owner);
+      if (this.stopped) return;
+      await this.execute(run, lease.runtime);
+    } catch {
       await this.remote({
         action: "finish",
         runId: run.id,
@@ -186,8 +192,12 @@ export class AgentExecutor {
         status: "failed",
         reason: "runner_disconnected",
       }).catch(() => {});
-      return;
+    } finally {
+      lease?.release();
+      this.admitted--;
     }
+  }
+  private async execute(run: ExecutionRun, runtime: Runtime) {
     const job: Job = {
       run,
       runtime,

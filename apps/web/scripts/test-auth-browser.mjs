@@ -126,10 +126,32 @@ try {
     const target = new URL(route.request().url());
     return target.origin === base ? route.continue() : route.abort();
   });
+  const policyViolations = [];
+  await context.exposeBinding("recordPolicyViolation", (_source, directive) => {
+    policyViolations.push(directive);
+  });
+  await context.addInitScript(() => {
+    document.addEventListener("securitypolicyviolation", (event) => {
+      void window.recordPolicyViolation({
+        directive: event.effectiveDirective,
+        blocked: event.blockedURI,
+        url: location.pathname,
+        source: event.sourceFile,
+        line: event.lineNumber,
+        column: event.columnNumber,
+      });
+    });
+  });
   const page = await context.newPage(),
     errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${base}/login`);
+  await page.addLocatorHandler(
+    page.getByRole("button", { name: "Reject all optional", exact: true }),
+    (button) => button.click(),
+  );
+  const loginResponse = await page.goto(`${base}/login`);
+  assert.match(loginResponse.headers()["content-security-policy"], /script-src .*'nonce-/);
+  assert.equal((await page.locator("head script[nonce]").count()) > 0, true);
   assert.equal(
     await page.getByRole("button", { name: "Continue with Google", exact: true }).count(),
     1,
@@ -193,7 +215,11 @@ try {
   await page.goto(link);
   await page.waitForURL(`${base}/onboarding/organization`);
   assert.equal(
-    (await client.query('select "emailVerified" from "user"')).rows[0].emailVerified,
+    (
+      await client.query('select "emailVerified" from "user" where "email"=$1', [
+        "designer@example.test",
+      ])
+    ).rows[0].emailVerified,
     true,
   );
   assert((await context.cookies()).some((value) => value.name.includes("session_token")));
@@ -210,8 +236,8 @@ try {
   await page.getByLabel("Email", { exact: true }).fill("designer@example.test");
   await page.getByLabel("Password", { exact: true }).fill("disposable-browser-password");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await page.getByRole("heading", { name: "Create your organisation.", exact: true }).waitFor();
-  assert.equal(new URL(page.url()).pathname, "/onboarding/organization");
+  await page.getByRole("heading", { name: "Your account", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/account/privacy");
 
   // Exercise the actual consent page and client plugin against the production
   // bundle. Only the loopback CLI callback is a browser fixture.
@@ -293,6 +319,11 @@ try {
   });
   assert.equal(mcp.status, 200, "A refused approval replay must preserve the newly issued grant.");
   assert.deepEqual(errors, []);
+  assert.deepEqual(
+    policyViolations,
+    [],
+    "Account flows must remain compatible with the page policy.",
+  );
   console.log(
     "Auth browser checks passed: provider buttons, password mismatch, sign-up, resend, protected access, inbox verification, mobile layout, expired links, verified password sign-in and session-bound MCP consent/callback/token/replay.",
   );

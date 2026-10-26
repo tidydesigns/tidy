@@ -179,7 +179,7 @@ test("managed runtime executes six agents and concurrent teammate threads withou
       runtimes.set(owner, runtime);
       executor.attach(owner, runtime);
     }
-    return runtime;
+    return { runtime, release() {} };
   });
   const running = executor.start();
   try {
@@ -283,7 +283,7 @@ test("history exhaustion stops the runtime instead of asking the model to retry 
       }
       return {} as T;
     },
-    async () => runtime,
+    async () => ({ runtime, release() {} }),
   );
   executor.attach("alice", runtime);
   const running = executor.start();
@@ -296,6 +296,33 @@ test("history exhaustion stops the runtime instead of asking the model to retry 
     expect(calls).toBe(1);
   } finally {
     executor.close();
+    await running;
+  }
+});
+
+test("execution admission counts accounts that are still starting", async () => {
+  let claims = 0;
+  const failures: Array<(error: Error) => void> = [];
+  const executor = new AgentExecutor(
+    async (request) => {
+      if (request.action === "claim") {
+        claims++;
+        return { run: fixture(`owner-${claims}`, 1) };
+      }
+      return {};
+    },
+    () => new Promise((_, reject) => failures.push(reject)),
+  );
+  const running = executor.start();
+  try {
+    const deadline = Date.now() + 2000;
+    while (claims < 36 && Date.now() < deadline) await Bun.sleep(5);
+    expect(claims).toBe(36);
+    await Bun.sleep(30);
+    expect(claims).toBe(36);
+  } finally {
+    executor.close();
+    for (const reject of failures) reject(new Error("Fixture closed."));
     await running;
   }
 });

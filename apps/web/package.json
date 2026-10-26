@@ -19,19 +19,22 @@
     "types:worker": "wrangler types cloudflare-env.d.ts --env-interface CloudflareEnv --env-file /dev/null --strict-vars=false",
     "test:browser": "playwright test",
     "browser:install": "playwright install --with-deps chromium",
-    "typecheck:tsc": "bun run --cwd ../gpt-plugin build && next typegen && tsc --noEmit"
+    "typecheck:tsc": "bun run --cwd ../gpt-plugin build && next typegen && tsc --noEmit",
+    "generate:schemas": "bun scripts/generate-schema-object-parsers.mjs"
   },
   "dependencies": {
-    "@tidy/design": "workspace:*",
     "@better-auth/cimd": "1.7.7",
     "@better-auth/core": "1.7.7",
     "@better-auth/mcp": "1.7.7",
     "@better-auth/oauth-provider": "1.7.7",
     "@modelcontextprotocol/server": "^2.3.1",
     "@posthog/mcp": "0.22.3",
+    "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",
+    "@tidy/editor": "workspace:*",
     "@tidy/gpt-plugin": "workspace:*",
     "@tidy/ui": "workspace:*",
+    "@xmldom/xmldom": "0.8.15",
     "better-auth": "1.7.7",
     "jose": "6.2.12",
     "next": "16.4.2",
@@ -42,8 +45,7 @@
     "react-dom": "19.2.8",
     "server-only": "0.0.1",
     "stripe": "^22.6.2",
-    "zod": "^4.6.6",
-    "@tidy/editor": "workspace:*"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@jridgewell/trace-mapping": "0.3.31",

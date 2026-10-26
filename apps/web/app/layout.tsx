@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { headers } from "next/headers";
 import { Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
 import { themeInitScript } from "@/lib/theme";
@@ -23,7 +24,8 @@ export const metadata: Metadata = {
   description: "Sign in to Tidy",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const nonce = (await headers()).get("x-tidy-nonce") ?? undefined;
   return (
     <html
       lang="en"
@@ -32,6 +34,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: themeInitScript,
           }}

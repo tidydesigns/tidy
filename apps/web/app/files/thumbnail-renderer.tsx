@@ -1,4 +1,5 @@
 "use client";
+import "@/lib/schema-design-config";
 export {
   ThumbnailRenderer,
   DocumentPreview,

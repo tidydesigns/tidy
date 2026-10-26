@@ -1,4 +1,5 @@
 "use client";
+import "@/lib/schema-design-config";
 import { FileEditor as SharedFileEditor } from "@tidy/editor";
 import { EditorAgentConnection } from "./editor-agent-connection";
 import { EditorHostProvider } from "@tidy/editor/host";

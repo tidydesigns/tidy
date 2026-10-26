@@ -1,0 +1,108 @@
+diff --git a/v4/core/core.d.cts b/v4/core/core.d.cts
+index 48d059a5eced8ee8dea44bfc8104883a5613371d..b95e4e318a65e1e0bf08773a0c25e9902e133b5e 100644
+--- a/v4/core/core.d.cts
++++ b/v4/core/core.d.cts
+@@ -62,6 +62,9 @@ export type output<T> = T extends {
+ } ? T["_zod"]["output"] : unknown;
+ export type { output as infer };
+ export interface $ZodConfig {
++    /** Install trusted build-time object parsers without runtime code generation. */
++    staticObjectParser?: ((shape: schemas.$ZodShape, inst: schemas.$ZodObject, memo: schemas.$ZodMemoizer | undefined) =>
++        ((payload: schemas.ParsePayload, ctx: schemas.ParseContextInternal) => schemas.ParsePayload) | undefined) | undefined;
+     /** Custom error map. Overrides `config().localeError`. */
+     customError?: errors.$ZodErrorMap | undefined;
+     /** Localized error map. Lowest priority. */
+diff --git a/v4/core/core.d.ts b/v4/core/core.d.ts
+index d2afb1a89ed16217c13b30e9a774e310582f8f43..40b89124427a949e7ca3e01d09d24d5a029b5e02 100644
+--- a/v4/core/core.d.ts
++++ b/v4/core/core.d.ts
+@@ -62,6 +62,9 @@ export type output<T> = T extends {
+ } ? T["_zod"]["output"] : unknown;
+ export type { output as infer };
+ export interface $ZodConfig {
++    /** Install trusted build-time object parsers without runtime code generation. */
++    staticObjectParser?: ((shape: schemas.$ZodShape, inst: schemas.$ZodObject, memo: schemas.$ZodMemoizer | undefined) =>
++        ((payload: schemas.ParsePayload, ctx: schemas.ParseContextInternal) => schemas.ParsePayload) | undefined) | undefined;
+     /** Custom error map. Overrides `config().localeError`. */
+     customError?: errors.$ZodErrorMap | undefined;
+     /** Localized error map. Lowest priority. */
+diff --git a/v4/core/schemas.cjs b/v4/core/schemas.cjs
+index 0d9f7203c375d0ceb49e52f72529c8e3c285245f..4ca7fcee18bc3aa650aacb02cd5aeb087ca31628 100644
+--- a/v4/core/schemas.cjs
++++ b/v4/core/schemas.cjs
+@@ -1234,6 +1234,8 @@ exports.$ZodObjectJIT = core.$constructor("$ZodObjectJIT", (inst, def) => {
+         return doc.compile();
+     };
+     let fastpass;
++    let staticChecked = false;
++    const staticFactory = core.globalConfig.staticObjectParser;
+     const isObject = util.isObject;
+     const jit = !core.globalConfig.jitless;
+     const allowsEval = util.allowsEval;
+@@ -1252,14 +1254,19 @@ exports.$ZodObjectJIT = core.$constructor("$ZodObjectJIT", (inst, def) => {
+             });
+             return payload;
+         }
+-        if (jit && fastEnabled && ctx?.async === false && ctx.jitless !== true) {
+-            // always synchronous
+-            if (!fastpass)
++        if ((fastEnabled || staticFactory) && ctx?.async === false && ctx.jitless !== true) {
++            if (!staticChecked) {
++                staticChecked = true;
++                fastpass = staticFactory?.(def.shape, inst, memo);
++            }
++            if (!fastpass && fastEnabled)
+                 fastpass = generateFastpass(def.shape);
+-            payload = fastpass(payload, ctx);
+-            if (!catchall)
+-                return payload;
+-            return handleCatchall([], input, payload, ctx, value, inst, ctx?.abortEarly === true);
++            if (fastpass) {
++                payload = fastpass(payload, ctx);
++                if (!catchall)
++                    return payload;
++                return handleCatchall([], input, payload, ctx, value, inst, ctx?.abortEarly === true);
++            }
+         }
+         return superParse(payload, ctx);
+     };
+diff --git a/v4/core/schemas.js b/v4/core/schemas.js
+index c8c5de787d82e9c9db6df3fc21876d5924411f54..672db4a86b5de9e9de5010855b14618a7091b8ac 100644
+--- a/v4/core/schemas.js
++++ b/v4/core/schemas.js
+@@ -1190,6 +1190,8 @@ export const $ZodObjectJIT = /*@__PURE__*/ core.$constructor("$ZodObjectJIT", (i
+         return doc.compile();
+     };
+     let fastpass;
++    let staticChecked = false;
++    const staticFactory = core.globalConfig.staticObjectParser;
+     const isObject = util.isObject;
+     const jit = !core.globalConfig.jitless;
+     const allowsEval = util.allowsEval;
+@@ -1208,14 +1210,19 @@ export const $ZodObjectJIT = /*@__PURE__*/ core.$constructor("$ZodObjectJIT", (i
+             });
+             return payload;
+         }
+-        if (jit && fastEnabled && ctx?.async === false && ctx.jitless !== true) {
+-            // always synchronous
+-            if (!fastpass)
++        if ((fastEnabled || staticFactory) && ctx?.async === false && ctx.jitless !== true) {
++            if (!staticChecked) {
++                staticChecked = true;
++                fastpass = staticFactory?.(def.shape, inst, memo);
++            }
++            if (!fastpass && fastEnabled)
+                 fastpass = generateFastpass(def.shape);
+-            payload = fastpass(payload, ctx);
+-            if (!catchall)
+-                return payload;
+-            return handleCatchall([], input, payload, ctx, value, inst, ctx?.abortEarly === true);
++            if (fastpass) {
++                payload = fastpass(payload, ctx);
++                if (!catchall)
++                    return payload;
++                return handleCatchall([], input, payload, ctx, value, inst, ctx?.abortEarly === true);
++            }
+         }
+         return superParse(payload, ctx);
+     };

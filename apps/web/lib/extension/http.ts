@@ -3,6 +3,7 @@ import { MAX_CAPTURE_BYTES } from "@tidy/design/web-capture";
 import { themeFromCookies } from "@/lib/theme";
 import { PublicActionError } from "@/lib/security/public-error";
 import { ZodError } from "zod";
+import { boundedRequest, RequestBodyError } from "@/lib/http/request-body";
 
 export function extensionOrigin(request: Request) {
   const ids = (
@@ -19,7 +20,7 @@ export function extensionOrigin(request: Request) {
 export class CaptureBodyError extends PublicActionError {
   constructor(
     message: string,
-    readonly status: 400 | 413 = 400,
+    readonly status: 400 | 408 | 413 | 415 = 400,
   ) {
     super(message);
   }
@@ -71,7 +72,7 @@ export function extensionPreflight(request: Request) {
   });
 }
 
-export async function readCaptureBody(request: Request) {
+export async function readCaptureBody(request: Request, timeoutMs = 15_000) {
   if (
     !request.headers
       .get("content-type")
@@ -80,34 +81,22 @@ export async function readCaptureBody(request: Request) {
       .match(/^application\/json$/i)
   )
     throw new CaptureBodyError("Use application/json.");
-  if (Number(request.headers.get("content-length")) > MAX_CAPTURE_BYTES)
-    throw new CaptureBodyError("Capture exceeds 16 MB.", 413);
-  const reader = request.body?.getReader();
-  if (!reader) throw new CaptureBodyError("Capture body is missing.");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
+  if (!request.body) throw new CaptureBodyError("Capture body is missing.");
+  let bounded: Request;
   try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_CAPTURE_BYTES) {
-        await reader.cancel();
-        throw new CaptureBodyError("Capture exceeds 16 MB.", 413);
-      }
-      chunks.push(value);
+    bounded = await boundedRequest(request, MAX_CAPTURE_BYTES, timeoutMs);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      if (error.status === 413) throw new CaptureBodyError("Capture exceeds 16 MB.", 413);
+      if (error.status === 408)
+        throw new CaptureBodyError("Capture upload timed out or was canceled. Try again.", 408);
+      if (error.status === 415) throw new CaptureBodyError("Unsupported capture encoding.", 415);
+      throw new CaptureBodyError("Invalid capture body.");
     }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
+    throw error;
   }
   try {
-    return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+    return (await bounded.json()) as unknown;
   } catch {
     throw new CaptureBodyError("Capture body must contain valid JSON.");
   }

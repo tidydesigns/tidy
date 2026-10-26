@@ -1040,3 +1040,41 @@ integration(
     await expect(renameDesktopFile("viewer", "file", "Web name", "Unauthorized")).rejects.toThrow();
   },
 );
+
+integration(
+  "static asset ingestion normalizes supported content and rejects unsupported content before storage",
+  async () => {
+    const { putAsset } = await import("./document-service");
+    const source = '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L10 10"/></svg>';
+    const saved = await putAsset(
+      "editor",
+      "a",
+      "image/svg+xml",
+      Buffer.from(source).toString("base64"),
+    );
+    const row = (
+      await admin.query('select "body","sha256" from "designAsset" where "id"=$1', [saved.assetId])
+    ).rows[0];
+    expect(row.body.toString("utf8")).toContain('d="M0 0L10 10"');
+    expect(row.sha256).toBe(saved.sha256);
+    expect(
+      (await putAsset("editor", "a", "image/svg+xml", Buffer.from(source).toString("base64")))
+        .assetId,
+    ).toBe(saved.assetId);
+    const before = (await admin.query('select count(*)::int as count from "designAsset"')).rows[0]
+      .count;
+    await expect(
+      putAsset(
+        "editor",
+        "a",
+        "image/svg+xml",
+        Buffer.from(
+          '<svg xmlns="http://www.w3.org/2000/svg"><s:script xmlns:s="http://www.w3.org/2000/svg"/></svg>',
+        ).toString("base64"),
+      ),
+    ).rejects.toThrow("unsupported content");
+    expect(
+      (await admin.query('select count(*)::int as count from "designAsset"')).rows[0].count,
+    ).toBe(before);
+  },
+);

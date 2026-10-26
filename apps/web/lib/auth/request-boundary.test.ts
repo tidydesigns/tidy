@@ -127,3 +127,17 @@ test("successful redirects and multiple session cookies survive the boundary", a
   expect(isAuthRequest("/api/mcp")).toBe(false);
   expect(isAuthRequest("/api/auth/oauth2/authorize")).toBe(true);
 });
+
+test("the auth boundary preserves the rendered page policy", async () => {
+  const policy =
+    "default-src 'self'; script-src 'nonce-fixture' 'strict-dynamic'; object-src 'none'";
+  const response = await handleAuthRequest(
+    new Request("https://app.example/login"),
+    async () =>
+      new Response("<html></html>", {
+        headers: { "Content-Type": "text/html", "Content-Security-Policy": policy },
+      }),
+  );
+  expect(response.headers.get("Content-Security-Policy")).toBe(policy);
+  expect(response.headers.get("Cache-Control")).toBe("no-store");
+});

@@ -77,7 +77,11 @@ export async function handleAuthRequest<Cf extends CfProperties>(
         if (!path.startsWith("/.well-known/")) headers.set("Cache-Control", "no-store");
         headers.set("Referrer-Policy", "no-referrer");
         headers.set("X-Frame-Options", "DENY");
-        headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'self'");
+        if (!headers.has("Content-Security-Policy"))
+          headers.set(
+            "Content-Security-Policy",
+            "default-src 'none'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+          );
         headers.set("X-Content-Type-Options", "nosniff");
         return new Response(body, {
           status: response.status,

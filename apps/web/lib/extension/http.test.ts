@@ -27,6 +27,37 @@ const request = (from: string, header = "1") =>
   });
 
 describe("extension HTTP boundary", () => {
+  test("canceled and stalled uploads release the stream promptly", async () => {
+    for (const mode of ["abort", "already-aborted", "deadline"]) {
+      const controller = new AbortController();
+      let canceled = false;
+      const body = new ReadableStream({
+        start(stream) {
+          stream.enqueue(new TextEncoder().encode('{"partial":'));
+        },
+        cancel() {
+          canceled = true;
+          // Cleanup must not wait for an underlying transport to acknowledge cancellation.
+          return new Promise<void>(() => {});
+        },
+      });
+      if (mode === "already-aborted") controller.abort();
+      const upload = readCaptureBody(
+        new Request("http://localhost", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+          signal: controller.signal,
+        }),
+        mode === "deadline" ? 10 : 1000,
+      );
+      if (mode === "abort") controller.abort();
+      const result = await upload.catch(extensionError);
+      expect(result).toMatchObject({ status: 408 });
+      expect(canceled).toBe(true);
+      expect(body.locked).toBe(false);
+    }
+  });
   test("production writes require an explicit extension allowlist", () => {
     Object.assign(process.env, { NODE_ENV: "production" });
     delete process.env.BELLA_EXTENSION_IDS;

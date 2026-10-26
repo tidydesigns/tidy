@@ -132,3 +132,153 @@ test("erasure waits for runtime exit and fences concurrent recreation", async ()
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+function poolFixture(capacity = 2) {
+  let time = 0;
+  const runtimes: FixtureRuntime[] = [];
+  class FixtureRuntime extends EventEmitter {
+    stopped = false;
+    startup: Promise<void> = Promise.resolve();
+    stopping: Promise<void> = Promise.resolve();
+    async start() {
+      await this.startup;
+    }
+    async request<T>(): Promise<T> {
+      return { loginId: "fixture" } as T;
+    }
+    reject() {}
+    respond() {}
+    close() {
+      this.stopped = true;
+    }
+    async stop() {
+      await this.stopping;
+      this.close();
+    }
+  }
+  const secret = "local-test-runner-secret-that-is-long-enough";
+  const handler = createRunnerHandler({
+    secret,
+    directory: "/tmp/runner-pool-fixture",
+    capacity,
+    idleMs: 100,
+    now: () => time,
+    createRuntime: () => {
+      const app = new FixtureRuntime();
+      runtimes.push(app);
+      return app;
+    },
+  });
+  return {
+    handler,
+    runtimes,
+    advance: (milliseconds: number) => {
+      time += milliseconds;
+    },
+    request: (owner: string, action: string) =>
+      handler.fetch(
+        new Request(`http://localhost/v1/accounts/${owner.repeat(64)}/${action}`, {
+          method: "POST",
+          headers: { authorization: `Bearer ${secret}` },
+        }),
+      ),
+  };
+}
+
+test("pool protects active leases and reuses warm accounts", async () => {
+  const { handler, runtimes, advance } = poolFixture(1);
+  try {
+    const first = await handler.acquire("a");
+    const second = await handler.acquire("a");
+    expect(second.runtime).toBe(first.runtime);
+    expect(runtimes).toHaveLength(1);
+    first.release();
+    first.release();
+    advance(1000);
+    await handler.sweep();
+    expect(runtimes[0].stopped).toBe(false);
+    await expect(handler.acquire("b")).rejects.toThrow("capacity");
+    second.release();
+    advance(99);
+    await handler.sweep();
+    expect(runtimes[0].stopped).toBe(false);
+    advance(1);
+    await handler.sweep();
+    expect(runtimes[0].stopped).toBe(true);
+    const restarted = await handler.acquire("a");
+    expect(restarted.runtime).not.toBe(first.runtime);
+    restarted.release();
+  } finally {
+    handler.close();
+  }
+});
+
+test("pool preserves pending sign-in until expiry and then recovers capacity", async () => {
+  const { handler, runtimes, request, advance } = poolFixture(1);
+  try {
+    expect((await request("a", "login")).status).toBe(200);
+    advance(8 * 60_000);
+    await handler.sweep();
+    expect(runtimes[0].stopped).toBe(false);
+    const busy = await request("b", "login");
+    expect(busy.status).toBe(503);
+    expect(busy.headers.get("Retry-After")).toBe("5");
+    expect(runtimes).toHaveLength(1);
+    advance(60_000);
+    await handler.sweep();
+    expect(runtimes[0].stopped).toBe(true);
+    expect((await request("b", "login")).status).toBe(200);
+    runtimes[1].emit("notification", { method: "account/login/completed" });
+    advance(100);
+    await handler.sweep();
+    expect(runtimes[1].stopped).toBe(true);
+  } finally {
+    handler.close();
+  }
+});
+
+test("retiring processes keep their capacity slot until shutdown completes", async () => {
+  const { handler, runtimes } = poolFixture(1);
+  let exit!: () => void;
+  try {
+    const first = await handler.acquire("a");
+    runtimes[0].stopping = new Promise<void>((resolve) => {
+      exit = resolve;
+    });
+    first.release();
+    const next = handler.acquire("b");
+    await Promise.resolve();
+    await expect(handler.acquire("c")).rejects.toThrow("capacity");
+    expect(runtimes).toHaveLength(1);
+    exit();
+    const second = await next;
+    expect(runtimes[0].stopped).toBe(true);
+    expect(runtimes).toHaveLength(2);
+    second.release();
+  } finally {
+    exit?.();
+    handler.close();
+  }
+});
+
+test("startup reservations count against capacity and failed starts are reclaimed", async () => {
+  const { handler, runtimes } = poolFixture(1);
+  let fail!: (error: Error) => void;
+  try {
+    const initial = await handler.acquire("a");
+    initial.release();
+    runtimes[0].startup = new Promise<void>((_, reject) => {
+      fail = reject;
+    });
+    const pending = handler.acquire("a");
+    const rejection = pending.catch((error: Error) => error);
+    await expect(handler.acquire("b")).rejects.toThrow("capacity");
+    fail(new Error("fixture start failure"));
+    expect(await rejection).toMatchObject({ message: "fixture start failure" });
+    expect(runtimes[0].stopped).toBe(true);
+    const recovered = await handler.acquire("b");
+    recovered.release();
+  } finally {
+    handler.close();
+  }
+});

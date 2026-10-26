@@ -116,9 +116,20 @@ test("exports only selected asset bytes and strips source paths and history", ()
   ]);
   expect(result.files.find((file) => file.encoding === "base64")).toMatchObject({
     path: `public/tidy-assets/${id}.svg`,
-    content: "PHN2Zy8+",
+    content: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>').toString("base64"),
   });
   expect(result.files[0].content).not.toContain("private/source.tsx");
+  expect(() =>
+    exportComponent(content, "new-thread", "NewThread", [
+      {
+        id,
+        mimeType: "image/svg+xml",
+        base64: Buffer.from(
+          '<svg xmlns="http://www.w3.org/2000/svg"><s:script xmlns:s="http://www.w3.org/2000/svg"/></svg>',
+        ).toString("base64"),
+      },
+    ]),
+  ).toThrow("unsupported content");
   expect(() => exportComponent(content, "new-thread", "NewThread")).toThrow("missing");
   expect(() => exportComponent(content, "new-thread", "bad-name")).toThrow("PascalCase");
 });

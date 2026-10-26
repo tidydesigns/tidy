@@ -37,7 +37,10 @@ const nextConfig: NextConfig = {
   images: { unoptimized: true },
   async headers() {
     const authHeaders = [
-      { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'" },
+      {
+        key: "Content-Security-Policy",
+        value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+      },
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Referrer-Policy", value: "no-referrer" },
       { key: "X-Content-Type-Options", value: "nosniff" },
@@ -48,7 +51,10 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: [
           { key: "Strict-Transport-Security", value: "max-age=31536000" },
-          { key: "Content-Security-Policy", value: "frame-ancestors 'none'; base-uri 'self'" },
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'",
+          },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
         ],
