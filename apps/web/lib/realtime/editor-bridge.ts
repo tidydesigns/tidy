@@ -5,6 +5,12 @@ import {
   type Peer,
 } from "./protocol";
 
+/** Viewports are caller-only context, not collaborator presence. */
+export function collaborationPeer(peer: Peer): Omit<Peer, "viewport"> {
+  const shared = { ...peer };
+  delete shared.viewport;
+  return shared;
+}
 export function ownEditorSessions(
   peers: Iterable<Peer>,
   sessions: ReadonlySet<string>,

@@ -1,4 +1,4 @@
-import { EditorBridge, ownEditorSessions } from "./editor-bridge";
+import { EditorBridge, ownEditorSessions, collaborationPeer } from "./editor-bridge";
 import { editorExportRequestSchema, type EditorExportRequest } from "./protocol";
 import { acquireConnection, releaseConnection } from "./connection-budget";
 import { RealtimeMessageBudget, reserveRealtimeMessages } from "./message-budget";
@@ -11,6 +11,7 @@ import {
   actorColor,
   EMPTY_PRESENCE,
   presenceSchema,
+  viewportSchema,
   type FileEvent,
   type Peer,
   type RoomMessage,
@@ -186,7 +187,13 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
   }
   private send(socket: WebSocket, message: RoomMessage) {
     try {
-      socket.send(JSON.stringify(message));
+      const shared =
+        message.type === "presence"
+          ? { ...message, peer: collaborationPeer(message.peer) }
+          : message.type === "peers"
+            ? { ...message, peers: message.peers.map(collaborationPeer) }
+            : message;
+      socket.send(JSON.stringify(shared));
     } catch {
       this.remove(socket);
     }
@@ -267,6 +274,14 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     }
     try {
       const input = JSON.parse(message);
+      if (input.type === "viewport") {
+        const viewport = viewportSchema.parse(input.viewport),
+          updatedAt = Date.now();
+        this.participants.set(peer.sessionId, { ...peer, viewport, updatedAt });
+        Object.assign(attachment, { viewport, updatedAt });
+        socket.serializeAttachment(attachment);
+        return;
+      }
       if (input.type === "export_result") {
         this.editorBridge.receive(attachment.sessionId, input);
         return;

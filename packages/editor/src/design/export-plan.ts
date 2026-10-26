@@ -1,4 +1,11 @@
 import type { DesignDocument, DesignNode } from "./document";
+/** Deliberate export restrictions that may safely cross the editor/MCP boundary. */
+export class ExportRejected extends Error {}
+export function exportRejectionMessage(cause: unknown) {
+  return cause instanceof ExportRejected
+    ? cause.message.slice(0, 240)
+    : "Could not export. Keep the target page open and retry after synchronizing.";
+}
 export type ExportFormat = "png" | "webp" | "svg" | "pdf";
 export type ExportRequest = {
   ids: string[];
@@ -21,14 +28,15 @@ export function exportRoots(document: DesignDocument, ids: readonly string[]) {
       }
       return true;
     });
-  if (!roots.length) throw new Error("Select at least one layer to export.");
-  if (roots.length > 50) throw new Error("Export up to 50 selected layers at a time.");
-  if (roots.some((n) => !n.visible)) throw new Error("Show selected layers before exporting them.");
+  if (!roots.length) throw new ExportRejected("Select at least one layer to export.");
+  if (roots.length > 50) throw new ExportRejected("Export up to 50 selected layers at a time.");
+  if (roots.some((n) => !n.visible))
+    throw new ExportRejected("Show selected layers before exporting them.");
   return roots;
 }
 export function exportDimensions(bounds: ExportBounds, scale: number) {
   if (!Number.isFinite(scale) || scale < 0.25 || scale > 4)
-    throw new Error("Choose an export scale between 0.25× and 4×.");
+    throw new ExportRejected("Choose an export scale between 0.25× and 4×.");
   const width = Math.max(1, Math.ceil(bounds.width * scale)),
     height = Math.max(1, Math.ceil(bounds.height * scale));
   if (
@@ -37,7 +45,7 @@ export function exportDimensions(bounds: ExportBounds, scale: number) {
     height > 16384 ||
     width * height > 64_000_000
   )
-    throw new Error(
+    throw new ExportRejected(
       "Export exceeds 64 megapixels or 16,384 pixels on one side. Choose a smaller scale.",
     );
   return { width, height };

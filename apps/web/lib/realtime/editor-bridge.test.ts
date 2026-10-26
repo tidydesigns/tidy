@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { EditorBridge, ownEditorSessions } from "./editor-bridge";
+import { EditorBridge, ownEditorSessions, collaborationPeer } from "./editor-bridge";
 import {
   editorExportRequestSchema,
   editorExportResultSchema,
@@ -154,4 +154,29 @@ test("editor context excludes other users, closed sessions, away and stale peers
   ]);
   expect(JSON.stringify(contexts)).not.toContain("other-selection");
   expect(JSON.stringify(contexts)).not.toContain("private name");
+});
+
+test("collaborator payloads omit caller-only viewport context without mutating room state", () => {
+  const now = Date.now(),
+    viewport = { x: 10, y: 20, zoom: 1, width: 800, height: 600 };
+  const peer = {
+    pageId: "page-1",
+    cursor: null,
+    selectedIds: ["visible-selection"],
+    action: null,
+    away: false,
+    preview: null,
+    userId: "mine",
+    sessionId: "active",
+    name: "Me",
+    image: null,
+    color: "#000000",
+    updatedAt: now,
+    viewport,
+  };
+  const shared = collaborationPeer(peer);
+  expect(shared.selectedIds).toEqual(["visible-selection"]);
+  expect(shared).not.toHaveProperty("viewport");
+  expect(peer.viewport).toEqual(viewport);
+  expect(ownEditorSessions([peer], new Set(["active"]), "mine", now)[0].viewport).toEqual(viewport);
 });

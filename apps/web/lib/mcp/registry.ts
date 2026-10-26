@@ -243,8 +243,10 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         return result({
           frames: await appendBasicNodes(userId, file_id, "frame", frames, page_id),
         });
-      } catch {
-        return failure("Could not add frames. Check the file access and frame geometry.");
+      } catch (error) {
+        return failure(
+          actionError(error, "Could not add frames. Check the file access and frame geometry."),
+        );
       }
     },
   );
@@ -278,8 +280,13 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         return result({
           rectangles: await appendBasicNodes(userId, file_id, "rectangle", rectangles, page_id),
         });
-      } catch {
-        return failure("Could not add rectangles. Check the file access and rectangle geometry.");
+      } catch (error) {
+        return failure(
+          actionError(
+            error,
+            "Could not add rectangles. Check the file access and rectangle geometry.",
+          ),
+        );
       }
     },
   );

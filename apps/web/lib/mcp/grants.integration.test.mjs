@@ -4180,3 +4180,25 @@ integration(
     expect((await getDocument("alice", "file-a")).content.pages[0].name).toBe("Corrected");
   },
 );
+
+for (const [name, field] of [
+  ["add_frames", "frames"],
+  ["add_rectangles", "rectangles"],
+])
+  integration(`MCP ${name} reports a missing target page without changing the file`, async () => {
+    const response = await responseMessage(
+      await request("tools/call", {
+        name,
+        arguments: {
+          file_id: "file-a",
+          page_id: "absent",
+          [field]: [{ x: 0, y: 0, width: 100, height: 100 }],
+        },
+      }),
+    );
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content[0].text).toBe("Page not found.");
+    const current = await getDocument("alice", "file-a");
+    expect(current.revision).toBe(1);
+    expect(current.content.nodes).toHaveLength(0);
+  });

@@ -58,7 +58,9 @@ export function mergeImport(
   incoming = {
     ...incoming,
     nodes: options.preservePages
-      ? incoming.nodes
+      ? incoming.nodes.map((node) =>
+          node.pageId === undefined ? { ...node, pageId: targetPageId } : node,
+        )
       : incoming.nodes.map((node) => ({ ...node, pageId: targetPageId })),
   };
   const retained = current.nodes.filter((node) => node.importKey !== key);

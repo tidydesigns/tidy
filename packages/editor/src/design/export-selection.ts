@@ -5,6 +5,7 @@ import { resolveVariantNodes, componentSubtreeIds } from "./component-variants";
 import { fontRegistry } from "./fonts/runtime";
 import { createExportImageSession, embedDesignImages } from "./export-images";
 import {
+  ExportRejected,
   exportRoots,
   exportDimensions,
   exportFilename,
@@ -97,7 +98,7 @@ export async function createSelectionExport(
   }));
   const dimensions = plans.map((plan) => exportDimensions(plan.bounds, request.scale));
   if (dimensions.reduce((sum, size) => sum + size.width * size.height, 0) > maxPixels)
-    throw new Error(
+    throw new ExportRejected(
       `The export exceeds ${maxPixels / 1_000_000} megapixels. Choose fewer layers or a smaller scale.`,
     );
   const ids = new Set(roots.flatMap((root) => [...componentSubtreeIds(document.nodes, root.id)]));

@@ -8,19 +8,18 @@ const point = z
     y: z.number().finite().min(-100000).max(100000),
   })
   .strict();
+export const viewportSchema = z
+  .object({
+    x: z.number().finite(),
+    y: z.number().finite(),
+    zoom: z.number().finite().min(0.001).max(1000),
+    width: z.number().finite().min(1).max(100000),
+    height: z.number().finite().min(1).max(100000),
+  })
+  .strict();
 export const presenceSchema = z
   .object({
-    viewport: z
-      .object({
-        x: z.number().finite(),
-        y: z.number().finite(),
-        zoom: z.number().finite().min(0.001).max(1000),
-        width: z.number().finite().min(1).max(100000),
-        height: z.number().finite().min(1).max(100000),
-      })
-      .strict()
-      .nullable()
-      .optional(),
+    viewport: viewportSchema.nullable().optional(),
     pageId: id,
     cursor: point.nullable(),
     selectedIds: z.array(id).max(100),

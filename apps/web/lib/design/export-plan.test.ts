@@ -64,3 +64,13 @@ test("transformed selection bounds include rotations, negative coordinates and p
     ]),
   ).toEqual({ x: -11, y: -5, width: 81, height: 55 });
 });
+
+test("expected export rejections retain useful bounded messages and hide private diagnostics", async () => {
+  const { ExportRejected, exportRejectionMessage } = await import("./export-plan");
+  const message = "Export exceeds 2 MB. Choose fewer layers or a smaller scale.";
+  expect(exportRejectionMessage(new ExportRejected(message))).toBe(message);
+  expect(exportRejectionMessage(new ExportRejected("x".repeat(300)))).toHaveLength(240);
+  expect(exportRejectionMessage(new Error("private renderer diagnostic"))).not.toContain(
+    "private renderer diagnostic",
+  );
+});

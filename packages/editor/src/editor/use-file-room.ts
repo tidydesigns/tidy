@@ -24,6 +24,7 @@ import {
   responseError,
   ResponseError,
 } from "../lib/http/json-response";
+import { exportRejectionMessage } from "../design/export-plan";
 import { UserFacingError, diagnosticError } from "@tidy/ui/errors";
 import { z } from "zod";
 
@@ -73,6 +74,7 @@ export function useFileRoom({
   );
   const presence = useRef<Presence>({ ...EMPTY_PRESENCE });
   const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const viewportTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycle = useRef<AbortController | null>(null);
   useEffect(() => {
     callbacks.current = { onSnapshot, onName, onPermission, onNavigationBlocked };
@@ -111,7 +113,12 @@ export function useFileRoom({
   const receive = useCallback((snapshot: Snapshot) => edits.receive(snapshot), [edits]);
   const flushPresence = useCallback(() => {
     if (socket.current?.readyState === WebSocket.OPEN)
-      socket.current.send(JSON.stringify({ type: "presence", presence: presence.current }));
+      socket.current.send(
+        JSON.stringify({
+          type: "presence",
+          presence: { ...presence.current, viewport: undefined },
+        }),
+      );
   }, []);
   const publishPresence = useCallback(
     (changes: Partial<Presence>, immediate = false) => {
@@ -128,6 +135,29 @@ export function useFileRoom({
       }
     },
     [flushPresence],
+  );
+  const flushViewport = useCallback(() => {
+    if (socket.current?.readyState === WebSocket.OPEN && presence.current.viewport)
+      socket.current.send(
+        JSON.stringify({ type: "viewport", viewport: presence.current.viewport }),
+      );
+  }, []);
+  const publishViewport = useCallback(
+    (viewport: NonNullable<Presence["viewport"]>) => {
+      presence.current = { ...presence.current, viewport };
+      if (viewportTimer.current) clearTimeout(viewportTimer.current);
+      viewportTimer.current = setTimeout(() => {
+        viewportTimer.current = null;
+        flushViewport();
+      }, 250);
+    },
+    [flushViewport],
+  );
+  useEffect(
+    () => () => {
+      if (viewportTimer.current) clearTimeout(viewportTimer.current);
+    },
+    [],
   );
   useEffect(() => {
     if (!enabled) return;
@@ -248,7 +278,7 @@ export function useFileRoom({
                     )
                       ws.send(JSON.stringify(result));
                   })
-                  .catch(() => {
+                  .catch((cause: unknown) => {
                     if (
                       socket.current === ws &&
                       ws.readyState === WebSocket.OPEN &&
@@ -261,8 +291,7 @@ export function useFileRoom({
                           revision: message.expectedRevision,
                           files: [],
                           warnings: [],
-                          error:
-                            "Could not export. Keep the target page open and retry after synchronizing.",
+                          error: exportRejectionMessage(cause),
                         }),
                       );
                   });
@@ -272,6 +301,7 @@ export function useFileRoom({
               connectionFailureReported = false;
               setConnection("live");
               flushPresence();
+              flushViewport();
               seenSequence = -1;
               void refresh();
               setCommentsVersion((version) => version + 1);
@@ -371,7 +401,17 @@ export function useFileRoom({
       store.replace([]);
       activities.clear();
     };
-  }, [fileId, enabled, store, activities, edits, flushPresence, publishPresence, appErrorReporter]);
+  }, [
+    fileId,
+    enabled,
+    store,
+    activities,
+    edits,
+    flushPresence,
+    flushViewport,
+    publishPresence,
+    appErrorReporter,
+  ]);
   const commit = useCallback(
     (
       patch: DocumentPatch,
@@ -527,6 +567,7 @@ export function useFileRoom({
     connection,
     commentsVersion,
     publishPresence,
+    publishViewport,
     commit,
     getPreview,
     clearPreview,

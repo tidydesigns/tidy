@@ -55,7 +55,7 @@ import {
   type PlacementAsset,
   type PlacementTarget,
 } from "../design/asset-placement";
-import type { ExportRequest } from "../design/export-plan";
+import { ExportRejected, type ExportRequest } from "../design/export-plan";
 import { FileVersionControl } from "./file-version-control";
 import { snapshotCommitSchema } from "../design/sync-protocol";
 import {
@@ -926,7 +926,7 @@ export function FileEditor({
     [snapshot.content.nodes],
   );
 
-  const { publishPresence } = room;
+  const { publishPresence, publishViewport } = room;
   useEffect(() => {
     publishPresence({ pageId: currentPageId, cursor: null, preview: null }, true);
   }, [currentPageId, publishPresence]);
@@ -947,29 +947,25 @@ export function FileEditor({
   useEffect(() => {
     const canvas = viewport.current;
     if (!canvas || local || preview || !viewportReady) return;
-    publishPresence({
-      viewport: {
-        ...view,
-        width: Math.max(1, canvas.clientWidth),
-        height: Math.max(1, canvas.clientHeight),
-      },
+    publishViewport({
+      ...view,
+      width: Math.max(1, canvas.clientWidth),
+      height: Math.max(1, canvas.clientHeight),
     });
-  }, [view, publishPresence, local, preview, viewportReady]);
+  }, [view, publishViewport, local, preview, viewportReady]);
   useEffect(() => {
     const canvas = viewport.current;
     if (!canvas || local || preview || !viewportReady) return;
     const observer = new ResizeObserver(() =>
-      publishPresence({
-        viewport: {
-          ...contextViewRef.current,
-          width: Math.max(1, canvas.clientWidth),
-          height: Math.max(1, canvas.clientHeight),
-        },
+      publishViewport({
+        ...contextViewRef.current,
+        width: Math.max(1, canvas.clientWidth),
+        height: Math.max(1, canvas.clientHeight),
       }),
     );
     observer.observe(canvas);
     return () => observer.disconnect();
-  }, [publishPresence, local, preview, viewportReady]);
+  }, [publishViewport, local, preview, viewportReady]);
 
   function toggleViewPreference(key: keyof CanvasPreferences) {
     setViewPreferences((current) => ({ ...current, [key]: !current[key] }));
@@ -1568,7 +1564,7 @@ export function FileEditor({
         snapshot.revision !== request.expectedRevision ||
         activePageRef.current !== request.pageId
       )
-        throw new Error("Synchronize the target page before exporting.");
+        throw new ExportRejected("Synchronize the target page before exporting.");
       if (
         request.ids.some(
           (id) =>
@@ -1577,7 +1573,7 @@ export function FileEditor({
             ),
         )
       )
-        throw new Error("Layer not found on this page.");
+        throw new ExportRejected("Layer not found on this page.");
       remoteExportRunning.current = true;
       try {
         // Mount culled targets synchronously; background tabs may suspend animation frames.
@@ -1587,7 +1583,7 @@ export function FileEditor({
           hasPendingEdits() ||
           activePageRef.current !== request.pageId
         )
-          throw new Error("Document changed during export.");
+          throw new ExportRejected("Document changed during export.");
         const { createSelectionExport } = await import("../design/export-selection");
         const result = await createSelectionExport(
           snapshot.content,
@@ -1600,9 +1596,9 @@ export function FileEditor({
           hasPendingEdits() ||
           activePageRef.current !== request.pageId
         )
-          throw new Error("Document changed during export.");
+          throw new ExportRejected("Document changed during export.");
         if (result.files.reduce((sum, f) => sum + f.blob.size, 0) > 2000000)
-          throw new Error("Export exceeds 2 MB. Choose fewer layers or a smaller scale.");
+          throw new ExportRejected("Export exceeds 2 MB. Choose fewer layers or a smaller scale.");
         const files = [];
         for (const file of result.files) {
           const bytes = new Uint8Array(await file.blob.arrayBuffer());
