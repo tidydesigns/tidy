@@ -22,7 +22,7 @@ import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { LocalCanvas } from "../features/designs/local-canvas";
-import { DesktopShell } from "./desktop-shell";
+import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
 import { Conversation } from "../features/threads/conversation";
 import { ThreadDesignDock } from "../features/designs/thread-design-dock";
@@ -994,7 +994,7 @@ export function App() {
 
   const toggleThreadDone = useCallback(
     async (item: ThreadSummary) => {
-      if (!api || !project || updatingDone[item.id] || item.status === "running") return;
+      if (!api || !project || updatingDone[item.id]) return;
       const projectId = project.id;
       const next = {
         ...item,
@@ -1085,9 +1085,9 @@ export function App() {
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
     const next =
-      event.key === "ArrowRight"
+      event.key === "ArrowRight" || event.key === "ArrowDown"
         ? (index + 1) % modes.length
-        : event.key === "ArrowLeft"
+        : event.key === "ArrowLeft" || event.key === "ArrowUp"
           ? (index + modes.length - 1) % modes.length
           : event.key === "Home"
             ? 0
@@ -1105,7 +1105,7 @@ export function App() {
       <ThreadCard
         thread={item}
         orderControls={orderControls}
-        selected={selectedThreadId === item.id}
+        selected={mode === "code" && !settingsOpen && selectedThreadId === item.id}
         now={now}
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
         onSelect={() => selectThread(project!.id, item.id)}
@@ -1121,6 +1121,8 @@ export function App() {
     ),
     [
       selectedThreadId,
+      mode,
+      settingsOpen,
       now,
       updatingDone,
       settingsPending,
@@ -1221,6 +1223,34 @@ export function App() {
 
   return (
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
+      {project && !settingsOpen && !canvasFocused && (
+        <Button
+          className="desktop-new-thread"
+          aria-label="New thread"
+          title="New thread"
+          onClick={() => {
+            setMode("code");
+            selectThread(project.id, null);
+            requestAnimationFrame(() =>
+              document.querySelector<HTMLElement>("#thread-prompt")?.focus(),
+            );
+          }}
+        >
+          <svg
+            aria-hidden="true"
+            width="14"
+            height="14"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+          >
+            <path d="M8 3v10M3 8h10" />
+          </svg>
+          <span>New thread</span>
+        </Button>
+      )}
       <aside
         id="desktop-navigation"
         className="desktop-navigation"
@@ -1228,85 +1258,96 @@ export function App() {
         hidden={settingsOpen}
       >
         <header className="workspace-header">
-          <div className="project-picker" title={project?.name}>
-            {(project || cloud.account) && (
-              <SelectMenu
-                value={
-                  target?.kind === "cloud" ? `cloud:${target.organizationId}` : (project?.id ?? "")
-                }
-                options={[
-                  ...(target?.kind === "cloud" && !cloudOrganizationId
-                    ? [
-                        {
-                          value: `cloud:${target.organizationId}`,
-                          label: cloud.error ? "Workspace unavailable" : "Opening workspace…",
-                          description: "Cloud",
-                          icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
-                        },
-                      ]
-                    : []),
-                  ...(cloud.account?.organizations
-                    .filter((o) => o.canEdit)
-                    .map((o) => ({
-                      value: `cloud:${o.id}`,
-                      label: o.name,
-                      description: "Cloud",
+          <div className="workspace-project-row">
+            <SidebarToggle />
+            <div className="project-picker" title={project?.name}>
+              {(project || cloud.account) && (
+                <SelectMenu
+                  value={
+                    target?.kind === "cloud"
+                      ? `cloud:${target.organizationId}`
+                      : (project?.id ?? "")
+                  }
+                  options={[
+                    ...(target?.kind === "cloud" && !cloudOrganizationId
+                      ? [
+                          {
+                            value: `cloud:${target.organizationId}`,
+                            label: cloud.error ? "Workspace unavailable" : "Opening workspace…",
+                            description: "Cloud",
+                            icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
+                          },
+                        ]
+                      : []),
+                    ...(cloud.account?.organizations
+                      .filter((o) => o.canEdit)
+                      .map((o) => ({
+                        value: `cloud:${o.id}`,
+                        label: o.name,
+                        description: "Cloud",
                       icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
-                    })) ?? []),
-                  ...projects.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                    description: "Local",
-                    icon: <Icon name="computer" size={16} className="text-secondary-ink" />,
-                  })),
-                  { value: "open", label: "Open project…" },
-                ]}
-                label="Workspace"
-                disabled={opening}
-                onChange={(value) => {
-                  if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
-                  else void chooseProject(value === "open" ? undefined : value);
-                }}
-                triggerClassName="project-trigger"
-                menuClassName="workspace-menu"
-                showSelectedIcon
-              />
-            )}
+                      })) ?? []),
+                    ...projects.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                      description: "Local",
+                      icon: <Icon name="computer" size={16} className="text-secondary-ink" />,
+                    })),
+                    { value: "open", label: "Open project…" },
+                  ]}
+                  label="Workspace"
+                  disabled={opening}
+                  onChange={(value) => {
+                    if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
+                    else void chooseProject(value === "open" ? undefined : value);
+                  }}
+                  triggerClassName="project-trigger"
+                  menuClassName="workspace-menu"
+                  showSelectedIcon
+                />
+              )}
+            </div>
           </div>
-          <div role="tablist" aria-label="Workspace" className="workspace-tabs">
+          <div
+            role="tablist"
+            aria-label="Workspace"
+            aria-orientation="vertical"
+            className="workspace-tabs"
+          >
             {modes.map((item, index) => (
-              <Button
-                key={item.id}
-                id={`workspace-tab-${item.id}`}
-                type="button"
-                role="tab"
-                aria-selected={mode === item.id}
-                aria-controls={`workspace-panel-${item.id}`}
-                tabIndex={mode === item.id ? 0 : -1}
-                className="workspace-tab"
-                onClick={() => setMode(item.id)}
-                onKeyDown={(event) => onTabKeyDown(event, index)}
-              >
-                {item.id === "design" ? (
-                  <Icon name="frame" size={14} />
-                ) : (
-                  <svg
-                    className="code-mode-icon"
-                    aria-hidden="true"
-                    width="14"
-                    height="14"
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d="m6 4-4 4 4 4m4-8 4 4-4 4" />
-                  </svg>
-                )}
-                {item.label}
-              </Button>
+              <div className="workspace-destination" key={item.id} data-active={mode === item.id}>
+                <Button
+                  id={`workspace-tab-${item.id}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === item.id}
+                  aria-controls={`workspace-panel-${item.id}`}
+                  tabIndex={mode === item.id ? 0 : -1}
+                  className="workspace-tab"
+                  onClick={() => setMode(item.id)}
+                  onKeyDown={(event) => onTabKeyDown(event, index)}
+                >
+                  {item.id === "design" ? (
+                    <Icon name="frame" size={14} />
+                  ) : (
+                    <svg
+                      className="code-mode-icon"
+                      aria-hidden="true"
+                      width="14"
+                      height="14"
+                      viewBox="0 0 16 16"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m6 4-4 4 4 4m4-8 4 4-4 4" />
+                    </svg>
+                  )}
+                  {item.label}
+                </Button>
+              </div>
             ))}
           </div>
         </header>
@@ -1317,7 +1358,6 @@ export function App() {
                 key={project.id}
                 projectId={project.id}
                 threads={snapshot.threads}
-                onNew={() => selectThread(project.id, null)}
                 renderThread={renderThread}
               />
             </div>
@@ -1677,8 +1717,8 @@ export function App() {
                             : running
                               ? "Queue a follow-up…"
                               : thread
-                                ? "Continue this thread… / for skills"
-                                : "What would you like to work on? / for skills"
+                                ? "Reply… / for skills"
+                                : "Start a task… / for skills"
                         }
                         disabled={Boolean(thread?.doneAt) || busy}
                         maxLength={32_000}

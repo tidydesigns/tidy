@@ -1,7 +1,6 @@
 import { memo, useEffect, useMemo, useState, type ReactNode, type PointerEvent } from "react";
 import { z } from "zod";
 import { useThreadDrag } from "./use-thread-drag";
-import { Button } from "@tidy/ui/button";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 
 export type ThreadOrderControls = {
@@ -70,12 +69,10 @@ function readOrder(projectId: string): string[] {
 export function ThreadSidebar({
   projectId,
   threads,
-  onNew,
   renderThread,
 }: {
   projectId: string;
   threads: ThreadSummary[];
-  onNew(): void;
   renderThread: RenderThread;
 }) {
   const [order, setOrder] = useState(() => readOrder(projectId));
@@ -107,9 +104,6 @@ export function ThreadSidebar({
     <div className="project-sidebar" aria-label="Threads">
       <div className="sidebar-heading">
         <span>Threads</span>
-        <Button className="quiet-button" onClick={onNew}>
-          New thread
-        </Button>
       </div>
       <div className="sidebar-scroll">
         <div className="sidebar-list" ref={drag.list} onClickCapture={drag.onClickCapture}>

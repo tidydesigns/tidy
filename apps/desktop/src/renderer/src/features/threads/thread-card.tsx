@@ -31,26 +31,47 @@ export function ThreadCard({
   orderControls?: ThreadOrderControls;
 }) {
   const working = thread.status === "running";
+  const completionKey = `${thread.updatedAt}:${thread.messageCount ?? 0}`;
+  const visitKey = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
+  const [seenCompletion, setSeenCompletion] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(visitKey);
+    } catch {
+      return null;
+    }
+  });
+  useEffect(() => {
+    if (!selected || thread.status !== "completed") return;
+    function markSeen() {
+      if (document.visibilityState !== "visible") return;
+      setSeenCompletion(completionKey);
+      try {
+        localStorage.setItem(visitKey, completionKey);
+      } catch {}
+    }
+    markSeen();
+    document.addEventListener("visibilitychange", markSeen);
+    return () => document.removeEventListener("visibilitychange", markSeen);
+  }, [selected, thread.status, completionKey, visitKey]);
   const status = thread.doneAt
-    ? "done"
+    ? "idle"
     : thread.pendingApprovalCount
       ? "permission"
-      : thread.status;
-  const statusLabel = thread.doneAt
-    ? "Done"
-    : thread.pendingApprovalCount
-      ? "Permission"
       : working
+        ? "running"
+        : thread.status === "failed"
+          ? "failed"
+          : thread.status === "completed" && !selected && seenCompletion !== completionKey
+            ? "completed"
+            : "idle";
+  const statusLabel =
+    status === "permission"
+      ? "Approval"
+      : status === "running"
         ? "Working"
-        : thread.status === "completed"
-          ? "Ready"
-          : thread.status === "failed"
-            ? "Failed"
-            : thread.status === "stopped"
-              ? "Stopped"
-              : thread.status === "interrupted"
-                ? "Interrupted"
-                : "Ready";
+        : status === "failed"
+          ? "Failed"
+          : "New response";
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
@@ -92,7 +113,8 @@ export function ThreadCard({
   return (
     <div
       ref={root}
-      className={`sidebar-item thread-item ${selected ? "selected" : ""} ${!working ? "can-change-status" : ""}`}
+      className={`sidebar-item thread-item can-change-status ${selected ? "selected" : ""}`}
+      data-quiet={status === "idle" && !selected ? "true" : undefined}
       onPointerDown={(event) => {
         close();
         orderControls?.onPointerDown(event);
@@ -133,11 +155,34 @@ export function ThreadCard({
           onSelect();
         }}
       >
-        <span className="thread-harness">
-          <HarnessIcon harness={thread.harness} size={13} />
-          <span>{thread.harness === "codex" ? "Codex" : "Claude Code"}</span>
-        </span>
         <span className="thread-title">{thread.title}</span>
+        <span className="thread-harness">
+          {thread.harness === "codex" ? (
+            <span
+              className="model-provider-icon"
+              style={{ width: 13, height: 13 }}
+              aria-hidden="true"
+            />
+          ) : (
+            <HarnessIcon harness={thread.harness} size={13} />
+          )}
+          <span
+            className="thread-provider-name"
+            title={thread.harness === "codex" ? "Codex" : "Claude Code"}
+          >
+            {thread.harness === "codex" ? "Codex" : "Claude"}
+          </span>
+          {projectName && (
+            <>
+              <span className="thread-project-separator" aria-hidden="true">
+                ·
+              </span>
+              <span className="thread-project" title={projectName}>
+                {projectName}
+              </span>
+            </>
+          )}
+        </span>
         <time
           className="thread-time"
           dateTime={thread.updatedAt}
@@ -146,39 +191,52 @@ export function ThreadCard({
           {relativeThreadTime(thread.updatedAt, now)}
         </time>
       </Button>
-      <span
-        className={`thread-card-status thread-state-${status}`}
-        role="status"
-        aria-label={statusLabel}
-      >
-        <span className="thread-status-symbol" aria-hidden="true">
-          {status === "completed" || status === "done" ? (
-            <svg viewBox="0 0 16 16" fill="none">
-              <circle cx="8" cy="8" r="6" />
-              <path d="m5 8 2 2 4-4" />
-            </svg>
-          ) : (
-            <span />
-          )}
-        </span>
-        {statusLabel}
-      </span>
-      {!working && (
-        <Button
-          className={`thread-done ${thread.doneAt ? "thread-reopen" : ""}`}
-          onPointerEnter={close}
-          onFocus={close}
-          aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
-          disabled={pending}
-          title={thread.doneAt ? "Move back to active threads" : "Mark thread done"}
-          onClick={() => {
-            close();
-            onDone();
-          }}
+      {status !== "idle" && (
+        <span
+          className={`thread-card-status thread-state-${status}`}
+          role="status"
+          aria-label={statusLabel}
+          title={statusLabel}
         >
-          {thread.doneAt ? "Reopen" : "Done"}
-        </Button>
+          <span className="thread-status-symbol" aria-hidden="true">
+            {status === "completed" ? (
+              <svg viewBox="0 0 16 16">
+                <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
+                <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
+              </svg>
+            ) : status === "running" ? (
+              <span />
+            ) : (
+              <svg viewBox="0 0 16 16" fill="none">
+                <circle cx="8" cy="8" r="6" />
+                <path d="M8 4.5v4" />
+                <circle cx="8" cy="11" r="0.7" fill="currentColor" stroke="none" />
+              </svg>
+            )}
+          </span>
+          {status !== "completed" && statusLabel}
+        </span>
       )}
+      <Button
+        className={`thread-done ${thread.doneAt ? "thread-reopen" : ""}`}
+        onPointerEnter={close}
+        onFocus={close}
+        aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
+        disabled={pending}
+        title={
+          thread.doneAt
+            ? "Move back to active threads"
+            : working
+              ? "Stop thread and mark done"
+              : "Mark thread done"
+        }
+        onClick={() => {
+          close();
+          onDone();
+        }}
+      >
+        {thread.doneAt ? "Reopen" : "Done"}
+      </Button>
       {open && !orderControls?.dragging && (
         <div ref={preview} id={id} popover="manual" role="tooltip" className="thread-preview">
           <ThreadPreview

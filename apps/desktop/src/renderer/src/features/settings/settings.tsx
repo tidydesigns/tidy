@@ -35,11 +35,11 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
           <section className="settings-account" aria-labelledby="settings-account-title">
             <div className="settings-account-row" id="settings-account">
               <div>
-                <h2 id="settings-account-title">Tidy account</h2>
+                <h2 id="settings-account-title">Sync</h2>
                 <p>
                   {signedIn
-                    ? "Connected. Designs added to a workspace sync automatically."
-                    : "Sign in to access your workspaces and sync designs across devices."}
+                    ? "Workspace designs sync automatically."
+                    : "Sign in to sync workspace designs across devices."}
                 </p>
               </div>
               <div className="settings-account-actions">

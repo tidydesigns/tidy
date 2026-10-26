@@ -5,7 +5,7 @@
 .thread-select {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
   padding: 10px;
   font: inherit;
@@ -19,15 +19,24 @@
 }
 .thread-title {
   display: block;
-  padding-right: 26px;
+  padding-right: 48px;
+  font-size: 14px;
+  font-weight: 500;
   width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.thread-item[data-quiet] .thread-title {
+  color: var(--color-secondary-ink);
+  font-weight: 400;
+}
+.thread-item:has(.thread-reopen) .thread-title {
+  padding-right: 64px;
+}
 .thread-time {
   position: absolute;
-  bottom: 10px;
+  top: 10px;
   right: 10px;
   color: var(--color-muted-ink);
   font-size: 11px;
@@ -37,9 +46,31 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: calc(100% - 84px);
+  max-width: calc(100% - 76px);
+  min-width: 0;
   color: var(--color-muted-ink);
   font-size: 11px;
+}
+.thread-harness > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thread-item:not(:has(.thread-card-status)) .thread-harness {
+  max-width: 100%;
+}
+.thread-item:has(.thread-state-completed) .thread-harness {
+  max-width: calc(100% - 28px);
+}
+.thread-project-separator {
+  flex-shrink: 0;
+}
+.thread-project {
+  min-width: 20px;
+  color: var(--color-secondary-ink);
+}
+.thread-harness svg {
+  flex-shrink: 0;
 }
 .thread-done {
   position: absolute;
@@ -134,7 +165,7 @@
 }
 .message {
   margin-bottom: 24px;
-  font-size: 14px;
+  font-size: 15px;
   line-height: 1.65;
   overflow-wrap: anywhere;
 }
@@ -154,10 +185,16 @@
   margin: 0 0 12px;
 }
 .message-markdown :is(h1, h2, h3, h4) {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   margin: 20px 0 10px;
   line-height: 1.4;
+}
+.message-markdown h1 {
+  font-size: 20px;
+}
+.message-markdown h2 {
+  font-size: 18px;
 }
 .message-markdown :is(ul, ol) {
   padding-left: 22px;
@@ -177,7 +214,7 @@
 }
 .message-markdown code {
   font:
-    12px/1.6 ui-monospace,
+    13px/1.6 ui-monospace,
     SFMono-Regular,
     Menlo,
     Consolas,
@@ -571,7 +608,7 @@
 }
 .thread-card-status {
   position: absolute;
-  top: 9px;
+  bottom: 10px;
   right: 10px;
   display: flex;
   align-items: center;
@@ -606,10 +643,14 @@
   opacity: 1;
   animation: thread-working 5s linear infinite;
 }
-.thread-state-idle,
-.thread-state-completed,
-.thread-state-done {
-  color: var(--desktop-status-success);
+.thread-state-completed {
+  color: light-dark(#15803d, #4caf50);
+}
+.thread-ready-check {
+  stroke: var(--desktop-navigation-surface);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .thread-state-failed {
   color: var(--desktop-status-danger);
@@ -618,11 +659,11 @@
 .thread-state-interrupted {
   color: var(--desktop-status-warning);
 }
-.can-change-status:has(:focus-visible) .thread-card-status {
+.can-change-status:has(:focus-visible) .thread-time {
   visibility: hidden;
 }
 @media (hover: hover) and (pointer: fine) {
-  .can-change-status:hover .thread-card-status {
+  .can-change-status:hover .thread-time {
     visibility: hidden;
   }
 }

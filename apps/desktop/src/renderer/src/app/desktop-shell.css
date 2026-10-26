@@ -1,4 +1,6 @@
 .desktop {
+  --desktop-titlebar-height: 0px;
+  position: relative;
   display: grid;
   grid-template-columns: var(--project-sidebar-width) minmax(0, 1fr);
   grid-template-rows: auto minmax(0, 1fr);
@@ -44,6 +46,11 @@
   width: var(--project-sidebar-width);
   border-right: 1px solid var(--color-border);
   background: var(--desktop-navigation-surface);
+}
+.tidy-editor {
+  --color-primary-orange: #2563eb;
+  --color-on-brand: #ffffff;
+  --color-canvas-highlight: #2563eb;
 }
 :root[data-titlebar="hidden"] .desktop-titlebar {
   position: absolute;

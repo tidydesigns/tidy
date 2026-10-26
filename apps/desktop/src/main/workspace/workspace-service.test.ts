@@ -22,6 +22,7 @@ async function fixture(
   configure: ConstructorParameters<typeof WorkspaceService>[3] = async () => {},
   holdPreparation = false,
   skills?: HarnessSkills,
+  holdStop = false,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -34,6 +35,7 @@ async function fixture(
     input: Parameters<typeof startHarness>[0];
     complete: () => void;
     stopped: boolean;
+    stopping: Promise<void>;
     decisions: Array<{ id: string; decision: string }>;
   }> = [];
   let prepared!: () => void;
@@ -51,8 +53,13 @@ async function fixture(
       const done = new Promise<void>((resolve) => {
         complete = resolve;
       });
+      let stopped!: () => void;
+      const stopping = new Promise<void>((resolve) => {
+        stopped = resolve;
+      });
       const run = {
         input,
+        stopping,
         complete,
         stopped: false,
         decisions: [] as Array<{ id: string; decision: string }>,
@@ -67,7 +74,8 @@ async function fixture(
         },
         stop() {
           run.stopped = true;
-          complete();
+          stopped();
+          if (!holdStop) complete();
         },
       };
     },
@@ -638,7 +646,6 @@ test("Done is an explicit persisted thread state, independent of a finished harn
   });
   const sessionId = randomUUID();
   runs[0].input.onUpdate({ type: "session", id: sessionId });
-  await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toThrow("finish");
   const completion = finished(service, thread.id);
   runs[0].complete();
   const completed = await completion;
@@ -660,6 +667,127 @@ test("Done is an explicit persisted thread state, independent of a finished harn
   expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
   await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
   expect(runs[1].input.sessionId).toBe(sessionId);
+});
+
+test("Done stops a running thread, cancels approvals, and preserves queued messages for Reopen", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Next task",
+    delivery: "queue",
+  });
+  const approvalId = randomUUID();
+  runs[0].input.onUpdate({
+    type: "approval",
+    request: { id: approvalId, title: "Allow command?", choices: ["allow", "deny"] },
+  });
+  const events: Thread[] = [];
+  const unsubscribe = service.subscribe((event) => {
+    if (event.type === "thread" && event.thread.id === thread.id)
+      events.push(structuredClone(event.thread));
+  });
+  const marked = await service.setThreadDone(project.id, thread.id, true);
+  unsubscribe();
+  expect(runs[0].stopped).toBe(true);
+  expect(marked.status).toBe("stopped");
+  expect(marked.doneAt).toBeDefined();
+  expect(marked.activity).toBeUndefined();
+  expect(marked.pendingApprovals).toBeUndefined();
+  await expect(
+    service.respondToApproval(project.id, thread.id, approvalId, "allow"),
+  ).rejects.toThrow("no longer");
+  expect(runs[0].decisions).toHaveLength(0);
+  expect(marked.queuedMessages?.map((item) => item.text)).toEqual(["Next task"]);
+  expect(runs).toHaveLength(1);
+  expect(events.every((value) => value.doneAt !== undefined)).toBe(true);
+  expect((await store.readThread(project.id, thread.id)).doneAt).toBe(marked.doneAt);
+  const reopened = await service.setThreadDone(project.id, thread.id, false);
+  expect(reopened.doneAt).toBeUndefined();
+  expect(reopened.status).toBe("stopped");
+  expect(runs).toHaveLength(1);
+});
+
+test("Done waits for process termination before persisting the stopped thread", async () => {
+  const { service, store, project, runs } = await fixture(undefined, false, undefined, true);
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  const done = service.setThreadDone(project.id, thread.id, true);
+  try {
+    await runs[0].stopping;
+    expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  } finally {
+    runs[0].complete();
+  }
+  const marked = await done;
+  expect(marked.status).toBe("stopped");
+  expect(marked.doneAt).toBeDefined();
+});
+
+test("Done during preparation cancels the launch and persists a stopped thread", async () => {
+  const { service, store, project, runs, preparation, resumePreparation } = await fixture(
+    undefined,
+    true,
+  );
+  const threadId = randomUUID();
+  const start = service.startThread({
+    projectId: project.id,
+    threadId,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  await preparation;
+  const done = service.setThreadDone(project.id, threadId, true);
+  resumePreparation();
+  await start;
+  const marked = await done;
+  expect(runs).toHaveLength(0);
+  expect(marked.status).toBe("stopped");
+  expect(marked.doneAt).toBeDefined();
+  expect((await store.readThread(project.id, threadId)).doneAt).toBe(marked.doneAt);
+});
+
+test("Done does not stop another project's run or publish Done after a failed checkpoint", async () => {
+  const { directory, service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  const otherRoot = join(directory, "other");
+  await mkdir(otherRoot);
+  const other = (await store.open(otherRoot)).project;
+  await expect(service.setThreadDone(other.id, thread.id, true)).rejects.toThrow("another project");
+  expect(runs[0].stopped).toBe(false);
+  const write = store.writeThread.bind(store);
+  store.writeThread = async () => {
+    throw new Error("Disk full");
+  };
+  const events: Thread[] = [];
+  const unsubscribe = service.subscribe((event) => {
+    if (event.type === "thread") events.push(structuredClone(event.thread));
+  });
+  try {
+    await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toThrow("Disk full");
+    expect(runs[0].stopped).toBe(true);
+    expect(events.every((value) => value.doneAt === undefined)).toBe(true);
+    expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+  } finally {
+    store.writeThread = write;
+    unsubscribe();
+  }
 });
 
 test("thread completion rejects project mismatches and never publishes a failed disk write", async () => {

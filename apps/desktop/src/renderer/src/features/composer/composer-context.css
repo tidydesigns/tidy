@@ -17,9 +17,9 @@
 .composer-body {
   position: relative;
   z-index: 1;
-  padding: 14px;
+  padding: 12px;
   border: 1px solid var(--color-border);
-  border-radius: 22px;
+  border-radius: 16px;
   background: var(--desktop-composer-surface);
 }
 .composer-body:focus-within {
@@ -108,18 +108,28 @@
 .branch-trigger {
   max-width: 175px;
 }
-.thread-heading-active {
+.thread-heading {
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: 24px;
-  min-height: 62px;
-  padding: 15px 28px 17px;
+  min-height: 42px;
+  padding: 4px 148px 4px 20px;
 }
-.thread-heading-active > .content-heading {
+.thread-heading > .content-heading {
   flex: 1;
   min-width: 0;
+  min-height: 34px;
   padding: 0;
+}
+:root[data-titlebar="hidden"] .thread-heading {
+  position: relative;
+  z-index: 2;
+  margin-top: calc(-1 * var(--desktop-titlebar-height));
+  app-region: drag;
+}
+.thread-heading button {
+  app-region: no-drag;
 }
 .thread-context {
   flex-shrink: 0;
@@ -144,11 +154,11 @@
 .thread-context .branch-trigger {
   max-width: 150px;
 }
-@media (max-width: 900px) {
+@media (max-width: 700px) {
   .thread-heading-active {
     flex-wrap: wrap;
     gap: 4px;
-    padding: 16px 20px 12px;
+    padding-block: 4px 8px;
   }
   .thread-heading-active > .content-heading {
     flex-basis: 100%;

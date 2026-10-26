@@ -94,11 +94,69 @@
   flex-direction: column;
   flex-shrink: 0;
   gap: 6px;
-  padding: 6px 8px 8px;
+  padding: 4px 4px 8px;
+}
+:root[data-titlebar="hidden"] .workspace-header {
+  margin-top: calc(-1 * var(--desktop-titlebar-height));
+  padding-top: 3px;
+}
+:root[data-titlebar="hidden"] .workspace-project-row {
+  position: relative;
+  z-index: 2;
+  padding-left: 80px;
+  app-region: no-drag;
+}
+:root[data-titlebar="hidden"][data-window-fullscreen] .workspace-project-row {
+  padding-left: 0;
+}
+
+.workspace-project-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.workspace-project-row .project-picker {
+  flex: 1;
+}
+.workspace-project-row .desktop-sidebar-toggle {
+  flex-shrink: 0;
+}
+.desktop-sidebar-reopen {
+  position: absolute;
+  top: calc(var(--desktop-titlebar-height) + 6px);
+  left: 4px;
+  z-index: 3;
+}
+.desktop-sidebar-hidden .thread-heading {
+  padding-left: 48px;
+}
+:root[data-titlebar="hidden"]
+  .desktop-sidebar-hidden:has(#workspace-panel-code:not([hidden]))
+  .desktop-sidebar-reopen {
+  top: 6px;
+  left: 84px;
+}
+:root[data-titlebar="hidden"] .desktop-sidebar-hidden .thread-heading {
+  padding-left: 128px;
+}
+:root[data-titlebar="hidden"][data-window-fullscreen]
+  .desktop-sidebar-hidden:has(#workspace-panel-code:not([hidden]))
+  .desktop-sidebar-reopen {
+  left: 4px;
+}
+:root[data-titlebar="hidden"][data-window-fullscreen] .desktop-sidebar-hidden .thread-heading {
+  padding-left: 48px;
+}
+.desktop-sidebar-hidden:has(#workspace-panel-design:not([hidden])) .desktop-sidebar-reopen {
+  top: calc(var(--desktop-titlebar-height) + 39px);
+}
+.desktop-sidebar-hidden:not(.desktop-canvas-focused) .design-browser-header {
+  padding-left: 16px;
 }
 
 .workspace-tabs {
   display: flex;
+  flex-direction: column;
   width: 100%;
   gap: 4px;
 }
@@ -124,6 +182,44 @@
   line-height: 20px;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.workspace-destination {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.workspace-destination[data-active="true"] {
+  background: var(--color-subtle-fill);
+}
+.desktop-new-thread {
+  position: absolute;
+  top: 6px;
+  right: 20px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 112px;
+  height: 30px;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  app-region: no-drag;
+}
+.desktop-new-thread:hover {
+  background: var(--color-hover-surface);
+}
+.desktop-new-thread:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
 }
 
 .workspace-tab[aria-selected="true"] {

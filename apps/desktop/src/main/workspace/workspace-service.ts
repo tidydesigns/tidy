@@ -245,21 +245,44 @@ export class WorkspaceService {
     return this.store.readThread(projectId, threadId);
   }
 
-  /** Mark a finished thread done/reopened without admitting delayed writes during shutdown. */
+  /** Stop and finish a thread without admitting delayed writes during shutdown. */
   setThreadDone(projectId: string, threadId: string, done: boolean) {
+    if (this.closing) return Promise.reject(new Error("Tidy is closing."));
+    try {
+      if (done) this.requestThreadStop(projectId, threadId, false);
+    } catch (cause) {
+      return Promise.reject(cause);
+    }
     return this.serialize(threadId, () => this.setThreadDoneNow(projectId, threadId, done));
   }
 
-  private async setThreadDoneNow(projectId: string, threadId: string, done: boolean) {
+  private async setThreadDoneNow(
+    projectId: string,
+    threadId: string,
+    done: boolean,
+  ): Promise<Thread> {
     if (this.closing) throw new Error("Tidy is closing.");
-    if (this.starting.has(threadId) || this.jobs.has(threadId))
-      throw new Error("Wait for this run to finish before marking the thread done.");
+    const job = this.jobs.get(threadId);
+    if (done && job) {
+      if (job.thread.projectId !== projectId)
+        throw new Error("This thread belongs to another project.");
+      await job.process?.done.catch(() => {});
+      if (this.closing) throw new Error("Tidy is closing.");
+      job.thread.status = "stopped";
+      await this.finish(job, false, new Date().toISOString());
+      return structuredClone(job.thread);
+    }
+    if (this.starting.has(threadId) || job)
+      throw new Error("Wait for this run to finish before reopening the thread.");
     this.starting.set(threadId, projectId);
     try {
       const thread = await this.store.readThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
-      if (thread.status === "running")
-        throw new Error("Wait for this run to finish before marking the thread done.");
+      if (thread.status === "running") {
+        if (!done) throw new Error("Wait for this run to finish before reopening the thread.");
+        thread.status = "stopped";
+        thread.activity = undefined;
+      }
       if (Boolean(thread.doneAt) === done) return thread;
       thread.doneAt = done ? new Date().toISOString() : undefined;
       thread.revision++;
@@ -892,7 +915,7 @@ export class WorkspaceService {
     await this.serialize(job.thread.id, () => this.finish(job, true));
   }
 
-  private async finish(job: Job, drain: boolean) {
+  private async finish(job: Job, drain: boolean, doneAt?: string) {
     if (this.jobs.get(job.thread.id) !== job) return;
     const delivery = job.queuedDelivery;
     if (
@@ -919,14 +942,20 @@ export class WorkspaceService {
     job.thread.pendingApprovals = undefined;
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();
+    const previousDoneAt = job.thread.doneAt;
+    if (doneAt) job.thread.doneAt = doneAt;
+    let writeError: unknown;
     try {
       await this.store.writeThread(job.thread);
-    } catch {
+    } catch (cause) {
+      writeError = cause;
+      job.thread.doneAt = previousDoneAt;
       job.thread.error = "Thread changes could not be written to disk.";
     }
     this.jobs.delete(job.thread.id);
     this.emit({ type: "thread", thread: job.thread });
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
+    if (doneAt && writeError) throw writeError;
     const next = job.thread.queuedMessages?.[0];
     if (!next || job.stopped || job.thread.error || this.closing)
       this.automaticQueues.delete(job.thread.id);
@@ -977,6 +1006,10 @@ export class WorkspaceService {
   }
 
   async stopThread(projectId: string, threadId: string) {
+    return this.requestThreadStop(projectId, threadId, true);
+  }
+
+  private requestThreadStop(projectId: string, threadId: string, notify: boolean) {
     const active = this.jobs.get(threadId)?.thread;
     const preparingProject = this.starting.get(threadId);
     if (
@@ -997,8 +1030,14 @@ export class WorkspaceService {
     job.thread.activity = "Stopping";
     job.thread.pendingApprovals = undefined;
     job.thread.revision++;
+    if (!notify) {
+      clearTimeout(job.notification);
+      clearTimeout(job.checkpoint);
+      job.notification = undefined;
+      job.checkpoint = undefined;
+    }
     job.process?.stop();
-    this.emit({ type: "thread", thread: job.thread });
+    if (notify) this.emit({ type: "thread", thread: job.thread });
   }
 
   /** Persist harness work; recovery releases only this update's shutdown reservation. */

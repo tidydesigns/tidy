@@ -50,7 +50,7 @@
 }
 @media (max-width: 800px) {
   .desktop {
-    --project-sidebar-width: 180px;
+    --project-sidebar-width: 220px;
     --chat-gutter: 40px;
   }
   .content-heading {
