@@ -45,17 +45,19 @@ function safeValue(value: string) {
   if (/url\s*\(/i.test(rest)) invalid();
 }
 
-// Encode decoded XML values at the output boundary, including whitespace that
-// would otherwise change during attribute normalization on a subsequent parse.
-function escapeXml(value: string) {
+// Encode decoded text without expanding formatting whitespace. Carriage returns
+// need character references to survive XML line-ending normalization.
+function escapeText(value: string) {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/\t/g, "&#9;")
-    .replace(/\n/g, "&#10;")
     .replace(/\r/g, "&#13;");
+}
+
+// Attribute normalization also requires escaping quotes, tabs and newlines.
+function escapeAttribute(value: string) {
+  return escapeText(value).replace(/"/g, "&quot;").replace(/\t/g, "&#9;").replace(/\n/g, "&#10;");
 }
 
 /** Normalize static image content identically at ingestion and export. */
@@ -109,14 +111,15 @@ export function sanitizeSvgAsset(source: string): string {
       safeValue(attribute.value);
       normalizedAttributes.set(name, attribute.value);
     }
-    for (const [name, value] of normalizedAttributes) output.push(` ${name}="${escapeXml(value)}"`);
+    for (const [name, value] of normalizedAttributes)
+      output.push(` ${name}="${escapeAttribute(value)}"`);
     const contentStart = output.length;
     output.push(">");
     for (let child = input.firstChild; child; child = child.nextSibling) {
       if (child.nodeType === 1) {
         copy(child as Element, depth + 1);
       } else if (child.nodeType === 3 || child.nodeType === 4) {
-        output.push(escapeXml(child.nodeValue ?? ""));
+        output.push(escapeText(child.nodeValue ?? ""));
       } else if (child.nodeType !== 8) invalid();
     }
     if (output.length === contentStart + 1) output[contentStart] = "/>";

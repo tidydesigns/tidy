@@ -318,3 +318,45 @@ test.each(["stop rejection", "close exception"])(
     }
   },
 );
+
+test("acquisition retries after an evicted account fails to stop", async () => {
+  const { handler, runtimes } = poolFixture(1);
+  try {
+    const first = await handler.acquire("a");
+    first.release();
+    runtimes[0].stop = async () => {
+      throw new Error("fixture shutdown failure");
+    };
+    const second = await handler.acquire("b");
+    expect(second.runtime).not.toBe(first.runtime);
+    expect(runtimes).toHaveLength(2);
+    second.release();
+  } finally {
+    handler.close();
+  }
+});
+
+test("same-account acquisition retries after an ongoing retirement fails", async () => {
+  const { handler, runtimes, advance } = poolFixture(1);
+  let fail!: (error: Error) => void;
+  try {
+    const first = await handler.acquire("a");
+    first.release();
+    runtimes[0].stopping = new Promise<void>((_, reject) => {
+      fail = reject;
+    });
+    advance(100);
+    const retiring = handler.sweep();
+    const retirementFailure = retiring.catch((error: Error) => error);
+    const waiting = handler.acquire("a");
+    expect(runtimes).toHaveLength(1);
+    fail(new Error("fixture shutdown failure"));
+    expect(await retirementFailure).toMatchObject({ message: "fixture shutdown failure" });
+    const second = await waiting;
+    expect(second.runtime).not.toBe(first.runtime);
+    expect(runtimes).toHaveLength(2);
+    second.release();
+  } finally {
+    handler.close();
+  }
+});

@@ -69,7 +69,8 @@ export function createRunnerHandler(options: RunnerOptions) {
     if (closed || erased.has(owner)) throw new Error("Account runtime is unavailable.");
     let entry = accounts.get(owner);
     if (entry?.closing) {
-      await entry.closing;
+      // The retiring caller owns shutdown errors; this request only needs its slot.
+      await entry.closing.catch(() => {});
       return acquire(owner);
     }
     if (!entry) {
@@ -83,7 +84,7 @@ export function createRunnerHandler(options: RunnerOptions) {
           )
           .sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0];
         if (!candidate) throw new RuntimeCapacityError("Runtime capacity is busy.");
-        await retire(...candidate);
+        await retire(...candidate).catch(() => {});
         return acquire(owner);
       }
       const app = makeRuntime(resolve(options.directory, owner));

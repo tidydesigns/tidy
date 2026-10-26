@@ -83,3 +83,12 @@ test("normalization deduplicates local reference aliases and omits empty comment
   expect(sanitizeSvgAsset(output)).toBe(output);
   expect(sanitizeSvgAsset("<svg><!-- ignored --></svg>")).toBe(sanitizeSvgAsset("<svg/>"));
 });
+
+test("SVG text formatting whitespace stays within the original size budget", () => {
+  const whitespace = "\n\t".repeat(900_000);
+  const source = `<svg><text>${whitespace}&quot;quoted&quot;&#13;</text></svg>`;
+  const output = sanitizeSvgAsset(source);
+  expect(output).toContain(`${whitespace}"quoted"&#13;`);
+  expect(new TextEncoder().encode(output).length).toBeLessThan(2_000_000);
+  expect(sanitizeSvgAsset(output)).toBe(output);
+});
