@@ -133,7 +133,7 @@ export function ThreadCard({
       }}
     >
       <Button
-        className="thread-select flex w-full cursor-pointer flex-col gap-1 rounded-[inherit] border-0 bg-transparent p-2.5 text-left text-[13px] leading-5 text-inherit"
+        className="thread-select flex w-full cursor-pointer flex-col gap-0.5 rounded-[inherit] border-0 bg-transparent p-2.5 text-left text-[13px] leading-5 text-inherit"
         aria-keyshortcuts={orderControls ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onKeyDown={(event) => {
           if (

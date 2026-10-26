@@ -1223,7 +1223,11 @@ export function App() {
   const canvasFocused = mode === "design" && (location === "cloud" ? cloudCanvas : Boolean(design));
 
   return (
-    <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
+    <DesktopShell
+      canvasFocused={!settingsOpen && canvasFocused}
+      codeWorkspace={mode === "code" && !settingsOpen}
+      settingsOpen={settingsOpen}
+    >
       <aside
         id="desktop-navigation"
         className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface)"
@@ -1316,7 +1320,7 @@ export function App() {
                 />
               </label>
               <Button
-                className="sidebar-new-thread grid size-8 shrink-0 cursor-pointer place-items-center rounded-md border border-transparent bg-transparent p-0 text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink"
+                className="sidebar-new-thread active:scale-[0.97] grid size-8 shrink-0 cursor-pointer place-items-center rounded-md border border-transparent bg-transparent p-0 text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink"
                 aria-label="New thread"
                 title="New thread"
                 onClick={() => {
@@ -1733,7 +1737,7 @@ export function App() {
                         Message
                       </label>
                       <SkillPrompt
-                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-2.5 py-2 text-sm leading-[1.5] text-ink [field-sizing:content] min-h-[calc(2lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-2.5 py-2 text-[15px] leading-6 text-ink [field-sizing:content] min-h-[calc(2lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
