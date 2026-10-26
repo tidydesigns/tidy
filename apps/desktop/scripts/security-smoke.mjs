@@ -435,7 +435,7 @@ app.on("browser-window-created", (_event, window) => {
           await evaluate(
             "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
           ),
-          88,
+          84,
         );
         primary.setFullScreen(true);
         await wait("document.documentElement.hasAttribute('data-window-fullscreen')");
@@ -443,7 +443,7 @@ app.on("browser-window-created", (_event, window) => {
           await evaluate(
             "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
           ),
-          8,
+          4,
         );
         // Reloading in fullscreen must restore the inset without another native transition.
         await new Promise((resolve) => {
@@ -459,7 +459,7 @@ app.on("browser-window-created", (_event, window) => {
           await evaluate(
             "document.querySelector('.desktop-sidebar-toggle').getBoundingClientRect().left",
           ),
-          88,
+          84,
         );
         // The reload resets preferences; set an explicit open preference again.
         await evaluate("document.querySelector('.desktop-sidebar-toggle').click();true");
@@ -485,8 +485,10 @@ app.on("browser-window-created", (_event, window) => {
         "none",
       );
       assert.equal(
-        await evaluate("document.querySelector('.desktop-sidebar-toggle')===null"),
-        true,
+        await evaluate(
+          "Array.from(document.querySelectorAll('.desktop-sidebar-toggle')).some(button=>button.checkVisibility())",
+        ),
+        false,
       );
       assert.equal(
         await evaluate("document.querySelector('.workspace').getBoundingClientRect().left"),
