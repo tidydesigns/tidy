@@ -33,6 +33,16 @@ const api: DesktopAPI = {
     await ipcRenderer.invoke("tidy:reload-app");
   },
   analytics: {
+    subscribe(listener) {
+      const receive = (_event: Electron.IpcRendererEvent, state: unknown) => {
+        const value = analyticsStateSchema.safeParse(state);
+        if (value.success) listener(value.data);
+      };
+      ipcRenderer.on("tidy:privacy-state", receive);
+      return () => {
+        ipcRenderer.removeListener("tidy:privacy-state", receive);
+      };
+    },
     reportError: async () => {
       await ipcRenderer.invoke("tidy:analytics", "renderer-error");
     },

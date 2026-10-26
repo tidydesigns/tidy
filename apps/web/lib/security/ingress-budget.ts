@@ -13,6 +13,8 @@ export const INGRESS_LIMITS = {
   auth: { minute: 2000, hour: 30_000, ipMinute: 120, ipHour: 6000 },
   registration: { minute: 60, hour: 1000, ipMinute: 5, ipHour: 20 },
   privacy: { minute: 1200, hour: 36_000, ipMinute: 120, ipHour: 3600 },
+  telemetry: { minute: 600, hour: 10_000, ipMinute: 120, ipHour: 3600 },
+  telemetryReceipt: { minute: 30, hour: 300, ipMinute: 10, ipHour: 60 },
   webhook: { minute: 600, hour: 10_000, ipMinute: 300, ipHour: 5000 },
   cleanup: { minute: 60, hour: 1000, ipMinute: 10, ipHour: 120 },
 } as const;
@@ -25,8 +27,15 @@ export function ingressKind(request: Request): keyof typeof INGRESS_LIMITS | nul
   }
   // These endpoints already have independent global pre-database budgets.
   if (path === "/api/health" || path === "/api/t" || path.startsWith("/api/t/")) return null;
-  if (path === "/api/privacy/cleanup" || path === "/api/internal/billing/reconcile")
+  if (
+    path === "/api/privacy/cleanup" ||
+    path === "/api/internal/billing/reconcile" ||
+    path === "/api/internal/analytics/maintenance"
+  )
     return "cleanup";
+  if (/^\/api\/telemetry\/desktop\/(erase|unlink|export|status)$/.test(path)) return "privacy";
+  if (path === "/api/telemetry/desktop/receipt") return "telemetryReceipt";
+  if (path.startsWith("/api/telemetry/")) return "telemetry";
   if (path.startsWith("/api/privacy/")) return "privacy";
   if (/^\/api\/(billing|github|linear)\/webhook$/.test(path)) return "webhook";
   if (path === "/api/auth/sign-up/email") return "registration";

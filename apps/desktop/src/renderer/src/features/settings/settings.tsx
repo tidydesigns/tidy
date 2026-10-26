@@ -1,10 +1,11 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { CloudConnection } from "../cloud/use-cloud";
 import { PrivacySettings } from "./privacy-settings";
 
 export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): void }) {
+  const [page, setPage] = useState<"account" | "privacy">("account");
   const back = useRef<HTMLButtonElement>(null);
   useEffect(() => back.current?.focus(), []);
   const available = cloud.state?.available;
@@ -25,18 +26,28 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
         </div>
         <nav className="settings-sections" aria-label="Settings sections">
           <span className="settings-label">Settings</span>
-          <a href="#settings-account" className="settings-section" aria-current="page">
-            Account
-          </a>
-          <a href="#settings-privacy" className="settings-section">
-            Privacy
-          </a>
+          {(["account", "privacy"] as const).map((item) => (
+            <Button
+              key={item}
+              className="settings-section"
+              aria-current={page === item ? "page" : undefined}
+              aria-controls={`settings-${item}-panel`}
+              onClick={() => setPage(item)}
+            >
+              {item === "account" ? "Account" : "Privacy"}
+            </Button>
+          ))}
         </nav>
       </aside>
       <main className="workspace settings-workspace" aria-labelledby="settings-title">
         <div className="settings-content">
-          <h1 id="settings-title">Account</h1>
-          <section className="settings-account" aria-labelledby="settings-account-title">
+          <h1 id="settings-title">{page === "account" ? "Account" : "Privacy"}</h1>
+          <section
+            id="settings-account-panel"
+            hidden={page !== "account"}
+            className="settings-account"
+            aria-labelledby="settings-account-title"
+          >
             <div className="settings-account-row" id="settings-account">
               <div>
                 <h2 id="settings-account-title">Sync</h2>
@@ -79,7 +90,9 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
               Local projects stay on this computer unless you add them to a workspace.
             </p>
           </section>
-          <PrivacySettings />
+          <div id="settings-privacy-panel" hidden={page !== "privacy"}>
+            <PrivacySettings />
+          </div>
         </div>
       </main>
     </>

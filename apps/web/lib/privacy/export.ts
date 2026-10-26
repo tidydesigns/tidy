@@ -60,7 +60,7 @@ export const exportQueries: Record<string, string> = {
   privacyChoices:
     'select id,version,"noticeVersion",at,analytics,replay,diagnostics,"recordedAt","expiresAt" from "privacyConsent" where "userId"=$1',
   desktopAnalyticsChoices:
-    'select d.id,d.usage,d.diagnostics,d.notice,d."createdAt",d."expiresAt" from "desktopAnalyticsConsent" d join "productAnalyticsAccount" a on a.id=d."accountId" where a."userId"=$1',
+    'select d.id,d.usage,d.diagnostics,d.notice,d.revision,d."createdAt",d."linkedAt",d."lastExportAt",d."expiresAt" from "desktopAnalyticsConsent" d join "productAnalyticsAccount" a on a.id=d."accountId" where a."userId"=$1',
   productAnalytics:
     'select e.surface,e.purpose,e.name,e.at,e.properties from "productAnalyticsEvent" e join "productAnalyticsAccount" a on a.id=e."accountId" where a."userId"=$1 and e."expiresAt">clock_timestamp()',
 };

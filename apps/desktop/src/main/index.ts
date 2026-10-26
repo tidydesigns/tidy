@@ -212,8 +212,7 @@ app
         void analytics
           ?.state()
           .then((value) => {
-            if (value.linked)
-              return analytics?.choose({ usage: value.usage, diagnostics: value.diagnostics });
+            if (value.linked) return analytics?.unlink();
           })
           .catch(() => {});
       }

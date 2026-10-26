@@ -10,11 +10,12 @@ test("native HTTP boundary rejects ambient authority, extra data and oversized b
       `
     import {mock,expect} from 'bun:test';
     mock.module('server-only',()=>({}));
-    let enabled=true,storage=true,accepted=0,erased=0;
-    mock.module('@/lib/security/personal-budget',()=>({reservePersonalAttempts:async()=>{}}));
+    let enabled=true,storage=true,accepted=0,erased=0,limited=false;
+    class PersonalBudgetError extends Error { status=429; }
+    mock.module('@/lib/security/personal-budget',()=>({PersonalBudgetError,reservePersonalAttempts:async()=>{if(limited)throw new PersonalBudgetError();}}));
     mock.module('@/lib/analytics/store',()=>({
       analyticsStorageEnabled:()=>storage,analyticsEnabled:()=>enabled,
-      AnalyticsAccessError:class extends Error{},
+      AnalyticsAccessError:class extends Error{},AnalyticsRevisionError:class extends Error{},AnalyticsExportRateError:class extends Error{},
       nativeConsent:async()=>({}),captureNative:async()=>{accepted++;},
       eraseNative:async()=>{erased++;},createAnalyticsLink:async()=>'',exportNative:async()=>({})
     }));
@@ -31,6 +32,11 @@ test("native HTTP boundary rejects ambient authority, extra data and oversized b
     expect((await invoke(request({revision:1,events:[event],accountId:'someone-else'}))).status).toBe(400);
     expect((await invoke(request({huge:'x'.repeat(40_000)}))).status).toBe(413);
     expect(accepted).toBe(1);
+    expect((await invoke(new Request('https://app.example.test/api/telemetry/desktop/events',{method:'POST',headers:{authorization:'Bearer '+token},body:'invalid-json'}))).status).toBe(400);
+    limited=true;
+    const denied=await invoke(request({revision:1,events:[event]}));
+    expect(denied.status).toBe(429);expect(denied.headers.get('retry-after')).toBe('60');
+    limited=false;
     enabled=false;
     expect((await invoke(request({revision:1,events:[event]}))).status).toBe(503);
     expect((await invoke(request({}),'erase')).status).toBe(204);

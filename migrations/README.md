@@ -1,7 +1,7 @@
 # Postgres migrations
 
 `20261024-desktop-analytics.sql` follows `20261021-combined-privacy-consent.sql`.
-It adds separate native consent receipts, optional account aliases, expiring
+It adds separate native consent receipts (including a prospective link timestamp), optional account aliases, expiring
 first-party product records, and aggregate release counters/export markers. Reapply
 `operations/runtime-grants.sql`. Both local setup scripts include it. Run
 `bun test:analytics:db` for a disposable restricted-role test. See

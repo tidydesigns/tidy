@@ -17,11 +17,16 @@ export const analyticsEnabled = () =>
   analyticsStorageEnabled() && analyticsSetting("DESKTOP_ANALYTICS_ENABLED") === "1";
 export const analyticsHash = (value: string) => createHash("sha256").update(value).digest("hex");
 export class AnalyticsAccessError extends Error {}
+export class AnalyticsRevisionError extends AnalyticsAccessError {}
+export class AnalyticsExportRateError extends Error {}
 type Consent = AnalyticsChoices & {
   id: string;
   revision: number;
   expiresAt: Date;
   accountId: string | null;
+  linkedAt: Date | null;
+  createdAt: Date;
+  lastExportAt: Date | null;
   notice: string;
 };
 export async function nativeConsent(token: string, choices?: AnalyticsChoices, revision?: number) {
@@ -61,7 +66,7 @@ export async function nativeConsent(token: string, choices?: AnalyticsChoices, r
         );
         row = (
           await client.query<Consent>(
-            `update "desktopAnalyticsConsent" set usage=$2,diagnostics=$3,revision=revision+1,notice=$4,"expiresAt"=clock_timestamp()+interval '90 days',"accountId"=case when $2 then "accountId" else null end,"challengeHash"=null,"challengeExpiresAt"=null where id=$1 returning *`,
+            `update "desktopAnalyticsConsent" set usage=$2,diagnostics=$3,revision=revision+1,notice=$4,"expiresAt"=clock_timestamp()+interval '90 days',"accountId"=case when $2 then "accountId" else null end,"linkedAt"=case when $2 then "linkedAt" else null end,"challengeHash"=null,"challengeExpiresAt"=null where id=$1 returning *`,
             [row.id, choices.usage, choices.diagnostics, ANALYTICS_NOTICE],
           )
         ).rows[0];
@@ -94,7 +99,8 @@ export async function captureNative(token: string, revision: number, events: Ana
         [analyticsHash(token), ANALYTICS_NOTICE],
       )
     ).rows[0];
-    if (!row || row.revision !== revision) throw new AnalyticsAccessError();
+    if (!row) throw new AnalyticsAccessError();
+    if (row.revision !== revision) throw new AnalyticsRevisionError();
     for (const input of events) {
       const value = analyticsEnvelopeSchema.parse(input);
       const purpose = analyticsPurpose(value.event);
@@ -110,7 +116,9 @@ export async function captureNative(token: string, revision: number, events: Ana
         [
           value.id,
           row.id,
-          purpose === "usage" ? row.accountId : null,
+          purpose === "usage" && row.linkedAt && Date.parse(value.at) >= row.linkedAt.getTime()
+            ? row.accountId
+            : null,
           purpose,
           name,
           value.at,
@@ -150,7 +158,7 @@ export async function eraseNative(token: string, unlink = false) {
       );
       if (unlink)
         await client.query(
-          'update "desktopAnalyticsConsent" set "accountId"=null,"challengeHash"=null,"challengeExpiresAt"=null,revision=revision+1 where id=$1',
+          'update "desktopAnalyticsConsent" set "accountId"=null,"linkedAt"=null,"challengeHash"=null,"challengeExpiresAt"=null,revision=revision+1 where id=$1',
           [row.id],
         );
       else await client.query('delete from "desktopAnalyticsConsent" where id=$1', [row.id]);
@@ -180,11 +188,13 @@ export async function exportNative(token: string) {
   try {
     const row = (
       await client.query<Consent>(
-        'select * from "desktopAnalyticsConsent" where "tokenHash"=$1 for share',
+        'select * from "desktopAnalyticsConsent" where "tokenHash"=$1 for update',
         [analyticsHash(token)],
       )
     ).rows[0];
     if (!row) throw new AnalyticsAccessError();
+    if (row.lastExportAt && Date.now() - row.lastExportAt.getTime() < 60_000)
+      throw new AnalyticsExportRateError();
     const size = (
       await client.query<{ count: number; bytes: string }>(
         `select count(*)::int as count,coalesce(sum(octet_length(properties::text)+512),0)::text as bytes from "productAnalyticsEvent" where "consentId"=$1 and "expiresAt">clock_timestamp()`,
@@ -199,6 +209,10 @@ export async function exportNative(token: string) {
         [row.id],
       )
     ).rows;
+    await client.query(
+      'update "desktopAnalyticsConsent" set "lastExportAt"=clock_timestamp() where id=$1',
+      [row.id],
+    );
     await client.query("commit");
     return {
       formatVersion: 1,
@@ -207,6 +221,10 @@ export async function exportNative(token: string) {
         usage: row.usage,
         diagnostics: row.diagnostics,
         notice: row.notice,
+        revision: row.revision,
+        createdAt: row.createdAt,
+        linkedAt: row.linkedAt,
+        lastExportAt: row.lastExportAt,
         expiresAt: row.expiresAt,
         linked: Boolean(row.accountId),
       },
@@ -238,7 +256,7 @@ export async function linkAnalyticsAccount(challenge: string, userId: string) {
       )
     ).rows[0];
     await client.query(
-      'update "desktopAnalyticsConsent" set "accountId"=$2,"challengeHash"=null,"challengeExpiresAt"=null where id=$1',
+      'update "desktopAnalyticsConsent" set "accountId"=$2,"linkedAt"=clock_timestamp(),revision=revision+1,"challengeHash"=null,"challengeExpiresAt"=null where id=$1',
       [row.id, account.id],
     );
     // Prospective only: no existing event is reassigned and no provider profiles are merged.

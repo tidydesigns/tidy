@@ -1,8 +1,10 @@
 # Desktop analytics v1
 
 Desktop remains usable without an account or optional reporting. This implementation
-adds explicit usage and diagnostic choices in desktop Settings → Privacy. Both start
-off and expire after 90 days. Authentication and cloud sync do not enable them.
+adds a separate Privacy page in desktop Settings. Accept enables optional usage and
+diagnostics; Deny disables both. Choose separately exposes independent purpose
+switches, and Your data contains account linking, export and erasure. Both purposes
+start off and expire after 90 days. The policy remains a first-layer link. Authentication and cloud sync do not enable them.
 
 ## What is available by default
 
@@ -105,7 +107,7 @@ installed. The renderer has no bearer token or arbitrary capture/network capabil
 
 - `desktop_first_seen` means first observed use under a consent receipt, not an
   original installation. Changing choices resets this reporting identity.
-- Activity reports are at most one per UTC day/version and represent foreground availability;
+- Activity reports are at most one per UTC day/version/reporting context and represent foreground availability;
   background updater polling is excluded. They are not a measure of time spent or
   completed work. Foreground windows can count after recent system input, even if that input was not in Tidy; the minute check excludes system idle times of five minutes or longer.
 - Harness starts follow accepted native launches; installed-CLI detection is not a
@@ -131,17 +133,27 @@ outside projects and the renderer. Optional batches are memory-only, bounded to
 design/harness operations. Changing consent clears pending captures immediately,
 persists the local choice, and durably queues the old receipt for server erasure.
 Offline erasure retries after reconnect/restart. Raw expiry still applies meanwhile.
+An outdated notice revokes collection while preserving the old erasure receipts.
+Receipts are not silently dropped after repeated choices, and a new registration
+waits for pending erasure. Choosing an unchanged current preference is idempotent;
+it does not erase history or silently reset installation retention.
 
 Server ingestion serializes receipt changes and event writes, checks the current
 notice/revision/expiry and independently gates each purpose. Delivery IDs deduplicate
 retries. Rate limits and body limits apply before work is admitted. Guest receipts
 can export or erase their own records without account creation; oversized exports
-require operator assistance rather than silent truncation.
+require operator assistance rather than silent truncation. Native exports include
+consent/revision/link timestamps and serialize on the receipt, with a one-minute
+cooldown before repeating a full export. Erasure remains independently available.
 
 Linking is a separate, five-minute one-time browser confirmation. The browser shows
 the account being linked and requires an authenticated, same-origin confirmation.
 Native cloud credentials are not reused or given new telemetry scopes. Linkage is
-prospective: earlier records stay unlinked, and no PostHog profiles are merged.
+prospective: confirmation advances the server receipt revision, so an in-flight or
+queued pre-link batch is rejected even when the device clock is ahead. The native
+client drops that batch, refreshes the revision and starts a new reporting context.
+A server link timestamp also prevents a backdated delivery from acquiring account
+identity. Earlier records stay unlinked, and no PostHog profiles are merged.
 Diagnostic records never receive the account alias.
 
 The revised web notice uses browser consent version 7. Existing browser-only
@@ -152,7 +164,9 @@ an explicitly linked account and with a current browser usage receipt. Browser
 withdrawal and first-party ingestion share the existing consent lock. First-party
 account aliases never replace or silently merge legacy web PostHog identities.
 Signing out/switching desktop cloud accounts rotates a linked native reporting
-context. Unlinking through account privacy controls deletes linked raw activity;
+context. Desktop unlinking immediately rotates its reporting context, including
+when offline, and queues the previous receipt's reports for deletion. Unlinking
+through web account privacy controls deletes linked raw activity;
 account deletion cascades through the private account mapping. Local projects remain
 untouched. Account and guest exports exclude receipt tokens and token hashes.
 
@@ -247,3 +261,46 @@ bun run --cwd apps/desktop test:security
 The database suites own disposable local PostgreSQL clusters and use restricted
 runtime roles. The reserved extension origin is solely for local build validation;
 it is not a deployment target. Never enable test collection against production.
+
+## Review gates before rollout
+
+The review fixes consent races, bounds complete native response bodies, preserves
+cleanup credentials on notice changes, retries transport failures using their
+original delivery IDs, and keeps settings reads local. Native state changes are
+pushed through a validated preload subscription; opening Settings does not refresh
+the network. Diagnostic timing observation stops on withdrawal and expiry, and
+renderer error IPC is sampled before sending.
+
+Optional first-party ingestion has its own shared/IP ingress budgets, with a
+stricter receipt-creation budget. Native status/export/erasure and scheduled cleanup
+use the existing independent privacy/maintenance admission paths. Optional traffic
+cannot spend the ordinary application ingress allowance. These are admission limits,
+not a guarantee against all denial of service or a monthly cost cap.
+
+Before enabling collection, the controller must complete and retain:
+
+- A purpose/necessity/balancing assessment for service reliability processing,
+  explaining why the existing operational logs alone are insufficient. The server
+  counters introduce no terminal tracking, but that does not remove GDPR obligations
+  for the underlying requests or make all diagnostics exempt from ePrivacy consent.
+- A processing inventory covering 90-day optional usage, 30-day diagnostics, 30 UTC
+  calendar days of service counters, seven-day local error pruning, 400-day public
+  release counters, infrastructure logs, consent evidence and backups. Verify the
+  actual cron, alerting, backup expiry and restoration/deletion handling.
+- Processor contracts, subprocessor/access controls and transfer safeguards for the
+  actual hosting, storage and PostHog arrangements. EU ingestion does not itself
+  prove that every international access/transfer condition is satisfied.
+- A DPIA screening and, if indicated by the actual deployment and risk, a completed
+  DPIA; an assessment of whether aggregate exports can be re-identified, including
+  repeated snapshots. Keep aggregate export disabled until that review is complete.
+- An exercised account-free export/deletion process, account-linked unlink/delete
+  process and a support path for lost receipts/large exports. Keep rights and expiry
+  maintenance available when disabling new collection.
+
+These are deployment/legal-operating gates, not confirmations of completed work or
+legal certification. Consult the
+[DPC accountability guidance](https://www.dataprotection.ie/en/organisations/know-your-obligations/accountability-obligation),
+[DPC tracking guidance](https://www.dataprotection.ie/en/dpc-guidance/guidance-cookies-and-other-tracking-technologies)
+and [EDPB consent guidance](https://www.edpb.europa.eu/documents/guideline/guidelines-052020-on-consent-under-regulation-2016679_en).
+Production SQL, deployment and enabling these gates still require the operator's
+explicit approval under the repository instructions.

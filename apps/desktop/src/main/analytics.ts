@@ -21,9 +21,9 @@ const savedSchema = z
   .object({
     notice: z.literal(ANALYTICS_NOTICE),
     choices: analyticsChoicesSchema,
-    expiresAt: z.string(),
+    expiresAt: z.iso.datetime(),
     receipt: analyticsReceiptSchema.optional(),
-    erase: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10),
+    erase: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(1000),
     activeDay: z.string().optional(),
     target: z.object({ from: z.string(), to: z.string() }).optional(),
   })
@@ -46,6 +46,10 @@ export class DesktopAnalytics implements AnalyticsAPI {
   private generation = 0;
   private closed = false;
   private ready = false;
+  private initialized = false;
+  private listeners = new Set<(state: AnalyticsState) => void>();
+  private refreshing?: Promise<void>;
+  private flushing = false;
   private localErrors: { at: string; event: AnalyticsEvent }[] = [];
   private lastError = new Map<string, number>();
   private lastSync = new Map<string, number>();
@@ -94,9 +98,24 @@ export class DesktopAnalytics implements AnalyticsAPI {
   async initialize() {
     try {
       await this.options.state.initialize();
+      this.initialized = true;
       const raw = await this.options.state.read("choices");
       const parsed = savedSchema.safeParse(raw);
       if (parsed.success) this.saved = parsed.data;
+      else if (raw && typeof raw === "object") {
+        // A changed notice must revoke collection without losing the ability to erase old reports.
+        const prior = raw as Record<string, unknown>;
+        const token = z.string().regex(/^[a-f0-9]{64}$/);
+        const receipt = z.object({ token }).safeParse(prior.receipt);
+        const erased = z.array(token).max(1000).safeParse(prior.erase);
+        this.saved.erase = [
+          ...new Set([
+            ...(erased.success ? erased.data : []),
+            ...(receipt.success ? [receipt.data.token] : []),
+          ]),
+        ];
+        await this.persist();
+      }
       await this.pruneLocal();
       // Outdated notices and malformed records never grant optional collection.
       this.ready = true;
@@ -107,17 +126,38 @@ export class DesktopAnalytics implements AnalyticsAPI {
     } catch {
       this.ready = false;
     }
+    this.notify();
   }
-  async state(): Promise<AnalyticsState> {
+  subscribe(listener: (state: AnalyticsState) => void) {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+  private notify() {
+    const state = this.snapshot();
+    for (const listener of this.listeners) {
+      try {
+        listener(state);
+      } catch {
+        /* A closed renderer cannot change consent. */
+      }
+    }
+  }
+  private snapshot(): AnalyticsState {
     const valid = Date.parse(this.saved.expiresAt) > this.now();
     return {
       notice: ANALYTICS_NOTICE,
-      available: this.options.available && this.ready,
+      available: this.options.available && this.initialized,
       usage: valid && this.saved.choices.usage,
       diagnostics: valid && this.saved.choices.diagnostics,
       expiresAt: valid ? this.saved.expiresAt : null,
       linked: valid && Boolean(this.saved.receipt?.linked),
+      pendingDeletion: this.saved.erase.length > 0,
     };
+  }
+  async state(): Promise<AnalyticsState> {
+    return this.snapshot();
   }
   private persist() {
     const value = structuredClone(this.saved);
@@ -127,6 +167,16 @@ export class DesktopAnalytics implements AnalyticsAPI {
   }
   async choose(input: AnalyticsChoices) {
     const choices = analyticsChoicesSchema.parse(input);
+    if (
+      this.ready &&
+      Date.parse(this.saved.expiresAt) > this.now() &&
+      choices.usage === this.saved.choices.usage &&
+      choices.diagnostics === this.saved.choices.diagnostics
+    )
+      return this.state();
+    return this.replaceChoices(choices);
+  }
+  private async replaceChoices(choices: AnalyticsChoices) {
     const generation = ++this.generation;
     for (const controller of this.controllers) controller.abort();
     this.events = [];
@@ -137,7 +187,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
       notice: ANALYTICS_NOTICE,
       choices,
       expiresAt: new Date(this.now() + 90 * 86_400_000).toISOString(),
-      erase: [...new Set(this.saved.erase)].slice(-10),
+      erase: [...new Set(this.saved.erase)],
     };
     // Persist the decision before any capture or network request can use it.
     this.ready = false;
@@ -145,11 +195,17 @@ export class DesktopAnalytics implements AnalyticsAPI {
       await this.persist();
       if (generation === this.generation) this.ready = true;
     } catch {
-      this.saved.choices = { ...essentialAnalytics };
+      if (generation === this.generation) {
+        this.saved.choices = { ...essentialAnalytics };
+        this.notify();
+        if (this.saved.erase.length) this.schedule();
+      }
       throw new Error("Could not store the privacy choice. Sharing stays off.");
     }
+    this.notify();
     this.active();
-    this.schedule();
+    if (this.saved.erase.length || this.permitted("usage") || this.permitted("diagnostics"))
+      this.schedule();
     return this.state();
   }
   private async request(action: string, body: unknown, token?: string) {
@@ -157,7 +213,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
     this.controllers.add(controller);
     const timeout = setTimeout(() => controller.abort(), 5000);
     try {
-      return await this.options.fetch(
+      const response = await this.options.fetch(
         new URL(`/api/telemetry/desktop/${action}`, this.options.origin).href,
         {
           method: "POST",
@@ -171,20 +227,57 @@ export class DesktopAnalytics implements AnalyticsAPI {
           signal: controller.signal,
         },
       );
+      // Keep the deadline and cancellation active through body consumption, not only headers.
+      const reader = response.body?.getReader();
+      if (!reader) return response;
+      const limit = action === "export" ? 5_000_000 : 16_384;
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      let rejectAbort: (error: unknown) => void = () => {};
+      const aborted = new Promise<never>((_, reject) => {
+        rejectAbort = reject;
+      });
+      const cancel = () => {
+        rejectAbort(controller.signal.reason);
+        void reader.cancel(controller.signal.reason).catch(() => {});
+      };
+      controller.signal.addEventListener("abort", cancel, { once: true });
+      try {
+        controller.signal.throwIfAborted();
+        for (;;) {
+          const value = await Promise.race([reader.read(), aborted]);
+          controller.signal.throwIfAborted();
+          if (value.done) break;
+          size += value.value.byteLength;
+          if (size > limit) throw new Error("Privacy response too large.");
+          chunks.push(value.value);
+        }
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        for (const chunk of chunks) {
+          bytes.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+        return new Response(bytes, { status: response.status, headers: response.headers });
+      } finally {
+        controller.signal.removeEventListener("abort", cancel);
+        void reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
     } finally {
       clearTimeout(timeout);
       this.controllers.delete(controller);
     }
   }
-  private schedule() {
-    if (this.closed || !this.options.available || this.timer) return;
+  private schedule(delay = 250) {
+    if (this.closed || !this.options.available || this.timer || this.flushing) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
       this.work = this.work
         .catch(() => {})
         .then(() => this.flush())
         .catch(() => {});
-    }, 250);
+    }, delay);
     this.timer.unref?.();
   }
   private ensureReceipt(): Promise<AnalyticsReceipt | undefined> {
@@ -194,6 +287,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
   }
   private async register(): Promise<AnalyticsReceipt | undefined> {
     if (this.saved.receipt) return this.saved.receipt;
+    if (this.saved.erase.length) return;
     if (!this.permitted("usage") && !this.permitted("diagnostics")) return;
     const generation = this.generation;
     const response = await this.request("receipt", {
@@ -209,7 +303,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
       linked: raw.linked,
     });
     if (generation !== this.generation || this.closed) {
-      this.saved.erase.push(token);
+      this.saved.erase = [...new Set([...this.saved.erase, token])];
       await this.persist();
       return;
     }
@@ -219,18 +313,26 @@ export class DesktopAnalytics implements AnalyticsAPI {
     return this.saved.receipt;
   }
   private async flush() {
-    if (this.closed) return;
+    if (this.closed || this.flushing) return;
+    clearTimeout(this.timer);
+    this.timer = undefined;
+    this.flushing = true;
+    let failed = false;
+    const generation = this.generation;
+    let batch: AnalyticsEnvelope[] = [];
+    let receipt: AnalyticsReceipt | undefined;
     try {
       for (const token of [...this.saved.erase]) {
         const response = await this.request("erase", {}, token);
         if (!response.ok && response.status !== 401) throw new Error("Erasure pending.");
         this.saved.erase = this.saved.erase.filter((value) => value !== token);
         await this.persist();
+        this.notify();
       }
-      const receipt = await this.ensureReceipt();
-      if (!receipt) return;
-      const generation = this.generation;
-      const batch = this.events
+      if (generation !== this.generation || this.closed) return;
+      receipt = await this.ensureReceipt();
+      if (!receipt || generation !== this.generation || receipt !== this.saved.receipt) return;
+      batch = this.events
         .splice(0, 25)
         .filter(
           (value) =>
@@ -243,28 +345,36 @@ export class DesktopAnalytics implements AnalyticsAPI {
         { revision: receipt.revision, events: batch },
         receipt.token,
       );
-      if (response.status === 401) {
-        this.saved.choices = { ...essentialAnalytics };
-        this.events = [];
-        await this.persist();
+      if (generation !== this.generation || this.closed) return;
+      if (response.status === 409) {
+        // Linking advances the server revision. Discard the earlier batch even if the device clock is ahead.
+        await this.refresh();
         return;
       }
-      if (!response.ok && generation === this.generation)
-        this.events = [...batch, ...this.events].slice(0, 100);
+      if (response.status === 401) {
+        await this.choose({ ...essentialAnalytics });
+        return;
+      }
+      if (!response.ok) throw new Error("Optional delivery unavailable.");
     } catch {
-      /* Optional network delivery never fails a user interaction. */
+      failed = true;
+      // Retry the same delivery IDs after transport failures; never carry them across consent.
+      if (!this.closed && generation === this.generation && receipt === this.saved.receipt)
+        this.events = [...batch, ...this.events]
+          .filter(
+            (value) =>
+              this.permitted(analyticsPurpose(value.event)) &&
+              this.now() - Date.parse(value.at) < 86_400_000,
+          )
+          .slice(0, 100);
     } finally {
       const pending =
         this.saved.erase.length ||
         this.events.length ||
         (!this.saved.receipt && (this.permitted("usage") || this.permitted("diagnostics")));
-      if (!this.closed && pending) {
-        this.timer = setTimeout(() => {
-          this.timer = undefined;
-          this.schedule();
-        }, 60_000);
-        this.timer.unref?.();
-      }
+      this.flushing = false;
+      if (!this.closed && pending)
+        this.schedule(failed && generation === this.generation ? 60_000 : 250);
     }
   }
   capture(input: AnalyticsEvent) {
@@ -341,8 +451,14 @@ export class DesktopAnalytics implements AnalyticsAPI {
     else await this.options.state.remove("diagnostics");
   }
   async link() {
+    const generation = this.generation;
     const receipt = await this.ensureReceipt();
-    if (!receipt || !this.permitted("usage"))
+    if (
+      !receipt ||
+      generation !== this.generation ||
+      receipt !== this.saved.receipt ||
+      !this.permitted("usage")
+    )
       throw new Error("Enable usage statistics before linking.");
     const response = await this.request("link", {}, receipt.token);
     if (!response.ok) throw new Error("Could not start account linking.");
@@ -350,6 +466,12 @@ export class DesktopAnalytics implements AnalyticsAPI {
       .object({ url: z.url() })
       .strict()
       .parse(await response.json());
+    if (
+      generation !== this.generation ||
+      receipt !== this.saved.receipt ||
+      !this.permitted("usage")
+    )
+      throw new Error("Privacy choices changed. Start linking again.");
     const url = new URL(value.url);
     if (
       url.origin !== new URL(this.options.origin).origin ||
@@ -359,32 +481,49 @@ export class DesktopAnalytics implements AnalyticsAPI {
       throw new Error("Invalid link destination.");
     await this.options.open(url.href);
   }
-  async refresh() {
+  refresh() {
+    return (this.refreshing ??= this.refreshState().finally(() => {
+      this.refreshing = undefined;
+    }));
+  }
+  private async refreshState() {
     const receipt = this.saved.receipt;
-    if (!receipt || !this.permitted("usage")) return;
+    if (!receipt || (!this.permitted("usage") && !this.permitted("diagnostics"))) return;
     const generation = this.generation;
     try {
       const response = await this.request("status", {}, receipt.token);
-      if (response.ok && generation === this.generation) {
-        const value = (await response.json()) as Record<string, unknown>;
-        this.saved.receipt = analyticsReceiptSchema.parse({
-          token: value.token,
-          revision: value.revision,
-          expiresAt: value.expiresAt,
-          linked: value.linked,
-        });
-        await this.persist();
+      if (!response.ok) return;
+      const value = (await response.json()) as Record<string, unknown>;
+      if (generation !== this.generation || receipt !== this.saved.receipt || this.closed) return;
+      const next = analyticsReceiptSchema.parse({
+        token: value.token,
+        revision: value.revision,
+        expiresAt: value.expiresAt,
+        linked: value.linked,
+      });
+      if (next.token !== receipt.token) return;
+      if (next.linked !== receipt.linked || next.revision !== receipt.revision) {
+        this.generation++;
+        this.events = [];
+        delete this.saved.activeDay;
       }
+      const choices = analyticsChoicesSchema.parse(value.choices);
+      this.saved.choices = {
+        usage: this.saved.choices.usage && choices.usage,
+        diagnostics: this.saved.choices.diagnostics && choices.diagnostics,
+      };
+      this.saved.expiresAt = new Date(
+        Math.min(Date.parse(this.saved.expiresAt), Date.parse(next.expiresAt)),
+      ).toISOString();
+      this.saved.receipt = next;
+      await this.persist();
+      this.active();
+      this.notify();
     } catch {}
   }
   async unlink() {
-    const receipt = this.saved.receipt;
-    if (receipt) {
-      const response = await this.request("unlink", {}, receipt.token);
-      if (!response.ok) throw new Error("Could not remove account linking. Retry when online.");
-      await this.refresh();
-    }
-    return this.state();
+    // Rotate locally at once, even offline. Old reports are erased by the durable retry queue.
+    return this.replaceChoices({ ...this.saved.choices });
   }
   async erase() {
     await this.choose({ ...essentialAnalytics });
@@ -393,6 +532,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
     return this.state();
   }
   async reports() {
+    const generation = this.generation;
     const localDiagnostics = this.localErrors.filter(
       (value) => this.now() - Date.parse(value.at) < 7 * 86_400_000,
     );
@@ -405,6 +545,8 @@ export class DesktopAnalytics implements AnalyticsAPI {
       );
     const text = await response.text();
     if (text.length > 5_000_000) throw new Error("Report export too large.");
+    if (generation !== this.generation || receipt !== this.saved.receipt)
+      throw new Error("Privacy choices changed. Download reports again.");
     return JSON.stringify({ ...JSON.parse(text), localDiagnostics });
   }
   async updateTarget(target: string) {
@@ -413,11 +555,12 @@ export class DesktopAnalytics implements AnalyticsAPI {
     await this.persist();
   }
   async confirmUpdate() {
+    const generation = this.generation;
     const target = this.saved.target;
     if (!target) return;
     delete this.saved.target;
     await this.persist();
-    if (target.to === this.options.version)
+    if (generation === this.generation && target.to === this.options.version)
       this.capture({
         name: "desktop_update_result",
         stage: "install",
@@ -441,6 +584,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
     for (const controller of this.controllers) controller.abort();
     clearTimeout(this.timer);
     this.events = [];
+    this.listeners.clear();
     return this.writes.catch(() => {});
   }
 }

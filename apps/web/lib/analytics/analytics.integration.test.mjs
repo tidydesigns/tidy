@@ -76,6 +76,9 @@ integration(
     expect(rows[0].accountId).toBeNull();
     const exported = await exportNative(receipt.token);
     expect(exported.events).toHaveLength(1);
+    expect(exported.choices.revision).toBe(1);
+    expect(exported.choices.createdAt).toBeInstanceOf(Date);
+    await expect(exportNative(receipt.token)).rejects.toThrow();
     expect(JSON.stringify(exported)).not.toContain(receipt.token);
     expect(JSON.stringify(exported)).not.toContain("tokenHash");
     await eraseNative(receipt.token);
@@ -105,10 +108,16 @@ integration(
   async () => {
     const receipt = await nativeConsent("", { usage: true, diagnostics: true });
     await captureNative(receipt.token, 1, [event("product_active_day")]);
+    const delayed = event("design_file_created", { storage: "local", kind: "new" });
+    delayed.at = new Date(Date.now() - 60_000).toISOString();
     const challenge = await createAnalyticsLink(receipt.token);
     await linkAnalyticsAccount(challenge, "analytics-fixture");
+    await expect(captureNative(receipt.token, 1, [delayed])).rejects.toThrow();
+    const linked = await nativeConsent(receipt.token);
+    expect(linked.revision).toBe(2);
+    await captureNative(receipt.token, linked.revision, [delayed]);
     await expect(linkAnalyticsAccount(challenge, "analytics-fixture")).rejects.toThrow();
-    await captureNative(receipt.token, 1, [
+    await captureNative(receipt.token, linked.revision, [
       event("harness_turn_started", { harness: "codex" }),
       event("desktop_error", { operation: "sync", category: "unexpected" }),
     ]);
@@ -118,12 +127,13 @@ integration(
     expect(rows.find((value) => value.name === "product_active_day").accountId).toBeNull();
     expect(rows.find((value) => value.name === "harness_turn_started").accountId).not.toBeNull();
     expect(rows.find((value) => value.name === "desktop_error").accountId).toBeNull();
+    expect(rows.find((value) => value.name === "design_file_created").accountId).toBeNull();
     await unlinkAnalyticsAccount("analytics-fixture");
     expect(
       (await db.query('select name from "productAnalyticsEvent" order by name')).rows.map(
         (value) => value.name,
       ),
-    ).toEqual(["desktop_error", "product_active_day"]);
+    ).toEqual(["design_file_created", "desktop_error", "product_active_day"]);
     expect((await nativeConsent(receipt.token)).linked).toBe(false);
   },
 );
@@ -179,9 +189,9 @@ integration(
   async () => {
     const receipt = await nativeConsent("", { usage: true, diagnostics: false });
     await linkAnalyticsAccount(await createAnalyticsLink(receipt.token), "analytics-fixture");
-    await captureNative(receipt.token, 1, [event("product_active_day")]);
+    await captureNative(receipt.token, 2, [event("product_active_day")]);
     await admin.query(`update "productAnalyticsEvent" set at=now()-interval '7 days'`);
-    await captureNative(receipt.token, 1, [event("product_active_day")]);
+    await captureNative(receipt.token, 2, [event("product_active_day")]);
     const rows = (await db.query(accountRetentionReport)).rows;
     expect(rows[0].surface).toBe("linked_account");
     expect(rows[0].d7).toBe(1);

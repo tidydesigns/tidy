@@ -93,15 +93,15 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           information. Essential-only use does not mean the app makes no network requests.
         </p>
         <p>
-          <strong>Cloud service health — operational reporting.</strong> When you use cloud
-          features, our server samples 10% of the requests it already handles and adds daily counts
-          by operation category, response outcome and coarse server response-time range. This
-          operates independently of optional desktop reporting and helps identify failed sync
-          requests, access errors, conflicts, rate limits and slow service responses. These counters
-          contain no account, installation, file or organisation identifiers, IP addresses, request
-          bodies, raw errors, full URLs, query values, client versions or user-agent strings. They
-          are not sent to PostHog, cannot link desktop and web users and are not used to measure
-          retention or local activity. No extra desktop request or tracking identifier is
+          <strong>Cloud service health — operational reporting.</strong> When cloud service
+          reporting is enabled, our server samples 10% of the cloud requests it already handles and
+          adds daily counts by operation category, response outcome and coarse server response-time
+          range. This operates independently of optional desktop reporting and helps identify failed
+          sync requests, access errors, conflicts, rate limits and slow service responses. These
+          counters contain no account, installation, file or organisation identifiers, IP addresses,
+          request bodies, raw errors, full URLs, query values, client versions or user-agent
+          strings. They are not sent to PostHog, cannot link desktop and web users and are not used
+          to measure retention or local activity. No extra desktop request or tracking identifier is
           introduced. We rely on the security and reliability interests described above for
           operating the service; this does not authorize optional tracking on your device.
         </p>
@@ -114,19 +114,19 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           offline app use does not send us these service measurements.
         </p>
         <p>
-          <strong>Share usage statistics — optional consent.</strong> Off by default, this choice
-          reports first observed use, active days, app version and architecture, actual harness runs
-          and their outcomes, design creation/import and initial cloud publication. Reports use a
+          <strong>Usage statistics — optional consent.</strong> Off by default, this choice reports
+          first observed use, active days, app version and architecture, actual harness runs and
+          their outcomes, design creation/import and initial cloud publication. Reports use a
           random, resettable installation identifier. This is pseudonymous data, not anonymous data;
           an account is not required. First observed use is not proof of the original install date,
           and resetting choices or reinstalling can change the identifier. Downloads are measured
           separately using GitHub file counters, which include automated verification.
         </p>
         <p>
-          <strong>Share technical diagnostics — separate optional consent.</strong> Also off by
-          default, this reports reviewed error categories, coarse startup/interaction timings,
-          update outcomes and sync state transitions. It does not upload raw error messages, console
-          or terminal output, stack memory, screenshots, prompts, responses, design contents,
+          <strong>Technical diagnostics — separate optional consent.</strong> Also off by default,
+          this reports reviewed error categories, coarse startup/interaction timings, update
+          outcomes and sync state transitions. It does not upload raw error messages, console or
+          terminal output, stack memory, screenshots, prompts, responses, design contents,
           filenames, paths, credentials or device fingerprints. Desktop has no session replay or
           click autocapture. A local log is limited to 100 reviewed error categories, pruned to the
           preceding seven days at startup and hourly while the app runs, and is not automatically
@@ -156,14 +156,17 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           first-party expiry periods.
         </p>
         <p>
-          Privacy choices expire after 90 days and changed purposes require a new choice. Change
-          either choice, download your reports, or stop sharing and request their deletion in
-          Settings → Privacy. Turning a purpose off immediately stops its local collection; this
-          version resets its reporting identity and removes the previous receipt&#39;s reports.
-          Offline deletion waits for reconnection, while old server records remain subject to
-          expiry. Account deletion removes linked reports. Account-free users can export or erase
-          reports using their private installation receipt; if it is lost, contact us, although we
-          may be unable to identify those records. These controls do not delete your local work.
+          Privacy choices expire after 90 days and changed purposes require a new choice. Use Accept
+          or Deny in Settings → Privacy to enable or disable both purposes, or Choose separately to
+          change one. Your data contains linking, report download and deletion. Turning a purpose
+          off immediately stops its local collection; this version resets its reporting identity and
+          removes the previous receipt&#39;s reports. Offline deletion waits for reconnection, while
+          old server records remain subject to expiry. Desktop unlinking also resets its reporting
+          context and queues that receipt's earlier usage and diagnostic reports for deletion;
+          future optional reports remain unlinked. Pending deletion is shown in Privacy settings.
+          Account deletion removes linked reports. Account-free users can export or erase reports
+          using their private installation receipt; if it is lost, contact us, although we may be
+          unable to identify those records. These controls do not delete your local work.
         </p>
         <p>
           Hosting infrastructure processes connection information, including IP addresses, to

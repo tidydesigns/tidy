@@ -5,11 +5,13 @@ import {
   analyticsEnvelopeSchema,
 } from "@tidy/design/analytics";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
-import { reservePersonalAttempts } from "@/lib/security/personal-budget";
+import { PersonalBudgetError, reservePersonalAttempts } from "@/lib/security/personal-budget";
 import {
   analyticsStorageEnabled,
   analyticsEnabled,
   AnalyticsAccessError,
+  AnalyticsRevisionError,
+  AnalyticsExportRateError,
   nativeConsent,
   captureNative,
   eraseNative,
@@ -80,8 +82,24 @@ async function handle(request: Request, context: { params: Promise<{ action: str
     return new Response(null, { status: 404, headers });
   } catch (error) {
     return new Response(null, {
-      status: error instanceof AnalyticsAccessError ? 401 : error instanceof z.ZodError ? 400 : 503,
-      headers,
+      status:
+        error instanceof AnalyticsExportRateError
+          ? 429
+          : error instanceof AnalyticsRevisionError
+            ? 409
+            : error instanceof AnalyticsAccessError
+              ? 401
+              : error instanceof PersonalBudgetError
+                ? error.status
+                : error instanceof z.ZodError || error instanceof SyntaxError
+                  ? 400
+                  : 503,
+      headers:
+        error instanceof AnalyticsExportRateError
+          ? { ...headers, "Retry-After": "60" }
+          : error instanceof PersonalBudgetError
+            ? { ...headers, "Retry-After": error.status === 429 ? "60" : "5" }
+            : headers,
     });
   }
 }

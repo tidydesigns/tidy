@@ -77,6 +77,14 @@ test("ingress classifies encoded auth paths and isolates privacy, webhooks and t
     ["/.well-known/oauth-authorization-server/api/auth", "auth"],
     ["/api/privacy/consent", "privacy"],
     ["/api/privacy/cleanup", "cleanup"],
+    ["/api/internal/analytics/maintenance", "cleanup"],
+    ["/api/telemetry/desktop/events", "telemetry"],
+    ["/api/telemetry/desktop/receipt", "telemetryReceipt"],
+    ["/api/telemetry/desktop/erase", "privacy"],
+    ["/api/telemetry/desktop/unlink", "privacy"],
+    ["/api/telemetry/desktop/export", "privacy"],
+    ["/api/telemetry/desktop/status", "privacy"],
+    ["/api/telemetry/web", "telemetry"],
     ["/api/billing/webhook", "webhook"],
     ["/api/files/a/snapshot", "application"],
     ["/api/t/e", null],
@@ -365,4 +373,28 @@ test("atomic upgrade preserves already-spent shared capacity", async () => {
   } finally {
     clock.mockRestore();
   }
+});
+
+test("exhausted optional desktop traffic cannot consume application or privacy-rights admission", async () => {
+  const calls: string[] = [];
+  const consume: BudgetConsumer = async (scope) => {
+    calls.push(scope);
+    return { allowed: !scope.startsWith("ingress:telemetry"), retryAfter: 30 };
+  };
+  expect(
+    (await checkIngress(new Request("https://app.test/api/telemetry/desktop/events"), consume))
+      ?.status,
+  ).toBe(429);
+  expect(
+    (await checkIngress(new Request("https://app.test/api/telemetry/desktop/receipt"), consume))
+      ?.status,
+  ).toBe(429);
+  expect(
+    await checkIngress(new Request("https://app.test/api/telemetry/desktop/erase"), consume),
+  ).toBeNull();
+  expect(
+    await checkIngress(new Request("https://app.test/api/files/a/snapshot"), consume),
+  ).toBeNull();
+  expect(calls).toContain("ingress:privacy");
+  expect(calls).toContain("ingress:application");
 });

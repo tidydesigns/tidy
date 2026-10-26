@@ -14,6 +14,7 @@ create table "desktopAnalyticsConsent" (
   "createdAt" timestamptz not null default clock_timestamp(),
   "expiresAt" timestamptz not null,
   "accountId" uuid references "productAnalyticsAccount"(id) on delete set null,
+  "linkedAt" timestamptz,
   "challengeHash" text unique,
   "challengeExpiresAt" timestamptz,
   "lastExportAt" timestamptz
@@ -37,7 +38,7 @@ create index "productAnalyticsEvent_expiry" on "productAnalyticsEvent" ("expires
 create index "productAnalyticsEvent_consent" on "productAnalyticsEvent" ("consentId");
 create index "productAnalyticsEvent_browser" on "productAnalyticsEvent" ("browserConsentId");
 create index "productAnalyticsEvent_activity" on "productAnalyticsEvent" (subject,at) where name='product_active_day';
-create unique index "productAnalyticsEvent_active_day" on "productAnalyticsEvent" (subject,surface,((at at time zone 'UTC')::date),(coalesce(properties->>'release','web'))) where name='product_active_day';
+create unique index "productAnalyticsEvent_active_day" on "productAnalyticsEvent" (subject,surface,((at at time zone 'UTC')::date),(coalesce(properties->>'release','web')),(coalesce("accountId",'00000000-0000-0000-0000-000000000000'::uuid))) where name='product_active_day';
 create index "productAnalyticsEvent_account" on "productAnalyticsEvent" ("accountId",at) where "accountId" is not null;
 create table "desktopDownloadSnapshot" (
   day date not null,

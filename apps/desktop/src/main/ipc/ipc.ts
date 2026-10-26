@@ -217,6 +217,15 @@ import type { DesktopAnalytics } from "../analytics";
 /** Privacy capabilities never expose bearer receipts or arbitrary capture/network access. */
 export function registerAnalyticsIPC(analytics: DesktopAnalytics, rendererURL: string) {
   let lastPerformance = 0;
+  analytics.subscribe((state) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (
+        !window.isDestroyed() &&
+        trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
+      )
+        window.webContents.send("tidy:privacy-state", state);
+    }
+  });
   ipcMain.handle("tidy:analytics", async (event, action: unknown, ...args: unknown[]) => {
     if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
     if (action === "choose" && args.length === 1)
@@ -238,7 +247,6 @@ export function registerAnalyticsIPC(analytics: DesktopAnalytics, rendererURL: s
     }
     if (args.length) throw new Error("Invalid privacy request.");
     if (action === "state") {
-      await analytics.refresh();
       return analytics.state();
     }
     if (action === "link") return analytics.link();

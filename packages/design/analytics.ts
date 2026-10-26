@@ -98,10 +98,12 @@ export const analyticsStateSchema = analyticsChoicesSchema
     available: z.boolean(),
     expiresAt: z.iso.datetime().nullable(),
     linked: z.boolean(),
+    pendingDeletion: z.boolean(),
   })
   .strict();
 export type AnalyticsState = z.infer<typeof analyticsStateSchema>;
 export type AnalyticsAPI = {
+  subscribe(listener: (state: AnalyticsState) => void): () => void;
   reportError(): Promise<void>;
   performance(duration: "under_100ms" | "under_1s" | "under_5s" | "over_5s"): Promise<void>;
   state(): Promise<AnalyticsState>;
