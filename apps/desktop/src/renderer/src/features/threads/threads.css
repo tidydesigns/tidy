@@ -28,8 +28,7 @@
   white-space: nowrap;
 }
 .thread-item[data-quiet] .thread-title {
-  color: var(--color-secondary-ink);
-  font-weight: 400;
+  color: light-dark(#424242, #d4d4d4);
 }
 .thread-item:has(.thread-reopen) .thread-title {
   padding-right: 64px;
@@ -49,7 +48,17 @@
   max-width: calc(100% - 76px);
   min-width: 0;
   color: var(--color-muted-ink);
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.thread-harness .model-provider-icon,
+.thread-harness > svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.thread-provider-name {
+  flex-shrink: 0;
 }
 .thread-harness > span {
   overflow: hidden;
@@ -79,12 +88,14 @@
   display: flex;
   align-items: center;
   gap: 3px;
-  padding: 3px 4px;
+  min-width: 44px;
+  min-height: 26px;
+  padding: 3px 6px;
   border: 0;
   border-radius: 4px;
   background: transparent;
   color: var(--color-muted-ink);
-  font-size: 10px;
+  font-size: 11px;
   cursor: pointer;
 }
 .thread-done:hover {

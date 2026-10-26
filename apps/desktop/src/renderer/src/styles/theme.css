@@ -18,10 +18,10 @@
   --color-strong-action-hover: light-dark(#595959, #d4d4d4);
   --color-on-strong-action: light-dark(#ffffff, #171717);
   --desktop-surface: var(--color-surface);
-  --desktop-status-active: light-dark(#2563eb, #60a5fa);
+  --desktop-status-active: light-dark(#1d4ed8, #60a5fa);
   --desktop-status-success: light-dark(#15803d, #4ade80);
-  --desktop-status-warning: light-dark(#a16207, #fbbf24);
-  --desktop-status-danger: light-dark(#dc2626, #f87171);
+  --desktop-status-warning: light-dark(#854d0e, #fbbf24);
+  --desktop-status-danger: light-dark(#b91c1c, #f87171);
   --desktop-navigation-surface: light-dark(#f7f7f7, #0f0f0f);
   --desktop-editor-sidebar-surface: light-dark(#fafafa, #0f0f0f);
   --desktop-composer-surface: light-dark(#ffffff, #242424);

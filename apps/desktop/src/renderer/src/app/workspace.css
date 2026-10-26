@@ -96,7 +96,7 @@
   gap: 6px;
   padding: 4px 4px 8px;
 }
-:root[data-titlebar="hidden"] .workspace-header {
+:root[data-titlebar="hidden"] .desktop-navigation:not(.settings-navigation) > .workspace-header {
   margin-top: calc(-1 * var(--desktop-titlebar-height));
   padding-top: 3px;
 }

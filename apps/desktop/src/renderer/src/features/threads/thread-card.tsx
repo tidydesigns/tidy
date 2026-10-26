@@ -1,6 +1,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
-import { HarnessIcon } from "@tidy/ui/harness-icon";
+import { ModelProviderIcon } from "../harnesses/model-provider-icon";
 import { relativeThreadTime } from "./thread-time";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 import type { ThreadOrderControls } from "./thread-sidebar";
@@ -157,15 +157,7 @@ export function ThreadCard({
       >
         <span className="thread-title">{thread.title}</span>
         <span className="thread-harness">
-          {thread.harness === "codex" ? (
-            <span
-              className="model-provider-icon"
-              style={{ width: 13, height: 13 }}
-              aria-hidden="true"
-            />
-          ) : (
-            <HarnessIcon harness={thread.harness} size={13} />
-          )}
+          <ModelProviderIcon harness={thread.harness} />
           <span
             className="thread-provider-name"
             title={thread.harness === "codex" ? "Codex" : "Claude Code"}
