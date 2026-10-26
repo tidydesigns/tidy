@@ -3,7 +3,7 @@ export const codeFontClassName = "[font-family:system-ui,sans-serif]";
 export const codeStatusClassName =
   "[--desktop-status-active:light-dark(#2c5b96,#7cacdf)] [--desktop-status-warning:light-dark(#805f26,#dbb979)] [--desktop-status-danger:light-dark(#a63747,#e89098)]";
 
-export const codeNavigationClassName = `${codeFontClassName} ${codeStatusClassName} [--desktop-navigation-surface:light-dark(#f7f7f7,#121212)] [--color-subtle-fill:light-dark(#e9e9e9,#2b2b2b)] [--color-hover-surface:light-dark(#f0f0f0,#222222)] [--color-muted-ink:light-dark(#656565,#9f9f9f)]`;
+export const desktopNavigationClassName = `${codeFontClassName} ${codeStatusClassName} [--desktop-navigation-surface:light-dark(#f7f7f7,#121212)] [--color-subtle-fill:light-dark(#e9e9e9,#2b2b2b)] [--color-hover-surface:light-dark(#f0f0f0,#222222)] [--color-muted-ink:light-dark(#656565,#9f9f9f)]`;
 
 export const codeMenuClassName = [
   codeFontClassName,

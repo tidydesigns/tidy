@@ -1,6 +1,6 @@
 import {
   codeFontClassName,
-  codeNavigationClassName,
+  desktopNavigationClassName,
   codeStatusClassName,
   codeSubmitClassName,
 } from "../styles/code-ui";
@@ -1235,21 +1235,15 @@ export function App() {
   const canvasFocused = mode === "design" && (location === "cloud" ? cloudCanvas : Boolean(design));
 
   return (
-    <DesktopShell
-      canvasFocused={!settingsOpen && canvasFocused}
-      codeWorkspace={mode === "code" && !settingsOpen}
-      settingsOpen={settingsOpen}
-    >
+    <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
       <aside
         id="desktop-navigation"
-        className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${mode === "code" ? codeNavigationClassName : ""}`}
+        className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${desktopNavigationClassName}`}
         aria-label="Project workspace"
         hidden={settingsOpen}
       >
         <header className="workspace-header flex shrink-0 flex-col gap-1.5 px-1 pt-1 pb-2">
-          <div
-            className={`workspace-project-row flex items-center ${mode === "code" ? "gap-0 pr-1" : "gap-1.5"}`}
-          >
+          <div className="workspace-project-row flex items-center gap-0 pr-1">
             <SidebarToggle />
             <div className="project-picker min-w-0 w-full flex-1" title={project?.name}>
               {(project || cloud.account) && (
@@ -1292,18 +1286,15 @@ export function App() {
                     if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
-                  triggerClassName={`project-trigger flex min-h-[34px] min-w-0 max-w-full cursor-pointer items-center rounded-md border-0 bg-transparent py-1.5 ${mode === "code" ? "w-fit gap-2 pl-[3px] pr-2 [&>[data-ph-private]]:flex-initial" : "w-full gap-3 px-2 [&>[data-ph-private]]:flex-1"} text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:truncate`}
+                  triggerClassName="project-trigger flex min-h-[34px] w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent py-1.5 pr-2 pl-[3px] text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:flex-initial [&>[data-ph-private]]:truncate"
                   menuClassName="workspace-menu flex flex-col gap-0.5 [&_[role=menuitemradio]]:px-2.5 [&_[role=menuitemradio]]:py-2"
-                  showSelectedIcon={mode !== "code"}
                 />
               )}
             </div>
           </div>
           {project && (
             <div className="workspace-thread-actions flex items-center gap-1.5 px-1 py-0.5">
-              <label
-                className={`workspace-thread-search flex h-8 min-w-0 flex-1 items-center ${mode === "code" ? "gap-1.5" : "gap-[7px]"} rounded-md border border-border bg-panel px-2 text-muted-ink focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-control-border [&>svg]:shrink-0`}
-              >
+              <label className="workspace-thread-search flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-border bg-panel px-2 text-muted-ink focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-control-border [&>svg]:shrink-0">
                 <svg
                   aria-hidden="true"
                   width="14"
@@ -1369,7 +1360,7 @@ export function App() {
             role="tablist"
             aria-label="Workspace"
             aria-orientation="vertical"
-            className={`workspace-tabs flex w-full flex-col gap-1 ${mode === "code" ? "px-1" : ""}`}
+            className="workspace-tabs flex w-full flex-col gap-1 px-1"
           >
             {modes.map((item, index) => (
               <div
@@ -1434,9 +1425,7 @@ export function App() {
           aria-label="Design folders"
           hidden={mode !== "design"}
         />
-        <div
-          className={`sidebar-footer mt-auto flex shrink-0 items-center gap-2 py-2 ${mode === "code" ? "px-2" : "px-3"}`}
-        >
+        <div className="sidebar-footer mt-auto flex shrink-0 items-center gap-2 p-2">
           <Button
             ref={settingsTrigger}
             className="settings-trigger"

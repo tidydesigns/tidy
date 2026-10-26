@@ -41,12 +41,10 @@ export function SidebarToggle() {
 
 export function DesktopShell({
   canvasFocused,
-  codeWorkspace = false,
   settingsOpen = false,
   children,
 }: {
   canvasFocused: boolean;
-  codeWorkspace?: boolean;
   settingsOpen?: boolean;
   children: ReactNode;
 }) {
@@ -73,7 +71,7 @@ export function DesktopShell({
     >
       <div
         ref={shell}
-        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${sidebarVisible ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${codeWorkspace ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
+        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${sidebarVisible ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
       >
         <header className="desktop-titlebar hidden" />
         {!sidebarVisible && !canvasFocused && !settingsOpen && (
