@@ -53,16 +53,13 @@ async function fixture(
       const done = new Promise<void>((resolve) => {
         complete = resolve;
       });
-      let stopped!: () => void;
-      const stopping = new Promise<void>((resolve) => {
-        stopped = resolve;
-      });
-      const run = {
+      const stopping = Promise.withResolvers<void>();
+      const run: (typeof runs)[number] = {
         input,
-        stopping,
+        stopping: stopping.promise,
         complete,
         stopped: false,
-        decisions: [] as Array<{ id: string; decision: string }>,
+        decisions: [],
       };
       runs.push(run);
       return {
@@ -74,7 +71,7 @@ async function fixture(
         },
         stop() {
           run.stopped = true;
-          stopped();
+          stopping.resolve();
           if (!holdStop) complete();
         },
       };
@@ -758,37 +755,42 @@ test("Done during preparation cancels the launch and persists a stopped thread",
   expect((await store.readThread(project.id, threadId)).doneAt).toBe(marked.doneAt);
 });
 
-test("Done does not stop another project's run or publish Done after a failed checkpoint", async () => {
-  const { directory, service, store, project, runs } = await fixture();
-  const thread = await service.startThread({
-    projectId: project.id,
-    harness: "codex",
-    prompt: "Work",
-    designIds: [],
-  });
-  const otherRoot = join(directory, "other");
-  await mkdir(otherRoot);
-  const other = (await store.open(otherRoot)).project;
-  await expect(service.setThreadDone(other.id, thread.id, true)).rejects.toThrow("another project");
-  expect(runs[0].stopped).toBe(false);
-  const write = store.writeThread.bind(store);
-  store.writeThread = async () => {
-    throw new Error("Disk full");
-  };
-  const events: Thread[] = [];
-  const unsubscribe = service.subscribe((event) => {
-    if (event.type === "thread") events.push(structuredClone(event.thread));
-  });
-  try {
-    await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toThrow("Disk full");
-    expect(runs[0].stopped).toBe(true);
-    expect(events.every((value) => value.doneAt === undefined)).toBe(true);
-    expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
-  } finally {
-    store.writeThread = write;
-    unsubscribe();
-  }
-});
+test.each([new Error("Disk full"), undefined, false])(
+  "Done does not stop another project's run or publish Done after a failed checkpoint (%s)",
+  async (failure) => {
+    const { directory, service, store, project, runs } = await fixture();
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Work",
+      designIds: [],
+    });
+    const otherRoot = join(directory, "other");
+    await mkdir(otherRoot);
+    const other = (await store.open(otherRoot)).project;
+    await expect(service.setThreadDone(other.id, thread.id, true)).rejects.toThrow(
+      "another project",
+    );
+    expect(runs[0].stopped).toBe(false);
+    const write = store.writeThread.bind(store);
+    store.writeThread = async () => {
+      throw failure;
+    };
+    const events: Thread[] = [];
+    const unsubscribe = service.subscribe((event) => {
+      if (event.type === "thread") events.push(structuredClone(event.thread));
+    });
+    try {
+      await expect(service.setThreadDone(project.id, thread.id, true)).rejects.toBe(failure);
+      expect(runs[0].stopped).toBe(true);
+      expect(events.every((value) => value.doneAt === undefined)).toBe(true);
+      expect((await store.readThread(project.id, thread.id)).doneAt).toBeUndefined();
+    } finally {
+      store.writeThread = write;
+      unsubscribe();
+    }
+  },
+);
 
 test("thread completion rejects project mismatches and never publishes a failed disk write", async () => {
   const { directory, service, store, project, runs } = await fixture();

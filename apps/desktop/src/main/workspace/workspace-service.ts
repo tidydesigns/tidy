@@ -66,6 +66,12 @@ type Job = {
   notification?: ReturnType<typeof setTimeout>;
 };
 
+type FinishJobRequest = { job: Job } & (
+  | { kind: "complete" }
+  | { kind: "stop" }
+  | { kind: "done"; doneAt: string }
+);
+
 export class WorkspaceService {
   /** Installed by the native cloud coordinator; cloud data never grants local execution. */
   authorizeCloudProject?: (projectId: string) => Promise<void>;
@@ -245,7 +251,6 @@ export class WorkspaceService {
     return this.store.readThread(projectId, threadId);
   }
 
-  /** Stop and finish a thread without admitting delayed writes during shutdown. */
   setThreadDone(projectId: string, threadId: string, done: boolean) {
     if (this.closing) return Promise.reject(new Error("Tidy is closing."));
     try {
@@ -269,7 +274,7 @@ export class WorkspaceService {
       await job.process?.done.catch(() => {});
       if (this.closing) throw new Error("Tidy is closing.");
       job.thread.status = "stopped";
-      await this.finish(job, false, new Date().toISOString());
+      await this.finish({ job, kind: "done", doneAt: new Date().toISOString() });
       return structuredClone(job.thread);
     }
     if (this.starting.has(threadId) || job)
@@ -494,7 +499,7 @@ export class WorkspaceService {
         if (job.stopped) {
           if (this.closing) return structuredClone(thread);
           await job.process?.done.catch(() => {});
-          await this.finish(job, false);
+          await this.finish({ job, kind: "stop" });
           if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
             return structuredClone(thread);
           this.automaticQueues.add(thread.id);
@@ -537,7 +542,7 @@ export class WorkspaceService {
         job.process?.stop();
         this.emit({ type: "thread", thread });
         await job.process?.done.catch(() => {});
-        await this.finish(job, false);
+        await this.finish({ job, kind: "stop" });
         if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion)
           return structuredClone(thread);
       }
@@ -771,7 +776,7 @@ export class WorkspaceService {
           thread.messages = thread.messages.filter((item) => item.id !== messageId);
         }
         thread.status = "stopped";
-        await this.finish(job, false);
+        await this.finish({ job, kind: "stop" });
         return structuredClone(thread);
       }
       job.process = this.launch({
@@ -912,10 +917,11 @@ export class WorkspaceService {
         job.thread.error =
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
     }
-    await this.serialize(job.thread.id, () => this.finish(job, true));
+    await this.serialize(job.thread.id, () => this.finish({ job, kind: "complete" }));
   }
 
-  private async finish(job: Job, drain: boolean, doneAt?: string) {
+  private async finish(request: FinishJobRequest) {
+    const { job } = request;
     if (this.jobs.get(job.thread.id) !== job) return;
     const delivery = job.queuedDelivery;
     if (
@@ -943,24 +949,24 @@ export class WorkspaceService {
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();
     const previousDoneAt = job.thread.doneAt;
-    if (doneAt) job.thread.doneAt = doneAt;
-    let writeError: unknown;
+    if (request.kind === "done") job.thread.doneAt = request.doneAt;
+    let writeFailure: { cause: unknown } | undefined;
     try {
       await this.store.writeThread(job.thread);
     } catch (cause) {
-      writeError = cause;
+      writeFailure = { cause };
       job.thread.doneAt = previousDoneAt;
       job.thread.error = "Thread changes could not be written to disk.";
     }
     this.jobs.delete(job.thread.id);
     this.emit({ type: "thread", thread: job.thread });
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
-    if (doneAt && writeError) throw writeError;
+    if (request.kind === "done" && writeFailure) throw writeFailure.cause;
     const next = job.thread.queuedMessages?.[0];
     if (!next || job.stopped || job.thread.error || this.closing)
       this.automaticQueues.delete(job.thread.id);
     if (
-      drain &&
+      request.kind === "complete" &&
       next &&
       !this.closing &&
       !job.stopped &&
