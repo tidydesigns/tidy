@@ -287,10 +287,17 @@ export class DesktopAnalytics implements AnalyticsAPI {
     this.events.push(envelope.data);
     this.schedule();
   }
+  /** Native error categories stay available locally, independently of optional uploads. */
+  record(input: AnalyticsEvent) {
+    const event = analyticsEventSchema.parse(input);
+    if (event.name === "desktop_error") return this.error(event.operation);
+    if (event.name === "desktop_sync_result" && event.result === "failed") this.error("sync");
+    this.capture(event);
+  }
   bind() {
     const generation = this.generation;
     return (event: AnalyticsEvent) => {
-      if (generation === this.generation) this.capture(event);
+      if (generation === this.generation) this.record(event);
     };
   }
   active(isActive: () => boolean = () => true) {
@@ -386,8 +393,11 @@ export class DesktopAnalytics implements AnalyticsAPI {
     return this.state();
   }
   async reports() {
+    const localDiagnostics = this.localErrors.filter(
+      (value) => this.now() - Date.parse(value.at) < 7 * 86_400_000,
+    );
     const receipt = this.saved.receipt;
-    if (!receipt) return JSON.stringify({ formatVersion: 1, events: [] });
+    if (!receipt) return JSON.stringify({ formatVersion: 1, events: [], localDiagnostics });
     const response = await this.request("export", {}, receipt.token);
     if (!response.ok)
       throw new Error(
@@ -395,7 +405,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
       );
     const text = await response.text();
     if (text.length > 5_000_000) throw new Error("Report export too large.");
-    return text;
+    return JSON.stringify({ ...JSON.parse(text), localDiagnostics });
   }
   async updateTarget(target: string) {
     if (!this.permitted("diagnostics")) return;

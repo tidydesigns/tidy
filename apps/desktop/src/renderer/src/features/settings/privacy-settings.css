@@ -31,3 +31,8 @@
   background: color-mix(in srgb, currentColor 8%, transparent);
   border-color: var(--color-muted-ink);
 }
+
+.settings-privacy-row > .secondary-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}

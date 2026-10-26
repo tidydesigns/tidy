@@ -88,6 +88,10 @@ export function PrivacySettings() {
         Local work needs no account or usage sharing. Reports exclude prompts, designs, filenames,
         paths and terminal output.
       </p>
+      <p>
+        Cloud requests contribute to service health counters, independently of these choices. Local
+        errors stay on this Mac unless you enable technical diagnostics.
+      </p>
       {(
         [
           [

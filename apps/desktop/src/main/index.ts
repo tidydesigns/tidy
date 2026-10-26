@@ -182,8 +182,7 @@ app
       service.analytics =
       cloud.sync.analytics =
         (event) => {
-          if (event.name === "desktop_error") analytics?.error(event.operation);
-          else analytics?.capture(event);
+          analytics?.record(event);
         };
     service.analyticsScope = () => analytics!.bind();
     void analytics.initialize().then(() => analytics?.confirmUpdate());
@@ -254,6 +253,8 @@ app
     });
     registerUpdateIPC(updates, entryURL);
     updates.subscribe((state) => {
+      if (state.status === "error" || (state.status === "ready" && state.error))
+        analytics?.error("update");
       if (state.status === "ready" && state.version && !state.error)
         analytics?.capture({
           name: "desktop_update_result",

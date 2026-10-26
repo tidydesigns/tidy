@@ -9,6 +9,12 @@ first-party product records, and aggregate release counters/export markers. Reap
 maintenance requirements. Production migration and enablement require explicit
 approval; this migration is never applied automatically.
 
+`20261026-desktop-service-metrics.sql` follows the desktop analytics migration and
+adds a separate table of sampled daily server service-health counts. It stores no
+request or visitor identifiers. Reapply runtime grants after both migrations;
+both local setup scripts and `bun test:analytics:db` include this table. Its
+retention cleanup shares the existing privacy maintenance.
+
 Keep all database SQL changes in this directory. Existing `schema*.sql` files retain their original names and contents; the local database setup scripts list the order needed for their fixtures. Name new changes `YYYYMMDD-short-description.sql`, as with `20260928-file-multiplayer.sql`.
 
 When adding a migration, update any local setup script or integration fixture that needs it and document any prerequisite migration. Do not run a migration against production without the approval required by `AGENTS.md`.

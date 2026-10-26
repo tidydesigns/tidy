@@ -180,3 +180,25 @@ test("sync diagnostics are sampled rather than exposing an edit-by-edit stream",
     .flatMap((value) => value.body.events as { event: { name: string } }[]);
   expect(events.filter((value) => value.event.name === "desktop_sync_result")).toHaveLength(1);
 });
+
+test("essential local failures retain only reviewed categories without creating an identity or upload", async () => {
+  const { instance, calls, directory } = await fixture();
+  instance.bind()({ name: "desktop_error", operation: "harness", category: "unexpected" });
+  instance.record({ name: "desktop_sync_result", result: "failed" });
+  instance.error("update");
+  await instance.close();
+  const report = JSON.parse(await instance.reports());
+  expect(report.localDiagnostics).toHaveLength(3);
+  expect(report.events).toEqual([]);
+  expect(calls).toHaveLength(0);
+  expect(await Bun.file(join(directory, "choices.json")).exists()).toBe(false);
+  const errors = JSON.parse(await readFile(join(directory, "diagnostics.json"), "utf8"));
+  expect(errors.map((row: { event: { operation: string } }) => row.event.operation)).toEqual([
+    "harness",
+    "sync",
+    "update",
+  ]);
+  expect(
+    errors.every((row: { event: { name: string } }) => row.event.name === "desktop_error"),
+  ).toBe(true);
+});

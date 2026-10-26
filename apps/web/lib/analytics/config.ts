@@ -2,6 +2,7 @@ import { getCloudflareContext } from "@opennextjs/cloudflare";
 /** Worker runtime switches override build-time/default environment values. */
 export function analyticsSetting(
   name:
+    | "DESKTOP_SERVICE_METRICS_ENABLED"
     | "DESKTOP_ANALYTICS_ENABLED"
     | "DESKTOP_ANALYTICS_STORAGE_ENABLED"
     | "DESKTOP_ANALYTICS_POSTHOG_AGGREGATES",

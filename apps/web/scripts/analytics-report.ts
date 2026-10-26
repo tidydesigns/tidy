@@ -9,6 +9,7 @@ import {
   downloadDeltaReport,
   accountRetentionReport,
   weeklyRetentionReport,
+  desktopServiceReport,
 } from "../lib/analytics/reports";
 if (!process.env.DATABASE_URL)
   throw new Error("Set DATABASE_URL explicitly to the intended database.");
@@ -32,6 +33,7 @@ try {
     downloadDeltas: downloadDeltaReport,
     linkedAccountRetention: accountRetentionReport,
     weeklyRetention: weeklyRetentionReport,
+    desktopService: desktopServiceReport,
   }))
     result[name] = (await client.query(query)).rows;
   await client.query("commit");

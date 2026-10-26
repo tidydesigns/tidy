@@ -4,6 +4,67 @@ Desktop remains usable without an account or optional reporting. This implementa
 adds explicit usage and diagnostic choices in desktop Settings → Privacy. Both start
 off and expire after 90 days. Authentication and cloud sync do not enable them.
 
+## What is available by default
+
+Once the storage migration and maintenance are enabled, cloud service health and
+public release counters do not depend on optional desktop consent. Desktop does
+not silently enable the optional usage/diagnostic choices when someone signs in.
+
+| Measurement                                              | Default coverage                                                                    | Limits                                                                                                                     |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Download totals                                          | Public GitHub DMG and ZIP counters, snapshotted daily                               | File requests including CI/retries; installer/update package types, not proof of install/update intent or completion       |
+| Cloud service health                                     | Server-side operation/outcome/latency counters for existing `/api/desktop` requests | Fixed 10% random sample; request estimates including unauthenticated requests/retries, not unique people or finished syncs |
+| Local errors                                             | At most 100 reviewed categories on the Mac                                          | No automatic upload; seven-day pruning while running; included in local report download                                    |
+| Retention, active versions, harness/design activity      | Optional usage consent                                                              | Only consenting installations; no population-wide adoption inference                                                       |
+| Uploaded errors, update outcomes and interaction timings | Separate diagnostic consent                                                         | Best-effort reports from consenting installations                                                                          |
+| Cross-surface user retention                             | Explicit account linking plus each surface's usage consent                          | Prospective linking only                                                                                                   |
+
+Service counters have only four dimensions: UTC day, reviewed operation category,
+reviewed response outcome and latency bucket. There are no raw request/event rows,
+URLs, query values, bodies, headers, IDs, versions, error messages or account mapping.
+No additional desktop network call, terminal storage/access or client identifier
+is introduced for this reporting. It observes requests already sent to provide the
+cloud feature. Offline/local use produces no server service counters.
+
+The counters cover the current and previous 29 UTC calendar days. Queries exclude
+older days immediately; five-minute privacy maintenance deletes them. They stay
+in first-party storage and are not exported to PostHog or merged with optional
+product records. Export/erase controls for optional reports do not remove shared
+service counters or public file totals.
+
+The request sampler is server-owned, uniform at 10% for all outcomes and independent
+of cookies, headers, account state and client choices. `samples` is an observed
+sample count; `estimated_requests` is `samples * 10`. Small samples are noisy and
+zero samples do not demonstrate zero failures. Latency measures route handling up
+to response headers, excluding network transfer and applying a change on the Mac.
+It identifies service availability, access refusals, revision conflicts, rate limits
+and slow request categories; it does not prove a full sync or update succeeded.
+
+Only sampled requests schedule one atomic upsert after the functional response,
+with a separate 1.5-second request budget, no retries and fixed-cardinality columns.
+Reporting cannot change the response or delay local interaction. Existing ingress
+and operation budgets continue to apply; monitor database write/lock overhead at
+rollout. `DESKTOP_SERVICE_METRICS_ENABLED=0` stops new counter writes, including
+queued writes, while expiry remains enabled through the storage switch.
+
+### Purpose and legal assessment
+
+The implementation deliberately separates service reliability from product
+improvement. Service health observes the server's existing cloud-request handling;
+it does not add optional tracking storage/access on a device. The privacy notice
+identifies reliability/security interests (Article 6(1)(f)) for this operational
+processing. Before rollout the controller must document purpose, necessity and
+balancing, review provider logs/backup retention, and assess whether these bounded
+shared counters are effectively anonymous in their actual context. This document
+and the code do not certify legal compliance. Do not repurpose service counters
+for person-level behavior or enlarge them with client identifiers/version headers.
+
+Irish DPC guidance requires consent for non-exempt tracking and a separate GDPR
+basis where personal data is processed; signing in is not consent. See
+[DPC tracking exemptions](https://www.dataprotection.ie/en/faqs/cookies/my-website-or-app-uses-cookies-and-other-tracking-do-i-have-get-consent-users),
+[DPC analytics consent](https://www.dataprotection.ie/en/faqs/cookies/do-i-need-consent-analytics-cookies),
+and [DPC accountability](https://www.dataprotection.ie/en/organisations/know-your-obligations/accountability-obligation).
+
 ## Storage and PostHog
 
 Detailed usage records stay in Tidy's first-party PostgreSQL database for 90 days;
@@ -46,7 +107,7 @@ installed. The renderer has no bearer token or arbitrary capture/network capabil
   original installation. Changing choices resets this reporting identity.
 - Activity reports are at most one per UTC day/version and represent foreground availability;
   background updater polling is excluded. They are not a measure of time spent or
-  completed work. Windows left in the foreground can count on a new day.
+  completed work. Foreground windows can count after recent system input, even if that input was not in Tidy; the minute check excludes system idle times of five minutes or longer.
 - Harness starts follow accepted native launches; installed-CLI detection is not a
   run. Terminal results distinguish success, failure and cancellation.
 - Design creation is counted after local persistence. Cloud publication is a separate
@@ -106,7 +167,7 @@ DATABASE_URL='<explicit intended read-only connection>' bun apps/web/scripts/ana
 
 The command opens a read-only transaction and emits aggregate JSON: activity by
 surface/harness, D1/D7/D30 installation retention, weekly retention, combined linked
-account retention, active versions, diagnostic categories and download snapshots/deltas.
+account retention, active versions, diagnostic categories, download snapshots/deltas and sampled cloud service health.
 Do not check output containing internal reporting data into Git.
 
 Retention cohorts use first activity in the retained observation window, not signup
@@ -148,9 +209,12 @@ that bound before the repository exceeds that release history.
    backup expiry/restore deletion handling, DPA/subprocessors, transfer safeguards
    and whether a DPIA is required. This code is not a legal compliance certification.
 2. With explicit operator approval, apply `migrations/20261024-desktop-analytics.sql`
-   after `20261021-combined-privacy-consent.sql`, then reapply the reviewed runtime
+   after `20261021-combined-privacy-consent.sql`, followed by
+   `migrations/20261026-desktop-service-metrics.sql`, then reapply the reviewed runtime
    grants. No migration is run automatically. Local setup/fixtures include it.
-3. Configure `DESKTOP_ANALYTICS_STORAGE_ENABLED=1` on the web Worker. Confirm the
+3. Configure `DESKTOP_ANALYTICS_STORAGE_ENABLED=1` on the web Worker. Service
+   counters start by default with storage; set `DESKTOP_SERVICE_METRICS_ENABLED=0`
+   if they should remain paused during validation. Confirm the
    existing privacy cron/secret and self-reference binding run successful expiry
    maintenance. The separate analytics maintenance job cannot prevent raw expiry
    if GitHub or PostHog is unavailable.
@@ -160,7 +224,8 @@ that bound before the repository exceeds that release history.
    synthetic outbound payloads and configuring the existing EU PostHog host/key.
    Sparse cohorts stay available only in private first-party reports.
 
-All switches default to off in `.env.example`. Turning collection off does not
+Optional collection and export switches default to off in `.env.example`. Service
+counters default on once storage is enabled, independently of desktop consent. Turning collection off does not
 disable existing receipt export/erasure. Do not turn storage off while retained
 records still need expiry. No production SQL writes, deployment, processor setting
 change or collection enablement has been performed as part of implementation.

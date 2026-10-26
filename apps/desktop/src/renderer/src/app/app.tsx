@@ -1989,4 +1989,3 @@ export function App() {
     </DesktopShell>
   );
 }
-import { useDesktopDiagnostics } from "./use-diagnostics";

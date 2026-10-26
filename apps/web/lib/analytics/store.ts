@@ -268,6 +268,9 @@ export async function hasAnalyticsLink(userId: string) {
 
 /** The existing privacy cron enforces raw expiry; reads also exclude expired data. */
 export async function maintainProductAnalytics() {
+  await db.query(
+    `delete from "desktopServiceMetric" where day<(clock_timestamp() at time zone 'UTC')::date-29`,
+  );
   await db.query('delete from "productAnalyticsEvent" where "expiresAt"<=clock_timestamp()');
   await db.query('delete from "desktopAnalyticsConsent" where "expiresAt"<=clock_timestamp()');
   await db.query(

@@ -78,6 +78,7 @@ DECLARE
     'desktopAnalyticsConsent',
     'productAnalyticsEvent',
     'desktopDownloadSnapshot',
+    'desktopServiceMetric',
     'productAnalyticsExport',
     'mcpAnalyticsConsent',
     'session',

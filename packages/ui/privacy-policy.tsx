@@ -14,7 +14,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 24 October 2026</p>
+        <p className="policy-date">Last updated: 26 October 2026</p>
         <p>
           This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login and connected
           features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
@@ -93,6 +93,27 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           information. Essential-only use does not mean the app makes no network requests.
         </p>
         <p>
+          <strong>Cloud service health — operational reporting.</strong> When you use cloud
+          features, our server samples 10% of the requests it already handles and adds daily counts
+          by operation category, response outcome and coarse server response-time range. This
+          operates independently of optional desktop reporting and helps identify failed sync
+          requests, access errors, conflicts, rate limits and slow service responses. These counters
+          contain no account, installation, file or organisation identifiers, IP addresses, request
+          bodies, raw errors, full URLs, query values, client versions or user-agent strings. They
+          are not sent to PostHog, cannot link desktop and web users and are not used to measure
+          retention or local activity. No extra desktop request or tracking identifier is
+          introduced. We rely on the security and reliability interests described above for
+          operating the service; this does not authorize optional tracking on your device.
+        </p>
+        <p>
+          Service counters cover the current and preceding 29 UTC calendar days. Older counters are
+          excluded immediately and deleted by the same scheduled maintenance described below.
+          Turning optional reporting off or deleting your reports does not remove these shared
+          service counters or public download totals. Sampling and delivery failures mean counts are
+          estimates of requests, including retries, rather than people or completed syncs. Local and
+          offline app use does not send us these service measurements.
+        </p>
+        <p>
           <strong>Share usage statistics — optional consent.</strong> Off by default, this choice
           reports first observed use, active days, app version and architecture, actual harness runs
           and their outcomes, design creation/import and initial cloud publication. Reports use a
@@ -109,7 +130,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           filenames, paths, credentials or device fingerprints. Desktop has no session replay or
           click autocapture. A local log is limited to 100 reviewed error categories, pruned to the
           preceding seven days at startup and hourly while the app runs, and is not automatically
-          uploaded as a log file.
+          uploaded as a log file. Download my reports includes these local categories without
+          requiring an account or optional reporting; you choose whether to share the downloaded
+          file with support.
         </p>
         <p>
           <strong>Link desktop and web usage — optional.</strong> After enabling desktop usage, you

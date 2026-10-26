@@ -67,11 +67,12 @@ export async function snapshotDownloads(fetcher: typeof fetch = fetch) {
     }
     const rows = releases.parse(JSON.parse(new TextDecoder().decode(body)));
     for (const release of rows) {
-      if (release.draft || !/^desktop-v\d+\.\d+\.\d+-beta\.\d+$/.test(release.tag_name)) continue;
+      if (release.draft || !/^desktop-v\d+\.\d+\.\d+(?:-beta\.\d+)?$/.test(release.tag_name))
+        continue;
       for (const asset of release.assets) {
-        const kind = /^Tidy-\d+\.\d+\.\d+-beta\.\d+-mac-(arm64|x64)\.dmg$/.test(asset.name)
+        const kind = /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.dmg$/.test(asset.name)
           ? "installer"
-          : /^Tidy-\d+\.\d+\.\d+-beta\.\d+-mac-(arm64|x64)\.zip$/.test(asset.name)
+          : /^Tidy-\d+\.\d+\.\d+(?:-beta\.\d+)?-mac-(arm64|x64)\.zip$/.test(asset.name)
             ? "update"
             : null;
         if (kind)

@@ -26,3 +26,10 @@ export const accountRetentionReport = retentionReport
     "where name='product_active_day'",
     "where \"accountId\" is not null and name='product_active_day'",
   );
+
+// Fixed 10% server sampling. Estimates include retries and unauthenticated requests.
+// Service time ends when the route returns headers; network transfer/client application is excluded.
+export const desktopServiceReport = `select day::text,operation,outcome,latency,
+ samples::text as samples,(samples*10)::text as estimated_requests
+ from "desktopServiceMetric" where day>=(clock_timestamp() at time zone 'UTC')::date-29
+ order by day,operation,outcome,latency`;

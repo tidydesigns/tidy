@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ANALYTICS_NOTICE = "2026-10-24.desktop-analytics-1";
+export const ANALYTICS_NOTICE = "2026-10-26.desktop-analytics-1";
 export const ANALYTICS_DAYS = 90;
 export const analyticsChoicesSchema = z
   .object({

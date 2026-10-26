@@ -13,6 +13,8 @@ const {
   exportNative,
   maintainProductAnalytics,
 } = await import("./store");
+const { recordDesktopServiceMetric } = await import("./service-metrics");
+const { desktopServiceReport } = await import("./reports");
 const { activityReport, retentionReport } = await import("./reports");
 const { accountRetentionReport, weeklyRetentionReport, versionsReport, downloadDeltaReport } =
   await import("./reports");
@@ -37,7 +39,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   if (enabled) {
     await admin.query(
-      'truncate "desktopAnalyticsConsent","productAnalyticsAccount","productAnalyticsEvent" cascade',
+      'truncate "desktopAnalyticsConsent","productAnalyticsAccount","productAnalyticsEvent","desktopServiceMetric" cascade',
     );
     await admin.query(
       `insert into "user" (id,name,email,"emailVerified","createdAt","updatedAt") values ('analytics-fixture','Fixture','analytics@example.test',true,now(),now()) on conflict(id) do nothing`,
@@ -202,5 +204,55 @@ integration(
       `update "desktopAnalyticsConsent" set "challengeExpiresAt"=now()-interval '1 second'`,
     );
     await expect(linkAnalyticsAccount(challenge, "analytics-fixture")).rejects.toThrow();
+  },
+);
+
+integration(
+  "default service metrics aggregate without consent or identities, expire after 30 UTC days and exclude expired rows",
+  async () => {
+    process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED = "1";
+    process.env.DESKTOP_SERVICE_METRICS_ENABLED = "1";
+    const optional = process.env.DESKTOP_ANALYTICS_ENABLED;
+    process.env.DESKTOP_ANALYTICS_ENABLED = "0";
+    try {
+      const metric = {
+        day: new Date().toISOString().slice(0, 10),
+        operation: "file_commit",
+        outcome: "unavailable",
+        latency: "under_1s",
+      };
+      await Promise.all([recordDesktopServiceMetric(metric), recordDesktopServiceMetric(metric)]);
+      expect(
+        (await db.query('select count(*)::int as n from "desktopAnalyticsConsent"')).rows[0].n,
+      ).toBe(0);
+      expect(
+        (await db.query('select count(*)::int as n from "productAnalyticsEvent"')).rows[0].n,
+      ).toBe(0);
+      const report = (await db.query(desktopServiceReport)).rows;
+      expect(report).toHaveLength(1);
+      expect(report[0]).toMatchObject({
+        operation: "file_commit",
+        outcome: "unavailable",
+        samples: "2",
+        estimated_requests: "20",
+      });
+      await admin.query(
+        `insert into "desktopServiceMetric" (day,operation,outcome,latency,samples) values ((clock_timestamp() at time zone 'UTC')::date-30,'account','success','under_1s',1)`,
+      );
+      expect((await db.query(desktopServiceReport)).rows).toHaveLength(1);
+      await maintainProductAnalytics();
+      expect(
+        (await db.query('select count(*)::int as n from "desktopServiceMetric"')).rows[0].n,
+      ).toBe(1);
+      await expect(
+        db.query(
+          `insert into "desktopServiceMetric" (day,operation,outcome,latency,samples) values (current_date,'PRIVATE-PATH','success','under_1s',1)`,
+        ),
+      ).rejects.toThrow();
+    } finally {
+      if (optional === undefined) delete process.env.DESKTOP_ANALYTICS_ENABLED;
+      else process.env.DESKTOP_ANALYTICS_ENABLED = optional;
+      delete process.env.DESKTOP_SERVICE_METRICS_ENABLED;
+    }
   },
 );

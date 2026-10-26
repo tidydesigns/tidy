@@ -4,7 +4,7 @@ export const CONSENT_COOKIE = "tidy_consent";
 // Accept all now includes optional MCP account linking. Earlier browser-only
 // choices must be renewed; they never imply consent to this additional purpose.
 export const CONSENT_VERSION = 7;
-export const CONSENT_NOTICE_VERSION = "2026-10-24.desktop-web-privacy-2";
+export const CONSENT_NOTICE_VERSION = "2026-10-26.desktop-web-privacy-2";
 export const CONSENT_DAYS = 180;
 export const CONSENT_EVENT = "tidy-consent-change";
 export const CONSENT_MAX_AGE = CONSENT_DAYS * 24 * 60 * 60;
