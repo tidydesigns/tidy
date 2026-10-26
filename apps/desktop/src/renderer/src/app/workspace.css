@@ -98,25 +98,20 @@
 .desktop-sidebar-hidden .thread-heading {
   padding-left: 48px;
 }
-:root[data-titlebar="hidden"]
-  .desktop-sidebar-hidden:has(#workspace-panel-code:not([hidden]))
-  .desktop-sidebar-reopen {
-  top: 6px;
+:root[data-titlebar="hidden"] .desktop-sidebar-hidden .desktop-sidebar-reopen {
+  top: 5px;
   left: 84px;
 }
 :root[data-titlebar="hidden"] .desktop-sidebar-hidden .thread-heading {
   padding-left: 128px;
 }
 :root[data-titlebar="hidden"][data-window-fullscreen]
-  .desktop-sidebar-hidden:has(#workspace-panel-code:not([hidden]))
+  .desktop-sidebar-hidden
   .desktop-sidebar-reopen {
   left: 4px;
 }
 :root[data-titlebar="hidden"][data-window-fullscreen] .desktop-sidebar-hidden .thread-heading {
   padding-left: 48px;
-}
-.desktop-sidebar-hidden:has(#workspace-panel-design:not([hidden])) .desktop-sidebar-reopen {
-  top: calc(var(--desktop-titlebar-height) + 39px);
 }
 .desktop-sidebar-hidden:not(.desktop-canvas-focused) .design-browser-header {
   padding-left: 16px;

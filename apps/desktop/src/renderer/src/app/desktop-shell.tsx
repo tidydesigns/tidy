@@ -75,7 +75,7 @@ export function DesktopShell({
       >
         <header className="desktop-titlebar hidden" />
         {!sidebarVisible && !canvasFocused && !settingsOpen && (
-          <div className="desktop-sidebar-reopen absolute top-[calc(var(--desktop-titlebar-height)_+_6px)] left-1 z-[3]">
+          <div className="desktop-sidebar-reopen absolute top-1.5 left-1 z-[3]">
             <SidebarToggle />
           </div>
         )}
