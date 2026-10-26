@@ -4126,3 +4126,57 @@ integration(
     expect(saved.content.nodes.find((n) => n.id === "on-second-page").pageId).toBe(page.id);
   },
 );
+
+for (const tool of ["create_page", "rename_page"])
+  integration(
+    `MCP ${tool} accepts the observed revision when converting a legacy document`,
+    async () => {
+      const content = blankDesignDocument();
+      content.legacyConverted = false;
+      await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+        content,
+        "file-a",
+      ]);
+      await admin.query(
+        'insert into "designFrame" ("id","fileId","x","y","width","height") values ($1,$2,10,20,200,100)',
+        ["legacy-frame", "file-a"],
+      );
+      const observed = await parityTool("get_document", { file_id: "file-a" });
+      expect(observed.document.revision).toBe(1);
+      expect(observed.document.content.legacyConverted).toBe(false);
+      const args = {
+        file_id: "file-a",
+        expected_revision: observed.document.revision,
+        name: "Legacy work",
+        ...(tool === "rename_page" ? { page_id: "page-1" } : {}),
+      };
+      const saved = await parityTool(tool, args);
+      expect(saved.revision).toBe(3);
+      const current = await getDocument("alice", "file-a");
+      expect(current.content.legacyConverted).toBe(true);
+      expect(current.content.nodes.find((node) => node.id === "legacy-frame")?.box).toMatchObject({
+        x: 10,
+        y: 20,
+        width: 200,
+        height: 100,
+      });
+      await parityDenied(tool, args);
+      expect((await getDocument("alice", "file-a")).revision).toBe(3);
+    },
+  );
+
+integration(
+  "rejected MCP structural edits roll back lazy conversion and a corrected retry progresses",
+  async () => {
+    const content = blankDesignDocument();
+    content.legacyConverted = false;
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+      content,
+      "file-a",
+    ]);
+    await parityDenied("rename_page", { ...parityBase, page_id: "absent", name: "Invalid" });
+    expect(await getDocument("alice", "file-a")).toEqual({ revision: 1, content });
+    await parityTool("rename_page", { ...parityBase, page_id: "page-1", name: "Corrected" });
+    expect((await getDocument("alice", "file-a")).content.pages[0].name).toBe("Corrected");
+  },
+);

@@ -206,9 +206,18 @@ export async function getExportAssets(userId: string, assetIds: string[]): Promi
 
 // Lazy legacy conversion is a system-maintained representation, not a user edit.
 // Viewers need this too, so they can view and comment on files created before documents.
-async function readEditorDocument(userId: string, fileId: string) {
+// An explicit caller revision is checked before lazy conversion advances it.
+// The caller persists its edit using the returned, possibly converted revision.
+async function readEditorDocument(userId: string, fileId: string, expectedRevision?: number) {
+  const checkRevision = (revision: number) => {
+    if (expectedRevision !== undefined && revision !== expectedRevision)
+      throw new PublicActionError("Document changed. Refresh before editing.");
+  };
   const ready = await readDocument(userId, fileId);
-  if (ready?.content.legacyConverted) return ready;
+  if (ready?.content.legacyConverted) {
+    checkRevision(ready.revision);
+    return ready;
+  }
   if (!ready) await requireDocumentSchema();
   const client = await db.connect();
   try {
@@ -227,6 +236,7 @@ async function readEditorDocument(userId: string, fileId: string) {
       [fileId],
     );
     const current = existing.rows[0];
+    checkRevision(current?.revision ?? 0);
     if (current?.content.legacyConverted) {
       await client.query("commit");
       return current;
@@ -310,13 +320,11 @@ export async function createDocumentPage(
   const cleanName = name?.trim();
   if (name !== undefined && (!cleanName || cleanName.length > 120))
     throw new PublicActionError("Enter a page name of up to 120 characters.");
-  const current = await readEditorDocument(userId, fileId);
-  if (current.revision !== expectedRevision)
-    throw new PublicActionError("Document changed. Refresh before editing.");
+  const current = await readEditorDocument(userId, fileId, expectedRevision);
   const pages = documentPages(current.content);
   if (pages.length >= 100) throw new PublicActionError("A file can contain up to 100 pages.");
   const page = { id: randomUUID(), name: cleanName ?? nextPageName(current.content) };
-  const saved = await replaceDocumentForHistory(userId, fileId, expectedRevision, {
+  const saved = await replaceDocumentForHistory(userId, fileId, current.revision, {
     ...current.content,
     pages: [...pages, page],
   });
@@ -330,9 +338,7 @@ export async function editDocumentStructure<T extends object>(
   expectedRevision: number,
   transform: (document: DesignDocument) => { document: DesignDocument; result: T },
 ) {
-  const current = await readEditorDocument(userId, fileId);
-  if (current.revision !== expectedRevision)
-    throw new PublicActionError("Document changed. Refresh before editing.");
+  const current = await readEditorDocument(userId, fileId, expectedRevision);
   let changed;
   try {
     changed = transform(current.content);
@@ -346,7 +352,7 @@ export async function editDocumentStructure<T extends object>(
         : "Invalid document change. Check the layers and page limits.",
     );
   }
-  const saved = await replaceDocumentForHistory(userId, fileId, expectedRevision, changed.document);
+  const saved = await replaceDocumentForHistory(userId, fileId, current.revision, changed.document);
   return { ...changed.result, revision: saved.revision };
 }
 
