@@ -1,3 +1,4 @@
+import { codeControlClassName, codeMenuClassName } from "../../styles/code-ui";
 import type { HarnessCatalog, ModelSelection } from "./harness-catalog";
 import { ModelPicker } from "./model-picker";
 import { ComposerChevron, ComposerIcon } from "../composer/composer-icon";
@@ -69,11 +70,11 @@ export function HarnessControls({
                 <ComposerChevron />
               </>
             }
-            menuClassName="compact-composer-menu effort-menu"
+            menuClassName={`${codeMenuClassName} effort-menu [&]:min-w-[130px]`}
             placement="top"
             value={effort ?? ""}
             disabled={disabled}
-            triggerClassName="harness-setting-trigger"
+            triggerClassName={codeControlClassName}
             options={[
               ...(!effort ? [{ value: "", label: "Choose effort", disabled: true }] : []),
               ...model.efforts.map((value) => ({
@@ -99,13 +100,13 @@ export function HarnessControls({
       >
         <SelectMenu
           label="Permissions"
-          menuClassName="compact-composer-menu access-menu"
+          menuClassName={`${codeMenuClassName} access-menu [&]:w-[165px] [&]:min-w-0 [&_.permission-icon]:static [&_[data-slot=select-menu-label]]:p-0`}
           placement="top"
           showSelectedIcon
           selectionIndicator="none"
           value={effectivePermissionMode(harness, settings.permissionMode)}
           disabled={disabled}
-          triggerClassName="harness-setting-trigger"
+          triggerClassName={codeControlClassName}
           options={permissionModes[harness].map((option) => ({
             value: option.value,
             label: option.label,

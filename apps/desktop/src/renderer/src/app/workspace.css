@@ -199,14 +199,6 @@ summary:focus-visible {
   border-radius: 5px;
   cursor: pointer;
 }
-.workspace-menu {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.workspace-menu [role="menuitemradio"] {
-  padding: 8px 10px;
-}
 .recent-projects {
   display: flex;
   flex-direction: column;

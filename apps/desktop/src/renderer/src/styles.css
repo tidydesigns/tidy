@@ -11,10 +11,7 @@
 @import "./features/updates/app-update.css";
 @import "./app/workspace.css";
 @import "./features/threads/threads.css";
-@import "./features/composer/composer.css";
 @import "./app/layout.css";
-@import "./features/harnesses/harness-controls.css";
-@import "./features/threads/thread-preview.css";
 @import "./features/workspace/project-files.css";
 @import "./features/composer/message-attachments.css";
 @import "./features/threads/tool-activity.css";

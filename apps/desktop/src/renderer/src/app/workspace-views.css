@@ -11,14 +11,6 @@
 .workspace[hidden] {
   display: none;
 }
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin-top: auto;
-  padding: 8px 12px;
-}
 .sidebar-footer .sidebar-update {
   margin: 0;
   padding: 0;

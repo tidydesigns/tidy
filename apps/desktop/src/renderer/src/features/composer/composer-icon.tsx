@@ -1,11 +1,8 @@
-import { Icon } from "@tidy/editor/components/ui/icon";
-
 export function ComposerIcon({
   name,
 }: {
   name: "branch" | "machine" | "reference" | "star" | "search" | "effort";
 }) {
-  if (name === "effort") return <Icon name="settings" size={15} />;
   return (
     <svg
       aria-hidden="true"
@@ -14,10 +11,17 @@ export function ComposerIcon({
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.5"
+      strokeWidth="1.75"
       strokeLinecap="round"
       strokeLinejoin="round"
     >
+      {name === "effort" && (
+        <>
+          <path d="M4.2 18a9 9 0 1 1 15.6 0" />
+          <path d="m12 12 4-4M5 12H3m9-7V3m7 9h2" />
+          <circle cx="12" cy="12" r="1.5" />
+        </>
+      )}
       {name === "branch" && (
         <>
           <circle cx="6" cy="5" r="2.5" />
@@ -56,7 +60,7 @@ export function ComposerChevron() {
   return (
     <svg
       aria-hidden="true"
-      className="composer-chevron"
+      className="composer-chevron block shrink-0 text-muted-ink"
       width="16"
       height="16"
       viewBox="0 0 16 16"

@@ -15,9 +15,14 @@ function Detail({
   children: ReactNode;
 }) {
   return (
-    <div>
-      <dt aria-label={label}>{icon}</dt>
-      <dd>{children}</dd>
+    <div className="grid min-w-0 max-w-full grid-cols-[14px_minmax(0,1fr)] items-start gap-2">
+      <dt
+        className="flex h-[18px] items-center text-muted-ink [&>:first-child]:size-3.5 [&>:first-child]:shrink-0"
+        aria-label={label}
+      >
+        {icon}
+      </dt>
+      <dd className="m-0 min-w-0 wrap-anywhere">{children}</dd>
     </div>
   );
 }
@@ -35,14 +40,16 @@ export function ThreadPreview({
 }) {
   return (
     <>
-      <strong>{thread.title}</strong>
-      <dl className="thread-preview-details">
+      <strong className="line-clamp-2 text-sm leading-[1.5] font-medium wrap-anywhere">
+        {thread.title}
+      </strong>
+      <dl className="thread-preview-details mt-3 text-xs leading-[1.5] text-secondary-ink">
         <Detail label="Model" icon={<ModelProviderIcon harness={thread.harness} />}>
           {modelName ?? thread.actualModel ?? thread.settings?.model ?? "Model not reported"}
         </Detail>
       </dl>
       {(projectName || repository?.repository) && (
-        <dl className="thread-preview-context">
+        <dl className="thread-preview-context mt-4 flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] leading-[1.5] text-muted-ink">
           {projectName && (
             <Detail label="Project" icon={<Icon name="folder" size={14} />}>
               {projectName}

@@ -1,3 +1,4 @@
+import { codeFontClassName } from "../../styles/code-ui";
 import {
   memo,
   useEffect,
@@ -30,9 +31,9 @@ const MessageBody = memo(function MessageBody({
   projectId: string;
 }) {
   return message.role === "user" ? (
-    <div className="message-text">{message.text}</div>
+    <div className="message-text whitespace-pre-wrap">{message.text}</div>
   ) : (
-    <div className="message-markdown">
+    <div className="message-markdown [&_table]:text-sm [&_th]:font-semibold [&_strong]:font-semibold">
       <Markdown
         remarkPlugins={markdownPlugins}
         skipHtml
@@ -45,7 +46,7 @@ const MessageBody = memo(function MessageBody({
               {children}
             </ChatLink>
           ),
-          img: ({ alt }) => <span className="muted">{alt || "Image"}</span>,
+          img: ({ alt }) => <span className="text-xs text-muted-ink">{alt || "Image"}</span>,
         }}
       >
         {message.text}
@@ -144,7 +145,9 @@ export const Conversation = memo(function Conversation({
     if (!element || !node) return;
     following.current = false;
     element.scrollTop +=
-      node.getBoundingClientRect().top - element.getBoundingClientRect().top - 20;
+      node.getBoundingClientRect().top -
+      element.getBoundingClientRect().top -
+      Number.parseFloat(getComputedStyle(element).paddingTop);
     setCurrent(index);
     setPreview(null);
     measure();
@@ -189,9 +192,9 @@ export const Conversation = memo(function Conversation({
   const selected = preview === null ? null : turns[preview];
   const running = thread?.status === "running";
   return (
-    <div className="conversation">
+    <div className="conversation relative min-h-0 min-w-0 flex-1">
       <div
-        className="transcript"
+        className={`transcript h-full min-h-0 overflow-auto overscroll-contain px-[max(var(--chat-gutter),calc((100%_-_var(--chat-content-width))_/_2))] pt-8 pb-5 [overflow-anchor:none] [scroll-padding-bottom:20px] [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent] focus-visible:outline focus-visible:outline-border focus-visible:-outline-offset-1 max-[700px]:pt-6 [scroll-padding-top:32px] max-[700px]:[scroll-padding-top:24px] ${codeFontClassName}`}
         ref={viewport}
         tabIndex={0}
         aria-label="Conversation"
@@ -226,21 +229,21 @@ export const Conversation = memo(function Conversation({
           frame.current = requestAnimationFrame(measure);
         }}
       >
-        <div className="conversation-content" ref={content}>
+        <div className="conversation-content flow-root" ref={content}>
           {thread?.toolActivityTruncated && (
             <p className="tool-log-notice">Earlier tool activity omitted</p>
           )}
           {thread?.messages.map((message) => (
             <div
               key={message.id}
-              className="conversation-entry"
+              className="conversation-entry [&>.tool-activity-group]:mb-5"
               ref={(node) => {
                 if (node) nodes.current.set(message.id, node);
                 else nodes.current.delete(message.id);
               }}
             >
               <article
-                className={`message message-${message.role}`}
+                className={`message message-${message.role} mb-6 text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
                 aria-label={message.role === "user" ? "Your message" : "Assistant message"}
               >
                 <MessageBody message={message} api={api} projectId={thread.projectId} />
@@ -261,17 +264,22 @@ export const Conversation = memo(function Conversation({
           {running &&
             !thread.pendingApprovals?.length &&
             !thread.toolActivities?.some((tool) => tool.status === "running") && (
-              <p className="thread-activity" role="status">
-                <span className="working-dot" />
+              <p className="thread-activity text-xs wrap-anywhere" role="status">
+                <span className="working-dot mr-2 inline-block size-1.5 rounded-full bg-(--desktop-status-active)" />
                 {thread.activity ?? "Working"}
               </p>
             )}
           {thread?.error && (
-            <p className="thread-error" role="alert">
+            <p
+              className="thread-error text-xs wrap-anywhere text-(--desktop-status-danger)"
+              role="alert"
+            >
               {thread.error}
             </p>
           )}
-          {thread?.status === "stopped" && <p className="thread-activity">Stopped</p>}
+          {thread?.status === "stopped" && (
+            <p className="thread-activity text-xs wrap-anywhere">Stopped</p>
+          )}
         </div>
       </div>
       {turns.length > 1 && (
@@ -347,7 +355,11 @@ export const Conversation = memo(function Conversation({
         </nav>
       )}
       {thread?.messages.length && !atEnd ? (
-        <Button className="latest-message" onClick={latest} aria-label="Jump to latest message">
+        <Button
+          className="latest-message absolute bottom-2.5 left-1/2 -translate-x-1/2 cursor-pointer rounded-[20px] border border-border bg-(--desktop-surface) px-[13px] py-[7px] text-xs text-ink shadow-[0_3px_14px_#0001]"
+          onClick={latest}
+          aria-label="Jump to latest message"
+        >
           ↓ Latest
         </Button>
       ) : null}

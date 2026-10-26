@@ -150,8 +150,11 @@ export function ThreadSidebar({
           className="done-threads group/done mt-2 flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-border"
           open={query ? true : undefined}
         >
-          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 py-2.5 text-xs leading-[1.5] text-muted-ink [&::-webkit-details-marker]:hidden">
-            <span aria-hidden="true" className="w-2.5 group-open/done:rotate-90">
+          <summary className="flex cursor-pointer list-none items-center gap-1.5 px-[9px] py-2.5 text-xs leading-[1.5] text-muted-ink [&::-webkit-details-marker]:hidden">
+            <span
+              aria-hidden="true"
+              className="inline-flex w-3.5 shrink-0 justify-center group-open/done:rotate-90"
+            >
               ›
             </span>
             Done <span className="text-[11px] tabular-nums">{done.length}</span>

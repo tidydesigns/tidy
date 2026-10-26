@@ -1,3 +1,8 @@
+import {
+  codeMenuClassName,
+  codeContextClassName,
+  codeContextTriggerClassName,
+} from "../../styles/code-ui";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import type { DesignSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
@@ -43,7 +48,7 @@ export function ComposerContext({
           align="start"
           value=""
           disabled={disabled}
-          triggerClassName="context-trigger reference-trigger"
+          triggerClassName={`${codeContextTriggerClassName} reference-trigger`}
           triggerContent={
             <>
               <ComposerIcon name="reference" />
@@ -51,7 +56,7 @@ export function ComposerContext({
               <ComposerChevron />
             </>
           }
-          menuClassName="compact-composer-menu reference-menu"
+          menuClassName={`${codeMenuClassName} reference-menu [&]:max-w-[min(280px,calc(100vw_-_16px))]`}
           options={designs.map((design) => ({
             value: design.id,
             label: design.name,
@@ -66,7 +71,7 @@ export function ComposerContext({
         />
       ) : references.length > 0 ? (
         <span
-          className="thread-references"
+          className={`thread-references ${codeContextClassName}`}
           title={references.map((design) => design.name).join(", ")}
         >
           <ComposerIcon name="reference" />
@@ -82,12 +87,12 @@ export function ComposerContext({
           disabled={disabled || !execution.onChange}
           placement="top"
           align="start"
-          triggerClassName="context-trigger"
-          menuClassName="compact-composer-menu"
+          triggerClassName={codeContextTriggerClassName}
+          menuClassName={codeMenuClassName}
         />
       )}
       <span
-        className="context-machine ml-auto [&>span]:max-w-[135px] max-[700px]:[&>span]:max-w-[85px]"
+        className={`context-machine ml-auto ${codeContextClassName} [&>span]:max-w-[135px] [&>span]:truncate max-[700px]:[&>span]:max-w-[85px]`}
         title={repository?.machine}
       >
         <ComposerIcon name="machine" />
@@ -99,7 +104,7 @@ export function ComposerContext({
         disabled={disabled || branchDisabled || pending || !repository?.repository}
         placement="top"
         align="end"
-        triggerClassName="context-trigger branch-trigger max-w-[175px] max-[700px]:max-w-[115px]"
+        triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}
         triggerContent={
           <>
             <ComposerIcon name="branch" />
@@ -113,7 +118,7 @@ export function ComposerContext({
             <ComposerChevron />
           </>
         }
-        menuClassName="compact-composer-menu branch-menu"
+        menuClassName={`${codeMenuClassName} branch-menu [&]:max-w-[min(300px,calc(100vw_-_16px))]`}
         options={repository?.branches.map((branch) => ({ value: branch, label: branch })) ?? []}
         onChange={onBranchChange}
       />

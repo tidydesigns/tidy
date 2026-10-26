@@ -2,50 +2,6 @@
   opacity: 0;
   pointer-events: none;
 }
-.thread-workspace {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-.muted {
-  color: var(--color-muted-ink);
-  font-size: 12px;
-}
-.conversation {
-  position: relative;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-}
-.transcript {
-  height: 100%;
-  overflow: auto;
-  min-height: 0;
-  padding: 20px max(var(--chat-gutter), calc((100% - var(--chat-content-width)) / 2));
-  overscroll-behavior: contain;
-  scrollbar-width: thin;
-  scrollbar-color: var(--color-border) transparent;
-  overflow-anchor: none;
-  scroll-padding-block: 20px;
-}
-.conversation-content {
-  display: flow-root;
-}
-.transcript:focus-visible {
-  outline: 1px solid var(--color-border);
-  outline-offset: -1px;
-}
-.message {
-  margin-bottom: 24px;
-  font-size: 15px;
-  line-height: 1.65;
-  overflow-wrap: anywhere;
-}
-.message-text {
-  white-space: pre-wrap;
-}
 .message-markdown {
   white-space: normal;
 }
@@ -196,7 +152,6 @@
   overflow: auto;
   border-collapse: collapse;
   margin: 14px 0;
-  font-size: 13px;
 }
 .message-markdown :is(td, th) {
   padding: 7px 12px;
@@ -207,45 +162,6 @@
   border: 0;
   border-top: 1px solid var(--color-border);
   margin-block: 20px;
-}
-.message-user {
-  width: fit-content;
-  max-width: 90%;
-  margin-left: auto;
-  padding: 12px 16px;
-  background: var(--color-subtle-fill);
-  border-radius: 16px 16px 4px 16px;
-}
-.message-assistant {
-  margin-block: 24px 28px;
-}
-.conversation-entry > .tool-activity-group {
-  margin-bottom: 20px;
-}
-.thread-heading-action {
-  flex-shrink: 0;
-}
-.working-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 8px;
-  border-radius: 50%;
-  background: var(--desktop-status-active);
-}
-.latest-message {
-  position: absolute;
-  bottom: 10px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 7px 13px;
-  border: 1px solid var(--color-border);
-  border-radius: 20px;
-  background: var(--desktop-surface);
-  color: var(--color-ink);
-  box-shadow: 0 3px 14px #0001;
-  font-size: 12px;
-  cursor: pointer;
 }
 .conversation-rail {
   position: absolute;
@@ -481,15 +397,6 @@
   .thread-state-running .thread-status-symbol > span {
     animation: none;
   }
-}
-
-.thread-activity,
-.thread-error {
-  font-size: 12px;
-  overflow-wrap: anywhere;
-}
-.thread-error {
-  color: var(--desktop-status-danger);
 }
 
 @media (hover: none), (pointer: coarse) {

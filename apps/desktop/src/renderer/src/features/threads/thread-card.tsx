@@ -1,3 +1,4 @@
+import { codeFontClassName } from "../../styles/code-ui";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { ModelProviderIcon } from "../harnesses/model-provider-icon";
@@ -143,7 +144,7 @@ export function ThreadCard({
       }}
     >
       <Button
-        className="thread-select flex w-full cursor-pointer flex-col gap-0.5 rounded-[inherit] border-0 bg-transparent p-2.5 text-left text-[13px] leading-5 text-inherit"
+        className="thread-select flex w-full cursor-pointer flex-col gap-0.5 rounded-[inherit] border-0 bg-transparent px-2 py-2.5 text-left text-[13px] leading-5 text-inherit"
         aria-keyshortcuts={orderControls ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onKeyDown={(event) => {
           if (
@@ -171,7 +172,7 @@ export function ThreadCard({
           {thread.title}
         </span>
         <span
-          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-[13px] [&>svg]:size-[13px] [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
+          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-3.5 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
         >
           <ModelProviderIcon harness={thread.harness} />
           <span
@@ -192,7 +193,7 @@ export function ThreadCard({
           )}
         </span>
         <time
-          className="thread-time absolute top-2.5 right-2.5 text-[11px] leading-5 text-muted-ink tabular-nums"
+          className="thread-time absolute top-2.5 right-2 text-[11px] leading-5 text-muted-ink tabular-nums"
           dateTime={thread.updatedAt}
           title={new Date(thread.updatedAt).toLocaleString()}
         >
@@ -201,7 +202,7 @@ export function ThreadCard({
       </Button>
       {status !== "idle" && (
         <span
-          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2.5 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
           role="status"
           aria-label={statusLabel}
           title={statusLabel}
@@ -226,7 +227,7 @@ export function ThreadCard({
         </span>
       )}
       <Button
-        className={`thread-done absolute top-[7px] right-1.5 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:bg-hover-surface hover:text-ink ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
+        className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:bg-hover-surface hover:text-ink ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}
         onFocus={close}
         aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
@@ -246,7 +247,13 @@ export function ThreadCard({
         {thread.doneAt ? "Reopen" : "Done"}
       </Button>
       {open && !orderControls?.dragging && (
-        <div ref={preview} id={id} popover="manual" role="tooltip" className="thread-preview">
+        <div
+          ref={preview}
+          id={id}
+          popover="manual"
+          role="tooltip"
+          className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-80 max-w-[calc(100vw_-_16px)] overflow-auto rounded-xl border border-border bg-panel p-4 text-xs whitespace-normal text-ink shadow-[0_8px_24px_rgb(0_0_0_/_16%)] ${codeFontClassName}`}
+        >
           <ThreadPreview
             thread={thread}
             projectName={projectName}

@@ -10,6 +10,8 @@ export function ModelProviderIcon({ harness }: { harness: HarnessId }) {
       style={{ mask: `url("${openaiIcon}") center / contain no-repeat` }}
     />
   ) : (
-    <HarnessIcon harness={harness} size={15} />
+    <span className="model-provider-icon inline-flex size-[15px] shrink-0 items-center justify-center text-[light-dark(#9b5841,#ce9b82)]">
+      <HarnessIcon harness={harness} size={14} />
+    </span>
   );
 }

@@ -1,3 +1,9 @@
+import {
+  codeFontClassName,
+  codeNavigationClassName,
+  codeStatusClassName,
+  codeSubmitClassName,
+} from "../styles/code-ui";
 import { z } from "zod";
 import { useSessionState } from "./session-state";
 import { selectionSchema } from "./navigation-state";
@@ -1236,12 +1242,14 @@ export function App() {
     >
       <aside
         id="desktop-navigation"
-        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface)"
+        className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${mode === "code" ? codeNavigationClassName : ""}`}
         aria-label="Project workspace"
         hidden={settingsOpen}
       >
         <header className="workspace-header flex shrink-0 flex-col gap-1.5 px-1 pt-1 pb-2">
-          <div className="workspace-project-row flex items-center gap-1.5">
+          <div
+            className={`workspace-project-row flex items-center ${mode === "code" ? "gap-0 pr-1" : "gap-1.5"}`}
+          >
             <SidebarToggle />
             <div className="project-picker min-w-0 w-full flex-1" title={project?.name}>
               {(project || cloud.account) && (
@@ -1268,7 +1276,7 @@ export function App() {
                         value: `cloud:${o.id}`,
                         label: o.name,
                         description: "Cloud",
-                      icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
+                        icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
                       })) ?? []),
                     ...projects.map((item) => ({
                       value: item.id,
@@ -1284,16 +1292,18 @@ export function App() {
                     if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
-                  triggerClassName="project-trigger flex min-h-[34px] w-full min-w-0 max-w-full cursor-pointer items-center gap-3 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>span]:min-w-0 [&>span]:flex-1 [&>span]:truncate"
-                  menuClassName="workspace-menu"
-                  showSelectedIcon
+                  triggerClassName={`project-trigger flex min-h-[34px] w-full min-w-0 max-w-full cursor-pointer items-center rounded-md border-0 bg-transparent py-1.5 ${mode === "code" ? "gap-2 pl-[3px] pr-2 [&>[data-ph-private]]:flex-initial" : "gap-3 px-2 [&>[data-ph-private]]:flex-1"} text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:truncate`}
+                  menuClassName="workspace-menu flex flex-col gap-0.5 [&_[role=menuitemradio]]:px-2.5 [&_[role=menuitemradio]]:py-2"
+                  showSelectedIcon={mode !== "code"}
                 />
               )}
             </div>
           </div>
           {project && (
             <div className="workspace-thread-actions flex items-center gap-1.5 px-1 py-0.5">
-              <label className="workspace-thread-search flex h-8 min-w-0 flex-1 items-center gap-[7px] rounded-md border border-border bg-panel px-2 text-muted-ink focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-control-border [&>svg]:shrink-0">
+              <label
+                className={`workspace-thread-search flex h-8 min-w-0 flex-1 items-center ${mode === "code" ? "gap-1.5" : "gap-[7px]"} rounded-md border border-border bg-panel px-2 text-muted-ink focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-control-border [&>svg]:shrink-0`}
+              >
                 <svg
                   aria-hidden="true"
                   width="14"
@@ -1359,7 +1369,7 @@ export function App() {
             role="tablist"
             aria-label="Workspace"
             aria-orientation="vertical"
-            className="workspace-tabs flex w-full flex-col gap-1"
+            className={`workspace-tabs flex w-full flex-col gap-1 ${mode === "code" ? "px-1" : ""}`}
           >
             {modes.map((item, index) => (
               <div
@@ -1424,7 +1434,9 @@ export function App() {
           aria-label="Design folders"
           hidden={mode !== "design"}
         />
-        <div className="sidebar-footer">
+        <div
+          className={`sidebar-footer mt-auto flex shrink-0 items-center gap-2 py-2 ${mode === "code" ? "px-2" : "px-3"}`}
+        >
           <Button
             ref={settingsTrigger}
             className="settings-trigger"
@@ -1574,11 +1586,13 @@ export function App() {
                 role="tabpanel"
                 aria-labelledby="workspace-tab-code"
                 hidden={mode !== "code"}
-                className="project-workspace"
+                className="project-workspace bg-panel"
               >
-                <div className="thread-workspace">
+                <div
+                  className={`thread-workspace relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
+                >
                   <div
-                    className={`thread-heading flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
+                    className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
                   >
                     <div
                       className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "max-[700px]:basis-full" : ""}`}
@@ -1588,7 +1602,7 @@ export function App() {
                       </h1>
                       {thread?.doneAt && (
                         <Button
-                          className="quiet-button thread-heading-action"
+                          className="quiet-button thread-heading-action shrink-0"
                           disabled={running || Boolean(updatingDone[thread.id])}
                           onClick={() => void toggleThreadDone(summarizeThread(thread))}
                         >
@@ -1663,7 +1677,7 @@ export function App() {
                     />
                   )}
                   <form
-                    className={`composer ${thread ? "composer-active" : "composer-new"}`}
+                    className={`composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
                         event.preventDefault();
@@ -1680,7 +1694,7 @@ export function App() {
                     }}
                   >
                     <div
-                      className="composer-lip"
+                      className={`composer-lip absolute right-3 bottom-[calc(100%_-_20px)] left-3 rounded-t-2xl border border-border bg-[light-dark(#f5f5f5,#222222)] px-2 py-[7px] pb-[25px] max-[700px]:right-2 max-[700px]:left-2 max-[700px]:px-1.5 ${thread ? "invisible pointer-events-none opacity-0" : ""}`}
                       aria-hidden={Boolean(thread)}
                       inert={Boolean(thread)}
                     >
@@ -1810,10 +1824,10 @@ export function App() {
                           }
                         }}
                       />
-                      <div className="composer-actions">
+                      <div className="composer-actions flex flex-wrap items-center gap-2 p-2">
                         <Button
                           type="button"
-                          className="quiet-button attachment-button"
+                          className="quiet-button attachment-button size-[30px]"
                           aria-label="Attach files"
                           title="Attach files"
                           disabled={Boolean(thread?.doneAt) || busy}
@@ -1835,7 +1849,7 @@ export function App() {
                             />
                           </svg>
                         </Button>
-                        <div className="composer-settings">
+                        <div className="composer-settings contents">
                           <HarnessControls
                             catalogs={harnesses.map((connection) => ({
                               connection,
@@ -1882,13 +1896,13 @@ export function App() {
                             }}
                           />
                         </div>
-                        <div className="composer-tools">
+                        <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
                           <span ref={canvasDockHome} className="canvas-dock-home" />
-                          <div className="composer-delivery">
+                          <div className="composer-delivery ml-auto flex shrink-0 items-center gap-1.5">
                             {running && !hasMessage ? (
                               <Button
                                 type="button"
-                                className="composer-submit composer-stop"
+                                className={`${codeSubmitClassName} composer-stop bg-[#e83545] text-white`}
                                 aria-label={
                                   queue.stopping || thread?.activity === "Stopping"
                                     ? "Stopping…"
@@ -1907,7 +1921,7 @@ export function App() {
                             ) : (
                               <Button
                                 type="submit"
-                                className="composer-submit"
+                                className={`${codeSubmitClassName} bg-strong-action text-on-strong-action`}
                                 disabled={!canSend}
                                 aria-label={submitLabel}
                                 title={`${submitLabel} (Enter)`}
