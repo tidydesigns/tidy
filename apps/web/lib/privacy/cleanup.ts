@@ -89,7 +89,6 @@ export async function eraseExternalData(job: Pick<CleanupJob, "kind" | "subject"
 }
 
 export async function processPrivacyCleanup(limit = 1) {
-  if (analyticsStorageEnabled()) await maintainProductAnalytics();
   await maintainConsentRecords();
   await maintainMcpConsentRecords();
   let completed = 0,
@@ -139,5 +138,13 @@ export async function processPrivacyCleanup(limit = 1) {
   ).rows[0];
   if (pending.pending)
     console.warn(JSON.stringify({ event: "privacy_review_pending", ...pending }));
+  // Optional analytics maintenance must not delay or prevent existing erasure work.
+  if (analyticsStorageEnabled())
+    try {
+      await maintainProductAnalytics();
+    } catch {
+      console.error(JSON.stringify({ event: "product_analytics_maintenance_failed" }));
+      throw new Error("Product analytics maintenance did not complete.");
+    }
   return { completed, failed };
 }

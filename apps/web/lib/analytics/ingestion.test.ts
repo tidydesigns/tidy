@@ -10,9 +10,9 @@ test("native HTTP boundary rejects ambient authority, extra data and oversized b
       `
     import {mock,expect} from 'bun:test';
     mock.module('server-only',()=>({}));
-    let enabled=true,storage=true,accepted=0,erased=0,limited=false;
+    let enabled=true,storage=true,accepted=0,erased=0,limited=false,lastIdentity,limitedIdentity;
     class PersonalBudgetError extends Error { status=429; }
-    mock.module('@/lib/security/personal-budget',()=>({PersonalBudgetError,reservePersonalAttempts:async()=>{if(limited)throw new PersonalBudgetError();}}));
+    mock.module('@/lib/security/personal-budget',()=>({PersonalBudgetError,reservePersonalAttempts:async(_kind,identity)=>{lastIdentity=identity;if(limited||identity===limitedIdentity)throw new PersonalBudgetError();}}));
     mock.module('@/lib/analytics/store',()=>({
       analyticsStorageEnabled:()=>storage,analyticsEnabled:()=>enabled,
       AnalyticsAccessError:class extends Error{},AnalyticsRevisionError:class extends Error{},AnalyticsExportRateError:class extends Error{},
@@ -37,6 +37,14 @@ test("native HTTP boundary rejects ambient authority, extra data and oversized b
     const denied=await invoke(request({revision:1,events:[event]}));
     expect(denied.status).toBe(429);expect(denied.headers.get('retry-after')).toBe('60');
     limited=false;
+    limitedIdentity=lastIdentity;
+    expect((await invoke(request({revision:1,events:[event]}))).status).toBe(429);
+    expect((await invoke(request({notice:'anything'}),'receipt')).status).toBe(429);
+    for(const action of ['status','export','erase','unlink']) {
+      expect((await invoke(request({}),action)).status).toBe(action==='erase'||action==='unlink'?204:200);
+    }
+    limitedIdentity=undefined;
+    erased=0;
     enabled=false;
     expect((await invoke(request({revision:1,events:[event]}))).status).toBe(503);
     expect((await invoke(request({}),'erase')).status).toBe(204);

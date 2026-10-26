@@ -33,7 +33,7 @@ async function handle(request: Request, context: { params: Promise<{ action: str
     if (token && !/^[a-f0-9]{64}$/.test(token)) return new Response(null, { status: 401, headers });
     await reservePersonalAttempts(
       "privacy-consent",
-      `native:${request.headers.get("cf-connecting-ip") || "unknown"}`,
+      `${action === "events" || action === "receipt" ? "native-telemetry" : "native"}:${request.headers.get("cf-connecting-ip") || "unknown"}`,
     );
     const body: unknown = await request.json();
     if (action === "receipt") {
