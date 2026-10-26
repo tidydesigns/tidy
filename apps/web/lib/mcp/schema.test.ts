@@ -38,6 +38,7 @@ test("static MCP schemas reuse conversion without weakening runtime validation",
 test("unknown operations and mutations keep atomic write execution regardless of annotations", () => {
   for (const name of [
     "create_file",
+    "create_page",
     "patch_document",
     "validate_import",
     "get_review_context",

@@ -51,7 +51,13 @@ test("read requests use read scope; unknown tools and methods require write scop
     "preview_design",
   ])
     expect(requiredMcpScopes({ method: "tools/call", params: { name } })).toEqual(["mcp:read"]);
-  for (const name of ["create_file", "patch_document", "commit_import", "future_tool"])
+  for (const name of [
+    "create_file",
+    "create_page",
+    "patch_document",
+    "commit_import",
+    "future_tool",
+  ])
     expect(requiredMcpScopes({ method: "tools/call", params: { name } })).toEqual([
       "mcp:read",
       "mcp:write",

@@ -27,6 +27,7 @@ const scopedTools = new Set([
   "get_document",
   "get_file_image",
   "rename_file",
+  "create_page",
   "add_frames",
   "add_rectangles",
   "get_design_guidance",

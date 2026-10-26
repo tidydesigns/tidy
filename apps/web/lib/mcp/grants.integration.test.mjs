@@ -16,7 +16,8 @@ const { withMcpGrantOperation } = await import("./grant-operation");
 const { consumeMcpCall, meterMcpServer } = await import("./usage");
 const { runWithRequestSignal } = await import("../request-lifecycle");
 const { blankDesignDocument } = await import("../design/document");
-const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
+const { getDocument, getDocumentPage, patchDocumentNode } =
+  await import("../design/document-service");
 const { linearReadFixture } = await import("./linear-read-fixture.ts");
 const { renameDesignFileForUser } = await import("../design/service");
 const { GET: desktopGet, POST: desktopPost } =
@@ -2285,6 +2286,153 @@ integration(
   },
 );
 
+integration("MCP creates named and default pages without changing existing content", async () => {
+  const { designNodeSchema } = await import("../design/document");
+  const document = blankDesignDocument();
+  document.pages = [
+    { id: "page-1", name: "Page 1", background: "#112233" },
+    { id: "existing", name: "Page 4" },
+  ];
+  document.nodes = [
+    designNodeSchema.parse({
+      id: "layer",
+      name: "Existing layer",
+      type: "container",
+      parentId: null,
+      pageId: "existing",
+      box: { x: 0, y: 0, width: 100, height: 100 },
+    }),
+  ];
+  document.commentPages = { thread: "existing" };
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    document,
+  ]);
+  const create = async (expected_revision, name) =>
+    (
+      await responseMessage(
+        await request("tools/call", {
+          name: "create_page",
+          arguments: { file_id: "file-a", expected_revision, name },
+        }),
+      )
+    ).result;
+  const named = await create(1, "  Explorations  ");
+  expect(named.isError).not.toBe(true);
+  expect(named.structuredContent).toMatchObject({ revision: 2, page: { name: "Explorations" } });
+  expect(named.structuredContent.page.id).toMatch(/^[0-9a-f-]{36}$/);
+  const generated = await create(2);
+  expect(generated.isError).not.toBe(true);
+  expect(generated.structuredContent).toMatchObject({ revision: 3, page: { name: "Page 5" } });
+  expect(generated.structuredContent.page.id).not.toBe(named.structuredContent.page.id);
+  const saved = await getDocument("alice", "file-a");
+  const { pages, ...original } = document;
+  expect(saved.revision).toBe(3);
+  expect(saved.content).toMatchObject(original);
+  expect(saved.content.pages).toEqual([
+    ...pages,
+    named.structuredContent.page,
+    generated.structuredContent.page,
+  ]);
+  expect(saved.content.nodes).toEqual(document.nodes);
+});
+
+integration(
+  "MCP page creation rejects stale edits, invalid names and the page limit atomically",
+  async () => {
+    const create = async (args) =>
+      responseMessage(
+        await request("tools/call", {
+          name: "create_page",
+          arguments: { file_id: "file-a", expected_revision: 1, ...args },
+        }),
+      );
+    const stale = await create({ expected_revision: 0 });
+    expect(stale.result.isError).toBe(true);
+    expect(stale.result.content[0].text).toContain("Refresh before editing");
+    for (const args of [
+      { name: "   " },
+      { name: "x".repeat(121) },
+      { expected_revision: -1 },
+      { expected_revision: 1.5 },
+      { expected_revision: undefined },
+    ]) {
+      const result = await create(args);
+      expect(result.error || result.result?.isError).toBeTruthy();
+    }
+    const document = blankDesignDocument();
+    document.pages = Array.from({ length: 100 }, (_, i) => ({
+      id: `page-${i}`,
+      name: `Page ${i + 1}`,
+    }));
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const full = await create({});
+    expect(full.result.isError).toBe(true);
+    expect(full.result.content[0].text).toContain("100 pages");
+    const saved = await getDocument("alice", "file-a");
+    expect(saved.revision).toBe(1);
+    expect(saved.content.pages).toEqual(document.pages);
+  },
+);
+
+integration("concurrent MCP page creations cannot overwrite each other", async () => {
+  const results = await Promise.all(
+    ["First", "Second"].map(
+      async (name) =>
+        (
+          await responseMessage(
+            await request("tools/call", {
+              name: "create_page",
+              arguments: { file_id: "file-a", expected_revision: 1, name },
+            }),
+          )
+        ).result,
+    ),
+  );
+  expect(results.filter((result) => result.isError !== true)).toHaveLength(1);
+  expect(results.filter((result) => result.isError === true)).toHaveLength(1);
+  const saved = await getDocument("alice", "file-a");
+  expect(saved.revision).toBe(2);
+  expect(saved.content.pages).toHaveLength(2);
+  expect(saved.content.pages[1]).toEqual(
+    results.find((result) => result.isError !== true).structuredContent.page,
+  );
+});
+
+for (const restriction of ["read scope", "viewer", "other tenant", "archived", "unverified"])
+  integration(`MCP page creation refuses ${restriction} without changing the file`, async () => {
+    if (restriction === "viewer")
+      await admin.query('update "member" set "role"=\'viewer\' where "id"=\'member-a\'');
+    if (restriction === "archived")
+      await admin.query('update "designFile" set "archivedAt"=now() where "id"=\'file-a\'');
+    if (restriction === "unverified")
+      await admin.query('update "user" set "emailVerified"=false where "id"=\'alice\'');
+    const fileId = restriction === "other tenant" ? "file-b" : "file-a";
+    const before = (
+      await admin.query('select "revision", "content" from "designDocument" where "fileId"=$1', [
+        fileId,
+      ])
+    ).rows[0];
+    const response = await request(
+      "tools/call",
+      {
+        name: "create_page",
+        arguments: { file_id: fileId, expected_revision: 1, name: "Forbidden" },
+      },
+      restriction === "read scope" ? { scope: "mcp:read" } : {},
+    );
+    const message = await responseMessage(response);
+    expect(response.status >= 400 || message.error || message.result?.isError).toBeTruthy();
+    expect(
+      (
+        await admin.query('select "revision", "content" from "designDocument" where "fileId"=$1', [
+          fileId,
+        ])
+      ).rows[0],
+    ).toEqual(before);
+  });
+
 integration(
   "MCP modern discovery is cacheable and body/header disagreement cannot dispatch",
   async () => {
@@ -2322,6 +2470,10 @@ integration(
     expect(list.result.ttlMs).toBe(300_000);
     expect(list.result.cacheScope).toBe("private");
     expect(list.result.tools.some((tool) => tool.name === "get_document")).toBe(true);
+    const createPage = list.result.tools.find((tool) => tool.name === "create_page");
+    expect(createPage.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(createPage._meta.securitySchemes[0].scopes).toEqual(["mcp:read", "mcp:write"]);
+    expect(createPage.inputSchema.required).toContain("expected_revision");
     expect((await modern("server/discover")).status).toBe(200);
     const mismatch = await modern(
       "tools/call",

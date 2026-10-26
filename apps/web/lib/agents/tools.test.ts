@@ -1,9 +1,10 @@
 import { expect, mock, test } from "bun:test";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { PoolClient } from "pg";
 mock.module("server-only", () => ({}));
 const { McpActivity } = await import("../mcp/activity");
 const { registerTidyTools } = await import("../mcp/registry");
-const { agentTools } = await import("./tools");
+const { agentTools, checkToolScope } = await import("./tools");
 
 test("organisation scope exposes canvas tools while excluding connector and plugin tools", async () => {
   const names: string[] = [];
@@ -29,6 +30,16 @@ test("organisation scope exposes canvas tools while excluding connector and plug
     await expect(full.invoke(name, {})).rejects.toMatchObject({ code: "tool_denied" });
   const limited = agentTools("user", "worker", "Lead");
   expect(limited.tools.some((tool) => tool.name === "patch_document")).toBe(true);
+  expect(limited.tools.some((tool) => tool.name === "create_page")).toBe(true);
   expect(limited.tools.some((tool) => tool.name === "create_file")).toBe(false);
   expect(limited.tools.some((tool) => tool.name === "delete_folder")).toBe(false);
+});
+
+test("page creation is restricted to the run's attached files", async () => {
+  const client = {} as PoolClient;
+  const files = [{ id: "attached", selectedNodeIds: [] }];
+  await checkToolScope(client, "user", "org", files, "create_page", { file_id: "attached" }, "run");
+  await expect(
+    checkToolScope(client, "user", "org", files, "create_page", { file_id: "other" }, "run"),
+  ).rejects.toMatchObject({ code: "scope_denied" });
 });

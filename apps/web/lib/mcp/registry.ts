@@ -10,6 +10,7 @@ import {
   appendBasicNodes,
   commitImport,
   createImport,
+  createDocumentPage,
   ensureEditorDocument,
   getDocument,
   getDocumentPage,
@@ -142,6 +143,29 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         return failure(
           actionError(error, "Could not create the file. Check the name and organization access."),
         );
+      }
+    },
+  );
+
+  server.registerTool(
+    "create_page",
+    {
+      ...mcpToolPolicy("create_page"),
+      description:
+        "Append an empty page to a design file at expected_revision from get_document. Optionally supply a name; otherwise the next available Page N name is used. Returns the page ID and new revision. Existing pages and layers are preserved. On a revision conflict, refresh before retrying.",
+      inputSchema: mcpSchema("create_page", () =>
+        z.object({
+          file_id: z.string().min(1),
+          expected_revision: z.number().int().min(0),
+          name: z.string().trim().min(1).max(120).optional(),
+        }),
+      ),
+    },
+    async ({ file_id, expected_revision, name }) => {
+      try {
+        return result(await createDocumentPage(userId, file_id, expected_revision, name));
+      } catch (error) {
+        return failure(actionError(error, "Could not create the page."));
       }
     },
   );

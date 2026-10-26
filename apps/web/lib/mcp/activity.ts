@@ -31,6 +31,7 @@ const phases: Record<string, ActivityPhase> = {
   commit_import: "publishing",
   abort_import: "receiving",
   patch_document: "editing",
+  create_page: "editing",
   add_frames: "editing",
   add_rectangles: "editing",
   rename_file: "editing",

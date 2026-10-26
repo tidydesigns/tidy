@@ -25,6 +25,7 @@ import {
 } from "@/lib/design/document";
 import { mergeImport, requireImportSource } from "@/lib/design/merge-import";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
+import { documentPages, nextPageName } from "@/lib/design/pages";
 import type { DesignTokens } from "./design-tokens";
 import { mergeDesignTokens } from "./token-catalog";
 import { changedLayerBatch } from "@/lib/design/edit-document";
@@ -294,6 +295,28 @@ export async function appendBasicNodes(
   });
   await replaceDocumentForHistory(userId, fileId, current.revision, content);
   return added.map((node) => ({ id: node.id, ...node.box }));
+}
+
+export async function createDocumentPage(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  name?: string,
+) {
+  const cleanName = name?.trim();
+  if (name !== undefined && (!cleanName || cleanName.length > 120))
+    throw new PublicActionError("Enter a page name of up to 120 characters.");
+  const current = await readEditorDocument(userId, fileId);
+  if (current.revision !== expectedRevision)
+    throw new PublicActionError("Document changed. Refresh before editing.");
+  const pages = documentPages(current.content);
+  if (pages.length >= 100) throw new PublicActionError("A file can contain up to 100 pages.");
+  const page = { id: randomUUID(), name: cleanName ?? nextPageName(current.content) };
+  const saved = await replaceDocumentForHistory(userId, fileId, expectedRevision, {
+    ...current.content,
+    pages: [...pages, page],
+  });
+  return { revision: saved.revision, page };
 }
 
 export async function replaceDocumentForHistory(
