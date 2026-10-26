@@ -1292,7 +1292,7 @@ export function App() {
                     if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
-                  triggerClassName={`project-trigger flex min-h-[34px] w-full min-w-0 max-w-full cursor-pointer items-center rounded-md border-0 bg-transparent py-1.5 ${mode === "code" ? "gap-2 pl-[3px] pr-2 [&>[data-ph-private]]:flex-initial" : "gap-3 px-2 [&>[data-ph-private]]:flex-1"} text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:truncate`}
+                  triggerClassName={`project-trigger flex min-h-[34px] min-w-0 max-w-full cursor-pointer items-center rounded-md border-0 bg-transparent py-1.5 ${mode === "code" ? "w-fit gap-2 pl-[3px] pr-2 [&>[data-ph-private]]:flex-initial" : "w-full gap-3 px-2 [&>[data-ph-private]]:flex-1"} text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:truncate`}
                   menuClassName="workspace-menu flex flex-col gap-0.5 [&_[role=menuitemradio]]:px-2.5 [&_[role=menuitemradio]]:py-2"
                   showSelectedIcon={mode !== "code"}
                 />
