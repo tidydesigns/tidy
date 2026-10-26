@@ -2,7 +2,7 @@
   flex-shrink: 0;
   width: calc(100% - var(--chat-gutter) * 2);
   max-width: var(--chat-content-width);
-  max-height: min(36vh, 300px, calc(100vh - 340px));
+  max-height: max(120px, min(36vh, 300px, calc(100vh - 340px)));
   overflow: auto;
   margin: 0 auto;
   display: grid;
@@ -12,8 +12,8 @@
 .approval-request {
   display: flex;
   flex-direction: column;
-  max-height: min(36vh, 300px, calc(100vh - 340px));
-  overflow: hidden;
+  max-height: max(120px, min(36vh, 300px, calc(100vh - 340px)));
+  overflow: auto;
   padding: 14px 16px;
   border: 1px solid var(--color-border);
   background: var(--desktop-surface);
