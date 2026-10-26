@@ -55,7 +55,7 @@ import {
   type PlacementAsset,
   type PlacementTarget,
 } from "../design/asset-placement";
-import { ExportRejected, type ExportRequest } from "../design/export-plan";
+import { assertExportSnapshot, ExportRejected, type ExportRequest } from "../design/export-plan";
 import { FileVersionControl } from "./file-version-control";
 import { snapshotCommitSchema } from "../design/sync-protocol";
 import {
@@ -1554,17 +1554,37 @@ export function FileEditor({
   }
 
   const remoteExportRunning = useRef(false);
-  const { setExportHandler, hasPendingEdits } = room;
+  const { setExportHandler, hasPendingEdits, getSnapshot, getPreview } = room;
   useEffect(() => {
     setExportHandler(async (request) => {
       const snapshot = snapshotRef.current;
-      if (
-        remoteExportRunning.current ||
-        hasPendingEdits() ||
-        snapshot.revision !== request.expectedRevision ||
-        activePageRef.current !== request.pageId
-      )
-        throw new ExportRejected("Synchronize the target page before exporting.");
+      const assertSynchronized = () => {
+        if (
+          hasPendingEdits() ||
+          snapshotRef.current.content !== snapshot.content ||
+          snapshotRef.current.revision !== request.expectedRevision ||
+          activePageRef.current !== request.pageId
+        )
+          throw new ExportRejected("Synchronize the target page before exporting.");
+        assertExportSnapshot(
+          snapshotRef.current,
+          getSnapshot(),
+          Boolean(
+            getPreview() ||
+            drag.current ||
+            resize.current ||
+            multiScaleGesture.current ||
+            inspectorGesture.current ||
+            gradientGesture.current ||
+            vectorGesture.current ||
+            cropDrag.current ||
+            drawingRef.current,
+          ),
+        );
+      };
+      if (remoteExportRunning.current)
+        throw new ExportRejected("Wait for the current export to finish.");
+      assertSynchronized();
       if (
         request.ids.some(
           (id) =>
@@ -1578,25 +1598,16 @@ export function FileEditor({
       try {
         // Mount culled targets synchronously; background tabs may suspend animation frames.
         flushSync(() => setRemoteExportIds(request.ids));
-        if (
-          snapshotRef.current.revision !== snapshot.revision ||
-          hasPendingEdits() ||
-          activePageRef.current !== request.pageId
-        )
-          throw new ExportRejected("Document changed during export.");
+        assertSynchronized();
         const { createSelectionExport } = await import("../design/export-selection");
+        assertSynchronized();
         const result = await createSelectionExport(
           snapshot.content,
           canvasElements(viewport.current),
           request,
           16_000_000,
         );
-        if (
-          snapshotRef.current.revision !== snapshot.revision ||
-          hasPendingEdits() ||
-          activePageRef.current !== request.pageId
-        )
-          throw new ExportRejected("Document changed during export.");
+        assertSynchronized();
         if (result.files.reduce((sum, f) => sum + f.blob.size, 0) > 2000000)
           throw new ExportRejected("Export exceeds 2 MB. Choose fewer layers or a smaller scale.");
         const files = [];
@@ -1616,6 +1627,7 @@ export function FileEditor({
             base64: btoa(binary),
           });
         }
+        assertSynchronized();
         return {
           type: "export_result",
           requestId: request.requestId,
@@ -1629,7 +1641,7 @@ export function FileEditor({
       }
     });
     return () => setExportHandler(null);
-  }, [hasPendingEdits, setExportHandler]);
+  }, [getPreview, getSnapshot, hasPendingEdits, setExportHandler]);
   const [exportPending, setExportPending] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportWarnings, setExportWarnings] = useState<string[]>([]);

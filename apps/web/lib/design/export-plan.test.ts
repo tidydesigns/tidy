@@ -8,7 +8,9 @@ import {
   transformedExportBounds,
   unionExportBounds,
   matrixMultiply,
+  assertExportSnapshot,
 } from "./export-plan";
+import { RoomEditQueue } from "@tidy/editor/design/room-edit-queue";
 const nodes = [
   buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 200, height: 100 }),
   buildDrawnNode("child", "container", "frame", { x: 10, y: 20, width: 40, height: 30 }),
@@ -73,4 +75,25 @@ test("expected export rejections retain useful bounded messages and hide private
   expect(exportRejectionMessage(new Error("private renderer diagnostic"))).not.toContain(
     "private renderer diagnostic",
   );
+});
+
+test("exports reject uncommitted artwork even when the room has no queued edits and revisions match", () => {
+  const saved = { revision: 7, content: doc() };
+  const room = new RoomEditQueue(saved, () => {});
+  const rendered = structuredClone(saved);
+  rendered.content.nodes[0].box.x += 30;
+  expect(room.hasPendingEdits).toBe(false);
+  expect(rendered.revision).toBe(room.getSnapshot().revision);
+  expect(() => assertExportSnapshot(rendered, room.getSnapshot(), false)).toThrow(
+    "Finish or cancel",
+  );
+  // A DOM-only preview (for example text editing) can leave the document unchanged.
+  expect(() => assertExportSnapshot(saved, room.getSnapshot(), true)).toThrow("Finish or cancel");
+  // Cancellation and normal snapshot reconciliation allow exports again.
+  expect(() =>
+    assertExportSnapshot(structuredClone(saved), room.getSnapshot(), false),
+  ).not.toThrow();
+  expect(() =>
+    assertExportSnapshot({ ...saved, revision: 6 }, room.getSnapshot(), false),
+  ).toThrow();
 });

@@ -1,6 +1,21 @@
 import type { DesignDocument, DesignNode } from "./document";
+import { equalJsonValues } from "./json-value";
+import type { RoomSnapshot } from "./room-edit-queue";
 /** Deliberate export restrictions that may safely cross the editor/MCP boundary. */
 export class ExportRejected extends Error {}
+/** A saved revision cannot identify artwork that still contains a local preview. */
+export function assertExportSnapshot(
+  rendered: RoomSnapshot,
+  canonical: RoomSnapshot,
+  hasPreview: boolean,
+) {
+  if (
+    hasPreview ||
+    rendered.revision !== canonical.revision ||
+    !equalJsonValues(rendered.content, canonical.content)
+  )
+    throw new ExportRejected("Finish or cancel the current edit and synchronize before exporting.");
+}
 export function exportRejectionMessage(cause: unknown) {
   return cause instanceof ExportRejected
     ? cause.message.slice(0, 240)
