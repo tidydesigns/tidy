@@ -461,7 +461,7 @@ export async function executeRequest(input: Exclude<ExecutionRequest, { action: 
     if (
       input.action === "tool" &&
       run.allowOrganizationChanges &&
-      ["create_file", "commit_import", "import_web_capture"].includes(input.tool)
+      ["create_file", "duplicate_file", "commit_import", "import_web_capture"].includes(input.tool)
     ) {
       const data = (output as { structuredContent?: { fileId?: string; file?: { id?: string } } })
         ?.structuredContent;

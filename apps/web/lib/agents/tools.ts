@@ -19,6 +19,10 @@ type Handler = (input: Record<string, unknown>) => Promise<ToolResult>;
 // Attached-file tools share the public MCP registry. Organisation management
 // requires an explicit scope extension in the composer. The current GitHub MCP
 // tools write local review data; none post comments or push code externally.
+// Archive/restore/delete stay public-MCP-only: runs require active attached
+// files throughout execution. Browser exports are public-only because internal
+// runs retain document locks while invoking tools; never wait for a browser
+// under those locks.
 const scopedTools = new Set([
   "list_organizations",
   "list_files",
@@ -28,6 +32,31 @@ const scopedTools = new Set([
   "get_file_image",
   "rename_file",
   "create_page",
+  "list_comments",
+  "create_comment",
+  "reply_to_comment",
+  "edit_comment",
+  "delete_comment_thread",
+  "resolve_comment_thread",
+  "toggle_comment_reaction",
+  "rename_page",
+  "reorder_page",
+  "duplicate_page",
+  "delete_page",
+  "insert_nodes",
+  "delete_layers",
+  "duplicate_layers",
+  "reparent_layer",
+  "reorder_layer",
+  "group_layers",
+  "ungroup_layer",
+  "move_layers_to_page",
+  "list_file_versions",
+  "get_file_version",
+  "create_file_version",
+  "restore_file_version",
+  "get_editor_context",
+  "get_file_context",
   "add_frames",
   "add_rectangles",
   "get_design_guidance",
@@ -57,6 +86,8 @@ const scopedTools = new Set([
 ]);
 const organizationTools = new Set([
   "create_file",
+  "duplicate_file",
+  "duplicate_folder",
   "create_folder",
   "rename_folder",
   "delete_folder",

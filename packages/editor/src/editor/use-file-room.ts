@@ -5,7 +5,13 @@ import { applyDocumentPatch, diffDocument, type DocumentPatch } from "../design/
 import { applyRevisionChanges } from "../design/revision-sync";
 import { parseImmutableDesignDocument, type DesignDocument } from "../design/document";
 import { RoomEditQueue, type CommitDependency, type RoomCommit } from "../design/room-edit-queue";
-import { EMPTY_PRESENCE, type Presence, readRoomMessage } from "../lib/realtime/protocol";
+import {
+  type EditorExportRequest,
+  type EditorExportResult,
+  EMPTY_PRESENCE,
+  type Presence,
+  readRoomMessage,
+} from "../lib/realtime/protocol";
 import { PresenceStore } from "../lib/realtime/presence-store";
 import { AgentActivityStore } from "../lib/realtime/agent-activity";
 import { useEditorHost } from "../host";
@@ -56,6 +62,15 @@ export function useFileRoom({
   const [commentsVersion, setCommentsVersion] = useState(0);
   const callbacks = useRef({ onSnapshot, onName, onPermission, onNavigationBlocked });
   const socket = useRef<WebSocket | null>(null);
+  const exportHandler = useRef<
+    ((request: EditorExportRequest) => Promise<EditorExportResult>) | null
+  >(null);
+  const setExportHandler = useCallback(
+    (handler: ((request: EditorExportRequest) => Promise<EditorExportResult>) | null) => {
+      exportHandler.current = handler;
+    },
+    [],
+  );
   const presence = useRef<Presence>({ ...EMPTY_PRESENCE });
   const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lifecycle = useRef<AbortController | null>(null);
@@ -221,6 +236,37 @@ export function useFileRoom({
           const message = readRoomMessage(event.data);
           if (!message) return;
           switch (message.type) {
+            case "export_request":
+              if (exportHandler.current)
+                void exportHandler
+                  .current(message)
+                  .then((result) => {
+                    if (
+                      socket.current === ws &&
+                      ws.readyState === WebSocket.OPEN &&
+                      !controller.signal.aborted
+                    )
+                      ws.send(JSON.stringify(result));
+                  })
+                  .catch(() => {
+                    if (
+                      socket.current === ws &&
+                      ws.readyState === WebSocket.OPEN &&
+                      !controller.signal.aborted
+                    )
+                      ws.send(
+                        JSON.stringify({
+                          type: "export_result",
+                          requestId: message.requestId,
+                          revision: message.expectedRevision,
+                          files: [],
+                          warnings: [],
+                          error:
+                            "Could not export. Keep the target page open and retry after synchronizing.",
+                        }),
+                      );
+                  });
+              break;
             case "ready":
               attempt = 0;
               connectionFailureReported = false;
@@ -475,6 +521,7 @@ export function useFileRoom({
     [publishPresence],
   );
   return {
+    setExportHandler,
     store,
     activities,
     connection,

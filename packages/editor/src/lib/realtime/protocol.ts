@@ -10,6 +10,17 @@ const point = z
   .strict();
 export const presenceSchema = z
   .object({
+    viewport: z
+      .object({
+        x: z.number().finite(),
+        y: z.number().finite(),
+        zoom: z.number().finite().min(0.001).max(1000),
+        width: z.number().finite().min(1).max(100000),
+        height: z.number().finite().min(1).max(100000),
+      })
+      .strict()
+      .nullable()
+      .optional(),
     pageId: id,
     cursor: point.nullable(),
     selectedIds: z.array(id).max(100),
@@ -64,7 +75,51 @@ export const fileEventSchema = z.object({
   sequence: z.number().int().nonnegative(),
   kind: z.enum(["document", "metadata", "comments"]),
 });
+export const editorExportRequestSchema = z
+  .object({
+    type: z.literal("export_request"),
+    requestId: z.uuid(),
+    expectedRevision: z.number().int().min(1),
+    pageId: id,
+    ids: z.array(id).min(1).max(50),
+    format: z.enum(["png", "webp", "svg", "pdf"]),
+    scale: z.number().min(0.25).max(4),
+    mode: z.enum(["selection", "batch"]),
+  })
+  .strict();
+export type EditorExportRequest = z.infer<typeof editorExportRequestSchema>;
+export const editorExportResultSchema = z
+  .object({
+    type: z.literal("export_result"),
+    requestId: z.uuid(),
+    revision: z.number().int().min(1),
+    files: z
+      .array(
+        z
+          .object({
+            name: z.string().min(1).max(150),
+            mimeType: z.enum([
+              "image/png",
+              "image/webp",
+              "image/svg+xml",
+              "application/pdf",
+              "application/zip",
+            ]),
+            base64: z
+              .string()
+              .max(2800000)
+              .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+          })
+          .strict(),
+      )
+      .max(50),
+    warnings: z.array(z.string().max(500)).max(100),
+    error: z.string().max(240).optional(),
+  })
+  .strict();
+export type EditorExportResult = z.infer<typeof editorExportResultSchema>;
 export const roomMessageSchema = z.discriminatedUnion("type", [
+  editorExportRequestSchema,
   z.object({ type: z.literal("activity"), activity: agentActivitySchema }),
   z.object({ type: z.literal("activities"), activities: z.array(agentActivitySchema) }),
   z.object({ type: z.literal("access"), canEdit: z.boolean() }),

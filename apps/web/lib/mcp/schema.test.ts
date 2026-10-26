@@ -37,6 +37,31 @@ test("static MCP schemas reuse conversion without weakening runtime validation",
 
 test("unknown operations and mutations keep atomic write execution regardless of annotations", () => {
   for (const name of [
+    "create_comment",
+    "reply_to_comment",
+    "edit_comment",
+    "resolve_comment_thread",
+    "toggle_comment_reaction",
+    "delete_comment_thread",
+    "rename_page",
+    "duplicate_page",
+    "delete_page",
+    "reorder_page",
+    "insert_nodes",
+    "duplicate_layers",
+    "delete_layers",
+    "reparent_layer",
+    "reorder_layer",
+    "group_layers",
+    "ungroup_layer",
+    "move_layers_to_page",
+    "duplicate_file",
+    "duplicate_folder",
+    "archive_file",
+    "restore_file",
+    "delete_file",
+    "create_file_version",
+    "restore_file_version",
     "create_file",
     "create_page",
     "patch_document",
@@ -47,7 +72,17 @@ test("unknown operations and mutations keep atomic write execution regardless of
     "future_read_tool",
   ])
     expect(isMcpReadOperation({ kind: "tool", name })).toBe(false);
-  for (const name of ["get_document", "get_file", "linear_list_teams"])
+  for (const name of [
+    "list_comments",
+    "list_file_versions",
+    "get_file_version",
+    "get_editor_context",
+    "get_file_context",
+    "export_selection",
+    "get_document",
+    "get_file",
+    "linear_list_teams",
+  ])
     expect(isMcpReadOperation({ kind: "tool", name })).toBe(true);
   expect(isMcpReadOperation({ kind: "resource", name: "design-file" })).toBe(true);
   expect(isMcpReadOperation({ kind: "resource", name: "unknown" })).toBe(false);

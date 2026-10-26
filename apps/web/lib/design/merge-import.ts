@@ -23,6 +23,7 @@ export function mergeImport(
   incoming: DesignDocument,
   importId: string,
   resolution?: "keep_user" | "use_import" | "duplicate",
+  options: { preservePages?: boolean } = {},
 ) {
   const parseMerged = (next: DesignDocument) =>
     parseDesignDocument({
@@ -34,6 +35,16 @@ export function mergeImport(
     : incoming.nodes[0]?.importKey;
   if (!current)
     return parseMerged({ ...incoming, warnings: reconcileImportNotes(null, incoming, key) });
+  if (options.preservePages) {
+    const existing = new Set(documentPages(current).map((page) => page.id));
+    current = {
+      ...current,
+      pages: [
+        ...documentPages(current),
+        ...documentPages(incoming).filter((page) => !existing.has(page.id)),
+      ],
+    };
+  }
   const definitions = importTokenDefinitions(current, incoming);
   incoming = {
     ...incoming,
@@ -46,7 +57,9 @@ export function mergeImport(
   const targetPageId = prior.length ? nodePageId(prior[0]) : documentPages(current)[0].id;
   incoming = {
     ...incoming,
-    nodes: incoming.nodes.map((node) => ({ ...node, pageId: targetPageId })),
+    nodes: options.preservePages
+      ? incoming.nodes
+      : incoming.nodes.map((node) => ({ ...node, pageId: targetPageId })),
   };
   const retained = current.nodes.filter((node) => node.importKey !== key);
   const conflicts = prior.filter((node) => current.editedNodeIds.includes(node.id));

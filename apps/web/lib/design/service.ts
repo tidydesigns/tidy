@@ -61,20 +61,25 @@ export async function listDesignOrganizations(userId: string) {
   }));
 }
 
-export async function listDesignFiles(userId: string, organizationId: string) {
+export async function listDesignFiles(
+  userId: string,
+  organizationId: string,
+  state: "active" | "archived" | "all" = "active",
+) {
   const result = await db.query<{
     id: string;
     name: string;
     folderId: string | null;
     updatedAt: Date;
+    archivedAt: Date | null;
     role: string;
   }>(
-    `select f."id", f."name", f."folderId", f."updatedAt", m."role" from "designFile" f
+    `select f."id", f."name", f."folderId", f."updatedAt", f."archivedAt", m."role" from "designFile" f
      join "member" m on m."organizationId" = f."organizationId"
      join "user" u on u."id"=m."userId" and u."emailVerified"=true
-     where f."organizationId" = $1 and m."userId" = $2 and m."role" in ${VIEW_ROLES_SQL} and f."archivedAt" is null
+     where f."organizationId" = $1 and m."userId" = $2 and m."role" in ${VIEW_ROLES_SQL} and ($3='all' or ($3='active' and f."archivedAt" is null) or ($3='archived' and f."archivedAt" is not null))
      order by f."updatedAt" desc, f."id"`,
-    [organizationId, userId],
+    [organizationId, userId, state],
   );
   return result.rows;
 }

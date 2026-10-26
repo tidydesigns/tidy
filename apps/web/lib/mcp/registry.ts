@@ -14,13 +14,19 @@ import {
   ensureEditorDocument,
   getDocument,
   getDocumentPage,
+  getArchivedEditorDocument,
   patchDocumentNode,
   patchDocumentNodes,
   putAsset,
   putImportChunk,
   validateImport,
 } from "@/lib/design/document-service";
-import { designNodeSchema } from "@/lib/design/document";
+import { designDocumentSchema, designNodeSchema } from "@/lib/design/document";
+import { registerContextTools } from "@/lib/mcp/context-tools";
+import { registerCommentTools } from "@/lib/mcp/comment-tools";
+import { registerFileTools } from "@/lib/mcp/file-tools";
+import { registerDocumentTools } from "@/lib/mcp/document-tools";
+import { registerVersionTools } from "@/lib/mcp/version-tools";
 import { registerImportTools } from "@/lib/mcp/import-tools";
 import { registerPluginTools } from "@/lib/mcp/plugin-tools";
 import { registerDesignTools } from "@/lib/mcp/design-tools";
@@ -50,6 +56,11 @@ function failure(message: string) {
 }
 
 export function registerTidyTools(server: McpServer, userId: string, activity: McpActivity) {
+  registerContextTools(server, userId);
+  registerCommentTools(server, userId);
+  registerFileTools(server, userId);
+  registerDocumentTools(server, userId);
+  registerVersionTools(server, userId);
   registerGitHubTools(server, userId);
   registerLinearTools(server, userId);
   registerImportTools(server, userId, undefined, activity);
@@ -99,11 +110,17 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     "list_files",
     {
       ...mcpToolPolicy("list_files"),
-      description: "List active design files in one of your Tidy organizations.",
-      inputSchema: mcpSchema("list_files", () => z.object({ organization_id: z.string().min(1) })),
+      description:
+        "List design files in one of your Tidy organizations. Defaults to active files; use state=archived or all to discover archived files before restoring or deleting them.",
+      inputSchema: mcpSchema("list_files", () =>
+        z.object({
+          organization_id: z.string().min(1),
+          state: z.enum(["active", "archived", "all"]).default("active"),
+        }),
+      ),
     },
-    async ({ organization_id }) =>
-      result({ files: await listDesignFiles(userId, organization_id) }),
+    async ({ organization_id, state }) =>
+      result({ files: await listDesignFiles(userId, organization_id, state) }),
   );
 
   server.registerTool(
@@ -112,12 +129,21 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       ...mcpToolPolicy("get_file"),
       description:
         "Read a design file, its frames, and its rectangles. Use this again to see changes made in the browser.",
-      inputSchema: mcpSchema("get_file", () => z.object({ file_id: z.string().min(1) })),
+      inputSchema: mcpSchema("get_file", () =>
+        z.object({ file_id: z.string().min(1), include_archived: z.boolean().default(false) }),
+      ),
     },
-    async ({ file_id }) => {
-      const file = await getDesignFile(userId, file_id);
+    async ({ file_id, include_archived }) => {
+      const file = await getDesignFile(userId, file_id, true, include_archived);
       return file
-        ? result({ file: { ...file, document: await getDocument(userId, file_id) } })
+        ? result({
+            file: {
+              ...file,
+              document: file.archivedAt
+                ? await getArchivedEditorDocument(userId, file_id)
+                : await getDocument(userId, file_id),
+            },
+          })
         : failure("File not found or access denied.");
     },
   );
@@ -193,10 +219,11 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("add_frames"),
       description:
-        "Draw 1 to 50 frames in a design file. Coordinates and sizes are canvas pixels. Frames appear in the browser canvas.",
+        "Draw 1 to 50 frames in a design file. Coordinates and sizes are canvas pixels. Use page_id to choose an existing page; omitted uses the first page. Frames appear in the browser canvas.",
       inputSchema: mcpSchema("add_frames", () =>
         z.object({
           file_id: z.string().min(1),
+          page_id: z.string().min(1).max(120).optional(),
           frames: z
             .array(
               z.object({
@@ -211,9 +238,11 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         }),
       ),
     },
-    async ({ file_id, frames }) => {
+    async ({ file_id, frames, page_id }) => {
       try {
-        return result({ frames: await appendBasicNodes(userId, file_id, "frame", frames) });
+        return result({
+          frames: await appendBasicNodes(userId, file_id, "frame", frames, page_id),
+        });
       } catch {
         return failure("Could not add frames. Check the file access and frame geometry.");
       }
@@ -225,10 +254,11 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("add_rectangles"),
       description:
-        "Draw 1 to 50 filled rectangles in a design file. Coordinates and sizes are canvas pixels. Rectangles appear in the browser canvas.",
+        "Draw 1 to 50 filled rectangles in a design file. Coordinates and sizes are canvas pixels. Use page_id to choose an existing page; omitted uses the first page. Rectangles appear in the browser canvas.",
       inputSchema: mcpSchema("add_rectangles", () =>
         z.object({
           file_id: z.string().min(1),
+          page_id: z.string().min(1).max(120).optional(),
           rectangles: z
             .array(
               z.object({
@@ -243,10 +273,10 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         }),
       ),
     },
-    async ({ file_id, rectangles }) => {
+    async ({ file_id, rectangles, page_id }) => {
       try {
         return result({
-          rectangles: await appendBasicNodes(userId, file_id, "rectangle", rectangles),
+          rectangles: await appendBasicNodes(userId, file_id, "rectangle", rectangles, page_id),
         });
       } catch {
         return failure("Could not add rectangles. Check the file access and rectangle geometry.");
@@ -337,6 +367,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
           import_id: z.string().uuid(),
           chunk_id: z.string().min(1).max(40),
           nodes: z.array(designNodeSchema).max(250),
+          pages: designDocumentSchema.shape.pages.removeDefault().optional(),
           source: z
             .object({
               project: z.string().max(120),
@@ -358,7 +389,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
         }),
       ),
     },
-    async ({ import_id, chunk_id, nodes, source, warnings, tokens, designTokens }) => {
+    async ({ import_id, chunk_id, nodes, source, warnings, tokens, designTokens, pages }) => {
       try {
         return result(
           await putImportChunk(
@@ -370,6 +401,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
             warnings,
             tokens,
             designTokens,
+            pages,
           ),
         );
       } catch (error) {

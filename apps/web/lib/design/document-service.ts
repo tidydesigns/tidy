@@ -276,6 +276,7 @@ export async function appendBasicNodes(
   fileId: string,
   kind: "frame" | "rectangle",
   boxes: (FrameInput | RectangleInput)[],
+  pageId?: string,
 ) {
   if (
     boxes.length < 1 ||
@@ -285,9 +286,12 @@ export async function appendBasicNodes(
     throw new PublicActionError("Provide 1–50 valid shapes.");
   }
   const current = await ensureEditorDocument(userId, fileId);
+  const targetPage = pageId ?? documentPages(current.content)[0].id;
+  if (!documentPages(current.content).some((page) => page.id === targetPage))
+    throw new PublicActionError("Page not found.");
   const added = boxes.map((box) => ({
     ...buildDrawnNode(randomUUID(), kind === "frame" ? "artboard" : "container", null, box),
-    pageId: current.content.pages?.[0].id ?? "page-1",
+    pageId: targetPage,
   }));
   const content = parseDesignDocument({
     ...current.content,
@@ -317,6 +321,33 @@ export async function createDocumentPage(
     pages: [...pages, page],
   });
   return { revision: saved.revision, page };
+}
+
+/** Shared app transforms with revision checks on both read and locked write. */
+export async function editDocumentStructure<T extends object>(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  transform: (document: DesignDocument) => { document: DesignDocument; result: T },
+) {
+  const current = await readEditorDocument(userId, fileId);
+  if (current.revision !== expectedRevision)
+    throw new PublicActionError("Document changed. Refresh before editing.");
+  let changed;
+  try {
+    changed = transform(current.content);
+    changed.document = trackDocumentChanges(current.content, changed.document);
+  } catch (error) {
+    if (error instanceof PublicActionError) throw error;
+    // Only pure document transforms run here; never expose infrastructure errors.
+    throw new PublicActionError(
+      error instanceof Error && error.name !== "ZodError"
+        ? error.message
+        : "Invalid document change. Check the layers and page limits.",
+    );
+  }
+  const saved = await replaceDocumentForHistory(userId, fileId, expectedRevision, changed.document);
+  return { ...changed.result, revision: saved.revision };
 }
 
 export async function replaceDocumentForHistory(
@@ -731,7 +762,9 @@ export async function commitImport(
       );
     }
     if (staging.fileId) requireImportSource(incoming);
-    const document = mergeImport(currentDocument, incoming, importId, resolution);
+    const document = mergeImport(currentDocument, incoming, importId, resolution, {
+      preservePages: Object.values(staging.chunks).some((chunk) => chunk.pages !== undefined),
+    });
     await verifyAssets(client, staging.organizationId, document);
     await client.query(
       `insert into "designDocument" ("fileId", "revision", "content") values ($1,$2,$3::jsonb)
@@ -1040,6 +1073,7 @@ export async function getDocumentPage(
   return {
     revision: row.revision,
     schemaVersion: metadata.schemaVersion,
+    pages: metadata.pages ?? [{ id: "page-1", name: "Page 1" }],
     source: metadata.source,
     tokens: metadata.tokens ?? {},
     designTokens: metadata.designTokens ?? {},

@@ -1,3 +1,5 @@
+import { EditorBridge, ownEditorSessions } from "./editor-bridge";
+import { editorExportRequestSchema, type EditorExportRequest } from "./protocol";
 import { acquireConnection, releaseConnection } from "./connection-budget";
 import { RealtimeMessageBudget, reserveRealtimeMessages } from "./message-budget";
 import { fileEventsQuery } from "./events";
@@ -30,6 +32,7 @@ type Attachment = {
   expiresAt: number;
   updatedAt: number;
   pageId: string;
+  viewport?: Peer["viewport"];
   cursor: Peer["cursor"];
   action: Peer["action"];
   away: boolean;
@@ -37,6 +40,7 @@ type Attachment = {
   count: number;
 };
 export class FileRoom extends DurableObject<CloudflareEnv> {
+  private editorBridge = new EditorBridge();
   private sequence = 0;
   private fileId: string | null = null;
   private syncing: Promise<void> | null = null;
@@ -64,6 +68,7 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
           this.participants.set(peer.sessionId, {
             ...peer,
             pageId: attachment.pageId,
+            viewport: attachment.viewport,
             cursor: attachment.cursor,
             action: attachment.action,
             away: attachment.away,
@@ -191,6 +196,8 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
       if (socket !== except) this.send(socket, message);
   }
   private remove(socket: WebSocket) {
+    const exportAttachment = socket.deserializeAttachment() as Attachment | null;
+    if (exportAttachment) this.editorBridge.disconnect(exportAttachment.sessionId);
     const attachment = socket.deserializeAttachment() as Attachment | null;
     const peer = attachment ? this.participants.get(attachment.sessionId) : undefined;
     if (attachment && peer)
@@ -217,6 +224,17 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     if (!attachment || !peer || attachment.expiresAt <= Date.now()) {
       this.remove(socket);
       return;
+    }
+    // Only a solicited export response may exceed the ordinary presence budget.
+    if (
+      typeof message === "string" &&
+      message.length > 24000 &&
+      message.length <= 3000000 &&
+      this.editorBridge.waiting(attachment.sessionId)
+    ) {
+      try {
+        if (this.editorBridge.receive(attachment.sessionId, JSON.parse(message))) return;
+      } catch {}
     }
     if (typeof message !== "string" || message.length > 24_000) {
       socket.close(1009, "Message too large");
@@ -249,6 +267,10 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     }
     try {
       const input = JSON.parse(message);
+      if (input.type === "export_result") {
+        this.editorBridge.receive(attachment.sessionId, input);
+        return;
+      }
       if (input.type === "ping") {
         if (peer.preview && peer.updatedAt < Date.now() - 5000) {
           peer.preview = null;
@@ -278,6 +300,7 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
       this.participants.set(peer.sessionId, next);
       Object.assign(attachment, {
         pageId: next.pageId,
+        viewport: next.viewport,
         cursor: next.cursor,
         action: next.action,
         away: next.away,
@@ -326,6 +349,38 @@ export class FileRoom extends DurableObject<CloudflareEnv> {
     this.broadcast({ type: "activity", activity: accepted });
     if ((await this.ctx.storage.getAlarm()) === null)
       await this.ctx.storage.setAlarm(Date.now() + 15_000);
+  }
+  async editorContext(fileId: string, userId: string) {
+    await this.sync(fileId);
+    const sessions = new Set(
+      this.ctx.getWebSockets().flatMap((socket) => {
+        const a = socket.deserializeAttachment() as Attachment | null;
+        return a && a.expiresAt > Date.now() ? [a.sessionId] : [];
+      }),
+    );
+    return ownEditorSessions(this.participants.values(), sessions, userId);
+  }
+  async exportSelection(
+    fileId: string,
+    userId: string,
+    input: EditorExportRequest,
+    sessionId?: string,
+  ) {
+    const request = editorExportRequestSchema.parse(input);
+    const contexts = await this.editorContext(fileId, userId);
+    const target = contexts.find(
+      (p) => p.pageId === request.pageId && (!sessionId || p.sessionId === sessionId),
+    );
+    if (!target) throw new Error("Open the target page in your Tidy editor before exporting.");
+    const socket = this.ctx
+      .getWebSockets()
+      .find(
+        (s) => (s.deserializeAttachment() as Attachment | null)?.sessionId === target.sessionId,
+      );
+    if (!socket) throw new Error("Editor disconnected. Open the file and try again.");
+    return this.editorBridge.request(target.sessionId, request, () =>
+      socket.send(JSON.stringify(request)),
+    );
   }
   async sync(fileId: string): Promise<void> {
     if (this.fileId && this.fileId !== fileId) throw new Error("Wrong file room.");

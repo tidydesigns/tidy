@@ -1,6 +1,12 @@
 import { MCP_REQUEST_LIMITS } from "@/lib/security/resource-limits";
 
 const readTools = new Set([
+  "list_comments",
+  "list_file_versions",
+  "get_file_version",
+  "get_editor_context",
+  "get_file_context",
+  "export_selection",
   "list_organizations",
   "list_files",
   "get_file",
