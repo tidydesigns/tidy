@@ -777,6 +777,7 @@ export const CanvasComments = forwardRef<
                 (submission) =>
                   submission.fileId === fileId &&
                   !submission.create &&
+                  (submission.kind !== "sent" || confirmedRead.version <= submission.ackVersion) &&
                   submission.thread.id === thread.id,
               )
               .flatMap((submission) => submission.thread.messages)
@@ -785,7 +786,7 @@ export const CanvasComments = forwardRef<
           );
           return { ...thread, replyCount: remote.replyCount + localReplies.size };
         }),
-    [threads, submissions, pageId, fileId],
+    [threads, submissions, pageId, fileId, confirmedRead.version],
   );
   const visibleThreads = pageThreads.filter((thread) => !thread.resolved);
   const listedThreads = pageThreads.filter((thread) => thread.resolved === (filter === "resolved"));
