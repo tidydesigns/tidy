@@ -1101,12 +1101,17 @@ export function App() {
     document.getElementById(`workspace-tab-${modes[next].id}`)?.focus();
   }
 
+  const selectedThreadLoaded =
+    thread?.status === "completed" &&
+    (selectedSummary?.messageCount === undefined ||
+      thread.messages.length === selectedSummary.messageCount);
   const renderThread = useCallback(
     (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
       <ThreadCard
         thread={item}
         orderControls={orderControls}
         selected={mode === "code" && !settingsOpen && selectedThreadId === item.id}
+        loaded={selectedThreadId === item.id && selectedThreadLoaded}
         now={now}
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
         onSelect={() => selectThread(project!.id, item.id)}
@@ -1122,6 +1127,7 @@ export function App() {
     ),
     [
       selectedThreadId,
+      selectedThreadLoaded,
       mode,
       settingsOpen,
       now,

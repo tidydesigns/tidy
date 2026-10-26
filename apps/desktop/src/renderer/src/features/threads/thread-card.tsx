@@ -10,6 +10,7 @@ import { ThreadPreview } from "./thread-preview";
 export function ThreadCard({
   thread,
   selected,
+  loaded,
   now,
   pending,
   onSelect,
@@ -21,6 +22,7 @@ export function ThreadCard({
 }: {
   thread: ThreadSummary;
   selected: boolean;
+  loaded: boolean;
   now: number;
   pending: boolean;
   onSelect(): void;
@@ -31,19 +33,23 @@ export function ThreadCard({
   orderControls?: ThreadOrderControls;
 }) {
   const working = thread.status === "running";
-  const completionKey = `${thread.updatedAt}:${thread.messageCount ?? 0}`;
+  const completionKey =
+    thread.messageCount === undefined ? thread.updatedAt : `messages:${thread.messageCount}`;
   const visitKey = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
   const [seenCompletion, setSeenCompletion] = useState<string | null>(() => {
     try {
-      return localStorage.getItem(visitKey);
+      const saved = localStorage.getItem(visitKey);
+      if (saved && /^\d{4}-/.test(saved) && thread.messageCount !== undefined)
+        return `messages:${saved.slice(saved.lastIndexOf(":") + 1)}`;
+      return saved;
     } catch {
       return null;
     }
   });
   useEffect(() => {
-    if (!selected || thread.status !== "completed") return;
+    if (!selected || !loaded || thread.status !== "completed") return;
     function markSeen() {
-      if (document.visibilityState !== "visible") return;
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
       setSeenCompletion(completionKey);
       try {
         localStorage.setItem(visitKey, completionKey);
@@ -51,8 +57,12 @@ export function ThreadCard({
     }
     markSeen();
     document.addEventListener("visibilitychange", markSeen);
-    return () => document.removeEventListener("visibilitychange", markSeen);
-  }, [selected, thread.status, completionKey, visitKey]);
+    window.addEventListener("focus", markSeen);
+    return () => {
+      document.removeEventListener("visibilitychange", markSeen);
+      window.removeEventListener("focus", markSeen);
+    };
+  }, [selected, loaded, thread.status, completionKey, visitKey]);
   const status = thread.doneAt
     ? "idle"
     : thread.pendingApprovalCount
@@ -71,7 +81,7 @@ export function ThreadCard({
         ? "Working"
         : status === "failed"
           ? "Failed"
-          : "New response";
+          : "Unread response";
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
