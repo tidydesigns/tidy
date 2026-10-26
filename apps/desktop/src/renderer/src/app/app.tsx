@@ -60,7 +60,7 @@ import type {
 
 const modes = [
   { id: "design", label: "Design" },
-  { id: "code", label: "Code" },
+  { id: "code", label: "Threads" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
 type Draft = {
@@ -1240,6 +1240,8 @@ export function App() {
                         {
                           value: `cloud:${target.organizationId}`,
                           label: cloud.error ? "Workspace unavailable" : "Opening workspace…",
+                          description: "Cloud",
+                          icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
                         },
                       ]
                     : []),
@@ -1248,12 +1250,14 @@ export function App() {
                     .map((o) => ({
                       value: `cloud:${o.id}`,
                       label: o.name,
-                      description: "Cloud workspace",
+                      description: "Cloud",
+                      icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
                     })) ?? []),
                   ...projects.map((item) => ({
                     value: item.id,
                     label: item.name,
-                    description: "On this computer",
+                    description: "Local",
+                    icon: <Icon name="computer" size={16} className="text-secondary-ink" />,
                   })),
                   { value: "open", label: "Open project…" },
                 ]}
@@ -1264,6 +1268,8 @@ export function App() {
                   else void chooseProject(value === "open" ? undefined : value);
                 }}
                 triggerClassName="project-trigger"
+                menuClassName="workspace-menu"
+                showSelectedIcon
               />
             )}
           </div>
@@ -1299,7 +1305,7 @@ export function App() {
                     <path d="m6 4-4 4 4 4m4-8 4 4-4 4" />
                   </svg>
                 )}
-                {location === "cloud" && item.id === "code" ? "Threads" : item.label}
+                {item.label}
               </Button>
             ))}
           </div>

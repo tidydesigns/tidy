@@ -10,7 +10,7 @@ Open a local directory as a project. Tidy restores the last opened project and
 keeps its design materials and engineering threads together. No cloud account or
 database is needed for project storage.
 
-The sidebar Design and Code tabs switch between separate workspace views, with
+The sidebar Design and Threads tabs switch between separate workspace views, with
 Design selected initially. Both views stay mounted while switching, and each project
 retains its selected thread, design and composer drafts during the app session.
 The tabs support arrow keys, Home and End.

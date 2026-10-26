@@ -248,7 +248,7 @@ summary:focus-visible {
 .project-trigger > svg {
   flex-shrink: 0;
 }
-.project-trigger > span {
+.project-trigger > span:not([aria-hidden="true"]) {
   min-width: 0;
   flex: 1;
   overflow: hidden;
@@ -258,6 +258,14 @@ summary:focus-visible {
 .project-picker {
   min-width: 0;
   width: 100%;
+}
+.workspace-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.workspace-menu [role="menuitemradio"] {
+  padding: 8px 10px;
 }
 .recent-projects {
   display: flex;

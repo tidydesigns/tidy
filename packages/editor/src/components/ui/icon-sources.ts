@@ -3,6 +3,8 @@ export const iconSources = {
   github: new URL("../../assets/icons/github.svg", import.meta.url).href,
   back: new URL("../../assets/icons/iconoir/arrow-left.svg", import.meta.url).href,
   folder: new URL("../../assets/icons/iconoir/folder.svg", import.meta.url).href,
+  cloud: new URL("../../assets/icons/iconoir/cloud.svg", import.meta.url).href,
+  computer: new URL("../../assets/icons/iconoir/computer.svg", import.meta.url).href,
   navFolder: new URL("../../assets/icons/iconoir/nav-folder.svg", import.meta.url).href,
   archive: new URL("../../assets/icons/iconoir/archive.svg", import.meta.url).href,
   vault: new URL("../../assets/icons/iconoir/safe.svg", import.meta.url).href,
