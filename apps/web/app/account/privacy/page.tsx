@@ -9,7 +9,6 @@ import { SignOutButton } from "@/app/sign-out-button";
 import { TidyLogo } from "@/components/ui/tidy-logo";
 import { AccountOrganizationOptions } from "./organization-options";
 import { PrivacyControls } from "./privacy-controls";
-import { DesktopAnalyticsControl } from "@/components/privacy/desktop-analytics-control";
 
 function activeInvitations(
   invitations: { id: string; organizationName?: string; expiresAt: Date }[] | null,
@@ -66,7 +65,6 @@ export default async function AccountPrivacyPage() {
         invitations={activeInvitations(invitations)}
       />
       <PrivacyControls email={account.user.email} />
-      {process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED === "1" && <DesktopAnalyticsControl />}
       <PrivacyChoicesButton />
     </main>
   );

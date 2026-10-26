@@ -1,14 +1,12 @@
 import { z } from "zod";
 import { privacyAccount, privacyFailure, privateHeaders } from "@/lib/privacy/access";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
-import { auth } from "@/lib/auth";
 import {
   analyticsStorageEnabled,
   analyticsEnabled,
   AnalyticsAccessError,
   linkAnalyticsAccount,
   unlinkAnalyticsAccount,
-  hasAnalyticsLink,
 } from "@/lib/analytics/store";
 async function handle(request: Request) {
   if (!analyticsStorageEnabled())
@@ -42,16 +40,3 @@ async function handle(request: Request) {
   }
 }
 export const POST = withRequestBodyLimit(handle, 1024);
-export async function GET(request: Request) {
-  if (!analyticsStorageEnabled())
-    return Response.json({ linked: false }, { headers: privateHeaders });
-  const session = await auth.api.getSession({
-    headers: request.headers,
-    query: { disableCookieCache: true },
-  });
-  if (!session) return new Response(null, { status: 401, headers: privateHeaders });
-  return Response.json(
-    { linked: await hasAnalyticsLink(session.user.id) },
-    { headers: privateHeaders },
-  );
-}

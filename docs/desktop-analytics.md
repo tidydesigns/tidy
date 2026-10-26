@@ -3,7 +3,8 @@
 Desktop remains usable without an account or optional reporting. This implementation
 adds a separate Privacy page in desktop Settings. Accept enables optional usage and
 diagnostics; Deny disables both. Choose separately exposes independent purpose
-switches, and Your data contains account linking, export and erasure. Both purposes
+switches and optional account linking. Report access and other privacy requests use
+the existing policy email contact, without requiring an account. Both purposes
 start off and expire after 90 days. The policy remains a first-layer link. Authentication and cloud sync do not enable them.
 
 ## What is available by default
@@ -16,7 +17,7 @@ not silently enable the optional usage/diagnostic choices when someone signs in.
 | -------------------------------------------------------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | Download totals                                          | Public GitHub DMG and ZIP counters, snapshotted daily                               | File requests including CI/retries; installer/update package types, not proof of install/update intent or completion       |
 | Cloud service health                                     | Server-side operation/outcome/latency counters for existing `/api/desktop` requests | Fixed 10% random sample; request estimates including unauthenticated requests/retries, not unique people or finished syncs |
-| Local errors                                             | At most 100 reviewed categories on the Mac                                          | No automatic upload; seven-day pruning while running; included in local report download                                    |
+| Local errors                                             | At most 100 reviewed categories on the Mac                                          | No automatic upload; seven-day pruning while running; available through support assistance                                 |
 | Retention, active versions, harness/design activity      | Optional usage consent                                                              | Only consenting installations; no population-wide adoption inference                                                       |
 | Uploaded errors, update outcomes and interaction timings | Separate diagnostic consent                                                         | Best-effort reports from consenting installations                                                                          |
 | Cross-surface user retention                             | Explicit account linking plus each surface's usage consent                          | Prospective linking only                                                                                                   |
@@ -141,7 +142,7 @@ it does not erase history or silently reset installation retention.
 Server ingestion serializes receipt changes and event writes, checks the current
 notice/revision/expiry and independently gates each purpose. Delivery IDs deduplicate
 retries. Rate limits and body limits apply before work is admitted. Guest receipts
-can export or erase their own records without account creation; oversized exports
+can authenticate backend export or erasure without account creation; oversized exports
 require operator assistance rather than silent truncation. Native exports include
 consent/revision/link timestamps and serialize on the receipt, with a one-minute
 cooldown before repeating a full export. Erasure remains independently available.
@@ -165,8 +166,8 @@ withdrawal and first-party ingestion share the existing consent lock. First-part
 account aliases never replace or silently merge legacy web PostHog identities.
 Signing out/switching desktop cloud accounts rotates a linked native reporting
 context. Desktop unlinking immediately rotates its reporting context, including
-when offline, and queues the previous receipt's reports for deletion. Unlinking
-through web account privacy controls deletes linked raw activity;
+when offline, and queues the previous receipt's reports for deletion. The backend account unlink operation, available to the existing verified privacy-request
+process, deletes linked raw activity;
 account deletion cascades through the private account mapping. Local projects remain
 untouched. Account and guest exports exclude receipt tokens and token hashes.
 
@@ -293,7 +294,7 @@ Before enabling collection, the controller must complete and retain:
 - A DPIA screening and, if indicated by the actual deployment and risk, a completed
   DPIA; an assessment of whether aggregate exports can be re-identified, including
   repeated snapshots. Keep aggregate export disabled until that review is complete.
-- An exercised account-free export/deletion process, account-linked unlink/delete
+- An exercised account-free email-request process, account-linked unlink/delete
   process and a support path for lost receipts/large exports. Keep rights and expiry
   maintenance available when disabling new collection.
 
@@ -304,3 +305,33 @@ legal certification. Consult the
 and [EDPB consent guidance](https://www.edpb.europa.eu/documents/guideline/guidelines-052020-on-consent-under-regulation-2016679_en).
 Production SQL, deployment and enabling these gates still require the operator's
 explicit approval under the repository instructions.
+
+## Minimal privacy interface and email requests
+
+Desktop Privacy contains Accept/Deny, Choose separately and the privacy-policy link.
+There are no report-download/delete controls or Your data panel. The web app retains
+its existing account-data export/deletion and cookie/optional-reporting preferences;
+there is no additional desktop-reports panel or link-status fetch on those pages.
+Account linking stays under the desktop's separate choices and still requires the
+existing browser confirmation. Desktop unlink remains available there.
+
+Deny stops optional collection immediately and queues the previous receipt's reports
+for deletion in the background. Expiry, account deletion, native receipt export and
+native receipt erasure endpoints remain in place. Removing the extra UI does not
+remove those protections or the ability to fulfil a privacy request.
+
+For email requests from an account-free installation, Choose separately displays a
+support lookup reference only after an optional reporting receipt exists (or its
+cleanup is pending). It is SHA-256 of the existing receipt token, matching the
+server's stored token hash; it is not a new tracking ID and is not accepted as a
+bearer credential. Essential-only first use generates no reference or reporting
+identity. Do not ask users to email their bearer token or private choices file.
+
+The reference locates the appropriate receipt for the operator; it does not by itself
+authorize disclosure or changes. Handle verification proportionately through the
+existing privacy-request process, using the existing authenticated native capabilities
+with support assistance when needed. Do not assume that the sender's email identifies
+unlinked records, require a new account, or put the reference/email into product
+analytics. If a receipt has been lost or its records have expired, explain what can
+and cannot be located. Live operator handling must be exercised before enabling
+collection, as with the existing web request process.

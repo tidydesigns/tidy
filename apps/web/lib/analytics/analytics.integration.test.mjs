@@ -5,6 +5,7 @@ mock.module("server-only", () => ({}));
 const { db } = await import("../db");
 const {
   nativeConsent,
+  analyticsHash,
   captureNative,
   eraseNative,
   createAnalyticsLink,
@@ -65,6 +66,12 @@ integration(
   "guest consent gates each purpose, deduplicates deliveries, exports no credentials and erases",
   async () => {
     const receipt = await nativeConsent("", { usage: true, diagnostics: false });
+    const reference = analyticsHash(receipt.token);
+    expect(
+      (await db.query('select id from "desktopAnalyticsConsent" where "tokenHash"=$1', [reference]))
+        .rowCount,
+    ).toBe(1);
+    await expect(nativeConsent(reference)).rejects.toThrow();
     const active = event("product_active_day");
     await captureNative(receipt.token, receipt.revision, [
       active,

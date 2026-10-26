@@ -15,7 +15,7 @@ test("privacy IPC is local-only, rejects child/unowned frames and broadcasts san
     const trusted=makeWindow(entry),foreign=makeWindow('https://evil.example/'),destroyed=makeWindow(entry,true);
     mock.module('electron',()=>({BrowserWindow:{getAllWindows:()=>[trusted,foreign,destroyed],fromWebContents:sender=>sender===trusted.webContents?trusted:undefined},ipcMain:{handle:(key,fn)=>handlers.set(key,fn)},dialog:{},shell:{}}));
     const {registerAnalyticsIPC}=await import('./src/main/ipc/ipc');
-    const state={usage:false,diagnostics:false,linked:false,available:true,pendingDeletion:false,expiresAt:null,notice:'2026-10-26.desktop-analytics-1'};
+    const state={usage:false,diagnostics:false,linked:false,available:true,pendingDeletion:false,reference:null,expiresAt:null,notice:'2026-10-26.desktop-analytics-1'};
     let emit,reads=0;
     registerAnalyticsIPC({subscribe:fn=>{emit=fn;return()=>{}},state:async()=>{reads++;return state},refresh:()=>{throw new Error('Local reads must not refresh the network')},choose:async choices=>({...state,...choices})},entry);
     const invoke=handlers.get('tidy:analytics');

@@ -89,11 +89,14 @@ test("essential-only creates no analytics identity, queue or network requests", 
   await Bun.sleep(300);
   expect(calls).toHaveLength(0);
   expect((await instance.state()).usage).toBe(false);
+  expect((await instance.state()).reference).toBeNull();
   expect(await Bun.file(join(directory, "choices.json")).exists()).toBe(false);
 });
 
 test("usage-only sends explicit content-free events and deduplicates active days", async () => {
   const { instance, calls } = await fixture();
+  const references: (string | null)[] = [];
+  instance.subscribe((state) => references.push(state.reference));
   await instance.choose({ usage: true, diagnostics: false });
   instance.active();
   instance.active();
@@ -107,6 +110,12 @@ test("usage-only sends explicit content-free events and deduplicates active days
   expect(events.some((value) => value.event.name === "harness_turn_started")).toBe(true);
   expect(events.some((value) => value.event.name === "desktop_error")).toBe(false);
   expect(JSON.stringify(events)).not.toContain("Bearer");
+  const reference = (await instance.state()).reference;
+  expect(reference).toMatch(/^[a-f0-9]{64}$/);
+  expect(references).toContain(reference);
+  expect(reference).not.toBe(
+    calls.find((call) => call.action === "events")!.authorization!.slice(7),
+  );
   expect(Object.keys(events[0]).sort()).toEqual([
     "arch",
     "at",

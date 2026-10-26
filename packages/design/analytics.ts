@@ -99,6 +99,10 @@ export const analyticsStateSchema = analyticsChoicesSchema
     expiresAt: z.iso.datetime().nullable(),
     linked: z.boolean(),
     pendingDeletion: z.boolean(),
+    reference: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/)
+      .nullable(),
   })
   .strict();
 export type AnalyticsState = z.infer<typeof analyticsStateSchema>;

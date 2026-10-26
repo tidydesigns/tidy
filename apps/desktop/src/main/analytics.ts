@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
   ANALYTICS_NOTICE,
@@ -154,7 +154,13 @@ export class DesktopAnalytics implements AnalyticsAPI {
       expiresAt: valid ? this.saved.expiresAt : null,
       linked: valid && Boolean(this.saved.receipt?.linked),
       pendingDeletion: this.saved.erase.length > 0,
+      reference: this.privacyReference(),
     };
+  }
+  /** A support lookup reference cannot authorize the bearer-receipt endpoints. */
+  private privacyReference() {
+    const token = this.saved.receipt?.token ?? this.saved.erase[0];
+    return token ? createHash("sha256").update(token).digest("hex") : null;
   }
   async state(): Promise<AnalyticsState> {
     return this.snapshot();
@@ -309,6 +315,7 @@ export class DesktopAnalytics implements AnalyticsAPI {
     }
     this.saved.receipt = { token, revision, expiresAt, linked };
     await this.persist();
+    this.notify();
     if (this.permitted("usage")) this.capture({ name: "desktop_first_seen" });
     return this.saved.receipt;
   }

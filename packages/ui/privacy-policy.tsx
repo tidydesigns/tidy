@@ -130,18 +130,17 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           filenames, paths, credentials or device fingerprints. Desktop has no session replay or
           click autocapture. A local log is limited to 100 reviewed error categories, pruned to the
           preceding seven days at startup and hourly while the app runs, and is not automatically
-          uploaded as a log file. Download my reports includes these local categories without
-          requiring an account or optional reporting; you choose whether to share the downloaded
-          file with support.
+          uploaded as a log file. You can contact us if you need help accessing these categories for
+          support; an account or optional reporting is not required.
         </p>
         <p>
           <strong>Link desktop and web usage — optional.</strong> After enabling desktop usage, you
-          can request account linking in Settings → Privacy and confirm it in your browser. Signing
-          in or authorizing cloud sync does not grant this permission. Linking applies to future
-          activity only. Web activity is included only with web usage consent. Tidy keeps the
-          account mapping privately; detailed desktop reports are not sent to PostHog and are not
-          merged with legacy web profiles or MCP troubleshooting identifiers. Remove linking from
-          desktop Privacy settings or your web account privacy controls.
+          can request account linking in Settings → Privacy → Choose separately and confirm it in
+          your browser. Signing in or authorizing cloud sync does not grant this permission. Linking
+          applies to future activity only. Web activity is included only with web usage consent.
+          Tidy keeps the account mapping privately; detailed desktop reports are not sent to PostHog
+          and are not merged with legacy web profiles or MCP troubleshooting identifiers. Remove
+          linking from desktop Privacy settings or contact us using the email below.
         </p>
         <p>
           Tidy stores detailed desktop and newly linked web product reports in its first-party
@@ -158,15 +157,18 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <p>
           Privacy choices expire after 90 days and changed purposes require a new choice. Use Accept
           or Deny in Settings → Privacy to enable or disable both purposes, or Choose separately to
-          change one. Your data contains linking, report download and deletion. Turning a purpose
-          off immediately stops its local collection; this version resets its reporting identity and
+          change one. Account linking remains a separate optional choice. Turning a purpose off
+          immediately stops its local collection; this version resets its reporting identity and
           removes the previous receipt&#39;s reports. Offline deletion waits for reconnection, while
           old server records remain subject to expiry. Desktop unlinking also resets its reporting
           context and queues that receipt's earlier usage and diagnostic reports for deletion;
           future optional reports remain unlinked. Pending deletion is shown in Privacy settings.
-          Account deletion removes linked reports. Account-free users can export or erase reports
-          using their private installation receipt; if it is lost, contact us, although we may be
-          unable to identify those records. These controls do not delete your local work.
+          Account deletion removes linked reports. For access, erasure or other privacy requests,
+          use the contact email below; you do not need an account. For an account-free installation,
+          we may ask for the privacy reference under Choose separately to locate its records and may
+          need to verify the request before releasing information. The reference does not grant
+          access to the app or its data. If the installation receipt is lost, we may be unable to
+          identify those records. These choices do not delete your local work.
         </p>
         <p>
           Hosting infrastructure processes connection information, including IP addresses, to

@@ -36,10 +36,7 @@ export function DesktopLink({ account }: { account: string | null }) {
     <main className="mx-auto max-w-lg space-y-5 px-6 py-16">
       <h1 className="text-xl font-medium">Link desktop and web usage</h1>
       {done ? (
-        <p>
-          Linked. Return to Tidy desktop. You can unlink in desktop Privacy settings or your account
-          privacy controls.
-        </p>
+        <p>Linked. Return to Tidy desktop. You can unlink in Privacy → Choose separately.</p>
       ) : (
         <>
           <p>

@@ -9,7 +9,6 @@ export function PrivacySettings() {
   const current = useRef(state);
   const [error, setError] = useState("");
   const [separate, setSeparate] = useState(false);
-  const [dataOpen, setDataOpen] = useState(false);
   const mutation = useRef(0);
   const pushed = useRef(0);
   useEffect(() => {
@@ -89,14 +88,13 @@ export function PrivacySettings() {
         [purpose]: !current.current[purpose],
       });
   }
-  async function action(kind: "link" | "unlink" | "erase") {
+  async function action(kind: "link" | "unlink") {
     const generation = ++mutation.current;
     setError("");
     if (kind !== "link" && current.current) {
       const next = {
         ...current.current,
         linked: false,
-        ...(kind === "erase" ? { usage: false, diagnostics: false } : {}),
       };
       current.current = next;
       setState(next);
@@ -113,25 +111,11 @@ export function PrivacySettings() {
         setError("Could not complete this action. Please retry.");
     }
   }
-  async function download() {
-    setError("");
-    try {
-      const text = await api!.reports();
-      const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = "tidy-privacy-reports.json";
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch {
-      setError("Could not download reports. Try again shortly or contact support.");
-    }
-  }
   const accepted = state?.usage && state.diagnostics;
   const denied = state && !state.usage && !state.diagnostics;
   return (
-    <section className="settings-privacy" aria-labelledby="privacy-reports-title">
-      <h2 id="privacy-reports-title">Optional reports</h2>
+    <section className="settings-privacy" aria-labelledby="privacy-analytics-title">
+      <h2 id="privacy-analytics-title">Analytics and diagnostics</h2>
       <p className="settings-privacy-intro">
         Usage statistics help improve features. Technical diagnostics help fix errors and slowdowns.
         Your designs, prompts and file paths are excluded.
@@ -206,6 +190,32 @@ export function PrivacySettings() {
             </Button>
           </div>
         ))}
+        {state?.usage && (
+          <div className="settings-privacy-row">
+            <div>
+              <h3>Link usage to your web account</h3>
+              <p>
+                {state.linked
+                  ? "Linked for future usage. You can unlink anytime."
+                  : "Optional. Confirm the account in your browser."}
+              </p>
+            </div>
+            <Button
+              className="settings-privacy-link"
+              onClick={() => {
+                void action(state.linked ? "unlink" : "link");
+              }}
+            >
+              {state.linked ? "Unlink" : "Link account…"}
+            </Button>
+          </div>
+        )}
+        {state?.reference && (
+          <p className="settings-privacy-reference">
+            Privacy reference for support
+            <code>{state.reference}</code>
+          </p>
+        )}
       </div>
       <p className="settings-privacy-policy">
         Off by default. No account needed.{" "}
@@ -218,59 +228,6 @@ export function PrivacySettings() {
           Privacy policy
         </Button>
       </p>
-      <div className="settings-privacy-data">
-        <Button
-          className="settings-privacy-disclosure"
-          aria-expanded={dataOpen}
-          aria-controls="privacy-data"
-          onClick={() => setDataOpen(!dataOpen)}
-        >
-          <span className="settings-disclosure-mark" aria-hidden="true">
-            {dataOpen ? "−" : "+"}
-          </span>
-          Your data
-        </Button>
-        <div id="privacy-data" hidden={!dataOpen}>
-          {state?.usage && (
-            <div className="settings-privacy-row">
-              <div>
-                <h3>Link usage to your web account</h3>
-                <p>
-                  {state.linked
-                    ? "Linked for future usage. You can unlink anytime."
-                    : "Optional. Confirm the account in your browser."}
-                </p>
-              </div>
-              <Button
-                className="settings-privacy-link"
-                onClick={() => {
-                  void action(state.linked ? "unlink" : "link");
-                }}
-              >
-                {state.linked ? "Unlink" : "Link account…"}
-              </Button>
-            </div>
-          )}
-          <div className="settings-privacy-data-actions">
-            <Button
-              className="settings-privacy-link"
-              onClick={() => {
-                void download();
-              }}
-            >
-              Download my reports
-            </Button>
-            <Button
-              className="settings-privacy-link settings-privacy-delete"
-              onClick={() => {
-                void action("erase");
-              }}
-            >
-              Delete reports and stop sharing
-            </Button>
-          </div>
-        </div>
-      </div>
       {state?.pendingDeletion && (
         <p className="settings-privacy-notice" role="status">
           Previous reports are queued for deletion and will retry when online.
