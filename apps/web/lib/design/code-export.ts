@@ -163,12 +163,16 @@ export function exportComponent(
       throw new Error(`Export asset ${id} is missing or unsupported.`);
     const path = `public/tidy-assets/${id}.${extensions[asset.mimeType]}`;
     assetPaths[id] = `/tidy-assets/${id}.${extensions[asset.mimeType]}`;
-    const content =
-      asset.mimeType === "image/svg+xml"
-        ? Buffer.from(
-            sanitizeSvgAsset(Buffer.from(asset.base64, "base64").toString("utf8")),
-          ).toString("base64")
-        : asset.base64;
+    let content = asset.base64;
+    if (asset.mimeType === "image/svg+xml") {
+      try {
+        content = Buffer.from(
+          sanitizeSvgAsset(Buffer.from(asset.base64, "base64").toString("utf8")),
+        ).toString("base64");
+      } catch {
+        throw new Error(`Export asset ${id} contains unsupported SVG content.`);
+      }
+    }
     return { path, encoding: "base64" as const, content };
   });
   const warnings = [

@@ -38,13 +38,16 @@ export function createRunnerHandler(options: RunnerOptions) {
   const secret = Buffer.from(`Bearer ${options.secret}`);
   function retire(owner: string, entry: Entry) {
     if (!entry.closing) {
-      // Retiring processes retain their capacity slot until exit is confirmed.
+      // Retiring processes retain their capacity slot until shutdown settles.
       entry.closing = Promise.resolve().then(async () => {
-        if (entry.app.stop) await entry.app.stop();
-        else entry.app.close();
-        if (accounts.get(owner) === entry) {
-          accounts.delete(owner);
-          logins.delete(owner);
+        try {
+          if (entry.app.stop) await entry.app.stop();
+          else entry.app.close();
+        } finally {
+          if (accounts.get(owner) === entry) {
+            accounts.delete(owner);
+            logins.delete(owner);
+          }
         }
       });
     }

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, mock, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { z } from "zod";
 import { staticObjectParser } from "./schema-object-parsers";
@@ -53,7 +53,8 @@ test("every emitted object layout preserves defaults, refinements, transformatio
     }
     z.config({ jitless: false, staticObjectParser: undefined });
     const original = z.object(shape);
-    z.config({ jitless: true, staticObjectParser });
+    const parserFactory = mock(staticObjectParser);
+    z.config({ jitless: true, staticObjectParser: parserFactory });
     const prebuilt = z.object(shape);
     expect(staticObjectParser(shape, prebuilt, z.config().memoizer)).toBeDefined();
     const complete = Object.fromEntries(keys.map(([key]) => [key, 2]));
@@ -62,6 +63,7 @@ test("every emitted object layout preserves defaults, refinements, transformatio
       for (const abortEarly of [false, true])
         expect(outcome(prebuilt, input, abortEarly)).toEqual(outcome(original, input, abortEarly));
     }
+    expect(parserFactory).toHaveBeenCalledWith(shape, prebuilt, z.config().memoizer);
   }
 });
 

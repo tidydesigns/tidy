@@ -138,12 +138,14 @@ function poolFixture(capacity = 2) {
   const runtimes: FixtureRuntime[] = [];
   class FixtureRuntime extends EventEmitter {
     stopped = false;
+    methods: string[] = [];
     startup: Promise<void> = Promise.resolve();
     stopping: Promise<void> = Promise.resolve();
     async start() {
       await this.startup;
     }
-    async request<T>(): Promise<T> {
+    async request<T>(method: string): Promise<T> {
+      this.methods.push(method);
       return { loginId: "fixture" } as T;
     }
     reject() {}
@@ -282,3 +284,37 @@ test("startup reservations count against capacity and failed starts are reclaime
     handler.close();
   }
 });
+
+test.each(["stop rejection", "close exception"])(
+  "failed retirement recovers the account, login state and capacity after %s",
+  async (failure) => {
+    const { handler, runtimes, request, advance } = poolFixture(1);
+    try {
+      expect((await request("a", "login")).status).toBe(200);
+      const failedRuntime = runtimes[0];
+      if (failure === "stop rejection") {
+        failedRuntime.stop = async () => {
+          throw new Error("fixture shutdown failure");
+        };
+      } else {
+        Object.defineProperty(failedRuntime, "stop", { value: undefined });
+        failedRuntime.close = () => {
+          throw new Error("fixture close failure");
+        };
+      }
+      advance(9 * 60_000);
+      await expect(handler.sweep()).rejects.toThrow("fixture");
+      expect((await request("a", "login")).status).toBe(200);
+      expect(runtimes).toHaveLength(2);
+      expect(runtimes[1].methods).toEqual(["account/logout", "account/login/start"]);
+      // A stale pending login would prevent this completed account from retiring.
+      runtimes[1].emit("notification", { method: "account/login/completed" });
+      advance(100);
+      await handler.sweep();
+      expect(runtimes[1].stopped).toBe(true);
+      expect((await request("b", "account")).status).toBe(200);
+    } finally {
+      handler.close();
+    }
+  },
+);

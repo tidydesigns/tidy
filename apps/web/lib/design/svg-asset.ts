@@ -1,4 +1,4 @@
-import { DOMImplementation, DOMParser, XMLSerializer } from "@xmldom/xmldom";
+import { DOMParser } from "@xmldom/xmldom";
 import { PublicActionError } from "../security/public-error";
 
 const svgNamespace = "http://www.w3.org/2000/svg";
@@ -45,6 +45,19 @@ function safeValue(value: string) {
   if (/url\s*\(/i.test(rest)) invalid();
 }
 
+// Encode decoded XML values at the output boundary, including whitespace that
+// would otherwise change during attribute normalization on a subsequent parse.
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/\t/g, "&#9;")
+    .replace(/\n/g, "&#10;")
+    .replace(/\r/g, "&#13;");
+}
+
 /** Normalize static image content identically at ingestion and export. */
 export function sanitizeSvgAsset(source: string): string {
   if (!source || source.length > 2_000_000 || /<!DOCTYPE|<!ENTITY/i.test(source)) invalid();
@@ -59,9 +72,9 @@ export function sanitizeSvgAsset(source: string): string {
     if (node.nodeType === 7 && node.nodeName === "xml") continue;
     invalid();
   }
-  const output = new DOMImplementation().createDocument(svgNamespace, "svg", null);
+  const output: string[] = [];
   let count = 0;
-  const copy = (input: Element, target: Element, depth: number) => {
+  const copy = (input: Element, depth: number) => {
     if (
       ++count > 50_000 ||
       depth > 128 ||
@@ -69,6 +82,9 @@ export function sanitizeSvgAsset(source: string): string {
       !elements.has(input.localName)
     )
       invalid();
+    output.push(`<${input.localName}`);
+    const normalizedAttributes = new Map<string, string>();
+    if (depth === 0) normalizedAttributes.set("xmlns", svgNamespace);
     if (input.localName === "style") safeValue(input.textContent ?? "");
     for (let i = 0; i < input.attributes.length; i++) {
       const attribute = input.attributes.item(i)!;
@@ -78,7 +94,7 @@ export function sanitizeSvgAsset(source: string): string {
         attribute.namespaceURI === "http://www.w3.org/XML/1998/namespace" &&
         ["space", "lang"].includes(name)
       ) {
-        target.setAttributeNS(attribute.namespaceURI, `xml:${name}`, attribute.value);
+        normalizedAttributes.set(`xml:${name}`, attribute.value);
         continue;
       }
       if (
@@ -86,26 +102,28 @@ export function sanitizeSvgAsset(source: string): string {
         (!attribute.namespaceURI || attribute.namespaceURI === xlinkNamespace)
       ) {
         if (!fragment.test(attribute.value)) invalid();
-        target.setAttribute("href", attribute.value);
+        normalizedAttributes.set("href", attribute.value);
         continue;
       }
       if (attribute.namespaceURI || !attributes.has(name)) invalid();
       safeValue(attribute.value);
-      target.setAttribute(name, attribute.value);
+      normalizedAttributes.set(name, attribute.value);
     }
+    for (const [name, value] of normalizedAttributes) output.push(` ${name}="${escapeXml(value)}"`);
+    const contentStart = output.length;
+    output.push(">");
     for (let child = input.firstChild; child; child = child.nextSibling) {
       if (child.nodeType === 1) {
-        const element = child as Element;
-        const next = output.createElementNS(svgNamespace, element.localName);
-        target.appendChild(next);
-        copy(element, next, depth + 1);
+        copy(child as Element, depth + 1);
       } else if (child.nodeType === 3 || child.nodeType === 4) {
-        target.appendChild(output.createTextNode(child.nodeValue ?? ""));
+        output.push(escapeXml(child.nodeValue ?? ""));
       } else if (child.nodeType !== 8) invalid();
     }
+    if (output.length === contentStart + 1) output[contentStart] = "/>";
+    else output.push(`</${input.localName}>`);
   };
-  copy(root, output.documentElement, 0);
-  const serialized = new XMLSerializer().serializeToString(output);
+  copy(root, 0);
+  const serialized = output.join("");
   if (new TextEncoder().encode(serialized).length > 2_000_000) invalid();
   return serialized;
 }

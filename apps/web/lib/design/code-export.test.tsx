@@ -129,7 +129,18 @@ test("exports only selected asset bytes and strips source paths and history", ()
         ).toString("base64"),
       },
     ]),
-  ).toThrow("unsupported content");
+  ).toThrow(`Export asset ${id} contains unsupported SVG content.`);
+  expect(() =>
+    exportComponent(content, "new-thread", "NewThread", [
+      {
+        id,
+        mimeType: "image/svg+xml",
+        base64: Buffer.from("<svg><metadata>Legacy editor metadata</metadata></svg>").toString(
+          "base64",
+        ),
+      },
+    ]),
+  ).toThrow(`Export asset ${id} contains unsupported SVG content.`);
   expect(() => exportComponent(content, "new-thread", "NewThread")).toThrow("missing");
   expect(() => exportComponent(content, "new-thread", "bad-name")).toThrow("PascalCase");
 });

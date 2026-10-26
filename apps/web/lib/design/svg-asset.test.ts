@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { DOMParser } from "@xmldom/xmldom";
 import { sanitizeSvgAsset } from "./svg-asset";
 
 const namespace = "http://www.w3.org/2000/svg";
@@ -46,4 +47,39 @@ test("SVG text and metadata cannot become markup during serialization", () => {
   );
   expect(output).toContain("&lt;script&gt;literal&lt;/script&gt;");
   expect(output).not.toContain("<!--");
+});
+
+test("decoded SVG attributes and text retain literal markup after serialization", () => {
+  const literal = '<script title="quoted">A & B</script>';
+  const source = `<svg aria-label="&lt;script title=&quot;quoted&quot;&gt;A &amp; B&lt;/script&gt;">
+    <text><![CDATA[${literal}]]></text>
+    <style><![CDATA[text::after{content:"<svg onload='alert(1)'>"}]]></style>
+  </svg>`;
+  const output = sanitizeSvgAsset(source);
+  expect(output).not.toContain("<script");
+  expect(output).not.toContain("<svg onload");
+  const parsed = new DOMParser().parseFromString(output, "image/svg+xml");
+  expect(parsed.documentElement.getAttribute("aria-label")).toBe(literal);
+  expect(parsed.getElementsByTagName("text")[0].textContent).toBe(literal);
+  expect(parsed.getElementsByTagName("style")[0].textContent).toBe(
+    `text::after{content:"<svg onload='alert(1)'>"}`,
+  );
+  expect(parsed.getElementsByTagName("script").length).toBe(0);
+  expect(sanitizeSvgAsset(output)).toBe(output);
+});
+
+test("SVG attribute escaping preserves entity-encoded whitespace and delimiters", () => {
+  const output = sanitizeSvgAsset('<svg aria-label="&quot;&amp;&lt;&gt;&#9;&#10;&#13;"/>');
+  const parsed = new DOMParser().parseFromString(output, "image/svg+xml");
+  expect(parsed.documentElement.getAttribute("aria-label")).toBe('"&<>\t\n\r');
+  expect(sanitizeSvgAsset(output)).toBe(output);
+});
+
+test("normalization deduplicates local reference aliases and omits empty comments", () => {
+  const source =
+    '<svg xmlns:xlink="http://www.w3.org/1999/xlink"><use href="#a" xlink:href="#b"/><!-- ignored --></svg>';
+  const output = sanitizeSvgAsset(source);
+  expect(output).toContain('<use href="#b"/>');
+  expect(sanitizeSvgAsset(output)).toBe(output);
+  expect(sanitizeSvgAsset("<svg><!-- ignored --></svg>")).toBe(sanitizeSvgAsset("<svg/>"));
 });
