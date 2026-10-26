@@ -1226,14 +1226,14 @@ export function App() {
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
       <aside
         id="desktop-navigation"
-        className="desktop-navigation"
+        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface)"
         aria-label="Project workspace"
         hidden={settingsOpen}
       >
-        <header className="workspace-header">
-          <div className="workspace-project-row">
+        <header className="workspace-header flex shrink-0 flex-col gap-1.5 px-1 pt-1 pb-2">
+          <div className="workspace-project-row flex items-center gap-1.5">
             <SidebarToggle />
-            <div className="project-picker" title={project?.name}>
+            <div className="project-picker min-w-0 w-full flex-1" title={project?.name}>
               {(project || cloud.account) && (
                 <SelectMenu
                   value={
@@ -1274,7 +1274,7 @@ export function App() {
                     if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
-                  triggerClassName="project-trigger"
+                  triggerClassName="project-trigger flex min-h-[34px] w-full min-w-0 max-w-full cursor-pointer items-center gap-3 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>span]:min-w-0 [&>span]:flex-1 [&>span]:truncate"
                   menuClassName="workspace-menu"
                   showSelectedIcon
                 />
@@ -1282,8 +1282,8 @@ export function App() {
             </div>
           </div>
           {project && (
-            <div className="workspace-thread-actions">
-              <label className="workspace-thread-search">
+            <div className="workspace-thread-actions flex items-center gap-1.5 px-1 py-0.5">
+              <label className="workspace-thread-search flex h-8 min-w-0 flex-1 items-center gap-[7px] rounded-md border border-border bg-panel px-2 text-muted-ink focus-within:outline-2 focus-within:outline-offset-1 focus-within:outline-control-border [&>svg]:shrink-0">
                 <svg
                   aria-hidden="true"
                   width="14"
@@ -1299,6 +1299,7 @@ export function App() {
                 </svg>
                 <input
                   type="search"
+                  className="w-full min-w-0 border-0 bg-transparent p-0 text-xs leading-5 text-ink outline-none placeholder:text-muted-ink focus-visible:outline-none"
                   aria-label="Search threads"
                   placeholder="Search threads"
                   value={threadQueries[project.id] ?? ""}
@@ -1315,7 +1316,7 @@ export function App() {
                 />
               </label>
               <Button
-                className="sidebar-new-thread"
+                className="sidebar-new-thread grid size-8 shrink-0 cursor-pointer place-items-center rounded-md border border-transparent bg-transparent p-0 text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ink"
                 aria-label="New thread"
                 title="New thread"
                 onClick={() => {
@@ -1348,10 +1349,14 @@ export function App() {
             role="tablist"
             aria-label="Workspace"
             aria-orientation="vertical"
-            className="workspace-tabs"
+            className="workspace-tabs flex w-full flex-col gap-1"
           >
             {modes.map((item, index) => (
-              <div className="workspace-destination" key={item.id} data-active={mode === item.id}>
+              <div
+                className="workspace-destination flex items-center rounded-md data-[active=true]:bg-subtle-fill"
+                key={item.id}
+                data-active={mode === item.id}
+              >
                 <Button
                   id={`workspace-tab-${item.id}`}
                   type="button"
@@ -1359,7 +1364,7 @@ export function App() {
                   aria-selected={mode === item.id}
                   aria-controls={`workspace-panel-${item.id}`}
                   tabIndex={mode === item.id ? 0 : -1}
-                  className="workspace-tab"
+                  className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink aria-selected:bg-subtle-fill aria-selected:text-ink aria-selected:hover:bg-subtle-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
                   onClick={() => setMode(item.id)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
                 >
@@ -1367,7 +1372,7 @@ export function App() {
                     <Icon name="frame" size={14} />
                   ) : (
                     <svg
-                      className="code-mode-icon"
+                      className="code-mode-icon shrink-0"
                       aria-hidden="true"
                       width="14"
                       height="14"
@@ -1389,7 +1394,10 @@ export function App() {
         </header>
         {project && snapshot && (
           <>
-            <div className="sidebar-mode-content" hidden={mode !== "code"}>
+            <div
+              className="sidebar-mode-content flex min-h-0 flex-1 [&[hidden]]:hidden"
+              hidden={mode !== "code"}
+            >
               <ThreadSidebar
                 key={project.id}
                 projectId={project.id}
@@ -1559,9 +1567,13 @@ export function App() {
                 className="project-workspace"
               >
                 <div className="thread-workspace">
-                  <div className={`thread-heading${thread ? " thread-heading-active" : ""}`}>
-                    <div className="content-heading">
-                      <h1>
+                  <div
+                    className={`thread-heading flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}
+                  >
+                    <div
+                      className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "max-[700px]:basis-full" : ""}`}
+                    >
+                      <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
                         {thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}
                       </h1>
                       {thread?.doneAt && (
@@ -1575,7 +1587,7 @@ export function App() {
                       )}
                     </div>
                     {thread && (
-                      <div className="thread-context">
+                      <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
                           repository={repository}
                           execution={executionContext}
@@ -1684,7 +1696,7 @@ export function App() {
                         pending={Boolean(switchingBranch)}
                       />
                     </div>
-                    <div className="composer-body">
+                    <div className="composer-body relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
                       <AttachmentList
                         files={draft.attachments ?? []}
                         onRemove={
@@ -1721,6 +1733,7 @@ export function App() {
                         Message
                       </label>
                       <SkillPrompt
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-2.5 py-2 text-sm leading-[1.5] text-ink [field-sizing:content] min-h-[calc(2lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}

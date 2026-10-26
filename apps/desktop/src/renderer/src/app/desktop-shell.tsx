@@ -16,7 +16,7 @@ export function SidebarToggle() {
   return (
     <Button
       type="button"
-      className="desktop-sidebar-toggle"
+      className="desktop-sidebar-toggle grid size-[30px] shrink-0 cursor-pointer place-items-center rounded-[5px] border border-transparent bg-transparent p-0 text-muted-ink [app-region:no-drag] hover:border-border hover:bg-hover-surface hover:text-ink active:scale-[0.97] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
       aria-label={label}
       title={label}
       aria-expanded={visible}
@@ -71,11 +71,11 @@ export function DesktopShell({
     >
       <div
         ref={shell}
-        className={`desktop ${sidebarVisible ? "" : "desktop-sidebar-hidden"} ${canvasFocused ? "desktop-canvas-focused" : ""}`}
+        className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${sidebarVisible ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""}`}
       >
-        <header className="desktop-titlebar" />
+        <header className="desktop-titlebar hidden" />
         {!sidebarVisible && !canvasFocused && !settingsOpen && (
-          <div className="desktop-sidebar-reopen">
+          <div className="desktop-sidebar-reopen absolute top-[calc(var(--desktop-titlebar-height)_+_6px)] left-1 z-[3]">
             <SidebarToggle />
           </div>
         )}

@@ -30,7 +30,10 @@ export function ComposerContext({
 }) {
   const references = designs.filter((design) => selected.includes(design.id));
   return (
-    <div className="composer-context" data-ph-private>
+    <div
+      className="composer-context flex min-w-0 items-center gap-2 max-[700px]:gap-[3px]"
+      data-ph-private
+    >
       {onReferencesChange ? (
         <SelectMenu
           label="Design references"
@@ -83,7 +86,10 @@ export function ComposerContext({
           menuClassName="compact-composer-menu"
         />
       )}
-      <span className="context-machine" title={repository?.machine}>
+      <span
+        className="context-machine ml-auto [&>span]:max-w-[135px] max-[700px]:[&>span]:max-w-[85px]"
+        title={repository?.machine}
+      >
         <ComposerIcon name="machine" />
         <span>{repository?.machine ?? "This machine"}</span>
       </span>
@@ -93,7 +99,7 @@ export function ComposerContext({
         disabled={disabled || branchDisabled || pending || !repository?.repository}
         placement="top"
         align="end"
-        triggerClassName="context-trigger branch-trigger"
+        triggerClassName="context-trigger branch-trigger max-w-[175px] max-[700px]:max-w-[115px]"
         triggerContent={
           <>
             <ComposerIcon name="branch" />

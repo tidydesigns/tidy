@@ -1,8 +1,3 @@
-.thread-harness {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-}
 .thread-preview {
   position: fixed;
   inset: auto;

@@ -1,10 +1,3 @@
-.model-provider-icon {
-  display: inline-block;
-  flex-shrink: 0;
-  width: 15px;
-  height: 15px;
-  background: currentColor;
-}
 .composer {
   padding: 0;
   border: 0;
@@ -13,17 +6,6 @@
 }
 .composer-new {
   margin-top: 58px;
-}
-.composer-body {
-  position: relative;
-  z-index: 1;
-  padding: 12px;
-  border: 1px solid var(--color-border);
-  border-radius: 16px;
-  background: var(--desktop-composer-surface);
-}
-.composer-body:focus-within {
-  border-color: var(--color-control-border);
 }
 .composer-lip {
   position: absolute;
@@ -39,12 +21,6 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-}
-.composer-context {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
 }
 .context-trigger,
 .context-machine,
@@ -87,31 +63,10 @@
   width: 15px;
   height: 15px;
 }
-.context-machine {
-  margin-left: auto;
-}
 .context-machine > span {
-  max-width: 135px;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.branch-trigger {
-  max-width: 175px;
-}
-.thread-heading {
-  display: flex;
-  flex-shrink: 0;
-  align-items: center;
-  gap: 24px;
-  min-height: 42px;
-  padding: 4px 20px;
-}
-.thread-heading > .content-heading {
-  flex: 1;
-  min-width: 0;
-  min-height: 34px;
-  padding: 0;
 }
 :root[data-titlebar="hidden"] .thread-heading {
   position: relative;
@@ -121,42 +76,6 @@
 }
 .thread-heading button {
   app-region: no-drag;
-}
-.thread-context {
-  flex-shrink: 0;
-  max-width: 390px;
-  min-width: 0;
-}
-.thread-context .composer-context {
-  justify-content: flex-end;
-  gap: 16px;
-}
-.thread-context .thread-references,
-.thread-context .context-machine {
-  margin: 0;
-}
-.thread-context .thread-references {
-  white-space: nowrap;
-}
-.thread-context .context-machine > span {
-  max-width: 100px;
-}
-.thread-context .branch-trigger {
-  max-width: 150px;
-}
-@media (max-width: 700px) {
-  .thread-heading-active {
-    flex-wrap: wrap;
-    gap: 4px;
-    padding-block: 4px 8px;
-  }
-  .thread-heading-active > .content-heading {
-    flex-basis: 100%;
-  }
-  .thread-context {
-    max-width: 100%;
-    margin-left: auto;
-  }
 }
 .composer .harness-setting-trigger {
   min-height: 30px;
@@ -376,22 +295,10 @@
     font-size: 11px;
     gap: 5px;
   }
-  .context-machine > span {
-    max-width: 85px;
-  }
-  .branch-trigger {
-    max-width: 115px;
-  }
-  .composer-context {
-    gap: 3px;
-  }
   .composer-lip {
     left: 8px;
     right: 8px;
     padding-inline: 6px;
-  }
-  .composer-body {
-    padding: 10px;
   }
   .composer .harness-setting-trigger {
     font-size: 11px;
@@ -402,9 +309,6 @@
   .composer-lip,
   .composer-active .composer-lip {
     transition: none;
-  }
-  .thread-context {
-    animation: none;
   }
 }
 

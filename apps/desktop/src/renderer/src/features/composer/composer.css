@@ -9,30 +9,8 @@
   border-radius: 16px;
   background: var(--desktop-composer-surface);
 }
-.composer textarea {
-  display: block;
-  resize: none;
-  field-sizing: content;
-  width: 100%;
-  min-height: calc(2lh + 16px);
-  max-height: min(200px, 40dvh);
-  overflow-y: auto;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 14px;
-  line-height: 1.5;
-}
-.composer textarea:focus {
-  outline: none;
-}
 .composer:focus-within {
   border-color: var(--color-muted-ink);
-}
-.composer textarea::placeholder {
-  color: var(--color-muted-ink);
 }
 .composer-actions {
   display: flex;

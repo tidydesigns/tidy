@@ -1,26 +1,4 @@
-.desktop {
-  --desktop-titlebar-height: 0px;
-  position: relative;
-  display: grid;
-  grid-template-columns: var(--project-sidebar-width) minmax(0, 1fr);
-  grid-template-rows: auto minmax(0, 1fr);
-  height: 100dvh;
-  overflow: hidden;
-}
-.desktop-navigation {
-  grid-column: 1;
-  grid-row: 1 / -1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  border-right: 1px solid var(--color-border);
-  background: var(--desktop-navigation-surface);
-}
 .desktop-sidebar-hidden > .desktop-navigation {
-  display: none;
-}
-.desktop-titlebar {
   display: none;
 }
 
@@ -68,31 +46,6 @@
 }
 :root[data-titlebar="hidden"][data-window-fullscreen] .desktop-canvas-focused {
   --desktop-titlebar-height: 0px;
-}
-.desktop-sidebar-toggle {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--color-muted-ink);
-  cursor: pointer;
-  app-region: no-drag;
-}
-.desktop-sidebar-toggle:hover {
-  background: var(--color-hover-surface);
-  border-color: var(--color-border);
-  color: var(--color-ink);
-}
-.desktop-sidebar-toggle:active {
-  transform: scale(0.97);
-}
-.desktop-sidebar-toggle:focus-visible {
-  outline: 2px solid var(--color-muted-ink);
-  outline-offset: 2px;
 }
 
 .sidebar-update {

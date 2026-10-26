@@ -35,7 +35,6 @@
 }
 @media (hover: hover) {
   .quiet-button:hover,
-  .project-trigger:hover,
   .recent-project:hover,
   .reference-option:hover {
     background: var(--color-hover-surface);

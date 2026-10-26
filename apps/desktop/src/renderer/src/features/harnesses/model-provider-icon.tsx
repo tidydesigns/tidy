@@ -6,7 +6,7 @@ export function ModelProviderIcon({ harness }: { harness: HarnessId }) {
   return harness === "codex" ? (
     <span
       aria-hidden="true"
-      className="model-provider-icon"
+      className="model-provider-icon inline-block size-[15px] shrink-0 bg-current"
       style={{ mask: `url("${openaiIcon}") center / contain no-repeat` }}
     />
   ) : (

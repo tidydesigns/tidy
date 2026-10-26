@@ -113,7 +113,7 @@ export function ThreadCard({
   return (
     <div
       ref={root}
-      className={`sidebar-item thread-item can-change-status ${selected ? "selected" : ""}`}
+      className={`thread-item can-change-status relative mb-[3px] block w-full cursor-pointer overflow-hidden rounded-md border border-transparent p-0 text-left text-[13px] leading-[1.5] text-ellipsis whitespace-nowrap text-ink hover:border-border ${selected ? "selected bg-subtle-fill hover:bg-subtle-fill" : "bg-transparent hover:bg-hover-surface"}`}
       data-quiet={status === "idle" && !selected ? "true" : undefined}
       onPointerDown={(event) => {
         close();
@@ -133,7 +133,7 @@ export function ThreadCard({
       }}
     >
       <Button
-        className="thread-select"
+        className="thread-select flex w-full cursor-pointer flex-col gap-1 rounded-[inherit] border-0 bg-transparent p-2.5 text-left text-[13px] leading-5 text-inherit"
         aria-keyshortcuts={orderControls ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onKeyDown={(event) => {
           if (
@@ -155,28 +155,34 @@ export function ThreadCard({
           onSelect();
         }}
       >
-        <span className="thread-title">{thread.title}</span>
-        <span className="thread-harness">
+        <span
+          className={`thread-title block w-full truncate text-sm leading-5 font-medium ${thread.doneAt ? "pr-16" : "pr-12"} ${status === "idle" && !selected ? "text-[light-dark(#424242,#d4d4d4)]" : ""}`}
+        >
+          {thread.title}
+        </span>
+        <span
+          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-[13px] [&>svg]:size-[13px] [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
+        >
           <ModelProviderIcon harness={thread.harness} />
           <span
-            className="thread-provider-name"
+            className="thread-provider-name shrink-0"
             title={thread.harness === "codex" ? "Codex" : "Claude Code"}
           >
             {thread.harness === "codex" ? "Codex" : "Claude"}
           </span>
           {projectName && (
             <>
-              <span className="thread-project-separator" aria-hidden="true">
+              <span className="thread-project-separator shrink-0" aria-hidden="true">
                 ·
               </span>
-              <span className="thread-project" title={projectName}>
+              <span className="thread-project min-w-5 text-secondary-ink" title={projectName}>
                 {projectName}
               </span>
             </>
           )}
         </span>
         <time
-          className="thread-time"
+          className="thread-time absolute top-2.5 right-2.5 text-[11px] leading-5 text-muted-ink tabular-nums"
           dateTime={thread.updatedAt}
           title={new Date(thread.updatedAt).toLocaleString()}
         >
@@ -185,7 +191,7 @@ export function ThreadCard({
       </Button>
       {status !== "idle" && (
         <span
-          className={`thread-card-status thread-state-${status}`}
+          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2.5 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
           role="status"
           aria-label={statusLabel}
           title={statusLabel}
@@ -210,7 +216,7 @@ export function ThreadCard({
         </span>
       )}
       <Button
-        className={`thread-done ${thread.doneAt ? "thread-reopen" : ""}`}
+        className={`thread-done absolute top-[7px] right-1.5 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:bg-hover-surface hover:text-ink ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}
         onFocus={close}
         aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
