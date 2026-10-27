@@ -15,6 +15,7 @@
     "typecheck": "tsrs --noEmit -p tsconfig.node.json && tsrs --noEmit -p tsconfig.renderer.json && tsrs --noEmit -p tsconfig.test.json",
     "lint": "eslint .",
     "test": "bun test src",
+    "test:threads": "bun run build && bun scripts/thread-loading-smoke.ts",
     "test:security": "env -u ELECTRON_RUN_AS_NODE electron scripts/security-smoke.mjs && env -u ELECTRON_RUN_AS_NODE electron scripts/update-lifecycle-smoke.mjs",
     "postinstall": "install-electron",
     "dev:browser": "node --import tsx scripts/dev-browser.ts",

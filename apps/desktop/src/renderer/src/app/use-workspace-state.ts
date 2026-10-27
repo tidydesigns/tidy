@@ -18,7 +18,7 @@ export function useWorkspaceState({
   navigation,
   onError,
 }: {
-  api: DesktopAPI | undefined;
+  api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
 }) {

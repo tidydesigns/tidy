@@ -61,3 +61,41 @@ test("conversation retention bounds message count and text while always keeping 
     "large",
   ]);
 });
+
+test("message budgets admit the exact limit and evict history when the active thread grows", () => {
+  const threads = {
+    active: thread({ id: "active", count: 600 }),
+    history: thread({ id: "history", count: 400 }),
+  };
+  const recent = ["active", "history"];
+  expect(retainConversations({ recent, selected: "active", threads })).toEqual(recent);
+  expect(
+    retainConversations({
+      recent,
+      selected: "active",
+      threads: { ...threads, active: thread({ id: "active", count: 601 }) },
+    }),
+  ).toEqual(["active"]);
+});
+
+test("text budgets account for the combined conversations and admit the exact limit", () => {
+  const threads = {
+    active: thread({ id: "active", count: 1, text: "x".repeat(1_000_000) }),
+    history: thread({ id: "history", count: 1, text: "y".repeat(1_000_000) }),
+  };
+  const recent = ["history"];
+  expect(retainConversations({ recent, selected: "active", threads })).toEqual([
+    "active",
+    "history",
+  ]);
+  expect(
+    retainConversations({
+      recent,
+      selected: "active",
+      threads: {
+        ...threads,
+        active: thread({ id: "active", count: 2, text: "x".repeat(500_001) }),
+      },
+    }),
+  ).toEqual(["active"]);
+});

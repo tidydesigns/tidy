@@ -1,0 +1,456 @@
+import { useRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { flushSync } from "react-dom";
+import type {
+  DesktopAPI,
+  DesktopEvent,
+  ProjectSnapshot,
+  Thread,
+} from "../../../../shared/contracts/desktop";
+import type { ToolActivity } from "../../../../shared/contracts/tool-activity";
+import { summarizeThread } from "../../../../shared/models/thread-updates";
+import { Conversations } from "../../features/threads/conversations";
+import { ToolActivityGroup } from "../../features/threads/tool-activity";
+import { useWorkspaceState } from "../use-workspace-state";
+
+const projectId = crypto.randomUUID();
+const timestamp = "2026-10-20T12:00:00.000Z";
+const host = required(document.getElementById("root"), "Test root");
+const nativeAPI = required(window.tidy, "Native preload API");
+
+function check(value: unknown, message: string): asserts value {
+  if (!value) throw new Error(message);
+}
+
+function required<T>(value: T | null | undefined, label: string): T {
+  check(value !== null && value !== undefined, `${label} is missing`);
+  return value;
+}
+
+function frame(): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(finish, 50);
+    const scheduled = requestAnimationFrame(finish);
+    function finish() {
+      clearTimeout(timer);
+      cancelAnimationFrame(scheduled);
+      resolve();
+    }
+  });
+}
+
+async function settle() {
+  await frame();
+  await frame();
+  await frame();
+}
+
+async function until(predicate: () => boolean, label: string) {
+  const deadline = performance.now() + 3000;
+  while (!predicate()) {
+    if (performance.now() > deadline) throw new Error(`Timed out: ${label}`);
+    await frame();
+  }
+}
+
+function makeThread({ count = 80 }: { count?: number } = {}): Thread {
+  const id = crypto.randomUUID();
+  return {
+    id,
+    projectId,
+    revision: 1,
+    title: id,
+    harness: "codex",
+    status: "running",
+    designIds: [],
+    updatedAt: timestamp,
+    messages: Array.from({ length: count }, (_, index): Thread["messages"][number] => ({
+      id: crypto.randomUUID(),
+      role: index % 2 ? "assistant" : "user",
+      text:
+        index % 2
+          ? `## Response ${index}\n\nA **formatted** response.\n\n${"Conversation content. ".repeat(40)}`
+          : `Request ${index} in ${id}`,
+    })),
+  };
+}
+
+function visibleTranscript(): HTMLDivElement {
+  return required(
+    [...host.querySelectorAll<HTMLDivElement>(".transcript")].find(
+      (element) => element.getBoundingClientRect().height > 0,
+    ),
+    "Visible transcript",
+  );
+}
+
+function conversationFixture(root: Root) {
+  const a = makeThread();
+  const b = makeThread();
+  const c = makeThread();
+  const d = makeThread();
+  const threads = { [a.id]: a, [b.id]: b, [c.id]: c, [d.id]: d };
+  function render({
+    selected,
+    active = true,
+    project = projectId,
+  }: {
+    selected: string | null;
+    active?: boolean;
+    project?: string;
+  }) {
+    flushSync(() =>
+      root.render(
+        <Conversations
+          key={project}
+          projectId={project}
+          selected={selected}
+          threads={threads}
+          api={nativeAPI}
+          active={active}
+        />,
+      ),
+    );
+  }
+  return { a, b, c, d, threads, render };
+}
+
+type ReadRequest = {
+  resolve(value: Thread): void;
+  reject(cause: Error): void;
+};
+
+async function workspaceFixture(root: Root) {
+  const initial = makeThread({ count: 2 });
+  const listeners = new Set<(event: DesktopEvent) => void>();
+  const requests = new Map<string, ReadRequest>();
+  const calls: { projectId: string; threadId: string }[] = [];
+  const snapshot: ProjectSnapshot = {
+    project: { id: projectId, path: "/synthetic/project", name: "Fixture", openedAt: timestamp },
+    threads: [summarizeThread(initial)],
+    designs: [],
+    folders: [],
+  };
+  const api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> = {
+    async bootstrap() {
+      return { projects: [snapshot.project], harnesses: [], activeProject: snapshot };
+    },
+    async selectProject(id) {
+      check(id === projectId, "Unexpected project selection");
+      return snapshot;
+    },
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    readThread(projectId, threadId) {
+      calls.push({ projectId, threadId });
+      return new Promise((resolve, reject) => requests.set(threadId, { resolve, reject }));
+    },
+  };
+  let current: ReturnType<typeof useWorkspaceState> | undefined;
+  const errors: unknown[] = [];
+  function Probe() {
+    const navigation = useRef(0);
+    current = useWorkspaceState({ api, navigation, onError: (error) => errors.push(error) });
+    return null;
+  }
+  flushSync(() => root.render(<Probe />));
+  const state = () => required(current, "Workspace state");
+  await until(() => !state().loading, "Workspace bootstrap");
+  function emit(event: DesktopEvent) {
+    flushSync(() => {
+      for (const listener of listeners) listener(event);
+    });
+  }
+  const pending = (id: string) => required(requests.get(id), "Pending read");
+  return { initial, state, calls, pending, emit, listeners, errors };
+}
+
+async function runThreadLoadingTests(): Promise<string[]> {
+  const passed: string[] = [];
+  async function run(name: string, test: (root: Root) => Promise<void>) {
+    sessionStorage.clear();
+    const root = createRoot(host);
+    try {
+      await test(root);
+      passed.push(name);
+    } catch (error) {
+      throw new Error(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      flushSync(() => root.unmount());
+      check(host.childElementCount === 0, "Renderer test leaked mounted content");
+    }
+  }
+
+  await run("recent thread returns preserve DOM, scroll and turn navigation", async (root) => {
+    const { a, b, render } = conversationFixture(root);
+    render({ selected: a.id });
+    await settle();
+    const viewport = visibleTranscript();
+    check(
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
+      "Initial view did not follow the latest message",
+    );
+    const original = required(viewport.querySelector("article"), "Original message");
+    viewport.scrollTop = 1000;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    const top = viewport.scrollTop;
+    render({ selected: b.id });
+    await settle();
+    render({ selected: a.id });
+    await settle();
+    check(
+      visibleTranscript().querySelector("article") === original,
+      "Returning rebuilt the message DOM",
+    );
+    check(Math.abs(visibleTranscript().scrollTop - top) < 2, "Returning lost the scroll position");
+    const rail = required(
+      [...host.querySelectorAll<HTMLElement>(".conversation-rail")].find(
+        (node) => node.getBoundingClientRect().height > 0,
+      ),
+      "Turn rail",
+    );
+    required(rail.querySelector("button"), "First turn button").click();
+    await until(() => visibleTranscript().scrollTop < 80, "Jump to first turn");
+  });
+
+  await run("a cold thread fills its existing selected view when data arrives", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    delete threads[a.id];
+    render({ selected: a.id });
+    const viewport = visibleTranscript();
+    check(viewport.querySelectorAll("article").length === 0, "Unloaded thread displayed history");
+    threads[a.id] = a;
+    render({ selected: a.id });
+    await until(
+      () => viewport.querySelectorAll("article").length === a.messages.length,
+      "Render cold thread response",
+    );
+    check(visibleTranscript() === viewport, "Data arrival replaced the selected view");
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
+      "Cold thread follows latest message",
+    );
+  });
+
+  await run(
+    "hidden threads freeze DOM and show current streamed content when selected",
+    async (root) => {
+      const { a, b, threads, render } = conversationFixture(root);
+      render({ selected: a.id });
+      await settle();
+      render({ selected: b.id });
+      await settle();
+      threads[a.id] = {
+        ...a,
+        revision: 2,
+        messages: [
+          ...a.messages,
+          { id: crypto.randomUUID(), role: "assistant", text: "Background response" },
+        ],
+      };
+      render({ selected: b.id });
+      await settle();
+      check(
+        !host.textContent?.includes("Background response"),
+        "Hidden transcript rendered a streaming update",
+      );
+      render({ selected: a.id });
+      await until(
+        () => Boolean(visibleTranscript().textContent?.includes("Background response")),
+        "Show current background response",
+      );
+      render({ selected: a.id, active: false });
+      await settle();
+      const prior = required(threads[a.id], "Active thread");
+      threads[a.id] = {
+        ...prior,
+        revision: 3,
+        messages: [
+          ...prior.messages,
+          { id: crypto.randomUUID(), role: "assistant", text: "Inactive response" },
+        ],
+      };
+      render({ selected: a.id, active: false });
+      await settle();
+      check(
+        !host.textContent?.includes("Inactive response"),
+        "Inactive workspace rendered a streaming update",
+      );
+      render({ selected: a.id });
+      await until(
+        () => Boolean(visibleTranscript().textContent?.includes("Inactive response")),
+        "Reactivate workspace",
+      );
+      await settle();
+      const viewport = visibleTranscript();
+      await until(
+        () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
+        "Stream updates follow the latest message after workspace reactivation",
+      );
+    },
+  );
+
+  await run("view retention evicts old DOM and isolates drafts and projects", async (root) => {
+    const { a, b, c, d, threads, render } = conversationFixture(root);
+    render({ selected: a.id });
+    await settle();
+    const original = required(visibleTranscript().querySelector("article"), "Original message");
+    for (const thread of [b, c, d]) {
+      render({ selected: thread.id });
+      await settle();
+    }
+    check(
+      host.querySelectorAll(".conversation").length === 3,
+      "Rendered view count exceeded its budget",
+    );
+    check(!host.contains(original), "Least recently visited DOM was retained");
+    render({ selected: null });
+    await settle();
+    check(
+      visibleTranscript().querySelectorAll("article").length === 0,
+      "Draft displayed another thread's messages",
+    );
+    const other = { ...makeThread({ count: 2 }), projectId: crypto.randomUUID() };
+    threads[other.id] = other;
+    render({ selected: other.id, project: other.projectId });
+    await settle();
+    check(
+      host.querySelectorAll(".conversation").length === 1,
+      "Project navigation retained the previous project's views",
+    );
+  });
+
+  await run("collapsed tool logs defer rows and retain expanded output on reopen", async (root) => {
+    const output = `${"line\n".repeat(6000)}Final output`;
+    const activities: ToolActivity[] = Array.from({ length: 250 }, () => ({
+      id: crypto.randomUUID(),
+      afterMessageId: crypto.randomUUID(),
+      kind: "command",
+      title: "Inspect",
+      toolName: "Shell",
+      status: "completed",
+      startedAt: timestamp,
+      endedAt: timestamp,
+      output,
+    }));
+    flushSync(() => root.render(<ToolActivityGroup activities={activities} visible />));
+    check(host.querySelectorAll(".tool-call").length === 0, "Collapsed logs mounted hidden rows");
+    const group = required(
+      host.querySelector<HTMLDetailsElement>(".tool-activity-group"),
+      "Tool group",
+    );
+    required(group.querySelector("summary"), "Group summary").click();
+    await until(() => host.querySelectorAll(".tool-call").length === 250, "Expand tool rows");
+    const row = required(group.querySelector<HTMLDetailsElement>(".tool-call"), "Tool row");
+    required(row.querySelector("summary"), "Tool summary").click();
+    await until(() => Boolean(row.querySelector("pre")), "Expand tool output");
+    check(
+      row.querySelector("pre")?.textContent === "line\nline\nline\nline\n…",
+      "Preview text changed",
+    );
+    required(
+      row.querySelector<HTMLButtonElement>(".tool-detail-toggle"),
+      "Full output button",
+    ).click();
+    await until(() => row.querySelector("pre")?.textContent === output, "Show full output");
+    required(group.querySelector("summary"), "Group summary").click();
+    await until(() => !group.open, "Collapse group");
+    required(group.querySelector("summary"), "Group summary").click();
+    await until(() => group.open, "Reopen group");
+    check(
+      row.open && row.querySelector("pre")?.textContent === output,
+      "Reopening discarded tool disclosure state",
+    );
+  });
+
+  await run(
+    "pending thread reads are shared and newer events survive late disk responses",
+    async (root) => {
+      const { initial, state, calls, pending, emit, errors } = await workspaceFixture(root);
+      const request = { projectId, threadId: initial.id };
+      const first = state().readThread(request);
+      check(
+        state().readThread(request) === first && calls.length === 1,
+        "Pending reads were duplicated",
+      );
+      check(
+        calls[0]?.projectId === projectId && calls[0]?.threadId === initial.id,
+        "Read arguments were swapped",
+      );
+      emit({ type: "thread", thread: makeThread({ count: 2 }) });
+      check(
+        state().readThread(request) === first && calls.length === 1,
+        "Unrelated streaming restarted the read",
+      );
+      const live = { ...initial, revision: 3, title: "Current live title" };
+      emit({ type: "thread", thread: live });
+      pending(initial.id).resolve(initial);
+      await first;
+      await settle();
+      check(state().threads[initial.id] === live, "Late disk response replaced live state");
+      await state().readThread(request);
+      check(calls.length === 1, "Cached thread triggered another disk read");
+      check(errors.length === 0, "Successful reads reported an error");
+    },
+  );
+
+  await run(
+    "stale events preserve state identity and equal-revision snapshots still reconcile",
+    async (root) => {
+      const { initial, state, emit } = await workspaceFixture(root);
+      const live = { ...initial, revision: 3 };
+      emit({ type: "thread", thread: live });
+      const threads = state().threads;
+      const snapshots = state().snapshots;
+      const { messages, toolActivities, ...metadata } = initial;
+      emit({
+        type: "thread-patch",
+        thread: metadata,
+        summary: summarizeThread(initial),
+        messages,
+        toolActivities: toolActivities ?? [],
+        toolActivityIds: [],
+      });
+      emit({ type: "thread", thread: initial });
+      check(
+        state().threads === threads && state().snapshots === snapshots,
+        "Stale events replaced state containers",
+      );
+      emit({ type: "thread", thread: { ...live, title: "Reconciled title" } });
+      check(
+        state().threads[initial.id]?.title === "Reconciled title",
+        "Equal-revision full response did not reconcile",
+      );
+      check(
+        state().snapshots[projectId]?.threads[0]?.title === "Reconciled title",
+        "Summary did not reconcile",
+      );
+    },
+  );
+
+  await run("failed reads can retry and unmount releases event listeners", async (root) => {
+    const { initial, state, calls, pending, listeners } = await workspaceFixture(root);
+    const request = { projectId, threadId: initial.id };
+    const cause = new Error("Synthetic read failure");
+    const first = state()
+      .readThread(request)
+      .catch((error: unknown) => error);
+    pending(initial.id).reject(cause);
+    check((await first) === cause, "Read failure was swallowed");
+    const retry = state().readThread(request);
+    check(calls.length === 2, "Failed request remained cached");
+    pending(initial.id).resolve(initial);
+    await retry;
+    await until(() => state().threads[initial.id] === initial, "Retry fills thread state");
+    flushSync(() => root.render(null));
+    check(listeners.size === 0, "Unmount leaked an event listener");
+  });
+  return passed;
+}
+
+Object.assign(window, { runThreadLoadingTests });
