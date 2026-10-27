@@ -227,6 +227,15 @@ async function runThreadLoadingTests(): Promise<string[]> {
     check(viewport.querySelectorAll("article").length === 0, "Unloaded thread displayed history");
     threads[a.id] = a;
     render({ selected: a.id });
+    const content = required(viewport.querySelector(".conversation-content"), "Content");
+    const delayed = document.createElement("div");
+    delayed.style.height = "200px";
+    content.append(delayed);
+    check(
+      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 40,
+      "Late message layout must move the bottom beyond the following threshold",
+    );
+    viewport.dispatchEvent(new Event("scroll"));
     await until(
       () => viewport.querySelectorAll("article").length === a.messages.length,
       "Render cold thread response",
