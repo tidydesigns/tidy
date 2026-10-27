@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
+import { PreviewArtwork } from "../preview-renderers";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { DesignPreviewCache } from "./cache";
 import { threadDesigns } from "./discovery";
@@ -27,6 +27,7 @@ import type {
   LocalDesign,
   Thread,
 } from "../../../../../shared/contracts/desktop";
+import { ReloadAppButton } from "../../../components/lazy-view";
 import { ThreadDesignWindow } from "./window";
 import type { PreviewCameraMemory } from "./navigation";
 import type { DockSlot } from "./window-geometry";
@@ -58,8 +59,10 @@ function CanvasThumbnail({
   summary,
   value,
   load,
+  onError,
 }: {
   summary: DesignSummary;
+  onError(error: unknown): void;
   value?: LocalDesign;
   load(summary: DesignSummary): Promise<LocalDesign>;
 }) {
@@ -80,7 +83,11 @@ function CanvasThumbnail({
   return (
     <span ref={element} className="canvas-dock-thumbnail" aria-hidden="true" inert>
       {value ? (
-        <DocumentPreview content={value.document} assetUrl={(id) => value.assets[id] ?? ""} />
+        <PreviewArtwork
+          onError={onError}
+          content={value.document}
+          assetUrl={(id) => value.assets[id] ?? ""}
+        />
       ) : (
         <CanvasGlyph />
       )}
@@ -103,6 +110,8 @@ export function ThreadDesignDock({
   home: RefObject<HTMLSpanElement | null>;
   onUpdate(design: LocalDesign): void;
 }) {
+  const [previewFailed, setPreviewFailed] = useState(false);
+  const previewError = useCallback(() => setPreviewFailed(true), []);
   const key = `tidy:canvas-dock:${thread.projectId}:${thread.id}`;
   const [memories] = useState(() => {
     const memory =
@@ -307,6 +316,7 @@ export function ThreadDesignDock({
               icon: (
                 <CanvasThumbnail
                   summary={summary}
+                  onError={previewError}
                   value={previews[summary.id]}
                   load={readPreview}
                 />
@@ -317,6 +327,14 @@ export function ThreadDesignDock({
           host,
         )}
       <div ref={layer} className="thread-design-dock-layer" hidden={!active}>
+        {previewFailed && (
+          <div className="pointer-events-auto absolute top-4 left-4 z-50 rounded border border-border bg-panel p-4 shadow-lg">
+            <p role="alert" className="mb-3 text-sm">
+              Could not load design previews.
+            </p>
+            <ReloadAppButton />
+          </div>
+        )}
         {host &&
           slot &&
           windows.map((summary) => {
@@ -329,6 +347,7 @@ export function ThreadDesignDock({
               <ThreadDesignWindow
                 key={summary.id}
                 api={api}
+                onPreviewError={previewError}
                 projectId={thread.projectId}
                 summary={summary}
                 active={active}

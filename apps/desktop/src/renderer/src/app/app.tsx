@@ -27,9 +27,11 @@ import {
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Icon } from "@tidy/editor/components/ui/icon";
+import { preloadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
+import { preloadConversation } from "../features/threads/load-conversation";
 import { Conversations } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
@@ -69,6 +71,10 @@ const modes = [
   { id: "code", label: "Threads" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
+const modePreloaders = {
+  design: preloadCanvasEditor,
+  code: preloadConversation,
+} satisfies Record<Mode, () => void>;
 type Draft = {
   text: string;
   harness: HarnessId;
@@ -236,6 +242,19 @@ export function App() {
     () => (snapshot && !snapshot.project.cloud ? { ...snapshot, threads: [] } : undefined),
     [snapshot?.project, snapshot?.designs, snapshot?.folders],
   );
+  const hasSavedConversations = Boolean(snapshot?.threads.some((thread) => thread.messageCount));
+  useEffect(() => {
+    if (!snapshot) return;
+    const task = window.requestIdleCallback(
+      () => {
+        if (mode === "code" || hasSavedConversations) preloadConversation();
+        if (mode === "design" && snapshot.designs.length) preloadCanvasEditor();
+      },
+      { timeout: 1500 },
+    );
+    return () => window.cancelIdleCallback(task);
+  }, [Boolean(snapshot), mode, hasSavedConversations, Boolean(snapshot?.designs.length)]);
+
   const selectedDesignId = project ? selectedDesigns[project.id] : null;
   const backToFiles = useCallback(() => {
     if (project) setSelectedDesigns((current) => ({ ...current, [project.id]: null }));
@@ -1382,6 +1401,8 @@ export function App() {
                   aria-controls={`workspace-panel-${item.id}`}
                   tabIndex={mode === item.id ? 0 : -1}
                   className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink aria-selected:bg-subtle-fill aria-selected:text-ink aria-selected:hover:bg-subtle-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
+                  onPointerEnter={modePreloaders[item.id]}
+                  onFocus={modePreloaders[item.id]}
                   onClick={() => setMode(item.id)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
                 >

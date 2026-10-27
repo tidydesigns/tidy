@@ -1,8 +1,21 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FileEditor, type CanvasViewportMemory } from "@tidy/editor";
+import type { CanvasViewportMemory } from "@tidy/editor";
+import { lazyView } from "../../components/lazy-view";
+import { DocumentPreview } from "./preview-renderers";
+import { loadCanvasEditor } from "./load-canvas-editor";
 import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../../../shared/contracts/desktop";
+
+const FileEditor = lazyView(async () => ({ default: (await loadCanvasEditor()).FileEditor }), {
+  label: "canvas editor",
+  fallback: (props) => (
+    <DocumentPreview
+      content={props.initialDocument.content}
+      assetUrl={(id) => props.previewAssetUrls?.[id] ?? ""}
+    />
+  ),
+});
 
 export const LocalCanvas = memo(function LocalCanvas({
   api,

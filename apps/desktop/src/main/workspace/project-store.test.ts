@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   mkdtemp,
@@ -178,6 +178,26 @@ test("a copied project identity cannot redirect the original project's data", as
   );
   expect((await store.open(copiedRoot)).project.id).toBe(copy.id);
   await expect(store.readThread(copy.id, conversation.id)).rejects.toThrow();
+});
+
+test("startup recovery repairs interrupted threads without reading design or folder metadata", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const conversation = thread(project.id);
+  await f.store.writeThread(conversation);
+  const reopened = new ProjectStore(join(f.directory, "app-data"));
+  await reopened.initialize();
+  const designs = spyOn(reopened, "designs");
+  const folders = spyOn(reopened, "folders");
+  try {
+    await reopened.recover();
+    expect((await reopened.readThread(project.id, conversation.id)).status).toBe("interrupted");
+    expect(designs).not.toHaveBeenCalled();
+    expect(folders).not.toHaveBeenCalled();
+  } finally {
+    designs.mockRestore();
+    folders.mockRestore();
+  }
 });
 
 test("project designs and threads survive restart and moving the directory", async () => {

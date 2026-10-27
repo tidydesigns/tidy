@@ -44,6 +44,7 @@ export const rendererConfig = {
 export default defineConfig({
   main: {
     build: {
+      minify: true,
       externalizeDeps: false,
       rolldownOptions: {
         input: {
@@ -58,6 +59,7 @@ export default defineConfig({
   },
   preload: {
     build: {
+      minify: true,
       externalizeDeps: false,
       rolldownOptions: {
         output: { format: "cjs", entryFileNames: "index.cjs", banner: licenceBanner },

@@ -17,6 +17,7 @@ import { errorMessage } from "@tidy/ui/errors";
 import type { DesktopAPI, DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
 import type { CloudCatalog, CloudFile, CloudOpened } from "../../../../shared/contracts/cloud-sync";
 import type { CloudConnection } from "./use-cloud";
+import { preloadCanvasEditor } from "../designs/load-canvas-editor";
 import { LocalCanvas } from "../designs/local-canvas";
 import { CloudPreview } from "./cloud-preview";
 import { LocalPreview } from "../workspace/project-files";
@@ -192,6 +193,7 @@ export const CloudWorkspace = memo(function CloudWorkspace({
   }, [active, catalog, browser.fileId]);
   async function open(file: CloudFile) {
     if (!api.cloud || opening === file.id) return;
+    preloadCanvasEditor();
     restored.current = true;
     setBrowser((current) =>
       current.fileId === file.id ? current : { ...current, fileId: file.id },
@@ -443,6 +445,8 @@ export const CloudWorkspace = memo(function CloudWorkspace({
                           disabled={opening === file.id || !organization?.canEdit}
                           aria-label={`Open ${file.name}`}
                           aria-busy={opening === file.id}
+                          onPointerEnter={preloadCanvasEditor}
+                          onFocus={preloadCanvasEditor}
                           onClick={() => void open(file)}
                         />
                       }
@@ -457,6 +461,8 @@ export const CloudWorkspace = memo(function CloudWorkspace({
                 ) : (
                   <FileListRow key={file.id} columns={listColumns} actions={false}>
                     <Button
+                      onPointerEnter={preloadCanvasEditor}
+                      onFocus={preloadCanvasEditor}
                       className="cloud-row-open"
                       disabled={opening === file.id || !organization?.canEdit}
                       onClick={() => void open(file)}

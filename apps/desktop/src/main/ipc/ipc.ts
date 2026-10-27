@@ -157,6 +157,13 @@ export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
 
 /** Register validated workspace operations and forward events only to trusted app renderers. */
 export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: string) {
+  ipcMain.handle("tidy:reload-app", (event, ...args: unknown[]) => {
+    if (!trustedRequest(event, rendererURL) || args.length)
+      throw new Error("Untrusted desktop request.");
+    setImmediate(() => {
+      if (!event.sender.isDestroyed() && trustedRequest(event, rendererURL)) event.sender.reload();
+    });
+  });
   const requests = createWorkspaceRequests<IpcMainInvokeEvent>(service, {
     async chooseProject(event) {
       const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {

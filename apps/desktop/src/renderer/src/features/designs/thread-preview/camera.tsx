@@ -7,7 +7,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
+import { PreviewArtwork } from "../preview-renderers";
 import { gestureZoomFactor } from "@tidy/editor/design/canvas-zoom";
 import type { LocalDesign } from "../../../../../shared/contracts/desktop";
 import {
@@ -21,12 +21,14 @@ import { createPreviewPointerGesture } from "./pointer";
 
 export const PreviewCamera = memo(function PreviewCamera({
   value,
+  onError,
   memory,
   surface,
   suppressClick,
   enabled,
 }: {
   value: LocalDesign;
+  onError(error: unknown): void;
   memory: PreviewCameraMemory;
   surface: RefObject<HTMLButtonElement | null>;
   suppressClick: RefObject<boolean>;
@@ -213,7 +215,8 @@ export const PreviewCamera = memo(function PreviewCamera({
     [],
   );
   return (
-    <DocumentPreview
+    <PreviewArtwork
+      onError={onError}
       content={value.document}
       assetUrl={assetURL}
       viewport={viewport}

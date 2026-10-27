@@ -29,6 +29,7 @@ import type {
   LocalDesign,
 } from "../../../../../shared/contracts/desktop";
 import { LocalCanvas } from "../local-canvas";
+import { preloadCanvasEditor } from "../load-canvas-editor";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
 
@@ -97,6 +98,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   onGeometry,
   onDocked,
   onUpdate,
+  onPreviewError,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -118,6 +120,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   onGeometry(id: string, geometry: CanvasGeometry): void;
   onDocked(id: string): void;
   onUpdate(design: LocalDesign): void;
+  onPreviewError(error: unknown): void;
 }) {
   const [value, setValue] = useState<LocalDesign>();
   const [phase, setPhase] = useState<Phase>("closed");
@@ -595,6 +598,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       >
         <Button
           ref={trigger}
+          onPointerEnter={preloadCanvasEditor}
+          onFocus={preloadCanvasEditor}
           type="button"
           className="thread-design-peek"
           aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}
@@ -631,6 +636,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
             <span className="thread-design-artwork">
               {value && (
                 <PreviewCamera
+                  onError={onPreviewError}
                   value={value}
                   memory={previewMemory}
                   surface={trigger}

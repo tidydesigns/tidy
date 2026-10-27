@@ -671,8 +671,7 @@ export class ProjectStore {
     return this.readFolder(projectId, folderId);
   }
 
-  async snapshot(projectId: string): Promise<ProjectSnapshot> {
-    const project = this.project(projectId);
+  private async threadSummaries(projectId: string) {
     const directory = await this.storagePath(projectId, "threads");
     const files = (await readdir(directory)).filter(
       (name) => name.endsWith(".json") && id.safeParse(name.slice(0, -5)).success,
@@ -686,22 +685,27 @@ export class ProjectStore {
         }
       }),
     );
-    return {
-      project,
-      threads: threads
-        .filter((value) => value !== null)
-        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
-      designs: await this.designs(projectId),
-      folders: await this.folders(projectId),
-    };
+    return threads
+      .filter((value) => value !== null)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async snapshot(projectId: string): Promise<ProjectSnapshot> {
+    const project = this.project(projectId);
+    const [threads, designs, folders] = await Promise.all([
+      this.threadSummaries(projectId),
+      this.designs(projectId),
+      this.folders(projectId),
+    ]);
+    return { project, threads, designs, folders };
   }
 
   async recover() {
     for (const project of this.projects) {
       try {
         await this.prepare(project);
-        const snapshot = await this.snapshot(project.id);
-        for (const summary of snapshot.threads) {
+        const summaries = await this.threadSummaries(project.id);
+        for (const summary of summaries) {
           if (summary.status !== "running") continue;
           const thread = await this.readThread(project.id, summary.id);
           await this.writeThread({

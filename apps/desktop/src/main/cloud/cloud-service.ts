@@ -443,30 +443,32 @@ export class CloudService implements CloudAPI {
       generation === this.generation && accountId === this.auth.accountId && !this.closed;
     const existing = this.thumbnailWork.get(requestKey);
     if (existing) return existing;
-    const work = new Promise<string | null>((resolve, reject) => {
-      const run = () => {
-        this.thumbnailCount++;
-        void (async () => {
-          if (!current()) return null;
-          const cached = schema.safeParse(await this.privateState.read(key));
-          if (!current()) return null;
-          if (cached.success && cached.data.version === version && cached.data.image)
-            return cached.data.image;
-          const value = await load();
-          if (!current()) return null;
-          if (value) await this.privateState.write(key, { version, image: value });
-          return current() ? value : null;
-        })()
-          .then(resolve, reject)
-          .finally(() => {
-            this.thumbnailCount--;
-            this.thumbnailWork.delete(requestKey);
-            this.thumbnailQueue.shift()?.();
-          });
-      };
-      if (this.thumbnailCount < 3) run();
-      else this.thumbnailQueue.push(run);
-    });
+    const work = (async () => {
+      if (!current()) return null;
+      const cached = schema.safeParse(await this.privateState.read(key));
+      if (!current()) return null;
+      if (cached.success && cached.data.version === version && cached.data.image)
+        return cached.data.image;
+      return new Promise<string | null>((resolve, reject) => {
+        const run = () => {
+          this.thumbnailCount++;
+          void (async () => {
+            if (!current()) return null;
+            const value = await load();
+            if (!current()) return null;
+            if (value) await this.privateState.write(key, { version, image: value });
+            return current() ? value : null;
+          })()
+            .then(resolve, reject)
+            .finally(() => {
+              this.thumbnailCount--;
+              this.thumbnailQueue.shift()?.();
+            });
+        };
+        if (this.thumbnailCount < 3) run();
+        else this.thumbnailQueue.push(run);
+      });
+    })().finally(() => this.thumbnailWork.delete(requestKey));
     this.thumbnailWork.set(requestKey, work);
     return work;
   }
