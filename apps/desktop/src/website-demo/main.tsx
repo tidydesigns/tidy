@@ -21,6 +21,29 @@ window.addEventListener("message", (event) => {
   )
     applyTheme(event.data.theme);
 });
+// A wheel event cannot bubble out of an iframe. Relay ordinary vertical scrolling
+// before the real editor or transcript consumes it; keep deliberate canvas gestures.
+if (parent !== window && new URLSearchParams(location.search).get("scroll") === "website") {
+  window.addEventListener(
+    "wheel",
+    (event) => {
+      if (event.ctrlKey || event.metaKey || event.shiftKey || !event.deltaY) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? innerHeight
+            : 1;
+      parent.postMessage(
+        { type: "tidy-demo-scroll", deltaY: event.deltaY * unit },
+        location.origin,
+      );
+    },
+    { capture: true, passive: false },
+  );
+}
 function Demo() {
   useEffect(() => {
     parent.postMessage({ type: "tidy-demo-ready" }, location.origin);

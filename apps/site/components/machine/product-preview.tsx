@@ -20,6 +20,9 @@ export function ProductPreview() {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== location.origin || event.source !== frameRef.current?.contentWindow)
         return;
+      if (event.data?.type === "tidy-demo-scroll" && Number.isFinite(event.data.deltaY)) {
+        window.scrollBy({ top: event.data.deltaY, behavior: "instant" });
+      }
       if (event.data?.type === "tidy-demo-ready") {
         setReady(true);
         syncTheme();
@@ -34,7 +37,7 @@ export function ProductPreview() {
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (!entry?.isIntersecting) return;
-        setSource(`/desktop-demo/index.html?theme=${theme()}`);
+        setSource(`/desktop-demo/index.html?theme=${theme()}&scroll=website`);
         observer.disconnect();
       },
       { rootMargin: "300px" },
