@@ -1392,11 +1392,7 @@ export function App() {
             className="workspace-tabs flex w-full flex-col gap-1 px-1"
           >
             {modes.map((item, index) => (
-              <div
-                className="workspace-destination flex items-center rounded-md data-[active=true]:bg-subtle-fill"
-                key={item.id}
-                data-active={mode === item.id}
-              >
+              <div className="workspace-destination flex items-center rounded-md" key={item.id}>
                 <Button
                   id={`workspace-tab-${item.id}`}
                   type="button"
@@ -1404,7 +1400,7 @@ export function App() {
                   aria-selected={mode === item.id}
                   aria-controls={`workspace-panel-${item.id}`}
                   tabIndex={mode === item.id ? 0 : -1}
-                  className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink aria-selected:bg-subtle-fill aria-selected:text-ink aria-selected:hover:bg-subtle-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
+                  className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
                   onPointerEnter={modePreloaders[item.id]}
                   onFocus={modePreloaders[item.id]}
                   onClick={() => setMode(item.id)}
