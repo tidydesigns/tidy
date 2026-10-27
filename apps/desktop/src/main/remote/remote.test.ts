@@ -710,6 +710,8 @@ test("cloud access withdrawal suppresses queued and stopping-thread events witho
     allowed = false;
     await f.service.stopCloudThreads();
     release.resolve();
+    await until(() => f.service.activeRunCount === 0);
+    await f.service.refreshDesigns(cloud.id);
     await f.service.refreshDesigns(f.project.id);
     await until(() => events.length === 1);
     expect(events[0].type === "designs" && events[0].projectId).toBe(f.project.id);
