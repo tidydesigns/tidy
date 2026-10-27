@@ -94,7 +94,7 @@ export function ThreadCard({
   }
   function show() {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(true), 300);
+    timer.current = setTimeout(() => setOpen(true), 150);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
@@ -103,7 +103,7 @@ export function ThreadCard({
     popup.showPopover();
     const bounds = root.current.getBoundingClientRect(),
       size = popup.getBoundingClientRect();
-    popup.style.left = `${Math.max(8, Math.min(bounds.right + 10, innerWidth - size.width - 8))}px`;
+    popup.style.left = `${Math.max(8, Math.min(bounds.right + 6, innerWidth - size.width - 8))}px`;
     popup.style.top = `${Math.max(8, Math.min(bounds.top, innerHeight - size.height - 8))}px`;
     const dismiss = () => setOpen(false);
     const scroll = (event: Event) => {
@@ -130,8 +130,8 @@ export function ThreadCard({
         close();
         orderControls?.onPointerDown(event);
       }}
-      onPointerEnter={() => {
-        if (!orderControls?.dragging) show();
+      onPointerEnter={(event) => {
+        if (event.pointerType === "mouse" && !orderControls?.dragging) show();
       }}
       onPointerLeave={close}
       onBlur={(event) => {
@@ -159,7 +159,10 @@ export function ThreadCard({
         aria-current={selected ? "true" : undefined}
         aria-describedby={open ? id : undefined}
         onFocus={(event) => {
-          if (event.currentTarget.matches(":focus-visible")) show();
+          if (event.currentTarget.matches(":focus-visible")) {
+            clearTimeout(timer.current);
+            setOpen(true);
+          }
         }}
         onClick={() => {
           close();
@@ -252,7 +255,7 @@ export function ThreadCard({
           id={id}
           popover="manual"
           role="tooltip"
-          className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-80 max-w-[calc(100vw_-_16px)] overflow-auto rounded-xl border border-border bg-panel p-4 text-xs whitespace-normal text-ink shadow-[0_8px_24px_rgb(0_0_0_/_16%)] ${codeFontClassName}`}
+          className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-max max-w-[min(20rem,calc(100vw_-_16px))] overflow-auto rounded-lg border border-border bg-panel p-3 text-xs whitespace-normal text-ink shadow-[0_4px_16px_rgb(0_0_0_/_12%)] ${codeFontClassName}`}
         >
           <ThreadPreview
             thread={thread}
