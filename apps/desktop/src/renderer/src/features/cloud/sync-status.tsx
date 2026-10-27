@@ -43,17 +43,19 @@ export function SyncStatus({
         <p>
           {!binding
             ? "This design is stored on this computer."
-            : binding.assetsPending
+            : binding.assetsPending && binding.status === "syncing"
               ? "You can edit now. Images are downloading in the background; this file will be available offline when they finish."
-              : binding.status === "synced"
-                ? "Changes are synced. This design is available offline."
-                : binding.status === "syncing"
-                  ? "Changes are saved locally and syncing in the background."
-                  : binding.status === "offline"
-                    ? "Your changes are safe on this computer. Sync resumes automatically when you reconnect."
-                    : binding.status === "conflict"
-                      ? "Both copies changed. Your local edits are safe; automatic sync is paused."
-                      : "Your local changes are safe. Sign in again to reconnect, or check your workspace access."}
+              : binding.assetsPending && binding.status === "offline"
+                ? "You can edit now. Images will finish downloading when you reconnect."
+                : binding.status === "synced"
+                  ? "Changes are synced. This design is available offline."
+                  : binding.status === "syncing"
+                    ? "Changes are saved locally and syncing in the background."
+                    : binding.status === "offline"
+                      ? "Your changes are safe on this computer. Sync resumes automatically when you reconnect."
+                      : binding.status === "conflict"
+                        ? "Both copies changed. Your local edits are safe; automatic sync is paused."
+                        : "Your local changes are safe. Sign in again to reconnect, or check your workspace access."}
         </p>
         {binding?.status === "paused" && (
           <Button
