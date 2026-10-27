@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
-    "build": "next build",
+    "dev": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && next dev --port 3001",
+    "build": "node scripts/copy-desktop-demo.mjs && next build",
     "deploy": "bun scripts/deploy.mjs",
     "preview": "wrangler preview",
     "lint": "eslint",

@@ -63,3 +63,7 @@ wrangler.deploy.jsonc
 *.sqlite
 *.sqlite3
 *.dump
+
+# Generated interactive website renderer
+/apps/desktop/demo-dist/
+/apps/site/public/desktop-demo/

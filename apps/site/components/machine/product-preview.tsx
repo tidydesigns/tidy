@@ -1,84 +1,89 @@
-import { CloudArtwork } from "../brand/cloud-artwork";
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import styles from "./machine.module.css";
 
-/** An illustrative workspace, deliberately free of pretend interactive controls. */
+/** The actual desktop renderer, hosted with an in-memory sample project. */
 export function ProductPreview() {
+  const windowRef = useRef<HTMLDivElement>(null);
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const [source, setSource] = useState<string>();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const theme = () => (document.documentElement.dataset.theme === "dark" ? "dark" : "light");
+    const syncTheme = () =>
+      frameRef.current?.contentWindow?.postMessage(
+        { type: "tidy-demo-theme", theme: theme() },
+        location.origin,
+      );
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== location.origin || event.source !== frameRef.current?.contentWindow)
+        return;
+      if (event.data?.type === "tidy-demo-ready") {
+        setReady(true);
+        syncTheme();
+      }
+    };
+    window.addEventListener("message", onMessage);
+    const themeObserver = new MutationObserver(syncTheme);
+    themeObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry?.isIntersecting) return;
+        setSource(`/desktop-demo/index.html?theme=${theme()}`);
+        observer.disconnect();
+      },
+      { rootMargin: "300px" },
+    );
+    if (windowRef.current) observer.observe(windowRef.current);
+    return () => {
+      observer.disconnect();
+      themeObserver.disconnect();
+      window.removeEventListener("message", onMessage);
+    };
+  }, []);
+
   return (
-    <figure className={styles.productPreview}>
-      <div className={styles.workspace} aria-hidden="true">
-        <div className={styles.windowBar}>
-          <span>Tidy / form website</span>
-          <span>Local project</span>
+    <figure id="desktop-demo" className={styles.productPreview}>
+      <div ref={windowRef} className={styles.desktopWindow}>
+        <div className={styles.windowControls} aria-hidden="true">
+          <i />
+          <i />
+          <i />
         </div>
-        <div className={styles.workspaceBody}>
-          <div className={styles.sidebar}>
-            <strong>form / Website</strong>
-            <div className={styles.workspaceTabs}>
-              <span>⌑ &nbsp;Design</span>
-              <span>{"{}"} &nbsp;Code</span>
-            </div>
-            <span className={styles.micro}>Design files</span>
-            <span>Landing page</span>
-            <span>Components</span>
-            <span>Mobile</span>
-            <span className={styles.micro}>Coding threads</span>
-            <span>Build the landing page</span>
-            <span>Refine the spacing</span>
+        {!ready && (
+          <div className={styles.desktopLoading} role="status">
+            Opening the sample project…
           </div>
-          <div className={styles.canvas}>
-            <div className={styles.canvasBar}>
-              <span>Landing / Desktop</span>
-              <span>100%</span>
-            </div>
-            <div className={styles.samplePage}>
-              <div className={styles.sampleNav}>
-                <strong>form</strong>
-                <span>A place for good ideas.</span>
-              </div>
-              <div className={styles.sampleTitle}>
-                Make room
-                <br />
-                for good ideas.
-              </div>
-              <p>
-                A calmer place to collect, shape and share
-                <br />
-                the things you want to make.
-              </p>
-              <span className={styles.sampleButton}>Explore the collection</span>
-              <CloudArtwork name="cloud-spectrum" sizes="(max-width: 700px) 80vw, 620px" />
-            </div>
-            <div className={styles.canvasBar}>
-              <span>Frame / Hero</span>
-              <span>Shared with agent ↗</span>
-            </div>
-          </div>
-          <div className={styles.agentPanel}>
-            <div className={styles.agentHeader}>
-              <span>Claude Code</span>
-              <span>Complete</span>
-            </div>
-            <span className={styles.micro}>Attached design</span>
-            <span>Landing page.tidy</span>
-            <p className={styles.agentPrompt}>
-              Build this design in the project.
-              <br />
-              Keep the type and spacing.
-            </p>
-            <p>I used the attached design as context and implemented the page.</p>
-            <div className={styles.changedFiles}>
-              <strong>3 files changed</strong>
-              <span>app/page.tsx</span>
-              <span>components/hero.tsx</span>
-              <span>app/globals.css</span>
-            </div>
-            <span className={styles.checks}>✓ &nbsp;Checks passed</span>
-          </div>
-        </div>
+        )}
+        {source && (
+          <iframe
+            ref={frameRef}
+            className={styles.desktopFrame}
+            src={source}
+            title="Interactive Tidy desktop app — sample project"
+            aria-describedby="desktop-demo-description"
+            sandbox="allow-scripts allow-same-origin allow-downloads"
+            onLoad={() =>
+              frameRef.current?.contentWindow?.postMessage(
+                {
+                  type: "tidy-demo-theme",
+                  theme: document.documentElement.dataset.theme,
+                },
+                location.origin,
+              )
+            }
+          />
+        )}
       </div>
-      <figcaption className="sr-only">
-        Example workspace showing editable design files, a live canvas and a coding agent
-        implementing the attached design in the same project.
+      <figcaption id="desktop-demo-description" className="sr-only">
+        Interactive sample project using the real Tidy desktop app. Open the floating design preview
+        to edit the canvas, then minimise the canvas to return to the thread. Changes stay in this
+        demo until the page reloads. Coding agents are simulated.
       </figcaption>
     </figure>
   );
