@@ -45,11 +45,13 @@ export function SelectMenu({
   menuHeader,
   menuSidebar,
   menuClassName = "",
+  optionsClassName = "",
   optionAction,
 }: {
   menuHeader?: ReactNode;
   menuSidebar?: ReactNode;
   menuClassName?: string;
+  optionsClassName?: string;
   optionAction?: (option: SelectMenuOption) => ReactNode;
   triggerContent?: ReactNode;
   triggerClassName?: string;
@@ -275,7 +277,9 @@ export function SelectMenu({
           {menuHeader}
           <div className={menuSidebar ? "select-menu-columns" : "contents"}>
             {menuSidebar}
-            <div className={optionAction ? "select-menu-options" : "contents"}>
+            <div
+              className={`${optionAction ? "select-menu-options" : "contents"} ${optionsClassName}`}
+            >
               {options.length === 0 && menuHeader && (
                 <p className="select-menu-empty">No matches</p>
               )}
