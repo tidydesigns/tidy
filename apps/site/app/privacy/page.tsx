@@ -15,7 +15,7 @@ export default function PrivacyPage() {
   return (
     <div className="page">
       <SiteHeader />
-      <main>
+      <main id="main-content">
         <PrivacyPolicy accountUrl={new URL("/account/privacy", appUrl).href} />
       </main>
       <SiteFooter />

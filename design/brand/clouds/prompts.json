@@ -1,0 +1,20 @@
+[
+  {
+    "asset": "neutral",
+    "prompt": "Use case: ads-marketing. Asset type: production website background master. Create a NEW high-resolution recreation based on the supplied Tidy cloud reference, retaining its atmospheric cloud shapes and engraved fine-stipple character while rebuilding all fine detail cleanly. Output a native 2880 x 2880 pixel square master, not a screenshot or a layout. Dark neutral charcoal sky with softly illuminated, richly detailed cumulus clouds rising from the lower left, lower edge, and lower right. A few wispy streaks sweep toward the upper right. Keep the central and upper middle relatively open and dark for a huge typographic wordmark and a short CTA added in code. Pure neutral monochrome: equal red/green/blue values, no sepia, no olive or green cast. Restrained, delicate editorial screenprint texture at a fine scale, no chunky dithering, no giant dot grid, no compression blocks, no smeared cloud edges. It must be clear and richly resolved at 2x desktop website size. Cloud illustration only, no letters, logos, typography, UI, frames, borders, or watermark. Reference is a style/composition reference, not pixels to enlarge. The full square composition must work as a tall footer without heavily cropping a landscape image.",
+    "tool": "built-in image generation",
+    "intent": "new artwork based on a visual reference"
+  },
+  {
+    "asset": "spectrum",
+    "prompt": "Use case: ads-marketing. Asset type: production Tidy brand cloud texture master. Create a NEW native 3072 x 2048 pixel image from the supplied Tidy rainbow cloud reference. Rebuild crisp cloud detail, do not merely enlarge the tiny source. Preserve its exact colour family and broad composition: deep emerald and teal cloud shadows toward upper left, bright lemon/yellow-green light toward upper right, vivid warm orange/coral billowing clouds across lower left and centre, turquoise/cyan through lower right, soft ivory/pale pink highlights between. This is the established rainbow artwork, so keep the palette and organic cloudy pigment feeling, not a generic smooth gradient. Sharply resolved delicate cloud edges, fine photographic/painted cloud detail, tiny tasteful screenprint stipple rather than coarse dots. Colour must extend fully to every edge because the image will be clipped into vector stepped blocks at different crops. Do not draw the blocks into the bitmap. No text, logo, UI, outlines, borders, symbols, watermark. No large pixel pattern, blur, compression artefacts, posterization. Reference is the visual identity; deliver a clean high resolution master for an actual final website.",
+    "tool": "built-in image generation",
+    "intent": "new artwork based on a visual reference"
+  },
+  {
+    "asset": "coral",
+    "prompt": "Use case: ads-marketing. Asset type: production Tidy coral cloud texture master. Create a NEW native 3072 x 2048 pixel image from the supplied Tidy warm rainbow cloud reference, preserving its brand palette and billowing cloud structure but rebuilding all detail sharply. Keep saturated vermilion/orange clouds at left and centre, glowing coral and pink masses, pale creamy peach highlights, magenta/plum/violet shadows toward the upper right and lower left. Soft transitions must come from fine cloud forms, not a plain mesh gradient. Keep richly resolved cloud edges and fine delicate editorial screenprint stipple, not oversized dots or noisy pixelation. Full bleed texture reaching every edge, to be clipped into editable stepped blocks by website code; do not add the stepped shape itself. No text, typography, logo, UI, frames, borders, watermark. Avoid blur, smeared details, compression artefacts, and coarse dithering. The reference is a style and colour reference, not pixels to upscale. Deliver the production master suitable for an actual final website.",
+    "tool": "built-in image generation",
+    "intent": "new artwork based on a visual reference"
+  }
+]
