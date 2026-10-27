@@ -1,6 +1,6 @@
 import { workspaceRuntime } from "../src/main/remote/workspace-host";
 import { startInteractiveHarness } from "../src/main/harnesses/interactive-harness";
-import { chmod, mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID, createHash } from "node:crypto";
@@ -138,6 +138,7 @@ try {
       void host
         .close()
         .then(() => service.close())
+        .then(() => rm(runtimePath, { force: true }))
         .then(() => {
           locks.close();
           unlock();

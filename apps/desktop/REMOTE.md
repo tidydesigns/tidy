@@ -91,8 +91,9 @@ clients retrieve completed results instead of resending commands. Pending work c
 while the rest of the workspace becomes available. Receipts survive backend restart and
 are scoped to the authenticated client. If the backend died between changing workspace
 state and storing its result, the outcome is explicitly unconfirmed and is never replayed.
-This is not an atomic transaction between workspace files and command receipts. Receipts
-are retained in the backend state directory; automatic compaction is not implemented.
+This is not an atomic transaction between workspace files and command receipts. Completed receipts are retained for twenty-four hours and pruned at startup and hourly.
+Pending receipts remain available to identify interrupted operations. Expired results are
+reported as unconfirmed; the client never resends those mutations automatically.
 
 The backend is **not** installed as an OS boot service. Reconnecting starts it after a
 reboot or crash, but active jobs do not survive backend or machine restarts. A small process

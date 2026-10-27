@@ -1,3 +1,4 @@
+import { machineConnections } from "./remote/machine-connections";
 import { projectLocks } from "./remote/project-locks";
 import { RemoteClient } from "./remote/client";
 import { MachineProfiles } from "./remote/profiles";
@@ -144,7 +145,7 @@ function broadcast(channel: string, ...values: unknown[]) {
       window.webContents.send(channel, ...values);
   }
 }
-async function connectMachine(target: string) {
+const connectMachine = machineConnections(async (target) => {
   const machine = await profiles.remember(target);
   const existing = remoteClients.get(machine.id);
   if (existing) {
@@ -173,7 +174,7 @@ async function connectMachine(target: string) {
   }
   client.start();
   broadcast("tidy:machines-changed");
-}
+});
 
 app.setName("Tidy");
 const profiles = new MachineProfiles(join(app.getPath("userData"), "remote-machines.json"));
@@ -229,6 +230,7 @@ app
       return backend;
     };
     const initial = await acquire();
+    const ownsInitialService = Boolean(initial.service);
     service =
       initial.service ?? new WorkspaceService(new ProjectStore(join(directory, "unused-local")));
     let first = true;
@@ -248,7 +250,7 @@ app
         temporaryDirectory: join(app.getPath("userData"), "ssh"),
         cachePath: join(app.getPath("userData"), "remote-cache", "local.json"),
         event: (event) => {
-          if (!ownedHost) broadcast("tidy:event", event);
+          if (!ownsInitialService) broadcast("tidy:event", event);
         },
         statusChanged: (status) => {
           if (status.kind === "connected") {
@@ -274,7 +276,7 @@ app
       localClient.start();
     });
     registerWorkspaceIPC(service, entryURL, {
-      get: () => (ownedHost ? undefined : localClient),
+      get: () => (ownsInitialService ? undefined : localClient),
       getMachine: (id) => remoteClients.get(id),
       list: () => [
         { id: "local", label: "This machine", status: null },

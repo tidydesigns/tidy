@@ -242,6 +242,7 @@ export function createRemoteHost({
       });
       const address = server.address();
       if (!address || typeof address === "string") throw new Error("No backend address.");
+      receipts.start();
       return address.port;
     },
     async close() {
@@ -251,6 +252,7 @@ export function createRemoteHost({
       sockets.close();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      await receipts.close();
     },
   };
 }

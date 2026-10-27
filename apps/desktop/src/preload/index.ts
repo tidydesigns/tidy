@@ -184,11 +184,11 @@ function workspaceApi(machineId?: string): DesktopAPI {
     skills: (projectId, harness, refresh) =>
       scopedRequest("skills", { projectId, harness, refresh }),
     harnessDetails: (projectId, harness, refresh) =>
-      request("harness-details", { projectId, harness, refresh }),
+      scopedRequest("harness-details", { projectId, harness, refresh }),
     openHarnessUsage: (harness, page) => scopedRequest("harness-usage-page", { harness, page }),
     openChatLink: (projectId, href) => scopedRequest("open-chat-link", { projectId, href }),
     setThreadSettings: (projectId, threadId, settings) =>
-      request("thread-settings", { projectId, threadId, settings }),
+      scopedRequest("thread-settings", { projectId, threadId, settings }),
     checkHarnesses: () => scopedRequest("harnesses"),
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
@@ -197,25 +197,25 @@ function workspaceApi(machineId?: string): DesktopAPI {
     sendMessage: (input) => scopedRequest("send-message", input),
     updateMessageQueue: (input) => scopedRequest("message-queue", input),
     addAttachment: (projectId, name, dataUrl) =>
-      request("add-attachment", { projectId, name, dataUrl }),
+      scopedRequest("add-attachment", { projectId, name, dataUrl }),
     readAttachment: (projectId, attachmentId) =>
-      request("read-attachment", { projectId, attachmentId }),
+      scopedRequest("read-attachment", { projectId, attachmentId }),
     setThreadDone: (projectId, threadId, done) =>
-      request("set-thread-done", { projectId, threadId, done }),
+      scopedRequest("set-thread-done", { projectId, threadId, done }),
     respondToApproval: (projectId, threadId, approvalId, decision) =>
-      request("respond-approval", { projectId, threadId, approvalId, decision }),
+      scopedRequest("respond-approval", { projectId, threadId, approvalId, decision }),
     stopThread: (projectId, threadId) => scopedRequest("stop-thread", { projectId, threadId }),
     createDesign: (projectId, folderId) => scopedRequest("create-design", { projectId, folderId }),
     importDesign: (projectId, folderId) => scopedRequest("import-design", { projectId, folderId }),
     createDesignFolder: (projectId, name) =>
       scopedRequest("create-design-folder", { projectId, name }),
     renameDesignFolder: (projectId, folderId, name) =>
-      request("rename-design-folder", { projectId, folderId, name }),
+      scopedRequest("rename-design-folder", { projectId, folderId, name }),
     readDesign: (projectId, designId) => scopedRequest("read-design", { projectId, designId }),
     previewDesign: (projectId, designId) =>
       scopedRequest("preview-design", { projectId, designId }),
     refreshDesign: (projectId, designId, version) =>
-      request("refresh-design", { projectId, designId, version }),
+      scopedRequest("refresh-design", { projectId, designId, version }),
     updateDesign: (input) => scopedRequest("update-design", input),
     uploadDesignAsset: (projectId, dataUrl) =>
       scopedRequest("upload-design-asset", { projectId, dataUrl }),

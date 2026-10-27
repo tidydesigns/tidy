@@ -203,7 +203,9 @@ async function run() {
   client.start();
   await window.loadURL(APP_URL);
   const evaluate = (expression: string): Promise<unknown> =>
-    window.webContents.executeJavaScript(expression);
+    window.webContents.executeJavaScript(expression).catch((error: unknown) => {
+      throw new Error("Renderer check failed: " + expression, { cause: error });
+    });
   async function until(check: () => Promise<unknown> | boolean) {
     const end = Date.now() + 10_000;
     while (!(await check())) {
@@ -283,6 +285,43 @@ async function run() {
       ),
       "Local thread demo",
     );
+    await evaluate(`remoteApi.harnessDetails('${project.id}', 'codex', false)`);
+    await evaluate(`remoteApi.setThreadSettings('${project.id}', '${threadId}', {})`);
+    await evaluate(`remoteApi.setThreadDone('${project.id}', '${threadId}', true)`);
+    await evaluate(`remoteApi.setThreadDone('${project.id}', '${threadId}', false)`);
+    assert.match(
+      String(
+        await evaluate(
+          `remoteApi.respondToApproval('${project.id}', '${threadId}', '${randomUUID()}', 'allow').then(() => '', error => error.message)`,
+        ),
+      ),
+      /no longer active/,
+    );
+    await evaluate(
+      `remoteApi.addAttachment('${project.id}', 'fixture.txt', 'data:text/plain;base64,aGVsbG8=').then(value => { globalThis.attachment = value; return true; })`,
+    );
+    assert.equal(
+      await evaluate(
+        `remoteApi.readAttachment('${project.id}', attachment.id).then(value => value.name)`,
+      ),
+      "fixture.txt",
+    );
+    await evaluate(
+      `remoteApi.createDesignFolder('${project.id}', 'Before').then(value => { globalThis.folder = value; return true; })`,
+    );
+    assert.equal(
+      await evaluate(
+        `remoteApi.renameDesignFolder('${project.id}', folder.id, 'After').then(value => value.name)`,
+      ),
+      "After",
+    );
+    await evaluate(
+      `remoteApi.createDesign('${project.id}').then(value => { globalThis.design = value; return true; })`,
+    );
+    assert.equal(
+      await evaluate(`remoteApi.refreshDesign('${project.id}', design.id, design.version)`),
+      null,
+    );
     await evaluate(
       `remoteApi.sendMessage({projectId:'${project.id}',threadId:'${threadId}',text:'Keep working through a disconnection'})`,
     );
@@ -300,7 +339,7 @@ async function run() {
     );
     await evaluate(`localApi.createDesign('${localProject.id}')`);
     assert.equal((await localStore.designs(localProject.id)).length, 1);
-    assert.equal((await store.designs(project.id)).length, 0);
+    assert.equal((await store.designs(project.id)).length, 1);
     assert.equal(
       await evaluate(
         `window.tidyMachines.workspace('${randomUUID()}').api.createDesign('${localProject.id}').then(() => false, () => true)`,

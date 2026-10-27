@@ -18,6 +18,21 @@ const hasErrorCode = (error: unknown, code: string) =>
   errorCodeSchema.safeParse(error).data?.code === code;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+async function discardStaleRuntime(directory: string) {
+  let release: () => void;
+  try {
+    release = lockHost(join(directory, "host.lock"));
+  } catch {
+    return false;
+  }
+  try {
+    await rm(join(directory, "runtime.json"), { force: true });
+    return true;
+  } finally {
+    release();
+  }
+}
+
 export async function workspaceRuntime(directory: string) {
   let runtime: z.infer<typeof runtimeSchema>;
   try {
@@ -31,7 +46,7 @@ export async function workspaceRuntime(directory: string) {
   try {
     process.kill(runtime.pid, 0);
   } catch (error) {
-    if (hasErrorCode(error, "ESRCH")) return null;
+    if (await discardStaleRuntime(directory)) return null;
     throw error;
   }
   try {
@@ -45,6 +60,7 @@ export async function workspaceRuntime(directory: string) {
       throw new Error("Backend identity mismatch.");
     return runtime;
   } catch {
+    if (await discardStaleRuntime(directory)) return null;
     throw new Error(
       "The existing workspace backend is alive but unresponsive. It was left running; retry shortly.",
     );

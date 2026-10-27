@@ -14,12 +14,13 @@ test("desktop and remote clients share one service and attached clients do not o
   cleanup.push(() => rm(root, { recursive: true, force: true }));
   const script = `
     import assert from 'node:assert/strict';
-    import {mkdir} from 'node:fs/promises';
+    import {mkdir,writeFile,readFile} from 'node:fs/promises';
     import {join} from 'node:path';
     import {ProjectStore} from './src/main/workspace/project-store.ts';
     import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
     import {RemoteClient} from './src/main/remote/client.ts';
-    import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
+    import {ensureWorkspaceHost,workspaceRuntime} from './src/main/remote/workspace-host.ts';
+    import {lockHost} from './src/main/remote/host-lock.ts';
     import {projectLocks} from './src/main/remote/project-locks.ts';
     const root = process.argv[1];
     const clients = [], hosts = [];
@@ -56,6 +57,16 @@ test("desktop and remote clients share one service and attached clients do not o
       assert.equal((await local.operation('read-thread',{projectId:project.project.id,threadId:thread.id})).id,thread.id);
       await attached.close(); assert.equal((await local.operation('bootstrap')).projects.length,1);
       local.close(); remote.close(); await owner.close();
+      const stale = {...owner.host,pid:process.pid};
+      const runtimePath = join(root,'runtime.json');
+      await writeFile(runtimePath,JSON.stringify(stale));
+      const release = lockHost(join(root,'host.lock'));
+      try {
+        await assert.rejects(workspaceRuntime(root), /alive but unresponsive/);
+        assert.ok(await readFile(runtimePath,'utf8'));
+      } finally { release(); }
+      assert.equal(await workspaceRuntime(root),null);
+      await assert.rejects(readFile(runtimePath,'utf8'), {code:'ENOENT'});
       const replacement = await ensureWorkspaceHost(options); hosts.push(replacement);
       assert.equal(starts,2); assert.equal(replacement.host.hostId,owner.host.hostId);
       assert.notEqual(replacement.host.instanceId,owner.host.instanceId);

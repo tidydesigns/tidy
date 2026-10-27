@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, mkdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -541,3 +541,19 @@ test("failed initial synchronization retries before reporting the new connection
   await until(() => client.status.kind === "connected", 7000);
   expect(drops).toHaveLength(3);
 }, 10000);
+
+test("workspace reads bypass durable mutation receipts", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const design = await client.operation("create-design", { projectId: f.project.id });
+  const before = await readdir(join(f.root, "receipts"));
+  await client.operation("preview-design", { projectId: f.project.id, designId: design.id });
+  await client.operation("refresh-design", {
+    projectId: f.project.id,
+    designId: design.id,
+    version: design.version,
+  });
+  await client.operation("repository-context", { projectId: f.project.id });
+  expect(await readdir(join(f.root, "receipts"))).toEqual(before);
+});

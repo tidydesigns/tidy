@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, utimes, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { RequestReceipts } from "./receipts";
@@ -69,4 +69,28 @@ test("an interrupted command is never repeated and is distinguished from live wo
     release();
     await work;
   }
+});
+
+test("receipt maintenance expires old results while retaining recent results and interrupted work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "receipt-retention-"));
+  roots.push(root);
+  const receipts = new RequestReceipts(root),
+    client = randomUUID();
+  const expired = { id: randomUUID(), name: "create-design" };
+  const recent = { id: randomUUID(), name: "create-design" };
+  await receipts.execute(client, expired, async () => ({ value: "old" }));
+  await receipts.execute(client, recent, async () => ({ value: "recent" }));
+  const pending = randomUUID();
+  const path = (id: string) => join(root, client + "-" + id + ".json");
+  await writeFile(path(pending), JSON.stringify({ kind: "pending", fingerprint: "fixture" }));
+  const old = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  await utimes(path(expired.id), old, old);
+  await utimes(path(pending), old, old);
+  await receipts.prune();
+  expect(await receipts.status(client, expired.id)).toEqual({ kind: "missing" });
+  expect((await receipts.status(client, recent.id)).kind).toBe("complete");
+  expect(await receipts.status(client, pending)).toEqual({ kind: "interrupted" });
+  expect(await readFile(path(pending), "utf8")).toContain('"kind":"pending"');
+  receipts.start();
+  await receipts.close();
 });
