@@ -76,13 +76,9 @@ export function ProductPreview() {
           </div>
         </div>
       </div>
-      <figcaption>
-        One shared context. From the first frame to the final detail.
-        <span className="sr-only">
-          {" "}
-          Example workspace showing editable design files, a live canvas and a coding agent
-          implementing the attached design in the same project.
-        </span>
+      <figcaption className="sr-only">
+        Example workspace showing editable design files, a live canvas and a coding agent
+        implementing the attached design in the same project.
       </figcaption>
     </figure>
   );

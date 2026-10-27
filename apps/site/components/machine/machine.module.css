@@ -115,19 +115,6 @@
   width: min(calc(100% - 96px), 1120px);
   margin: 42px auto 0;
 }
-.productPreview figcaption {
-  position: relative;
-  width: fit-content;
-  max-width: 100%;
-  margin-top: 20px;
-  padding: 6px 10px;
-  background: var(--background);
-  font:
-    10px/1.6 var(--font-mono),
-    monospace;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
 .workspace {
   padding: 0;
   border: 1px solid var(--border);
@@ -626,9 +613,6 @@
   }
   .samplePage picture {
     height: 140px;
-  }
-  .productPreview figcaption {
-    font-size: 9px;
   }
   .workflowGrid article {
     display: block;
