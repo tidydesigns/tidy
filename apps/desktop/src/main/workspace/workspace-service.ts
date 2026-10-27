@@ -52,6 +52,7 @@ import { readLocalFile } from "../platform/local-files";
 import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates";
 
 type Job = {
+  analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   thread: Thread;
   queuedDelivery?: { message: QueuedMessage; index: number };
   process?: RunningHarness;
@@ -99,7 +100,8 @@ export class WorkspaceService {
       throw new Error("Choose a local project for this workspace thread.");
     return project;
   }
-
+  analyticsScope?: () => (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
+  analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
@@ -734,6 +736,7 @@ export class WorkspaceService {
     thread.activity = "Starting";
     thread.updatedAt = new Date().toISOString();
     const job: Job = {
+      analytics: this.analyticsScope?.() ?? this.analytics,
       thread,
       queuedDelivery:
         queuedMessages && queuedIndex >= 0
@@ -791,6 +794,7 @@ export class WorkspaceService {
         images,
         onUpdate: (update) => this.update(job, update),
       });
+      job.analytics?.({ name: "harness_turn_started", harness: thread.harness });
       if (job.stopped) job.process.stop();
       job.completion = this.complete(job);
     } catch (error) {
@@ -917,6 +921,13 @@ export class WorkspaceService {
         job.thread.error =
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
     }
+    job.analytics?.({
+      name: "harness_turn_finished",
+      harness: job.thread.harness,
+      result: job.stopped ? "cancelled" : job.thread.status === "completed" ? "success" : "failed",
+    });
+    if (job.thread.status === "failed")
+      job.analytics?.({ name: "desktop_error", operation: "harness", category: "unexpected" });
     await this.serialize(job.thread.id, () => this.finish({ job, kind: "complete" }));
   }
 

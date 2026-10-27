@@ -1,6 +1,7 @@
 type Environment = Pick<CloudflareEnv, "WORKER_SELF_REFERENCE"> & {
   PRIVACY_CLEANUP_SECRET?: string;
   BILLING_RECONCILIATION_SECRET?: string;
+  DESKTOP_ANALYTICS_STORAGE_ENABLED?: string;
 };
 
 export async function runScheduledMaintenance(env: Environment) {
@@ -12,6 +13,12 @@ export async function runScheduledMaintenance(env: Environment) {
       required: false,
     },
   ];
+  if (env.DESKTOP_ANALYTICS_STORAGE_ENABLED === "1")
+    jobs.push({
+      path: "/api/internal/analytics/maintenance",
+      secret: env.PRIVACY_CLEANUP_SECRET,
+      required: true,
+    });
   const results = await Promise.allSettled(
     jobs.map(async ({ path, secret, required }) => {
       if (!required && !secret) return;

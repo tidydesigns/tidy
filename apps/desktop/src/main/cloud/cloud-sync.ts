@@ -56,6 +56,7 @@ type Status = CloudState["bindings"][number];
  * Each binding has its own baseline and crash-safe operation receipt, outside the project.
  */
 export class CloudSync {
+  analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   private bindings = new Map<string, Binding>();
   private statuses = new Map<string, Status>();
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -153,7 +154,13 @@ export class CloudSync {
       ...(message ? { message } : {}),
     };
     if (JSON.stringify(this.statuses.get(binding.id)) === JSON.stringify(value)) return;
+    const previous = this.statuses.get(binding.id)?.status;
     this.statuses.set(binding.id, value);
+    if (status !== previous && ["synced", "error", "conflict"].includes(status))
+      this.analytics?.({
+        name: "desktop_sync_result",
+        result: status === "synced" ? "success" : status === "conflict" ? "conflict" : "failed",
+      });
     this.changed();
   }
   private async save(binding: Binding) {
@@ -576,6 +583,7 @@ export class CloudSync {
       binding.base = remote;
       binding.creating = undefined;
       await this.save(binding);
+      this.analytics?.({ name: "design_cloud_connected" });
     }
     if (binding.pending) {
       const pending = binding.pending;

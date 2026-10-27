@@ -1,0 +1,155 @@
+.settings-privacy {
+  max-width: 560px;
+}
+.settings-privacy h2 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.settings-privacy p {
+  margin: 0;
+  color: var(--color-muted-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.settings-privacy .settings-privacy-status {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.settings-privacy-decisions {
+  display: flex;
+  gap: 10px;
+  margin: 20px 0 12px;
+}
+.settings-privacy-decision {
+  min-width: 112px;
+  min-height: 36px;
+  padding: 7px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-privacy-decision[aria-pressed="true"] {
+  border-color: var(--color-muted-ink);
+  background: var(--color-subtle-fill);
+}
+.settings-privacy button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.settings-privacy button:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 3px;
+}
+.settings-privacy-decision:active:not(:disabled),
+.settings-privacy-switch:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.settings-privacy-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 5px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.settings-disclosure-mark {
+  width: 12px;
+  text-align: center;
+  color: var(--color-muted-ink);
+}
+.settings-privacy-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 0;
+}
+.settings-privacy-row h3 {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.settings-privacy-row > div {
+  min-width: 0;
+}
+.settings-privacy-switch {
+  min-width: 48px;
+  min-height: 30px;
+  flex-shrink: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.settings-privacy-switch[aria-checked="true"] {
+  background: var(--color-subtle-fill);
+  border-color: var(--color-muted-ink);
+}
+.settings-privacy .settings-privacy-policy {
+  margin-top: 12px;
+  font-size: 12px;
+}
+.settings-privacy-link {
+  width: auto;
+  flex-shrink: 0;
+  padding: 3px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.settings-privacy-row > .settings-privacy-link {
+  white-space: nowrap;
+}
+.settings-privacy .settings-privacy-reference {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.settings-privacy-reference code {
+  display: block;
+  overflow-wrap: anywhere;
+  user-select: text;
+  font-size: 11px;
+}
+.settings-privacy .settings-privacy-notice,
+.settings-privacy .settings-privacy-error {
+  margin-top: 16px;
+  font-size: 12px;
+}
+.settings-privacy .settings-privacy-error {
+  color: var(--desktop-status-danger);
+}
+.settings-privacy-unavailable {
+  color: var(--color-muted-ink);
+  font-size: 13px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .settings-privacy-decision:hover:not(:disabled),
+  .settings-privacy-switch:hover:not(:disabled) {
+    background: var(--color-hover-surface);
+    border-color: var(--color-muted-ink);
+  }
+  .settings-privacy-disclosure:hover,
+  .settings-privacy-link:hover {
+    color: var(--color-secondary-ink);
+  }
+}

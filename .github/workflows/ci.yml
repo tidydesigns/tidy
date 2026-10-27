@@ -63,6 +63,7 @@ jobs:
             versions,
             personal,
             privacy,
+            analytics,
             mcp,
           ]
     steps:

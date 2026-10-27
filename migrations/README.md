@@ -1,5 +1,20 @@
 # Postgres migrations
 
+`20261024-desktop-analytics.sql` follows `20261021-combined-privacy-consent.sql`.
+It adds separate native consent receipts (including a prospective link timestamp), optional account aliases, expiring
+first-party product records, and aggregate release counters/export markers. Reapply
+`operations/runtime-grants.sql`. Both local setup scripts include it. Run
+`bun test:analytics:db` for a disposable restricted-role test. See
+[desktop analytics](../docs/desktop-analytics.md) for storage/collection gates and
+maintenance requirements. Production migration and enablement require explicit
+approval; this migration is never applied automatically.
+
+`20261026-desktop-service-metrics.sql` follows the desktop analytics migration and
+adds a separate table of sampled daily server service-health counts. It stores no
+request or visitor identifiers. Reapply runtime grants after both migrations;
+both local setup scripts and `bun test:analytics:db` include this table. Its
+retention cleanup shares the existing privacy maintenance.
+
 Keep all database SQL changes in this directory. Existing `schema*.sql` files retain their original names and contents; the local database setup scripts list the order needed for their fixtures. Name new changes `YYYYMMDD-short-description.sql`, as with `20260928-file-multiplayer.sql`.
 
 When adding a migration, update any local setup script or integration fixture that needs it and document any prerequisite migration. Do not run a migration against production without the approval required by `AGENTS.md`.

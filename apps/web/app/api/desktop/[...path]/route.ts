@@ -1,3 +1,4 @@
+import { withDesktopServiceMetrics } from "@/lib/analytics/service-metrics";
 import { requireMcpAuth } from "@better-auth/mcp";
 import { z } from "zod";
 import { DESKTOP_SYNC_SCOPE, desktopSyncResource } from "@tidy/design/cloud-sync";
@@ -267,8 +268,12 @@ const handle = requireMcpAuth(
 );
 
 export function GET(request: Request) {
-  return runWithRequestSignal(request.signal, () => handle(request));
+  return withDesktopServiceMetrics(request, () =>
+    runWithRequestSignal(request.signal, () => handle(request)),
+  );
 }
 export function POST(request: Request) {
-  return runWithRequestSignal(request.signal, () => handle(request));
+  return withDesktopServiceMetrics(request, () =>
+    runWithRequestSignal(request.signal, () => handle(request)),
+  );
 }

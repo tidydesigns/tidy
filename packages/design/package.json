@@ -27,7 +27,8 @@
     "./capture-source": "./capture-source.ts",
     "./figma": "./figma.ts",
     "./figma-input": "./figma-input.ts",
-    "./document-limits": "./document-limits.ts"
+    "./document-limits": "./document-limits.ts",
+    "./analytics": "./analytics.ts"
   },
   "scripts": {
     "typecheck": "tsrs --noEmit",

@@ -2,6 +2,7 @@ import "server-only";
 import { db } from "@/lib/db";
 import { ACCOUNT_EXPORT_LIMITS as limits } from "@/lib/security/resource-limits";
 import { lockPrivacyAccount, PrivacyError } from "./access";
+import { analyticsStorageEnabled } from "@/lib/analytics/store";
 
 // Explicit projections ensure future credential columns cannot leak into exports.
 // Shared content is included only while the requester remains a member.
@@ -58,6 +59,10 @@ export const exportQueries: Record<string, string> = {
     'select id,enabled,"noticeVersion","createdAt","lastChosenAt","expiresAt","retiredAt" from "mcpAnalyticsConsent" where "userId"=$1',
   privacyChoices:
     'select id,version,"noticeVersion",at,analytics,replay,diagnostics,"recordedAt","expiresAt" from "privacyConsent" where "userId"=$1',
+  desktopAnalyticsChoices:
+    'select d.id,d.usage,d.diagnostics,d.notice,d.revision,d."createdAt",d."linkedAt",d."lastExportAt",d."expiresAt" from "desktopAnalyticsConsent" d join "productAnalyticsAccount" a on a.id=d."accountId" where a."userId"=$1',
+  productAnalytics:
+    'select e.surface,e.purpose,e.name,e.at,e.properties from "productAnalyticsEvent" e join "productAnalyticsAccount" a on a.id=e."accountId" where a."userId"=$1 and e."expiresAt">clock_timestamp()',
 };
 
 let activeExports = 0;
@@ -92,12 +97,17 @@ async function readAccountExport(userId: string, sessionId: string) {
         "Personal account data, feedback stored in Tidy and currently accessible designs you created. Shared organization data belongs to the organization. Authentication secrets and vault credentials are excluded. Export complete design files from the editor, including assets. Contact the operator for historical analytics, legacy feedback held outside Tidy, or other processor records.",
     };
     const metadataBytes = Buffer.byteLength(JSON.stringify(data));
+    const sections = Object.entries(exportQueries).filter(
+      ([name]) =>
+        analyticsStorageEnabled() ||
+        !["desktopAnalyticsChoices", "productAnalytics"].includes(name),
+    );
     let rows = 0,
       bytes = metadataBytes;
     // Measure every section inside the same snapshot before loading any private
     // records. Only scalar totals cross the database connection during admission.
     // LIMIT also bounds the work when an account has a huge number of small rows.
-    for (const [section, query] of Object.entries(exportQueries)) {
+    for (const [section, query] of sections) {
       const size = (
         await client.query<{ count: number; bytes: string }>(
           `select count(*)::int as count,
@@ -115,7 +125,7 @@ async function readAccountExport(userId: string, sessionId: string) {
       if (rows > limits.rows || bytes > limits.bytes) throw oversized();
     }
     let serializedBytes = metadataBytes;
-    for (const [section, query] of Object.entries(exportQueries)) {
+    for (const [section, query] of sections) {
       const records = (await client.query(`${query} limit $2`, [userId, limits.rows])).rows;
       // pg's JavaScript date/number serialization can differ from row_to_json.
       // Retain a final actual-byte check as well as the database-side preflight.

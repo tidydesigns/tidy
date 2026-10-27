@@ -14,11 +14,11 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
     <article className="tidy-privacy-policy">
       <header>
         <h1>Privacy policy</h1>
-        <p className="policy-date">Last updated: 21 October 2026</p>
+        <p className="policy-date">Last updated: 26 October 2026</p>
         <p>
-          This notice covers tidydesign.co, the hosted Tidy app, registration, login and connected
-          features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
-          controller for account administration, security, support and the PostHog processing
+          This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login
+          and connected features. Sean Dowdall, an individual based in Ireland, operates Tidy and is
+          the controller for account administration, security, support and the PostHog processing
           described below. Contact <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a> about
           privacy.
         </p>
@@ -29,6 +29,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
         <nav aria-label="Privacy policy sections">
           <a href="#data">Information and purposes</a>
+          <a href="#desktop-privacy">Desktop privacy</a>
           <a href="#posthog">Cookies and PostHog</a>
           <a href="#providers">Providers</a>
           <a href="#retention">Retention</a>
@@ -83,6 +84,101 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
       </section>
 
+      <Section id="desktop-privacy" title="Desktop: local data and optional reports">
+        <p>
+          Desktop works without an account or optional reporting. Local projects, designs, paths,
+          thread history and harness credentials are not uploaded for analytics. Connecting to a
+          cloud workspace synchronizes the designs and assets you choose; this functional processing
+          is separate from usage reporting. Release checks contact GitHub, and harness updates and
+          model use contact the relevant providers. Those services receive network connection
+          information. Essential-only use does not mean the app makes no network requests.
+        </p>
+        <p>
+          <strong>Cloud service health — operational reporting.</strong> When cloud service
+          reporting is enabled, our server samples 10% of the cloud requests it already handles and
+          adds daily counts by operation category, response outcome and coarse server response-time
+          range. This operates independently of optional desktop reporting and helps identify failed
+          sync requests, access errors, conflicts, rate limits and slow service responses. These
+          counters contain no account, installation, file or organisation identifiers, IP addresses,
+          request bodies, raw errors, full URLs, query values, client versions or user-agent
+          strings. They are not sent to PostHog, cannot link desktop and web users and are not used
+          to measure retention or local activity. No extra desktop request or tracking identifier is
+          introduced. We rely on the security and reliability interests described above for
+          operating the service; this does not authorize optional tracking on your device.
+        </p>
+        <p>
+          Service counters cover the current and preceding 29 UTC calendar days. Older counters are
+          excluded immediately and deleted by the same scheduled maintenance described below.
+          Turning optional reporting off or deleting your reports does not remove these shared
+          service counters or public download totals. Sampling and delivery failures mean counts are
+          estimates of requests, including retries, rather than people or completed syncs. Local and
+          offline app use does not send us these service measurements.
+        </p>
+        <p>
+          <strong>Usage statistics — optional consent.</strong> Off by default, this choice reports
+          first observed use, active days, app version and architecture, actual harness runs and
+          their outcomes, design creation/import and initial cloud publication. Reports use a
+          random, resettable installation identifier. This is pseudonymous data, not anonymous data;
+          an account is not required. First observed use is not proof of the original install date,
+          and resetting choices or reinstalling can change the identifier. Downloads are measured
+          separately using GitHub file counters, which include automated verification.
+        </p>
+        <p>
+          <strong>Technical diagnostics — separate optional consent.</strong> Also off by default,
+          this reports reviewed error categories, coarse startup/interaction timings, update
+          outcomes and sync state transitions. It does not upload raw error messages, console or
+          terminal output, stack memory, screenshots, prompts, responses, design contents,
+          filenames, paths, credentials or device fingerprints. Desktop has no session replay or
+          click autocapture. A local log is limited to 100 reviewed error categories, pruned to the
+          preceding seven days at startup and hourly while the app runs, and is not automatically
+          uploaded as a log file. You can contact us if you need help accessing these categories for
+          support; an account or optional reporting is not required.
+        </p>
+        <p>
+          <strong>Link desktop and web usage — optional.</strong> After enabling desktop usage, you
+          can request account linking in Settings → Privacy → Choose separately and confirm it in
+          your browser. Signing in or authorizing cloud sync does not grant this permission. Linking
+          applies to future activity only. Web activity is included only with web usage consent.
+          Tidy keeps the account mapping privately; detailed desktop reports are not sent to PostHog
+          and are not merged with legacy web profiles or MCP troubleshooting identifiers. Remove
+          linking from desktop Privacy settings or contact us using the email below.
+        </p>
+        <p>
+          Tidy stores detailed desktop and newly linked web product reports in its first-party
+          database. Usage reports expire after 90 days and technical reports after 30 days. Expired
+          reports are excluded from reporting immediately and removed by scheduled maintenance,
+          normally every five minutes. Maintenance failures can delay physical removal and require
+          operator action; backup copies follow the hosting retention and restore procedures.
+          Download snapshots have a 400-day limit. Raw desktop reports are not forwarded to PostHog:
+          an independently enabled export sends only aggregate counts under a service identifier,
+          with small product cohorts suppressed. These exports contain no installation or account
+          identifiers and follow the PostHog storage settings described below, rather than the raw
+          first-party expiry periods.
+        </p>
+        <p>
+          Privacy choices expire after 90 days and changed purposes require a new choice. Use Accept
+          or Deny in Settings → Privacy to enable or disable both purposes, or Choose separately to
+          change one. Account linking remains a separate optional choice. Turning a purpose off
+          immediately stops its local collection; this version resets its reporting identity and
+          removes the previous receipt&#39;s reports. Offline deletion waits for reconnection, while
+          old server records remain subject to expiry. Desktop unlinking also resets its reporting
+          context and queues that receipt's earlier usage and diagnostic reports for deletion;
+          future optional reports remain unlinked. Pending deletion is shown in Privacy settings.
+          Account deletion removes linked reports. For access, erasure or other privacy requests,
+          use the contact email below; you do not need an account. For an account-free installation,
+          we may ask for the privacy reference under Choose separately to locate its records and may
+          need to verify the request before releasing information. The reference does not grant
+          access to the app or its data. If the installation receipt is lost, we may be unable to
+          identify those records. These choices do not delete your local work.
+        </p>
+        <p>
+          Hosting infrastructure processes connection information, including IP addresses, to
+          deliver and secure requests. We do not use IP addresses to identify installations in
+          product reports or send client IP headers to the aggregate analytics provider. Optional
+          desktop collection can remain unavailable until its storage and maintenance are
+          configured.
+        </p>
+      </Section>
       <Section
         id="posthog"
         title="PostHog: functional settings, server monitoring and optional browser features"

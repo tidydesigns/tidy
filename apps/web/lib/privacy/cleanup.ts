@@ -4,6 +4,8 @@ import { designBucket } from "@/lib/storage/design-objects";
 import { feedbackBucket } from "@/lib/feedback/storage";
 import { runnerRequest } from "@/lib/agents/runner-client";
 import { maintainConsentRecords } from "./consent-store";
+import { analyticsStorageEnabled } from "@/lib/analytics/store";
+import { maintainProductAnalytics } from "@/lib/analytics/store";
 import { maintainMcpConsentRecords } from "./mcp-consent";
 
 type CleanupJob = {
@@ -136,5 +138,13 @@ export async function processPrivacyCleanup(limit = 1) {
   ).rows[0];
   if (pending.pending)
     console.warn(JSON.stringify({ event: "privacy_review_pending", ...pending }));
+  // Optional analytics maintenance must not delay or prevent existing erasure work.
+  if (analyticsStorageEnabled())
+    try {
+      await maintainProductAnalytics();
+    } catch {
+      console.error(JSON.stringify({ event: "product_analytics_maintenance_failed" }));
+      throw new Error("Product analytics maintenance did not complete.");
+    }
   return { completed, failed };
 }

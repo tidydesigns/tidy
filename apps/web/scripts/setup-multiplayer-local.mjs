@@ -44,6 +44,8 @@ try {
     "20261017-file-history-capacity.sql",
     "20261019-service-synchronization.sql",
     "20261021-combined-privacy-consent.sql",
+    "20261024-desktop-analytics.sql",
+    "20261026-desktop-service-metrics.sql",
   ])
     await client.query(
       await readFile(new URL(`../../../migrations/${name}`, import.meta.url), "utf8"),

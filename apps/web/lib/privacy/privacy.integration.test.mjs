@@ -191,7 +191,8 @@ integration(
       expect(response.headers.get("set-cookie")).not.toContain("tidy_consent=");
       const body = await response.json();
       expect(body.user).toBeNull();
-      expect(Object.keys(body).sort()).toEqual(["browserId", "id", "user"]);
+      expect(Object.keys(body).sort()).toEqual(["browserId", "id", "productAnalytics", "user"]);
+      expect(body.productAnalytics).toBe(false);
       const consent = {
         ...choice,
         version: CONSENT_VERSION,
@@ -517,6 +518,76 @@ integration("external cleanup retains failed jobs and erases successful job subj
   if (original === undefined) delete process.env.PRIVACY_POSTHOG_DISABLED;
   else process.env.PRIVACY_POSTHOG_DISABLED = original;
 });
+
+integration(
+  "analytics maintenance failure preserves consent retirement and erasure processing",
+  async () => {
+    const receipt = await recordConsent(
+      {
+        version: CONSENT_VERSION,
+        at: Date.now(),
+        analytics: false,
+        replay: false,
+        diagnostics: false,
+      },
+      null,
+    );
+    await admin.query(
+      'update "privacyConsent" set "expiresAt"=now()-interval \'1 day\' where id=$1',
+      [receipt.decision.id],
+    );
+    const mcpId = crypto.randomUUID();
+    const jobId = crypto.randomUUID();
+    await admin.query(
+      `insert into "mcpAnalyticsConsent" (id,"userId",enabled,"noticeVersion","expiresAt")
+     values ($1,'alice',false,$2,now()-interval '1 day');`,
+      [mcpId, MCP_NOTICE_VERSION],
+    );
+    await admin.query(
+      "insert into \"privacyCleanup\" (id,kind,subject) values ($1,'posthog-review','fixture')",
+      [jobId],
+    );
+    const original = process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED;
+    const error = spyOn(console, "error").mockImplementation(() => {});
+    await admin.query(
+      'alter table "desktopServiceMetric" rename to "desktopServiceMetricUnavailable"',
+    );
+    try {
+      process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED = "1";
+      await expect(processPrivacyCleanup()).rejects.toThrow(
+        "Product analytics maintenance did not complete.",
+      );
+      expect(
+        (
+          await admin.query('select "retiredAt" from "privacyConsent" where id=$1', [
+            receipt.decision.id,
+          ])
+        ).rows[0].retiredAt,
+      ).not.toBeNull();
+      expect(
+        (await admin.query('select "retiredAt" from "mcpAnalyticsConsent" where id=$1', [mcpId]))
+          .rows[0].retiredAt,
+      ).not.toBeNull();
+      expect(
+        (
+          await admin.query('select attempts,"nextAttemptAt" from "privacyCleanup" where id=$1', [
+            jobId,
+          ])
+        ).rows[0],
+      ).toEqual({ attempts: 1, nextAttemptAt: Infinity });
+      expect(error).toHaveBeenCalledWith(
+        JSON.stringify({ event: "product_analytics_maintenance_failed" }),
+      );
+    } finally {
+      await admin.query(
+        'alter table "desktopServiceMetricUnavailable" rename to "desktopServiceMetric"',
+      );
+      if (original === undefined) delete process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED;
+      else process.env.DESKTOP_ANALYTICS_STORAGE_ENABLED = original;
+      error.mockRestore();
+    }
+  },
+);
 
 integration(
   "database failures roll back erasure, revocation and external cleanup together",

@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { analyticsEnabled, hasAnalyticsLink } from "@/lib/analytics/store";
 import { privateHeaders, privacyFailure } from "@/lib/privacy/access";
 import { reservePersonalAttempts, PersonalBudgetError } from "@/lib/security/personal-budget";
 import { withRequestBodyLimit } from "@/lib/http/request-body";
@@ -69,6 +70,10 @@ async function record(request: Request) {
         id: decision.id,
         browserId: decision.browserId,
         user: session ? { id: session.user.id, email: session.user.email } : null,
+        productAnalytics:
+          analyticsEnabled() && consent.analytics && session
+            ? await hasAnalyticsLink(session.user.id)
+            : false,
       },
       { headers },
     );

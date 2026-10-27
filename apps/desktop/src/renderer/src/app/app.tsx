@@ -4,6 +4,7 @@ import {
   codeStatusClassName,
   codeSubmitClassName,
 } from "../styles/code-ui";
+import { useDesktopDiagnostics } from "../features/settings/use-diagnostics";
 import { z } from "zod";
 import { useSessionState } from "./session-state";
 import { selectionSchema } from "./navigation-state";
@@ -89,6 +90,7 @@ const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 
 export function App() {
   const api = window.tidy;
+  useDesktopDiagnostics(api?.analytics);
   const cloud = useCloud(api?.cloud);
   const cloudLibrary = useMemo(
     () => ({ state: cloud.state, account: cloud.account }),
