@@ -12,19 +12,30 @@ import {
 import { flushSync } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
-import type { DesktopAPI, DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
-import { LocalCanvas } from "./local-canvas";
+import { PreviewCamera } from "./camera";
+import {
+  constrainGeometry,
+  resizeEdges,
+  resizeGeometry,
+  type ResizeEdge,
+  type DockSlot,
+  type PreviewWindowGeometry,
+} from "./window-geometry";
+import type { PreviewCameraMemory } from "./navigation";
+import { gestureMoved } from "./pointer";
+import type {
+  DesktopAPI,
+  DesignSummary,
+  LocalDesign,
+} from "../../../../../shared/contracts/desktop";
+import { LocalCanvas } from "../local-canvas";
 import type { CanvasViewportMemory } from "@tidy/editor";
-import type { CanvasGeometry } from "./thread-canvas-dock";
-import type { DockSlot } from "./thread-design-dock";
+import type { CanvasGeometry } from "./dock-state";
 
 type Phase = "closed" | "opening" | "open" | "closing";
 const enterEasing = "cubic-bezier(0.6, 0.04, 0.85, 0.24)";
 const exitEasing = "cubic-bezier(0.15, 0.65, 0.3, 1)";
 const previewRatio = 1.5;
-const minimumWidth = 220;
-const maximumWidth = 560;
 const minimiseIcon = (
   <svg
     aria-hidden="true"
@@ -41,7 +52,6 @@ const minimiseIcon = (
   </svg>
 );
 
-/** Align the live editor with the thumbnail before growing it into its full-size view. */
 function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, button: HTMLElement) {
   const rect = button.getBoundingClientRect();
   const transform = getComputedStyle(canvas).transform;
@@ -49,9 +59,9 @@ function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, butto
   const contentBounds = canvas.getBoundingClientRect();
   const roots = button.querySelectorAll<HTMLElement>("foreignObject > div > [data-thumbnail-node]");
   for (const root of roots) {
-    const node = canvas.querySelector<HTMLElement>(
-      `[data-node-id="${CSS.escape(root.dataset.thumbnailNode!)}"]`,
-    );
+    const nodeId = root.dataset.thumbnailNode;
+    if (!nodeId) continue;
+    const node = canvas.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
     if (!node) continue;
     const source = root.getBoundingClientRect();
     const target = node.getBoundingClientRect();
@@ -79,6 +89,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   stackOrder,
   initialGeometry,
   viewportMemory,
+  previewMemory,
   dockTarget,
   readPreview,
   onDock,
@@ -99,6 +110,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   stackOrder: number;
   initialGeometry?: CanvasGeometry;
   viewportMemory: CanvasViewportMemory;
+  previewMemory: PreviewCameraMemory;
   dockTarget: RefObject<HTMLSpanElement | null>;
   readPreview(summary: DesignSummary): Promise<LocalDesign>;
   onDock(id: string): void;
@@ -113,7 +125,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const layer = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const resizeHandle = useRef<HTMLButtonElement>(null);
+  const gestureFrame = useRef(0);
+  const pendingGesture = useRef<(() => void) | undefined>(undefined);
   const dialog = useRef<HTMLDialogElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const transitionEdge = useRef<HTMLDivElement>(null);
@@ -126,17 +139,19 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     y: initialGeometry?.y ?? 64 + (placement % 5) * 28,
   });
   const width = useRef(initialGeometry?.width ?? 296);
+  const height = useRef(initialGeometry?.height ?? width.current / previewRatio);
   const dockMotion = useRef<Animation[]>([]);
   const laidOut = useRef(false);
   const previousFloating = useRef(floating);
   const drag = useRef<{
-    kind: "move" | "resize";
+    kind: "move" | ResizeEdge;
     pointerId: number;
     startX: number;
     startY: number;
     x: number;
     y: number;
     width: number;
+    height: number;
     moved: boolean;
   } | null>(null);
   const suppressClick = useRef(false);
@@ -144,7 +159,6 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const expanded = phase !== "closed";
   const ready = Boolean(summary && value?.id === summary.id);
 
-  // A read may finish after docking, switching windows, or leaving the thread.
   useLayoutEffect(
     () => () => {
       openRequest.current++;
@@ -158,40 +172,46 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     return () => window.cancelIdleCallback(idle);
   }, [ready, active, warm, floating, visited]);
 
-  const move = useCallback((x: number, y: number) => {
-    const button = frame.current;
+  const applyGeometry = useCallback((geometry: PreviewWindowGeometry) => {
+    const surface = frame.current;
     const area = layer.current;
-    if (!button || !area || !area.clientWidth || !area.clientHeight) return;
-    offset.current = {
-      x: Math.max(16, Math.min(area.clientWidth - button.offsetWidth - 16, x)),
-      y: Math.max(16, Math.min(area.clientHeight - button.offsetHeight - 16, y)),
-    };
-    button.style.left = "0px";
-    button.style.top = "0px";
-    button.style.transform = `translate(${offset.current.x}px, ${offset.current.y}px)`;
+    if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
+    const next = constrainGeometry(geometry, {
+      width: area.clientWidth,
+      height: area.clientHeight,
+    });
+    offset.current = { x: next.x, y: next.y };
+    width.current = next.width;
+    height.current = next.height;
+    Object.assign(surface.style, {
+      left: "0px",
+      top: "0px",
+      width: `${next.width}px`,
+      height: `${next.height}px`,
+      transform: `translate(${next.x}px, ${next.y}px)`,
+    });
   }, []);
-
-  const resize = useCallback(
-    (requested: number) => {
-      const surface = frame.current;
-      const area = layer.current;
-      if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
-      const limit = Math.max(
-        0,
-        Math.min(maximumWidth, area.clientWidth - 32, (area.clientHeight - 32) * previewRatio),
-      );
-      const minimum = Math.min(minimumWidth, limit);
-      width.current = Math.max(minimum, Math.min(limit, requested));
-      const previousWidth = surface.offsetWidth;
-      surface.style.width = `${width.current}px`;
-      // Keep the top-right corner anchored while the bottom-left handle moves.
-      move(offset.current.x + previousWidth - width.current, offset.current.y);
-      resizeHandle.current?.setAttribute("aria-valuemin", String(Math.round(minimum)));
-      resizeHandle.current?.setAttribute("aria-valuemax", String(Math.round(limit)));
-      resizeHandle.current?.setAttribute("aria-valuenow", String(Math.round(width.current)));
+  const move = useCallback(
+    (x: number, y: number) => {
+      applyGeometry({ x, y, width: width.current, height: height.current });
     },
-    [move],
+    [applyGeometry],
   );
+  const scheduleGesture = (update: () => void) => {
+    pendingGesture.current = update;
+    if (gestureFrame.current) return;
+    gestureFrame.current = requestAnimationFrame(() => {
+      gestureFrame.current = 0;
+      pendingGesture.current?.();
+      pendingGesture.current = undefined;
+    });
+  };
+  const flushGesture = () => {
+    cancelAnimationFrame(gestureFrame.current);
+    gestureFrame.current = 0;
+    pendingGesture.current?.();
+    pendingGesture.current = undefined;
+  };
 
   useLayoutEffect(() => {
     const surface = frame.current;
@@ -216,32 +236,34 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const previousClip = getComputedStyle(surface).clipPath;
     const previousRadius = laidOut.current ? getComputedStyle(surface).borderRadius : "4px";
     dockMotion.current.forEach((motion) => motion.cancel());
-    if (!Number.isFinite(offset.current.x))
+    if (!Number.isFinite(offset.current.x)) {
       offset.current.x = area.clientWidth - width.current - 36 - (placement % 5) * 28;
-    const limit = Math.max(
-      0,
-      Math.min(maximumWidth, area.clientWidth - 32, (area.clientHeight - 32) * previewRatio),
+      const composer = dockTarget.current?.closest("form")?.getBoundingClientRect();
+      if (composer)
+        offset.current.y = Math.max(
+          16,
+          Math.min(offset.current.y, composer.top - bounds.top - height.current - 16),
+        );
+    }
+    const geometry = constrainGeometry(
+      { ...offset.current, width: width.current, height: height.current },
+      { width: area.clientWidth, height: area.clientHeight },
     );
-    width.current = Math.max(Math.min(minimumWidth, limit), Math.min(limit, width.current));
-    offset.current.x = Math.max(
-      16,
-      Math.min(area.clientWidth - width.current - 16, offset.current.x),
-    );
-    offset.current.y = Math.max(
-      16,
-      Math.min(area.clientHeight - width.current / previewRatio - 16, offset.current.y),
-    );
-    const target = floating ? { ...offset.current, width: width.current } : slot;
-    const height = target.width / previewRatio;
+    offset.current = { x: geometry.x, y: geometry.y };
+    width.current = geometry.width;
+    height.current = geometry.height;
+    const target = floating ? geometry : { ...slot, height: slot.width / previewRatio };
+    const targetHeight = target.height;
     const transform = `translate(${target.x}px, ${target.y}px)`;
     const clip = "inset(0% 0% 0% 0%)";
     Object.assign(surface.style, {
       left: "0px",
       top: "0px",
       width: `${target.width}px`,
+      height: `${targetHeight}px`,
       transform,
       clipPath: clip,
-      borderRadius: floating ? "22px" : "4px",
+      borderRadius: floating ? "14px" : "4px",
     });
     if (
       (laidOut.current || floating) &&
@@ -252,11 +274,11 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       const motion = surface.animate(
         [
           {
-            transform: `translate(${previous.left - bounds.left}px, ${previous.top - bounds.top}px) scale(${previous.width / target.width}, ${previous.height / height})`,
+            transform: `translate(${previous.left - bounds.left}px, ${previous.top - bounds.top}px) scale(${previous.width / target.width}, ${previous.height / targetHeight})`,
             clipPath: previousClip === "none" ? "inset(0% 0% 0% 0%)" : previousClip,
             borderRadius: `${(parseFloat(previousRadius) * target.width) / previous.width}px`,
           },
-          { transform, clipPath: clip, borderRadius: floating ? "22px" : "4px" },
+          { transform, clipPath: clip, borderRadius: floating ? "14px" : "4px" },
         ],
         { duration: 280, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "both" },
       );
@@ -295,12 +317,16 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
 
   useEffect(() => {
     if (!active || !floating || !layer.current) return;
-    const observer = new ResizeObserver(() => resize(width.current));
+    const observer = new ResizeObserver(() => {
+      if (!drag.current)
+        applyGeometry({ ...offset.current, width: width.current, height: height.current });
+    });
     observer.observe(layer.current);
     return () => observer.disconnect();
-  }, [active, floating, resize]);
+  }, [active, floating, applyGeometry]);
 
-  const remember = () => onGeometry(summary.id, { ...offset.current, width: width.current });
+  const remember = () =>
+    onGeometry(summary.id, { ...offset.current, width: width.current, height: height.current });
   function acceptsDock(x: number, y: number) {
     const rect = dockTarget.current?.getBoundingClientRect();
     return Boolean(
@@ -312,7 +338,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     );
   }
 
-  function beginDrag(event: PointerEvent<HTMLButtonElement>, kind: "move" | "resize") {
+  function beginDrag(event: PointerEvent<HTMLElement>, kind: "move" | ResizeEdge) {
     if (!floating) return;
     onActivate(summary.id);
     if (event.button !== 0 || !event.isPrimary || drag.current) return;
@@ -327,40 +353,47 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       startY: event.clientY,
       ...offset.current,
       width: frame.current?.getBoundingClientRect().width ?? width.current,
+      height: height.current,
       moved: false,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
   }
 
-  function continueDrag(event: PointerEvent<HTMLButtonElement>) {
+  function continueDrag(event: PointerEvent<HTMLElement>) {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
     const dx = event.clientX - current.startX;
     const dy = event.clientY - current.startY;
-    if (!current.moved && Math.hypot(dx, dy) < 5) return;
+    if (!current.moved && !gestureMoved(dx, dy)) return;
     current.moved = true;
     if (current.kind === "move") {
       if (frame.current) frame.current.dataset.dragging = "true";
-      move(current.x + dx, current.y + dy);
+      scheduleGesture(() => move(current.x + dx, current.y + dy));
       if (dockTarget.current)
         dockTarget.current.dataset.canvasDrop = String(acceptsDock(event.clientX, event.clientY));
     } else {
       if (frame.current) frame.current.dataset.resizing = "true";
-      const delta = Math.abs(dx) > Math.abs(dy * previewRatio) ? -dx : dy * previewRatio;
-      resize(current.width + delta);
+      const area = layer.current;
+      if (area) {
+        const next = resizeGeometry(current, current.kind, dx, dy, {
+          width: area.clientWidth,
+          height: area.clientHeight,
+        });
+        scheduleGesture(() => applyGeometry(next));
+      }
     }
   }
 
-  function finishDrag(event: PointerEvent<HTMLButtonElement>, cancelled = false) {
+  function finishDrag(event: PointerEvent<HTMLElement>, cancelled = false) {
     const current = drag.current;
     if (!current || current.pointerId !== event.pointerId) return;
+    flushGesture();
     suppressClick.current = current.moved || cancelled;
     drag.current = null;
     if (dockTarget.current) delete dockTarget.current.dataset.canvasDrop;
     if (current.moved) {
       const dropped =
         !cancelled && current.kind === "move" && acceptsDock(event.clientX, event.clientY);
-      // A drag into the dock should reopen where the window was before that gesture.
       if (dropped) offset.current = { x: current.x, y: current.y };
       remember();
       if (dropped) onDock(summary.id);
@@ -387,9 +420,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       (design) => {
         if (current) setValue(design);
       },
-      () => {
-        /* Keep the last valid frame during atomic writes. */
-      },
+      () => {},
     );
     return () => {
       current = false;
@@ -423,6 +454,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   useEffect(
     () => () => {
       generation.current++;
+      cancelAnimationFrame(gestureFrame.current);
       animations.current.forEach((motion) => motion.cancel());
       dockMotion.current.forEach((motion) => motion.cancel());
     },
@@ -435,7 +467,6 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const content = canvas.current;
     const edge = transitionEdge.current;
     if (!surface || !button || !content || !edge) return;
-    // The editor normally warms during idle time; an immediate click can get there first.
     flushSync(() => setVisited(true));
     const epoch = ++generation.current;
     const rect = button.getBoundingClientRect();
@@ -573,30 +604,10 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           aria-expanded={expanded}
           aria-description={
             floating
-              ? `Live view of ${summary.name}. Drag to move or dock, resize from the bottom-left corner, or click to expand.`
+              ? `Live view of ${summary.name}. Scroll to pan, pinch to zoom, Space and drag to pan, or click to expand.`
               : `Restore the live view of ${summary.name}.`
           }
           data-expanded={expanded}
-          onPointerDown={(event) => beginDrag(event, "move")}
-          onPointerMove={continueDrag}
-          onPointerUp={(event) => finishDrag(event)}
-          onPointerCancel={(event) => finishDrag(event, true)}
-          onLostPointerCapture={(event) => finishDrag(event, true)}
-          onKeyDown={(event) => {
-            const directions: Record<string, [number, number]> = {
-              ArrowLeft: [-1, 0],
-              ArrowRight: [1, 0],
-              ArrowUp: [0, -1],
-              ArrowDown: [0, 1],
-            };
-            const direction = directions[event.key];
-            if (!floating || !direction) return;
-            event.preventDefault();
-            event.stopPropagation();
-            const step = event.shiftKey ? 40 : 16;
-            move(offset.current.x + direction[0] * step, offset.current.y + direction[1] * step);
-            remember();
-          }}
           onClick={(event) => {
             if (!suppressClick.current || event.detail === 0) {
               if (!warm) flushSync(() => onActivate(summary.id));
@@ -609,9 +620,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
                     flushSync(() => setValue(design));
                     transition(true);
                   },
-                  () => {
-                    /* Leave the preview available for another explicit retry. */
-                  },
+                  () => {},
                 );
               }
             }
@@ -621,83 +630,93 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
           <span className="thread-design-lens" aria-hidden="true" inert>
             <span className="thread-design-artwork">
               {value && (
-                <DocumentPreview
-                  content={value.document}
-                  assetUrl={(id) => value.assets[id] ?? ""}
+                <PreviewCamera
+                  value={value}
+                  memory={previewMemory}
+                  surface={trigger}
+                  suppressClick={suppressClick}
+                  enabled={active && floating && !expanded}
                 />
               )}
             </span>
           </span>
-          <span className="thread-design-name">{summary.name}</span>
           <span className="thread-design-rim" aria-hidden="true" />
         </Button>
-        <Button
-          type="button"
-          className="thread-design-close"
-          aria-label="Dock preview"
-          onClick={() => {
-            remember();
-            onDock(summary.id);
+        <div
+          className="thread-design-header"
+          onPointerDown={(event) => {
+            if (event.target instanceof Element && event.target.closest("button")) return;
+            beginDrag(event, "move");
           }}
-        >
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.2"
-            aria-hidden="true"
-          >
-            <path d="m3 4.5 3 3 3-3" />
-          </svg>
-        </Button>
-        <Button
-          ref={resizeHandle}
-          type="button"
-          className="thread-design-resize"
-          role="slider"
-          aria-label="Resize preview"
-          aria-description="Drag to resize, or use the arrow keys."
-          aria-valuemin={minimumWidth}
-          aria-valuemax={maximumWidth}
-          aria-valuenow={Math.round(width.current)}
-          onPointerDown={(event) => beginDrag(event, "resize")}
           onPointerMove={continueDrag}
           onPointerUp={(event) => finishDrag(event)}
           onPointerCancel={(event) => finishDrag(event, true)}
           onLostPointerCapture={(event) => finishDrag(event, true)}
-          onKeyDown={(event) => {
-            const direction =
-              event.key === "ArrowRight" || event.key === "ArrowUp"
-                ? 1
-                : event.key === "ArrowLeft" || event.key === "ArrowDown"
-                  ? -1
-                  : 0;
-            if (!direction && event.key !== "Home" && event.key !== "End") return;
-            event.preventDefault();
-            resize(
-              event.key === "Home"
-                ? minimumWidth
-                : event.key === "End"
-                  ? maximumWidth
-                  : width.current + direction * (event.shiftKey ? 40 : 16),
-            );
-            remember();
-          }}
         >
-          <svg
-            aria-hidden="true"
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            stroke="currentColor"
-            strokeLinecap="round"
+          <span className="thread-design-name" title={summary.name}>
+            {summary.name}
+          </span>
+          <Button
+            type="button"
+            className="thread-design-close"
+            aria-label="Dock preview"
+            onClick={() => {
+              remember();
+              onDock(summary.id);
+            }}
           >
-            <path d="m9 9-6-6M5 9 3 7" />
-          </svg>
-        </Button>
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 12 12"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              aria-hidden="true"
+            >
+              <path d="m3 4.5 3 3 3-3" />
+            </svg>
+          </Button>
+        </div>
+        {resizeEdges.map((edge) => (
+          <Button
+            key={edge}
+            type="button"
+            className="thread-design-resize"
+            data-edge={edge}
+            aria-label={`Resize preview ${edge}`}
+            tabIndex={edge === "se" ? 0 : -1}
+            onPointerDown={(event) => beginDrag(event, edge)}
+            onPointerMove={continueDrag}
+            onPointerUp={(event) => finishDrag(event)}
+            onPointerCancel={(event) => finishDrag(event, true)}
+            onLostPointerCapture={(event) => finishDrag(event, true)}
+            onKeyDown={(event) => {
+              const directions: Record<string, [number, number]> = {
+                ArrowLeft: [-1, 0],
+                ArrowRight: [1, 0],
+                ArrowUp: [0, -1],
+                ArrowDown: [0, 1],
+              };
+              const direction = directions[event.key];
+              const area = layer.current;
+              if (!direction || !area) return;
+              event.preventDefault();
+              event.stopPropagation();
+              const step = event.shiftKey ? 40 : 16;
+              applyGeometry(
+                resizeGeometry(
+                  { ...offset.current, width: width.current, height: height.current },
+                  edge,
+                  direction[0] * step,
+                  direction[1] * step,
+                  { width: area.clientWidth, height: area.clientHeight },
+                ),
+              );
+              remember();
+            }}
+          />
+        ))}
       </div>
       <Dialog
         ref={dialog}

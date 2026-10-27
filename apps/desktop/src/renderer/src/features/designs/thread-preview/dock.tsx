@@ -12,25 +12,29 @@ import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import type { CanvasViewportMemory } from "@tidy/editor";
-import { DesignPreviewCache } from "./design-preview-cache";
-import { threadDesigns } from "./thread-design";
+import { DesignPreviewCache } from "./cache";
+import { threadDesigns } from "./discovery";
 import {
   discoverCanvases,
   parseCanvasDock,
   toggleCanvas,
   type CanvasGeometry,
   type ThreadCanvasDock,
-} from "./thread-canvas-dock";
+} from "./dock-state";
 import type {
   DesktopAPI,
   DesignSummary,
   LocalDesign,
   Thread,
-} from "../../../../shared/contracts/desktop";
-import { ThreadDesignWindow } from "./thread-design-window";
+} from "../../../../../shared/contracts/desktop";
+import { ThreadDesignWindow } from "./window";
+import type { PreviewCameraMemory } from "./navigation";
+import type { DockSlot } from "./window-geometry";
 
-export type DockSlot = { x: number; y: number; width: number };
-const viewports = new Map<string, Map<string, CanvasViewportMemory>>();
+const viewports = new Map<
+  string,
+  Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>
+>();
 
 function CanvasGlyph() {
   return (
@@ -101,10 +105,13 @@ export function ThreadDesignDock({
 }) {
   const key = `tidy:canvas-dock:${thread.projectId}:${thread.id}`;
   const [memories] = useState(() => {
-    const memory = viewports.get(key) ?? new Map<string, CanvasViewportMemory>();
+    const memory =
+      viewports.get(key) ??
+      new Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>();
     viewports.delete(key);
     viewports.set(key, memory);
-    if (viewports.size > 40) viewports.delete(viewports.keys().next().value!);
+    const oldest = viewports.keys().next().value;
+    if (viewports.size > 40 && oldest !== undefined) viewports.delete(oldest);
     return memory;
   });
   const [state, setState] = useState<ThreadCanvasDock>(() => {
@@ -175,9 +182,7 @@ export function ThreadDesignDock({
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));
-    } catch {
-      /* Keep controls usable when storage is unavailable. */
-    }
+    } catch {}
   }, [key, state]);
   useEffect(() => {
     const target = home.current;
@@ -215,17 +220,17 @@ export function ThreadDesignDock({
     const area = layer.current;
     const target = home.current;
     if (!area || !target || !active || !summaries.length) return;
-    function measure() {
-      const anchor = target!.getBoundingClientRect();
+    const measure = () => {
+      const anchor = target.getBoundingClientRect();
       if (!anchor.width || !anchor.height) return;
-      const bounds = area!.getBoundingClientRect();
+      const bounds = area.getBoundingClientRect();
       const next = {
         x: anchor.left - bounds.left + (anchor.width - 28) / 2,
         y: anchor.top - bounds.top + (anchor.height - 28 / 1.5) / 2,
         width: 28,
       };
       setSlot((previous) => (previous?.x === next.x && previous?.y === next.y ? previous : next));
-    }
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(target);
@@ -317,7 +322,7 @@ export function ThreadDesignDock({
           windows.map((summary) => {
             let viewportMemory = memories.get(summary.id);
             if (!viewportMemory) {
-              viewportMemory = {};
+              viewportMemory = { editor: {}, preview: {} };
               memories.set(summary.id, viewportMemory);
             }
             return (
@@ -334,7 +339,8 @@ export function ThreadDesignDock({
                 placement={summaries.indexOf(summary)}
                 stackOrder={state.openIds.indexOf(summary.id) + 2}
                 initialGeometry={state.geometry[summary.id]}
-                viewportMemory={viewportMemory}
+                viewportMemory={viewportMemory.editor}
+                previewMemory={viewportMemory.preview}
                 dockTarget={home}
                 readPreview={readPreview}
                 onDock={toggle}

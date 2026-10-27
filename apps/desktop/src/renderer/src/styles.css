@@ -22,5 +22,5 @@
 @import "./app/workspace-views.css";
 @import "./features/settings/settings.css";
 @import "./features/cloud/cloud-workspace.css";
-@import "./features/designs/thread-design-dock.css";
+@import "./features/designs/thread-preview/dock.css";
 @import "./features/composer/composer-context.css";

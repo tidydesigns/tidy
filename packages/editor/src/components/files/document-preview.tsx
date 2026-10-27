@@ -15,8 +15,9 @@ import { documentPages, pageNodes } from "../../design/pages";
 import { resolvedColorTokens, resolvedDocumentNodes } from "@tidy/design/design-tokens";
 import { useDocumentFonts } from "../../design/fonts/use-document-fonts";
 const hostedAssetUrl = (id: string) => `/api/assets/${id}`;
-type Box = { x: number; y: number; width: number; height: number };
-function bounds(boxes: Box[]): Box {
+export type PreviewViewport = { x: number; y: number; zoom: number; width: number; height: number };
+export type PreviewBounds = DesignNode["box"];
+function bounds(boxes: PreviewBounds[]): PreviewBounds {
   const left = Math.min(...boxes.map((box) => box.x));
   const top = Math.min(...boxes.map((box) => box.y));
   const right = Math.max(...boxes.map((box) => box.x + box.width));
@@ -27,9 +28,13 @@ function bounds(boxes: Box[]): Box {
 export function DocumentPreview({
   content,
   assetUrl = hostedAssetUrl,
+  viewport,
+  onBounds,
 }: {
   content: DesignDocument;
   assetUrl?: (id: string) => string;
+  viewport?: PreviewViewport;
+  onBounds?: (bounds: PreviewBounds) => void;
 }) {
   const element = useRef<SVGSVGElement>(null);
   const [measured, setMeasured] = useState<Map<string, { width: number; height: number }>>(
@@ -63,14 +68,17 @@ export function DocumentPreview({
     );
     const layers = [
       ...(element.current?.querySelectorAll<HTMLElement>("[data-thumbnail-node]") ?? []),
-    ].filter((layer) => automatic.has(layer.dataset.thumbnailNode!));
+    ].flatMap((layer) => {
+      const id = layer.dataset.thumbnailNode;
+      return id && automatic.has(id) ? [{ id, layer }] : [];
+    });
     const measure = () => {
       const next = new Map(
         layers
-          .map((layer) => {
+          .map(({ id, layer }) => {
             const style = getComputedStyle(layer);
             return [
-              layer.dataset.thumbnailNode!,
+              id,
               { width: parseFloat(style.width), height: parseFloat(style.height) },
             ] as const;
           })
@@ -88,7 +96,7 @@ export function DocumentPreview({
     };
     measure();
     const observer = new ResizeObserver(measure);
-    layers.forEach((layer) => observer.observe(layer));
+    layers.forEach(({ layer }) => observer.observe(layer));
     return () => observer.disconnect();
   }, [page]);
   const preview = useMemo(() => {
@@ -96,7 +104,7 @@ export function DocumentPreview({
     const roots = nodes.filter((node) => node.parentId === null && node.visible);
     if (!roots.length) return null;
     const children = childrenByParent(nodes);
-    const visibleBoxes: Box[] = [];
+    const visibleBoxes: PreviewBounds[] = [];
     function collect(node: DesignNode, x: number, y: number) {
       if (!node.visible) return;
       const size = measured.get(node.id) ?? node.box;
@@ -113,7 +121,6 @@ export function DocumentPreview({
         width: absolute.width + left + right,
         height: absolute.height + top + bottom,
       });
-      // Clipped descendants cannot enlarge the visible thumbnail area.
       if (
         node.style.overflow === "hidden" ||
         node.style.overflow === "auto" ||
@@ -137,72 +144,92 @@ export function DocumentPreview({
       },
     };
   }, [page, measured]);
-  if (!preview) return null;
-  const { roots, children, crop } = preview;
-
-  function draw(
-    node: DesignNode,
-    parentLayout: DesignNode["layout"] = "absolute",
-    flowIndex = 0,
-    frameWidth = node.box.width,
-  ): React.ReactNode {
-    if (!node.visible) return null;
-    const viewportWidth = node.type === "artboard" ? node.box.width : frameWidth;
-    const rendered = booleanRenderNode(responsiveNode(node, viewportWidth), renderedContent.nodes);
-    const parent = preview!.byId.get(node.parentId ?? "");
-    const style = nodeStyle(
-      rendered,
-      parentLayout,
-      colors,
-      parent ? responsiveNode(parent, viewportWidth) : undefined,
-      flowIndex,
-    );
-    Object.assign(
-      style,
-      vectorCompositeStyle(node, renderedContent.nodes, colors, parent, assetUrl),
-    );
-    if (node.parentId === null) {
-      style.left = node.box.x - crop.x;
-      style.top = node.box.y - crop.y;
+  useLayoutEffect(() => {
+    if (preview) onBounds?.(preview.crop);
+  }, [preview, onBounds]);
+  const crop = preview?.crop ?? { x: 0, y: 0, width: 1, height: 1 };
+  const artwork = useMemo(() => {
+    if (!preview) return null;
+    const { crop, children, byId, roots } = preview;
+    function draw(
+      node: DesignNode,
+      parentLayout: DesignNode["layout"] = "absolute",
+      flowIndex = 0,
+      frameWidth = node.box.width,
+    ): React.ReactNode {
+      if (!node.visible) return null;
+      const viewportWidth = node.type === "artboard" ? node.box.width : frameWidth;
+      const rendered = booleanRenderNode(
+        responsiveNode(node, viewportWidth),
+        renderedContent.nodes,
+      );
+      const parent = byId.get(node.parentId ?? "");
+      const style = nodeStyle(
+        rendered,
+        parentLayout,
+        colors,
+        parent ? responsiveNode(parent, viewportWidth) : undefined,
+        flowIndex,
+      );
+      Object.assign(
+        style,
+        vectorCompositeStyle(node, renderedContent.nodes, colors, parent, assetUrl),
+      );
+      if (node.parentId === null) {
+        style.left = node.box.x - crop.x;
+        style.top = node.box.y - crop.y;
+      }
+      let childFlowIndex = 0;
+      return (
+        <div key={node.id} data-thumbnail-node={node.id} style={style}>
+          <NodeStrokes node={rendered} tokens={colors} />
+          <NodeFills node={rendered} tokens={colors} assetUrl={assetUrl} />
+          {node.type === "text" ? (
+            <DesignText node={node} />
+          ) : (rendered.type === "image" || rendered.type === "vector") &&
+            (node.assetId || rendered.vectorPath) ? (
+            <DesignImage
+              tokens={colors}
+              node={rendered}
+              src={node.assetId ? assetUrl(node.assetId) : ""}
+            />
+          ) : null}
+          {children.get(node.id)?.map((child) => {
+            const index = childFlowIndex;
+            if (child.visible && child.positionMode !== "absolute") childFlowIndex++;
+            return draw(child, rendered.layout, index, viewportWidth);
+          })}
+        </div>
+      );
     }
-    let childFlowIndex = 0;
-    return (
-      <div key={node.id} data-thumbnail-node={node.id} style={style}>
-        <NodeStrokes node={rendered} tokens={colors} />
-        <NodeFills node={rendered} tokens={colors} assetUrl={assetUrl} />
-        {node.type === "text" ? (
-          <DesignText node={node} />
-        ) : (rendered.type === "image" || rendered.type === "vector") &&
-          (node.assetId || rendered.vectorPath) ? (
-          <DesignImage
-            tokens={colors}
-            node={rendered}
-            src={node.assetId ? assetUrl(node.assetId) : ""}
-          />
-        ) : null}
-        {children.get(node.id)?.map((child) => {
-          const index = childFlowIndex;
-          if (child.visible && child.positionMode !== "absolute") childFlowIndex++;
-          return draw(child, rendered.layout, index, viewportWidth);
-        })}
-      </div>
-    );
-  }
 
+    return roots.map((root) => draw(root));
+  }, [preview, renderedContent, colors, assetUrl]);
+  if (!preview) return null;
   return (
     <ImageMimeProvider types={content.assetMimeTypes}>
       <svg
         ref={element}
         aria-hidden="true"
         className="h-full w-full"
-        viewBox={`${crop.x} ${crop.y} ${crop.width} ${crop.height}`}
+        viewBox={
+          viewport
+            ? `0 0 ${viewport.width} ${viewport.height}`
+            : `${crop.x} ${crop.y} ${crop.width} ${crop.height}`
+        }
         preserveAspectRatio="xMidYMid meet"
       >
-        <foreignObject x={crop.x} y={crop.y} width={crop.width} height={crop.height}>
-          <div style={{ position: "relative", width: crop.width, height: crop.height }}>
-            {roots.map((root) => draw(root))}
-          </div>
-        </foreignObject>
+        <g
+          transform={
+            viewport ? `translate(${viewport.x} ${viewport.y}) scale(${viewport.zoom})` : undefined
+          }
+        >
+          <foreignObject x={crop.x} y={crop.y} width={crop.width} height={crop.height}>
+            <div style={{ position: "relative", width: crop.width, height: crop.height }}>
+              {artwork}
+            </div>
+          </foreignObject>
+        </g>
       </svg>
     </ImageMimeProvider>
   );

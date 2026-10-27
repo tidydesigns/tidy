@@ -31,7 +31,7 @@ import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
 import { Conversations } from "../features/threads/conversations";
-import { ThreadDesignDock } from "../features/designs/thread-design-dock";
+import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
 import { ApprovalRequests } from "../features/threads/approval-requests";
 import { AttachmentList } from "../features/composer/message-attachments";
