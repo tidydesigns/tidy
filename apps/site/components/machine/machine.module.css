@@ -10,7 +10,7 @@
 }
 .heroArtwork {
   position: absolute;
-  inset: 0;
+  inset: calc(-1 * var(--site-header-height, 98px)) 0 0;
   z-index: -1;
   overflow: hidden;
   pointer-events: none;
@@ -89,6 +89,9 @@
   font-size: 20px;
   line-height: 1.5;
   letter-spacing: -0.025em;
+}
+:global([data-theme="dark"]) .heroDescription {
+  color: #dedede;
 }
 .heroActions {
   display: flex;

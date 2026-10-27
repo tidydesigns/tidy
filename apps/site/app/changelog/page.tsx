@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "../../components/site-footer";
-import { SiteHeader } from "../../components/site-header";
 import { changelog, type ChangelogItem } from "../../content/changelog";
 import { pageMetadata } from "../../lib/page-metadata";
 
@@ -47,7 +46,6 @@ export default function ChangelogPage() {
 
   return (
     <div className="page">
-      <SiteHeader currentPage="changelog" />
       <main id="main-content" className="changelog-content">
         <div className="changelog-intro">
           <h1>Changelog</h1>

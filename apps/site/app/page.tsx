@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { SiteHeader } from "../components/site-header";
 import { CloudFooter } from "../components/brand/cloud-footer";
 import { CloudArtwork } from "../components/brand/cloud-artwork";
 import { CloudAtmosphere } from "../components/brand/cloud-atmosphere";
@@ -19,7 +18,6 @@ export const metadata: Metadata = pageMetadata(
 export default function HomePage() {
   return (
     <div className={styles.site}>
-      <SiteHeader marketing />
       <main id="main-content">
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.heroArtwork} aria-hidden="true">
