@@ -656,3 +656,73 @@ test("host shutdown drains accepted mutations and durable receipts before return
     await result;
   }
 });
+
+test("cloud access withdrawal suppresses queued and stopping-thread events without revoking the backend session", async () => {
+  const f = await fixture();
+  const cloudPath = join(f.root, "cloud");
+  await mkdir(cloudPath);
+  const cloud = (await f.store.open(cloudPath, "Cloud workspace")).project;
+  let allowed = true;
+  f.service.canAccessCloudProject = () => allowed;
+  f.service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Cloud access withdrawn");
+  };
+  await f.service.startThread({
+    projectId: cloud.id,
+    executionProjectId: f.project.id,
+    harness: "codex",
+    prompt: "Private cloud work",
+    designIds: [],
+  });
+  const clientId = randomUUID();
+  const token = await f.sessions.issue(clientId);
+  const headers = { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId };
+  const response = await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers });
+  const { ticket } = z.object({ ticket: z.string() }).parse(await response.json());
+  const socket = new WebSocket(`${f.origin().replace("http:", "ws:")}/events?ticket=${ticket}`);
+  cleanups.push(() => socket.terminate());
+  await new Promise<void>((resolve, reject) => {
+    socket.once("message", () => resolve());
+    socket.once("error", reject);
+  });
+  const events: DesktopEvent[] = [];
+  socket.on("message", (data) => {
+    const frame = z
+      .object({ type: z.string(), event: z.unknown().optional() })
+      .parse(JSON.parse(data.toString()));
+    if (frame.type === "event") events.push(desktopEventSchema.parse(frame.event));
+  });
+  await f.service.refreshDesigns(cloud.id);
+  await until(() => events.length === 1);
+  expect(events[0].type === "designs" && events[0].projectId).toBe(cloud.id);
+  events.length = 0;
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const validate = f.sessions.validate.bind(f.sessions);
+  const validation = spyOn(f.sessions, "validate").mockImplementation(async (...args) => {
+    entered.resolve();
+    await release.promise;
+    return validate(...args);
+  });
+  try {
+    await f.service.refreshDesigns(cloud.id);
+    await entered.promise;
+    allowed = false;
+    await f.service.stopCloudThreads();
+    release.resolve();
+    await f.service.refreshDesigns(f.project.id);
+    await until(() => events.length === 1);
+    expect(events[0].type === "designs" && events[0].projectId).toBe(f.project.id);
+    expect(socket.readyState).toBe(WebSocket.OPEN);
+    expect((await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers })).status).toBe(
+      200,
+    );
+    allowed = true;
+    await f.service.refreshDesigns(cloud.id);
+    await until(() => events.length === 2);
+    expect(events[1].type === "designs" && events[1].projectId).toBe(cloud.id);
+  } finally {
+    release.resolve();
+    validation.mockRestore();
+  }
+});

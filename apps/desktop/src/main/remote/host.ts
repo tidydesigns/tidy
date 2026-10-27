@@ -9,6 +9,7 @@ import { randomBytes } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { remoteRequestSchema, type RemoteRequest, type PreparedHost } from "../../shared/remote";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
+import type { DesktopEvent } from "../../shared/contracts/desktop";
 import type { WorkspaceService } from "../workspace/workspace-service";
 import { SessionStore } from "./session-store";
 
@@ -43,7 +44,7 @@ export function createRemoteHost({
       queuedBytes: number;
     }
   >();
-  const send = (client: WebSocket, value: unknown) => {
+  const send = (client: WebSocket, value: unknown, event?: DesktopEvent) => {
     const auth = clients.get(client);
     if (!auth || client.readyState !== WebSocket.OPEN) return;
     const data = JSON.stringify(value);
@@ -61,6 +62,7 @@ export function createRemoteHost({
             client.terminate();
             return;
           }
+          if (event && !service.canDeliverEvent(event)) return;
           if (client.readyState === WebSocket.OPEN) client.send(data);
         } finally {
           auth.queuedBytes -= bytes;
@@ -244,8 +246,8 @@ export function createRemoteHost({
       })
       .catch(() => socket.destroy());
   });
-  const unsubscribe = service.subscribe((event) => {
-    for (const client of clients.keys()) send(client, { type: "event", event });
+  const unsubscribe = service.subscribeRenderer((event) => {
+    for (const client of clients.keys()) send(client, { type: "event", event }, event);
   });
   const heartbeat = setInterval(() => {
     for (const [client, auth] of clients)

@@ -78,11 +78,15 @@ export class WorkspaceService {
   authorizeCloudProject?: (projectId: string) => Promise<void>;
   canAccessCloudProject?: (projectId: string) => boolean;
 
+  canDeliverEvent(event: DesktopEvent) {
+    const id = event.type === "designs" ? event.projectId : event.thread.projectId;
+    const project = this.store.projects.find((item) => item.id === id);
+    return Boolean(project && (!project.cloud || this.canAccessCloudProject?.(id)));
+  }
+
   subscribeRenderer(listener: (event: DesktopEvent) => void) {
     return this.subscribe((event) => {
-      const id = event.type === "designs" ? event.projectId : event.thread.projectId;
-      const project = this.store.projects.find((item) => item.id === id);
-      if (project && (!project.cloud || this.canAccessCloudProject?.(id))) listener(event);
+      if (this.canDeliverEvent(event)) listener(event);
     });
   }
 
