@@ -71,10 +71,10 @@ const modes = [
   { id: "code", label: "Threads" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
-function preloadMode(mode: Mode) {
-  if (mode === "code") preloadConversation();
-  else preloadCanvasEditor();
-}
+const modePreloaders = {
+  design: preloadCanvasEditor,
+  code: preloadConversation,
+} satisfies Record<Mode, () => void>;
 type Draft = {
   text: string;
   harness: HarnessId;
@@ -1401,8 +1401,8 @@ export function App() {
                   aria-controls={`workspace-panel-${item.id}`}
                   tabIndex={mode === item.id ? 0 : -1}
                   className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink aria-selected:bg-subtle-fill aria-selected:text-ink aria-selected:hover:bg-subtle-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
-                  onPointerEnter={() => preloadMode(item.id)}
-                  onFocus={() => preloadMode(item.id)}
+                  onPointerEnter={modePreloaders[item.id]}
+                  onFocus={modePreloaders[item.id]}
                   onClick={() => setMode(item.id)}
                   onKeyDown={(event) => onTabKeyDown(event, index)}
                 >
