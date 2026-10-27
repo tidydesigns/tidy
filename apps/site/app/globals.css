@@ -88,7 +88,7 @@ a {
   padding: 0 28px 28px;
 }
 .site-header-shell {
-  --nav-fade: 72px;
+  --nav-fade: 100px;
   --nav-inset: 16px;
   position: sticky;
   top: 0;
@@ -115,30 +115,30 @@ a {
 }
 .site-header-backdrop > span:nth-child(1) {
   --blur-tail: var(--nav-fade);
-  backdrop-filter: blur(2px);
+  backdrop-filter: blur(1px);
 }
 .site-header-backdrop > span:nth-child(2) {
   --blur-tail: calc(var(--nav-fade) * 0.75);
-  backdrop-filter: blur(4px);
+  backdrop-filter: blur(3px);
 }
 .site-header-backdrop > span:nth-child(3) {
   --blur-tail: calc(var(--nav-fade) * 0.5);
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(6px);
 }
 .site-header-backdrop > span:nth-child(4) {
   --blur-tail: calc(var(--nav-fade) * 0.25);
-  backdrop-filter: blur(16px);
+  backdrop-filter: blur(12px);
 }
 .header-tint {
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    color-mix(in srgb, var(--background) 90%, transparent) calc(100% - var(--nav-fade)),
-    color-mix(in srgb, var(--background) 87%, transparent) calc(100% - var(--nav-fade) * 0.85),
-    color-mix(in srgb, var(--background) 76%, transparent) calc(100% - var(--nav-fade) * 0.7),
-    color-mix(in srgb, var(--background) 55%, transparent) calc(100% - var(--nav-fade) * 0.5),
-    color-mix(in srgb, var(--background) 28%, transparent) calc(100% - var(--nav-fade) * 0.3),
-    color-mix(in srgb, var(--background) 7%, transparent) calc(100% - var(--nav-fade) * 0.12),
+    color-mix(in srgb, var(--background) 82%, transparent) calc(100% - var(--nav-fade)),
+    color-mix(in srgb, var(--background) 77%, transparent) calc(100% - var(--nav-fade) * 0.85),
+    color-mix(in srgb, var(--background) 65%, transparent) calc(100% - var(--nav-fade) * 0.7),
+    color-mix(in srgb, var(--background) 43%, transparent) calc(100% - var(--nav-fade) * 0.5),
+    color-mix(in srgb, var(--background) 21%, transparent) calc(100% - var(--nav-fade) * 0.3),
+    color-mix(in srgb, var(--background) 4%, transparent) calc(100% - var(--nav-fade) * 0.12),
     transparent
   );
 }

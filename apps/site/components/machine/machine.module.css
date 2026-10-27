@@ -62,20 +62,6 @@
   margin-inline: auto;
   text-align: center;
 }
-.eyebrow {
-  margin: 0;
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  font-weight: 400;
-  line-height: 1.6;
-  letter-spacing: 0.055em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-.heroCopy > .eyebrow:first-child {
-  font-size: 12px;
-  color: var(--text);
-}
 .heroCopy h1 {
   margin: 24px 0;
   font-size: clamp(48px, 7.5vw, 108px);
@@ -98,18 +84,6 @@
   justify-content: center;
   flex-wrap: wrap;
   gap: 12px;
-}
-.heroNote {
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 14px;
-  width: fit-content;
-  max-width: 100%;
-  margin: 24px auto 0;
-  padding: 4px 8px;
-  background: var(--background);
-  font-size: 10px;
 }
 .productPreview {
   width: min(calc(100% - 96px), 1280px);
@@ -166,151 +140,6 @@
   font-size: 14px;
   pointer-events: none;
 }
-.workflow {
-  background: var(--surface);
-  padding: 60px 88px 72px;
-  scroll-margin-top: 24px;
-}
-.sectionIntro {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 40px;
-  margin-bottom: 42px;
-}
-.sectionIntro h2 {
-  max-width: 780px;
-  margin: 20px 0 0;
-  font-size: clamp(32px, 3.82vw, 55px);
-  font-weight: 400;
-  line-height: 1.06;
-  letter-spacing: -0.05em;
-  overflow-wrap: anywhere;
-}
-.introCopy {
-  margin: 0;
-  font-size: 20px;
-  line-height: 1.5;
-  letter-spacing: -0.025em;
-  flex-shrink: 0;
-}
-.workflowGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: clamp(32px, 7vw, 120px);
-}
-.workflowGrid article {
-  min-width: 0;
-}
-.workflowGrid h3 {
-  margin: 20px 0;
-  font-size: 30px;
-  line-height: 1.12;
-  letter-spacing: -0.04em;
-  font-weight: 400;
-}
-.workflowGrid article > p:not(.eyebrow) {
-  margin: 0;
-  color: var(--muted);
-  font-size: 16px;
-  line-height: 1.5;
-  letter-spacing: -0.015em;
-}
-.diagram {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 200px;
-  margin-bottom: 18px;
-  border: 1px solid var(--border);
-  padding: 14px;
-  font:
-    11px/1.4 var(--font-mono),
-    monospace;
-}
-.canvasDiagram {
-  padding-top: 32px;
-}
-.canvasDiagram > div {
-  position: relative;
-  padding: 16px;
-  border: 1px solid var(--border);
-  font-size: 29px;
-  line-height: 1.05;
-  font-family: var(--font-sans), sans-serif;
-  letter-spacing: -0.035em;
-}
-.canvasDiagram i {
-  position: absolute;
-  right: -4px;
-  bottom: -4px;
-  width: 7px;
-  height: 7px;
-  background: var(--muted);
-}
-.agentDiagram {
-  background: var(--background);
-  border-color: var(--background);
-  padding: 24px;
-}
-.agentDiagram > span:first-child {
-  padding-bottom: 18px;
-  border-bottom: 1px solid var(--border);
-}
-.agentDiagram > div {
-  font-family: var(--font-sans), sans-serif;
-  font-size: 20px;
-  line-height: 1.4;
-  letter-spacing: -0.02em;
-}
-.feedbackDiagram > div {
-  display: flex;
-  justify-content: space-evenly;
-  align-items: center;
-  flex: 1;
-  font-size: 34px;
-  line-height: 1;
-  font-family: var(--font-sans), sans-serif;
-}
-.feedbackDiagram > div > span:first-child {
-  font-family: var(--font-instrument-serif), serif;
-}
-.feedbackDiagram > span {
-  margin-top: 18px;
-}
-.freedom {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 48px;
-  padding: 72px 88px;
-  background: var(--background);
-}
-.freedom h2 {
-  margin: 0;
-  font-size: clamp(34px, 4.17vw, 60px);
-  line-height: 1.04;
-  font-weight: 400;
-  letter-spacing: -0.05em;
-  overflow-wrap: anywhere;
-}
-.freedom ul {
-  width: 40%;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font:
-    12px/1.6 var(--font-mono),
-    monospace;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-.freedom li {
-  padding: 24px 0;
-}
-.freedom li + li {
-  border-top: 1px solid var(--border);
-}
 @keyframes cloud-arrive {
   from {
     opacity: 0;
@@ -339,25 +168,6 @@
     right: -7%;
     width: 220px;
   }
-  .workflow,
-  .freedom {
-    padding-inline: 48px;
-  }
-  .sectionIntro {
-    align-items: start;
-  }
-  .introCopy {
-    font-size: 18px;
-  }
-  .workflowGrid {
-    gap: 32px;
-  }
-  .diagram {
-    height: 190px;
-  }
-  .agentDiagram {
-    padding: 18px;
-  }
 }
 @media (max-width: 800px) {
   .hero {
@@ -365,11 +175,6 @@
   }
   .heroCopy {
     width: min(100% - 48px, 600px);
-  }
-  .heroCopy > .eyebrow:first-child {
-    max-width: 34ch;
-    margin-inline: auto;
-    font-size: 11px;
   }
   .heroCopy h1 {
     font-size: clamp(46px, 8vw, 64px);
@@ -405,43 +210,6 @@
   .productPreview {
     width: calc(100% - 48px);
   }
-  .workflow {
-    background: var(--surface);
-    padding: 56px 24px;
-  }
-  .sectionIntro {
-    flex-direction: column;
-    gap: 24px;
-  }
-  .sectionIntro h2 {
-    max-width: 20ch;
-  }
-  .workflowGrid {
-    gap: 36px;
-    grid-template-columns: 1fr;
-  }
-  .workflowGrid article {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    column-gap: 32px;
-    align-content: start;
-  }
-  .workflowGrid .diagram {
-    grid-row: 1 / 4;
-    margin: 0;
-  }
-  .workflowGrid h3 {
-    margin: 16px 0;
-  }
-  .freedom {
-    padding: 56px 24px;
-    flex-direction: column;
-    align-items: start;
-    gap: 32px;
-  }
-  .freedom ul {
-    width: 100%;
-  }
 }
 @media (max-width: 500px) {
   .heroCopy h1 {
@@ -457,26 +225,6 @@
   }
   .heroActions a {
     min-width: 215px;
-  }
-  .heroNote {
-    gap: 8px;
-    font-size: 9px;
-  }
-  .productPreview {
-    margin-top: 40px;
-  }
-  .workflowGrid article {
-    display: block;
-  }
-  .workflowGrid .diagram {
-    height: 200px;
-    margin-bottom: 20px;
-  }
-  .workflowGrid h3 {
-    margin-block: 16px;
-  }
-  .workflowGrid article > p:not(.eyebrow) {
-    max-width: 34ch;
   }
 }
 @media (prefers-reduced-motion: reduce) {

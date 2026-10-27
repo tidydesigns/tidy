@@ -36,7 +36,6 @@ export default function HomePage() {
             </div>
           </div>
           <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>Designers. Engineers. Agents. One environment.</p>
             <h1 id="hero-title">
               One space.
               <br />
@@ -57,25 +56,10 @@ export default function HomePage() {
                 Open in browser
               </a>
             </div>
-            <p className={`${styles.eyebrow} ${styles.heroNote}`}>
-              Open source <span aria-hidden="true">/</span> Your models{" "}
-              <span aria-hidden="true">/</span> Your project
-            </p>
           </div>
           <ProductPreview />
         </section>
         <Workflow />
-        <section className={styles.freedom} aria-labelledby="freedom-title">
-          <h2 id="freedom-title">
-            A powerful environment.
-            <br />A very light grip.
-          </h2>
-          <ul>
-            <li>Your agents. Your choice of model.</li>
-            <li>Local first. Start without an account.</li>
-            <li>Open source. Make it yours.</li>
-          </ul>
-        </section>
       </main>
       <CloudFooter appUrl={appUrl} repositoryUrl={repositoryUrl} />
     </div>

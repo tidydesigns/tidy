@@ -23,7 +23,6 @@ export function CloudFooter({
         <CloudArtwork name="cloud-spectrum" sizes="(max-width: 640px) 49.56vw, 461px" />
       </div>
       <div className={styles.invitation}>
-        <p className={styles.eyebrow}>Less headache. More headspace.</p>
         <h2>
           Let’s build
           <br />
