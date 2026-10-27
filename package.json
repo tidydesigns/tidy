@@ -95,8 +95,7 @@
     "qs": "6.16.1",
     "fast-uri": "3.1.9",
     "source-map-js": "1.2.2",
-    "glob": "13.0.6",
-    "qs": "6.16.1"
+    "glob": "13.0.6"
   },
   "patchedDependencies": {
     "@better-auth/oauth-provider@1.7.7": "patches/@better-auth%2Foauth-provider@1.7.7.patch",
