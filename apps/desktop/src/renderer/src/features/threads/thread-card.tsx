@@ -94,7 +94,7 @@ export function ThreadCard({
   }
   function show() {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(true), 150);
+    timer.current = setTimeout(() => setOpen(true), 400);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
