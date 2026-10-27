@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type {
@@ -9,6 +9,7 @@ import type {
 } from "../../../../shared/contracts/desktop";
 import type { ToolActivity } from "../../../../shared/contracts/tool-activity";
 import { summarizeThread } from "../../../../shared/models/thread-updates";
+import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { useWorkspaceState } from "../use-workspace-state";
@@ -185,9 +186,75 @@ async function runThreadLoadingTests(): Promise<string[]> {
     }
   }
 
+  await run("failed lazy views stay local and retry with current props", async (root) => {
+    function Loaded({ value }: { value: string }) {
+      return <p data-loaded-view>{value}</p>;
+    }
+    const loads: {
+      resolve(module: { default: typeof Loaded }): void;
+      reject(error: Error): void;
+    }[] = [];
+    let loadError: unknown;
+    const View = lazyView(
+      () =>
+        new Promise<{ default: typeof Loaded }>((resolve, reject) =>
+          loads.push({ resolve, reject }),
+        ),
+      {
+        label: "test view",
+        onError: (_props, error) => {
+          loadError = error;
+        },
+      },
+    );
+    function Fixture({ value }: { value: string }) {
+      const [count, setCount] = useState(0);
+      return (
+        <>
+          <button data-neighbor onClick={() => setCount(count + 1)}>
+            {count}
+          </button>
+          <View value={value} />
+        </>
+      );
+    }
+    flushSync(() => root.render(<Fixture value="original" />));
+    check(host.querySelector('[aria-label="Loading test view"]'), "Missing pending view status");
+    const neighbor = required(host.querySelector<HTMLButtonElement>("[data-neighbor]"), "Neighbor");
+    flushSync(() => neighbor.click());
+    required(loads[0], "Initial import").reject(new Error("Fixture chunk failure"));
+    await until(() => Boolean(host.querySelector('[role="alert"]')), "Local load error");
+    check(
+      loadError instanceof Error && loadError.message === "Fixture chunk failure",
+      "Load failure was not reported",
+    );
+    check(host.contains(neighbor) && neighbor.textContent === "1", "Failure reset adjacent UI");
+    flushSync(() => root.render(<Fixture value="updated" />));
+    required(
+      [...host.querySelectorAll("button")].find(
+        (button) => button.textContent === "Retry test view",
+      ),
+      "Retry action",
+    ).click();
+    await until(() => loads.length === 2, "Fresh lazy import on retry");
+    check(host.querySelector('[aria-label="Loading test view"]'), "Retry has no pending status");
+    required(loads[1], "Retry import").resolve({ default: Loaded });
+    await until(() => Boolean(host.querySelector("[data-loaded-view]")), "Recovered view");
+    check(
+      host.querySelector("[data-loaded-view]")?.textContent === "updated",
+      "Retry lost current props",
+    );
+    check(!host.querySelector('[role="alert"]'), "Retry retained the previous error");
+    check(host.contains(neighbor) && neighbor.textContent === "1", "Retry reset adjacent UI");
+  });
+
   await run("recent thread returns preserve DOM, scroll and turn navigation", async (root) => {
     const { a, b, render } = conversationFixture(root);
     render({ selected: a.id });
+    check(
+      host.querySelector('[aria-label="Loading conversation"]'),
+      "Missing initial transcript status",
+    );
     await until(
       () =>
         [...host.querySelectorAll(".transcript")].some(

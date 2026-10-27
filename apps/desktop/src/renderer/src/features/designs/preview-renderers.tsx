@@ -1,28 +1,19 @@
-import { lazy, Suspense, type ComponentProps } from "react";
+import { lazyView } from "../../components/lazy-view";
 
-const Preview = lazy(() =>
-  import("@tidy/editor/components/files/document-preview").then((module) => ({
-    default: module.DocumentPreview,
-  })),
-);
-const Thumbnail = lazy(() =>
-  import("@tidy/editor/components/files/thumbnail-renderer").then((module) => ({
-    default: module.ThumbnailRenderer,
-  })),
+export const DocumentPreview = lazyView(
+  async () => ({
+    default: (await import("@tidy/editor/components/files/document-preview")).DocumentPreview,
+  }),
+  { label: "design preview" },
 );
 
-export function DocumentPreview(props: ComponentProps<typeof Preview>) {
-  return (
-    <Suspense fallback={null}>
-      <Preview {...props} />
-    </Suspense>
-  );
-}
-
-export function ThumbnailRenderer(props: ComponentProps<typeof Thumbnail>) {
-  return (
-    <Suspense fallback={null}>
-      <Thumbnail {...props} />
-    </Suspense>
-  );
-}
+export const ThumbnailRenderer = lazyView(
+  async () => ({
+    default: (await import("@tidy/editor/components/files/thumbnail-renderer")).ThumbnailRenderer,
+  }),
+  {
+    label: "thumbnail",
+    fallback: () => null,
+    onError: (props, error) => props.onError(error),
+  },
+);

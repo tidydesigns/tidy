@@ -28,6 +28,9 @@ async function request<Name extends WorkspaceOperation>(
 }
 
 const api: DesktopAPI = {
+  reloadApp: async () => {
+    await ipcRenderer.invoke("tidy:reload-app");
+  },
   customTitlebar: process.platform === "darwin",
   onWindowFullscreen(listener) {
     const receive = (_event: Electron.IpcRendererEvent, fullscreen: unknown) => {

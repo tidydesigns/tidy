@@ -1,11 +1,12 @@
-import { Activity, lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
+import { Activity, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopAPI, Thread } from "../../../../shared/contracts/desktop";
+import { lazyView } from "../../components/lazy-view";
 import { loadConversation } from "./load-conversation";
 import { retainConversations } from "./conversation-cache";
 
-const Conversation = lazy(() =>
-  loadConversation().then((module) => ({ default: module.Conversation })),
-);
+const Conversation = lazyView(async () => ({ default: (await loadConversation()).Conversation }), {
+  label: "conversation",
+});
 
 export function Conversations({
   projectId,
@@ -37,16 +38,14 @@ export function Conversations({
   if (!visited && !active) return null;
   return retained.map((id) => (
     <Activity key={id ?? "draft"} mode={active && id === selected ? "visible" : "hidden"}>
-      <Suspense fallback={null}>
-        <Conversation
-          identity={`${projectId}:${id ?? "draft"}`}
-          thread={
-            id ? (active && id === selected ? threads[id] : rendered.current.get(id)) : undefined
-          }
-          active={active && id === selected}
-          api={api}
-        />
-      </Suspense>
+      <Conversation
+        identity={`${projectId}:${id ?? "draft"}`}
+        thread={
+          id ? (active && id === selected ? threads[id] : rendered.current.get(id)) : undefined
+        }
+        active={active && id === selected}
+        api={api}
+      />
     </Activity>
   ));
 }
