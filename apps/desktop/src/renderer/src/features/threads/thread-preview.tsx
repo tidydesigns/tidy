@@ -44,7 +44,7 @@ export function ThreadPreview({
         {thread.title}
       </strong>
       <dl className="thread-preview-details mt-2 grid gap-1.5 text-xs leading-[1.5] text-secondary-ink">
-        <Detail label="Model" icon={<ModelProviderIcon harness={thread.harness} />}>
+        <Detail label="Model" icon={<ModelProviderIcon harness={thread.harness} size={12} />}>
           {modelName ?? thread.actualModel ?? thread.settings?.model ?? "Model not reported"}
         </Detail>
         {projectName && (
