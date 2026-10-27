@@ -187,7 +187,9 @@ export function vectorCompositeStyle(
   containingParent?: DesignNode,
   assets: Record<string, string> | ((id: string) => string | undefined) = {},
 ): CSSProperties {
-  const parent = containingParent ?? nodes.find((n) => n.id === node.parentId);
+  const parent =
+    containingParent ??
+    (node.parentId === null ? undefined : nodes.find((n) => n.id === node.parentId));
   if (parent?.vectorBoolean || (parent?.mask?.enabled && parent.mask.sourceId === node.id))
     return { opacity: 0, pointerEvents: "none" };
   if (!node.mask?.enabled) return {};

@@ -14,6 +14,7 @@ import { CloudHTTPError } from "./cloud-auth";
 import { PrivateState } from "../platform/private-state";
 import { ProjectStore } from "../workspace/project-store";
 import { CloudCompute } from "./cloud-compute";
+import { CloudAssetDownloads } from "./cloud-asset-downloads";
 import { mapConcurrent } from "@tidy/editor/lib/map-concurrent";
 
 const snapshotSchema = z.object({
@@ -36,6 +37,7 @@ const bindingSchema = z.object({
   accountId: z.string(),
   base: snapshotSchema,
   aliases: z.record(z.string(), z.string()),
+  assetsPending: z.literal(true).optional(),
   creating: z.object({ organizationId: z.string(), name: z.string() }).optional(),
   pending: z
     .object({
@@ -82,6 +84,9 @@ export class CloudSync {
   private stopped = true;
   private detached = new Set<string>();
   private compute = new CloudCompute();
+  private downloads = new CloudAssetDownloads();
+  private assetIds = new WeakMap<DesignDocument, Set<string>>();
+  private assetFailures = new Map<string, Set<string>>();
   constructor(
     private store: ProjectStore,
     private state: PrivateState,
@@ -117,6 +122,7 @@ export class CloudSync {
             designId: b.designId,
             fileId: b.fileId,
             organizationId: b.organizationId,
+            assetsPending: b.assetsPending,
             status: b.conflict ? ("conflict" as const) : ("offline" as const),
           },
       );
@@ -135,11 +141,14 @@ export class CloudSync {
     );
   }
   private publish(binding: Binding, status: Status["status"], message?: string) {
+    const failedAssets = this.assetFailures.get(binding.id);
     const value = {
       projectId: binding.projectId,
       designId: binding.designId,
       fileId: binding.fileId,
       organizationId: binding.organizationId,
+      assetsPending: binding.assetsPending,
+      retryAssets: !binding.assetsPending && failedAssets?.size ? [...failedAssets] : undefined,
       status,
       ...(message ? { message } : {}),
     };
@@ -152,6 +161,7 @@ export class CloudSync {
   }
   async start(accountId: string) {
     await this.stop();
+    this.downloads = new CloudAssetDownloads();
     this.accountId = accountId;
     this.stopped = false;
     for (const binding of this.bindings.values())
@@ -180,6 +190,7 @@ export class CloudSync {
     this.firstDirty.clear();
     this.queue.clear();
     for (const controller of this.controllers.values()) controller.abort();
+    await this.downloads.stop();
     await Promise.allSettled([...this.running.values()]);
     await this.discovery?.catch(() => {});
     await this.compute.close();
@@ -191,6 +202,7 @@ export class CloudSync {
     this.discoveryOffline.clear();
     this.urgent.clear();
     this.failures.clear();
+    this.assetFailures.clear();
     this.blockedUntil = 0;
     this.changed();
   }
@@ -423,11 +435,64 @@ export class CloudSync {
     await mapConcurrent(documentAssetIds(document), 4, async (id) => {
       const localId =
         Object.entries(binding.aliases).find(([, remote]) => remote === id)?.[0] ?? id;
-      if (await this.store.readSyncAsset(binding.projectId, localId)) return;
-      const dataUrl = await this.remote.downloadAsset(binding.fileId, id, signal);
       this.check(binding, signal);
-      await this.store.cacheSyncAsset(binding.projectId, localId, dataUrl);
+      await this.downloadAsset(binding, id, localId, false);
+      this.check(binding, signal);
     });
+  }
+  private async downloadAsset(
+    binding: Binding,
+    remoteId: string,
+    localId: string,
+    foreground: boolean,
+  ) {
+    try {
+      return await this.downloads.run(binding.id, localId, foreground, async (signal) => {
+        this.check(binding, signal);
+        const cached = await this.store.readSyncAsset(binding.projectId, localId);
+        if (cached) return cached;
+        if (this.permissionPaused.has(binding.id)) throw new CloudHTTPError(403);
+        if (Date.now() < this.blockedUntil)
+          throw new CloudHTTPError(429, this.blockedUntil - Date.now());
+        const dataUrl = await this.remote.downloadAsset(binding.fileId, remoteId, signal);
+        this.check(binding, signal);
+        await this.store.cacheSyncAsset(binding.projectId, localId, dataUrl);
+        return dataUrl;
+      });
+    } catch (error) {
+      if (!this.stopped && this.owns(binding)) {
+        const failures = this.assetFailures.get(binding.id) ?? new Set<string>();
+        failures.add(localId);
+        this.assetFailures.set(binding.id, failures);
+      }
+      throw error;
+    }
+  }
+  async loadAsset(projectId: string, assetId: string) {
+    const binding = [...this.bindings.values()].find(
+      (binding) =>
+        this.owns(binding) &&
+        binding.projectId === projectId &&
+        this.remoteAssetIds(binding).has(binding.aliases[assetId] ?? assetId),
+    );
+    if (!binding) return;
+    const dataUrl = await this.downloadAsset(
+      binding,
+      binding.aliases[assetId] ?? assetId,
+      assetId,
+      true,
+    );
+    this.check(binding);
+    return dataUrl;
+  }
+  private remoteAssetIds(binding: Binding) {
+    const document = binding.base.content;
+    let ids = this.assetIds.get(document);
+    if (!ids) {
+      ids = new Set(documentAssetIds(document));
+      this.assetIds.set(document, ids);
+    }
+    return ids;
   }
   private async prepareAssets(binding: Binding, document: DesignDocument, signal?: AbortSignal) {
     const known = new Set(documentAssetIds(binding.base.content));
@@ -446,6 +511,23 @@ export class CloudSync {
     const binding = this.bindings.get(id);
     if (!binding || binding.conflict) return;
     this.check(binding, signal);
+    if (binding.assetsPending) {
+      this.publish(binding, "syncing");
+      await this.cacheAssets(binding, binding.base.content, signal);
+      this.check(binding, signal);
+      binding.assetsPending = undefined;
+      await this.save(binding);
+      if (
+        !this.permissionPaused.has(binding.id) &&
+        binding.localStamp &&
+        (await this.store.designStamp(binding.projectId, binding.designId)) === binding.localStamp
+      ) {
+        this.failures.delete(id);
+        this.publish(binding, "synced");
+        return;
+      }
+      this.publish(binding, "syncing");
+    }
     if (
       !binding.pending &&
       !binding.creating &&
@@ -716,8 +798,8 @@ export class CloudSync {
       accountId,
       base: remote,
       aliases: {},
+      assetsPending: documentAssetIds(remote.content).length ? true : undefined,
     };
-    await this.cacheAssets(binding, remote.content);
     this.check(binding);
     const design = await this.store.createDesign(projectId, {
       name: remote.name ?? name,
@@ -728,8 +810,9 @@ export class CloudSync {
     await this.save(binding);
     await this.state.write("bindings", [...this.bindings.keys(), binding.id]);
     this.bindings.set(binding.id, binding);
-    this.publish(binding, "synced");
-    await this.designsChanged(projectId);
+    this.publish(binding, binding.assetsPending ? "syncing" : "synced");
+    if (binding.assetsPending) this.schedule(binding.id, 0);
+    void this.designsChanged(projectId).catch(() => {});
     return design;
   }
   async connectLocal(projectId: string, designId: string, organizationId: string) {
@@ -774,6 +857,7 @@ export class CloudSync {
     clearTimeout(this.timers.get(binding.id));
     this.queue.delete(binding.id);
     this.controllers.get(binding.id)?.abort();
+    await this.downloads.cancel(binding.id);
     await this.running.get(binding.id);
     clearTimeout(this.timers.get(binding.id));
     this.queue.delete(binding.id);
@@ -783,6 +867,7 @@ export class CloudSync {
     );
     this.bindings.delete(binding.id);
     this.statuses.delete(binding.id);
+    this.assetFailures.delete(binding.id);
     await this.state.remove(binding.id);
     this.changed();
   }

@@ -275,11 +275,15 @@ export const CloudWorkspace = memo(function CloudWorkspace({
       ? "Conflicting edits"
       : binding?.status === "paused"
         ? "Sync paused"
-        : binding?.status === "offline"
-          ? "Saved locally"
-          : binding
-            ? "Available offline"
-            : "In cloud";
+        : binding?.assetsPending
+          ? binding.status === "offline"
+            ? "Images need connection"
+            : "Downloading images…"
+          : binding?.status === "offline"
+            ? "Saved locally"
+            : binding
+              ? "Available offline"
+              : "In cloud";
   };
   const preview = (file: CloudFile) => {
     const binding = cloud.state?.bindings.find((b) => b.fileId === file.id);
@@ -352,6 +356,10 @@ export const CloudWorkspace = memo(function CloudWorkspace({
             api={api}
             projectId={opened.projectId}
             initial={opened.design}
+            retryAssets={
+              cloud.state?.bindings.find((binding) => binding.designId === opened.design.id)
+                ?.retryAssets
+            }
             active={active && canvasVisible}
             onBack={() => {
               selection.current++;

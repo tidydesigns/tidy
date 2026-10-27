@@ -58,6 +58,8 @@ export const cloudStateSchema = z.object({
       designId: z.uuid(),
       fileId: z.uuid(),
       organizationId: z.string().optional(),
+      assetsPending: z.boolean().optional(),
+      retryAssets: z.array(z.uuid()).optional(),
       status: z.enum(["synced", "syncing", "offline", "conflict", "paused"]),
       message: z.string().optional(),
     }),

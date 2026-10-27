@@ -288,7 +288,10 @@ export class CloudService implements CloudAPI {
   private async workspace(organizationId: string) {
     if (this.closed || this.accountChanging) throw new Error("Cloud sync is stopped.");
     const generation = this.generation;
-    const account = await this.account(true).catch(() => this.account());
+    const account =
+      this.latestAccount && this.latestAccount.id === this.auth.accountId
+        ? this.latestAccount
+        : await this.account(true).catch(() => this.account());
     const organization = account.organizations.find((o) => o.id === organizationId && o.canEdit);
     if (!organization) throw new Error("You need editing access to this workspace.");
     const key = this.cacheKey("workspace", organizationId).slice("workspace-".length);
@@ -413,6 +416,15 @@ export class CloudService implements CloudAPI {
   async focus(projectId?: string, designId?: string) {
     if (projectId) await this.service.assertProjectAccess(projectId);
     this.sync.focus(projectId, designId);
+  }
+  async loadAsset(projectId: string, assetId: string) {
+    const generation = this.generation;
+    await this.service.assertProjectAccess(projectId);
+    if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
+    const dataUrl = await this.sync.loadAsset(projectId, assetId);
+    await this.service.assertProjectAccess(projectId);
+    if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
+    return dataUrl;
   }
   setForeground(value: boolean) {
     this.sync.setForeground(value);
