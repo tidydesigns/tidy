@@ -490,7 +490,7 @@ export function App() {
   const selectThread = useCallback(
     (projectId: string, threadId: string | null) => {
       threadSelection.current[projectId] = (threadSelection.current[projectId] ?? 0) + 1;
-      if (threadId) void readThread(projectId, threadId).catch(() => {});
+      if (threadId) void readThread({ projectId, threadId }).catch(() => {});
       setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
     },
     [readThread],
@@ -531,7 +531,7 @@ export function App() {
       return;
     }
     let active = true;
-    void readThread(project.id, selectedThreadId).catch((value) => {
+    void readThread({ projectId: project.id, threadId: selectedThreadId }).catch((value) => {
       if (active) setError({ projectId: project.id, text: errorText(value), original: value });
     });
     return () => {

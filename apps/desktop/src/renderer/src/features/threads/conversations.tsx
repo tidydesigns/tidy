@@ -12,7 +12,7 @@ export function Conversations({
 }: {
   projectId: string;
   selected: string | null;
-  threads: Record<string, Thread>;
+  threads: Readonly<Partial<Record<string, Thread>>>;
   api: DesktopAPI;
   active: boolean;
 }) {

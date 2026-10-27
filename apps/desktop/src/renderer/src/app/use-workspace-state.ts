@@ -38,7 +38,7 @@ export function useWorkspaceState({
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
 
   const readThread = useCallback(
-    (projectId: string, threadId: string): Promise<Thread> => {
+    ({ projectId, threadId }: { projectId: string; threadId: string }): Promise<Thread> => {
       const cached = currentThreads.current[threadId];
       if (cached?.projectId === projectId) return Promise.resolve(cached);
       const key = `${projectId}:${threadId}`;

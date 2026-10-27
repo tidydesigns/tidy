@@ -2,7 +2,15 @@ import { expect, test } from "bun:test";
 import type { Thread } from "../../../../shared/contracts/desktop";
 import { retainConversations } from "./conversation-cache";
 
-function thread(id: string, count = 2, text = "Message"): Thread {
+function thread({
+  id,
+  count = 2,
+  text = "Message",
+}: {
+  id: string;
+  count?: number;
+  text?: string;
+}): Thread {
   return {
     id,
     projectId: "project",
@@ -21,7 +29,7 @@ function thread(id: string, count = 2, text = "Message"): Thread {
 }
 
 test("conversation retention keeps the selection and the two most recently visited threads", () => {
-  const threads = Object.fromEntries(["a", "b", "c", "d"].map((id) => [id, thread(id)]));
+  const threads = Object.fromEntries(["a", "b", "c", "d"].map((id) => [id, thread({ id })]));
   const recent = ["c", "b", "a"];
   expect(retainConversations({ recent, selected: "b", threads })).toEqual(["b", "c", "a"]);
   expect(retainConversations({ recent, selected: "d", threads })).toEqual(["d", "c", "b"]);
@@ -29,7 +37,7 @@ test("conversation retention keeps the selection and the two most recently visit
 });
 
 test("conversation retention evicts unavailable history while preserving an unloaded selection", () => {
-  const threads = { a: thread("a") };
+  const threads = { a: thread({ id: "a" }) };
   expect(retainConversations({ recent: ["missing", "a"], selected: "loading", threads })).toEqual([
     "loading",
     "a",
@@ -39,10 +47,10 @@ test("conversation retention evicts unavailable history while preserving an unlo
 
 test("conversation retention bounds message count and text while always keeping the selection", () => {
   const threads = {
-    a: thread("a", 600),
-    b: thread("b", 600),
-    c: thread("c", 20),
-    large: thread("large", 3, "x".repeat(1_000_000)),
+    a: thread({ id: "a", count: 600 }),
+    b: thread({ id: "b", count: 600 }),
+    c: thread({ id: "c", count: 20 }),
+    large: thread({ id: "large", count: 3, text: "x".repeat(1_000_000) }),
   };
   expect(retainConversations({ recent: ["b", "c"], selected: "a", threads })).toEqual(["a", "c"]);
   expect(retainConversations({ recent: ["large", "c"], selected: "a", threads })).toEqual([

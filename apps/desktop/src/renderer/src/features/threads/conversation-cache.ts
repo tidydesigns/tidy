@@ -5,9 +5,9 @@ export function retainConversations({
   selected,
   threads,
 }: {
-  recent: (string | null)[];
+  recent: readonly (string | null)[];
   selected: string | null;
-  threads: Record<string, Thread>;
+  threads: Readonly<Partial<Record<string, Thread>>>;
 }): (string | null)[] {
   const retained: (string | null)[] = [];
   let messages = 0;
