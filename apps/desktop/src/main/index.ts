@@ -185,7 +185,10 @@ app
           analytics?.record(event);
         };
     service.analyticsScope = () => analytics!.bind();
-    void analytics.initialize().then(() => analytics?.confirmUpdate());
+    void analytics
+      .initialize()
+      .then(() => analytics?.confirmUpdate())
+      .catch(() => {});
     app.on("browser-window-focus", () => {
       analytics?.active();
       void analytics?.refresh();
@@ -263,7 +266,7 @@ app
           to: state.version,
         });
       if (state.status === "installing" && state.version)
-        void analytics?.updateTarget(state.version);
+        void analytics?.updateTarget(state.version).catch(() => {});
       if (
         ((state.status === "error" && state.error === "download") ||
           (state.status === "ready" && state.error === "install")) &&
