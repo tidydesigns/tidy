@@ -310,6 +310,60 @@ async function runThreadLoadingTests(): Promise<string[]> {
     await until(() => visibleTranscript().scrollTop < 80, "Jump to first turn");
   });
 
+  await run("streaming retains selection, tool disclosure and turn targets", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    const tool: ToolActivity = {
+      id: crypto.randomUUID(),
+      afterMessageId: a.messages[0].id,
+      kind: "command",
+      title: "Inspect",
+      toolName: "Shell",
+      status: "running",
+      startedAt: timestamp,
+      output: "Partial output",
+    };
+    threads[a.id] = { ...a, toolActivities: [tool] };
+    render({ selected: a.id });
+    await settle();
+    const viewport = visibleTranscript();
+    const article = required(viewport.querySelector("article"), "First message");
+    const group = required(viewport.querySelector(".tool-activity-group summary"), "Tool group");
+    group.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await until(() => Boolean(viewport.querySelector(".tool-call")), "Tool rows");
+    required(viewport.querySelector(".tool-call summary"), "Tool row").dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    await until(() => Boolean(viewport.querySelector("pre")), "Tool output");
+    const selection = required(window.getSelection(), "Text selection");
+    const range = document.createRange();
+    range.selectNodeContents(article);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    const selectedText = selection.toString();
+    const last = required(a.messages.at(-1), "Last message");
+    threads[a.id] = {
+      ...a,
+      revision: 2,
+      messages: [...a.messages.slice(0, -1), { ...last, text: `${last.text} Streamed text` }],
+      toolActivities: [
+        { ...tool, status: "completed", endedAt: timestamp, output: "Final output" },
+      ],
+    };
+    render({ selected: a.id });
+    await settle();
+    check(viewport.querySelector("article") === article, "Streaming replaced an earlier message");
+    check(selection.toString() === selectedText, "Streaming changed the selection");
+    check(viewport.textContent?.includes("Streamed text"), "Streamed message did not update");
+    const row = required(viewport.querySelector<HTMLDetailsElement>(".tool-call"), "Open tool");
+    check(
+      row.open && row.querySelector("pre")?.textContent === "Final output",
+      "Tool update lost disclosure or output",
+    );
+    required(host.querySelector<HTMLButtonElement>(".conversation-tick"), "First turn").click();
+    await until(() => viewport.scrollTop < 80, "Updated turn target");
+    selection.removeAllRanges();
+  });
+
   await run("a cold thread fills its existing selected view when data arrives", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     delete threads[a.id];
