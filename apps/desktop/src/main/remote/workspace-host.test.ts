@@ -292,3 +292,59 @@ for (const blockPublication of [false, true]) {
     10000,
   );
 }
+
+test("a failed final service flush retains host and project ownership after draining", async () => {
+  const root = await mkdtemp(join(tmpdir(), "checkpoint-host-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const script = `
+    import assert from 'node:assert/strict';
+    import {mkdir,readFile} from 'node:fs/promises';
+    import {join} from 'node:path';
+    import {ProjectStore} from './src/main/workspace/project-store.ts';
+    import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
+    import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
+    import {lockHost} from './src/main/remote/host-lock.ts';
+    import {projectLocks} from './src/main/remote/project-locks.ts';
+    const root = process.argv[1];
+    let released = false;
+    const owner = await ensureWorkspaceHost({
+      directory:root, buildId:'fixture',
+      createService: async () => {
+        const locks = projectLocks(join(root,'project-locks'));
+        const store = new ProjectStore(join(root,'workspace'), undefined, locks.claim);
+        await store.initialize();
+        await mkdir(join(root,'project'));
+        await store.open(join(root,'project'));
+        store.flush = async () => { throw new Error('Final flush failed'); };
+        return {service:new WorkspaceService(store),release:() => { released = true; locks.close(); }};
+      }
+    });
+    const closing = owner.close();
+    assert.equal(owner.close(), closing);
+    await assert.rejects(closing,/Final flush failed/);
+    assert.equal(released,false);
+    assert.throws(() => lockHost(join(root,'host.lock')));
+    const other = projectLocks(join(root,'project-locks'));
+    try { assert.throws(() => other.claim(join(root,'project'))); } finally { other.close(); }
+    assert.equal(JSON.parse(await readFile(join(root,'runtime.json'),'utf8')).pid, process.pid);
+    await assert.rejects(fetch('http://127.0.0.1:'+owner.host.port+'/health'));
+    process.exit(0);
+  `;
+  const child = spawn("node", ["--import", "tsx", "--input-type=module", "-e", script, root], {
+    cwd: new URL("../../..", import.meta.url),
+    stdio: "pipe",
+    timeout: 5000,
+    killSignal: "SIGKILL",
+  });
+  let errors = "";
+  child.stderr.on("data", (chunk) => {
+    errors += chunk.toString();
+  });
+  child.stdout.resume();
+  const code = await new Promise<number | null>((resolve, reject) => {
+    child.once("exit", resolve);
+    child.once("error", reject);
+  });
+  expect(errors).not.toContain("Error:");
+  expect(code).toBe(0);
+}, 10000);

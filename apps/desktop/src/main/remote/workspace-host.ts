@@ -199,13 +199,10 @@ export async function ensureWorkspaceHost({
         close() {
           closing ??= (async () => {
             await host.close();
-            try {
-              await owned.service.close();
-              await rm(join(directory, "runtime.json"), { force: true });
-            } finally {
-              owned.release();
-              releaseHost();
-            }
+            await owned.service.close();
+            await rm(join(directory, "runtime.json"), { force: true });
+            owned.release();
+            releaseHost();
           })();
           return closing;
         },
