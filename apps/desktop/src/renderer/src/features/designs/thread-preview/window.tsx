@@ -12,21 +12,25 @@ import {
 import { flushSync } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
-import { PreviewCamera } from "./preview-camera";
+import { PreviewCamera } from "./camera";
 import {
   constrainGeometry,
   resizeEdges,
   resizeGeometry,
   type ResizeEdge,
+  type DockSlot,
   type PreviewWindowGeometry,
-} from "./preview-window-geometry";
-import type { PreviewCameraMemory } from "./preview-navigation";
-import { gestureMoved } from "./preview-pointer";
-import type { DesktopAPI, DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
-import { LocalCanvas } from "./local-canvas";
+} from "./window-geometry";
+import type { PreviewCameraMemory } from "./navigation";
+import { gestureMoved } from "./pointer";
+import type {
+  DesktopAPI,
+  DesignSummary,
+  LocalDesign,
+} from "../../../../../shared/contracts/desktop";
+import { LocalCanvas } from "../local-canvas";
 import type { CanvasViewportMemory } from "@tidy/editor";
-import type { CanvasGeometry } from "./thread-canvas-dock";
-import type { DockSlot } from "./thread-design-dock";
+import type { CanvasGeometry } from "./dock-state";
 
 type Phase = "closed" | "opening" | "open" | "closing";
 const enterEasing = "cubic-bezier(0.6, 0.04, 0.85, 0.24)";

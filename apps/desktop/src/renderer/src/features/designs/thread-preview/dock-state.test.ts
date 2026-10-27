@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { discoverCanvases, parseCanvasDock, toggleCanvas } from "./thread-canvas-dock";
+import { discoverCanvases, parseCanvasDock, toggleCanvas } from "./dock-state";
 
 test("introduces one floating canvas, then adds stable canvas entries without stealing focus", () => {
   const first = discoverCanvases(parseCanvasDock(null), ["first", "second"]);

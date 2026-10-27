@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import type { DesignSummary, Thread } from "../../../../shared/contracts/desktop";
-import type { ToolActivity } from "../../../../shared/contracts/tool-activity";
-import { threadDesign, threadDesigns } from "./thread-design";
+import type { DesignSummary, Thread } from "../../../../../shared/contracts/desktop";
+import type { ToolActivity } from "../../../../../shared/contracts/tool-activity";
+import { threadDesign, threadDesigns } from "./discovery";
 
 const timestamp = "2026-10-22T12:00:00.000Z";
 const design = (name: string): DesignSummary => {

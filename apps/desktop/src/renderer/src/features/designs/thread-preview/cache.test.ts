@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { blankDesignDocument } from "@tidy/design/document";
-import { DesignPreviewCache } from "./design-preview-cache";
-import type { LocalDesign } from "../../../../shared/contracts/desktop";
+import { DesignPreviewCache } from "./cache";
+import type { LocalDesign } from "../../../../../shared/contracts/desktop";
 
 const design = (id: string): LocalDesign => ({
   id,

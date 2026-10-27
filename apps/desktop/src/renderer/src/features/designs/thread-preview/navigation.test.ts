@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { fitPreview, wheelPreview, zoomPreview } from "./preview-navigation";
+import { fitPreview, wheelPreview, zoomPreview } from "./navigation";
 
 test("fits offset artwork into an independently sized preview", () => {
   const camera = fitPreview(

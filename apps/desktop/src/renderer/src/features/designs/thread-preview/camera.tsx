@@ -9,15 +9,15 @@ import {
 } from "react";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import { gestureZoomFactor } from "@tidy/editor/design/canvas-zoom";
-import type { LocalDesign } from "../../../../shared/contracts/desktop";
+import type { LocalDesign } from "../../../../../shared/contracts/desktop";
 import {
   fitPreview,
   wheelPreview,
   zoomPreview,
   type PreviewBounds,
   type PreviewCameraMemory,
-} from "./preview-navigation";
-import { createPreviewPointerGesture } from "./preview-pointer";
+} from "./navigation";
+import { createPreviewPointerGesture } from "./pointer";
 
 export const PreviewCamera = memo(function PreviewCamera({
   value,

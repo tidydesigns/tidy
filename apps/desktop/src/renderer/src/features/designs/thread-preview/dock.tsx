@@ -12,25 +12,25 @@ import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
 import type { CanvasViewportMemory } from "@tidy/editor";
-import { DesignPreviewCache } from "./design-preview-cache";
-import { threadDesigns } from "./thread-design";
+import { DesignPreviewCache } from "./cache";
+import { threadDesigns } from "./discovery";
 import {
   discoverCanvases,
   parseCanvasDock,
   toggleCanvas,
   type CanvasGeometry,
   type ThreadCanvasDock,
-} from "./thread-canvas-dock";
+} from "./dock-state";
 import type {
   DesktopAPI,
   DesignSummary,
   LocalDesign,
   Thread,
-} from "../../../../shared/contracts/desktop";
-import { ThreadDesignWindow } from "./thread-design-window";
-import type { PreviewCameraMemory } from "./preview-navigation";
+} from "../../../../../shared/contracts/desktop";
+import { ThreadDesignWindow } from "./window";
+import type { PreviewCameraMemory } from "./navigation";
+import type { DockSlot } from "./window-geometry";
 
-export type DockSlot = { x: number; y: number; width: number };
 const viewports = new Map<
   string,
   Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>

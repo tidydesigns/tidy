@@ -1,4 +1,4 @@
-import type { DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
+import type { DesignSummary, LocalDesign } from "../../../../../shared/contracts/desktop";
 
 type Entry = { stamp: string; value: LocalDesign };
 type Request = { id: string; promise: Promise<LocalDesign>; replace(value: LocalDesign): void };
@@ -29,8 +29,11 @@ export class DesignPreviewCache {
   private retain(id: string, entry: Entry) {
     this.entries.delete(id);
     this.entries.set(id, entry);
-    while (this.entries.size > this.capacity)
-      this.entries.delete(this.entries.keys().next().value!);
+    while (this.entries.size > this.capacity) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      this.entries.delete(oldest);
+    }
     this.snapshot = Object.fromEntries([...this.entries].map(([id, entry]) => [id, entry.value]));
     this.listeners.forEach((listener) => listener());
   }

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createPreviewPointerGesture, gestureMoved } from "./preview-pointer";
+import { createPreviewPointerGesture, gestureMoved } from "./pointer";
 
 test("a canvas click tolerates pointer jitter and opens", () => {
   const gesture = createPreviewPointerGesture();

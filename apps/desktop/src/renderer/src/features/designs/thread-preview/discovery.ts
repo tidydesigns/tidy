@@ -1,5 +1,5 @@
-import type { DesignSummary, Thread } from "../../../../shared/contracts/desktop";
-import type { ToolActivity } from "../../../../shared/contracts/tool-activity";
+import type { DesignSummary, Thread } from "../../../../../shared/contracts/desktop";
+import type { ToolActivity } from "../../../../../shared/contracts/tool-activity";
 
 /** Resolve activity against known project designs; tool text never becomes a filesystem target. */
 export function threadDesigns(
@@ -25,7 +25,6 @@ export function threadDesigns(
     let targets = pathCache?.get(tool);
     if (!targets) {
       const paths = tool.files?.filter((file) => file.kind !== "deleted").map((file) => file.path);
-      // Cache only parsed IDs from immutable renderer rows, never design data or filesystem targets.
       const text = `${tool.title}\n${tool.input ?? ""}\n${paths?.join("\n") ?? ""}`.replace(
         /\\+/g,
         "/",

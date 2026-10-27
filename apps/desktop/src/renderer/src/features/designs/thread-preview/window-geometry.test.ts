@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { constrainGeometry, resizeEdges, resizeGeometry } from "./preview-window-geometry";
+import { constrainGeometry, resizeEdges, resizeGeometry } from "./window-geometry";
 
 const area = { width: 1000, height: 700 };
 const geometry = { x: 100, y: 80, width: 300, height: 200 };

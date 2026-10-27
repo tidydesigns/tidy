@@ -1,4 +1,5 @@
 export type PreviewWindowGeometry = { x: number; y: number; width: number; height: number };
+export type DockSlot = Pick<PreviewWindowGeometry, "x" | "y" | "width">;
 type WorkspaceSize = Pick<PreviewWindowGeometry, "width" | "height">;
 export const resizeEdges = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
 export type ResizeEdge = (typeof resizeEdges)[number];
