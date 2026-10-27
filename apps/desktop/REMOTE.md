@@ -90,7 +90,13 @@ reauthorization remains in the Tailscale app; SSH check-mode browser approval is
 Mutations receive a UUID and a durable, private receipt before execution. Reconnecting
 clients retrieve completed results instead of resending commands. Pending work continues
 while the rest of the workspace becomes available. Receipts survive backend restart and
-are scoped to the authenticated client. If the backend died between changing workspace
+are scoped to the authenticated client. Project results carry their project ID and require
+current project access on receipt lookup, identical resubmission and socket delivery.
+Signing out, switching accounts or withdrawing workspace access also blocks stored results
+once the desktop's account state reflects that change. Backend sessions authenticate the
+machine connection separately from cloud permissions; signing out does not revoke SSH
+access or local workspace access. Older receipts without a recorded scope withhold their
+results while retaining replay protection. If the backend died between changing workspace
 state and storing its result, the outcome is explicitly unconfirmed and is never replayed.
 This is not an atomic transaction between workspace files and command receipts. Completed receipts are retained for twenty-four hours and pruned at startup and hourly.
 Pending receipts remain available to identify interrupted operations. Expired results are

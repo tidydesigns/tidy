@@ -80,6 +80,10 @@ export class WorkspaceService {
 
   canDeliverEvent(event: DesktopEvent) {
     const id = event.type === "designs" ? event.projectId : event.thread.projectId;
+    return this.canAccessProject(id);
+  }
+
+  canAccessProject(id: string) {
     const project = this.store.projects.find((item) => item.id === id);
     return Boolean(project && (!project.cloud || this.canAccessCloudProject?.(id)));
   }

@@ -728,3 +728,99 @@ test("cloud access withdrawal suppresses queued and stopping-thread events witho
     validation.mockRestore();
   }
 });
+
+test("remote receipts reauthorize historical results and queued delivery without replay", async () => {
+  const f = await fixture();
+  const cloudPath = join(f.root, "receipt-cloud");
+  await mkdir(cloudPath);
+  const cloud = (await f.store.open(cloudPath, "Private cloud workspace")).project;
+  let allowed = true;
+  f.service.canAccessCloudProject = () => allowed;
+  f.service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Cloud access withdrawn");
+  };
+  const clientId = randomUUID();
+  const token = await f.sessions.issue(clientId);
+  const headers = { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId };
+  const ticketResponse = await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers });
+  const { ticket } = z.object({ ticket: z.string() }).parse(await ticketResponse.json());
+  const socket = new WebSocket(`${f.origin().replace("http:", "ws:")}/events?ticket=${ticket}`);
+  cleanups.push(() => socket.terminate());
+  await new Promise<void>((resolve, reject) => {
+    socket.once("message", () => resolve());
+    socket.once("error", reject);
+  });
+  const frames = new Map<string, unknown>();
+  socket.on("message", (data) => {
+    const frame = z
+      .object({ type: z.string(), id: z.string().optional(), response: z.unknown().optional() })
+      .parse(JSON.parse(data.toString()));
+    if (frame.type === "result" && frame.id) frames.set(frame.id, frame.response);
+  });
+  const request = {
+    id: randomUUID(),
+    name: "create-design-folder",
+    input: { projectId: cloud.id, name: "Private folder" },
+  };
+  async function exchange(command: typeof request | { id: string; name: string; input: string }) {
+    frames.delete(command.id);
+    socket.send(JSON.stringify(command));
+    await until(() => frames.has(command.id));
+    return frames.get(command.id);
+  }
+  const original = await exchange(request);
+  expect(original).toMatchObject({ ok: true });
+  const receipt = () => ({ id: randomUUID(), name: "receipt", input: request.id });
+  allowed = false;
+  const denied = {
+    ok: false,
+    error: expect.stringContaining("access to its stored result is unavailable"),
+  };
+  expect(await exchange(receipt())).toEqual({
+    ok: true,
+    data: { kind: "complete", response: denied },
+  });
+  expect(await exchange(request)).toEqual(denied);
+  allowed = true;
+  expect(await exchange(receipt())).toEqual({
+    ok: true,
+    data: { kind: "complete", response: original },
+  });
+  for (const command of [
+    receipt(),
+    request,
+    { id: randomUUID(), name: "project-snapshot", input: cloud.id },
+  ]) {
+    allowed = true;
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const validate = f.sessions.validate.bind(f.sessions);
+    let validations = 0;
+    const intercepted = spyOn(f.sessions, "validate").mockImplementation(async (...args) => {
+      if (++validations === 2) {
+        entered.resolve();
+        await release.promise;
+      }
+      return validate(...args);
+    });
+    try {
+      const queued = exchange(command);
+      await entered.promise;
+      allowed = false;
+      release.resolve();
+      expect(await queued).toEqual(
+        command.name === "receipt"
+          ? { ok: true, data: { kind: "complete", response: denied } }
+          : denied,
+      );
+    } finally {
+      release.resolve();
+      intercepted.mockRestore();
+    }
+  }
+  expect(socket.readyState).toBe(WebSocket.OPEN);
+  expect((await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers })).status).toBe(200);
+  allowed = true;
+  expect(await exchange(request)).toEqual(original);
+  expect((await f.store.folders(cloud.id)).length).toBe(1);
+});

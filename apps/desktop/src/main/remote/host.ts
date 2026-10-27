@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RequestReceipts } from "./receipts";
+import { RequestReceipts, unavailableReceiptResponse } from "./receipts";
 import { isRemoteMutation } from "../../shared/remote";
 import { createServer, type IncomingMessage } from "node:http";
 import { readdir, realpath } from "node:fs/promises";
@@ -44,7 +44,12 @@ export function createRemoteHost({
       queuedBytes: number;
     }
   >();
-  const send = (client: WebSocket, value: unknown, event?: DesktopEvent) => {
+  const send = (
+    client: WebSocket,
+    value: unknown,
+    event?: DesktopEvent,
+    replacement?: () => unknown,
+  ) => {
     const auth = clients.get(client);
     if (!auth || client.readyState !== WebSocket.OPEN) return;
     const data = JSON.stringify(value);
@@ -63,7 +68,14 @@ export function createRemoteHost({
             return;
           }
           if (event && !service.canDeliverEvent(event)) return;
-          if (client.readyState === WebSocket.OPEN) client.send(data);
+          const replacementValue = replacement?.();
+          const output = replacementValue === undefined ? data : JSON.stringify(replacementValue);
+          const outputBytes = replacementValue === undefined ? bytes : Buffer.byteLength(output);
+          if (auth.queuedBytes - bytes + client.bufferedAmount + outputBytes > MAX_REMOTE_BYTES) {
+            client.terminate();
+            return;
+          }
+          if (client.readyState === WebSocket.OPEN) client.send(output);
         } finally {
           auth.queuedBytes -= bytes;
         }
@@ -193,18 +205,41 @@ export function createRemoteHost({
                   client.terminate();
                   return;
                 }
+                let resultProjectId: string | undefined;
+                const authorizeReceipt = async (projectId: string) => {
+                  resultProjectId = projectId;
+                  await service.assertProjectAccess(projectId);
+                };
+                const redactResult = (lookup: boolean) =>
+                  resultProjectId && !service.canAccessProject(resultProjectId)
+                    ? {
+                        type: "result",
+                        id: request.id,
+                        response: lookup
+                          ? {
+                              ok: true,
+                              data: { kind: "complete", response: unavailableReceiptResponse },
+                            }
+                          : unavailableReceiptResponse,
+                      }
+                    : undefined;
                 if (isRemoteMutation(request.name)) {
-                  const response = await receipts.execute(ticket.clientId, request, () =>
-                    requests.invoke(request.name, request.input, request),
+                  const response = await receipts.execute(
+                    ticket.clientId,
+                    request,
+                    () => requests.invoke(request.name, request.input, request),
+                    authorizeReceipt,
                   );
-                  send(client, { type: "result", id: request.id, response });
+                  send(client, { type: "result", id: request.id, response }, undefined, () =>
+                    redactResult(false),
+                  );
                   return;
                 }
                 let result: unknown;
                 if (request.name === "ping") result = null;
                 else if (request.name === "receipt") {
                   const id = z.string().uuid().parse(request.input);
-                  result = await receipts.status(ticket.clientId, id);
+                  result = await receipts.status(ticket.clientId, id, authorizeReceipt);
                 } else if (request.name === "directories") {
                   const path = await realpath(request.projectPath ?? homedir());
                   const entries = await readdir(path, { withFileTypes: true });
@@ -220,12 +255,27 @@ export function createRemoteHost({
                         path: `${path.replace(/\/$/, "")}/${entry.name}`,
                       })),
                   };
-                } else result = await requests.invoke(request.name, request.input, request);
-                send(client, {
-                  type: "result",
-                  id: request.id,
-                  response: { ok: true, data: result },
-                });
+                } else {
+                  const projectInput = z
+                    .object({ projectId: z.string().uuid() })
+                    .safeParse(
+                      request.name === "project-snapshot"
+                        ? { projectId: request.input }
+                        : request.input,
+                    );
+                  if (projectInput.success) resultProjectId = projectInput.data.projectId;
+                  result = await requests.invoke(request.name, request.input, request);
+                }
+                send(
+                  client,
+                  {
+                    type: "result",
+                    id: request.id,
+                    response: { ok: true, data: result },
+                  },
+                  undefined,
+                  () => redactResult(request.name === "receipt"),
+                );
               } catch (error) {
                 send(client, {
                   type: "result",

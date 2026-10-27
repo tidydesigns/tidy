@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, utimes, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { RequestReceipts } from "./receipts";
+import { RequestReceipts, unavailableReceiptResponse } from "./receipts";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -93,4 +93,97 @@ test("receipt maintenance expires old results while retaining recent results and
   expect(await readFile(path(pending), "utf8")).toContain('"kind":"pending"');
   receipts.start();
   await receipts.close();
+});
+
+test("stored project results require current authorization without replaying completed work", async () => {
+  const root = await mkdtemp(join(tmpdir(), "receipt-access-"));
+  roots.push(root);
+  const client = randomUUID();
+  const projectId = randomUUID();
+  const request = { id: randomUUID(), name: "create-design", input: { projectId } };
+  let allowed = true;
+  let calls = 0;
+  const authorize = async (id: string) => {
+    expect(id).toBe(projectId);
+    if (!allowed) throw new Error("Access withdrawn");
+  };
+  const action = async () => {
+    calls++;
+    return { private: "project result" };
+  };
+  const receipts = new RequestReceipts(root);
+  const original = await receipts.execute(client, request, action, authorize);
+  expect(original.ok).toBe(true);
+  allowed = false;
+  const reopened = new RequestReceipts(root);
+  expect(await reopened.status(client, request.id, authorize)).toEqual({
+    kind: "complete",
+    response: unavailableReceiptResponse,
+  });
+  expect(await reopened.execute(client, request, action, authorize)).toEqual(
+    unavailableReceiptResponse,
+  );
+  expect(await reopened.status(client, request.id)).toEqual({
+    kind: "complete",
+    response: unavailableReceiptResponse,
+  });
+  allowed = true;
+  expect(await reopened.execute(client, request, action, authorize)).toEqual(original);
+  expect(calls).toBe(1);
+});
+
+test("concurrent project commands recheck access after execution and preserve replay protection", async () => {
+  const root = await mkdtemp(join(tmpdir(), "receipt-concurrent-access-"));
+  roots.push(root);
+  const receipts = new RequestReceipts(root);
+  const client = randomUUID();
+  const request = { id: randomUUID(), name: "select-project", input: randomUUID() };
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let allowed = true;
+  let calls = 0;
+  const action = async () => {
+    calls++;
+    entered.resolve();
+    await release.promise;
+    return "private snapshot";
+  };
+  const authorize = async () => {
+    if (!allowed) throw new Error("Access withdrawn");
+  };
+  const first = receipts.execute(client, request, action, authorize);
+  await entered.promise;
+  const second = receipts.execute(client, request, action, authorize);
+  allowed = false;
+  release.resolve();
+  expect(await Promise.all([first, second])).toEqual([
+    unavailableReceiptResponse,
+    unavailableReceiptResponse,
+  ]);
+  expect(calls).toBe(1);
+});
+
+test("legacy receipts without an authorization scope cannot disclose results or replay", async () => {
+  const root = await mkdtemp(join(tmpdir(), "receipt-legacy-access-"));
+  roots.push(root);
+  const receipts = new RequestReceipts(root);
+  const client = randomUUID();
+  const request = { id: randomUUID(), name: "create-design" };
+  let calls = 0;
+  const action = async () => {
+    calls++;
+    return "historical result";
+  };
+  await receipts.execute(client, request, action);
+  const path = join(root, client + "-" + request.id + ".json");
+  const record = JSON.parse(await readFile(path, "utf8"));
+  delete record.scope;
+  await writeFile(path, JSON.stringify(record));
+  const reopened = new RequestReceipts(root);
+  expect(await reopened.execute(client, request, action)).toEqual(unavailableReceiptResponse);
+  expect(await reopened.status(client, request.id)).toEqual({
+    kind: "complete",
+    response: unavailableReceiptResponse,
+  });
+  expect(calls).toBe(1);
 });
