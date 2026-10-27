@@ -188,6 +188,13 @@ async function runThreadLoadingTests(): Promise<string[]> {
   await run("recent thread returns preserve DOM, scroll and turn navigation", async (root) => {
     const { a, b, render } = conversationFixture(root);
     render({ selected: a.id });
+    await until(
+      () =>
+        [...host.querySelectorAll(".transcript")].some(
+          (node) => node.getBoundingClientRect().height > 0,
+        ),
+      "First lazy-loaded transcript",
+    );
     await settle();
     const viewport = visibleTranscript();
     check(
