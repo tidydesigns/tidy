@@ -19,8 +19,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           This notice covers tidydesign.co, the hosted Tidy app, registration, login and connected
           features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
           controller for account administration, security, support and the PostHog processing
-          described below. Contact{" "}
-          <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a> about privacy.
+          described below. Contact <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a> about
+          privacy.
         </p>
         <p>
           For personal data an organisation places in its workspace, that organisation may be the
@@ -119,8 +119,8 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           receives connection information from our server. Core server reporting operates
           independently of optional browser consent. You can object to any processing of your
           personal data on this basis by emailing{" "}
-          <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>; we assess objections
-          under the rights described below.
+          <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a>; we assess objections under the
+          rights described below.
         </p>
         <p>
           <strong>Optional browser features. Consent.</strong> In the app, including login and
@@ -479,10 +479,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
           complete design files and images from the editor.
         </p>
         <p>
-          For other requests, email{" "}
-          <a href="mailto:seandowdall22@gmail.com">seandowdall22@gmail.com</a>. We may need to
-          verify your identity and normally respond within one month; if a lawful extension is
-          necessary, we explain it within that month. You can complain to Ireland&#39;s{" "}
+          For other requests, email <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a>. We
+          may need to verify your identity and normally respond within one month; if a lawful
+          extension is necessary, we explain it within that month. You can complain to Ireland&#39;s{" "}
           <a href="https://www.dataprotection.ie/en/contact/how-contact-us">
             Data Protection Commission
           </a>{" "}
