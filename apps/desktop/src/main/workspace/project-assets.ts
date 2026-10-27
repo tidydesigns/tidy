@@ -9,10 +9,15 @@ export async function projectAssetResponse(
   request: Request,
   developmentOrigin?: string,
   authorize?: (projectId: string) => Promise<void>,
+  load?: (projectId: string, assetId: string) => Promise<string | undefined>,
 ) {
   const url = new URL(request.url);
   const match = /^\/__tidy\/assets\/([^/]+)\/([^/]+)$/.exec(url.pathname);
-  if (!match || url.search || !["GET", "HEAD"].includes(request.method))
+  if (
+    !match ||
+    (url.search && !/^\?retry=\d{1,9}$/.test(url.search)) ||
+    !["GET", "HEAD"].includes(request.method)
+  )
     return new Response(null, { status: 404 });
   try {
     const projectId = z.uuid().parse(match[1]);
@@ -23,8 +28,10 @@ export async function projectAssetResponse(
       await authorize?.(projectId);
     };
     await check();
-    const dataUrl = await store.readSyncAsset(projectId, assetId);
+    let dataUrl = await store.readSyncAsset(projectId, assetId);
+    if (!dataUrl && load) dataUrl = await load(projectId, assetId);
     await check();
+    if (dataUrl && dataUrl.length > 3_000_000) return new Response(null, { status: 404 });
     const image = /^data:(image\/(?:png|jpeg|webp|svg\+xml));base64,([A-Za-z0-9+/=]+)$/.exec(
       dataUrl ?? "",
     );

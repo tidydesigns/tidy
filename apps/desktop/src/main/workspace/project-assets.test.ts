@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -85,4 +85,75 @@ test("private cloud images require account authorization and recheck after disk 
   });
   expect(denied.status).toBe(404);
   expect(await denied.text()).toBe("");
+});
+
+test("missing images load through the authorized asset protocol and retry URLs retain validation", async () => {
+  const f = await fixture();
+  const assetId = randomUUID();
+  const url = `http://localhost/__tidy/assets/${f.project.id}/${assetId}?retry=1`;
+  const dataUrl = "data:image/png;base64,cHJvZ3Jlc3NpdmU=";
+  const reads = spyOn(f.store, "readSyncAsset");
+  let allowed = true;
+  let loads = 0;
+  const authorize = async () => {
+    if (!allowed) throw new Error("Account changed");
+  };
+  const load = async (projectId: string, id: string) => {
+    loads++;
+    expect(projectId).toBe(f.project.id);
+    expect(id).toBe(assetId);
+    await f.store.cacheSyncAsset(projectId, id, dataUrl);
+    return dataUrl;
+  };
+  try {
+    const response = await projectAssetResponse(
+      f.store,
+      new Request(url),
+      undefined,
+      authorize,
+      load,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("progressive");
+    expect(loads).toBe(1);
+    expect(reads).toHaveBeenCalledTimes(2);
+    expect(
+      (await projectAssetResponse(f.store, new Request(url), undefined, authorize, load)).status,
+    ).toBe(200);
+    expect(loads).toBe(1);
+    await rm(await f.store.storagePath(f.project.id, "assets", assetId));
+    const denied = await projectAssetResponse(
+      f.store,
+      new Request(url),
+      undefined,
+      authorize,
+      async (projectId, id) => {
+        const image = await load(projectId, id);
+        allowed = false;
+        return image;
+      },
+    );
+    expect(denied.status).toBe(404);
+    expect(await denied.text()).toBe("");
+  } finally {
+    reads.mockRestore();
+  }
+});
+
+test("loaded image bytes retain MIME and size limits", async () => {
+  const f = await fixture();
+  for (const image of [
+    "data:text/html;base64,cHJpdmF0ZQ==",
+    `data:image/png;base64,${"A".repeat(3_000_000)}`,
+  ]) {
+    const response = await projectAssetResponse(
+      f.store,
+      new Request(`http://localhost/__tidy/assets/${f.project.id}/${randomUUID()}`),
+      undefined,
+      async () => {},
+      async () => image,
+    );
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe("");
+  }
 });

@@ -179,6 +179,7 @@ app
             request,
             entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
             (projectId) => service!.assertProjectAccess(projectId),
+            (projectId, assetId) => cloud!.loadAsset(projectId, assetId),
           );
         if (request.method !== "GET" && request.method !== "HEAD")
           return new Response(null, { status: 405 });

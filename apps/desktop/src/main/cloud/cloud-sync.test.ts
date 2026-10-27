@@ -131,9 +131,45 @@ test("local editing persists independently, then batches patches to the cloud", 
   expect(f.remote.requests[0].patch.length).toBeLessThan(5);
 });
 
-test("initial image downloads use bounded parallel work before the durable file is returned", async () => {
+test("opening a durable cloud document does not wait for a file-list refresh", async () => {
   const f = await fixture();
-  const ids = Array.from({ length: 8 }, () => randomUUID());
+  await f.sync.stop();
+  const entered = Promise.withResolvers<void>();
+  const refresh = Promise.withResolvers<void>();
+  const sync = new CloudSync(
+    f.store,
+    f.state,
+    f.remote,
+    "https://example.test",
+    () => {},
+    async () => {
+      entered.resolve();
+      await refresh.promise;
+      throw new Error("File list unavailable");
+    },
+  );
+  await sync.initialize();
+  await sync.start("alice");
+  cleanups.push(() => sync.stop());
+  const opening = sync.open(f.project.id, randomUUID(), "Cloud design");
+  try {
+    await entered.promise;
+    const design = await Promise.race([
+      opening,
+      Bun.sleep(500).then(() => {
+        throw new Error("Opening waited for the file list.");
+      }),
+    ]);
+    expect((await f.store.readDesign(f.project.id, design.id)).document).toEqual(design.document);
+  } finally {
+    refresh.resolve();
+    await opening;
+  }
+});
+
+test("documents remain editable while images download", async () => {
+  const f = await fixture();
+  const ids = Array.from({ length: 2 }, () => randomUUID());
   f.remote.snapshot.content.nodes.push(
     ...ids.map((assetId, index) => ({
       ...buildDrawnNode(`image-${index}`, "container", "frame", {
@@ -146,34 +182,114 @@ test("initial image downloads use bounded parallel work before the durable file 
       assetId,
     })),
   );
-  let active = 0,
-    maximum = 0,
-    started = 0;
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  const started = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
   const image = "data:image/png;base64,c3ludGhldGlj";
   f.remote.downloadAsset = async () => {
-    active++;
-    started++;
-    maximum = Math.max(maximum, active);
-    await gate;
-    active--;
+    started.resolve();
+    await gate.promise;
     return image;
   };
   const opening = f.sync.open(f.project.id, randomUUID(), "Images");
+  const design = await Promise.race([
+    opening,
+    Bun.sleep(1000).then(() => {
+      throw new Error("Document waited for images.");
+    }),
+  ]);
   try {
-    await until(() => started === 4);
-    expect(maximum).toBe(4);
+    await started.promise;
+    expect(f.sync.status.find((binding) => binding.designId === design.id)?.assetsPending).toBe(
+      true,
+    );
+    const document = structuredClone(design.document);
+    document.nodes[0].name = "Edited while downloading";
+    await f.store.updateDesign({
+      projectId: f.project.id,
+      designId: design.id,
+      expectedVersion: design.version,
+      document,
+    });
+    f.sync.notify(f.project.id, design.id);
   } finally {
-    release();
+    gate.resolve();
   }
-  const design = await opening;
-  expect(started).toBe(8);
-  expect(maximum).toBe(4);
-  expect(design.document.nodes).toHaveLength(9);
+  await until(
+    () => f.sync.status.find((binding) => binding.designId === design.id)?.status === "synced",
+  );
+  expect(
+    f.sync.status.find((binding) => binding.designId === design.id)?.retryAssets,
+  ).toBeUndefined();
+  expect(f.remote.snapshot.content.nodes[0].name).toBe("Edited while downloading");
   for (const assetId of ids) expect(await f.store.readSyncAsset(f.project.id, assetId)).toBe(image);
+});
+
+test("recovering image downloads only asks the renderer to retry failed images", async () => {
+  const f = await fixture();
+  const assetId = randomUUID();
+  f.remote.snapshot.content.nodes.push({
+    ...buildDrawnNode("image", "container", "frame", { x: 0, y: 0, width: 20, height: 20 }),
+    type: "image",
+    assetId,
+  });
+  f.remote.downloadAsset = async () => {
+    throw new Error("Offline");
+  };
+  const design = await f.sync.open(f.project.id, randomUUID(), "Recovering");
+  await until(
+    () => f.sync.status.find((binding) => binding.designId === design.id)?.status === "offline",
+  );
+  f.remote.downloadAsset = async () => "data:image/png;base64,c3ludGhldGlj";
+  f.sync.focus(f.project.id, design.id);
+  await until(
+    () => f.sync.status.find((binding) => binding.designId === design.id)?.status === "synced",
+  );
+  expect(f.sync.status.find((binding) => binding.designId === design.id)?.retryAssets).toEqual([
+    assetId,
+  ]);
+});
+
+test("incomplete offline images survive restart and only missing images are downloaded", async () => {
+  const f = await fixture();
+  const ids = [randomUUID(), randomUUID()];
+  f.remote.snapshot.content.nodes.push(
+    ...ids.map((assetId, index) => ({
+      ...buildDrawnNode(`image-${index}`, "container", "frame", {
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+      type: "image" as const,
+      assetId,
+    })),
+  );
+  const image = "data:image/png;base64,c3ludGhldGlj";
+  f.remote.downloadAsset = async (_fileId, id) => {
+    if (id === ids[1]) throw new Error("Offline");
+    return image;
+  };
+  const design = await f.sync.open(f.project.id, randomUUID(), "Incomplete");
+  await until(
+    () => f.sync.status.find((binding) => binding.designId === design.id)?.status === "offline",
+  );
+  expect(f.sync.status.find((binding) => binding.designId === design.id)?.assetsPending).toBe(true);
+  await f.sync.stop();
+  expect((await f.store.readDesign(f.project.id, design.id)).document.nodes).toHaveLength(3);
+  const requested: string[] = [];
+  f.remote.downloadAsset = async (_fileId, id) => {
+    requested.push(id);
+    return image;
+  };
+  const resumed = await f.make();
+  await until(
+    () => resumed.status.find((binding) => binding.designId === design.id)?.status === "synced",
+  );
+  expect(
+    resumed.status.find((binding) => binding.designId === design.id)?.assetsPending,
+  ).toBeUndefined();
+  expect(requested).toEqual([ids[1]]);
+  expect(await f.store.readSyncAsset(f.project.id, ids[1])).toBe(image);
 });
 
 for (const action of ["stop", "disconnect"] as const) {
@@ -206,7 +322,7 @@ for (const action of ["stop", "disconnect"] as const) {
       active++;
       try {
         if (assetId === ids[0]) {
-          await until(() => started === 4);
+          await until(() => started === 3);
           failed = true;
           throw new Error("Image download failed");
         }

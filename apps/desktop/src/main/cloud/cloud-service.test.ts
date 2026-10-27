@@ -12,8 +12,9 @@ import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
 import * as harnesses from "../harnesses/harnesses";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
+import { projectAssetResponse } from "../workspace/project-assets";
 import type { CloudCatalog } from "../../shared/contracts/cloud-sync";
-import type { CloudSnapshot, PendingUpload } from "./cloud-remote";
+import type { CloudRemote, CloudSnapshot, PendingUpload } from "./cloud-remote";
 
 const cleanups: (() => Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -85,9 +86,9 @@ class Remote {
     this.snapshots.set(id, value);
     return value;
   }
-  async downloadAsset(): Promise<string> {
+  downloadAsset: CloudRemote["downloadAsset"] = async () => {
     throw Error("Unexpected asset");
-  }
+  };
   async uploadAsset() {
     return randomUUID();
   }
@@ -301,6 +302,97 @@ test("a stalled first download cannot block opening an existing offline file", a
     release();
     await slow;
   }
+});
+
+test("cloud documents and other files open while images load through the authorized protocol", async () => {
+  const f = await fixture();
+  const fileId = f.remote.library.files[0].id;
+  const ids = Array.from({ length: 4 }, () => randomUUID());
+  f.remote.snapshots.get(fileId)!.content.nodes.push(
+    ...ids.map((assetId, index) => ({
+      ...buildDrawnNode(`image-${index}`, "container", "frame", {
+        x: 0,
+        y: 0,
+        width: 20,
+        height: 20,
+      }),
+      type: "image" as const,
+      assetId,
+    })),
+  );
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  const downloads: string[] = [];
+  f.remote.downloadAsset = async (_fileId, id) => {
+    downloads.push(id);
+    if (downloads.length === 3) started.resolve();
+    if (id !== ids[3]) await gate.promise;
+    return "data:image/png;base64,cHJvZ3Jlc3NpdmU=";
+  };
+  const otherId = randomUUID();
+  f.remote.library.files.push({ id: otherId, name: "Another file", folderId: null });
+  f.remote.snapshots.set(otherId, { revision: 1, content: blankDesignDocument() });
+  await f.cloud.catalog("org");
+  const design = await f.cloud.openFile("org", fileId);
+  try {
+    await started.promise;
+    expect(
+      (await f.cloud.state()).bindings.find((binding) => binding.fileId === fileId)?.assetsPending,
+    ).toBe(true);
+    expect((await f.cloud.openFile("org", otherId)).design.document.nodes).toHaveLength(0);
+    const request = (id: string) =>
+      projectAssetResponse(
+        f.store,
+        new Request(`http://localhost/__tidy/assets/${design.projectId}/${id}`),
+        undefined,
+        (projectId) => f.service.assertProjectAccess(projectId),
+        (projectId, assetId) => f.cloud.loadAsset(projectId, assetId),
+      );
+    expect((await request(randomUUID())).status).toBe(404);
+    expect(downloads).toHaveLength(3);
+    const visible = await request(ids[3]);
+    expect(visible.status).toBe(200);
+    expect(await visible.text()).toBe("progressive");
+    expect(downloads).toHaveLength(4);
+  } finally {
+    gate.resolve();
+  }
+});
+
+test("sign-out cancels shared progressive images and prevents bytes reaching the renderer", async () => {
+  const f = await fixture();
+  const fileId = f.remote.library.files[0].id;
+  const assetId = randomUUID();
+  f.remote.snapshots.get(fileId)!.content.nodes.push({
+    ...buildDrawnNode("image", "container", "frame", { x: 0, y: 0, width: 20, height: 20 }),
+    type: "image",
+    assetId,
+  });
+  const gate = Promise.withResolvers<void>();
+  const started = Promise.withResolvers<void>();
+  f.remote.downloadAsset = async () => {
+    started.resolve();
+    await gate.promise;
+    return "data:image/png;base64,cHJpdmF0ZQ==";
+  };
+  const opened = await f.cloud.openFile("org", fileId);
+  const response = projectAssetResponse(
+    f.store,
+    new Request(`http://localhost/__tidy/assets/${opened.projectId}/${assetId}`),
+    undefined,
+    (projectId) => f.service.assertProjectAccess(projectId),
+    (projectId, assetId) => f.cloud.loadAsset(projectId, assetId),
+  );
+  await started.promise;
+  const signingOut = f.cloud.signOut();
+  try {
+    await Bun.sleep(0);
+  } finally {
+    gate.resolve();
+    await signingOut;
+  }
+  expect((await response).status).toBe(404);
+  expect(await f.store.readSyncAsset(opened.projectId, assetId)).toBeUndefined();
 });
 
 test("sign-out invalidates a concurrent cached open before it reaches the renderer", async () => {
@@ -736,6 +828,28 @@ test("cached file metadata cannot return after sign-out", async () => {
   } finally {
     gate.resolve();
     reads.mockRestore();
+  }
+});
+
+test("cached file opens reuse validated account metadata and adopt membership revocation", async () => {
+  const f = await fixture();
+  const fileId = f.remote.library.files[0].id;
+  const opened = await f.cloud.openFile("org", fileId);
+  const reads = spyOn(f.state, "read");
+  const accounts = spyOn(f.remote, "account");
+  try {
+    expect((await f.cloud.openFile("org", fileId)).design.id).toBe(opened.design.id);
+    expect(reads.mock.calls.filter(([key]) => key.startsWith("account-"))).toHaveLength(0);
+    expect(accounts).not.toHaveBeenCalled();
+    accounts.mockResolvedValue({
+      id: "alice",
+      organizations: [{ id: "org", name: "Team", canEdit: false }],
+    });
+    await f.cloud.account();
+    await expect(f.cloud.openFile("org", fileId)).rejects.toThrow("editing access");
+  } finally {
+    reads.mockRestore();
+    accounts.mockRestore();
   }
 });
 

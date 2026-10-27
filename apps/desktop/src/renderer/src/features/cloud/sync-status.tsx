@@ -20,15 +20,19 @@ export function SyncStatus({
   const binding = state?.bindings.find((b) => b.projectId === projectId && b.designId === designId);
   const label = !binding
     ? "On this computer"
-    : binding.status === "synced"
-      ? "Synced"
-      : binding.status === "syncing"
-        ? "Syncing…"
-        : binding.status === "offline"
-          ? "Offline · saved locally"
-          : binding.status === "conflict"
-            ? "Conflicting edits"
-            : "Sync paused";
+    : binding.assetsPending && binding.status === "syncing"
+      ? "Downloading images…"
+      : binding.assetsPending && binding.status === "offline"
+        ? "Images need connection"
+        : binding.status === "synced"
+          ? "Synced"
+          : binding.status === "syncing"
+            ? "Syncing…"
+            : binding.status === "offline"
+              ? "Offline · saved locally"
+              : binding.status === "conflict"
+                ? "Conflicting edits"
+                : "Sync paused";
   return (
     <details className="sync-status" data-canvas-control>
       <summary>
@@ -39,15 +43,19 @@ export function SyncStatus({
         <p>
           {!binding
             ? "This design is stored on this computer."
-            : binding.status === "synced"
-              ? "Changes are synced. This design is available offline."
-              : binding.status === "syncing"
-                ? "Changes are saved locally and syncing in the background."
-                : binding.status === "offline"
-                  ? "Your changes are safe on this computer. Sync resumes automatically when you reconnect."
-                  : binding.status === "conflict"
-                    ? "Both copies changed. Your local edits are safe; automatic sync is paused."
-                    : "Your local changes are safe. Sign in again to reconnect, or check your workspace access."}
+            : binding.assetsPending && binding.status === "syncing"
+              ? "You can edit now. Images are downloading in the background; this file will be available offline when they finish."
+              : binding.assetsPending && binding.status === "offline"
+                ? "You can edit now. Images will finish downloading when you reconnect."
+                : binding.status === "synced"
+                  ? "Changes are synced. This design is available offline."
+                  : binding.status === "syncing"
+                    ? "Changes are saved locally and syncing in the background."
+                    : binding.status === "offline"
+                      ? "Your changes are safe on this computer. Sync resumes automatically when you reconnect."
+                      : binding.status === "conflict"
+                        ? "Both copies changed. Your local edits are safe; automatic sync is paused."
+                        : "Your local changes are safe. Sign in again to reconnect, or check your workspace access."}
         </p>
         {binding?.status === "paused" && (
           <Button

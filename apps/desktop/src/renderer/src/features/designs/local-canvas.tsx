@@ -29,6 +29,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   backIcon,
   initialPanelsOpen = true,
   viewportMemory,
+  retryAssets,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -41,6 +42,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   backIcon?: ReactNode;
   initialPanelsOpen?: boolean;
   viewportMemory?: CanvasViewportMemory;
+  retryAssets?: string[];
 }) {
   useEffect(() => {
     if (!active || !api.cloud) return;
@@ -63,6 +65,14 @@ export const LocalCanvas = memo(function LocalCanvas({
   const refreshWanted = useRef(false);
   const refreshEpoch = useRef(0);
   const [assets, setAssets] = useState(initial.assets);
+  const assetRetryKey = retryAssets?.join(",") ?? "";
+  const assetUrls = useMemo(() => {
+    if (!assetRetryKey) return assets;
+    const failed = new Set(assetRetryKey.split(","));
+    return Object.fromEntries(
+      Object.entries(assets).map(([id, url]) => [id, failed.has(id) ? `${url}?retry=1` : url]),
+    );
+  }, [assets, assetRetryKey]);
   const [external, setExternal] = useState<{ revision: number; content: DesignDocument }>();
   const notify = useRef(onUpdate);
   notify.current = onUpdate;
@@ -169,7 +179,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         local
         statusControl={status}
         active={active}
-        previewAssetUrls={assets}
+        previewAssetUrls={assetUrls}
         externalDocument={external}
         localPersistence={{
           async loadLibrary(source) {
