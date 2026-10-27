@@ -230,7 +230,7 @@ export function ThreadCard({
         </span>
       )}
       <Button
-        className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:bg-hover-surface hover:text-ink ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
+        className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:text-[light-dark(#292929,#ffffff)] ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}
         onFocus={close}
         aria-label={`${thread.doneAt ? "Reopen thread" : "Mark done"}: ${thread.title}`}
