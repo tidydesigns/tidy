@@ -564,6 +564,7 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
   const execution = (await f.store.open(executionRoot)).project;
   const value = { ...thread(owner.id), executionProjectId: execution.id };
   await f.store.writeThread(value);
+  expect((await f.store.snapshot(owner.id)).threads).toHaveLength(1);
   const moved = join(f.directory, "moved-repository");
   await rename(executionRoot, moved);
   expect((await f.store.open(moved)).project.id).toBe(execution.id);
@@ -571,4 +572,82 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
     "execution project changed",
   );
   await expect(f.store.readThread(owner.id, value.id)).rejects.toThrow("execution project changed");
+  expect((await f.store.snapshot(owner.id)).threads).toHaveLength(0);
+});
+
+test("snapshot summaries reread only changed threads and do not share mutable data", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const first = thread(project.id);
+  const second = thread(project.id);
+  await f.store.writeThread(first);
+  await f.store.writeThread(second);
+  const reads = spyOn(f.store, "readThread");
+  const initial = await f.store.snapshot(project.id);
+  expect(reads).toHaveBeenCalledTimes(2);
+  initial.threads[0].designIds.push(randomUUID());
+  expect((await f.store.snapshot(project.id)).threads.every((item) => !item.designIds.length)).toBe(
+    true,
+  );
+  expect(reads).toHaveBeenCalledTimes(2);
+
+  const path = join(f.root, ".tidy/threads", `${first.id}.json`);
+  const before = await stat(path);
+  await writeFile(path, JSON.stringify({ ...first, title: "Changed the design" }));
+  await utimes(path, before.atime, before.mtime);
+  expect(
+    (await f.store.snapshot(project.id)).threads.find((item) => item.id === first.id)?.title,
+  ).toBe("Changed the design");
+  expect(reads).toHaveBeenCalledTimes(3);
+
+  await f.store.writeThread({
+    ...first,
+    title: "Saved title",
+    settings: { permissionMode: "accept-edits" },
+  });
+  const saved = (await f.store.snapshot(project.id)).threads.find((item) => item.id === first.id);
+  expect(saved?.title).toBe("Saved title");
+  expect(saved?.settings?.permissionMode).toBe("accept-edits");
+  await rm(path);
+  expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
+  await writeFile(path, "invalid JSON");
+  expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
+  await rm(path);
+  await symlink(join(f.root, ".tidy/threads", `${second.id}.json`), path);
+  expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
+});
+
+test("a thread changed during a snapshot cannot seed a stale summary cache", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const original = thread(project.id);
+  await f.store.writeThread(original);
+  const read = f.store.readThread.bind(f.store);
+  let changed = false;
+  spyOn(f.store, "readThread").mockImplementation(async (...args) => {
+    const result = await read(...args);
+    if (!changed) {
+      changed = true;
+      await f.store.writeThread({ ...original, title: "Newer title" });
+    }
+    return result;
+  });
+  expect((await f.store.snapshot(project.id)).threads[0].title).toBe(original.title);
+  expect((await f.store.snapshot(project.id)).threads[0].title).toBe("Newer title");
+  expect((await f.store.snapshot(project.id)).threads[0].title).toBe("Newer title");
+});
+
+test("the summary cache bound does not truncate large project snapshots", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const directory = join(f.root, ".tidy/threads");
+  const records = Array.from({ length: 1001 }, () => thread(project.id));
+  await Promise.all(
+    records.map((item) => writeFile(join(directory, `${item.id}.json`), JSON.stringify(item))),
+  );
+  const reads = spyOn(f.store, "readThread");
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(records.length);
+  expect(reads).toHaveBeenCalledTimes(records.length);
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(records.length);
+  expect(reads.mock.calls.length).toBeGreaterThan(records.length);
 });

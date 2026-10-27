@@ -25,6 +25,7 @@ import type {
   Project,
   ProjectSnapshot,
   Thread,
+  ThreadSummary,
 } from "../../shared/contracts/desktop";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
@@ -74,6 +75,7 @@ export class ProjectStore {
   private designCache = new Map<string, ParsedDesignFile>();
   private summaryCache = new Map<string, DesignFileSummary>();
   private designReads = new Map<string, Promise<ParsedDesignFile>>();
+  private threadSummaryCache = new Map<string, { stamp: string; summary: ThreadSummary }>();
 
   private authority: ThreadAuthority;
   constructor(
@@ -357,7 +359,10 @@ export class ProjectStore {
     return thread;
   }
 
-  async assertThreadExecution(thread: Thread, allowUnbound = false) {
+  async assertThreadExecution(
+    thread: Pick<Thread, "id" | "projectId" | "executionProjectId">,
+    allowUnbound = false,
+  ) {
     const authority = await this.authority.read(this.project(thread.projectId).path, thread);
     if (!authority && allowUnbound) return;
     if (
@@ -685,7 +690,7 @@ export class ProjectStore {
     const threads = await Promise.all(
       files.map(async (file) => {
         try {
-          return summarizeThread(await this.readThread(projectId, file.slice(0, -5)));
+          return await this.threadSummary(projectId, file.slice(0, -5));
         } catch {
           return null;
         }
@@ -694,6 +699,41 @@ export class ProjectStore {
     return threads
       .filter((value) => value !== null)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  private async threadSummary(projectId: string, threadId: string): Promise<ThreadSummary> {
+    const path = await this.storagePath(projectId, "threads", threadId);
+    const info = await lstat(path, { bigint: true });
+    if (!info.isFile()) throw new Error("Project files must not be symbolic links.");
+    const stamp = designFileStamp(info);
+    const cached = this.threadSummaryCache.get(path);
+    if (cached?.stamp === stamp) {
+      const summary = structuredClone(cached.summary);
+      const authority = await this.authority.read(this.project(projectId).path, summary);
+      if (authority && authority.harness !== summary.harness)
+        throw new Error("This thread's harness changed on disk. Start a new thread.");
+      await this.assertThreadExecution(summary);
+      const settings = { ...summary.settings };
+      delete settings.permissionMode;
+      summary.settings =
+        authority?.permissionMode || Object.keys(settings).length
+          ? { ...settings, permissionMode: authority?.permissionMode }
+          : undefined;
+      this.threadSummaryCache.delete(path);
+      this.threadSummaryCache.set(path, cached);
+      return summary;
+    }
+    this.threadSummaryCache.delete(path);
+    const summary = summarizeThread(await this.readThread(projectId, threadId));
+    if (designFileStamp(await lstat(path, { bigint: true })) === stamp) {
+      this.threadSummaryCache.set(path, { stamp, summary: structuredClone(summary) });
+      while (this.threadSummaryCache.size > 1000) {
+        const oldest = this.threadSummaryCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.threadSummaryCache.delete(oldest);
+      }
+    }
+    return summary;
   }
 
   async snapshot(projectId: string): Promise<ProjectSnapshot> {

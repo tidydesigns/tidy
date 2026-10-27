@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type {
@@ -12,6 +12,7 @@ import { summarizeThread } from "../../../../shared/models/thread-updates";
 import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
+import { ThreadSidebar } from "../../features/threads/thread-sidebar";
 import { useWorkspaceState } from "../use-workspace-state";
 
 const projectId = crypto.randomUUID();
@@ -561,6 +562,66 @@ async function runThreadLoadingTests(): Promise<string[]> {
     flushSync(() => root.render(null));
     check(listeners.size === 0, "Unmount leaked an event listener");
   });
+  await run(
+    "rapid deferred searches retain order and finish with the latest query",
+    async (root) => {
+      const first = { ...makeThread({ count: 1 }), title: "Alpha search" };
+      const second = { ...makeThread({ count: 1 }), title: "Beta loading" };
+      const completed = { ...makeThread({ count: 1 }), title: "Alpha done", doneAt: timestamp };
+      const summaries = [first, second, completed].map(summarizeThread);
+      let update: (query: string) => void = () => {};
+      let selected: string | undefined;
+      const renderThread = (item: (typeof summaries)[number]) => (
+        <button
+          data-search-result={item.id}
+          onClick={() => {
+            selected = item.id;
+          }}
+        >
+          {item.title}
+        </button>
+      );
+      function Search() {
+        const [query, setQuery] = useState("");
+        update = setQuery;
+        const deferredQuery = useDeferredValue(query);
+        return (
+          <>
+            <input aria-label="Query" readOnly value={query} />
+            <ThreadSidebar
+              projectId={projectId}
+              threads={summaries}
+              search={deferredQuery}
+              renderThread={renderThread}
+            />
+          </>
+        );
+      }
+      flushSync(() => root.render(<Search />));
+      await settle();
+      const results = () => [...host.querySelectorAll<HTMLButtonElement>("[data-search-result]")];
+      flushSync(() => update("Alpha"));
+      check(host.querySelector("input")?.value === "Alpha", "Input did not update immediately");
+      flushSync(() => update("Beta"));
+      flushSync(() => update("missing"));
+      flushSync(() => update("  ALPHA  "));
+      await until(
+        () =>
+          results().length === 2 &&
+          results().every((item) => item.textContent?.startsWith("Alpha")),
+        "Latest search results",
+      );
+      check(results()[0].dataset.searchResult === first.id, "Active result order changed");
+      check(host.querySelector("details")?.open, "Matching done threads stayed collapsed");
+      results()[0].focus();
+      results()[0].click();
+      check(selected === first.id, "Search selected a different thread");
+      flushSync(() => update(""));
+      await until(() => results().length === 3, "Clear search restores all results");
+      check(results()[1].dataset.searchResult === second.id, "Clearing search changed order");
+    },
+  );
+
   return passed;
 }
 

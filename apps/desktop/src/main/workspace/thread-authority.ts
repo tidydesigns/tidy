@@ -16,6 +16,7 @@ const authoritySchema = z
   })
   .strict();
 type Authority = z.infer<typeof authoritySchema>;
+type ThreadIdentity = Pick<Thread, "id" | "projectId">;
 
 /** Project JSON is portable data, never authority to grant access or resume native sessions. */
 export class ThreadAuthority {
@@ -29,13 +30,13 @@ export class ThreadAuthority {
       throw new Error("Private thread state must use a real directory.");
   }
 
-  private key(projectPath: string, thread: Thread) {
+  private key(projectPath: string, thread: ThreadIdentity) {
     return createHash("sha256")
       .update(JSON.stringify([projectPath, thread.projectId, thread.id]))
       .digest("hex");
   }
 
-  async read(projectPath: string, thread: Thread): Promise<Authority | undefined> {
+  async read(projectPath: string, thread: ThreadIdentity): Promise<Authority | undefined> {
     const key = this.key(projectPath, thread);
     const cached = this.cache.get(key);
     if (cached) return cached;
