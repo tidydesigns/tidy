@@ -1,5 +1,14 @@
 export const codeFontClassName = "[font-family:system-ui,sans-serif]";
 
+export const codeScrollbarClassName = [
+  "not-forced-colors:[&::-webkit-scrollbar]:size-1.5 not-forced-colors:[&::-webkit-scrollbar]:bg-transparent",
+  "not-forced-colors:[&::-webkit-scrollbar-track]:border-0 not-forced-colors:[&::-webkit-scrollbar-track]:bg-transparent",
+  "not-forced-colors:[&::-webkit-scrollbar-thumb]:rounded-[3px] not-forced-colors:[&::-webkit-scrollbar-thumb]:bg-[light-dark(rgb(0_0_0/16%),rgb(255_255_255/8%))]",
+  "not-forced-colors:[&:is(:hover,:focus-within)::-webkit-scrollbar-thumb]:bg-[light-dark(rgb(0_0_0/24%),rgb(255_255_255/12%))]",
+  "not-forced-colors:[.skill-prompt:focus-within_&::-webkit-scrollbar-thumb]:bg-[light-dark(rgb(0_0_0/24%),rgb(255_255_255/12%))]",
+  "not-forced-colors:[&::-webkit-scrollbar-thumb:hover]:bg-[light-dark(rgb(0_0_0/24%),rgb(255_255_255/12%))]",
+].join(" ");
+
 export const codeStatusClassName =
   "[--desktop-status-active:light-dark(#2c5b96,#7cacdf)] [--desktop-status-warning:light-dark(#805f26,#dbb979)] [--desktop-status-danger:light-dark(#a63747,#e89098)]";
 

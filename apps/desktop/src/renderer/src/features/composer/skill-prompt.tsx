@@ -8,6 +8,7 @@ import {
   type ComponentProps,
 } from "react";
 import { Button } from "@tidy/ui/button";
+import { codeScrollbarClassName } from "../../styles/code-ui";
 import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
 
 type Props = Omit<ComponentProps<"textarea">, "value" | "onChange"> & {
@@ -79,7 +80,7 @@ export function SkillPrompt({
       }}
     >
       {visible && (
-        <div className="skill-picker" ref={menu}>
+        <div className={`skill-picker ${codeScrollbarClassName}`} ref={menu}>
           <div id={id} role="listbox" aria-label="Skills">
             {matches.map((skill, index) => (
               <div

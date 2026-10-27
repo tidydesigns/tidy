@@ -2,6 +2,7 @@ import {
   codeControlClassName,
   codeMenuClassName,
   codeFavoriteClassName,
+  codeScrollbarClassName,
 } from "../../styles/code-ui";
 import type { HarnessCatalog, ModelSelection } from "./harness-catalog";
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
@@ -104,6 +105,7 @@ export function ModelPicker({
           </>
         }
         menuClassName={modelMenuClassName}
+        optionsClassName={codeScrollbarClassName}
         menuHeader={
           <div className="model-search flex items-center gap-[7px] border-b border-border py-[7px] pr-1 pl-2 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-ink">
             <ComposerIcon name="search" />
