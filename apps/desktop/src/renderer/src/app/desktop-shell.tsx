@@ -74,12 +74,12 @@ export function DesktopShell({
         className={`desktop relative grid h-dvh grid-rows-[auto_minmax(0,1fr)] overflow-hidden [--desktop-titlebar-height:0px] ${sidebarVisible ? "grid-cols-[var(--project-sidebar-width)_minmax(0,1fr)]" : "desktop-sidebar-hidden grid-cols-[minmax(0,1fr)]"} ${canvasFocused ? "desktop-canvas-focused" : ""} ${!settingsOpen ? "min-[801px]:[--project-sidebar-width:264px]" : ""}`}
       >
         <header className="desktop-titlebar hidden" />
+        {children}
         {!sidebarVisible && !canvasFocused && !settingsOpen && (
-          <div className="desktop-sidebar-reopen absolute top-1.5 left-1 z-[3]">
+          <div className="desktop-sidebar-reopen absolute top-1.5 left-1 z-[3] [app-region:no-drag]">
             <SidebarToggle />
           </div>
         )}
-        {children}
       </div>
     </SidebarContext>
   );

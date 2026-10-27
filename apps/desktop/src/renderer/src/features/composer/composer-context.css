@@ -2,6 +2,9 @@
   position: relative;
   z-index: 2;
   margin-top: calc(-1 * var(--desktop-titlebar-height));
+  app-region: no-drag;
+}
+:root[data-titlebar="hidden"] .thread-heading .content-heading {
   app-region: drag;
 }
 .thread-heading button {
