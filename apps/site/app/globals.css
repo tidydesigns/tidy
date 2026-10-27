@@ -88,30 +88,59 @@ a {
   padding: 0 28px 28px;
 }
 .site-header-shell {
-  --nav-fade: 80px;
+  --nav-fade: 72px;
+  --nav-inset: 16px;
   position: sticky;
   top: 0;
   z-index: 50;
-  padding: 16px clamp(16px, 4vw, 64px);
+  padding: var(--nav-inset) clamp(16px, 4vw, 64px);
   pointer-events: none;
 }
-.site-header-shell::before {
-  content: "";
+.site-header-backdrop {
   position: absolute;
   z-index: -1;
-  inset: 0 0 calc(-1 * var(--nav-fade));
+  inset: 0 0 calc(var(--nav-inset) - var(--nav-fade));
+  pointer-events: none;
+}
+.site-header-backdrop > span {
+  position: absolute;
+  inset: 0;
+  mask-image: linear-gradient(
+    #000 calc(100% - var(--nav-fade)),
+    rgb(0 0 0 / 0.84) calc(100% - var(--nav-fade) + var(--blur-tail) * 0.3),
+    rgb(0 0 0 / 0.5) calc(100% - var(--nav-fade) + var(--blur-tail) * 0.55),
+    rgb(0 0 0 / 0.14) calc(100% - var(--nav-fade) + var(--blur-tail) * 0.8),
+    transparent calc(100% - var(--nav-fade) + var(--blur-tail))
+  );
+}
+.site-header-backdrop > span:nth-child(1) {
+  --blur-tail: var(--nav-fade);
+  backdrop-filter: blur(2px);
+}
+.site-header-backdrop > span:nth-child(2) {
+  --blur-tail: calc(var(--nav-fade) * 0.75);
+  backdrop-filter: blur(4px);
+}
+.site-header-backdrop > span:nth-child(3) {
+  --blur-tail: calc(var(--nav-fade) * 0.5);
+  backdrop-filter: blur(8px);
+}
+.site-header-backdrop > span:nth-child(4) {
+  --blur-tail: calc(var(--nav-fade) * 0.25);
+  backdrop-filter: blur(16px);
+}
+.header-tint {
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
-    color-mix(in srgb, var(--background) 92%, transparent) 0,
-    color-mix(in srgb, var(--background) 92%, transparent) calc(100% - var(--nav-fade)),
+    color-mix(in srgb, var(--background) 90%, transparent) calc(100% - var(--nav-fade)),
+    color-mix(in srgb, var(--background) 87%, transparent) calc(100% - var(--nav-fade) * 0.85),
+    color-mix(in srgb, var(--background) 76%, transparent) calc(100% - var(--nav-fade) * 0.7),
+    color-mix(in srgb, var(--background) 55%, transparent) calc(100% - var(--nav-fade) * 0.5),
+    color-mix(in srgb, var(--background) 28%, transparent) calc(100% - var(--nav-fade) * 0.3),
+    color-mix(in srgb, var(--background) 7%, transparent) calc(100% - var(--nav-fade) * 0.12),
     transparent
   );
-  backdrop-filter: blur(20px);
-  mask-image: linear-gradient(#000 calc(100% - var(--nav-fade)), transparent);
-  pointer-events: none;
-  transition: opacity 260ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.site-header-shell[data-raised="true"]::before {
-  opacity: 0;
 }
 .header {
   position: relative;
@@ -128,10 +157,8 @@ a {
   border: 1px solid transparent;
   border-radius: 14px;
   pointer-events: auto;
-  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
-.header::before {
-  content: "";
+.header-surface {
   position: absolute;
   z-index: -1;
   inset: -1px;
@@ -142,18 +169,6 @@ a {
   backdrop-filter: blur(20px);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 260ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.site-header-shell[data-raised="true"] .header {
-  transform: translateY(4px);
-}
-.site-header-shell[data-raised="true"] .header::before {
-  opacity: 1;
-}
-.site-header-shell[data-keyboard="true"] .header,
-.site-header-shell[data-keyboard="true"] .header::before,
-.site-header-shell[data-keyboard="true"]::before {
-  transition: none;
 }
 .tidy-logo {
   justify-self: start;
@@ -395,10 +410,7 @@ a {
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .button,
-  .header,
-  .header::before,
-  .site-header-shell::before {
+  .button {
     transition: none;
   }
 }
