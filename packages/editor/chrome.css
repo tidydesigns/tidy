@@ -284,3 +284,10 @@ html:has(dialog:modal) body {
   border-color: transparent;
   background: var(--color-hover-surface);
 }
+
+.canvas-node {
+  box-sizing: border-box;
+  flex-flow: row nowrap;
+  border: 0 solid #000000;
+  border-radius: 0;
+}
