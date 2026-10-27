@@ -109,6 +109,7 @@ No deployment happens during development or tests.
 
 Live push notifications, project folder/name/deletion sync, automatic three-way
 merges and large-document latency measurements remain follow-up work.
+
 ## Remote machines
 
 Remote backend installation, SSH transport, reconnection and machine-scoped IPC are implemented.

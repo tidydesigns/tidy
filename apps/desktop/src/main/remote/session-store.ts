@@ -1,5 +1,5 @@
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { resolve, sep } from "node:path";
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { sessionTokenSchema } from "../../shared/remote";
@@ -7,10 +7,15 @@ import { sessionTokenSchema } from "../../shared/remote";
 const clientIdSchema = z.string().uuid();
 export class SessionStore {
   constructor(private directory: string) {}
+  private path(clientId: string) {
+    const directory = resolve(this.directory);
+    const path = resolve(directory, clientIdSchema.parse(clientId));
+    if (!path.startsWith(directory + sep)) throw new Error("Invalid session path.");
+    return path;
+  }
   async issue(clientId: string) {
-    clientIdSchema.parse(clientId);
+    const path = this.path(clientId);
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    const path = join(this.directory, clientId);
     try {
       return sessionTokenSchema.parse(await readFile(path, "utf8"));
     } catch (error) {
@@ -26,12 +31,9 @@ export class SessionStore {
     return token;
   }
   async validate(clientId: string, token: string) {
-    if (!clientIdSchema.safeParse(clientId).success || !sessionTokenSchema.safeParse(token).success)
-      return false;
+    if (!sessionTokenSchema.safeParse(token).success) return false;
     try {
-      const stored = sessionTokenSchema.parse(
-        await readFile(join(this.directory, clientId), "utf8"),
-      );
+      const stored = sessionTokenSchema.parse(await readFile(this.path(clientId), "utf8"));
       return timingSafeEqual(
         createHash("sha256").update(stored).digest(),
         createHash("sha256").update(token).digest(),
@@ -41,7 +43,7 @@ export class SessionStore {
     }
   }
   async revoke(clientId: string) {
-    await rm(join(this.directory, clientIdSchema.parse(clientId)), { force: true });
+    await rm(this.path(clientId), { force: true });
   }
 }
 export async function writePrivateJSON(path: string, value: unknown) {
