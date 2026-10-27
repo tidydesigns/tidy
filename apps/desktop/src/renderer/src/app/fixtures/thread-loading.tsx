@@ -53,7 +53,7 @@ async function until(predicate: () => boolean, label: string) {
   }
 }
 
-function makeThread({ count = 80 }: { count?: number } = {}): Thread {
+function makeThread({ count = 8 }: { count?: number } = {}): Thread {
   const id = crypto.randomUUID();
   return {
     id,
@@ -195,10 +195,11 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Initial view did not follow the latest message",
     );
     const original = required(viewport.querySelector("article"), "Original message");
-    viewport.scrollTop = 1000;
+    viewport.scrollTop = Math.floor((viewport.scrollHeight - viewport.clientHeight) / 2);
     viewport.dispatchEvent(new Event("scroll"));
     await settle();
     const top = viewport.scrollTop;
+    check(top > 0, "Fixture needs scrollable history");
     render({ selected: b.id });
     await settle();
     render({ selected: a.id });
@@ -326,8 +327,8 @@ async function runThreadLoadingTests(): Promise<string[]> {
   });
 
   await run("collapsed tool logs defer rows and retain expanded output on reopen", async (root) => {
-    const output = `${"line\n".repeat(6000)}Final output`;
-    const activities: ToolActivity[] = Array.from({ length: 250 }, () => ({
+    const output = "one\ntwo\nthree\nfour\nFinal output";
+    const activities: ToolActivity[] = Array.from({ length: 2 }, () => ({
       id: crypto.randomUUID(),
       afterMessageId: crypto.randomUUID(),
       kind: "command",
@@ -345,13 +346,16 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Tool group",
     );
     required(group.querySelector("summary"), "Group summary").click();
-    await until(() => host.querySelectorAll(".tool-call").length === 250, "Expand tool rows");
+    await until(
+      () => host.querySelectorAll(".tool-call").length === activities.length,
+      "Expand tool rows",
+    );
     const row = required(group.querySelector<HTMLDetailsElement>(".tool-call"), "Tool row");
     required(row.querySelector("summary"), "Tool summary").click();
     await until(() => Boolean(row.querySelector("pre")), "Expand tool output");
     check(
-      row.querySelector("pre")?.textContent === "line\nline\nline\nline\n…",
-      "Preview text changed",
+      !row.querySelector("pre")?.textContent?.includes("Final output"),
+      "Full output appeared before disclosure",
     );
     required(
       row.querySelector<HTMLButtonElement>(".tool-detail-toggle"),

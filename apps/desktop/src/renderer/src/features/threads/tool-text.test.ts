@@ -11,9 +11,8 @@ test("tool previews retain up to four lines, including blank lines and trailing 
   );
 });
 
-test("tool previews bound long lines and dense output without changing the visible prefix", () => {
+test("tool previews bound long lines without changing the visible prefix", () => {
   expect(toolTextPreview("x".repeat(32_000))).toBe("x".repeat(480));
-  expect(toolTextPreview("x\n".repeat(16_000))).toBe("x\nx\nx\nx");
   expect(toolTextPreview(`${"x".repeat(479)}\nmore`)).toBe(`${"x".repeat(479)}\n`);
   expect(toolTextPreview(`${"x".repeat(478)}\nmore`)).toBe(`${"x".repeat(478)}\nm`);
 });

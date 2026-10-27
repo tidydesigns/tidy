@@ -45,37 +45,24 @@ test("conversation retention evicts unavailable history while preserving an unlo
   expect(retainConversations({ recent: ["a"], selected: null, threads })).toEqual([null, "a"]);
 });
 
-test("conversation retention bounds message count and text while always keeping the selection", () => {
-  const threads = {
-    a: thread({ id: "a", count: 600 }),
-    b: thread({ id: "b", count: 600 }),
-    c: thread({ id: "c", count: 20 }),
-    large: thread({ id: "large", count: 3, text: "x".repeat(1_000_000) }),
-  };
-  expect(retainConversations({ recent: ["b", "c"], selected: "a", threads })).toEqual(["a", "c"]);
-  expect(retainConversations({ recent: ["large", "c"], selected: "a", threads })).toEqual([
-    "a",
-    "c",
-  ]);
-  expect(retainConversations({ recent: ["a", "c"], selected: "large", threads })).toEqual([
-    "large",
-  ]);
-});
-
 test("message budgets admit the exact limit and evict history when the active thread grows", () => {
   const threads = {
     active: thread({ id: "active", count: 600 }),
     history: thread({ id: "history", count: 400 }),
+    small: thread({ id: "small", count: 1 }),
   };
-  const recent = ["active", "history"];
-  expect(retainConversations({ recent, selected: "active", threads })).toEqual(recent);
+  const recent = ["active", "history", "small"];
+  expect(retainConversations({ recent, selected: "active", threads })).toEqual([
+    "active",
+    "history",
+  ]);
   expect(
     retainConversations({
       recent,
       selected: "active",
       threads: { ...threads, active: thread({ id: "active", count: 601 }) },
     }),
-  ).toEqual(["active"]);
+  ).toEqual(["active", "small"]);
 });
 
 test("text budgets account for the combined conversations and admit the exact limit", () => {
@@ -95,6 +82,16 @@ test("text budgets account for the combined conversations and admit the exact li
       threads: {
         ...threads,
         active: thread({ id: "active", count: 2, text: "x".repeat(500_001) }),
+      },
+    }),
+  ).toEqual(["active"]);
+  expect(
+    retainConversations({
+      recent,
+      selected: "active",
+      threads: {
+        ...threads,
+        active: thread({ id: "active", count: 3, text: "x".repeat(1_000_000) }),
       },
     }),
   ).toEqual(["active"]);
