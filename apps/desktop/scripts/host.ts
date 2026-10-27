@@ -143,6 +143,15 @@ try {
           locks.close();
           unlock();
           process.exit(0);
+        })
+        .catch((error: unknown) => {
+          process.stderr.write(
+            JSON.stringify({
+              event: "host.shutdown-failed",
+              message: error instanceof Error ? error.message : "Backend shutdown failed.",
+            }) + "\n",
+          );
+          process.exit(1);
         });
     };
     process.on("SIGTERM", close);

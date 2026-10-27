@@ -127,9 +127,11 @@ export async function ensureWorkspaceHost({
   directory,
   buildId,
   createService,
+  drainTimeoutMs,
 }: {
   directory: string;
   buildId: string;
+  drainTimeoutMs?: number;
   createService(): Promise<{ service: WorkspaceService; release(): void }>;
 }): Promise<WorkspaceHost> {
   await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -180,6 +182,7 @@ export async function ensureWorkspaceHost({
       const identity = { hostId, instanceId: randomUUID(), buildId };
       server = createRemoteHost({
         service: workspace.service,
+        drainTimeoutMs,
         sessions,
         identity,
         receipts: new RequestReceipts(join(directory, "receipts")),
@@ -187,23 +190,24 @@ export async function ensureWorkspaceHost({
       const port = await server.listen();
       const runtime = { ...identity, protocol: 3 as const, pid: process.pid, port, managed: false };
       await writePrivateJSON(join(directory, "runtime.json"), runtime);
-      let closed = false;
+      let closing: Promise<void> | undefined;
       const owned = workspace,
         host = server;
       return {
         host: { ...runtime, clientId, token: await sessions.issue(clientId) },
         service: owned.service,
-        async close() {
-          if (closed) return;
-          closed = true;
-          try {
+        close() {
+          closing ??= (async () => {
             await host.close();
-            await owned.service.close();
-            await rm(join(directory, "runtime.json"), { force: true });
-          } finally {
-            owned.release();
-            releaseHost();
-          }
+            try {
+              await owned.service.close();
+              await rm(join(directory, "runtime.json"), { force: true });
+            } finally {
+              owned.release();
+              releaseHost();
+            }
+          })();
+          return closing;
         },
       };
     } catch (error) {

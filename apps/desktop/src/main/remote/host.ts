@@ -13,18 +13,21 @@ import type { WorkspaceService } from "../workspace/workspace-service";
 import { SessionStore } from "./session-store";
 
 export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
+const DRAIN_TIMEOUT_MS = 30_000;
 export function createRemoteHost({
   service,
   identity,
   sessions,
   shutdown,
   receipts,
+  drainTimeoutMs = DRAIN_TIMEOUT_MS,
 }: {
   service: WorkspaceService;
   identity: Pick<PreparedHost, "hostId" | "instanceId" | "buildId">;
   sessions: SessionStore;
   shutdown?: () => void;
   receipts: RequestReceipts;
+  drainTimeoutMs?: number;
 }) {
   let draining = false;
   let inflight = 0;
@@ -278,11 +281,24 @@ export function createRemoteHost({
         sockets.close();
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));
-        if (inflight > 0)
-          await new Promise<void>((resolve) => {
-            finishRequests = resolve;
-          });
-        await receipts.close();
+        try {
+          if (inflight > 0)
+            await new Promise<void>((resolve, reject) => {
+              const timer = setTimeout(
+                () =>
+                  reject(new Error("Backend shutdown timed out waiting for accepted requests.")),
+                drainTimeoutMs,
+              );
+              finishRequests = () => {
+                clearTimeout(timer);
+                resolve();
+              };
+            }).finally(() => {
+              finishRequests = undefined;
+            });
+        } finally {
+          await receipts.close();
+        }
       })();
       return closing;
     },
