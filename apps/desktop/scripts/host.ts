@@ -172,5 +172,5 @@ try {
       message: error instanceof Error ? error.message : "Backend failed.",
     }) + "\n",
   );
-  process.exitCode = 1;
+  process.exit(1);
 }
