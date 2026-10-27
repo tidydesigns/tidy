@@ -294,8 +294,9 @@ const machines: MachineBridge = {
       .nullable()
       .parse(await ipcRenderer.invoke("tidy:machine-list")),
   onChanged(listener) {
-    ipcRenderer.on("tidy:machines-changed", listener);
-    return () => ipcRenderer.removeListener("tidy:machines-changed", listener);
+    const receive = () => listener();
+    ipcRenderer.on("tidy:machines-changed", receive);
+    return () => ipcRenderer.removeListener("tidy:machines-changed", receive);
   },
   workspace(id) {
     const machineId = machineIdSchema.parse(id);

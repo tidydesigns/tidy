@@ -278,6 +278,18 @@ async function run() {
     assert.equal(await evaluate("window.tidyRemote.status()"), null);
     await assert.rejects(evaluate("window.tidyRemote.connect('-oProxyCommand=invalid')"));
     await until(() => client.status.kind === "connected");
+    await evaluate(
+      `globalThis.machineChanges = []; globalThis.stopMachineChanges = window.tidyMachines.onChanged((...args) => machineChanges.push(args.length)); true;`,
+    );
+    window.webContents.send("tidy:machines-changed", { unexpected: "payload" });
+    await until(() => evaluate("machineChanges.length > 0"));
+    assert.equal(await evaluate("machineChanges.every(count => count === 0)"), true);
+    const changeCount = await evaluate("machineChanges.length");
+    await evaluate("stopMachineChanges(); true;");
+    window.webContents.send("tidy:machines-changed");
+    await evaluate("window.tidyMachines.list()");
+    assert.equal(await evaluate("machineChanges.length"), changeCount);
+
     await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Settings"]'))`));
     await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
     await until(() => evaluate('Boolean(document.querySelector(".settings-sections"))'));
