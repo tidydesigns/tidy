@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 import type {
   DesktopAPI,
@@ -32,7 +32,38 @@ export function useWorkspaceState({
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
+  const currentThreads = useRef(threads);
+  currentThreads.current = threads;
+  const reads = useRef(new Map<string, Promise<Thread>>());
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
+
+  const readThread = useCallback(
+    (projectId: string, threadId: string): Promise<Thread> => {
+      const cached = currentThreads.current[threadId];
+      if (cached?.projectId === projectId) return Promise.resolve(cached);
+      const key = `${projectId}:${threadId}`;
+      const pending = reads.current.get(key);
+      if (pending) return pending;
+      if (!api) return Promise.reject(new Error("Desktop API unavailable."));
+      const request = api.readThread(projectId, threadId).then((value) => {
+        setThreads((current) => {
+          const previous = current[value.id];
+          return previous && previous.revision >= value.revision
+            ? current
+            : { ...current, [value.id]: value };
+        });
+        return value;
+      });
+      reads.current.set(key, request);
+      void request
+        .finally(() => {
+          if (reads.current.get(key) === request) reads.current.delete(key);
+        })
+        .catch(() => {});
+      return request;
+    },
+    [api],
+  );
 
   function applySnapshot(value: ProjectSnapshot, activate = true) {
     setSnapshots((current) => {
@@ -154,6 +185,7 @@ export function useWorkspaceState({
     harnesses,
     setHarnesses,
     threads,
+    readThread,
     setThreads,
     designs,
     setDesigns,

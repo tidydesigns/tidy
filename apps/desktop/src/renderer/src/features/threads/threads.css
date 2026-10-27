@@ -2,6 +2,10 @@
   opacity: 0;
   pointer-events: none;
 }
+.conversation-entry {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 160px;
+}
 .message-markdown {
   white-space: normal;
 }
