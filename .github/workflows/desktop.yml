@@ -49,7 +49,11 @@ jobs:
           sudo chmod 4755 "$tidy_sandbox_helper"
       - run: bun run build:desktop
       - if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum bun run --cwd apps/desktop test:security
+        run: |
+          xvfb-run --auto-servernum bun run --cwd apps/desktop test:security
+          xvfb-run --auto-servernum bun apps/desktop/scripts/thread-loading-smoke.ts
       - if: runner.os == 'macOS'
-        run: bun run --cwd apps/desktop test:security
+        run: |
+          bun run --cwd apps/desktop test:security
+          bun apps/desktop/scripts/thread-loading-smoke.ts
       - run: bun run package:desktop

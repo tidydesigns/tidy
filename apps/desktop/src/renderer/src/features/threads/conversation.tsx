@@ -79,11 +79,13 @@ export const Conversation = memo(function Conversation({
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const following = useRef(positions.get(identity)?.following ?? true);
+  const scrollTarget = useRef<number | undefined>(undefined);
   const initialized = useRef(false);
   const visible = useRef(active);
   visible.current = active;
   const lastUser = useRef<string | undefined>(undefined);
   const frame = useRef(0);
+  const resizeFrame = useRef(0);
   const measureRef = useRef(() => {});
   const nodes = useRef(new Map<string, HTMLElement>());
   const [atEnd, setAtEnd] = useState(true);
@@ -133,10 +135,16 @@ export const Conversation = memo(function Conversation({
     if (positions.size > 100 && !oldest.done) positions.delete(oldest.value);
   }
   measureRef.current = measure;
+  function scrollTo(top: number) {
+    const element = viewport.current;
+    if (!element) return;
+    element.scrollTop = top;
+    scrollTarget.current = element.scrollTop;
+  }
   function latest() {
     following.current = true;
     const element = viewport.current;
-    if (element) element.scrollTop = element.scrollHeight;
+    if (element) scrollTo(element.scrollHeight);
     measure();
   }
   function jump(index: number) {
@@ -144,10 +152,12 @@ export const Conversation = memo(function Conversation({
     const node = nodes.current.get(turns[index]?.id);
     if (!element || !node) return;
     following.current = false;
-    element.scrollTop +=
-      node.getBoundingClientRect().top -
-      element.getBoundingClientRect().top -
-      Number.parseFloat(getComputedStyle(element).paddingTop);
+    scrollTo(
+      element.scrollTop +
+        node.getBoundingClientRect().top -
+        element.getBoundingClientRect().top -
+        Number.parseFloat(getComputedStyle(element).paddingTop),
+    );
     setCurrent(index);
     setPreview(null);
     measure();
@@ -158,7 +168,7 @@ export const Conversation = memo(function Conversation({
     const user = turns.at(-1)?.id;
     if (!initialized.current) {
       const saved = positions.get(identity);
-      if (saved) viewport.current.scrollTop = saved.top;
+      if (saved) scrollTo(saved.top);
       else latest();
       initialized.current = true;
     } else if (user !== lastUser.current) {
@@ -166,18 +176,17 @@ export const Conversation = memo(function Conversation({
     }
     lastUser.current = user;
     const saved = positions.get(identity);
-    if (saved && !following.current) viewport.current.scrollTop = saved.top;
-    if (following.current) viewport.current.scrollTop = viewport.current.scrollHeight;
+    if (saved && !following.current) scrollTo(saved.top);
+    if (following.current) scrollTo(viewport.current.scrollHeight);
     measure();
   }, [active, thread?.messages, thread?.toolActivities, thread?.status]);
 
   useEffect(() => {
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame.current);
-      frame.current = requestAnimationFrame(() => {
+      cancelAnimationFrame(resizeFrame.current);
+      resizeFrame.current = requestAnimationFrame(() => {
         if (!visible.current) return;
-        if (following.current && viewport.current)
-          viewport.current.scrollTop = viewport.current.scrollHeight;
+        if (following.current && viewport.current) scrollTo(viewport.current.scrollHeight);
         measureRef.current();
       });
     });
@@ -185,6 +194,7 @@ export const Conversation = memo(function Conversation({
     if (viewport.current) observer.observe(viewport.current);
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(resizeFrame.current);
       cancelAnimationFrame(frame.current);
     };
   }, []);
@@ -223,7 +233,12 @@ export const Conversation = memo(function Conversation({
         onScroll={(event) => {
           if (!visible.current || !event.currentTarget.clientHeight) return;
           const element = event.currentTarget;
-          following.current = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+          const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
+          const programmatic =
+            scrollTarget.current !== undefined &&
+            Math.abs(element.scrollTop - scrollTarget.current) < 1;
+          if (!programmatic) scrollTarget.current = undefined;
+          if (!programmatic || atEnd) following.current = atEnd;
           rememberPosition(element);
           cancelAnimationFrame(frame.current);
           frame.current = requestAnimationFrame(measure);

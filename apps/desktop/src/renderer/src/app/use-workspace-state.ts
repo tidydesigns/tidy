@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 import type {
   DesktopAPI,
@@ -18,7 +18,7 @@ export function useWorkspaceState({
   navigation,
   onError,
 }: {
-  api: DesktopAPI | undefined;
+  api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
 }) {
@@ -32,7 +32,40 @@ export function useWorkspaceState({
   const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
+  const currentThreads = useRef(threads);
+  useLayoutEffect(() => {
+    currentThreads.current = threads;
+  }, [threads]);
+  const reads = useRef(new Map<string, Promise<Thread>>());
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
+
+  const readThread = useCallback(
+    ({ projectId, threadId }: { projectId: string; threadId: string }): Promise<Thread> => {
+      const cached = currentThreads.current[threadId];
+      if (cached?.projectId === projectId) return Promise.resolve(cached);
+      const key = `${projectId}:${threadId}`;
+      const pending = reads.current.get(key);
+      if (pending) return pending;
+      if (!api) return Promise.reject(new Error("Desktop API unavailable."));
+      const request = api.readThread(projectId, threadId).then((value) => {
+        setThreads((current) => {
+          const previous = current[value.id];
+          return previous && previous.revision >= value.revision
+            ? current
+            : { ...current, [value.id]: value };
+        });
+        return value;
+      });
+      reads.current.set(key, request);
+      void request
+        .finally(() => {
+          if (reads.current.get(key) === request) reads.current.delete(key);
+        })
+        .catch(() => {});
+      return request;
+    },
+    [api],
+  );
 
   function applySnapshot(value: ProjectSnapshot, activate = true) {
     setSnapshots((current) => {
@@ -81,20 +114,21 @@ export function useWorkspaceState({
         const value = event.thread;
         setThreads((current) => {
           const previous = current[value.id];
-          if (event.type === "thread-patch")
-            return previous
-              ? { ...current, [value.id]: applyThreadPatch(previous, event) }
-              : current;
-          return {
-            ...current,
-            [value.id]: (previous?.revision ?? -1) > value.revision ? previous : event.thread,
-          };
+          if (event.type === "thread-patch") {
+            if (!previous) return current;
+            const next = applyThreadPatch(previous, event);
+            return next === previous ? current : { ...current, [value.id]: next };
+          }
+          if (previous && previous.revision > value.revision) return current;
+          return { ...current, [value.id]: event.thread };
         });
       }
       const projectId = event.type === "designs" ? event.projectId : event.thread.projectId;
       setSnapshots((current) => {
         const entry = current[projectId];
-        return entry ? { ...current, [projectId]: applyProjectEvent(entry, event) } : current;
+        if (!entry) return current;
+        const next = applyProjectEvent(entry, event);
+        return next === entry ? current : { ...current, [projectId]: next };
       });
     });
     const initialNavigation = navigation.current;
@@ -153,6 +187,7 @@ export function useWorkspaceState({
     harnesses,
     setHarnesses,
     threads,
+    readThread,
     setThreads,
     designs,
     setDesigns,

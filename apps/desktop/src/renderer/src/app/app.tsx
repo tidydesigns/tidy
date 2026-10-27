@@ -30,7 +30,7 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
-import { Conversation } from "../features/threads/conversation";
+import { Conversations } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-design-dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
 import { ApprovalRequests } from "../features/threads/approval-requests";
@@ -166,6 +166,7 @@ export function App() {
     harnesses,
     setHarnesses,
     threads,
+    readThread,
     setThreads,
     designs,
     setDesigns,
@@ -486,10 +487,14 @@ export function App() {
     }));
   }
 
-  const selectThread = useCallback((projectId: string, threadId: string | null) => {
-    threadSelection.current[projectId] = (threadSelection.current[projectId] ?? 0) + 1;
-    setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
-  }, []);
+  const selectThread = useCallback(
+    (projectId: string, threadId: string | null) => {
+      threadSelection.current[projectId] = (threadSelection.current[projectId] ?? 0) + 1;
+      if (threadId) void readThread({ projectId, threadId }).catch(() => {});
+      setSelectedThreads((current) => ({ ...current, [projectId]: threadId }));
+    },
+    [readThread],
+  );
 
   useEffect(() => {
     if (!api?.cloud || !cloudOrganizationId || !cloud.account?.id) return;
@@ -510,6 +515,7 @@ export function App() {
     };
   }, [api, cloudKey, workspaceRetry]);
 
+  const selectedThreadCached = Boolean(thread);
   useEffect(() => {
     if (
       mode !== "code" ||
@@ -517,7 +523,7 @@ export function App() {
       !api ||
       !project ||
       !selectedThreadId ||
-      threads[selectedThreadId]
+      selectedThreadCached
     )
       return;
     if (!snapshot?.threads.some((item) => item.id === selectedThreadId)) {
@@ -525,22 +531,22 @@ export function App() {
       return;
     }
     let active = true;
-    void api
-      .readThread(project.id, selectedThreadId)
-      .then((value) => {
-        if (active)
-          setThreads((current) => ({
-            ...current,
-            [value.id]: current[value.id] ?? value,
-          }));
-      })
-      .catch((value) => {
-        if (active) setError({ projectId: project.id, text: errorText(value), original: value });
-      });
+    void readThread({ projectId: project.id, threadId: selectedThreadId }).catch((value) => {
+      if (active) setError({ projectId: project.id, text: errorText(value), original: value });
+    });
     return () => {
       active = false;
     };
-  }, [api, project, selectedThreadId, threads, location, mode, settingsOpen]);
+  }, [
+    api,
+    project,
+    selectedThreadId,
+    selectedThreadCached,
+    readThread,
+    location,
+    mode,
+    settingsOpen,
+  ]);
 
   useEffect(() => {
     if (
@@ -1587,7 +1593,7 @@ export function App() {
                       className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "max-[700px]:basis-full" : ""}`}
                     >
                       <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
-                        {thread?.title ?? (selectedThreadId ? "Opening thread…" : "New thread")}
+                        {thread?.title ?? selectedSummary?.title ?? "New thread"}
                       </h1>
                       {thread?.doneAt && (
                         <Button
@@ -1616,10 +1622,11 @@ export function App() {
                       </div>
                     )}
                   </div>
-                  <Conversation
-                    key={`${project.id}:${selectedThreadId ?? "draft"}`}
-                    identity={`${project.id}:${selectedThreadId ?? "draft"}`}
-                    thread={thread}
+                  <Conversations
+                    key={project.id}
+                    projectId={project.id}
+                    selected={selectedThreadId ?? null}
+                    threads={threads}
                     active={!settingsOpen && mode === "code"}
                     api={api!}
                   />

@@ -443,6 +443,12 @@ packaged apps also include the project licence, bundled notices and font licence
 process, using only synthetic projects and fixture harnesses. On headless Linux,
 run it with `xvfb-run --auto-servernum`.
 
+`bun run --cwd apps/desktop test:threads` builds the app and checks conversation
+retention, scroll restoration, tool disclosures, thread-read races, retries and
+listener cleanup in a sandboxed Electron renderer. It uses synthetic data and
+controlled read responses, without model inference or production services. On
+headless Linux, run it with `xvfb-run --auto-servernum`.
+
 ## Local macOS release candidate
 
 Desktop versions are independent of the web app. `package.json` owns the SemVer

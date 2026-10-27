@@ -1,5 +1,6 @@
 import { memo, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toolStatusLabel, type ToolActivity } from "../../../../shared/contracts/tool-activity";
+import { toolTextPreview } from "./tool-text";
 function duration(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return seconds < 60
@@ -46,7 +47,7 @@ const ToolText = memo(function ToolText({
 }) {
   const [expanded, setExpanded] = useState(false);
   const id = useId();
-  const preview = useMemo(() => text.split("\n").slice(0, 4).join("\n").slice(0, 480), [text]);
+  const preview = useMemo(() => toolTextPreview(text), [text]);
   const shortened = preview.length < text.length;
   return (
     <div className="tool-detail-section">
@@ -143,6 +144,7 @@ export const ToolActivityGroup = memo(
     visible: boolean;
   }) {
     const [now, setNow] = useState(Date.now);
+    const [revealed, setRevealed] = useState(false);
     const group = useRef<HTMLDetailsElement>(null);
     const active = activities.filter((tool) => tool.status === "running");
     const running = active.length > 0;
@@ -169,7 +171,13 @@ export const ToolActivityGroup = memo(
     const failed = activities.filter((tool) => tool.status === "failed").length;
     const current = active.at(-1);
     return (
-      <details className="tool-activity-group" ref={group}>
+      <details
+        className="tool-activity-group"
+        ref={group}
+        onToggle={(event) => {
+          if (event.target === event.currentTarget && event.currentTarget.open) setRevealed(true);
+        }}
+      >
         <summary
           aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}${failed ? `, ${failed} failed` : ""}`}
         >
@@ -187,11 +195,13 @@ export const ToolActivityGroup = memo(
           )}
           {failed > 0 && <span className="tool-status-failed">{failed} failed</span>}
         </summary>
-        <div className="tool-activity-list">
-          {activities.map((tool) => (
-            <ToolRow key={tool.id} tool={tool} now={tool.endedAt ? 0 : now} />
-          ))}
-        </div>
+        {revealed && (
+          <div className="tool-activity-list">
+            {activities.map((tool) => (
+              <ToolRow key={tool.id} tool={tool} now={tool.endedAt ? 0 : now} />
+            ))}
+          </div>
+        )}
       </details>
     );
   },
