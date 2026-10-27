@@ -434,6 +434,26 @@ integration(
     expect(
       (await getAgentThread("bob", run.threadId)).thread.files.map((file) => file.id),
     ).toContain(id);
+    const duplicateRequest = {
+      ...request,
+      callId: "copy",
+      tool: "duplicate_file",
+      arguments: { file_id: "file-a" },
+    };
+    const duplicate = (await executeRequest(duplicateRequest)) as {
+      structuredContent: { fileId: string };
+    };
+    expect(await executeRequest(duplicateRequest)).toEqual(duplicate);
+    expect(
+      (await getAgentThread("bob", run.threadId)).thread.files.map((file) => file.id),
+    ).toContain(duplicate.structuredContent.fileId);
+    const copied = (await executeRequest({
+      ...request,
+      callId: "read-copy",
+      tool: "get_file",
+      arguments: { file_id: duplicate.structuredContent.fileId },
+    })) as { isError?: boolean };
+    expect(copied.isError).not.toBe(true);
     await expect(
       executeRequest({
         ...request,

@@ -90,3 +90,30 @@ describe("file pages", () => {
     expect(pageNodes(grouped, "page-1").map((node) => node.id)).toEqual(["first-page"]);
   });
 });
+
+test("page copies keep masks and prototype targets within the copied tree", () => {
+  const document = blankDesignDocument();
+  document.nodes = [
+    buildDrawnNode("frame", "artboard", null, { x: 0, y: 0, width: 200, height: 200 }),
+    buildDrawnNode("container", "container", "frame", { x: 0, y: 0, width: 100, height: 100 }),
+    buildDrawnNode("mask", "container", "container", { x: 0, y: 0, width: 80, height: 80 }),
+  ];
+  document.nodes[1].mask = { sourceId: "mask", mode: "alpha", enabled: true };
+  document.nodes[1].interactions = [
+    {
+      id: crypto.randomUUID(),
+      trigger: { type: "click" },
+      action: { type: "navigate", target: "frame" },
+      transition: { type: "instant", duration: 0 },
+    },
+  ];
+  let index = 0;
+  const copied = parseDesignDocument(
+    duplicatePage(document, "page-1", "copied", () => `copy-${++index}`),
+  );
+  expect(copied.nodes.find((n) => n.id === "copy-2")?.mask?.sourceId).toBe("copy-3");
+  expect(copied.nodes.find((n) => n.id === "copy-2")?.interactions?.[0].action).toEqual({
+    type: "navigate",
+    target: "copy-1",
+  });
+});

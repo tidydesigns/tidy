@@ -1,5 +1,10 @@
 import { DEFAULT_PAGE_ID, nodePageId, type DesignDocument } from "./document";
-import { remapComponentVariants, removeComponentReferences } from "./component-variants";
+import {
+  remapComponentVariants,
+  remapComponentProperties,
+  removeComponentReferences,
+} from "./component-variants";
+import { remapInteractions } from "@tidy/design/prototype";
 
 export function documentPages(document: DesignDocument) {
   return document.pages ?? [{ id: DEFAULT_PAGE_ID, name: "Page 1" }];
@@ -38,6 +43,11 @@ export function duplicatePage(
       ? (ids.get(node.componentSourceId) ?? node.componentSourceId)
       : undefined,
     variants: remapComponentVariants(node.variants, ids),
+    componentProperties: remapComponentProperties(node.componentProperties, ids),
+    interactions: remapInteractions(node.interactions, (id) => ids.get(id) ?? id),
+    mask: node.mask
+      ? { ...node.mask, sourceId: ids.get(node.mask.sourceId) ?? node.mask.sourceId }
+      : undefined,
     sourceKey: undefined,
     sourcePath: undefined,
     importKey: undefined,

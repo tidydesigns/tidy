@@ -40,6 +40,15 @@ test("resolved MCP errors and validation failures are not successful activity", 
   }));
   expect(events.at(-1)).toMatchObject({ phase: "failed", nodeCount: 12, issueCount: 2 });
 });
+test("page creation publishes editing activity and its committed revision without the name", async () => {
+  const { agent, events } = setup();
+  await agent.run("create_page", { file_id: "file", name: "private page" }, async () => ({
+    structuredContent: { revision: 2, page: { id: "new-page", name: "private page" } },
+  }));
+  expect(events.map((event) => event.phase)).toEqual(["editing", "completed"]);
+  expect(events.at(-1)?.revision).toBe(2);
+  expect(JSON.stringify(events)).not.toContain("private page");
+});
 test("image reads publish reading activity without leaking original bytes", async () => {
   const { agent, events } = setup();
   await agent.run("get_file_image", { file_id: "file", asset_id: "asset" }, async () => ({

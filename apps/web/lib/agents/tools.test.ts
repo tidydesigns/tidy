@@ -1,9 +1,10 @@
 import { expect, mock, test } from "bun:test";
 import type { McpServer } from "@modelcontextprotocol/server";
+import type { PoolClient } from "pg";
 mock.module("server-only", () => ({}));
 const { McpActivity } = await import("../mcp/activity");
 const { registerTidyTools } = await import("../mcp/registry");
-const { agentTools } = await import("./tools");
+const { agentTools, checkToolScope } = await import("./tools");
 
 test("organisation scope exposes canvas tools while excluding connector and plugin tools", async () => {
   const names: string[] = [];
@@ -19,7 +20,17 @@ test("organisation scope exposes canvas tools while excluding connector and plug
     new McpActivity({ userId: "user", clientId: "test" }),
   );
   const full = agentTools("user", "worker", "Lead", undefined, undefined, true);
-  const excluded = names.filter((name) => name.startsWith("linear_") || name === "preview_design");
+  const excluded = names.filter(
+    (name) =>
+      name.startsWith("linear_") ||
+      [
+        "preview_design",
+        "archive_file",
+        "restore_file",
+        "delete_file",
+        "export_selection",
+      ].includes(name),
+  );
   expect(excluded).toContain("linear_create_issue");
   expect(excluded).toContain("preview_design");
   expect(new Set(full.tools.map((tool) => tool.name))).toEqual(
@@ -29,6 +40,42 @@ test("organisation scope exposes canvas tools while excluding connector and plug
     await expect(full.invoke(name, {})).rejects.toMatchObject({ code: "tool_denied" });
   const limited = agentTools("user", "worker", "Lead");
   expect(limited.tools.some((tool) => tool.name === "patch_document")).toBe(true);
+  expect(limited.tools.some((tool) => tool.name === "create_page")).toBe(true);
   expect(limited.tools.some((tool) => tool.name === "create_file")).toBe(false);
   expect(limited.tools.some((tool) => tool.name === "delete_folder")).toBe(false);
+  for (const name of [
+    "list_comments",
+    "create_comment",
+    "rename_page",
+    "insert_nodes",
+    "duplicate_layers",
+    "get_file_context",
+    "create_file_version",
+  ])
+    expect(limited.tools.some((tool) => tool.name === name)).toBe(true);
+  expect(limited.tools.some((tool) => tool.name === "duplicate_file")).toBe(false);
+  expect(full.tools.some((tool) => tool.name === "duplicate_file")).toBe(true);
+});
+
+test("file-scoped MCP tools are restricted to the run's attached files", async () => {
+  const client = {} as PoolClient;
+  const files = [{ id: "attached", selectedNodeIds: [] }];
+  for (const tool of [
+    "create_page",
+    "list_comments",
+    "create_comment",
+    "rename_page",
+    "insert_nodes",
+    "move_layers_to_page",
+    "delete_layers",
+    "get_file_context",
+    "get_editor_context",
+    "list_file_versions",
+    "restore_file_version",
+  ]) {
+    await checkToolScope(client, "user", "org", files, tool, { file_id: "attached" }, "run");
+    await expect(
+      checkToolScope(client, "user", "org", files, tool, { file_id: "other" }, "run"),
+    ).rejects.toMatchObject({ code: "scope_denied" });
+  }
 });

@@ -55,7 +55,7 @@ import {
   type PlacementAsset,
   type PlacementTarget,
 } from "../design/asset-placement";
-import type { ExportRequest } from "../design/export-plan";
+import { assertExportSnapshot, ExportRejected, type ExportRequest } from "../design/export-plan";
 import { FileVersionControl } from "./file-version-control";
 import { snapshotCommitSchema } from "../design/sync-protocol";
 import {
@@ -790,11 +790,16 @@ export function FileEditor({
     [renderedNodes, nodes, selectedIdSet, readOnly],
   );
   useEditorPerformance(viewport, nodes.length, panelsOpen, selectedIds.length > 0);
+  const [remoteExportIds, setRemoteExportIds] = useState<string[]>([]);
+  const renderInterestIds = useMemo(
+    () => [...selectedIds, ...remoteExportIds],
+    [selectedIds, remoteExportIds],
+  );
   const visibleRootIds = useVisibleArtboards(
     renderedNodes,
     view,
     viewport,
-    selectedIds,
+    renderInterestIds,
     room.store,
   );
   const [retainCanvasRoots] = useState(createCanvasRootCache);
@@ -921,7 +926,7 @@ export function FileEditor({
     [snapshot.content.nodes],
   );
 
-  const { publishPresence } = room;
+  const { publishPresence, publishViewport } = room;
   useEffect(() => {
     publishPresence({ pageId: currentPageId, cursor: null, preview: null }, true);
   }, [currentPageId, publishPresence]);
@@ -934,6 +939,33 @@ export function FileEditor({
       true,
     );
   }, [tool, editingTextId, publishPresence]);
+
+  const contextViewRef = useRef(view);
+  useLayoutEffect(() => {
+    contextViewRef.current = view;
+  }, [view]);
+  useEffect(() => {
+    const canvas = viewport.current;
+    if (!canvas || local || preview || !viewportReady) return;
+    publishViewport({
+      ...view,
+      width: Math.max(1, canvas.clientWidth),
+      height: Math.max(1, canvas.clientHeight),
+    });
+  }, [view, publishViewport, local, preview, viewportReady]);
+  useEffect(() => {
+    const canvas = viewport.current;
+    if (!canvas || local || preview || !viewportReady) return;
+    const observer = new ResizeObserver(() =>
+      publishViewport({
+        ...contextViewRef.current,
+        width: Math.max(1, canvas.clientWidth),
+        height: Math.max(1, canvas.clientHeight),
+      }),
+    );
+    observer.observe(canvas);
+    return () => observer.disconnect();
+  }, [publishViewport, local, preview, viewportReady]);
 
   function toggleViewPreference(key: keyof CanvasPreferences) {
     setViewPreferences((current) => ({ ...current, [key]: !current[key] }));
@@ -1521,6 +1553,95 @@ export function FileEditor({
     }
   }
 
+  const remoteExportRunning = useRef(false);
+  const { setExportHandler, hasPendingEdits, getSnapshot, getPreview } = room;
+  useEffect(() => {
+    setExportHandler(async (request) => {
+      const snapshot = snapshotRef.current;
+      const assertSynchronized = () => {
+        if (
+          hasPendingEdits() ||
+          snapshotRef.current.content !== snapshot.content ||
+          snapshotRef.current.revision !== request.expectedRevision ||
+          activePageRef.current !== request.pageId
+        )
+          throw new ExportRejected("Synchronize the target page before exporting.");
+        assertExportSnapshot(
+          snapshotRef.current,
+          getSnapshot(),
+          Boolean(
+            getPreview() ||
+            drag.current ||
+            resize.current ||
+            multiScaleGesture.current ||
+            inspectorGesture.current ||
+            gradientGesture.current ||
+            vectorGesture.current ||
+            cropDrag.current ||
+            drawingRef.current,
+          ),
+        );
+      };
+      if (remoteExportRunning.current)
+        throw new ExportRejected("Wait for the current export to finish.");
+      assertSynchronized();
+      if (
+        request.ids.some(
+          (id) =>
+            !snapshot.content.nodes.some(
+              (n) => n.id === id && (n.pageId ?? "page-1") === request.pageId,
+            ),
+        )
+      )
+        throw new ExportRejected("Layer not found on this page.");
+      remoteExportRunning.current = true;
+      try {
+        // Mount culled targets synchronously; background tabs may suspend animation frames.
+        flushSync(() => setRemoteExportIds(request.ids));
+        assertSynchronized();
+        const { createSelectionExport } = await import("../design/export-selection");
+        assertSynchronized();
+        const result = await createSelectionExport(
+          snapshot.content,
+          canvasElements(viewport.current),
+          request,
+          16_000_000,
+        );
+        assertSynchronized();
+        if (result.files.reduce((sum, f) => sum + f.blob.size, 0) > 2000000)
+          throw new ExportRejected("Export exceeds 2 MB. Choose fewer layers or a smaller scale.");
+        const files = [];
+        for (const file of result.files) {
+          const bytes = new Uint8Array(await file.blob.arrayBuffer());
+          let binary = "";
+          for (let i = 0; i < bytes.length; i += 16384)
+            binary += String.fromCharCode(...bytes.subarray(i, i + 16384));
+          files.push({
+            name: file.name,
+            mimeType: file.blob.type as
+              | "image/png"
+              | "image/webp"
+              | "image/svg+xml"
+              | "application/pdf"
+              | "application/zip",
+            base64: btoa(binary),
+          });
+        }
+        assertSynchronized();
+        return {
+          type: "export_result",
+          requestId: request.requestId,
+          revision: snapshot.revision,
+          files,
+          warnings: result.warnings.slice(0, 100).map((w) => w.slice(0, 500)),
+        };
+      } finally {
+        setRemoteExportIds([]);
+        remoteExportRunning.current = false;
+      }
+    });
+    return () => setExportHandler(null);
+  }, [getPreview, getSnapshot, hasPendingEdits, setExportHandler]);
   const [exportPending, setExportPending] = useState(false);
   const [exportError, setExportError] = useState("");
   const [exportWarnings, setExportWarnings] = useState<string[]>([]);
@@ -4741,7 +4862,11 @@ export function FileEditor({
             }}
             className="absolute left-0 top-0 isolate z-0"
           >
-            <ImageViewportProvider viewport={viewport} zoom={view.zoom} selectedIds={selectedIds}>
+            <ImageViewportProvider
+              viewport={viewport}
+              zoom={view.zoom}
+              selectedIds={renderInterestIds}
+            >
               <CanvasArtwork
                 retainedRootIds={retainedRootIds}
                 assetMimeTypes={assetMimeTypes}

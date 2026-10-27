@@ -1,6 +1,12 @@
 // This is a server-owned execution policy, not an MCP annotation supplied by a
 // client. Unknown/new tools keep the atomic write transaction until audited.
 const reads = new Set([
+  "list_comments",
+  "list_file_versions",
+  "get_file_version",
+  "get_editor_context",
+  "get_file_context",
+  "export_selection",
   "list_organizations",
   "list_files",
   "list_folders",

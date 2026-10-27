@@ -245,7 +245,9 @@ export function duplicateLayers(
   let content = document;
   const selected: string[] = [];
   for (const root of selectionRoots(document.nodes, ids)) {
-    const copy = duplicateNodeTree(content, root.id, createId);
+    // This batch validates once below; repeated whole-document validation is
+    // quadratic when duplicating many independent roots.
+    const copy = duplicateNodeTree(content, root.id, createId, false);
     content = { ...content, nodes: [...content.nodes, ...copy.nodes] };
     selected.push(copy.rootId);
   }

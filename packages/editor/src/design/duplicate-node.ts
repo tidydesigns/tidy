@@ -10,6 +10,7 @@ export function duplicateNodeTree(
   document: DesignDocument,
   nodeId: string,
   createId: () => string = () => crypto.randomUUID(),
+  validateDocument = true,
 ) {
   const source = document.nodes.find((node) => node.id === nodeId);
   if (!source || source.locked) throw new Error("Layer not found or locked.");
@@ -54,6 +55,6 @@ export function duplicateNodeTree(
     importKey: undefined,
     sourceKey: undefined,
   }));
-  parseDesignDocument({ ...document, nodes: [...document.nodes, ...nodes] });
+  if (validateDocument) parseDesignDocument({ ...document, nodes: [...document.nodes, ...nodes] });
   return { nodes, rootId: ids.get(nodeId)! };
 }

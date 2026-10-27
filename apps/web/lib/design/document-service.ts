@@ -26,6 +26,7 @@ import {
 } from "@/lib/design/document";
 import { mergeImport, requireImportSource } from "@/lib/design/merge-import";
 import { legacyToDocument } from "@/lib/design/legacy-to-document";
+import { documentPages, nextPageName } from "@/lib/design/pages";
 import type { DesignTokens } from "./design-tokens";
 import { mergeDesignTokens } from "./token-catalog";
 import { changedLayerBatch } from "@/lib/design/edit-document";
@@ -206,9 +207,18 @@ export async function getExportAssets(userId: string, assetIds: string[]): Promi
 
 // Lazy legacy conversion is a system-maintained representation, not a user edit.
 // Viewers need this too, so they can view and comment on files created before documents.
-async function readEditorDocument(userId: string, fileId: string) {
+// An explicit caller revision is checked before lazy conversion advances it.
+// The caller persists its edit using the returned, possibly converted revision.
+async function readEditorDocument(userId: string, fileId: string, expectedRevision?: number) {
+  const checkRevision = (revision: number) => {
+    if (expectedRevision !== undefined && revision !== expectedRevision)
+      throw new PublicActionError("Document changed. Refresh before editing.");
+  };
   const ready = await readDocument(userId, fileId);
-  if (ready?.content.legacyConverted) return ready;
+  if (ready?.content.legacyConverted) {
+    checkRevision(ready.revision);
+    return ready;
+  }
   if (!ready) await requireDocumentSchema();
   const client = await db.connect();
   try {
@@ -227,6 +237,7 @@ async function readEditorDocument(userId: string, fileId: string) {
       [fileId],
     );
     const current = existing.rows[0];
+    checkRevision(current?.revision ?? 0);
     if (current?.content.legacyConverted) {
       await client.query("commit");
       return current;
@@ -276,6 +287,7 @@ export async function appendBasicNodes(
   fileId: string,
   kind: "frame" | "rectangle",
   boxes: (FrameInput | RectangleInput)[],
+  pageId?: string,
 ) {
   if (
     boxes.length < 1 ||
@@ -285,9 +297,12 @@ export async function appendBasicNodes(
     throw new PublicActionError("Provide 1–50 valid shapes.");
   }
   const current = await ensureEditorDocument(userId, fileId);
+  const targetPage = pageId ?? documentPages(current.content)[0].id;
+  if (!documentPages(current.content).some((page) => page.id === targetPage))
+    throw new PublicActionError("Page not found.");
   const added = boxes.map((box) => ({
     ...buildDrawnNode(randomUUID(), kind === "frame" ? "artboard" : "container", null, box),
-    pageId: current.content.pages?.[0].id ?? "page-1",
+    pageId: targetPage,
   }));
   const content = parseDesignDocument({
     ...current.content,
@@ -295,6 +310,51 @@ export async function appendBasicNodes(
   });
   await replaceDocumentForHistory(userId, fileId, current.revision, content);
   return added.map((node) => ({ id: node.id, ...node.box }));
+}
+
+export async function createDocumentPage(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  name?: string,
+) {
+  const cleanName = name?.trim();
+  if (name !== undefined && (!cleanName || cleanName.length > 120))
+    throw new PublicActionError("Enter a page name of up to 120 characters.");
+  const current = await readEditorDocument(userId, fileId, expectedRevision);
+  const pages = documentPages(current.content);
+  if (pages.length >= 100) throw new PublicActionError("A file can contain up to 100 pages.");
+  const page = { id: randomUUID(), name: cleanName ?? nextPageName(current.content) };
+  const saved = await replaceDocumentForHistory(userId, fileId, current.revision, {
+    ...current.content,
+    pages: [...pages, page],
+  });
+  return { revision: saved.revision, page };
+}
+
+/** Shared app transforms with revision checks on both read and locked write. */
+export async function editDocumentStructure<T extends object>(
+  userId: string,
+  fileId: string,
+  expectedRevision: number,
+  transform: (document: DesignDocument) => { document: DesignDocument; result: T },
+) {
+  const current = await readEditorDocument(userId, fileId, expectedRevision);
+  let changed;
+  try {
+    changed = transform(current.content);
+    changed.document = trackDocumentChanges(current.content, changed.document);
+  } catch (error) {
+    if (error instanceof PublicActionError) throw error;
+    // Only pure document transforms run here; never expose infrastructure errors.
+    throw new PublicActionError(
+      error instanceof Error && error.name !== "ZodError"
+        ? error.message
+        : "Invalid document change. Check the layers and page limits.",
+    );
+  }
+  const saved = await replaceDocumentForHistory(userId, fileId, current.revision, changed.document);
+  return { ...changed.result, revision: saved.revision };
 }
 
 export async function replaceDocumentForHistory(
@@ -709,7 +769,9 @@ export async function commitImport(
       );
     }
     if (staging.fileId) requireImportSource(incoming);
-    const document = mergeImport(currentDocument, incoming, importId, resolution);
+    const document = mergeImport(currentDocument, incoming, importId, resolution, {
+      preservePages: Object.values(staging.chunks).some((chunk) => chunk.pages !== undefined),
+    });
     await verifyAssets(client, staging.organizationId, document);
     await client.query(
       `insert into "designDocument" ("fileId", "revision", "content") values ($1,$2,$3::jsonb)
@@ -1008,6 +1070,7 @@ export async function getDocumentPage(
   return {
     revision: row.revision,
     schemaVersion: metadata.schemaVersion,
+    pages: metadata.pages ?? [{ id: "page-1", name: "Page 1" }],
     source: metadata.source,
     tokens: metadata.tokens ?? {},
     designTokens: metadata.designTokens ?? {},

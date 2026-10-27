@@ -16,7 +16,8 @@ const { withMcpGrantOperation } = await import("./grant-operation");
 const { consumeMcpCall, meterMcpServer } = await import("./usage");
 const { runWithRequestSignal } = await import("../request-lifecycle");
 const { blankDesignDocument } = await import("../design/document");
-const { getDocumentPage, patchDocumentNode } = await import("../design/document-service");
+const { getDocument, getDocumentPage, patchDocumentNode } =
+  await import("../design/document-service");
 const { linearReadFixture } = await import("./linear-read-fixture.ts");
 const { renameDesignFileForUser } = await import("../design/service");
 const { GET: desktopGet, POST: desktopPost } =
@@ -2285,6 +2286,153 @@ integration(
   },
 );
 
+integration("MCP creates named and default pages without changing existing content", async () => {
+  const { designNodeSchema } = await import("../design/document");
+  const document = blankDesignDocument();
+  document.pages = [
+    { id: "page-1", name: "Page 1", background: "#112233" },
+    { id: "existing", name: "Page 4" },
+  ];
+  document.nodes = [
+    designNodeSchema.parse({
+      id: "layer",
+      name: "Existing layer",
+      type: "container",
+      parentId: null,
+      pageId: "existing",
+      box: { x: 0, y: 0, width: 100, height: 100 },
+    }),
+  ];
+  document.commentPages = { thread: "existing" };
+  await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+    document,
+  ]);
+  const create = async (expected_revision, name) =>
+    (
+      await responseMessage(
+        await request("tools/call", {
+          name: "create_page",
+          arguments: { file_id: "file-a", expected_revision, name },
+        }),
+      )
+    ).result;
+  const named = await create(1, "  Explorations  ");
+  expect(named.isError).not.toBe(true);
+  expect(named.structuredContent).toMatchObject({ revision: 2, page: { name: "Explorations" } });
+  expect(named.structuredContent.page.id).toMatch(/^[0-9a-f-]{36}$/);
+  const generated = await create(2);
+  expect(generated.isError).not.toBe(true);
+  expect(generated.structuredContent).toMatchObject({ revision: 3, page: { name: "Page 5" } });
+  expect(generated.structuredContent.page.id).not.toBe(named.structuredContent.page.id);
+  const saved = await getDocument("alice", "file-a");
+  const { pages, ...original } = document;
+  expect(saved.revision).toBe(3);
+  expect(saved.content).toMatchObject(original);
+  expect(saved.content.pages).toEqual([
+    ...pages,
+    named.structuredContent.page,
+    generated.structuredContent.page,
+  ]);
+  expect(saved.content.nodes).toEqual(document.nodes);
+});
+
+integration(
+  "MCP page creation rejects stale edits, invalid names and the page limit atomically",
+  async () => {
+    const create = async (args) =>
+      responseMessage(
+        await request("tools/call", {
+          name: "create_page",
+          arguments: { file_id: "file-a", expected_revision: 1, ...args },
+        }),
+      );
+    const stale = await create({ expected_revision: 0 });
+    expect(stale.result.isError).toBe(true);
+    expect(stale.result.content[0].text).toContain("Refresh before editing");
+    for (const args of [
+      { name: "   " },
+      { name: "x".repeat(121) },
+      { expected_revision: -1 },
+      { expected_revision: 1.5 },
+      { expected_revision: undefined },
+    ]) {
+      const result = await create(args);
+      expect(result.error || result.result?.isError).toBeTruthy();
+    }
+    const document = blankDesignDocument();
+    document.pages = Array.from({ length: 100 }, (_, i) => ({
+      id: `page-${i}`,
+      name: `Page ${i + 1}`,
+    }));
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=\'file-a\'', [
+      document,
+    ]);
+    const full = await create({});
+    expect(full.result.isError).toBe(true);
+    expect(full.result.content[0].text).toContain("100 pages");
+    const saved = await getDocument("alice", "file-a");
+    expect(saved.revision).toBe(1);
+    expect(saved.content.pages).toEqual(document.pages);
+  },
+);
+
+integration("concurrent MCP page creations cannot overwrite each other", async () => {
+  const results = await Promise.all(
+    ["First", "Second"].map(
+      async (name) =>
+        (
+          await responseMessage(
+            await request("tools/call", {
+              name: "create_page",
+              arguments: { file_id: "file-a", expected_revision: 1, name },
+            }),
+          )
+        ).result,
+    ),
+  );
+  expect(results.filter((result) => result.isError !== true)).toHaveLength(1);
+  expect(results.filter((result) => result.isError === true)).toHaveLength(1);
+  const saved = await getDocument("alice", "file-a");
+  expect(saved.revision).toBe(2);
+  expect(saved.content.pages).toHaveLength(2);
+  expect(saved.content.pages[1]).toEqual(
+    results.find((result) => result.isError !== true).structuredContent.page,
+  );
+});
+
+for (const restriction of ["read scope", "viewer", "other tenant", "archived", "unverified"])
+  integration(`MCP page creation refuses ${restriction} without changing the file`, async () => {
+    if (restriction === "viewer")
+      await admin.query('update "member" set "role"=\'viewer\' where "id"=\'member-a\'');
+    if (restriction === "archived")
+      await admin.query('update "designFile" set "archivedAt"=now() where "id"=\'file-a\'');
+    if (restriction === "unverified")
+      await admin.query('update "user" set "emailVerified"=false where "id"=\'alice\'');
+    const fileId = restriction === "other tenant" ? "file-b" : "file-a";
+    const before = (
+      await admin.query('select "revision", "content" from "designDocument" where "fileId"=$1', [
+        fileId,
+      ])
+    ).rows[0];
+    const response = await request(
+      "tools/call",
+      {
+        name: "create_page",
+        arguments: { file_id: fileId, expected_revision: 1, name: "Forbidden" },
+      },
+      restriction === "read scope" ? { scope: "mcp:read" } : {},
+    );
+    const message = await responseMessage(response);
+    expect(response.status >= 400 || message.error || message.result?.isError).toBeTruthy();
+    expect(
+      (
+        await admin.query('select "revision", "content" from "designDocument" where "fileId"=$1', [
+          fileId,
+        ])
+      ).rows[0],
+    ).toEqual(before);
+  });
+
 integration(
   "MCP modern discovery is cacheable and body/header disagreement cannot dispatch",
   async () => {
@@ -2322,6 +2470,10 @@ integration(
     expect(list.result.ttlMs).toBe(300_000);
     expect(list.result.cacheScope).toBe("private");
     expect(list.result.tools.some((tool) => tool.name === "get_document")).toBe(true);
+    const createPage = list.result.tools.find((tool) => tool.name === "create_page");
+    expect(createPage.annotations).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    expect(createPage._meta.securitySchemes[0].scopes).toEqual(["mcp:read", "mcp:write"]);
+    expect(createPage.inputSchema.required).toContain("expected_revision");
     expect((await modern("server/discover")).status).toBe(200);
     const mismatch = await modern(
       "tools/call",
@@ -3456,3 +3608,597 @@ integration("MCP July 2026 dispatch validates and publishes an ordered batch", a
   });
   expect(await calls()).toBe(1);
 });
+
+// Exercise the public MCP boundary, not just the underlying app services.
+async function parityTool(name, args, changes = {}) {
+  const response = await request("tools/call", { name, arguments: args }, changes);
+  const message = await responseMessage(response);
+  expect(response.status, JSON.stringify(message)).toBe(200);
+  expect(message.error, JSON.stringify(message)).toBeUndefined();
+  expect(message.result.isError, JSON.stringify(message.result)).not.toBe(true);
+  return message.result.structuredContent;
+}
+async function parityDenied(name, args, changes = {}) {
+  const response = await request("tools/call", { name, arguments: args }, changes);
+  const message = await responseMessage(response);
+  expect(response.status >= 400 || message.error || message.result?.isError).toBeTruthy();
+}
+const parityBase = { file_id: "file-a", expected_revision: 1 };
+
+integration(
+  "MCP canvas comments expose context, retry-safe creation, replies, ownership and status",
+  async () => {
+    const thread_id = crypto.randomUUID(),
+      message_id = crypto.randomUUID();
+    const input = {
+      file_id: "file-a",
+      page_id: "page-1",
+      thread_id,
+      message_id,
+      x: 20,
+      y: 30,
+      body: "Make the title clearer",
+    };
+    const created = await parityTool("create_comment", input);
+    expect(created.id).toBe(thread_id);
+    expect((await parityTool("create_comment", input)).id).toBe(thread_id);
+    const replyId = crypto.randomUUID();
+    await parityTool("reply_to_comment", {
+      file_id: "file-a",
+      thread_id,
+      message_id: replyId,
+      body: "Updated",
+    });
+    await parityTool("reply_to_comment", {
+      file_id: "file-a",
+      thread_id,
+      message_id: replyId,
+      body: "Updated",
+    });
+    await parityTool("edit_comment", {
+      file_id: "file-a",
+      message_id: replyId,
+      previous_body: "Updated",
+      body: "Updated title",
+    });
+    await parityDenied("edit_comment", {
+      file_id: "file-a",
+      message_id: replyId,
+      previous_body: "Updated",
+      body: "Overwrite",
+    });
+    const { COMMENT_EMOJIS } = await import("../design/comment-emoji");
+    await parityTool("toggle_comment_reaction", {
+      file_id: "file-a",
+      message_id,
+      emoji: COMMENT_EMOJIS[0],
+    });
+    await parityTool("resolve_comment_thread", { file_id: "file-a", thread_id, resolved: true });
+    const comments = await parityTool(
+      "list_comments",
+      { file_id: "file-a", page_id: "page-1", thread_id },
+      { scope: "mcp:read" },
+    );
+    expect(comments.threads).toHaveLength(1);
+    expect(comments.threads[0]).toMatchObject({
+      id: thread_id,
+      pageId: "page-1",
+      x: 20,
+      y: 30,
+      resolved: true,
+      replyCount: 1,
+    });
+    expect(comments.threads[0].messages.map((m) => m.body)).toEqual([input.body, "Updated title"]);
+    expect(comments.threads[0].messages[0].reactions[0]).toMatchObject({ count: 1, reacted: true });
+    await parityTool("resolve_comment_thread", { file_id: "file-a", thread_id, resolved: false });
+    await parityTool("toggle_comment_reaction", {
+      file_id: "file-a",
+      message_id,
+      emoji: COMMENT_EMOJIS[0],
+    });
+    await parityDenied("list_comments", { file_id: "file-b" });
+    await parityDenied("reply_to_comment", {
+      file_id: "file-b",
+      thread_id,
+      message_id: crypto.randomUUID(),
+      body: "Foreign",
+    });
+    await parityDenied(
+      "edit_comment",
+      { file_id: "file-a", message_id, previous_body: input.body, body: "Foreign edit" },
+      { sub: "bob", client_id: "client-b", sid: "session-b" },
+    );
+    await parityTool("delete_comment_thread", { file_id: "file-a", thread_id });
+    expect((await parityTool("list_comments", { file_id: "file-a" })).threads).toEqual([]);
+  },
+);
+
+integration(
+  "MCP pages and layer structure support page-aware authoring without lost edits",
+  async () => {
+    const page = (await parityTool("create_page", { ...parityBase, name: "Exploration" })).page;
+    await parityTool("rename_page", {
+      file_id: "file-a",
+      expected_revision: 2,
+      page_id: page.id,
+      name: "Draft",
+    });
+    await parityTool("reorder_page", {
+      file_id: "file-a",
+      expected_revision: 3,
+      page_id: page.id,
+      index: 0,
+    });
+    const { frames } = await parityTool("add_frames", {
+      file_id: "file-a",
+      page_id: page.id,
+      frames: [{ x: 0, y: 0, width: 500, height: 500 }],
+    });
+    expect((await getDocument("alice", "file-a")).content.nodes[0].pageId).toBe(page.id);
+    const box = { x: 10, y: 10, width: 30, height: 30 };
+    await parityTool("insert_nodes", {
+      file_id: "file-a",
+      expected_revision: 5,
+      page_id: page.id,
+      nodes: [
+        { id: "one", type: "container", name: "One", parentId: frames[0].id, box },
+        {
+          id: "two",
+          type: "container",
+          name: "Two",
+          parentId: frames[0].id,
+          box: { ...box, x: 60 },
+        },
+      ],
+    });
+    const group = await parityTool("group_layers", {
+      file_id: "file-a",
+      expected_revision: 6,
+      node_ids: ["one", "two"],
+    });
+    await parityTool("ungroup_layer", {
+      file_id: "file-a",
+      expected_revision: 7,
+      node_id: group.nodeId,
+    });
+    await parityTool("reorder_layer", {
+      file_id: "file-a",
+      expected_revision: 8,
+      node_id: "two",
+      destination: { target_id: "one", position: "before" },
+    });
+    const copies = await parityTool("duplicate_layers", {
+      file_id: "file-a",
+      expected_revision: 9,
+      node_ids: ["one"],
+    });
+    await parityTool("reparent_layer", {
+      file_id: "file-a",
+      expected_revision: 10,
+      node_id: copies.nodeIds[0],
+      parent_id: null,
+    });
+    await parityTool("move_layers_to_page", {
+      file_id: "file-a",
+      expected_revision: 11,
+      node_ids: copies.nodeIds,
+      page_id: "page-1",
+    });
+    await parityTool("delete_layers", {
+      file_id: "file-a",
+      expected_revision: 12,
+      node_ids: copies.nodeIds,
+    });
+    const duplicate = await parityTool("duplicate_page", {
+      file_id: "file-a",
+      expected_revision: 13,
+      page_id: page.id,
+    });
+    expect(duplicate.nodeIds).toHaveLength(1);
+    const snapshot = await getDocument("alice", "file-a");
+    expect(snapshot.content.nodes.filter((n) => n.pageId === duplicate.page.id)).toHaveLength(3);
+    expect(new Set(snapshot.content.nodes.map((n) => n.id)).size).toBe(6);
+    await parityTool("delete_page", {
+      file_id: "file-a",
+      expected_revision: 14,
+      page_id: duplicate.page.id,
+    });
+    await parityDenied("rename_page", {
+      file_id: "file-a",
+      expected_revision: 14,
+      page_id: page.id,
+      name: "Stale",
+    });
+    await parityDenied("insert_nodes", {
+      file_id: "file-a",
+      expected_revision: 15,
+      page_id: page.id,
+      nodes: [{ id: "one", type: "container", name: "Collision", parentId: null, box }],
+    });
+    await parityDenied("insert_nodes", {
+      file_id: "file-a",
+      expected_revision: 15,
+      page_id: page.id,
+      nodes: [{ id: "broken", type: "container", name: "Broken", parentId: "absent", box }],
+    });
+    expect((await getDocument("alice", "file-a")).revision).toBe(15);
+    const paginated = await parityTool("get_document", { file_id: "file-a", offset: 0, limit: 1 });
+    expect(paginated.pages.map((p) => p.name)).toEqual(["Draft", "Page 1"]);
+  },
+);
+
+integration("MCP named versions are inspectable and restores are retry-safe", async () => {
+  const version_id = crypto.randomUUID();
+  await parityTool("create_file_version", { ...parityBase, version_id, name: "Before changes" });
+  await parityTool("create_file_version", { ...parityBase, version_id, name: "Before changes" });
+  const versions = await parityTool(
+    "list_file_versions",
+    { file_id: "file-a" },
+    { scope: "mcp:read" },
+  );
+  expect(versions.versions.filter((v) => v.id === version_id)).toHaveLength(1);
+  const version = await parityTool("get_file_version", { file_id: "file-a", version_id });
+  expect(version.version.name).toBe("Before changes");
+  await parityTool("rename_page", { ...parityBase, page_id: "page-1", name: "Changed" });
+  const operation_id = crypto.randomUUID();
+  const restored = await parityTool("restore_file_version", {
+    file_id: "file-a",
+    expected_revision: 2,
+    version_id,
+    operation_id,
+  });
+  expect(restored.revision).toBe(3);
+  await parityTool("restore_file_version", {
+    file_id: "file-a",
+    expected_revision: 2,
+    version_id,
+    operation_id,
+  });
+  expect((await getDocument("alice", "file-a")).content.pages).toEqual(version.content.pages);
+  await parityDenied("get_file_version", { file_id: "file-b", version_id });
+  await parityDenied("restore_file_version", {
+    file_id: "file-a",
+    expected_revision: 1,
+    version_id,
+    operation_id: crypto.randomUUID(),
+  });
+});
+
+integration(
+  "MCP file lifecycle supports copies, archived discovery, restore and archived-only deletion",
+  async () => {
+    await admin.query('update "billingDeployment" set "selfHosted"=true');
+    const { folder } = await parityTool("create_folder", {
+      organization_id: "org-a",
+      name: "Work",
+    });
+    await parityTool("move_file", { file_id: "file-a", folder_id: folder.id });
+    const copy = await parityTool("duplicate_file", { file_id: "file-a" });
+    expect(copy.fileId).not.toBe("file-a");
+    const copiedFolder = await parityTool("duplicate_folder", { folder_id: folder.id });
+    expect(copiedFolder.id).not.toBe(folder.id);
+    await parityDenied("delete_file", { file_id: copy.fileId });
+    await parityTool("archive_file", { file_id: copy.fileId });
+    const archived = await parityTool("list_files", {
+      organization_id: "org-a",
+      state: "archived",
+    });
+    expect(archived.files.map((f) => f.id)).toEqual([copy.fileId]);
+    expect(
+      (await parityTool("get_file", { file_id: copy.fileId, include_archived: true })).file
+        .archivedAt,
+    ).toBeTruthy();
+    await parityTool("restore_file", { file_id: copy.fileId });
+    expect(
+      (await parityTool("list_files", { organization_id: "org-a", state: "archived" })).files,
+    ).toHaveLength(0);
+    await parityTool("archive_file", { file_id: copy.fileId });
+    await parityTool("delete_file", { file_id: copy.fileId });
+    expect(
+      (await admin.query('select 1 from "designFile" where "id"=$1', [copy.fileId])).rowCount,
+    ).toBe(0);
+    await parityDenied("duplicate_file", { file_id: "file-b" });
+    await parityDenied("archive_file", { file_id: "file-b" });
+    await parityDenied("duplicate_folder", { folder_id: "missing" });
+  },
+);
+
+integration(
+  "MCP file context is bounded and exports never fabricate a disconnected editor",
+  async () => {
+    const context = await parityTool(
+      "get_file_context",
+      { file_id: "file-a", limit: 1 },
+      { scope: "mcp:read" },
+    );
+    expect(context.document).toMatchObject({ revision: 1, totalNodes: 0 });
+    expect(context.document.pages).toHaveLength(1);
+    expect(context.comments.threads).toHaveLength(0);
+    expect(context.editor.sessions).toHaveLength(0);
+    expect((await parityTool("get_editor_context", { file_id: "file-a" })).sessions).toHaveLength(
+      0,
+    );
+    await parityDenied("get_editor_context", { file_id: "file-b" });
+    await parityDenied("get_file_context", { file_id: "file-b" });
+    const box = { x: 0, y: 0, width: 50, height: 50 };
+    await parityTool("insert_nodes", {
+      ...parityBase,
+      page_id: "page-1",
+      nodes: [{ id: "exportable", name: "Export", type: "container", parentId: null, box }],
+    });
+    await parityDenied("export_selection", {
+      file_id: "file-a",
+      expected_revision: 2,
+      node_ids: ["exportable"],
+      format: "png",
+    });
+  },
+);
+
+const parityMutations = [
+  ["rename_page", { page_id: "page-1", name: "Forbidden" }],
+  ["reorder_page", { page_id: "page-1", index: 0 }],
+  ["duplicate_page", { page_id: "page-1" }],
+  ["delete_page", { page_id: "page-1" }],
+  [
+    "insert_nodes",
+    {
+      page_id: "page-1",
+      nodes: [
+        {
+          id: "new",
+          name: "New",
+          type: "container",
+          parentId: null,
+          box: { x: 0, y: 0, width: 10, height: 10 },
+        },
+      ],
+    },
+  ],
+  ["delete_layers", { node_ids: ["target"] }],
+  ["duplicate_layers", { node_ids: ["target"] }],
+  ["group_layers", { node_ids: ["target"] }],
+  ["ungroup_layer", { node_id: "target" }],
+  ["reparent_layer", { node_id: "target", parent_id: null }],
+  ["reorder_layer", { node_id: "target", destination: { direction: 1 } }],
+  ["move_layers_to_page", { node_ids: ["target"], page_id: "page-1" }],
+  ["duplicate_file", {}],
+  ["archive_file", {}],
+  ["restore_file", {}],
+  ["delete_file", {}],
+  [
+    "create_file_version",
+    { version_id: "00000000-0000-4000-8000-000000000001", name: "Forbidden" },
+  ],
+  [
+    "restore_file_version",
+    {
+      version_id: "00000000-0000-4000-8000-000000000001",
+      operation_id: "00000000-0000-4000-8000-000000000002",
+    },
+  ],
+];
+for (const [name, args] of parityMutations)
+  integration(`MCP ${name} requires write scope and edit authority`, async () => {
+    const { designNodeSchema } = await import("../design/document");
+    const document = blankDesignDocument();
+    document.pages.push({ id: "other-page", name: "Other" });
+    document.nodes = [
+      designNodeSchema.parse({
+        id: "target",
+        name: "Target",
+        type: "container",
+        parentId: null,
+        pageId: "page-1",
+        box: { x: 0, y: 0, width: 20, height: 20 },
+      }),
+    ];
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+      document,
+      "file-a",
+    ]);
+    const before = await getDocument("alice", "file-a");
+    await parityDenied(name, { ...parityBase, ...args }, { scope: "mcp:read" });
+    await admin.query('update "member" set "role"=$1 where "id"=$2', ["viewer", "member-a"]);
+    await parityDenied(name, { ...parityBase, ...args });
+    expect(await getDocument("alice", "file-a")).toEqual(before);
+  });
+
+integration(
+  "MCP structural deletion retains import tombstones and rejects removal of the last page",
+  async () => {
+    const { designNodeSchema } = await import("../design/document");
+    const content = blankDesignDocument();
+    content.nodes = [
+      designNodeSchema.parse({
+        id: "imported",
+        name: "Imported",
+        type: "container",
+        parentId: null,
+        box: { x: 0, y: 0, width: 20, height: 20 },
+        importKey: "project:/screen",
+        sourceKey: "button",
+      }),
+    ];
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+      content,
+      "file-a",
+    ]);
+    await parityTool("delete_layers", { ...parityBase, node_ids: ["imported"] });
+    expect((await getDocument("alice", "file-a")).content.deletedSourceKeys).toEqual([
+      { importKey: "project:/screen", sourceKey: "button" },
+    ]);
+    await parityDenied("delete_page", {
+      file_id: "file-a",
+      expected_revision: 2,
+      page_id: "page-1",
+    });
+    expect((await getDocument("alice", "file-a")).revision).toBe(2);
+  },
+);
+
+integration(
+  "MCP viewers can comment while message authorship and folder edit boundaries remain enforced",
+  async () => {
+    await admin.query(
+      'insert into "member" ("id","organizationId","userId","role","createdAt") values ($1,$2,$3,$4,now())',
+      ["bob-viewer", "org-a", "bob", "viewer"],
+    );
+    const bob = { sub: "bob", client_id: "client-b", sid: "session-b" };
+    const thread_id = crypto.randomUUID(),
+      message_id = crypto.randomUUID();
+    await parityTool(
+      "create_comment",
+      {
+        file_id: "file-a",
+        page_id: "page-1",
+        thread_id,
+        message_id,
+        x: 0,
+        y: 0,
+        body: "Viewer feedback",
+      },
+      bob,
+    );
+    await parityDenied("edit_comment", {
+      file_id: "file-a",
+      message_id,
+      previous_body: "Viewer feedback",
+      body: "Someone else",
+    });
+    await parityTool(
+      "edit_comment",
+      { file_id: "file-a", message_id, previous_body: "Viewer feedback", body: "My feedback" },
+      bob,
+    );
+    await parityTool(
+      "resolve_comment_thread",
+      { file_id: "file-a", thread_id, resolved: true },
+      bob,
+    );
+    await parityTool("delete_comment_thread", { file_id: "file-a", thread_id }, bob);
+    const { folder } = await parityTool("create_folder", {
+      organization_id: "org-a",
+      name: "Protected",
+    });
+    await parityDenied("duplicate_folder", { folder_id: folder.id }, { scope: "mcp:read" });
+    await parityDenied("duplicate_folder", { folder_id: folder.id }, bob);
+    await parityDenied("archive_file", { file_id: "file-a" }, bob);
+    expect(
+      (await admin.query('select "archivedAt" from "designFile" where "id"=$1', ["file-a"])).rows[0]
+        .archivedAt,
+    ).toBeNull();
+  },
+);
+
+integration(
+  "MCP staged imports preserve explicitly targeted pages and existing page metadata",
+  async () => {
+    const { page } = await parityTool("create_page", { ...parityBase, name: "Import target" });
+    const staged = await parityTool("create_import", {
+      organization_id: "org-a",
+      file_id: "file-a",
+      name: "Page-specific import",
+    });
+    await parityTool("put_import_chunk", {
+      import_id: staged.importId,
+      chunk_id: "first",
+      pages: [{ id: page.id, name: "Imported metadata" }],
+      source: { project: "local", route: "/mcp-page" },
+      nodes: [
+        {
+          id: "on-second-page",
+          name: "Imported layer",
+          type: "container",
+          parentId: null,
+          pageId: page.id,
+          box: { x: 0, y: 0, width: 50, height: 50 },
+          importKey: "local:/mcp-page",
+          sourceKey: "root",
+        },
+      ],
+    });
+    const validated = await parityTool("validate_import", { import_id: staged.importId });
+    expect(validated.layout.valid).toBe(true);
+    await parityTool("commit_import", { import_id: staged.importId });
+    const saved = await getDocument("alice", "file-a");
+    expect(saved.content.pages).toEqual([{ id: "page-1", name: "Page 1" }, page]);
+    expect(saved.content.nodes.find((n) => n.id === "on-second-page").pageId).toBe(page.id);
+  },
+);
+
+for (const tool of ["create_page", "rename_page"])
+  integration(
+    `MCP ${tool} accepts the observed revision when converting a legacy document`,
+    async () => {
+      const content = blankDesignDocument();
+      content.legacyConverted = false;
+      await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+        content,
+        "file-a",
+      ]);
+      await admin.query(
+        'insert into "designFrame" ("id","fileId","x","y","width","height") values ($1,$2,10,20,200,100)',
+        ["legacy-frame", "file-a"],
+      );
+      const observed = await parityTool("get_document", { file_id: "file-a" });
+      expect(observed.document.revision).toBe(1);
+      expect(observed.document.content.legacyConverted).toBe(false);
+      const args = {
+        file_id: "file-a",
+        expected_revision: observed.document.revision,
+        name: "Legacy work",
+        ...(tool === "rename_page" ? { page_id: "page-1" } : {}),
+      };
+      const saved = await parityTool(tool, args);
+      expect(saved.revision).toBe(3);
+      const current = await getDocument("alice", "file-a");
+      expect(current.content.legacyConverted).toBe(true);
+      expect(current.content.nodes.find((node) => node.id === "legacy-frame")?.box).toMatchObject({
+        x: 10,
+        y: 20,
+        width: 200,
+        height: 100,
+      });
+      await parityDenied(tool, args);
+      expect((await getDocument("alice", "file-a")).revision).toBe(3);
+    },
+  );
+
+integration(
+  "rejected MCP structural edits roll back lazy conversion and a corrected retry progresses",
+  async () => {
+    const content = blankDesignDocument();
+    content.legacyConverted = false;
+    await admin.query('update "designDocument" set "content"=$1 where "fileId"=$2', [
+      content,
+      "file-a",
+    ]);
+    await parityDenied("rename_page", { ...parityBase, page_id: "absent", name: "Invalid" });
+    expect(await getDocument("alice", "file-a")).toEqual({ revision: 1, content });
+    await parityTool("rename_page", { ...parityBase, page_id: "page-1", name: "Corrected" });
+    expect((await getDocument("alice", "file-a")).content.pages[0].name).toBe("Corrected");
+  },
+);
+
+for (const [name, field] of [
+  ["add_frames", "frames"],
+  ["add_rectangles", "rectangles"],
+])
+  integration(`MCP ${name} reports a missing target page without changing the file`, async () => {
+    const response = await responseMessage(
+      await request("tools/call", {
+        name,
+        arguments: {
+          file_id: "file-a",
+          page_id: "absent",
+          [field]: [{ x: 0, y: 0, width: 100, height: 100 }],
+        },
+      }),
+    );
+    expect(response.result.isError).toBe(true);
+    expect(response.result.content[0].text).toBe("Page not found.");
+    const current = await getDocument("alice", "file-a");
+    expect(current.revision).toBe(1);
+    expect(current.content.nodes).toHaveLength(0);
+  });

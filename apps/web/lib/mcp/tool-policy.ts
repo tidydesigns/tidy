@@ -1,6 +1,12 @@
 import { requiredMcpScopes } from "./scopes";
 
 const readTools = new Set([
+  "list_comments",
+  "list_file_versions",
+  "get_file_version",
+  "get_editor_context",
+  "get_file_context",
+  "export_selection",
   "list_organizations",
   "list_files",
   "get_file",
@@ -20,7 +26,22 @@ const readTools = new Set([
   "get_review_image",
   "preview_design",
 ]);
-const overwriteTools = new Set(["patch_document", "commit_import", "import_web_capture"]);
+const overwriteTools = new Set([
+  "patch_document",
+  "commit_import",
+  "import_web_capture",
+  "delete_file",
+  "archive_file",
+  "delete_comment_thread",
+  "edit_comment",
+  "delete_page",
+  "delete_layers",
+  "restore_file_version",
+  "reparent_layer",
+  "reorder_layer",
+  "move_layers_to_page",
+  "ungroup_layer",
+]);
 
 /** Discovery describes each tool's enforced scopes; annotations are only hints. */
 export function mcpToolPolicy(name: string) {
