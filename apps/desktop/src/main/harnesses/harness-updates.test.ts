@@ -20,7 +20,7 @@ const installation = (id: UpdatableHarnessId, version = "1.2.3"): HarnessInstall
   command: { executable: `/global/${id}`, args: ["update"] },
 });
 /** Create an isolated updater with observable reservations, commands and installed versions. */
-function fixture() {
+function fixture(installDisabledReason?: string) {
   const installed = new Map<UpdatableHarnessId, HarnessInstallation>([
     ["codex", installation("codex")],
     ["claude", installation("claude")],
@@ -39,6 +39,7 @@ function fixture() {
   };
   let latest = async () => "1.3.0";
   const updater = new HarnessUpdates({
+    installDisabledReason,
     inspect: async (id) => structuredClone(installed.get(id) ?? null),
     latest: async () => latest(),
     reserve(id, options) {
@@ -292,4 +293,23 @@ test("quit cancels queued updates and waits for an active installer to finish", 
   expect(commands).toHaveLength(0);
   expect(updater.state.find((entry) => entry.id === "codex")?.status).toBe("updated");
   expect(updater.state.find((entry) => entry.id === "claude")?.status).toBe("queued");
+});
+
+test("attached backend policy discovers updates but cannot reserve or install providers", async () => {
+  const reason = "Agent updates require desktop ownership of the backend.";
+  const f = fixture(reason);
+  f.installed.set("claude", { ...installation("claude"), canUpdateWhileRunning: true });
+  await f.updater.check();
+  for (const id of ["codex", "claude", "opencode"] as const) {
+    expect(f.updater.state.find((entry) => entry.id === id)).toMatchObject({
+      status: "available",
+      latestVersion: "1.3.0",
+      canInstall: false,
+      message: reason,
+    });
+    expect(() => f.updater.install(id)).toThrow(reason);
+  }
+  expect(f.reservations).toEqual([]);
+  expect(f.commands).toEqual([]);
+  expect(f.updater.busy).toBe(false);
 });

@@ -125,7 +125,10 @@ to the server. Cloud workspace opening, cloud file mutations and sync are unavai
 while attached to an independently managed local backend. Those operations fail before
 accessing a second workspace store. Account and library metadata remain available. To use
 cloud workspaces, let background agents finish, stop that local backend and reopen Tidy
-so the desktop owns its workspace service.
+so the desktop owns its workspace service. Agent and desktop update installation is also
+blocked for a desktop started in attached mode: that process cannot reserve maintenance
+against the authoritative backend. Version discovery still runs. These restrictions remain
+until restart, even if reconnection later creates a desktop-owned backend.
 
 Desktop IPC and remote workspace requests share a shutdown fence. Once closing begins,
 new workspace requests are rejected. Accepted requests finish before the final service flush

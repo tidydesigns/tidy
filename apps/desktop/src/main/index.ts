@@ -307,6 +307,9 @@ app
     });
     const store = service.store;
     harnessUpdates = new HarnessUpdates({
+      installDisabledReason: ownsInitialService
+        ? undefined
+        : "Agent updates are unavailable while attached to a background backend. Once its agents finish, stop that backend and reopen Tidy to update agents.",
       reserve: (id, options) => service!.reserveHarnessUpdate(id, options),
       installed: invalidateHarnessDetails,
     });
@@ -408,6 +411,10 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
+        if (!ownsInitialService)
+          throw new Error(
+            "Once background agents finish, stop the background backend and reopen Tidy to install this update.",
+          );
         if (harnessUpdates?.busy) throw new Error("Wait for harness updates to finish.");
         const resumeWorkspace = await service!.prepareUpdate();
         const update = Symbol("update");
