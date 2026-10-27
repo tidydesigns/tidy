@@ -36,6 +36,7 @@ export const PreviewCamera = memo(function PreviewCamera({
   const bounds = useRef<PreviewBounds | undefined>(undefined);
   const size = useRef({ width: 0, height: 0 });
   const pending = useRef(0);
+  const initialized = useRef(false);
   const schedule = useCallback(() => {
     if (pending.current) return;
     pending.current = requestAnimationFrame(() => {
@@ -44,8 +45,16 @@ export const PreviewCamera = memo(function PreviewCamera({
     });
   }, [memory]);
   const initialize = useCallback(() => {
-    if (!memory.current && bounds.current && size.current.width > 0 && size.current.height > 0)
+    if (size.current.width <= 0 || size.current.height <= 0) return;
+    if (!memory.current) {
+      if (!bounds.current) return;
       memory.current = fitPreview(bounds.current, size.current);
+    }
+    if (!initialized.current) {
+      initialized.current = true;
+      setViewport({ ...memory.current, ...size.current });
+      return;
+    }
     schedule();
   }, [memory, schedule]);
   const onBounds = useCallback(
@@ -72,12 +81,14 @@ export const PreviewCamera = memo(function PreviewCamera({
     const element = surface.current;
     if (!element || !enabled) return;
     let space = false;
+    let spaceUsedForNavigation = false;
     const pointer = createPreviewPointerGesture();
     let gestureScale: number | undefined;
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       event.stopPropagation();
       if (!memory.current || gestureScale !== undefined) return;
+      if (space) spaceUsedForNavigation = true;
       const rect = element.getBoundingClientRect();
       memory.current = wheelPreview(
         memory.current,
@@ -92,22 +103,28 @@ export const PreviewCamera = memo(function PreviewCamera({
       if (event.code !== "Space") return;
       event.preventDefault();
       event.stopPropagation();
+      const activate = event.type === "keyup" && space && !spaceUsedForNavigation;
+      if (event.type === "keydown" && !space) spaceUsedForNavigation = false;
       space = event.type === "keydown";
       element.dataset.panning = String(space);
+      if (activate) element.click();
     };
     const blur = () => {
       space = false;
+      spaceUsedForNavigation = false;
       delete element.dataset.panning;
     };
     const down = (event: PointerEvent) => {
       if (event.button !== 0 || !event.isPrimary) return;
       element.focus({ preventScroll: true });
+      if (space) spaceUsedForNavigation = true;
       suppressClick.current = pointer.start(event.pointerId, event.clientX, event.clientY, space);
       element.setPointerCapture(event.pointerId);
     };
     const move = (event: PointerEvent) => {
       const delta = pointer.move(event.pointerId, event.clientX, event.clientY);
       if (!delta) return;
+      if (space) spaceUsedForNavigation = true;
       suppressClick.current = true;
       if (memory.current && (delta.x || delta.y)) {
         memory.current = {
@@ -133,6 +150,7 @@ export const PreviewCamera = memo(function PreviewCamera({
         return;
       }
       if (event.type === "gesturestart") {
+        if (space) spaceUsedForNavigation = true;
         gestureScale = 1;
         return;
       }
