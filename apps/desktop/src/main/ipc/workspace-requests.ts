@@ -54,6 +54,7 @@ export function createWorkspaceRequests<Context>(
     };
   }
   handle("bootstrap", z.undefined(), async () => {
+    const harnesses = checkHarnesses();
     let activeProject = null;
     if (
       store.activeProjectId &&
@@ -69,7 +70,7 @@ export function createWorkspaceRequests<Context>(
     return {
       projects: store.projects.filter((project) => !project.cloud),
       activeProject,
-      harnesses: await checkHarnesses(),
+      harnesses: await harnesses,
     };
   });
   handle("open-project", z.undefined(), async (_value, event) => {

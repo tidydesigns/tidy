@@ -6,3 +6,7 @@ export function loadCanvasEditor() {
     throw error;
   }));
 }
+
+export function preloadCanvasEditor() {
+  void loadCanvasEditor().catch(() => {});
+}

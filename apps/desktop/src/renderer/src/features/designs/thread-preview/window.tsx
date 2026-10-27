@@ -29,6 +29,7 @@ import type {
   LocalDesign,
 } from "../../../../../shared/contracts/desktop";
 import { LocalCanvas } from "../local-canvas";
+import { preloadCanvasEditor } from "../load-canvas-editor";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import type { CanvasGeometry } from "./dock-state";
 
@@ -595,6 +596,8 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       >
         <Button
           ref={trigger}
+          onPointerEnter={preloadCanvasEditor}
+          onFocus={preloadCanvasEditor}
           type="button"
           className="thread-design-peek"
           aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}

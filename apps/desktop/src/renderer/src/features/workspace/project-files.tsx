@@ -1,3 +1,4 @@
+import { preloadCanvasEditor } from "../designs/load-canvas-editor";
 import { z } from "zod";
 import { useSessionState } from "../../app/session-state";
 import { useErrorNotice } from "@tidy/ui/use-error-notice";
@@ -213,6 +214,7 @@ export function ProjectFiles({
     const notifyError = setError("");
     if (pending) return;
     setPending(true);
+    preloadCanvasEditor();
 
     try {
       const file = importing
@@ -435,7 +437,11 @@ export function ProjectFiles({
             {currentFolder ? displayName(currentFolder) : "All files"}
           </h1>
           <div className="file-browser-controls">
-            <div className="new-file-control">
+            <div
+              className="new-file-control"
+              onPointerEnter={preloadCanvasEditor}
+              onFocusCapture={preloadCanvasEditor}
+            >
               <Button className="new-file-button" disabled={pending} onClick={() => void create()}>
                 + New file
               </Button>

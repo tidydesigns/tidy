@@ -1,7 +1,11 @@
-import { Activity, useLayoutEffect, useRef, useState } from "react";
+import { Activity, lazy, Suspense, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopAPI, Thread } from "../../../../shared/contracts/desktop";
-import { Conversation } from "./conversation";
+import { loadConversation } from "./load-conversation";
 import { retainConversations } from "./conversation-cache";
+
+const Conversation = lazy(() =>
+  loadConversation().then((module) => ({ default: module.Conversation })),
+);
 
 export function Conversations({
   projectId,
@@ -16,6 +20,8 @@ export function Conversations({
   api: DesktopAPI;
   active: boolean;
 }) {
+  const [visited, setVisited] = useState(active);
+  if (active && !visited) setVisited(true);
   const [recent, setRecent] = useState<(string | null)[]>([selected]);
   const rendered = useRef(new Map<string, Thread>());
   const retained = retainConversations({ recent, selected, threads });
@@ -28,16 +34,19 @@ export function Conversations({
       if (!retained.includes(id)) rendered.current.delete(id);
     }
   });
+  if (!visited && !active) return null;
   return retained.map((id) => (
     <Activity key={id ?? "draft"} mode={active && id === selected ? "visible" : "hidden"}>
-      <Conversation
-        identity={`${projectId}:${id ?? "draft"}`}
-        thread={
-          id ? (active && id === selected ? threads[id] : rendered.current.get(id)) : undefined
-        }
-        active={active && id === selected}
-        api={api}
-      />
+      <Suspense fallback={null}>
+        <Conversation
+          identity={`${projectId}:${id ?? "draft"}`}
+          thread={
+            id ? (active && id === selected ? threads[id] : rendered.current.get(id)) : undefined
+          }
+          active={active && id === selected}
+          api={api}
+        />
+      </Suspense>
     </Activity>
   ));
 }

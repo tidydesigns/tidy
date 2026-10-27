@@ -35,7 +35,10 @@ import {
 } from "./app/renderer-security";
 
 protocol.registerSchemesAsPrivileged([
-  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true } },
+  {
+    scheme: APP_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, codeCache: true },
+  },
 ]);
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 
