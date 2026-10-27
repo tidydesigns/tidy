@@ -115,6 +115,7 @@ export class WorkspaceService {
   private listeners = new Set<(event: DesktopEvent) => void>();
   private starting = new Map<string, string>();
   private startingRuns = new Set<string>();
+  private requests = new Set<Promise<unknown>>();
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
@@ -1072,6 +1073,7 @@ export class WorkspaceService {
     const update = Symbol("update");
     this.closing = update;
     try {
+      await this.drainRequests(30_000);
       await this.stopAndFlush();
     } catch (error) {
       if (this.closing === update) this.closing = undefined;
@@ -1102,8 +1104,37 @@ export class WorkspaceService {
     return new Set([...this.jobs.keys(), ...this.startingRuns]).size;
   }
 
-  async close() {
+  dispatch<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new Error("Tidy is closing."));
+    const request = Promise.resolve().then(() => {
+      if (this.closing) throw new Error("Tidy is closing.");
+      return action();
+    });
+    this.requests.add(request);
+    return request.finally(() => this.requests.delete(request));
+  }
+
+  private async drainRequests(timeoutMs: number) {
+    if (!this.requests.size) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.requests]),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Workspace request shutdown timed out.")),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    await this.drainRequests(requestDrainTimeoutMs);
     for (const watcher of this.watchers.values()) watcher.close();
     await this.stopAndFlush();
   }

@@ -127,6 +127,11 @@ accessing a second workspace store. Account and library metadata remain availabl
 cloud workspaces, let background agents finish, stop that local backend and reopen Tidy
 so the desktop owns its workspace service.
 
+Desktop IPC and remote workspace requests share a shutdown fence. Once closing begins,
+new workspace requests are rejected. Accepted requests finish before the final service flush
+and ownership release. A stalled request exhausts the shutdown drain deadline and leaves
+ownership held until process exit. Desktop cloud coordination stops before backend teardown.
+
 An attached desktop does not stop an independently managed backend when it exits. If the
 desktop itself owns the backend, quitting it closes that service and its runs, matching its
 existing local process lifetime. Use the detached headless backend when jobs must outlive

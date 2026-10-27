@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
+import { createWorkspaceRequests } from "../ipc/workspace-requests";
 import type { startHarness, HarnessUpdate } from "../harnesses/harnesses";
 import type { DesktopEvent, Thread } from "../../shared/contracts/desktop";
 import {
@@ -1506,4 +1507,53 @@ test("active run count deduplicates launch preparation and excludes metadata edi
   expect(f.service.activeRunCount).toBe(0);
   metadataRelease.resolve();
   await edit;
+});
+
+test("update preparation drains accepted desktop requests before flushing and allows recovery", async () => {
+  const f = await fixture();
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const create = f.store.createFolder.bind(f.store);
+  f.store.createFolder = async (...args) => {
+    entered.resolve();
+    await gate.promise;
+    return create(...args);
+  };
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  });
+  const request = requests.invoke(
+    "create-design-folder",
+    { projectId: f.project.id, name: "Accepted" },
+    undefined,
+  );
+  await entered.promise;
+  let ready = false;
+  const preparation = f.service.prepareUpdate().then((resume) => {
+    ready = true;
+    return resume;
+  });
+  await expect(
+    requests.invoke(
+      "create-design-folder",
+      { projectId: f.project.id, name: "Rejected" },
+      undefined,
+    ),
+  ).rejects.toThrow("closing");
+  expect(ready).toBe(false);
+  gate.resolve();
+  await request;
+  const resume = await preparation;
+  expect(ready).toBe(true);
+  expect((await f.store.folders(f.project.id)).map((folder) => folder.name)).toEqual(["Accepted"]);
+  resume();
+  await requests.invoke(
+    "create-design-folder",
+    { projectId: f.project.id, name: "Resumed" },
+    undefined,
+  );
+  expect(await f.store.folders(f.project.id)).toHaveLength(2);
 });

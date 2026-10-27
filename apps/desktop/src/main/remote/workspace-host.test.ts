@@ -348,3 +348,106 @@ test("a failed final service flush retains host and project ownership after drai
   expect(errors).not.toContain("Error:");
   expect(code).toBe(0);
 }, 10000);
+
+for (const stalled of [false, true]) {
+  test(
+    stalled
+      ? "stalled direct desktop requests retain workspace ownership through shutdown failure"
+      : "accepted direct desktop requests finish before workspace ownership is released",
+    async () => {
+      const root = await mkdtemp(join(tmpdir(), "direct-drain-"));
+      cleanup.push(() => rm(root, { recursive: true, force: true }));
+      const script = `
+      import assert from 'node:assert/strict';
+      import {mkdir} from 'node:fs/promises';
+      import {join} from 'node:path';
+      import {ProjectStore} from './src/main/workspace/project-store.ts';
+      import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
+      import {createWorkspaceRequests} from './src/main/ipc/workspace-requests.ts';
+      import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
+      import {lockHost} from './src/main/remote/host-lock.ts';
+      import {projectLocks} from './src/main/remote/project-locks.ts';
+      const root = process.argv[1];
+      const stalled = process.argv[2] === 'true';
+      let released = false, flushed = false;
+      const entered = Promise.withResolvers();
+      const gate = Promise.withResolvers();
+      const closingStarted = Promise.withResolvers();
+      const owner = await ensureWorkspaceHost({
+        directory:root,buildId:'fixture',drainTimeoutMs:stalled ? 100 : 2000,
+        createService: async () => {
+          const locks = projectLocks(join(root,'project-locks'));
+          const store = new ProjectStore(join(root,'workspace'), undefined, locks.claim);
+          await store.initialize();
+          await mkdir(join(root,'project'));
+          await store.open(join(root,'project'));
+          const create = store.createFolder.bind(store);
+          store.createFolder = async (...args) => { entered.resolve(); await gate.promise; return create(...args); };
+          const flush = store.flush.bind(store);
+          store.flush = async () => { await flush(); flushed = true; };
+          const service = new WorkspaceService(store);
+          const close = service.close.bind(service);
+          service.close = (...args) => {
+            const result = close(...args);
+            closingStarted.resolve();
+            return result;
+          };
+          return {service,release:() => { released = true; locks.close(); }};
+        }
+      });
+      const service = owner.service;
+      const requests = createWorkspaceRequests(service, {
+        chooseProject:async()=>null,chooseDesign:async()=>null,openExternal:async()=>{},showItemInFolder(){}
+      });
+      const project = service.store.projects[0];
+      const request = requests.invoke('create-design-folder',{projectId:project.id,name:'Accepted folder'},undefined);
+      await entered.promise;
+      const closing = owner.close();
+      await closingStarted.promise;
+      if (stalled) {
+        await assert.rejects(closing,/Workspace request shutdown timed out/);
+      } else {
+        await assert.rejects(requests.invoke('create-design-folder',{projectId:project.id,name:'Accepted folder'},undefined),/closing/);
+      }
+      assert.equal(released,false);
+      assert.equal(flushed,false);
+      assert.throws(() => lockHost(join(root,'host.lock')));
+      const other = projectLocks(join(root,'project-locks'));
+      try { assert.throws(() => other.claim(project.path)); } finally { other.close(); }
+      if (stalled) process.exit(0);
+      gate.resolve();
+      const folder = await request;
+      await closing;
+      assert.equal(released,true);
+      assert.equal(flushed,true);
+      const unlock = lockHost(join(root,'host.lock')); unlock();
+      const replacement = projectLocks(join(root,'project-locks'));
+      replacement.claim(project.path); replacement.close();
+      assert.ok((await service.store.folders(project.id)).some(value => value.id === folder.id));
+      process.exit(0);
+    `;
+      const child = spawn(
+        "node",
+        ["--import", "tsx", "--input-type=module", "-e", script, root, String(stalled)],
+        {
+          cwd: new URL("../../..", import.meta.url),
+          stdio: "pipe",
+          timeout: 5000,
+          killSignal: "SIGKILL",
+        },
+      );
+      let errors = "";
+      child.stderr.on("data", (chunk) => {
+        errors += chunk.toString();
+      });
+      child.stdout.resume();
+      const code = await new Promise<number | null>((resolve, reject) => {
+        child.once("exit", resolve);
+        child.once("error", reject);
+      });
+      expect(errors).not.toContain("Error:");
+      expect(code).toBe(0);
+    },
+    10000,
+  );
+}

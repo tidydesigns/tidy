@@ -290,7 +290,7 @@ export function createWorkspaceRequests<Context>(
     async invoke(name: string, input: unknown, context: Context) {
       const action = handlers.get(name);
       if (!action) throw new Error("Unknown desktop request.");
-      return action(input, context);
+      return service.dispatch(() => action(input, context));
     },
   };
 }

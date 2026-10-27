@@ -398,7 +398,7 @@ app
           });
       }
     });
-    registerCloudIPC(cloud, entryURL);
+    registerCloudIPC(cloud, entryURL, service);
     // Do not put credential reads, catch-up, or network access on the first-paint path.
     void cloud.initialize();
     updates = new AppUpdates({
@@ -457,7 +457,7 @@ app
             request,
             entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
             (projectId) => service!.assertProjectAccess(projectId),
-            (projectId, assetId) => cloud!.loadAsset(projectId, assetId),
+            (projectId, assetId) => service!.dispatch(() => cloud!.loadAsset(projectId, assetId)),
           );
         if (request.method !== "GET" && request.method !== "HEAD")
           return new Response(null, { status: 405 });
@@ -509,9 +509,7 @@ app
   })
   .catch((error: unknown) => {
     console.error("Failed to start Tidy desktop:", error);
-    localClient?.close();
-    void ownedHost?.close().finally(() => app.quit());
-    if (!ownedHost) app.quit();
+    app.quit();
   });
 
 app.on("window-all-closed", () => {
@@ -526,10 +524,13 @@ app.on("before-quit", (event) => {
   quitting = "quit";
   for (const client of remoteClients.values()) client.close();
   localClient?.close();
+  const closingService = service;
+  const closeWorkspace = async () => {
+    await Promise.all([harnessUpdates?.close(), cloud?.close()]);
+    await (ownedHost ? ownedHost.close() : closingService.close());
+  };
   void Promise.allSettled([
-    ownedHost ? ownedHost.close() : service.close(),
-    harnessUpdates?.close(),
-    cloud?.close(),
+    closeWorkspace(),
     analytics?.close(),
     profiles.flush(),
     localClient?.flush(),

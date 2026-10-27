@@ -32,7 +32,11 @@ import {
 } from "../../shared/contracts/cloud-sync";
 
 /** Native cloud actions have their own main-frame boundary; no tokens cross IPC. */
-export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
+export function registerCloudIPC(
+  cloud: CloudAPI,
+  rendererURL: string,
+  workspace: WorkspaceService,
+) {
   function endpoint<I extends unknown[], O>(
     input: z.ZodType<I>,
     output: z.ZodType<O>,
@@ -98,7 +102,7 @@ export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
   for (const [name, invoke] of Object.entries(actions))
     ipcMain.handle(`tidy:cloud-${name}`, async (event, ...args: unknown[]) => {
       if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
-      return invoke(args);
+      return workspace.dispatch<unknown>(() => invoke(args));
     });
   return cloud.onState((state) => {
     for (const window of BrowserWindow.getAllWindows())

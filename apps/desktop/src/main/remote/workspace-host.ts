@@ -198,8 +198,9 @@ export async function ensureWorkspaceHost({
         service: owned.service,
         close() {
           closing ??= (async () => {
+            const deadline = Date.now() + (drainTimeoutMs ?? 30_000);
             await host.close();
-            await owned.service.close();
+            await owned.service.close(Math.max(1, deadline - Date.now()));
             await rm(join(directory, "runtime.json"), { force: true });
             owned.release();
             releaseHost();
