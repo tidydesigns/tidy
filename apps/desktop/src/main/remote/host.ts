@@ -29,7 +29,40 @@ export function createRemoteHost({
   let draining = false;
   let inflight = 0;
   const alive = new WeakSet<WebSocket>();
-  const clients = new Map<WebSocket, { clientId: string; token: string }>();
+  const clients = new Map<
+    WebSocket,
+    {
+      clientId: string;
+      token: string;
+      writes: Promise<void>;
+      queuedBytes: number;
+    }
+  >();
+  const send = (client: WebSocket, value: unknown) => {
+    const auth = clients.get(client);
+    if (!auth || client.readyState !== WebSocket.OPEN) return;
+    const data = JSON.stringify(value);
+    const bytes = Buffer.byteLength(data);
+    if (auth.queuedBytes + client.bufferedAmount + bytes > MAX_REMOTE_BYTES) {
+      client.terminate();
+      return;
+    }
+    auth.queuedBytes += bytes;
+    auth.writes = auth.writes
+      .then(async () => {
+        try {
+          if (client.readyState !== WebSocket.OPEN || clients.get(client) !== auth) return;
+          if (!(await sessions.validate(auth.clientId, auth.token))) {
+            client.terminate();
+            return;
+          }
+          if (client.readyState === WebSocket.OPEN) client.send(data);
+        } finally {
+          auth.queuedBytes -= bytes;
+        }
+      })
+      .catch(() => client.terminate());
+  };
   const tickets = new Map<string, { clientId: string; token: string; expires: number }>();
   const requests = createWorkspaceRequests<RemoteRequest>(service, {
     chooseProject: async ({ projectPath }) => {
@@ -127,23 +160,12 @@ export function createRemoteHost({
           return;
         }
         sockets.handleUpgrade(request, socket, head, (client) => {
-          clients.set(client, ticket);
+          clients.set(client, { ...ticket, writes: Promise.resolve(), queuedBytes: 0 });
           alive.add(client);
           client.on("pong", () => alive.add(client));
           client.on("error", () => {});
           client.on("close", () => clients.delete(client));
-          const send = (value: unknown) => {
-            const data = JSON.stringify(value);
-            if (
-              client.bufferedAmount > MAX_REMOTE_BYTES ||
-              Buffer.byteLength(data) > MAX_REMOTE_BYTES
-            ) {
-              client.terminate();
-              return;
-            }
-            if (client.readyState === WebSocket.OPEN) client.send(data);
-          };
-          send({ type: "hello", protocol: 3, hostId: identity.hostId });
+          send(client, { type: "hello", protocol: 3, hostId: identity.hostId });
           let pending = 0;
           client.on("message", (data, binary) => {
             if (binary || ++pending > 64) {
@@ -168,7 +190,7 @@ export function createRemoteHost({
                   const response = await receipts.execute(ticket.clientId, request, () =>
                     requests.invoke(request.name, request.input, request),
                   );
-                  send({ type: "result", id: request.id, response });
+                  send(client, { type: "result", id: request.id, response });
                   return;
                 }
                 let result: unknown;
@@ -192,9 +214,13 @@ export function createRemoteHost({
                       })),
                   };
                 } else result = await requests.invoke(request.name, request.input, request);
-                send({ type: "result", id: request.id, response: { ok: true, data: result } });
+                send(client, {
+                  type: "result",
+                  id: request.id,
+                  response: { ok: true, data: result },
+                });
               } catch (error) {
-                send({
+                send(client, {
                   type: "result",
                   id: request.id,
                   response: {
@@ -213,12 +239,7 @@ export function createRemoteHost({
       .catch(() => socket.destroy());
   });
   const unsubscribe = service.subscribe((event) => {
-    const data = JSON.stringify({ type: "event", event });
-    for (const client of clients.keys()) {
-      if (client.bufferedAmount > MAX_REMOTE_BYTES || Buffer.byteLength(data) > MAX_REMOTE_BYTES)
-        client.terminate();
-      else if (client.readyState === WebSocket.OPEN) client.send(data);
-    }
+    for (const client of clients.keys()) send(client, { type: "event", event });
   });
   const heartbeat = setInterval(() => {
     for (const [client, auth] of clients)

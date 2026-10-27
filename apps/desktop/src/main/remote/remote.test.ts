@@ -16,7 +16,7 @@ import { RequestReceipts } from "./receipts";
 import { SessionStore } from "./session-store";
 
 import { type ConnectionStatus } from "../../shared/remote";
-import type { DesktopEvent } from "../../shared/contracts/desktop";
+import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
 
@@ -556,4 +556,47 @@ test("workspace reads bypass durable mutation receipts", async () => {
   });
   await client.operation("repository-context", { projectId: f.project.id });
   expect(await readdir(join(f.root, "receipts"))).toEqual(before);
+});
+
+test("revoked sockets receive no new workspace data while valid clients retain ordered updates", async () => {
+  const f = await fixture();
+  async function connect() {
+    const id = randomUUID(),
+      token = await f.sessions.issue(id);
+    const headers = { Authorization: `Bearer ${token}`, "X-Tidy-Client": id };
+    const response = await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers });
+    const { ticket } = z.object({ ticket: z.string() }).parse(await response.json());
+    const socket = new WebSocket(`${f.origin().replace("http:", "ws:")}/events?ticket=${ticket}`);
+    cleanups.push(() => socket.terminate());
+    await new Promise<void>((resolve, reject) => {
+      socket.once("message", () => resolve());
+      socket.once("error", reject);
+    });
+    const events: DesktopEvent[] = [];
+    socket.on("message", (data) => {
+      const frame = z
+        .object({ type: z.string(), event: z.unknown().optional() })
+        .parse(JSON.parse(data.toString()));
+      if (frame.type === "event") events.push(desktopEventSchema.parse(frame.event));
+    });
+    return { id, headers, socket, events };
+  }
+  const revoked = await connect(),
+    valid = await connect();
+  await f.sessions.revoke(revoked.id);
+  const closed = new Promise<void>((resolve) => revoked.socket.once("close", () => resolve()));
+  for (let index = 0; index < 3; index++) {
+    await f.store.createDesign(f.project.id);
+    await f.service.refreshDesigns(f.project.id);
+  }
+  await closed;
+  await until(() => valid.events.length === 3);
+  expect(revoked.events).toEqual([]);
+  expect(
+    valid.events.map((event) => (event.type === "designs" ? event.designs.length : -1)),
+  ).toEqual([1, 2, 3]);
+  expect(valid.socket.readyState).toBe(WebSocket.OPEN);
+  expect(
+    (await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers: valid.headers })).status,
+  ).toBe(200);
 });
