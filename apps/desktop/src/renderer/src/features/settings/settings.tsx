@@ -54,7 +54,9 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
       </aside>
       <main className="workspace settings-workspace" aria-labelledby="settings-title">
         <div className="settings-content">
-          <h1 id="settings-title">{page === "account" ? "Account" : page === "privacy" ? "Privacy" : "Remote machines"}</h1>
+          <h1 id="settings-title">
+            {page === "account" ? "Account" : page === "privacy" ? "Privacy" : "Remote machines"}
+          </h1>
           <section
             id="settings-account-panel"
             hidden={page !== "account"}

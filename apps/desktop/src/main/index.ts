@@ -12,7 +12,6 @@ import {
   nativeTheme,
   net,
   protocol,
-  powerMonitor,
   session,
   safeStorage,
   shell,
