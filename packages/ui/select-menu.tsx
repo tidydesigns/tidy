@@ -270,7 +270,7 @@ export function SelectMenu({
             )
               setOpen(false);
           }}
-          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl ${layout === "horizontal" ? "flex" : ""} ${menuClassName}`}
+          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl [app-region:no-drag] ${layout === "horizontal" ? "flex" : ""} ${menuClassName}`}
         >
           {menuHeader}
           <div className={menuSidebar ? "select-menu-columns" : "contents"}>
