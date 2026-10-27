@@ -120,6 +120,7 @@ async function fixture() {
     sessions,
     origin: () => `http://127.0.0.1:${port}`,
     stopped: () => stopped,
+    closeHost: () => host.close(),
     async restart(identityChanged = false) {
       await host.close();
       identity = {
@@ -599,4 +600,53 @@ test("revoked sockets receive no new workspace data while valid clients retain o
   expect(
     (await fetch(`${f.origin()}/auth/ticket`, { method: "POST", headers: valid.headers })).status,
   ).toBe(200);
+});
+
+test("host shutdown drains accepted mutations and durable receipts before returning", async () => {
+  const f = await fixture();
+  let release = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let started = false;
+  const createDesign = f.store.createDesign.bind(f.store);
+  const intercepted = spyOn(f.store, "createDesign").mockImplementation(async (...args) => {
+    started = true;
+    await held;
+    return createDesign(...args);
+  });
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const result = client
+    .request("create-design", { projectId: f.project.id })
+    .catch(() => undefined);
+  try {
+    await until(() => started);
+    client.close();
+    let closed = false;
+    const first = f.closeHost();
+    const second = f.closeHost();
+    expect(first).toBe(second);
+    void first.then(() => {
+      closed = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(closed).toBe(false);
+    release();
+    await first;
+    expect((await f.store.designs(f.project.id)).length).toBe(1);
+    const receipts = new RequestReceipts(join(f.root, "receipts"));
+    const files = await readdir(join(f.root, "receipts"));
+    const completed = files.filter((name) => name.endsWith(".json"));
+    expect(completed.length).toBe(1);
+    const receipt = z.string().parse(completed[0]);
+    const clientId = z.string().uuid().parse(receipt.slice(0, 36));
+    const requestId = z.string().uuid().parse(receipt.slice(37, -5));
+    const status = await receipts.status(clientId, requestId);
+    expect(status.kind).toBe("complete");
+  } finally {
+    release();
+    intercepted.mockRestore();
+    await result;
+  }
 });

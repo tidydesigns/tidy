@@ -28,6 +28,8 @@ export function createRemoteHost({
 }) {
   let draining = false;
   let inflight = 0;
+  let finishRequests: (() => void) | undefined;
+  let closing: Promise<void> | undefined;
   const alive = new WeakSet<WebSocket>();
   const clients = new Map<
     WebSocket,
@@ -232,6 +234,7 @@ export function createRemoteHost({
             })().finally(() => {
               pending--;
               inflight--;
+              if (inflight === 0) finishRequests?.();
             });
           });
         });
@@ -266,14 +269,22 @@ export function createRemoteHost({
       receipts.start();
       return address.port;
     },
-    async close() {
-      clearInterval(heartbeat);
-      unsubscribe();
-      for (const client of clients.keys()) client.terminate();
-      sockets.close();
-      server.closeAllConnections();
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await receipts.close();
+    close() {
+      closing ??= (async () => {
+        draining = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+        for (const client of clients.keys()) client.terminate();
+        sockets.close();
+        server.closeAllConnections();
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+        if (inflight > 0)
+          await new Promise<void>((resolve) => {
+            finishRequests = resolve;
+          });
+        await receipts.close();
+      })();
+      return closing;
     },
   };
 }
