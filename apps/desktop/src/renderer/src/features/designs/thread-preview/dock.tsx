@@ -10,7 +10,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { SelectMenu } from "@tidy/ui/select-menu";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
+import { DocumentPreview } from "../preview-renderers";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { DesignPreviewCache } from "./cache";
 import { threadDesigns } from "./discovery";

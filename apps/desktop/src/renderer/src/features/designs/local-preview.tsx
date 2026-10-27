@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import { ThumbnailRenderer } from "@tidy/editor/components/files/thumbnail-renderer";
+import { ThumbnailRenderer } from "./preview-renderers";
 import { queueThumbnail } from "@tidy/editor/lib/thumbnail-queue";
 import type { DesktopAPI, DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
 import {

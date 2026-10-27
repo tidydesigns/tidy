@@ -27,6 +27,7 @@ import {
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { Icon } from "@tidy/editor/components/ui/icon";
+import { loadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
@@ -236,6 +237,16 @@ export function App() {
     () => (snapshot && !snapshot.project.cloud ? { ...snapshot, threads: [] } : undefined),
     [snapshot?.project, snapshot?.designs, snapshot?.folders],
   );
+  useEffect(() => {
+    if (!snapshot) return;
+    const task = window.requestIdleCallback(
+      () => {
+        void loadCanvasEditor().catch(() => {});
+      },
+      { timeout: 1500 },
+    );
+    return () => window.cancelIdleCallback(task);
+  }, [Boolean(snapshot)]);
   const selectedDesignId = project ? selectedDesigns[project.id] : null;
   const backToFiles = useCallback(() => {
     if (project) setSelectedDesigns((current) => ({ ...current, [project.id]: null }));

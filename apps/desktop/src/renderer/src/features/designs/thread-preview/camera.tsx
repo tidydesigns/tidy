@@ -7,7 +7,7 @@ import {
   useState,
   type RefObject,
 } from "react";
-import { DocumentPreview } from "@tidy/editor/components/files/document-preview";
+import { DocumentPreview } from "../preview-renderers";
 import { gestureZoomFactor } from "@tidy/editor/design/canvas-zoom";
 import type { LocalDesign } from "../../../../../shared/contracts/desktop";
 import {

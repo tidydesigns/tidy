@@ -114,6 +114,46 @@ test("creator avatars deduplicate across files, cache versions and isolate accou
   expect(reads).toBe(3);
 });
 
+test("cached thumbnails and avatars remain available while all image downloads are stalled", async () => {
+  const f = await fixture();
+  const image = "data:image/png;base64,iVBORw0KGgo=";
+  f.remote.thumbnail = async () => image;
+  f.remote.creatorAvatar = async () => image;
+  const fileId = randomUUID();
+  await f.cloud.thumbnail(fileId, "one");
+  await f.cloud.creatorAvatar(fileId, "creator", "one");
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let downloads = 0;
+  f.remote.thumbnail = async () => {
+    if (++downloads === 3) started.resolve();
+    await release.promise;
+    return image;
+  };
+  const pending = Array.from({ length: 3 }, () => f.cloud.thumbnail(randomUUID(), "one"));
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await started.promise;
+    const cached = Promise.all([
+      f.cloud.thumbnail(fileId, "one"),
+      f.cloud.creatorAvatar(fileId, "creator", "one"),
+    ]);
+    expect(
+      await Promise.race([
+        cached,
+        new Promise<null>((resolve) => {
+          deadline = setTimeout(() => resolve(null), 500);
+        }),
+      ]),
+    ).toEqual([image, image]);
+    expect(downloads).toBe(3);
+  } finally {
+    clearTimeout(deadline);
+    release.resolve();
+    await Promise.all(pending);
+  }
+});
+
 test("sign-out fences a cached avatar read before it reaches the renderer", async () => {
   const f = await fixture();
   f.remote.creatorAvatar = async () => "data:image/png;base64,iVBORw0KGgo=";

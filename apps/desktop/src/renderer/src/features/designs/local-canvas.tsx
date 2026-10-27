@@ -1,8 +1,24 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FileEditor, type CanvasViewportMemory } from "@tidy/editor";
+import {
+  lazy,
+  Suspense,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import type { CanvasViewportMemory } from "@tidy/editor";
+import { DocumentPreview } from "./preview-renderers";
+import { loadCanvasEditor } from "./load-canvas-editor";
 import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../../../shared/contracts/desktop";
+
+const FileEditor = lazy(() =>
+  loadCanvasEditor().then((module) => ({ default: module.FileEditor })),
+);
 
 export const LocalCanvas = memo(function LocalCanvas({
   api,
@@ -145,51 +161,57 @@ export const LocalCanvas = memo(function LocalCanvas({
 
   return (
     <EditorHostProvider value={host}>
-      <FileEditor
-        fileId={initial.id}
-        fileName={initial.name}
-        organizationName=""
-        backHref="#"
-        initialDocument={{ revision: 0, content: initial.document }}
-        initialPanelsOpen={initialPanelsOpen}
-        viewportMemory={viewportMemory}
-        local
-        statusControl={status}
-        active={active}
-        previewAssetUrls={assets}
-        externalDocument={external}
-        localPersistence={{
-          async loadLibrary(source) {
-            const id =
-              source
-                .trim()
-                .split("/")
-                .at(-1)
-                ?.replace(/\.json$/, "") ?? source;
-            const value = await api.readDesign(projectId, id);
-            setAssets((current) => ({ ...current, ...value.assets }));
-            return {
-              fileUid: value.id,
-              name: value.name,
-              revision: new Date(value.updatedAt).getTime(),
-              content: value.document,
-            };
-          },
-          commit: (document) => update({ document }),
-          rename: (name) => update({ name }),
-          async uploadAsset(file) {
-            const dataUrl = await new Promise<string>((resolve, reject) => {
-              const reader = new FileReader();
-              reader.onload = () => resolve(String(reader.result));
-              reader.onerror = () => reject(new Error("Could not read this image."));
-              reader.readAsDataURL(file);
-            });
-            const value = await api.uploadDesignAsset(projectId, dataUrl);
-            setAssets((current) => ({ ...current, [value.assetId]: value.url }));
-            return value;
-          },
-        }}
-      />
+      <Suspense
+        fallback={
+          <DocumentPreview content={initial.document} assetUrl={(id) => assets[id] ?? ""} />
+        }
+      >
+        <FileEditor
+          fileId={initial.id}
+          fileName={initial.name}
+          organizationName=""
+          backHref="#"
+          initialDocument={{ revision: 0, content: initial.document }}
+          initialPanelsOpen={initialPanelsOpen}
+          viewportMemory={viewportMemory}
+          local
+          statusControl={status}
+          active={active}
+          previewAssetUrls={assets}
+          externalDocument={external}
+          localPersistence={{
+            async loadLibrary(source) {
+              const id =
+                source
+                  .trim()
+                  .split("/")
+                  .at(-1)
+                  ?.replace(/\.json$/, "") ?? source;
+              const value = await api.readDesign(projectId, id);
+              setAssets((current) => ({ ...current, ...value.assets }));
+              return {
+                fileUid: value.id,
+                name: value.name,
+                revision: new Date(value.updatedAt).getTime(),
+                content: value.document,
+              };
+            },
+            commit: (document) => update({ document }),
+            rename: (name) => update({ name }),
+            async uploadAsset(file) {
+              const dataUrl = await new Promise<string>((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result));
+                reader.onerror = () => reject(new Error("Could not read this image."));
+                reader.readAsDataURL(file);
+              });
+              const value = await api.uploadDesignAsset(projectId, dataUrl);
+              setAssets((current) => ({ ...current, [value.assetId]: value.url }));
+              return value;
+            },
+          }}
+        />
+      </Suspense>
     </EditorHostProvider>
   );
 });
