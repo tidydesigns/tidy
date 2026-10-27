@@ -195,7 +195,7 @@ export function ThreadCard({
       </Button>
       {status !== "idle" && (
         <span
-          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-muted-ink"}`}
           role="status"
           aria-label={statusLabel}
           title={statusLabel}
@@ -203,8 +203,7 @@ export function ThreadCard({
           <span className="thread-status-symbol" aria-hidden="true">
             {status === "completed" ? (
               <svg viewBox="0 0 16 16">
-                <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
-                <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
+                <circle cx="8" cy="8" r="3.5" fill="currentColor" stroke="none" />
               </svg>
             ) : status === "running" ? (
               <span />
