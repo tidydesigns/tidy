@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseChatLink } from "../../shared/models/chat-links";
-import { openChatLink, openRemoteChatLink } from "./chat-links";
+import { openChatLink, openConnectedChatLink } from "./chat-links";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
@@ -169,7 +169,7 @@ test("the workspace bridge validates project identity and rejects extra request 
 test("remote web links open on the desktop without resolving a local project or file", async () => {
   const f = await fixture();
   for (const href of ["https://example.org/review", "mailto:hello@example.org"]) {
-    await openRemoteChatLink({
+    await openConnectedChatLink({
       input: { projectId: crypto.randomUUID(), href },
       platform: f.platform,
     });
@@ -191,7 +191,10 @@ test("remote chat links cannot reveal local files or launch unsupported protocol
     "https://user:secret@example.org",
   ]) {
     await expect(
-      openRemoteChatLink({ input: { projectId: crypto.randomUUID(), href }, platform: f.platform }),
+      openConnectedChatLink({
+        input: { projectId: crypto.randomUUID(), href },
+        platform: f.platform,
+      }),
     ).rejects.toThrow();
   }
   for (const input of [
@@ -199,8 +202,43 @@ test("remote chat links cannot reveal local files or launch unsupported protocol
     { projectId: "invalid", href: "https://example.org" },
     { projectId: crypto.randomUUID(), href: "https://example.org", extra: true },
   ]) {
-    await expect(openRemoteChatLink({ input, platform: f.platform })).rejects.toThrow();
+    await expect(openConnectedChatLink({ input, platform: f.platform })).rejects.toThrow();
   }
   expect(f.opened).toEqual([]);
   expect(f.revealed).toEqual([]);
+});
+
+test("reused local backend file links use its project root and retain path confinement", async () => {
+  const f = await fixture();
+  const projectId = crypto.randomUUID();
+  let lookups = 0;
+  const getLocalProjectRoot = async (id: string) => {
+    expect(id).toBe(projectId);
+    lookups++;
+    return f.root;
+  };
+  await openConnectedChatLink({
+    input: { projectId, href: "https://example.org/review" },
+    platform: f.platform,
+    getLocalProjectRoot,
+  });
+  expect(lookups).toBe(0);
+  await openConnectedChatLink({
+    input: { projectId, href: "button%20%231.tsx:3" },
+    platform: f.platform,
+    getLocalProjectRoot,
+  });
+  expect(f.revealed).toEqual([f.file]);
+  const outside = join(f.directory, "private.ts");
+  await writeFile(outside, "private");
+  await symlink(outside, join(f.root, "linked.ts"));
+  for (const href of ["../private.ts", "linked.ts", "missing.ts"])
+    await expect(
+      openConnectedChatLink({
+        input: { projectId, href },
+        platform: f.platform,
+        getLocalProjectRoot,
+      }),
+    ).rejects.toThrow();
+  expect(f.revealed).toEqual([f.file]);
 });

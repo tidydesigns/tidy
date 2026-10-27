@@ -1,4 +1,4 @@
-import { openRemoteChatLink } from "../workspace/chat-links";
+import { openConnectedChatLink } from "../workspace/chat-links";
 import { discoverTailnet } from "../remote/tailscale";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { basename } from "node:path";
@@ -342,7 +342,21 @@ export function registerWorkspaceIPC(
       trusted(event);
       const client = clientFor(event, scope);
       if (client && name === "open-chat-link") {
-        await openRemoteChatLink({ input, platform });
+        await openConnectedChatLink({
+          input,
+          platform,
+          getLocalProjectRoot:
+            scope === undefined || scope === "local"
+              ? async (projectId) => {
+                  const snapshot = projectSnapshotSchema.parse(
+                    await client.operation("project-snapshot", projectId),
+                  );
+                  if (snapshot.project.id !== projectId)
+                    throw new Error("The project identity does not match.");
+                  return snapshot.project.path;
+                }
+              : undefined,
+        });
         return { ok: true, data: undefined };
       }
       if (client && name !== "harness-usage-page") {

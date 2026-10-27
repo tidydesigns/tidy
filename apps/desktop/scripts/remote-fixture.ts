@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { copyFile, chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, chmod, mkdir, mkdtemp, rm, writeFile, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -178,8 +178,9 @@ async function run() {
   });
   let openedTarget: string | null = null;
   let forgotten = false;
+  let reuseLocalBackend = false;
   registerWorkspaceIPC(localService, APP_URL, {
-    get: () => undefined,
+    get: () => (reuseLocalBackend ? client : undefined),
     getMachine: (id) => (id === machine.id ? client : undefined),
     list: () => [
       { id: "local", label: "This machine", status: null },
@@ -320,6 +321,11 @@ async function run() {
     );
     const openedLinks: string[] = [];
     const openExternal = shell.openExternal;
+    const showItemInFolder = shell.showItemInFolder;
+    const revealedFiles: string[] = [];
+    shell.showItemInFolder = (path) => {
+      revealedFiles.push(path);
+    };
     shell.openExternal = async (url) => {
       openedLinks.push(url);
     };
@@ -331,8 +337,21 @@ async function run() {
           evaluate(`remoteApi.openChatLink('${project.id}', ${JSON.stringify(href)})`),
         );
       assert.equal(openedLinks.length, 1);
+      const file = join(project.path, "reused-backend.ts");
+      await writeFile(file, "export const ready = true;");
+      reuseLocalBackend = true;
+      await evaluate(`window.tidy.openChatLink('${project.id}', 'reused-backend.ts:2')`);
+      await evaluate(`localApi.openChatLink('${project.id}', 'reused-backend.ts:2')`);
+      assert.deepEqual(revealedFiles, [await realpath(file), await realpath(file)]);
+      await assert.rejects(
+        evaluate(`remoteApi.openChatLink('${project.id}', 'reused-backend.ts:2')`),
+      );
+      await assert.rejects(evaluate(`localApi.openChatLink('${project.id}', '../private.ts')`));
+      assert.equal(revealedFiles.length, 2);
     } finally {
+      reuseLocalBackend = false;
       shell.openExternal = openExternal;
+      shell.showItemInFolder = showItemInFolder;
     }
     await evaluate(`remoteApi.harnessDetails('${project.id}', 'codex', false)`);
     await evaluate(`remoteApi.setThreadSettings('${project.id}', '${threadId}', {})`);
