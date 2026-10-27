@@ -610,3 +610,36 @@ test("failed project registration and recovery release only their own claims", a
   await store.recover();
   expect(claims.get(f.root)).toBe(1);
 });
+
+test("recovery rolls back one shared claim after reading storage and a failed checkpoint", async () => {
+  const f = await fixture();
+  const project = await f.store.register(f.root);
+  const running = thread(project.id);
+  await f.store.writeThread(running);
+  let claims = 0;
+  let held = 0;
+  const recovered = new ProjectStore(join(f.directory, "app-data"), undefined, () => {
+    claims++;
+    held++;
+    return () => {
+      held--;
+    };
+  });
+  await recovered.initialize();
+  const checkpoint = spyOn(recovered, "writeThread").mockRejectedValue(new Error("Disk full"));
+  await recovered.recover();
+  expect(checkpoint).toHaveBeenCalledTimes(1);
+  expect(claims).toBe(1);
+  expect(held).toBe(0);
+  checkpoint.mockRestore();
+  await recovered.recover();
+  expect(claims).toBe(2);
+  expect(held).toBe(1);
+  for (let index = 0; index < 10; index++) {
+    expect((await recovered.readThread(project.id, running.id)).status).toBe("interrupted");
+    await recovered.snapshot(project.id);
+    await recovered.register(f.root);
+  }
+  expect(claims).toBe(2);
+  expect(held).toBe(1);
+});

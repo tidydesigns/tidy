@@ -75,6 +75,10 @@ export class ProjectStore {
   private summaryCache = new Map<string, DesignFileSummary>();
   private designReads = new Map<string, Promise<ParsedDesignFile>>();
 
+  private storageClaims = new Map<
+    string,
+    { release(): void; pending: number; retained: boolean }
+  >();
   private authority: ThreadAuthority;
   constructor(
     private directory: string,
@@ -82,6 +86,30 @@ export class ProjectStore {
     private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+  }
+
+  private storageClaim(path: string) {
+    let claim = this.storageClaims.get(path);
+    if (!claim) {
+      claim = { release: this.claimProject(path), pending: 0, retained: false };
+      this.storageClaims.set(path, claim);
+    }
+    return claim;
+  }
+
+  private reserveStorage(path: string) {
+    const claim = this.storageClaim(path);
+    claim.pending++;
+    let finished = false;
+    return (retain: boolean) => {
+      if (finished) return;
+      finished = true;
+      claim.retained ||= retain;
+      if (--claim.pending === 0 && !claim.retained) {
+        claim.release();
+        this.storageClaims.delete(path);
+      }
+    };
   }
 
   async initialize() {
@@ -125,7 +153,7 @@ export class ProjectStore {
       openedAt: new Date().toISOString(),
       ...(cloudName ? { cloud: true } : {}),
     };
-    const release = this.claimProject(path);
+    const finishClaim = this.reserveStorage(path);
     try {
       await this.prepare(project);
       const metadataPath = join(path, ".tidy", "project.json");
@@ -171,9 +199,10 @@ export class ProjectStore {
         if (this.registry === nextRegistry) this.registry = previousRegistry;
         throw error;
       }
+      finishClaim(true);
       return project;
     } catch (error) {
-      release();
+      finishClaim(false);
       throw error;
     }
   }
@@ -233,7 +262,6 @@ export class ProjectStore {
     const project = this.project(projectId);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
-    this.claimProject(project.path);
     for (const directory of [join(project.path, ".tidy"), join(project.path, ".tidy", kind)]) {
       const info = await lstat(directory);
       if (!info.isDirectory() || info.isSymbolicLink())
@@ -250,6 +278,8 @@ export class ProjectStore {
         if (!missing(error)) throw error;
       }
     }
+    const claim = this.storageClaim(project.path);
+    if (claim.pending === 0) claim.retained = true;
     return path;
   }
 
@@ -728,9 +758,9 @@ export class ProjectStore {
 
   async recover() {
     for (const project of this.projects) {
-      let release: (() => void) | undefined;
+      let finishClaim: ((retain: boolean) => void) | undefined;
       try {
-        release = this.claimProject(await realpath(project.path));
+        finishClaim = this.reserveStorage(await realpath(project.path));
         await this.prepare(project);
         const summaries = await this.threadSummaries(project.id);
         for (const summary of summaries) {
@@ -749,8 +779,9 @@ export class ProjectStore {
               "The backend stopped during this run. Check the workspace before sending a message to continue.",
           });
         }
+        finishClaim(true);
       } catch {
-        release?.();
+        finishClaim?.(false);
         /* A removable or renamed project can be opened again later. */
       }
     }
