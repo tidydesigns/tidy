@@ -1,3 +1,4 @@
+import type { ComponentProps } from "react";
 import { lazyView } from "../../components/lazy-view";
 
 export const DocumentPreview = lazyView(
@@ -14,6 +15,26 @@ export const ThumbnailRenderer = lazyView(
   {
     label: "thumbnail",
     fallback: () => null,
+    errorFallback: null,
+    onError: (props, error) => props.onError(error),
+  },
+);
+
+type ArtworkProps = ComponentProps<typeof DocumentPreview> & { onError(error: unknown): void };
+
+export const PreviewArtwork = lazyView(
+  async () => {
+    const { DocumentPreview } = await import("@tidy/editor/components/files/document-preview");
+    return {
+      default: function Artwork(props: ArtworkProps) {
+        return <DocumentPreview {...props} />;
+      },
+    };
+  },
+  {
+    label: "design preview",
+    fallback: () => <span className="text-xs text-muted-ink">Loading preview…</span>,
+    errorFallback: <span className="text-xs text-muted-ink">Preview unavailable</span>,
     onError: (props, error) => props.onError(error),
   },
 );

@@ -229,6 +229,23 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Load failure was not reported",
     );
     check(host.contains(neighbor) && neighbor.textContent === "1", "Failure reset adjacent UI");
+    const clickButton = (name: string) =>
+      required(
+        [...host.querySelectorAll("button")].find((button) => button.textContent === name),
+        name,
+      ).click();
+    clickButton("Reload app");
+    check(
+      host.querySelector('dialog[open][aria-label="Reload app?"]'),
+      "Reload skipped confirmation",
+    );
+    check(
+      host.contains(neighbor) && neighbor.textContent === "1",
+      "Opening confirmation changed app state",
+    );
+    clickButton("Cancel");
+    check(!host.querySelector("dialog[open]"), "Cancel left confirmation open");
+    check(host.contains(neighbor) && neighbor.textContent === "1", "Cancel changed app state");
     flushSync(() => root.render(<Fixture value="updated" />));
     required(
       [...host.querySelectorAll("button")].find(
