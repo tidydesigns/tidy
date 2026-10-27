@@ -16,9 +16,9 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         <h1>Privacy policy</h1>
         <p className="policy-date">Last updated: 26 October 2026</p>
         <p>
-          This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login and connected
-          features. Sean Dowdall, an individual based in Ireland, operates Tidy and is the
-          controller for account administration, security, support and the PostHog processing
+          This notice covers tidydesign.co, the hosted and desktop Tidy apps, registration, login
+          and connected features. Sean Dowdall, an individual based in Ireland, operates Tidy and is
+          the controller for account administration, security, support and the PostHog processing
           described below. Contact <a href="mailto:sean@tidydesign.co">sean@tidydesign.co</a> about
           privacy.
         </p>
