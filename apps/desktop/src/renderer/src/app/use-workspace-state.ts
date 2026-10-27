@@ -81,20 +81,21 @@ export function useWorkspaceState({
         const value = event.thread;
         setThreads((current) => {
           const previous = current[value.id];
-          if (event.type === "thread-patch")
-            return previous
-              ? { ...current, [value.id]: applyThreadPatch(previous, event) }
-              : current;
-          return {
-            ...current,
-            [value.id]: (previous?.revision ?? -1) > value.revision ? previous : event.thread,
-          };
+          if (event.type === "thread-patch") {
+            if (!previous) return current;
+            const next = applyThreadPatch(previous, event);
+            return next === previous ? current : { ...current, [value.id]: next };
+          }
+          if (previous && previous.revision > value.revision) return current;
+          return { ...current, [value.id]: event.thread };
         });
       }
       const projectId = event.type === "designs" ? event.projectId : event.thread.projectId;
       setSnapshots((current) => {
         const entry = current[projectId];
-        return entry ? { ...current, [projectId]: applyProjectEvent(entry, event) } : current;
+        if (!entry) return current;
+        const next = applyProjectEvent(entry, event);
+        return next === entry ? current : { ...current, [projectId]: next };
       });
     });
     const initialNavigation = navigation.current;
