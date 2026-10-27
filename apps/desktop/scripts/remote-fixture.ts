@@ -4,7 +4,7 @@ import { copyFile, chmod, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { app, BrowserWindow, net, protocol } from "electron";
+import { app, BrowserWindow, net, protocol, shell } from "electron";
 import { ProjectStore } from "../src/main/workspace/project-store";
 import { WorkspaceService } from "../src/main/workspace/workspace-service";
 import { registerWorkspaceIPC } from "../src/main/ipc/ipc";
@@ -318,6 +318,22 @@ async function run() {
       ),
       "Local thread demo",
     );
+    const openedLinks: string[] = [];
+    const openExternal = shell.openExternal;
+    shell.openExternal = async (url) => {
+      openedLinks.push(url);
+    };
+    try {
+      await evaluate(`remoteApi.openChatLink('${project.id}', 'https://example.org/review')`);
+      assert.deepEqual(openedLinks, ["https://example.org/review"]);
+      for (const href of ["file:///etc/passwd", "src/main.ts:2", "javascript:alert(1)"])
+        await assert.rejects(
+          evaluate(`remoteApi.openChatLink('${project.id}', ${JSON.stringify(href)})`),
+        );
+      assert.equal(openedLinks.length, 1);
+    } finally {
+      shell.openExternal = openExternal;
+    }
     await evaluate(`remoteApi.harnessDetails('${project.id}', 'codex', false)`);
     await evaluate(`remoteApi.setThreadSettings('${project.id}', '${threadId}', {})`);
     await evaluate(`remoteApi.setThreadDone('${project.id}', '${threadId}', true)`);

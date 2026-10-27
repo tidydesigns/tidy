@@ -1,3 +1,4 @@
+import { openRemoteChatLink } from "../workspace/chat-links";
 import { discoverTailnet } from "../remote/tailscale";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { basename } from "node:path";
@@ -340,6 +341,10 @@ export function registerWorkspaceIPC(
     try {
       trusted(event);
       const client = clientFor(event, scope);
+      if (client && name === "open-chat-link") {
+        await openRemoteChatLink({ input, platform });
+        return { ok: true, data: undefined };
+      }
       if (client && name !== "harness-usage-page") {
         const file = name === "import-design" ? await platform.chooseDesign(event) : undefined;
         if (name === "import-design" && !file) return { ok: true, data: null };

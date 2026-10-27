@@ -9,7 +9,7 @@ import { harnessSettingsSchema } from "../../shared/contracts/harness-settings";
 import { checkHarnesses } from "../harnesses/harnesses";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { messageDeliverySchema, queueRequestSchema } from "../../shared/contracts/message-queue";
-import { openChatLink } from "../workspace/chat-links";
+import { chatLinkRequestSchema, openChatLink } from "../workspace/chat-links";
 
 export type WorkspacePlatform<Context> = {
   chooseProject(context: Context): Promise<string | null>;
@@ -122,11 +122,8 @@ export function createWorkspaceRequests<Context>(
             : "https://claude.ai/settings/usage",
       ),
   );
-  handle(
-    "open-chat-link",
-    z.object({ projectId, href: z.string().min(1).max(4096) }).strict(),
-    (value) =>
-      openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
+  handle("open-chat-link", chatLinkRequestSchema, (value) =>
+    openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
   );
   handle(
     "thread-settings",

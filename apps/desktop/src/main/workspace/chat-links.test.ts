@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseChatLink } from "../../shared/models/chat-links";
-import { openChatLink } from "./chat-links";
+import { openChatLink, openRemoteChatLink } from "./chat-links";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
@@ -164,4 +164,43 @@ test("the workspace bridge validates project identity and rejects extra request 
   } finally {
     await service.close();
   }
+});
+
+test("remote web links open on the desktop without resolving a local project or file", async () => {
+  const f = await fixture();
+  for (const href of ["https://example.org/review", "mailto:hello@example.org"]) {
+    await openRemoteChatLink({
+      input: { projectId: crypto.randomUUID(), href },
+      platform: f.platform,
+    });
+  }
+  expect(f.opened).toEqual(["https://example.org/review", "mailto:hello@example.org"]);
+  expect(f.revealed).toEqual([]);
+});
+
+test("remote chat links cannot reveal local files or launch unsupported protocols", async () => {
+  const f = await fixture();
+  for (const href of [
+    f.file,
+    "button.tsx:3",
+    "file:///etc/passwd",
+    "../private.ts",
+    "javascript:alert(1)",
+    "data:text/html,test",
+    "vscode://file/project/a.ts",
+    "https://user:secret@example.org",
+  ]) {
+    await expect(
+      openRemoteChatLink({ input: { projectId: crypto.randomUUID(), href }, platform: f.platform }),
+    ).rejects.toThrow();
+  }
+  for (const input of [
+    null,
+    { projectId: "invalid", href: "https://example.org" },
+    { projectId: crypto.randomUUID(), href: "https://example.org", extra: true },
+  ]) {
+    await expect(openRemoteChatLink({ input, platform: f.platform })).rejects.toThrow();
+  }
+  expect(f.opened).toEqual([]);
+  expect(f.revealed).toEqual([]);
 });
