@@ -1089,6 +1089,10 @@ export class WorkspaceService {
     await this.store.flush();
   }
 
+  get activeRunCount() {
+    return this.jobs.size + this.starting.size;
+  }
+
   async close() {
     this.closing = "quit";
     for (const watcher of this.watchers.values()) watcher.close();

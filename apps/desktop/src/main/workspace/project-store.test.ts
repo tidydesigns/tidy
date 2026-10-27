@@ -207,6 +207,9 @@ test("project designs and threads survive restart and moving the directory", asy
   const design = await store.createDesign(first.project.id);
   const conversation = thread(first.project.id);
   conversation.designIds = [design.id];
+  conversation.pendingApprovals = [
+    { id: "expired", title: "Run command", choices: ["allow", "deny"] },
+  ];
   conversation.toolActivities = ["running", "completed", "failed"].map((status) => ({
     id: randomUUID(),
     afterMessageId: conversation.messages[0].id,
@@ -224,6 +227,8 @@ test("project designs and threads survive restart and moving the directory", asy
   expect(reopened.activeProjectId).toBe(first.project.id);
   const recovered = await reopened.readThread(first.project.id, conversation.id);
   expect(recovered.status).toBe("interrupted");
+  expect(recovered).not.toHaveProperty("pendingApprovals");
+  expect(recovered.revision).toBe(conversation.revision + 1);
   expect(recovered.sessionId).toBe(conversation.sessionId);
   expect(recovered.designIds).toEqual([design.id]);
   expect(recovered.toolActivities?.map((tool) => tool.status)).toEqual([

@@ -79,6 +79,7 @@ export class ProjectStore {
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
+    private claimProject: (path: string) => void = () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
   }
@@ -124,6 +125,7 @@ export class ProjectStore {
       openedAt: new Date().toISOString(),
       ...(cloudName ? { cloud: true } : {}),
     };
+    this.claimProject(path);
     await this.prepare(project);
     const metadataPath = join(path, ".tidy", "project.json");
     try {
@@ -214,6 +216,7 @@ export class ProjectStore {
     const project = this.project(projectId);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
+    this.claimProject(project.path);
     for (const directory of [join(project.path, ".tidy"), join(project.path, ".tidy", kind)]) {
       const info = await lstat(directory);
       if (!info.isDirectory() || info.isSymbolicLink())
@@ -709,6 +712,7 @@ export class ProjectStore {
   async recover() {
     for (const project of this.projects) {
       try {
+        this.claimProject(await realpath(project.path));
         await this.prepare(project);
         const summaries = await this.threadSummaries(project.id);
         for (const summary of summaries) {
@@ -717,11 +721,14 @@ export class ProjectStore {
           await this.writeThread({
             ...thread,
             status: "interrupted",
+            revision: thread.revision + 1,
+            pendingApprovals: undefined,
             activity: undefined,
             toolActivities: thread.toolActivities?.map((tool) =>
               tool.status === "running" ? { ...tool, status: "interrupted" as const } : tool,
             ),
-            error: "The app closed during this run. Send a message to continue.",
+            error:
+              "The backend stopped during this run. Check the workspace before sending a message to continue.",
           });
         }
       } catch {

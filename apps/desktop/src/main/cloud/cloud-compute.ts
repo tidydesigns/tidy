@@ -3,6 +3,8 @@ import type { DesignDocument } from "@tidy/design/document";
 import type { DocumentPatch } from "@tidy/editor/design/document-patch";
 import type { ParsedDesignFile, DesignFileSummary } from "../workspace/design-file";
 
+declare const TIDY_COMPUTE_WORKER_SOURCE: string | undefined;
+
 export type ComputeRequest = { id: number } & (
   | { kind: "equal" | "diff"; before: DesignDocument; after: DesignDocument }
   | { kind: "remap"; document: DesignDocument; aliases: Record<string, string> }
@@ -26,12 +28,14 @@ export class CloudCompute {
   ): Promise<T> {
     if (!this.worker) {
       const worker = new Worker(
-        new URL(
-          import.meta.url.endsWith(".ts")
-            ? "./cloud-compute-worker.ts"
-            : "./cloud-compute-worker.js",
-          import.meta.url,
-        ),
+        typeof TIDY_COMPUTE_WORKER_SOURCE === "string"
+          ? new URL(TIDY_COMPUTE_WORKER_SOURCE)
+          : new URL(
+              import.meta.url.endsWith(".ts")
+                ? "./cloud-compute-worker.ts"
+                : "./cloud-compute-worker.js",
+              import.meta.url,
+            ),
       );
       this.worker = worker;
       worker.on("message", (message: { id: number; value?: unknown; error?: string }) => {

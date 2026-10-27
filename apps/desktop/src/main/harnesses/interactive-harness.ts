@@ -1,3 +1,4 @@
+import { agentSupervisor } from "../remote/agent-supervisor";
 import { skillCommand } from "../../shared/contracts/skills";
 import type { SkillInvocation } from "./harness-skills";
 import { version } from "../../../package.json";
@@ -43,6 +44,7 @@ export function startInteractiveHarness(input: {
   settings?: HarnessSettings;
   images?: Array<{ path: string; mimeType: string; data: string }>;
   onUpdate: (update: HarnessUpdate) => void;
+  superviseParent?: boolean;
 }): RunningHarness {
   const codex = input.harness === "codex";
   let deliveryState: NonNullable<RunningHarness["deliveryState"]> = "not-submitted";
@@ -67,7 +69,13 @@ export function startInteractiveHarness(input: {
         ...(input.settings?.model ? ["--model", input.settings.model] : []),
         ...(input.settings?.effort ? ["--effort", input.settings.effort] : []),
       ];
-  const child = spawn(input.executable, args, {
+  const supervised =
+    input.superviseParent && (process.platform === "linux" || process.platform === "darwin");
+  const executable = supervised ? process.execPath : input.executable;
+  const launchArgs = supervised
+    ? ["-e", agentSupervisor, String(process.pid), input.executable, ...args]
+    : args;
+  const child = spawn(executable, launchArgs, {
     cwd: input.cwd,
     env: harnessEnvironment(),
     stdio: "pipe",
