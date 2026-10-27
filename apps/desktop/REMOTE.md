@@ -174,7 +174,7 @@ agent execution, reconnect without duplicate execution, and authentication recov
 
 Workspace requests carry a stable saved machine ID through validated IPC. Unknown machines are
 rejected rather than falling back to local execution. Events carry the same machine ID. The
-connection layer separately pins backend identity. Renderer integration is intentionally deferred.
+connection layer separately pins backend identity. Remote project and thread selection UI is intentionally deferred.
 
 Physical sleep/wake, platform-specific behavior and actual tailnet policies still require
 cross-device testing.

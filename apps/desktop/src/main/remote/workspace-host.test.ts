@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
+import { preparedHostSchema, runtimeSchema, hostDescriptorSchema } from "../../shared/remote";
 import { migrateWorkspaceRegistry } from "./workspace-host";
 const cleanup: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => {
@@ -201,4 +202,55 @@ test("a stalled shutdown fails within its deadline while retaining workspace own
   });
   expect(errors).not.toContain("Error:");
   expect(code).toBe(0);
+}, 10000);
+
+test("source backend ensure forwards the TypeScript loader to its managed serve child", async () => {
+  const root = await mkdtemp(join(tmpdir(), "source-host-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const child = spawn("node", ["--import", "tsx", "scripts/host.ts", "ensure", randomUUID()], {
+    cwd: new URL("../../..", import.meta.url),
+    env: { ...process.env, TIDY_HOST_STATE: root },
+    stdio: "pipe",
+    timeout: 5000,
+    killSignal: "SIGKILL",
+  });
+  let output = "";
+  child.stdout.on("data", (chunk) => {
+    output += chunk.toString();
+  });
+  child.stderr.resume();
+  try {
+    const code = await new Promise<number | null>((resolve, reject) => {
+      child.once("exit", resolve);
+      child.once("error", reject);
+    });
+    expect(code).toBe(0);
+    const host = preparedHostSchema.parse(JSON.parse(output));
+    const response = await fetch(`http://127.0.0.1:${host.port}/health`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    expect(response.status).toBe(200);
+    expect(hostDescriptorSchema.parse(await response.json()).hostId).toBe(host.hostId);
+  } finally {
+    const runtime = await readFile(join(root, "runtime.json"), "utf8")
+      .then((data) => runtimeSchema.parse(JSON.parse(data)))
+      .catch((error: unknown) => {
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
+        throw error;
+      });
+    if (runtime) {
+      process.kill(runtime.pid, "SIGTERM");
+      let removed = false;
+      for (let attempt = 0; attempt < 100; attempt++) {
+        removed = await readFile(join(root, "runtime.json")).then(
+          () => false,
+          () => true,
+        );
+        if (removed) break;
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      if (!removed) process.kill(runtime.pid, "SIGKILL");
+      expect(removed).toBe(true);
+    }
+  }
 }, 10000);

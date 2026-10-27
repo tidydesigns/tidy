@@ -68,11 +68,15 @@ try {
       if (!runtime) {
         const log = await open(join(directory, "server.log"), "a", 0o600);
         try {
-          const child = spawn(process.execPath, [import.meta.filename, "serve", "--managed"], {
-            detached: true,
-            stdio: ["ignore", log.fd, log.fd],
-            env: process.env,
-          });
+          const child = spawn(
+            process.execPath,
+            [...process.execArgv, import.meta.filename, "serve", "--managed"],
+            {
+              detached: true,
+              stdio: ["ignore", log.fd, log.fd],
+              env: process.env,
+            },
+          );
           await new Promise<void>((resolve, reject) => {
             child.once("spawn", resolve);
             child.once("error", reject);

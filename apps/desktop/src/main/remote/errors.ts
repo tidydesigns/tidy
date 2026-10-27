@@ -44,7 +44,7 @@ export function sshFailure(message: string): RemoteFailure {
       "SSH authentication failed. Retry to enter fresh credentials.",
     );
   if (
-    /checksum|unsupported|automatic setup currently supports|install curl|no space left|disk quota|another installation|backend did not become ready|manual restart/i.test(
+    /checksum|unsupported|automatic setup (?:currently )?supports|separate installer|install curl|no space left|disk quota|another installation|backend did not become ready|manual restart/i.test(
       message,
     )
   )

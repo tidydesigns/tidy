@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { sshFailure } from "./errors";
 import { bootstrapScript } from "./bootstrap";
 
 const script = bootstrapScript({ bundle: Buffer.from("fixture"), clientId: randomUUID() });
@@ -47,4 +48,15 @@ test("unsupported remote systems fail before any installation changes", () => {
   });
   expect(result.status).toBe(1);
   expect(result.stderr).toContain("separate installer");
+  expect(sshFailure(result.stderr).kind).toBe("setup");
+});
+
+test("SSH network failures remain retryable while current and older installer errors block", () => {
+  for (const message of ["Connection refused", "Connection timed out", "Network is unreachable"])
+    expect(sshFailure(message).kind).toBe("unavailable");
+  for (const message of [
+    "Automatic setup currently supports macOS and Linux",
+    "This operating system needs a separate installer.",
+  ])
+    expect(sshFailure(message).kind).toBe("setup");
 });
