@@ -16,8 +16,8 @@ import { resolvedColorTokens, resolvedDocumentNodes } from "@tidy/design/design-
 import { useDocumentFonts } from "../../design/fonts/use-document-fonts";
 const hostedAssetUrl = (id: string) => `/api/assets/${id}`;
 export type PreviewViewport = { x: number; y: number; zoom: number; width: number; height: number };
-type Box = { x: number; y: number; width: number; height: number };
-function bounds(boxes: Box[]): Box {
+export type PreviewBounds = DesignNode["box"];
+function bounds(boxes: PreviewBounds[]): PreviewBounds {
   const left = Math.min(...boxes.map((box) => box.x));
   const top = Math.min(...boxes.map((box) => box.y));
   const right = Math.max(...boxes.map((box) => box.x + box.width));
@@ -34,7 +34,7 @@ export function DocumentPreview({
   content: DesignDocument;
   assetUrl?: (id: string) => string;
   viewport?: PreviewViewport;
-  onBounds?: (bounds: Box) => void;
+  onBounds?: (bounds: PreviewBounds) => void;
 }) {
   const element = useRef<SVGSVGElement>(null);
   const [measured, setMeasured] = useState<Map<string, { width: number; height: number }>>(
@@ -68,14 +68,17 @@ export function DocumentPreview({
     );
     const layers = [
       ...(element.current?.querySelectorAll<HTMLElement>("[data-thumbnail-node]") ?? []),
-    ].filter((layer) => automatic.has(layer.dataset.thumbnailNode!));
+    ].flatMap((layer) => {
+      const id = layer.dataset.thumbnailNode;
+      return id && automatic.has(id) ? [{ id, layer }] : [];
+    });
     const measure = () => {
       const next = new Map(
         layers
-          .map((layer) => {
+          .map(({ id, layer }) => {
             const style = getComputedStyle(layer);
             return [
-              layer.dataset.thumbnailNode!,
+              id,
               { width: parseFloat(style.width), height: parseFloat(style.height) },
             ] as const;
           })
@@ -93,7 +96,7 @@ export function DocumentPreview({
     };
     measure();
     const observer = new ResizeObserver(measure);
-    layers.forEach((layer) => observer.observe(layer));
+    layers.forEach(({ layer }) => observer.observe(layer));
     return () => observer.disconnect();
   }, [page]);
   const preview = useMemo(() => {
@@ -101,7 +104,7 @@ export function DocumentPreview({
     const roots = nodes.filter((node) => node.parentId === null && node.visible);
     if (!roots.length) return null;
     const children = childrenByParent(nodes);
-    const visibleBoxes: Box[] = [];
+    const visibleBoxes: PreviewBounds[] = [];
     function collect(node: DesignNode, x: number, y: number) {
       if (!node.visible) return;
       const size = measured.get(node.id) ?? node.box;
@@ -118,7 +121,6 @@ export function DocumentPreview({
         width: absolute.width + left + right,
         height: absolute.height + top + bottom,
       });
-      // Clipped descendants cannot enlarge the visible thumbnail area.
       if (
         node.style.overflow === "hidden" ||
         node.style.overflow === "auto" ||

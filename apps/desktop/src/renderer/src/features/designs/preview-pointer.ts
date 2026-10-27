@@ -1,4 +1,6 @@
-import { gestureMoved } from "./preview-navigation";
+export function gestureMoved(dx: number, dy: number) {
+  return Math.hypot(dx, dy) >= 5;
+}
 
 export function createPreviewPointerGesture() {
   let pointer: { id: number; x: number; y: number; moved: boolean; pan: boolean } | undefined;

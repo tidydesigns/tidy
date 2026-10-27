@@ -1,11 +1,13 @@
 import { wheelZoomFactor } from "@tidy/editor/design/canvas-zoom";
+import type {
+  PreviewViewport,
+  PreviewBounds,
+} from "@tidy/editor/components/files/document-preview";
 
-export type PreviewCamera = { x: number; y: number; zoom: number };
+export type PreviewCamera = Pick<PreviewViewport, "x" | "y" | "zoom">;
 export type PreviewCameraMemory = { current?: PreviewCamera };
-export type PreviewSize = { width: number; height: number };
-export type PreviewBounds = PreviewSize & { x: number; y: number };
-export const resizeEdges = ["n", "ne", "e", "se", "s", "sw", "w", "nw"] as const;
-export type ResizeEdge = (typeof resizeEdges)[number];
+export type PreviewSize = Pick<PreviewViewport, "width" | "height">;
+export type { PreviewBounds } from "@tidy/editor/components/files/document-preview";
 
 export function fitPreview(bounds: PreviewBounds, size: PreviewSize): PreviewCamera {
   const zoom = Math.min(size.width / bounds.width, size.height / bounds.height);
@@ -35,59 +37,4 @@ export function wheelPreview(
   return event.ctrlKey || event.metaKey
     ? zoomPreview(camera, cursor.x, cursor.y, wheelZoomFactor(event.deltaY * unit, true))
     : { ...camera, x: camera.x - event.deltaX * unit, y: camera.y - event.deltaY * unit };
-}
-
-export function gestureMoved(dx: number, dy: number) {
-  return Math.hypot(dx, dy) >= 5;
-}
-
-export function constrainGeometry(geometry: PreviewBounds, area: PreviewSize): PreviewBounds {
-  const width = Math.max(Math.min(220, area.width), Math.min(area.width, geometry.width));
-  const height = Math.max(Math.min(140, area.height), Math.min(area.height, geometry.height));
-  return {
-    width,
-    height,
-    x: Math.max(0, Math.min(area.width - width, geometry.x)),
-    y: Math.max(0, Math.min(area.height - height, geometry.y)),
-  };
-}
-
-export function resizeGeometry(
-  geometry: PreviewBounds,
-  edge: ResizeEdge,
-  dx: number,
-  dy: number,
-  area: PreviewSize,
-): PreviewBounds {
-  const left = edge.includes("w");
-  const top = edge.includes("n");
-  const width =
-    edge.includes("e") || left
-      ? Math.max(
-          Math.min(220, area.width),
-          Math.min(
-            left ? geometry.x + geometry.width : area.width - geometry.x,
-            geometry.width + (left ? -dx : dx),
-          ),
-        )
-      : geometry.width;
-  const height =
-    edge.includes("s") || top
-      ? Math.max(
-          Math.min(140, area.height),
-          Math.min(
-            top ? geometry.y + geometry.height : area.height - geometry.y,
-            geometry.height + (top ? -dy : dy),
-          ),
-        )
-      : geometry.height;
-  return constrainGeometry(
-    {
-      x: left ? geometry.x + geometry.width - width : geometry.x,
-      y: top ? geometry.y + geometry.height - height : geometry.y,
-      width,
-      height,
-    },
-    area,
-  );
 }

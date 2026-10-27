@@ -15,12 +15,13 @@ import { Dialog } from "@tidy/editor/components/ui/dialog";
 import { PreviewCamera } from "./preview-camera";
 import {
   constrainGeometry,
-  gestureMoved,
   resizeEdges,
   resizeGeometry,
   type ResizeEdge,
-  type PreviewCameraMemory,
-} from "./preview-navigation";
+  type PreviewWindowGeometry,
+} from "./preview-window-geometry";
+import type { PreviewCameraMemory } from "./preview-navigation";
+import { gestureMoved } from "./preview-pointer";
 import type { DesktopAPI, DesignSummary, LocalDesign } from "../../../../shared/contracts/desktop";
 import { LocalCanvas } from "./local-canvas";
 import type { CanvasViewportMemory } from "@tidy/editor";
@@ -47,7 +48,6 @@ const minimiseIcon = (
   </svg>
 );
 
-/** Align the live editor with the thumbnail before growing it into its full-size view. */
 function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, button: HTMLElement) {
   const rect = button.getBoundingClientRect();
   const transform = getComputedStyle(canvas).transform;
@@ -55,9 +55,9 @@ function compactCanvasTransform(surface: HTMLElement, canvas: HTMLElement, butto
   const contentBounds = canvas.getBoundingClientRect();
   const roots = button.querySelectorAll<HTMLElement>("foreignObject > div > [data-thumbnail-node]");
   for (const root of roots) {
-    const node = canvas.querySelector<HTMLElement>(
-      `[data-node-id="${CSS.escape(root.dataset.thumbnailNode!)}"]`,
-    );
+    const nodeId = root.dataset.thumbnailNode;
+    if (!nodeId) continue;
+    const node = canvas.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
     if (!node) continue;
     const source = root.getBoundingClientRect();
     const target = node.getBoundingClientRect();
@@ -155,7 +155,6 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
   const expanded = phase !== "closed";
   const ready = Boolean(summary && value?.id === summary.id);
 
-  // A read may finish after docking, switching windows, or leaving the thread.
   useLayoutEffect(
     () => () => {
       openRequest.current++;
@@ -169,28 +168,25 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     return () => window.cancelIdleCallback(idle);
   }, [ready, active, warm, floating, visited]);
 
-  const applyGeometry = useCallback(
-    (geometry: { x: number; y: number; width: number; height: number }) => {
-      const surface = frame.current;
-      const area = layer.current;
-      if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
-      const next = constrainGeometry(geometry, {
-        width: area.clientWidth,
-        height: area.clientHeight,
-      });
-      offset.current = { x: next.x, y: next.y };
-      width.current = next.width;
-      height.current = next.height;
-      Object.assign(surface.style, {
-        left: "0px",
-        top: "0px",
-        width: `${next.width}px`,
-        height: `${next.height}px`,
-        transform: `translate(${next.x}px, ${next.y}px)`,
-      });
-    },
-    [],
-  );
+  const applyGeometry = useCallback((geometry: PreviewWindowGeometry) => {
+    const surface = frame.current;
+    const area = layer.current;
+    if (!surface || !area || !area.clientWidth || !area.clientHeight) return;
+    const next = constrainGeometry(geometry, {
+      width: area.clientWidth,
+      height: area.clientHeight,
+    });
+    offset.current = { x: next.x, y: next.y };
+    width.current = next.width;
+    height.current = next.height;
+    Object.assign(surface.style, {
+      left: "0px",
+      top: "0px",
+      width: `${next.width}px`,
+      height: `${next.height}px`,
+      transform: `translate(${next.x}px, ${next.y}px)`,
+    });
+  }, []);
   const move = useCallback(
     (x: number, y: number) => {
       applyGeometry({ x, y, width: width.current, height: height.current });
@@ -394,7 +390,6 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     if (current.moved) {
       const dropped =
         !cancelled && current.kind === "move" && acceptsDock(event.clientX, event.clientY);
-      // A drag into the dock should reopen where the window was before that gesture.
       if (dropped) offset.current = { x: current.x, y: current.y };
       remember();
       if (dropped) onDock(summary.id);
@@ -421,9 +416,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
       (design) => {
         if (current) setValue(design);
       },
-      () => {
-        /* Keep the last valid frame during atomic writes. */
-      },
+      () => {},
     );
     return () => {
       current = false;
@@ -470,7 +463,6 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const content = canvas.current;
     const edge = transitionEdge.current;
     if (!surface || !button || !content || !edge) return;
-    // The editor normally warms during idle time; an immediate click can get there first.
     flushSync(() => setVisited(true));
     const epoch = ++generation.current;
     const rect = button.getBoundingClientRect();
@@ -624,9 +616,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
                     flushSync(() => setValue(design));
                     transition(true);
                   },
-                  () => {
-                    /* Leave the preview available for another explicit retry. */
-                  },
+                  () => {},
                 );
               }
             }

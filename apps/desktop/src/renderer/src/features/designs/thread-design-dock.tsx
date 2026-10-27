@@ -28,7 +28,6 @@ import type {
   Thread,
 } from "../../../../shared/contracts/desktop";
 import { ThreadDesignWindow } from "./thread-design-window";
-
 import type { PreviewCameraMemory } from "./preview-navigation";
 
 export type DockSlot = { x: number; y: number; width: number };
@@ -111,7 +110,8 @@ export function ThreadDesignDock({
       new Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>();
     viewports.delete(key);
     viewports.set(key, memory);
-    if (viewports.size > 40) viewports.delete(viewports.keys().next().value!);
+    const oldest = viewports.keys().next().value;
+    if (viewports.size > 40 && oldest !== undefined) viewports.delete(oldest);
     return memory;
   });
   const [state, setState] = useState<ThreadCanvasDock>(() => {
@@ -182,9 +182,7 @@ export function ThreadDesignDock({
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));
-    } catch {
-      /* Keep controls usable when storage is unavailable. */
-    }
+    } catch {}
   }, [key, state]);
   useEffect(() => {
     const target = home.current;
@@ -222,17 +220,17 @@ export function ThreadDesignDock({
     const area = layer.current;
     const target = home.current;
     if (!area || !target || !active || !summaries.length) return;
-    function measure() {
-      const anchor = target!.getBoundingClientRect();
+    const measure = () => {
+      const anchor = target.getBoundingClientRect();
       if (!anchor.width || !anchor.height) return;
-      const bounds = area!.getBoundingClientRect();
+      const bounds = area.getBoundingClientRect();
       const next = {
         x: anchor.left - bounds.left + (anchor.width - 28) / 2,
         y: anchor.top - bounds.top + (anchor.height - 28 / 1.5) / 2,
         width: 28,
       };
       setSlot((previous) => (previous?.x === next.x && previous?.y === next.y ? previous : next));
-    }
+    };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(target);

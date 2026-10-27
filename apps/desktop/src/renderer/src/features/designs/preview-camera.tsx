@@ -17,7 +17,6 @@ import {
   type PreviewBounds,
   type PreviewCameraMemory,
 } from "./preview-navigation";
-
 import { createPreviewPointerGesture } from "./preview-pointer";
 
 export const PreviewCamera = memo(function PreviewCamera({

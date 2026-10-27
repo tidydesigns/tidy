@@ -52,7 +52,6 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
   }
 }
 
-/** Introduce the first canvas once. Later discoveries never steal the active window. */
 export function discoverCanvases(state: ThreadCanvasDock, ids: string[]): ThreadCanvasDock {
   const added = ids.filter((id) => !state.ids.includes(id));
   if (!added.length) return state;

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createPreviewPointerGesture } from "./preview-pointer";
+import { createPreviewPointerGesture, gestureMoved } from "./preview-pointer";
 
 test("a canvas click tolerates pointer jitter and opens", () => {
   const gesture = createPreviewPointerGesture();
@@ -36,4 +36,10 @@ test("cancellation and capture loss suppress the gesture without poisoning the n
   expect(gesture.finish(1, true)).toBeUndefined();
   gesture.start(3, 0, 0, false);
   expect(gesture.finish(3, false)).toBe(false);
+});
+
+test("click tolerance distinguishes jitter from a completed drag", () => {
+  expect(gestureMoved(2, 2)).toBe(false);
+  expect(gestureMoved(3, 4)).toBe(true);
+  expect(gestureMoved(-6, 0)).toBe(true);
 });
