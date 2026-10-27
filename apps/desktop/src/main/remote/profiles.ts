@@ -56,7 +56,7 @@ export class MachineProfiles {
   }
   async setOpen(id: string, open: boolean) {
     const machine = this.values.find((value) => value.id === id);
-    if (!machine) return;
+    if (!machine) throw new Error("This connection was removed.");
     machine.restoreOnLaunch = open;
     await this.persist();
   }

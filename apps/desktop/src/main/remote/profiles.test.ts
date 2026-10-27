@@ -61,3 +61,17 @@ test("open remote windows persist across app restarts and explicit closure disab
   await closed.initialize();
   expect(closed.list()[0]?.restoreOnLaunch).toBe(false);
 });
+
+test("removing a profile during connection setup rejects its late open reservation", async () => {
+  const path = join(await fixture(), "machines.json");
+  const profiles = new MachineProfiles(path);
+  await profiles.initialize();
+  const pending = profiles.remember("user@home");
+  const machine = profiles.list()[0];
+  await profiles.forget(machine.id);
+  expect((await pending).id).toBe(machine.id);
+  await expect(profiles.setOpen(machine.id, true)).rejects.toThrow("connection was removed");
+  const restored = new MachineProfiles(path);
+  await restored.initialize();
+  expect(restored.list()).toEqual([]);
+});
