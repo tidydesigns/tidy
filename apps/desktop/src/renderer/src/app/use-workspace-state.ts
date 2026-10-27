@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { z } from "zod";
 import type {
   DesktopAPI,
@@ -33,7 +33,9 @@ export function useWorkspaceState({
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
   const currentThreads = useRef(threads);
-  currentThreads.current = threads;
+  useLayoutEffect(() => {
+    currentThreads.current = threads;
+  }, [threads]);
   const reads = useRef(new Map<string, Promise<Thread>>());
   const [designs, setDesigns] = useState<Record<string, LocalDesign>>({});
 

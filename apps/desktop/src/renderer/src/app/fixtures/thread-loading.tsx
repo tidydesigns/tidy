@@ -235,7 +235,14 @@ async function runThreadLoadingTests(): Promise<string[]> {
       viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight > 40,
       "Late message layout must move the bottom beyond the following threshold",
     );
-    viewport.dispatchEvent(new Event("scroll"));
+    await new Promise<void>((resolve) => {
+      const observer = new ResizeObserver(() => {
+        observer.disconnect();
+        viewport.dispatchEvent(new Event("scroll"));
+        resolve();
+      });
+      observer.observe(content);
+    });
     await until(
       () => viewport.querySelectorAll("article").length === a.messages.length,
       "Render cold thread response",

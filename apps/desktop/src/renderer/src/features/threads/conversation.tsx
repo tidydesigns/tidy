@@ -85,6 +85,7 @@ export const Conversation = memo(function Conversation({
   visible.current = active;
   const lastUser = useRef<string | undefined>(undefined);
   const frame = useRef(0);
+  const resizeFrame = useRef(0);
   const measureRef = useRef(() => {});
   const nodes = useRef(new Map<string, HTMLElement>());
   const [atEnd, setAtEnd] = useState(true);
@@ -182,8 +183,8 @@ export const Conversation = memo(function Conversation({
 
   useEffect(() => {
     const observer = new ResizeObserver(() => {
-      cancelAnimationFrame(frame.current);
-      frame.current = requestAnimationFrame(() => {
+      cancelAnimationFrame(resizeFrame.current);
+      resizeFrame.current = requestAnimationFrame(() => {
         if (!visible.current) return;
         if (following.current && viewport.current) scrollTo(viewport.current.scrollHeight);
         measureRef.current();
@@ -193,6 +194,7 @@ export const Conversation = memo(function Conversation({
     if (viewport.current) observer.observe(viewport.current);
     return () => {
       observer.disconnect();
+      cancelAnimationFrame(resizeFrame.current);
       cancelAnimationFrame(frame.current);
     };
   }, []);
