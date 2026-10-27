@@ -13,6 +13,85 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-27",
+    features: [
+      {
+        title: "More ways to work with connected agents",
+        details:
+          "Connected agents can create pages, read your current selection and viewport, and work with canvas comments, replies and reactions. Export selected layers as PNG, WebP, SVG or PDF through your open editor.",
+      },
+      {
+        title: "Manage files through connected agents",
+        details:
+          "Ask a connected agent to duplicate files or folders, archive and restore files, or browse and restore previous file versions.",
+      },
+      {
+        title: "Navigate inside floating design previews",
+        details:
+          "Pan and zoom within a floating desktop preview independently of its window. Keep your view while moving or resizing the preview.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Faster desktop startup and conversations",
+        details:
+          "The desktop app does less work at startup, opens threads faster and stays more responsive when displaying long tool logs.",
+      },
+      {
+        title: "Reliable sidebar and dropdown controls",
+        details:
+          "Sidebar controls and dropdown menus respond reliably, including when switching workspaces or reopening menus.",
+      },
+      {
+        title: "Previews that fit your designs",
+        details:
+          "Desktop thread previews size themselves around their content, reducing unused space around your designs.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-26",
+    features: [
+      {
+        title: "Preview canvas comments on hover",
+        details:
+          "Hover over a comment pin to read a preview without opening the thread. Previews stay within the canvas edges and show reply counts.",
+      },
+      {
+        title: "Thread controls together in the sidebar",
+        details:
+          "Find thread search and creation together in the desktop sidebar, with clearer status indicators and easier-to-scan workspace controls.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Accurate unread thread indicators",
+        details:
+          "Unread indicators clear after you view a completed response. Marking a thread as done keeps failed runs visible so you can follow up.",
+      },
+      {
+        title: "Clearer workspace switching",
+        details:
+          "The desktop workspace menu distinguishes local projects from cloud workspaces, and the Threads tab keeps a consistent layout.",
+      },
+      {
+        title: "Aligned sidebar toggle",
+        details:
+          "The desktop sidebar toggle stays aligned with the window controls when the sidebar is collapsed.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-25",
+    features: [
+      {
+        title: "Run agents in cloud workspaces",
+        details:
+          "Start local agent threads from a cloud workspace in the desktop app. Work on downloaded designs with project context and sync your changes back to the workspace.",
+      },
+    ],
+  },
+  {
     date: "2026-10-24",
     features: [
       {
