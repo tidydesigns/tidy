@@ -29,6 +29,7 @@ export function PrivacyPolicy({ accountUrl }: { accountUrl: string }) {
         </p>
         <nav aria-label="Privacy policy sections">
           <a href="#data">Information and purposes</a>
+          <a href="#desktop-privacy">Desktop privacy</a>
           <a href="#posthog">Cookies and PostHog</a>
           <a href="#providers">Providers</a>
           <a href="#retention">Retention</a>
