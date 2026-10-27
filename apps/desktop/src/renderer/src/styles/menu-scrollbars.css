@@ -1,0 +1,32 @@
+@media (forced-colors: none) {
+  .model-picker-menu .select-menu-options,
+  .skill-picker {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
+
+  :is(.model-picker-menu .select-menu-options, .skill-picker)::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+    background: transparent;
+  }
+
+  :is(.model-picker-menu .select-menu-options, .skill-picker)::-webkit-scrollbar-track {
+    background: transparent;
+    border: 0;
+  }
+
+  :is(.model-picker-menu .select-menu-options, .skill-picker)::-webkit-scrollbar-thumb {
+    border-radius: 3px;
+    background: light-dark(rgb(0 0 0 / 16%), rgb(255 255 255 / 8%));
+  }
+
+  :is(.model-picker-menu .select-menu-options, .skill-picker):is(
+      :hover,
+      :focus-within
+    )::-webkit-scrollbar-thumb,
+  .skill-prompt:focus-within .skill-picker::-webkit-scrollbar-thumb,
+  :is(.model-picker-menu .select-menu-options, .skill-picker)::-webkit-scrollbar-thumb:hover {
+    background-color: light-dark(rgb(0 0 0 / 24%), rgb(255 255 255 / 12%));
+  }
+}

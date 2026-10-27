@@ -19,6 +19,7 @@
 @import "./platform/browser-project-picker.css";
 @import "./features/threads/message-queue.css";
 @import "./features/composer/skill-prompt.css";
+@import "./styles/menu-scrollbars.css";
 @import "./app/workspace-views.css";
 @import "./features/settings/settings.css";
 @import "./features/cloud/cloud-workspace.css";
