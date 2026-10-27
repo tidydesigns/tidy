@@ -1842,6 +1842,30 @@ export function App() {
                         }}
                       />
                       <div className="composer-actions flex flex-wrap items-center gap-2 py-2">
+                        <Button
+                          type="button"
+                          className="quiet-button attachment-button size-8"
+                          aria-label="Attach files"
+                          title="Attach files"
+                          disabled={Boolean(thread?.doneAt) || busy}
+                          onClick={() => fileInput.current?.click()}
+                        >
+                          <svg
+                            aria-hidden="true"
+                            width="17"
+                            height="17"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                          >
+                            <path
+                              d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
+                              stroke="currentColor"
+                              strokeWidth="1.5"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </Button>
                         <div className="composer-settings contents">
                           <HarnessControls
                             catalogs={harnesses.map((connection) => ({
@@ -1890,30 +1914,6 @@ export function App() {
                           />
                         </div>
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
-                          <Button
-                            type="button"
-                            className="quiet-button attachment-button size-8"
-                            aria-label="Attach files"
-                            title="Attach files"
-                            disabled={Boolean(thread?.doneAt) || busy}
-                            onClick={() => fileInput.current?.click()}
-                          >
-                            <svg
-                              aria-hidden="true"
-                              width="17"
-                              height="17"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                            >
-                              <path
-                                d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
-                                stroke="currentColor"
-                                strokeWidth="1.5"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              />
-                            </svg>
-                          </Button>
                           <span ref={canvasDockHome} className="canvas-dock-home" />
                           <div className="composer-delivery ml-auto flex shrink-0 items-center gap-1.5">
                             {running && !hasMessage ? (
