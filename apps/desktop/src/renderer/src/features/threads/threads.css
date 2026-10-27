@@ -147,16 +147,30 @@
   margin: 14px 0;
   color: var(--color-muted-ink);
 }
-.message-markdown table {
-  display: block;
-  overflow: auto;
-  border-collapse: collapse;
+.message-table {
+  overflow-x: auto;
   margin: 14px 0;
+  scrollbar-width: thin;
+}
+.message-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: normal;
 }
 .message-markdown :is(td, th) {
   padding: 7px 12px;
-  border: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-border);
   text-align: left;
+  vertical-align: top;
+}
+.message-markdown th {
+  border-bottom-color: var(--color-control-border);
+}
+.message-markdown :is(td, th):first-child {
+  padding-left: 0;
+}
+.message-markdown :is(td, th):last-child {
+  padding-right: 0;
 }
 .message-markdown hr {
   border: 0;

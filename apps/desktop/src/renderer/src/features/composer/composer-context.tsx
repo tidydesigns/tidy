@@ -98,30 +98,28 @@ export function ComposerContext({
         <ComposerIcon name="machine" />
         <span>{repository?.machine ?? "This machine"}</span>
       </span>
-      <SelectMenu
-        label="Branch"
-        value={repository?.branch ?? ""}
-        disabled={disabled || branchDisabled || pending || !repository?.repository}
-        placement="top"
-        align="end"
-        triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}
-        triggerContent={
-          <>
-            <ComposerIcon name="branch" />
-            <span>
-              {repository
-                ? repository.repository
-                  ? (repository.branch ?? "Detached HEAD")
-                  : "No repository"
-                : "Branch"}
-            </span>
-            <ComposerChevron />
-          </>
-        }
-        menuClassName={`${codeMenuClassName} branch-menu [&]:max-w-[min(300px,calc(100vw_-_16px))]`}
-        options={repository?.branches.map((branch) => ({ value: branch, label: branch })) ?? []}
-        onChange={onBranchChange}
-      />
+      {repository && !repository.repository ? (
+        <span className={`${codeContextClassName} px-1.5 py-1.5`}>No repository</span>
+      ) : (
+        <SelectMenu
+          label="Branch"
+          value={repository?.branch ?? ""}
+          disabled={disabled || branchDisabled || pending || !repository?.repository}
+          placement="top"
+          align="end"
+          triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}
+          triggerContent={
+            <>
+              <ComposerIcon name="branch" />
+              <span>{repository ? (repository.branch ?? "Detached HEAD") : "Branch"}</span>
+              <ComposerChevron />
+            </>
+          }
+          menuClassName={`${codeMenuClassName} branch-menu [&]:max-w-[min(300px,calc(100vw_-_16px))]`}
+          options={repository?.branches.map((branch) => ({ value: branch, label: branch })) ?? []}
+          onChange={onBranchChange}
+        />
+      )}
     </div>
   );
 }

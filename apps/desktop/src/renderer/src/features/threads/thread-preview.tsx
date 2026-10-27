@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Icon } from "@tidy/editor/components/ui/icon";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
 import { ComposerIcon } from "../composer/composer-icon";
@@ -29,12 +28,10 @@ function Detail({
 
 export function ThreadPreview({
   thread,
-  projectName,
   repository,
   modelName,
 }: {
   thread: Pick<ThreadSummary, "title" | "harness" | "actualModel" | "settings">;
-  projectName?: string;
   repository?: RepositoryContext;
   modelName?: string;
 }) {
@@ -47,11 +44,6 @@ export function ThreadPreview({
         <Detail label="Model" icon={<ModelProviderIcon harness={thread.harness} size={12} />}>
           {modelName ?? thread.actualModel ?? thread.settings?.model ?? "Model not reported"}
         </Detail>
-        {projectName && (
-          <Detail label="Project" icon={<Icon name="folder" size={12} />}>
-            {projectName}
-          </Detail>
-        )}
         {repository?.repository && (
           <Detail label="Branch" icon={<ComposerIcon name="branch" />}>
             {repository.branch ?? "Detached HEAD"}

@@ -41,6 +41,11 @@ const MessageBody = memo(function MessageBody({
           parseChatLink(url)?.kind === "file" ? url : defaultUrlTransform(url)
         }
         components={{
+          table: ({ children }) => (
+            <div className="message-table">
+              <table>{children}</table>
+            </div>
+          ),
           a: ({ href, children }) => (
             <ChatLink href={href} api={api} projectId={projectId}>
               {children}

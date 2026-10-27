@@ -1122,7 +1122,6 @@ export function App() {
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
         onSelect={() => selectThread(project!.id, item.id)}
         onDone={() => void toggleThreadDone(item)}
-        projectName={project?.name}
         repository={repository}
         modelName={
           harnessDetails[`${project?.id}:${item.harness}`]?.info?.models.find(

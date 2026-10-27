@@ -17,7 +17,6 @@ export function ThreadCard({
   onSelect,
   onDone,
   modelName,
-  projectName,
   repository,
   orderControls,
 }: {
@@ -29,7 +28,6 @@ export function ThreadCard({
   onSelect(): void;
   onDone(): void;
   modelName?: string;
-  projectName?: string;
   repository?: RepositoryContext;
   orderControls?: ThreadOrderControls;
 }) {
@@ -184,16 +182,6 @@ export function ThreadCard({
           >
             {thread.harness === "codex" ? "Codex" : "Claude"}
           </span>
-          {projectName && (
-            <>
-              <span className="thread-project-separator shrink-0" aria-hidden="true">
-                ·
-              </span>
-              <span className="thread-project min-w-5 text-secondary-ink" title={projectName}>
-                {projectName}
-              </span>
-            </>
-          )}
         </span>
         <time
           className="thread-time absolute top-2.5 right-2 text-[11px] leading-5 text-muted-ink tabular-nums"
@@ -257,12 +245,7 @@ export function ThreadCard({
           role="tooltip"
           className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-max max-w-[min(20rem,calc(100vw_-_16px))] overflow-auto rounded-lg border border-border bg-panel p-3 text-xs whitespace-normal text-ink shadow-[0_4px_16px_rgb(0_0_0_/_12%)] ${codeFontClassName}`}
         >
-          <ThreadPreview
-            thread={thread}
-            projectName={projectName}
-            repository={repository}
-            modelName={modelName}
-          />
+          <ThreadPreview thread={thread} repository={repository} modelName={modelName} />
         </div>
       )}
     </div>
