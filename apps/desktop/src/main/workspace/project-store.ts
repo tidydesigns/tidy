@@ -79,7 +79,7 @@ export class ProjectStore {
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
-    private claimProject: (path: string) => void = () => {},
+    private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
   }
@@ -125,40 +125,57 @@ export class ProjectStore {
       openedAt: new Date().toISOString(),
       ...(cloudName ? { cloud: true } : {}),
     };
-    this.claimProject(path);
-    await this.prepare(project);
-    const metadataPath = join(path, ".tidy", "project.json");
+    const release = this.claimProject(path);
     try {
-      await writeFile(metadataPath, JSON.stringify({ version: 1, id: project.id }), {
-        flag: "wx",
-        mode: 0o600,
-      });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const info = await lstat(metadataPath);
-      if (!info.isFile() || info.isSymbolicLink())
-        throw new Error("Project metadata must be a regular file.");
-      project.id = z.object({ version: z.literal(1), id }).parse(await this.read(metadataPath)).id;
-    }
-    const previous = this.projects.find((item) => item.id === project.id);
-    if (previous && previous.path !== path) {
-      const previousPath = await realpath(previous.path).catch((error) => {
-        if (missing(error)) return null;
-        throw error;
-      });
-      if (previousPath && previousPath !== path) {
-        // A copied identity must not redirect a registered project's active jobs or data.
-        project.id = randomUUID();
-        await this.atomicWrite(metadataPath, { version: 1, id: project.id });
+      await this.prepare(project);
+      const metadataPath = join(path, ".tidy", "project.json");
+      try {
+        await writeFile(metadataPath, JSON.stringify({ version: 1, id: project.id }), {
+          flag: "wx",
+          mode: 0o600,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const info = await lstat(metadataPath);
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error("Project metadata must be a regular file.");
+        project.id = z
+          .object({ version: z.literal(1), id })
+          .parse(await this.read(metadataPath)).id;
       }
+      const previous = this.projects.find((item) => item.id === project.id);
+      if (previous && previous.path !== path) {
+        const previousPath = await realpath(previous.path).catch((error) => {
+          if (missing(error)) return null;
+          throw error;
+        });
+        if (previousPath && previousPath !== path) {
+          // A copied identity must not redirect a registered project's active jobs or data.
+          project.id = randomUUID();
+          await this.atomicWrite(metadataPath, { version: 1, id: project.id });
+        }
+      }
+      const previousRegistry = this.registry;
+      const nextRegistry = {
+        ...previousRegistry,
+        projects: [project, ...this.projects.filter((item) => item.id !== project.id)].slice(
+          0,
+          100,
+        ),
+        activeProjectId: cloudName ? previousRegistry.activeProjectId : project.id,
+      };
+      this.registry = nextRegistry;
+      try {
+        await this.writeRegistry();
+      } catch (error) {
+        if (this.registry === nextRegistry) this.registry = previousRegistry;
+        throw error;
+      }
+      return project;
+    } catch (error) {
+      release();
+      throw error;
     }
-    this.registry.projects = [
-      project,
-      ...this.projects.filter((item) => item.id !== project.id),
-    ].slice(0, 100);
-    if (!cloudName) this.registry.activeProjectId = project.id;
-    await this.writeRegistry();
-    return project;
   }
 
   async select(projectId: string) {
@@ -711,8 +728,9 @@ export class ProjectStore {
 
   async recover() {
     for (const project of this.projects) {
+      let release: (() => void) | undefined;
       try {
-        this.claimProject(await realpath(project.path));
+        release = this.claimProject(await realpath(project.path));
         await this.prepare(project);
         const summaries = await this.threadSummaries(project.id);
         for (const summary of summaries) {
@@ -732,6 +750,7 @@ export class ProjectStore {
           });
         }
       } catch {
+        release?.();
         /* A removable or renamed project can be opened again later. */
       }
     }

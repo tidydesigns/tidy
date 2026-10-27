@@ -200,7 +200,7 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   const state = new PrivateState(join(root, "private"));
   await state.initialize();
   const remote = new Remote();
-  async function make(accountId = "alice") {
+  async function make(accountId = "alice", workspaceAvailable = true) {
     await state.write("credentials", {
       origin,
       encrypted: Buffer.from(
@@ -233,7 +233,7 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
       launch ? async () => "/fixture/agent" : undefined,
     );
     services.push(service);
-    const cloud = new CloudService(auth, service, state, remote);
+    const cloud = new CloudService(auth, service, state, remote, workspaceAvailable);
     cleanups.push(async () => {
       await cloud.close();
       await service.close();
@@ -1042,4 +1042,28 @@ test("sign-out fences a delayed same-account recovery read", async () => {
     login.mockRestore();
     reading.mockRestore();
   }
+});
+
+test("attached backend mode rejects cloud workspace operations before touching another store", async () => {
+  const f = await fixture();
+  const attached = await f.make("alice", false);
+  const projects = structuredClone(f.store.projects);
+  const files = structuredClone(f.remote.library.files);
+  for (const operation of [
+    () => attached.openWorkspace("org"),
+    () => attached.openFile("org", files[0].id),
+    () => attached.createFile("org"),
+    () => attached.keepBoth("org", f.local.project.id, randomUUID()),
+    () => attached.connectLocal(f.local.project.id, randomUUID(), "org"),
+    () => attached.open(f.local.project.id, files[0].id, "Design"),
+    () => attached.disconnect(f.local.project.id, randomUUID()),
+    () => attached.loadAsset(f.local.project.id, randomUUID()),
+  ]) {
+    await expect(operation()).rejects.toThrow("attached to a background backend");
+  }
+  expect(f.store.projects).toEqual(projects);
+  expect(f.remote.library.files).toEqual(files);
+  expect(f.remote.reads).toBe(0);
+  expect((await attached.state()).bindings).toEqual([]);
+  expect((await attached.account()).id).toBe("alice");
 });

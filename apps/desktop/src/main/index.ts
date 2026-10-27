@@ -331,7 +331,7 @@ app
       },
       (url) => shell.openExternal(url),
     );
-    cloud = new CloudService(auth, service, privateState);
+    cloud = new CloudService(auth, service, privateState, undefined, ownsInitialService);
     analytics = new DesktopAnalytics({
       state: new PrivateState(join(app.getPath("userData"), "privacy")),
       origin: auth.origin,
@@ -487,7 +487,6 @@ app
 
     const restore = profiles.list().filter((machine) => machine.restoreOnLaunch);
     await createWindow();
-    for (const machine of restore) await connectMachine(machine.target);
     powerMonitor.on("suspend", () => {
       localClient?.suspend();
       for (const client of remoteClients.values()) client.suspend();
@@ -496,6 +495,11 @@ app
       localClient?.wake("resume");
       for (const client of remoteClients.values()) client.wake("resume");
     });
+
+    for (const machine of restore)
+      await connectMachine(machine.target).catch(() => {
+        console.error("Could not restore a saved machine connection.");
+      });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {

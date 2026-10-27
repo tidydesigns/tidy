@@ -268,7 +268,13 @@ test("project ownership excludes other runtimes and releases on close", async ()
     import assert from "node:assert/strict";
     const first = projectLocks(process.argv[1]);
     const second = projectLocks(process.argv[1]);
-    first.claim(process.argv[2]);
+    const release = first.claim(process.argv[2]);
+    const releaseAgain = first.claim(process.argv[2]);
+    release(); release();
+    assert.throws(() => second.claim(process.argv[2]), /another Tidy backend/);
+    releaseAgain();
+    const other = second.claim(process.argv[2]);
+    other();
     first.claim(process.argv[2]);
     assert.throws(() => second.claim(process.argv[2]), /another Tidy backend/);
     first.close();

@@ -121,7 +121,11 @@ registry exists. The original files are retained. Shared state is never overwrit
 migration. Both clients therefore see the same projects and running agents. Local requests retain their
 direct IPC path when the desktop owns the service. Cloud sync and native update coordination
 remain desktop-owned; attaching to a standalone backend does not move those coordinators
-to the server.
+to the server. Cloud workspace opening, cloud file mutations and sync are unavailable
+while attached to an independently managed local backend. Those operations fail before
+accessing a second workspace store. Account and library metadata remain available. To use
+cloud workspaces, let background agents finish, stop that local backend and reopen Tidy
+so the desktop owns its workspace service.
 
 An attached desktop does not stop an independently managed backend when it exits. If the
 desktop itself owns the backend, quitting it closes that service and its runs, matching its

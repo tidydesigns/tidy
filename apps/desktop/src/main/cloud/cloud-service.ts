@@ -48,6 +48,7 @@ export class CloudService implements CloudAPI {
     private service: WorkspaceService,
     private privateState: PrivateState,
     remote?: LibraryRemote,
+    private workspaceAvailable = true,
   ) {
     service.canAccessCloudProject = (projectId) => {
       const binding = this.workspaces.get(projectId);
@@ -120,7 +121,7 @@ export class CloudService implements CloudAPI {
     this.emit();
   }
   private async resume() {
-    if (!this.auth.accountId || this.closed) return;
+    if (!this.workspaceAvailable || !this.auth.accountId || this.closed) return;
     await this.sync.start(this.auth.accountId);
     for (const projectId of this.sync.linkedProjects)
       await this.service.observe(projectId).catch(() => {});
@@ -131,7 +132,10 @@ export class CloudService implements CloudAPI {
       available: this.initialized && this.enabled && this.auth.available,
       signedIn: Boolean(this.auth.accountId),
       accountId: this.auth.accountId,
-      bindings: this.auth.accountId && !this.accountChanging ? this.sync.status : [],
+      bindings:
+        this.workspaceAvailable && this.auth.accountId && !this.accountChanging
+          ? this.sync.status
+          : [],
     };
   }
   private emit() {
@@ -263,7 +267,14 @@ export class CloudService implements CloudAPI {
     if (generation !== this.generation || this.closed) throw new Error("The account changed.");
     return catalog;
   }
+  private assertWorkspaceAvailable() {
+    if (!this.workspaceAvailable)
+      throw new Error(
+        "Cloud workspaces are unavailable while attached to a background backend. Once its agents finish, stop that backend and reopen Tidy to use cloud workspaces.",
+      );
+  }
   async openWorkspace(organizationId: string) {
+    this.assertWorkspaceAvailable();
     const generation = this.generation;
     await this.initialize();
     const key = this.cacheKey("workspace", organizationId);
@@ -286,6 +297,7 @@ export class CloudService implements CloudAPI {
     return work;
   }
   private async workspace(organizationId: string) {
+    this.assertWorkspaceAvailable();
     if (this.closed || this.accountChanging) throw new Error("Cloud sync is stopped.");
     const generation = this.generation;
     const account =
@@ -307,6 +319,7 @@ export class CloudService implements CloudAPI {
   private fileAction(action: () => Promise<CloudOpened>) {
     const generation = this.generation;
     const work = this.action.then(async () => {
+      this.assertWorkspaceAvailable();
       await this.initialize();
       if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
       const value = await action();
@@ -320,6 +333,7 @@ export class CloudService implements CloudAPI {
     return work;
   }
   async openFile(organizationId: string, fileId: string) {
+    this.assertWorkspaceAvailable();
     const generation = this.generation;
     await this.initialize();
     if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
@@ -414,10 +428,14 @@ export class CloudService implements CloudAPI {
     });
   }
   async focus(projectId?: string, designId?: string) {
-    if (projectId) await this.service.assertProjectAccess(projectId);
+    if (projectId) {
+      this.assertWorkspaceAvailable();
+      await this.service.assertProjectAccess(projectId);
+    }
     this.sync.focus(projectId, designId);
   }
   async loadAsset(projectId: string, assetId: string) {
+    this.assertWorkspaceAvailable();
     const generation = this.generation;
     await this.service.assertProjectAccess(projectId);
     if (generation !== this.generation || this.closed) throw new Error("Cloud sync is stopped.");
@@ -488,6 +506,7 @@ export class CloudService implements CloudAPI {
     return this.remote.files(id);
   }
   async open(projectId: string, fileId: string, name: string) {
+    this.assertWorkspaceAvailable();
     const generation = this.generation;
     const work = this.action.then(async () => {
       await this.initialize();
@@ -500,6 +519,7 @@ export class CloudService implements CloudAPI {
     await work;
   }
   async disconnect(projectId: string, designId: string) {
+    this.assertWorkspaceAvailable();
     const work = this.action.then(async () => {
       await this.service.assertProjectAccess(projectId);
       await this.sync.disconnect(projectId, designId);
@@ -508,6 +528,7 @@ export class CloudService implements CloudAPI {
     await work;
   }
   async connectLocal(projectId: string, designId: string, organizationId: string) {
+    this.assertWorkspaceAvailable();
     const generation = this.generation;
     const work = this.action.then(async () => {
       await this.initialize();

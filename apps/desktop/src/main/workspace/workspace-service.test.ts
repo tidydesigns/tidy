@@ -1461,3 +1461,49 @@ test("Stop during the final execution authority check never launches a process o
     validation.mockRestore();
   }
 });
+
+test("active run count deduplicates launch preparation and excludes metadata edits", async () => {
+  const f = await fixture(async () => {}, true);
+  const run = f.service.startThread({
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: "Count this run",
+    designIds: [],
+  });
+  expect(f.service.activeRunCount).toBe(1);
+  await f.preparation;
+  expect(f.service.activeRunCount).toBe(1);
+  const write = f.store.writeThread.bind(f.store);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let pause = true;
+  f.store.writeThread = async (thread) => {
+    if (pause && thread.status === "running") {
+      entered.resolve();
+      await release.promise;
+    }
+    return write(thread);
+  };
+  f.resumePreparation();
+  await entered.promise;
+  expect(f.service.activeRunCount).toBe(1);
+  pause = false;
+  release.resolve();
+  const thread = await run;
+  const done = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await done;
+  expect(f.service.activeRunCount).toBe(0);
+  const metadataEntered = Promise.withResolvers<void>();
+  const metadataRelease = Promise.withResolvers<void>();
+  f.store.writeThread = async (value) => {
+    metadataEntered.resolve();
+    await metadataRelease.promise;
+    return write(value);
+  };
+  const edit = f.service.setThreadDone(f.project.id, thread.id, true);
+  await metadataEntered.promise;
+  expect(f.service.activeRunCount).toBe(0);
+  metadataRelease.resolve();
+  await edit;
+});

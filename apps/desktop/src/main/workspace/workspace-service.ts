@@ -110,6 +110,7 @@ export class WorkspaceService {
   private watchers = new Map<string, FSWatcher>();
   private listeners = new Set<(event: DesktopEvent) => void>();
   private starting = new Map<string, string>();
+  private startingRuns = new Set<string>();
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
@@ -342,9 +343,11 @@ export class WorkspaceService {
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       return Promise.reject(new Error("This thread is already running."));
     this.starting.set(threadId, input.projectId);
+    this.startingRuns.add(threadId);
     this.executionProjects.set(threadId, input.executionProjectId ?? input.projectId);
     return this.serialize(threadId, () => this.startThreadNow({ ...input, threadId })).finally(
       () => {
+        this.startingRuns.delete(threadId);
         this.executionProjects.delete(threadId);
       },
     );
@@ -684,11 +687,13 @@ export class WorkspaceService {
       throw new Error("This message was already sent.");
     if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
     this.starting.set(thread.id, thread.projectId);
+    this.startingRuns.add(thread.id);
     this.preparingHarnesses.set(thread.id, thread.harness);
     this.executionProjects.set(thread.id, thread.executionProjectId ?? thread.projectId);
     try {
       return await this.runPrepared(thread, prompt, attachmentIds, messageId, skillId);
     } finally {
+      this.startingRuns.delete(thread.id);
       this.preparingHarnesses.delete(thread.id);
       this.executionProjects.delete(thread.id);
       this.starting.delete(thread.id);
@@ -1090,7 +1095,7 @@ export class WorkspaceService {
   }
 
   get activeRunCount() {
-    return this.jobs.size + this.starting.size;
+    return new Set([...this.jobs.keys(), ...this.startingRuns]).size;
   }
 
   async close() {

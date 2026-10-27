@@ -577,3 +577,36 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
   );
   await expect(f.store.readThread(owner.id, value.id)).rejects.toThrow("execution project changed");
 });
+
+test("failed project registration and recovery release only their own claims", async () => {
+  const f = await fixture();
+  const claims = new Map<string, number>();
+  const claim = (path: string) => {
+    claims.set(path, (claims.get(path) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      claims.set(path, claims.get(path)! - 1);
+    };
+  };
+  const store = new ProjectStore(join(f.directory, "claimed-registry"), undefined, claim);
+  await store.initialize();
+  await mkdir(join(f.root, ".tidy"));
+  await writeFile(join(f.root, ".tidy", "project.json"), "invalid");
+  await expect(store.register(f.root)).rejects.toThrow();
+  expect(claims.get(f.root)).toBe(0);
+  await rm(join(f.root, ".tidy", "project.json"));
+  const project = await store.register(f.root);
+  expect(claims.get(f.root)).toBe(1);
+  await rm(join(f.directory, "claimed-registry", "projects.json"));
+  await mkdir(join(f.directory, "claimed-registry", "projects.json"));
+  await expect(store.register(f.root)).rejects.toThrow();
+  expect(claims.get(f.root)).toBe(1);
+  expect(store.projects).toHaveLength(1);
+  expect(store.projects[0].id).toBe(project.id);
+  await rm(join(f.root, ".tidy"), { recursive: true });
+  await writeFile(join(f.root, ".tidy"), "blocked");
+  await store.recover();
+  expect(claims.get(f.root)).toBe(1);
+});
