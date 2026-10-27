@@ -73,18 +73,18 @@
   top: 0;
   left: 0;
   width: min(296px, calc(100cqw - 32px), calc((100cqh - 32px) * 1.5));
-  aspect-ratio: 1.5;
-  border-radius: 7.5% / 11.25%;
+  height: 197px;
+  border-radius: 14px;
   pointer-events: auto;
   user-select: none;
   transform-origin: top left;
 }
 .thread-design-peek {
   position: absolute;
-  inset: 0;
+  inset: 32px 0 0;
   display: block;
   width: 100%;
-  height: 100%;
+  height: calc(100% - 32px);
   padding: 0;
   border: 0;
   border-radius: inherit;
@@ -93,7 +93,7 @@
   box-shadow:
     0 8px 24px #00000028,
     0 0 0 1px light-dark(#00000014, #ffffff14);
-  cursor: grab;
+  cursor: pointer;
   touch-action: none;
   user-select: none;
   pointer-events: auto;
@@ -117,23 +117,32 @@
 .thread-design-frame[data-docked="true"] :is(.thread-design-close, .thread-design-resize) {
   display: none;
 }
-.thread-design-name {
-  display: none;
-}
-.thread-design-frame[data-dragging="true"] .thread-design-peek {
-  cursor: grabbing;
-  animation-play-state: paused;
-}
-.thread-design-peek:focus-visible {
-  outline: 1px solid var(--color-muted-ink);
-  outline-offset: 6px;
-}
-.thread-design-close,
-.thread-design-resize {
+.thread-design-header {
   position: absolute;
-  z-index: 1;
+  inset: 0 0 auto;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 8px 0 12px;
+  border-radius: 14px 14px 0 0;
+  background: var(--color-panel);
+  cursor: grab;
+  touch-action: none;
+}
+.thread-design-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--color-muted-ink);
+}
+.thread-design-close {
   display: grid;
   place-items: center;
+  flex-shrink: 0;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -141,41 +150,91 @@
   border-radius: 4px;
   background: transparent;
   color: var(--color-muted-ink);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-.thread-design-close {
-  top: 8px;
-  right: 8px;
   cursor: pointer;
 }
+.thread-design-close:hover {
+  background: light-dark(#00000008, #ffffff08);
+}
+.thread-design-frame[data-dragging="true"] .thread-design-header {
+  cursor: grabbing;
+}
+.thread-design-peek[data-panning="true"] {
+  cursor: grab;
+}
+.thread-design-peek:active[data-panning="true"] {
+  cursor: grabbing;
+}
+.thread-design-peek:focus-visible,
+.thread-design-close:focus-visible {
+  outline: 1px solid var(--color-muted-ink);
+  outline-offset: -2px;
+}
 .thread-design-resize {
-  left: 6px;
-  bottom: 6px;
-  cursor: nesw-resize;
+  position: absolute;
+  z-index: 2;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
   touch-action: none;
 }
-.thread-design-frame:is(:hover, :focus-within) :is(.thread-design-close, .thread-design-resize),
-.thread-design-frame[data-resizing="true"] .thread-design-resize {
-  opacity: 1;
-  pointer-events: auto;
+.thread-design-resize:is(:hover, :focus-visible) {
+  background: light-dark(#0000000a, #ffffff12);
 }
-.thread-design-close:hover,
-.thread-design-resize:hover {
-  color: var(--color-ink);
+.thread-design-resize[data-edge="n"] {
+  top: -3px;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
 }
-.thread-design-close:focus-visible,
-.thread-design-resize:focus-visible {
-  outline: 1px solid var(--color-muted-ink);
-  outline-offset: 1px;
+.thread-design-resize[data-edge="s"] {
+  bottom: -3px;
+  left: 12px;
+  right: 12px;
+  height: 6px;
+  cursor: ns-resize;
 }
-@media (hover: none) {
-  .thread-design-close,
-  .thread-design-resize {
-    opacity: 1;
-    pointer-events: auto;
-  }
+.thread-design-resize[data-edge="e"] {
+  right: -3px;
+  top: 12px;
+  bottom: 12px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.thread-design-resize[data-edge="w"] {
+  left: -3px;
+  top: 12px;
+  bottom: 12px;
+  width: 6px;
+  cursor: ew-resize;
+}
+.thread-design-resize[data-edge="ne"],
+.thread-design-resize[data-edge="nw"],
+.thread-design-resize[data-edge="se"],
+.thread-design-resize[data-edge="sw"] {
+  width: 12px;
+  height: 12px;
+}
+.thread-design-resize[data-edge="ne"] {
+  top: -3px;
+  right: -3px;
+  cursor: nesw-resize;
+}
+.thread-design-resize[data-edge="nw"] {
+  top: -3px;
+  left: -3px;
+  cursor: nwse-resize;
+}
+.thread-design-resize[data-edge="se"] {
+  bottom: -3px;
+  right: -3px;
+  cursor: nwse-resize;
+}
+.thread-design-resize[data-edge="sw"] {
+  bottom: -3px;
+  left: -3px;
+  cursor: nesw-resize;
 }
 .thread-design-lens {
   position: absolute;
@@ -189,12 +248,8 @@
 }
 .thread-design-artwork {
   position: absolute;
-  inset: 12% 3% -8%;
+  inset: 0;
   display: block;
-}
-.thread-design-artwork > svg {
-  transform: scale(0.68);
-  transform-origin: top center;
 }
 .thread-design-rim {
   position: absolute;

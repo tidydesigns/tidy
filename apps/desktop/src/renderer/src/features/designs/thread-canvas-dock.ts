@@ -1,4 +1,12 @@
-export type CanvasGeometry = { x: number; y: number; width: number };
+import { z } from "zod";
+
+const geometrySchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().positive(),
+  height: z.number().finite().positive().optional(),
+});
+export type CanvasGeometry = z.infer<typeof geometrySchema>;
 export type ThreadCanvasDock = {
   ids: string[];
   openIds: string[];
@@ -32,15 +40,10 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
           : [];
     const geometry: Record<string, CanvasGeometry> = Object.create(null);
     if ("geometry" in value && value.geometry && typeof value.geometry === "object") {
-      for (const id of ids) {
-        const item = (value.geometry as Record<string, unknown>)[id];
-        if (!item || typeof item !== "object") continue;
-        const candidate = item as CanvasGeometry;
-        if (
-          [candidate.x, candidate.y, candidate.width].every(Number.isFinite) &&
-          candidate.width > 0
-        )
-          geometry[id] = { x: candidate.x, y: candidate.y, width: candidate.width };
+      for (const [id, item] of Object.entries(value.geometry)) {
+        if (!ids.includes(id)) continue;
+        const candidate = geometrySchema.safeParse(item);
+        if (candidate.success) geometry[id] = candidate.data;
       }
     }
     return { ids, openIds, geometry };

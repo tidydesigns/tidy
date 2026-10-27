@@ -29,8 +29,13 @@ import type {
 } from "../../../../shared/contracts/desktop";
 import { ThreadDesignWindow } from "./thread-design-window";
 
+import type { PreviewCameraMemory } from "./preview-navigation";
+
 export type DockSlot = { x: number; y: number; width: number };
-const viewports = new Map<string, Map<string, CanvasViewportMemory>>();
+const viewports = new Map<
+  string,
+  Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>
+>();
 
 function CanvasGlyph() {
   return (
@@ -101,7 +106,9 @@ export function ThreadDesignDock({
 }) {
   const key = `tidy:canvas-dock:${thread.projectId}:${thread.id}`;
   const [memories] = useState(() => {
-    const memory = viewports.get(key) ?? new Map<string, CanvasViewportMemory>();
+    const memory =
+      viewports.get(key) ??
+      new Map<string, { editor: CanvasViewportMemory; preview: PreviewCameraMemory }>();
     viewports.delete(key);
     viewports.set(key, memory);
     if (viewports.size > 40) viewports.delete(viewports.keys().next().value!);
@@ -317,7 +324,7 @@ export function ThreadDesignDock({
           windows.map((summary) => {
             let viewportMemory = memories.get(summary.id);
             if (!viewportMemory) {
-              viewportMemory = {};
+              viewportMemory = { editor: {}, preview: {} };
               memories.set(summary.id, viewportMemory);
             }
             return (
@@ -334,7 +341,8 @@ export function ThreadDesignDock({
                 placement={summaries.indexOf(summary)}
                 stackOrder={state.openIds.indexOf(summary.id) + 2}
                 initialGeometry={state.geometry[summary.id]}
-                viewportMemory={viewportMemory}
+                viewportMemory={viewportMemory.editor}
+                previewMemory={viewportMemory.preview}
                 dockTarget={home}
                 readPreview={readPreview}
                 onDock={toggle}

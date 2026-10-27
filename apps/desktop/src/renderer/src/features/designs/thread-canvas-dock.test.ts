@@ -53,3 +53,22 @@ test("opens and docks several canvases independently and restores them after nav
     parseCanvasDock(JSON.stringify({ ...state, openIds: [], floatingId: "first" })).openIds,
   ).toEqual([]);
 });
+
+test("accepts legacy widths and retains independent heights without trusting invalid dimensions", () => {
+  const stored = {
+    ids: ["legacy", "sized", "invalid"],
+    openIds: ["sized"],
+    geometry: {
+      legacy: { x: 20, y: 30, width: 300 },
+      sized: { x: 40, y: 50, width: 350, height: 410 },
+      invalid: { x: 0, y: 0, width: 300, height: -1 },
+    },
+  };
+  const restored = parseCanvasDock(JSON.stringify(stored));
+  expect(restored.geometry.legacy).toEqual(stored.geometry.legacy);
+  expect(restored.geometry.sized).toEqual(stored.geometry.sized);
+  expect(restored.geometry.invalid).toBeUndefined();
+  expect(parseCanvasDock(JSON.stringify(toggleCanvas(restored, "sized"))).geometry).toEqual(
+    restored.geometry,
+  );
+});
