@@ -176,17 +176,27 @@ async function run() {
       };
     },
   });
+  let openedTarget: string | null = null;
+  let forgotten = false;
   registerWorkspaceIPC(localService, APP_URL, {
     get: () => undefined,
     getMachine: (id) => (id === machine.id ? client : undefined),
     list: () => [
       { id: "local", label: "This machine", status: null },
-      { id: machine.id, label: machine.target, status: client.status },
+      ...(!forgotten ? [{ id: machine.id, label: machine.target, status: client.status }] : []),
     ],
-    open: async () => window.focus(),
+    open: async (target) => {
+      openedTarget = target;
+      window.focus();
+    },
     machines: () => [machine],
     discover: async () => [],
-    forget: async () => {},
+    forget: async (id) => {
+      assert.equal(id, machine.id);
+      forgotten = true;
+      client.close();
+      window.webContents.send("tidy:machines-changed");
+    },
   });
   const disconnect = (offline: boolean) => {
     online = false;
@@ -267,6 +277,29 @@ async function run() {
     assert.equal(await evaluate("window.tidyRemote.status()"), null);
     await assert.rejects(evaluate("window.tidyRemote.connect('-oProxyCommand=invalid')"));
     await until(() => client.status.kind === "connected");
+    await until(() => evaluate(`Boolean(document.querySelector('[aria-label="Settings"]'))`));
+    await evaluate(`document.querySelector('[aria-label="Settings"]').click()`);
+    await until(() => evaluate('Boolean(document.querySelector(".settings-sections"))'));
+    await evaluate(
+      'Array.from(document.querySelectorAll(".settings-section")).find(button => button.textContent === "Remote machines").click()',
+    );
+    await until(() => evaluate('Boolean(document.querySelector("#remote-destination"))'));
+    await evaluate(
+      `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(document.querySelector('#remote-destination'), '-oProxyCommand=invalid'); document.querySelector('#remote-destination').dispatchEvent(new Event('input', {bubbles:true})); true;`,
+    );
+    await evaluate('document.querySelector(".remote-connect").requestSubmit()');
+    await until(() =>
+      evaluate('document.querySelector(".remote-error")?.textContent.includes("SSH alias")'),
+    );
+    assert.equal(openedTarget, null);
+    await evaluate(
+      `Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(document.querySelector('#remote-destination'), '${machine.target}'); document.querySelector('#remote-destination').dispatchEvent(new Event('input', {bubbles:true})); true;`,
+    );
+    await evaluate('document.querySelector(".remote-connect").requestSubmit()');
+    await until(() => openedTarget === machine.target);
+    await until(() =>
+      evaluate('document.querySelector(".remote-machine-status")?.textContent === "Connected"'),
+    );
     await evaluate(`globalThis.remoteApi = window.tidyMachines.workspace('${machine.id}').api;
       globalThis.localApi = window.tidyMachines.workspace('local').api;
       globalThis.remoteEvents = [];
@@ -333,6 +366,9 @@ async function run() {
     assert.equal(await evaluate("localEvents.length"), 0);
     disconnect(true);
     await until(() => client.status.kind === "offline");
+    await until(() =>
+      evaluate('document.querySelector(".remote-machine-status")?.textContent === "Offline"'),
+    );
     assert.equal(
       await evaluate(`remoteApi.createDesign('${project.id}').then(() => false, () => true)`),
       true,
@@ -350,8 +386,15 @@ async function run() {
     await new Promise((resolve) => setTimeout(resolve, 2100));
     const latestText = (await service.readThread(project.id, threadId)).messages.at(-1)?.text ?? "";
     assert.match(latestText, /steps completed/);
-    restore();
+    online = true;
+    authenticationRequired = false;
+    await evaluate(
+      `Array.from(document.querySelectorAll('.remote-machine button')).find(button => button.textContent === 'Retry').click()`,
+    );
     await until(() => client.status.kind === "connected");
+    await until(() =>
+      evaluate('document.querySelector(".remote-machine-status")?.textContent === "Connected"'),
+    );
     const recovered = await evaluate(
       `remoteApi.readThread('${project.id}', '${threadId}').then(thread => thread.messages.at(-1).text)`,
     );
@@ -363,14 +406,23 @@ async function run() {
     await until(() => client.status.kind === "blocked");
     restore();
     await until(() => client.status.kind === "connected");
+    await until(() =>
+      evaluate('document.querySelector(".remote-machine-status")?.textContent === "Connected"'),
+    );
     assert.equal(
       await evaluate(
         `remoteApi.readThread('${project.id}', '${threadId}').then(thread => thread.id)`,
       ),
       threadId,
     );
+    await evaluate(
+      `Array.from(document.querySelectorAll('.remote-machine button')).find(button => button.textContent === 'Remove').click()`,
+    );
+    await until(() => forgotten);
+    await until(() => evaluate('document.querySelectorAll(".remote-machine").length === 0'));
+    assert.equal(service.activeRunCount, 1);
     console.log(
-      "PASS: scoped IPC, identical thread IDs on separate machines, event isolation, disconnected mutation rejection, local work while remote is offline, unknown-machine rejection, continuing agent, reconnect without duplicate execution, and authentication recovery.",
+      "PASS: Settings connection validation, status, retry and removal, scoped IPC, identical thread IDs on separate machines, event isolation, disconnected mutation rejection, local work while remote is offline, unknown-machine rejection, continuing agent, reconnect without duplicate execution, and authentication recovery.",
     );
     clearTimeout(watchdog);
     await close();

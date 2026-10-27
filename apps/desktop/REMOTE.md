@@ -1,9 +1,10 @@
 # Remote machines over SSH
 
 The remote backend, automatic SSH bootstrap, reconnection and machine-scoped IPC are implemented.
-The desktop UI remains unchanged. Machine setup, authentication presentation and thread selection
-are not currently exposed through the product UI; the preload bridge and integration tests exercise
-the implementation directly. Do not treat this as a completed end-user setup flow.
+Open **Settings → Remote machines**, enter an SSH alias or `user@hostname`, and choose
+**Connect**. Settings shows installation progress, authentication prompts, browser verification,
+and connection status, with **Retry** and **Remove** actions. Remote project and thread selection
+remain available only through the preload bridge; connecting does not switch the current chat.
 
 The remote machine owns repositories, agent processes, CLI sign-ins and thread state:
 
@@ -27,7 +28,7 @@ SSH aliases use the system SSH configuration, including identity files, users an
 Discovery APIs return SSH aliases, known hosts and macOS/Linux machines from the local
 Tailscale client. Discovery is optional and never changes Tailscale settings. Password,
 passphrase, host verification and Tailscale check-mode requests are exposed as connection
-states for future UI integration. Changed host keys are rejected.
+states in Settings. Changed host keys are rejected.
 Verification links stay in the main process and only HTTPS links to the Tailscale login
 verification path are accepted. Cancel or a five-minute expiry stops automatic retries.
 Device login/key expiry is separate: open the Tailscale app to sign in again.

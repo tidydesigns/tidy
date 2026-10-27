@@ -113,7 +113,8 @@ merges and large-document latency measurements remain follow-up work.
 ## Remote machines
 
 Remote backend installation, SSH transport, reconnection and machine-scoped IPC are implemented.
-The remote setup and thread-selection UI is deferred; the desktop retains its original interface.
+Open **Settings → Remote machines** to add an SSH destination and manage its connection.
+Remote project and thread selection UI is still deferred; connecting does not move existing chats.
 The remote backend continues running when the desktop disconnects.
 See [backend installation and connection setup](REMOTE.md).
 
