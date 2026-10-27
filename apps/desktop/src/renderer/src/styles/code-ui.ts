@@ -24,7 +24,7 @@ export const codeMenuClassName = [
 ].join(" ");
 
 export const codeControlClassName =
-  "harness-setting-trigger flex min-h-[30px] max-w-[185px] cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-[5px] text-xs leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-[15px] [&>svg]:shrink-0 max-[700px]:px-1 max-[700px]:text-[11px]";
+  "harness-setting-trigger flex min-h-8 max-w-[185px] cursor-pointer items-center gap-1.5 rounded-md border-0 bg-transparent px-1.5 py-1.5 text-sm leading-5 text-muted-ink hover:bg-hover-surface [&>svg]:size-4 [&>svg]:shrink-0 max-[1000px]:text-xs max-[700px]:px-1 max-[700px]:text-[11px]";
 
 export const codeContextClassName =
   "flex min-w-0 items-center gap-[7px] text-xs leading-[18px] text-muted-ink [&_svg]:size-[15px] [&_svg]:shrink-0 max-[700px]:gap-[5px] max-[700px]:text-[11px]";

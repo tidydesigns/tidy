@@ -1774,7 +1774,7 @@ export function App() {
                         Message
                       </label>
                       <SkillPrompt
-                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-2.5 py-2 text-[15px] leading-6 text-ink [field-sizing:content] min-h-[calc(2lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
@@ -1813,7 +1813,7 @@ export function App() {
                         }
                         disabled={Boolean(thread?.doneAt) || busy}
                         maxLength={32_000}
-                        rows={2}
+                        rows={1}
                         onKeyDown={(event) => {
                           if (
                             event.key === "Enter" &&
@@ -1841,31 +1841,7 @@ export function App() {
                           }
                         }}
                       />
-                      <div className="composer-actions flex flex-wrap items-center gap-2 p-2">
-                        <Button
-                          type="button"
-                          className="quiet-button attachment-button size-[30px]"
-                          aria-label="Attach files"
-                          title="Attach files"
-                          disabled={Boolean(thread?.doneAt) || busy}
-                          onClick={() => fileInput.current?.click()}
-                        >
-                          <svg
-                            aria-hidden="true"
-                            width="17"
-                            height="17"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                          >
-                            <path
-                              d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        </Button>
+                      <div className="composer-actions flex flex-wrap items-center gap-2 py-2">
                         <div className="composer-settings contents">
                           <HarnessControls
                             catalogs={harnesses.map((connection) => ({
@@ -1914,6 +1890,30 @@ export function App() {
                           />
                         </div>
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
+                          <Button
+                            type="button"
+                            className="quiet-button attachment-button size-8"
+                            aria-label="Attach files"
+                            title="Attach files"
+                            disabled={Boolean(thread?.doneAt) || busy}
+                            onClick={() => fileInput.current?.click()}
+                          >
+                            <svg
+                              aria-hidden="true"
+                              width="17"
+                              height="17"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                            >
+                              <path
+                                d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"
+                                stroke="currentColor"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          </Button>
                           <span ref={canvasDockHome} className="canvas-dock-home" />
                           <div className="composer-delivery ml-auto flex shrink-0 items-center gap-1.5">
                             {running && !hasMessage ? (
