@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { SiteHeader } from "../components/site-header";
 import { CloudFooter } from "../components/brand/cloud-footer";
 import { CloudArtwork } from "../components/brand/cloud-artwork";
+import { CloudAtmosphere } from "../components/brand/cloud-atmosphere";
 import { BrandIcon } from "../components/brand/brand-icon";
 import { ProductPreview } from "../components/machine/product-preview";
 import { Workflow } from "../components/machine/workflow";
@@ -22,12 +23,7 @@ export default function HomePage() {
       <main id="main-content">
         <section className={styles.hero} aria-labelledby="hero-title">
           <div className={styles.heroArtwork} aria-hidden="true">
-            <CloudArtwork
-              name="cloud-atmosphere"
-              sizes="(max-width: 1200px) 100vw, 1200px"
-              className={styles.atmosphere}
-              eager
-            />
+            <CloudAtmosphere eager />
             <div className={styles.cloudLeft}>
               <CloudArtwork name="cloud-coral" sizes="(max-width: 800px) 315px, 600px" eager />
             </div>

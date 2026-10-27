@@ -1,0 +1,20 @@
+.atmosphere {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0.14;
+  pointer-events: none;
+}
+.atmosphere img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+:global([data-theme="dark"]) .atmosphere {
+  opacity: 0.82;
+}

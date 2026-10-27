@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CloudArtwork } from "./cloud-artwork";
+import { CloudAtmosphere } from "./cloud-atmosphere";
 import { BrandIcon } from "./brand-icon";
 import { documentationUrl } from "../../lib/site-links";
 import { AnimatedWordmark } from "./animated-wordmark";
@@ -14,11 +15,7 @@ export function CloudFooter({
 }) {
   return (
     <footer id="cloud-footer" className={styles.footer}>
-      <CloudArtwork
-        name="cloud-atmosphere"
-        sizes="(max-width: 1200px) 100vw, 1200px"
-        className={styles.atmosphere}
-      />
+      <CloudAtmosphere />
       <div className={styles.blockLeft} aria-hidden="true">
         <CloudArtwork name="cloud-coral" sizes="(max-width: 640px) 42vw, 420px" />
       </div>

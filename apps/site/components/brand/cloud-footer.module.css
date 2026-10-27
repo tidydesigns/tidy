@@ -16,32 +16,6 @@
   --footer-surface: #202020;
   --footer-border: #3a3a3a;
 }
-.atmosphere {
-  position: absolute;
-  z-index: -2;
-  inset: 0;
-  width: min(100%, 1200px);
-  margin: auto;
-  opacity: 0.14;
-  mask-image: linear-gradient(to right, transparent, #000 8%, #000 92%, transparent);
-}
-.atmosphere img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center bottom;
-}
-:global([data-theme="dark"]) .atmosphere {
-  opacity: 0.8;
-}
-.footer::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  inset: 0;
-  background: linear-gradient(var(--footer-surface) 33%, transparent 75%);
-  pointer-events: none;
-}
 .blockLeft,
 .blockRight {
   position: absolute;
@@ -99,7 +73,6 @@
 .invitation {
   width: min(calc(100% - 48px), 880px);
   margin-inline: auto;
-  background: var(--footer-surface);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -109,7 +82,7 @@
 }
 .eyebrow {
   margin: 0;
-  color: var(--footer-muted);
+  color: var(--footer-ink);
   font-size: 11px;
   line-height: 1.5;
   letter-spacing: 0.12em;
@@ -155,7 +128,7 @@
   outline-offset: 4px;
 }
 .wordmark {
-  width: min(88%, 1200px);
+  width: 88%;
   margin: 64px auto 28px;
   overflow: hidden;
 }
@@ -244,9 +217,6 @@
     margin: 0;
   }
   .invitation {
-    width: min(calc(100% - 48px), 880px);
-    margin-inline: auto;
-    background: var(--footer-surface);
     gap: 20px;
     padding-top: 64px;
   }
@@ -254,11 +224,13 @@
     font-size: 11px;
   }
   .blockLeft {
-    top: 285px;
+    top: auto;
+    bottom: 220px;
     left: -7%;
   }
   .blockRight {
-    top: 270px;
+    top: auto;
+    bottom: 200px;
     right: -9%;
   }
   .wordmark {
