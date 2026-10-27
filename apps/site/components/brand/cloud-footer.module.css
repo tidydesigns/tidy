@@ -173,7 +173,9 @@
 }
 .themeSwitch {
   display: inline-flex;
+  align-items: center;
   gap: 2px;
+  min-height: 44px;
   padding: 3px;
   border: 1px solid var(--theme-border, #dedede);
   border-radius: 5px;
