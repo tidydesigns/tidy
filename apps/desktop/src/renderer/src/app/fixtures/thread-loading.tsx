@@ -1,4 +1,5 @@
-import { useDeferredValue, useRef, useState } from "react";
+import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
+import { StrictMode, useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type {
@@ -203,6 +204,64 @@ async function workspaceFixture(root: Root) {
   };
 }
 
+export async function runHarnessFailureNoticeTests(root: Root) {
+  const listeners = new Set<(event: DesktopEvent) => void>();
+  const api: DesktopAPI = {
+    ...nativeAPI,
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+  flushSync(() =>
+    root.render(
+      <StrictMode>
+        <HarnessFailureNotices api={api} />
+      </StrictMode>,
+    ),
+  );
+  await settle();
+  const thread = {
+    ...makeThread(),
+    status: "failed" as const,
+    error: "This content was flagged for possible cybersecurity risk. Apply for Daybreak access.",
+  };
+  const emit = (value: Thread) => {
+    for (const listener of listeners) listener({ type: "thread", thread: value });
+  };
+  const modal = () => host.querySelector<HTMLDialogElement>("dialog[open]");
+  emit({ ...thread, status: "running", error: undefined });
+  emit(thread);
+  await until(() => Boolean(modal()), "Failure dialog");
+  await settle();
+  check(modal()?.querySelector("h2")?.textContent === "Request blocked", "Policy guidance missing");
+  check(document.activeElement?.textContent === "Dismiss", "Dismiss did not receive initial focus");
+  check(!modal()?.querySelector("details")?.open, "Technical details expanded by default");
+  emit({ ...thread, revision: 2 });
+  modal()?.close();
+  await until(() => !modal(), "Dismiss failure");
+  emit({ ...thread, revision: 3 });
+  await settle();
+  check(!modal(), "Duplicate failure reopened a dismissed dialog");
+  emit({ ...thread, revision: 4, status: "running", error: undefined });
+  emit({ ...thread, revision: 3 });
+  await settle();
+  check(!modal(), "Stale failure interrupted a retry");
+  emit({ ...thread, revision: 5 });
+  await until(() => Boolean(modal()), "New failure after retry");
+  emit({ ...thread, id: "second-failure", error: "401 authentication failed" });
+  await settle();
+  modal()?.close();
+  await until(
+    () => modal()?.querySelector("h2")?.textContent === "Sign in again",
+    "Queued background failure",
+  );
+  emit({ ...thread, id: "second-failure", revision: 2, status: "running", error: undefined });
+  await until(() => !modal(), "Retry removes stale dialog");
+}
+
 async function runThreadLoadingTests(): Promise<string[]> {
   const passed: string[] = [];
   async function run(name: string, test: (root: Root) => Promise<void>) {
@@ -218,6 +277,8 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
   await run(
     "offline transitions retain loaded projects and refresh once on reconnect",

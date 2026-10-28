@@ -567,3 +567,46 @@ test("read-only Codex workspace threads retain read-only permissions with extern
     await run.done.catch(() => {});
   }
 });
+
+test("Claude preserves provider errors from assistant events and result error arrays", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((update) => updates.push(update));
+  parse({
+    type: "assistant",
+    error: "authentication_failed",
+    message: { content: [{ type: "text", text: "Please sign in again" }] },
+  });
+  parse({ type: "result", is_error: true, errors: ["Provider overloaded", "Try later"] });
+  expect(updates).toEqual([
+    { type: "error", text: "Please sign in again" },
+    { type: "error", text: "Provider overloaded\nTry later" },
+  ]);
+});
+
+test("Claude subagent and tool errors do not fail the parent turn", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((update) => updates.push(update));
+  parse({
+    type: "assistant",
+    parent_tool_use_id: "tool-1",
+    error: "rate_limit",
+    message: { content: [{ type: "text", text: "Too many requests" }] },
+  });
+  expect(updates.some((update) => update.type === "error")).toBe(false);
+});
+
+for (const harness of ["codex", "claude"] as const) {
+  test(`${harness} preserves a specific provider failure when completion has no details`, async () => {
+    const { directory, executable } = await fixture();
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "provider-failure-fixture",
+      onUpdate() {},
+    });
+    await expect(run.done).rejects.toThrow(
+      "This content was flagged for possible cybersecurity risk.",
+    );
+  });
+}

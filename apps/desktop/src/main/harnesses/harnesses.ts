@@ -157,6 +157,7 @@ function readUsage(value: Record<string, unknown>): TokenUsage | undefined {
 /** Normalize only visible messages and tool progress, never reasoning or credentials. */
 export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
   let claudeMessageId = "response";
+  let reportedError = "";
   const tools = createToolEventParser("claude", (tool) => emit({ type: "tool", tool }));
   return (input: unknown) => {
     const value = record(input);
@@ -185,6 +186,14 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
         .filter((block) => block.type === "text")
         .map((block) => text(block.text))
         .join("\n");
+      if (value.error) {
+        reportedError = visible || text(value.error) || "Claude Code could not complete this turn.";
+        emit({
+          type: "error",
+          text: reportedError,
+        });
+        return;
+      }
       if (visible)
         emit({ type: "message", id: text(message.id) || claudeMessageId, text: visible });
       tools(value);
@@ -221,7 +230,13 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
       if (value.is_error)
         emit({
           type: "error",
-          text: text(value.result) || "Claude Code could not complete this turn.",
+          text:
+            text(value.result) ||
+            (Array.isArray(value.errors)
+              ? value.errors.map(text).filter(Boolean).join("\n")
+              : "") ||
+            reportedError ||
+            "Claude Code could not complete this turn.",
         });
       else if (text(value.result))
         emit({ type: "message", id: claudeMessageId, text: text(value.result) });

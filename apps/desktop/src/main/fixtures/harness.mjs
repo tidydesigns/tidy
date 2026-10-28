@@ -189,6 +189,27 @@ const send = (value) => {
   }
   rawSend(value);
 };
+if (prompt.includes("provider-failure-fixture")) {
+  const message = "This content was flagged for possible cybersecurity risk.";
+  if (turnParams) {
+    rawSend({
+      method: "error",
+      params: { threadId: session, turnId: turn, willRetry: false, error: { message } },
+    });
+    rawSend({
+      method: "turn/completed",
+      params: { threadId: session, turn: { id: turn, status: "failed" } },
+    });
+  } else {
+    send({
+      type: "assistant",
+      error: "content_policy",
+      message: { content: [{ type: "text", text: message }] },
+    });
+    send({ type: "result", is_error: true });
+  }
+  process.exit(0);
+}
 if (prompt.includes("invalid-event")) {
   process.stdout.write("not-json\n");
   process.exit(0);

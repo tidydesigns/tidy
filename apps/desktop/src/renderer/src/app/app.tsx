@@ -1,3 +1,4 @@
+import { HarnessFailureNotices } from "../features/threads/harness-failure-dialog";
 import {
   codeFontClassName,
   desktopNavigationClassName,
@@ -1403,6 +1404,7 @@ export function App({
 
   return (
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
+      <HarnessFailureNotices api={api} />
       <aside
         id="desktop-navigation"
         className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${desktopNavigationClassName}`}

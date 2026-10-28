@@ -1,0 +1,145 @@
+.harness-failure-dialog {
+  max-width: 440px;
+  border-radius: 14px;
+  box-shadow:
+    0 16px 64px #0002,
+    0 2px 8px #0001;
+}
+.harness-failure-body {
+  padding: 24px 24px 20px;
+}
+.harness-failure-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.harness-failure-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--desktop-status-danger) 15%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--desktop-status-danger) 6%, transparent);
+  color: var(--desktop-status-danger);
+}
+.harness-failure-heading h2 {
+  margin: 0;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.harness-failure-context {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--color-muted-ink);
+}
+.harness-failure-guidance,
+.harness-failure-access {
+  margin: 18px 0 0;
+  font-size: 13px;
+  line-height: 21px;
+  color: var(--color-secondary-ink);
+}
+.harness-failure-access {
+  margin-top: 10px;
+}
+.harness-failure-access a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.harness-failure-details {
+  margin-top: 18px;
+  font-size: 12px;
+  line-height: 18px;
+}
+.harness-failure-details summary {
+  width: fit-content;
+  cursor: pointer;
+  color: var(--color-muted-ink);
+}
+.harness-failure-details summary:focus-visible {
+  outline: 2px solid var(--color-border);
+  outline-offset: 4px;
+  border-radius: 2px;
+}
+.harness-failure-details pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 10px 0 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-subtle-fill);
+  font: 11px/1.7 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.harness-failure-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--color-border);
+}
+.harness-failure-footer > span {
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-muted-ink);
+}
+.harness-failure-dismiss {
+  flex-shrink: 0;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+  padding: 6px 12px;
+  background: var(--color-subtle-fill);
+  color: var(--color-ink);
+  font-size: 12px;
+  line-height: 18px;
+  font-weight: 500;
+}
+.harness-failure-dismiss:active {
+  transform: scale(0.97);
+}
+.harness-failure-dismiss:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+.thread-error-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--color-secondary-ink);
+}
+.thread-error-button > span:first-child {
+  color: var(--desktop-status-danger);
+}
+.thread-error-button:active {
+  transform: scale(0.98);
+}
+.thread-error-button:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .harness-failure-dismiss:hover,
+  .thread-error-button:hover {
+    background: var(--color-hover-surface);
+  }
+}
