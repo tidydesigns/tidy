@@ -278,7 +278,7 @@ export class RemoteClient {
           );
           socket.terminate();
         },
-        isRemoteMutation(name) ? 120_000 : 60_000,
+        name === "setup-project" ? 330_000 : isRemoteMutation(name) ? 120_000 : 60_000,
       );
       this.pending.set(id, {
         resolve,

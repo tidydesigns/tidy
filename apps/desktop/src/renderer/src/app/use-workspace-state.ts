@@ -8,6 +8,7 @@ import type {
   Project,
   ProjectSnapshot,
   Thread,
+  Bootstrap,
 } from "../../../shared/contracts/desktop";
 import { applyProjectEvent, applyThreadPatch } from "../../../shared/models/thread-updates";
 import { useSessionState } from "./session-state";
@@ -17,20 +18,28 @@ export function useWorkspaceState({
   api,
   navigation,
   onError,
+  initial,
+  connection,
 }: {
   api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
+  initial?: Bootstrap;
+  connection?: string;
 }) {
-  const [loading, setLoading] = useState(true);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const initialBootstrap = useRef(initial);
+  const [loading, setLoading] = useState(!initial);
+  const [projects, setProjects] = useState<Project[]>(initial?.projects ?? []);
   const [activeProjectId, setActiveProjectId] = useSessionState(
     "project",
     z.string().nullable(),
-    null,
+    initial?.activeProject?.project.id ?? null,
+    initial?.activeProject?.project.id,
   );
-  const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>({});
-  const [harnesses, setHarnesses] = useState<HarnessConnection[]>([]);
+  const [snapshots, setSnapshots] = useState<Record<string, ProjectSnapshot>>(() =>
+    initial?.activeProject ? { [initial.activeProject.project.id]: initial.activeProject } : {},
+  );
+  const [harnesses, setHarnesses] = useState<HarnessConnection[]>(initial?.harnesses ?? []);
   const [threads, setThreads] = useState<Record<string, Thread>>({});
   const currentThreads = useRef(threads);
   useLayoutEffect(() => {
@@ -132,8 +141,9 @@ export function useWorkspaceState({
       });
     });
     const initialNavigation = navigation.current;
-    void api
-      .bootstrap()
+    const prepared = initialBootstrap.current;
+    initialBootstrap.current = undefined;
+    void (prepared ? Promise.resolve(prepared) : api.bootstrap())
       .then(async (value) => {
         if (!mounted) return;
         setProjects(value.projects.filter((p) => !p.cloud));
@@ -141,6 +151,7 @@ export function useWorkspaceState({
         let activeProject = value.activeProject;
         if (
           navigation.current === initialNavigation &&
+          !prepared &&
           activeProjectId &&
           value.projects.some((p) => p.id === activeProjectId && !p.cloud) &&
           activeProject?.project.id !== activeProjectId
@@ -176,7 +187,7 @@ export function useWorkspaceState({
       mounted = false;
       unsubscribe();
     };
-  }, [api]);
+  }, [api, connection]);
 
   return {
     loading,

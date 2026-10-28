@@ -187,3 +187,55 @@ test("legacy receipts without an authorization scope cannot disclose results or 
   });
   expect(calls).toBe(1);
 });
+
+test("setup receipts protect the project returned by the operation after access changes", async () => {
+  const root = await mkdtemp(join(tmpdir(), "receipt-setup-access-"));
+  roots.push(root);
+  const receipts = new RequestReceipts(root),
+    client = randomUUID(),
+    projectId = randomUUID();
+  const request = {
+    id: randomUUID(),
+    name: "setup-project",
+    input: { kind: "folder", path: "/project", repository: null },
+  };
+  let allowed = true,
+    calls = 0;
+  const authorize = async (id: string) => {
+    expect(id).toBe(projectId);
+    if (!allowed) throw new Error("Access withdrawn");
+  };
+  const action = async () => {
+    calls++;
+    return {
+      kind: "ready",
+      snapshot: {
+        project: {
+          id: projectId,
+          name: "Project",
+          path: "/project",
+          openedAt: new Date().toISOString(),
+        },
+        threads: [],
+        designs: [],
+        folders: [],
+      },
+    };
+  };
+  const result = await receipts.execute(client, request, action, authorize);
+  expect(result.ok).toBe(true);
+  allowed = false;
+  const reopened = new RequestReceipts(root);
+  expect(await reopened.status(client, request.id, authorize)).toEqual({
+    kind: "complete",
+    response: unavailableReceiptResponse,
+  });
+  expect(await reopened.execute(client, request, action, authorize)).toEqual(
+    unavailableReceiptResponse,
+  );
+  expect(await reopened.status(client, request.id)).toEqual({
+    kind: "complete",
+    response: unavailableReceiptResponse,
+  });
+  expect(calls).toBe(1);
+});

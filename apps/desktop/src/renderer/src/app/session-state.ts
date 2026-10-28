@@ -1,13 +1,26 @@
-import { useCallback, useRef, useState, type SetStateAction } from "react";
+import {
+  createContext,
+  useContext,
+  useCallback,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import type { z } from "zod";
 import { readNavigation, writeNavigation, type SessionValue } from "./navigation-storage";
+
+export const NavigationScope = createContext("");
 
 export function useSessionState<T extends SessionValue>(
   key: string,
   schema: z.ZodType<T>,
   fallback: T,
+  initial?: T,
 ) {
+  const scope = useContext(NavigationScope);
+  key = scope ? `${scope}:${key}` : key;
   const [value, setValue] = useState<T>(() => {
+    if (initial !== undefined) return initial;
     try {
       return readNavigation({ storage: sessionStorage, key, schema, fallback });
     } catch {

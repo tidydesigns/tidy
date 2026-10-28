@@ -56,6 +56,12 @@ function remember<T extends ProjectSnapshot | null>(snapshot: T): T {
 }
 
 const api: DesktopAPI = {
+  projectDirectories: (path) => request("project-directories", path),
+  projectCheckouts: (projectId) => request("project-checkouts", projectId),
+  setupProject: (input) => request("setup-project", input),
+  exportAttachment: (projectId, attachmentId) =>
+    request("export-attachment", { projectId, attachmentId }),
+  exportDesign: (projectId, designId) => request("export-design", { projectId, designId }),
   /** Browser development has no native harness discovery or maintenance endpoint. */
   harnessUpdates: async () => [],
   /** Reject native update requests explicitly instead of exposing them through the dev server. */

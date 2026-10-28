@@ -3,8 +3,28 @@
 The remote backend, automatic SSH bootstrap, reconnection and machine-scoped IPC are implemented.
 Open **Settings → Remote machines**, enter an SSH alias or `user@hostname`, and choose
 **Connect**. Settings shows installation progress, authentication prompts, browser verification,
-and connection status, with **Retry** and **Remove** actions. Remote project and thread selection
-remain available only through the preload bridge; connecting does not switch the current chat.
+and connection status, with **Retry** and **Remove** actions. Connecting does not switch the current chat.
+
+## Choose where a thread runs
+
+In a new thread, use **Run on** beside the branch to select a connected machine. A matching
+registered checkout opens automatically. Otherwise, choose an existing folder on that host or
+clone the repository there. SSH and HTTPS URLs for the same repository match; forks remain
+separate through their primary remote. Automatic matching also checks the folder path inside
+the repository, so different folders in a monorepo stay separate. Multiple matching checkouts require a choice.
+Matching folder associations are remembered on this desktop. A folder with a different repository
+can open as a separate project after confirmation. Projects without a Git remote remain separate.
+If the destination already has a draft, choose whether to keep it or replace it with the incoming draft.
+
+The prompt and model selection stay with the draft. Selected design references, their images,
+and attachments are copied into the destination project with new host-local IDs. No other
+project files, environment files, credentials, dependencies or processes are transferred.
+Cloning uses Git credentials already configured on the destination and never replaces an
+existing folder. Closing a cloning dialog leaves that operation running in the background.
+
+Existing threads stay on their original machine. The workspace menu offers **Projects on…**
+to navigate between machines without moving a thread. Workspace state and navigation are
+isolated per machine; offline destinations never fall back to local execution.
 
 The remote machine owns repositories, agent processes, CLI sign-ins and thread state:
 
@@ -20,7 +40,7 @@ The remote machine owns repositories, agent processes, CLI sign-ins and thread s
   [OpenSSH over Tailscale](https://tailscale.com/docs/reference/ssh-over-tailscale).
   Use the tailnet hostname/address or an alias that resolves to it.
 - Codex or Claude Code installed and signed in as the remote user. Put repositories
-  on that machine. Tidy does not copy local CLI credentials or repositories.
+  on that machine, or clone them through project setup. Tidy does not copy local CLI credentials.
 - HTTPS access to nodejs.org on first installation. Node and Bun need not be installed
   beforehand on the host.
 
@@ -192,7 +212,8 @@ agent execution, reconnect without duplicate execution, and authentication recov
 
 Workspace requests carry a stable saved machine ID through validated IPC. Unknown machines are
 rejected rather than falling back to local execution. Events carry the same machine ID. The
-connection layer separately pins backend identity. Remote project and thread selection UI is intentionally deferred.
+connection layer separately pins backend identity. Project setup and draft transfer use the same
+authenticated request boundary and project access checks.
 
 Physical sleep/wake, platform-specific behavior and actual tailnet policies still require
 cross-device testing.

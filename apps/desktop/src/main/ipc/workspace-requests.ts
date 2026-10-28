@@ -1,4 +1,12 @@
 import { branchNameSchema } from "../../shared/contracts/repository-context";
+import { readLocalFile } from "../platform/local-files";
+import {
+  projectDirectories,
+  projectRemotes,
+  projectRepositoryPath,
+  setupProject,
+} from "../repository/project-setup";
+import { projectSetupSchema } from "../../shared/contracts/project-setup";
 import { readRepositoryContext } from "../repository/repository-context";
 import { skillIdSchema } from "../../shared/contracts/skills";
 import { z } from "zod";
@@ -53,6 +61,72 @@ export function createWorkspaceRequests<Context>(
       threads: service.withLiveThreads(snapshot.project.id, snapshot.threads),
     };
   }
+  handle(
+    "project-directories",
+    z
+      .string()
+      .max(4096)
+      .refine((path) => !path || path.startsWith("/")),
+    projectDirectories,
+  );
+  handle("project-checkouts", uuid.optional(), async (projectId) => {
+    const projects = store.projects.filter(
+      (project) => !project.cloud && (!projectId || project.id === projectId),
+    );
+    const result = [];
+    for (let start = 0; start < projects.length; start += 4) {
+      result.push(
+        ...(await Promise.all(
+          projects.slice(start, start + 4).map(async (project) => ({
+            projectId: project.id,
+            remotes: await projectRemotes(project.path),
+            repositoryPath: await projectRepositoryPath(project.path),
+          })),
+        )),
+      );
+    }
+    return result;
+  });
+  handle("setup-project", projectSetupSchema, async (input) => {
+    const result = await setupProject(input);
+    if (result.kind !== "ready") return result;
+    if (store.projects.some((project) => project.path === result.path && project.cloud))
+      throw new Error("Open this cloud workspace through your account instead.");
+    const snapshot = await store.open(result.path);
+    await service.assertProjectAccess(snapshot.project.id);
+    await service.observe(snapshot.project.id);
+    return { kind: "ready", snapshot: liveSnapshot(snapshot) } as const;
+  });
+  handle(
+    "export-attachment",
+    z.object({ projectId, attachmentId: uuid }).strict(),
+    async (input) => {
+      const file = await store.resolveAttachment(input.projectId, input.attachmentId);
+      return {
+        name: file.name,
+        dataUrl: `data:${file.mimeType};base64,${(await readLocalFile(file.path, MAX_ATTACHMENT_BYTES)).toString("base64")}`,
+      };
+    },
+  );
+  handle("export-design", z.object({ projectId, designId: uuid }).strict(), async (input) => {
+    const design = await store.readDesign(input.projectId, input.designId);
+    const assets: Record<string, string> = {};
+    let size = Buffer.byteLength(JSON.stringify(design.document));
+    if (size > 28_000_000)
+      throw new Error("This design is too large to transfer. Choose a smaller reference.");
+    for (const id of Object.keys(design.assets)) {
+      const value = await store.readSyncAsset(input.projectId, id);
+      if (!value || !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(value))
+        throw new Error(
+          "A design image is unavailable. Open the design on its machine and try again.",
+        );
+      size += Buffer.byteLength(value);
+      if (size > 28_000_000)
+        throw new Error("This design is too large to transfer. Choose a smaller reference.");
+      assets[id] = value;
+    }
+    return { ...design, assets };
+  });
   handle("bootstrap", z.undefined(), async () => {
     const harnesses = checkHarnesses();
     let activeProject = null;

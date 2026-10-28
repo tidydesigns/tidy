@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { mkdir, open, readFile, rename, rm, opendir } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { projectSetupResultSchema } from "../../shared/contracts/workspace-response";
 import { remoteRequestSchema, type RemoteRequest } from "../../shared/remote";
 
 const responseSchema = z.discriminatedUnion("ok", [
@@ -161,7 +162,7 @@ export class RequestReceipts {
     const projectInput = z
       .object({ projectId: z.string().uuid() })
       .safeParse(request.name === "select-project" ? { projectId: request.input } : request.input);
-    const scope: z.infer<typeof scopeSchema> = projectInput.success
+    let scope: z.infer<typeof scopeSchema> = projectInput.success
       ? { kind: "project", projectId: projectInput.data.projectId }
       : { kind: "machine" };
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
@@ -186,7 +187,13 @@ export class RequestReceipts {
     }
     let response: Response;
     try {
-      response = { ok: true, data: await action() };
+      const data = await action();
+      if (request.name === "setup-project") {
+        const result = projectSetupResultSchema.parse(data);
+        if (result.kind === "ready")
+          scope = { kind: "project", projectId: result.snapshot.project.id };
+      }
+      response = { ok: true, data };
     } catch (error) {
       response = {
         ok: false,

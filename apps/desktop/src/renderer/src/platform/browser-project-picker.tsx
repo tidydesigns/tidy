@@ -37,9 +37,13 @@ function FolderIcon() {
 function ProjectPicker({
   open,
   finish,
+  directories,
+  machine = "Linux",
 }: {
   open(path: string): Promise<ProjectSnapshot>;
   finish(project: ProjectSnapshot | null): void;
+  directories?: (path: string) => Promise<Directory>;
+  machine?: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
@@ -56,16 +60,20 @@ function ProjectPicker({
   function load(path = "") {
     const existing = cache.current.get(path);
     if (existing) return existing;
-    const request = fetch(`/__tidy/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`)
-      .then(async (response) => {
-        const result = directoryResponseSchema.parse(await response.json());
-        if (!result.ok) throw new Error(result.error);
-        return result.data;
-      })
-      .catch((error: unknown) => {
-        cache.current.delete(path);
-        throw error;
-      });
+    const request = (
+      directories
+        ? directories(path)
+        : fetch(`/__tidy/directories${path ? `?path=${encodeURIComponent(path)}` : ""}`).then(
+            async (response) => {
+              const result = directoryResponseSchema.parse(await response.json());
+              if (!result.ok) throw new Error(result.error);
+              return result.data;
+            },
+          )
+    ).catch((error: unknown) => {
+      cache.current.delete(path);
+      throw error;
+    });
     cache.current.set(path, request);
     return request;
   }
@@ -180,7 +188,7 @@ function ProjectPicker({
     >
       <div className="browser-project-heading">
         <h2 id="browser-project-title">Open project</h2>
-        <span>Linux</span>
+        <span>{machine}</span>
         <Button
           className="quiet-button"
           aria-label="Close project picker"
@@ -203,7 +211,7 @@ function ProjectPicker({
           ref={input}
           autoFocus
           role="combobox"
-          aria-label="Folder on Linux"
+          aria-label={`Folder on ${machine}`}
           aria-describedby="browser-project-hints"
           aria-autocomplete="list"
           aria-controls="browser-project-folders"
@@ -242,7 +250,7 @@ function ProjectPicker({
         id="browser-project-folders"
         role="listbox"
         tabIndex={-1}
-        aria-label="Linux folders"
+        aria-label={`${machine} folders`}
         aria-busy={pending}
         className="browser-project-folders"
       >
@@ -294,7 +302,7 @@ function ProjectPicker({
       </div>
 
       <div className="browser-project-actions">
-        <span title={selectedPath}>{selectedPath ?? "Choose a folder on Linux"}</span>
+        <span title={selectedPath}>{selectedPath ?? `Choose a folder on ${machine}`}</span>
         <Button
           className="primary-button"
           disabled={opening || pending || !selectedPath}
@@ -324,6 +332,7 @@ function ProjectPicker({
 
 export function chooseBrowserProject(
   open: (path: string) => Promise<ProjectSnapshot>,
+  options?: { directories: (path: string) => Promise<Directory>; machine: string },
 ): Promise<ProjectSnapshot | null> {
   const host = document.createElement("div");
   document.body.append(host);
@@ -337,6 +346,6 @@ export function chooseBrowserProject(
       host.remove();
       resolve(project);
     }
-    root.render(<ProjectPicker open={open} finish={finish} />);
+    root.render(<ProjectPicker open={open} finish={finish} {...options} />);
   });
 }

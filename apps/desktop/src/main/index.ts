@@ -18,6 +18,7 @@ import {
   powerMonitor,
 } from "electron";
 import { join } from "node:path";
+import { hostname } from "node:os";
 import { readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import {
@@ -278,7 +279,7 @@ app
       get: () => (ownsInitialService ? undefined : localClient),
       getMachine: (id) => remoteClients.get(id),
       list: () => [
-        { id: "local", label: "This machine", status: null },
+        { id: "local", label: hostname(), status: null },
         ...profiles
           .list()
           .filter((machine) => remoteClients.has(machine.id))

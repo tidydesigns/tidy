@@ -1,7 +1,7 @@
 export type ToastNotice = {
   id: number;
   message: string;
-  tone: "error" | "success";
+  tone: "error" | "success" | "info";
   onDismiss?: () => void;
   owner?: object;
 };
