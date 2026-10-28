@@ -1,0 +1,753 @@
+import { afterAll, beforeAll, expect, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { z } from "zod";
+import { HarnessSession } from "./interactive-harness";
+import { HarnessSessions } from "./harness-sessions";
+import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
+import type { HarnessUpdate } from "./harnesses";
+let directory: string;
+let executable: string;
+beforeAll(async () => {
+  directory = await mkdtemp(join(tmpdir(), "tidy-sessions-"));
+  const result = await Bun.build({
+    entrypoints: [join(import.meta.dir, "fixtures/session-agent.ts")],
+    outdir: directory,
+    target: "node",
+    packages: "bundle",
+  });
+  if (!result.success) throw new AggregateError(result.logs);
+  executable = result.outputs[0].path;
+  await chmod(executable, 0o700);
+});
+afterAll(async () => {
+  await rm(directory, { recursive: true, force: true });
+});
+const eventsSchema = z.array(
+  z.object({
+    pid: z.number(),
+    method: z.string().optional(),
+    type: z.string().optional(),
+    value: z.object({ params: z.unknown().optional() }),
+  }),
+);
+async function events(cwd: string) {
+  return eventsSchema.parse(
+    (await readFile(join(cwd, "session-events.jsonl"), "utf8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line)),
+  );
+}
+
+for (const scope of ["harness", "project", "repository"] as const) {
+  test(`clearing a ${scope} cancels matching queued acquisitions while preserving unrelated sends`, async () => {
+    const cwd = await mkdtemp(join(directory, "scoped-clear-"));
+    const sessions = new HarnessSessions();
+    const context = { projectId: "local", harness: "codex" as const, executable, cwd };
+    const clearedPath = join(cwd, "cloud");
+    await mkdir(clearedPath);
+    try {
+      const local = sessions.start("local", { ...context, prompt: "Local", onUpdate() {} });
+      const other = sessions.prepare({
+        kind: "thread",
+        id: "cloud",
+        context: {
+          ...context,
+          projectId: "cloud",
+          harness: "claude",
+          cwd: clearedPath,
+        },
+      });
+      const settled = Promise.allSettled([local.done, other]);
+      await sessions.clear({
+        idleOnly: true,
+        ...(scope === "harness"
+          ? { harness: "claude" as const }
+          : scope === "project"
+            ? { projectIds: new Set(["cloud"]) }
+            : { directory: clearedPath }),
+      });
+      expect(await settled).toEqual([
+        { status: "fulfilled", value: undefined },
+        {
+          status: "rejected",
+          reason: expect.objectContaining({ message: expect.stringContaining("context changed") }),
+        },
+      ]);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test("a duplicate start or incompatible preparation cannot close another running turn", async () => {
+  const cwd = await mkdtemp(join(directory, "concurrent-start-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  const accepted = Promise.withResolvers<void>();
+  try {
+    const running = sessions.start("thread", {
+      ...context,
+      prompt: "hold",
+      onUpdate(update) {
+        if (update.type === "started") accepted.resolve();
+      },
+    });
+    await accepted.promise;
+    const pid = (await events(cwd))[0].pid;
+    await expect(
+      sessions.start("thread", { ...context, prompt: "duplicate", onUpdate() {} }).done,
+    ).rejects.toThrow("running turn");
+    await expect(
+      sessions.prepare({
+        kind: "thread",
+        id: "thread",
+        context: { ...context, settings: { model: "other" } },
+      }),
+    ).rejects.toThrow("Wait for");
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    running.stop();
+    await running.done;
+    await sessions.start("thread", { ...context, prompt: "continue", onUpdate() {} }).done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("access withdrawal and project removal release scoped sessions and protect background work", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "cloud-retention-"));
+  const initialized = Bun.spawnSync(["git", "-c", "init.defaultBranch=main", "init", cwd]);
+  if (initialized.exitCode !== 0) throw new Error("Could not initialize fixture repository.");
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const local = (await store.open(cwd)).project;
+  const cloudPath = join(cwd, "cloud");
+  await mkdir(cloudPath);
+  const cloud = (await store.open(cloudPath, "Cloud workspace")).project;
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  let allowed = true;
+  service.canAccessCloudProject = () => allowed;
+  service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Cloud access withdrawn");
+  };
+  const completed = () =>
+    new Promise<void>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  try {
+    await service.warmThread({ projectId: cloud.id, harness: "codex" });
+    expect((await events(cloudPath)).some((event) => event.method === "thread/start")).toBe(true);
+    const cloudDone = completed();
+    await service.startThread({
+      projectId: cloud.id,
+      executionProjectId: local.id,
+      harness: "codex",
+      prompt: "background silent",
+      designIds: [],
+    });
+    await cloudDone;
+    expect(service.activeRunCount).toBe(1);
+    const cloudPid = (await events(cwd))[0].pid;
+    expect(service.reserveHarnessUpdate("codex")).toBeNull();
+    await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
+    await expect(service.removeProject(local.id)).rejects.toThrow("active work");
+    const localDone = completed();
+    await service.startThread({
+      projectId: local.id,
+      harness: "codex",
+      prompt: "Local work",
+      designIds: [],
+    });
+    await localDone;
+    const localPids = [...new Set((await events(cwd)).map((event) => event.pid))].filter(
+      (pid) => pid !== cloudPid,
+    );
+    expect(localPids).toHaveLength(1);
+    allowed = false;
+    await service.stopCloudThreads();
+    expect(service.activeRunCount).toBe(0);
+    expect(() => process.kill(cloudPid, 0)).toThrow();
+    for (const pid of localPids) expect(() => process.kill(pid, 0)).not.toThrow();
+    await expect(
+      service.warmThread({ projectId: cloud.id, executionProjectId: local.id, harness: "codex" }),
+    ).rejects.toThrow("Cloud access withdrawn");
+    await service.removeProject(local.id);
+    expect(store.projects.some((project) => project.id === local.id)).toBe(false);
+    for (const pid of localPids) expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await service.close();
+  }
+});
+
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} protects background work from idle pressure, refreshes on progress and releases after completion`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-background-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 150, backgroundSilentMs: 200 });
+    const context = { projectId: "project", harness, executable, cwd };
+    const updates: HarnessUpdate[] = [];
+    try {
+      await sessions.start("background", {
+        ...context,
+        prompt: "background",
+        onUpdate: (update) => updates.push(update),
+      }).done;
+      const pid = (await events(cwd))[0].pid;
+      const previous = updates.length;
+      await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
+      await new Promise((resolve) => setTimeout(resolve, 275));
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      expect(updates).toHaveLength(previous);
+      await sessions.start("background", { ...context, prompt: "continue", onUpdate() {} }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      await expect(
+        sessions.start("background", { ...context, prompt: "fail-turn", onUpdate() {} }).done,
+      ).rejects.toThrow("Turn failed");
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await sessions.clear();
+    }
+  });
+
+  test(`${harness} releases silent background work and shutdown overrides retention`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-silent-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 20, backgroundSilentMs: 200 });
+    const context = { projectId: "project", harness, executable, cwd };
+    try {
+      await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} })
+        .done;
+      const pid = (await events(cwd))[0].pid;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(() => process.kill(pid, 0)).toThrow();
+      await sessions.start("foreign", {
+        ...context,
+        prompt: "foreign background silent",
+        onUpdate() {},
+      }).done;
+      const foreignPids = new Set((await events(cwd)).map((event) => event.pid));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      for (const foreign of foreignPids) expect(() => process.kill(foreign, 0)).toThrow();
+      await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} })
+        .done;
+      const replacements = new Set((await events(cwd)).map((event) => event.pid));
+      expect(replacements.size).toBe(3);
+      await sessions.clear();
+      for (const replacement of replacements) expect(() => process.kill(replacement, 0)).toThrow();
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test("background work survives idle invalidation and refuses incompatible settings until it finishes", async () => {
+  const cwd = await mkdtemp(join(directory, "background-invalidation-"));
+  const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 100, backgroundSilentMs: 1000 });
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background agent", onUpdate() {} }).done;
+    const pid = (await events(cwd))[0].pid;
+    await expect(
+      sessions.start("thread", {
+        ...context,
+        settings: { model: "different" },
+        prompt: "continue",
+        onUpdate() {},
+      }).done,
+    ).rejects.toThrow("Wait for background work");
+    await sessions.clear({ idleOnly: true });
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await sessions.clear();
+  }
+});
+
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} retains one connection across turns and interrupt, with isolated turn callbacks`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    try {
+      await session.ready;
+      const first: HarnessUpdate[] = [];
+      await session.start({ prompt: "first", onUpdate: (update) => first.push(update) }).done;
+      const firstCount = first.length;
+      const started = Promise.withResolvers<void>();
+      const stopped = session.start({
+        prompt: "hold",
+        onUpdate: (update) => {
+          if (update.type === "started") started.resolve();
+        },
+      });
+      await started.promise;
+      stopped.stop();
+      await stopped.done;
+      stopped.stop();
+      const last: HarnessUpdate[] = [];
+      await session.start({ prompt: "last", onUpdate: (update) => last.push(update) }).done;
+      expect(first).toHaveLength(firstCount);
+      expect(last.filter((update) => update.type === "started")).toHaveLength(1);
+      expect(last.some((update) => update.type === "message" && update.text === "OK")).toBe(true);
+      const recorded = await events(cwd);
+      expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+      expect(recorded.filter((event) => event.method === "initialize")).toHaveLength(1);
+      expect(
+        recorded.filter(
+          (event) =>
+            event.method === "turn/start" ||
+            event.method === "session/prompt" ||
+            event.type === "user",
+        ),
+      ).toHaveLength(3);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+  test(`${harness} rejects stale approvals after cancellation and accepts fresh approvals on the next turn`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-approval-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    try {
+      const pending = Promise.withResolvers<string>();
+      const first = session.start({
+        prompt: "approve",
+        onUpdate: (update) => {
+          if (update.type === "approval") pending.resolve(update.request.id);
+        },
+      });
+      const id = await pending.promise;
+      first.stop();
+      await first.done;
+      expect(first.respondToApproval?.(id, "allow")).toBe(false);
+      const nextApproval = Promise.withResolvers<string>();
+      const next = session.start({
+        prompt: "approve",
+        onUpdate: (update) => {
+          if (update.type === "approval") nextApproval.resolve(update.request.id);
+        },
+      });
+      const nextId = await nextApproval.promise;
+      expect(nextId).not.toBe(id);
+      expect(next.respondToApproval?.(id, "allow")).toBe(false);
+      expect(next.respondToApproval?.(nextId, "deny")).toBe(true);
+      await next.done;
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+}
+
+test("an unresponsive interrupt closes the connection before a later turn can use it", async () => {
+  const cwd = await mkdtemp(join(directory, "stubborn-"));
+  const session = new HarnessSession({ harness: "codex", executable, cwd });
+  const started = Promise.withResolvers<void>();
+  try {
+    const turn = session.start({
+      prompt: "stubborn",
+      onUpdate: (update) => {
+        if (update.type === "started") started.resolve();
+      },
+    });
+    await started.promise;
+    turn.stop();
+    await turn.done;
+    await session.done;
+    expect(session.available).toBe(false);
+    expect(() => session.start({ prompt: "next", onUpdate() {} })).toThrow("unavailable");
+  } finally {
+    session.close();
+    await session.done;
+  }
+});
+
+test("idle expiry, settings changes and crashes recreate connections without replaying a prompt", async () => {
+  const cwd = await mkdtemp(join(directory, "recovery-"));
+  const sessions = new HarnessSessions({ idleLimit: 2, idleMs: 25 });
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  const send = (prompt: string, model?: string) =>
+    sessions.start("thread", { ...context, settings: { model }, prompt, onUpdate() {} }).done;
+  try {
+    await send("first");
+    await send("model change", "other");
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    await expect(send("crash", "other")).rejects.toThrow();
+    await send("recover", "other");
+    const recorded = await events(cwd);
+    expect(new Set(recorded.map((event) => event.pid)).size).toBe(4);
+    expect(recorded.filter((event) => event.method === "turn/start")).toHaveLength(4);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("idle cleanup preserves active turns and discarded handles cannot interrupt their successor", async () => {
+  const cwd = await mkdtemp(join(directory, "active-"));
+  const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 25 });
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  try {
+    const started = Promise.withResolvers<void>();
+    const first = sessions.start("thread", {
+      ...context,
+      prompt: "hold",
+      onUpdate: (update) => {
+        if (update.type === "started") started.resolve();
+      },
+    });
+    await started.promise;
+    await sessions.clear({ idleOnly: true });
+    expect(first.deliveryState).toBe("accepted");
+    first.stop();
+    await first.done;
+    const nextStarted = Promise.withResolvers<void>();
+    const next = sessions.start("thread", {
+      ...context,
+      prompt: "hold",
+      onUpdate: (update) => {
+        if (update.type === "started") nextStarted.resolve();
+      },
+    });
+    await nextStarted.promise;
+    first.stop();
+    expect(next.deliveryState).toBe("accepted");
+    next.stop();
+    await next.done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("interrupt waits for the native turn to start after its early acceptance acknowledgement", async () => {
+  const cwd = await mkdtemp(join(directory, "early-stop-"));
+  const session = new HarnessSession({ harness: "codex", executable, cwd });
+  try {
+    const run = session.start({
+      prompt: "early-stop hold",
+      onUpdate: (update) => {
+        if (update.type === "started") run.stop();
+      },
+    });
+    await run.done;
+    expect(session.available).toBe(true);
+    await session.start({ prompt: "continue", onUpdate() {} }).done;
+  } finally {
+    session.close();
+    await session.done;
+  }
+});
+
+test("OpenCode preserves selected model, native command and image inputs and reports turn usage", async () => {
+  const cwd = await mkdtemp(join(directory, "inputs-"));
+  const session = new HarnessSession({
+    harness: "opencode",
+    executable,
+    cwd,
+    settings: { model: "fixture/model" },
+  });
+  const updates: HarnessUpdate[] = [];
+  try {
+    await session.start({
+      prompt: "Project context priced /review file",
+      skill: {
+        invocation: { kind: "command", name: "review", description: "Review" },
+        prompt: "/review file",
+        context: "Project context priced",
+      },
+      images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
+      onUpdate: (update) => updates.push(update),
+    }).done;
+    const recorded = await events(cwd);
+    expect(
+      recorded.find((event) => event.method === "session/set_config_option")?.value.params,
+    ).toMatchObject({ configId: "model", value: "fixture/model" });
+    expect(recorded.find((event) => event.method === "session/prompt")?.value.params).toMatchObject(
+      {
+        prompt: [
+          { type: "text", text: "/review file\n\nProject context priced" },
+          { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
+        ],
+      },
+    );
+    expect(updates.find((update) => update.type === "usage")).toMatchObject({
+      cumulative: false,
+      usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8, costUSD: 0.25 },
+    });
+    const followUp: HarnessUpdate[] = [];
+    await session.start({
+      prompt: "priced follow-up",
+      onUpdate: (update) => followUp.push(update),
+    }).done;
+    expect(followUp.find((update) => update.type === "usage")).toMatchObject({
+      cumulative: false,
+      usage: { costUSD: 0.25 },
+    });
+    const next: HarnessUpdate[] = [];
+    await session.start({ prompt: "Continue", onUpdate: (update) => next.push(update) }).done;
+    expect(next.find((update) => update.type === "usage")).toMatchObject({
+      usage: { costUSD: undefined },
+    });
+  } finally {
+    session.close();
+    await session.done;
+  }
+});
+
+for (const replayCost of [false, true]) {
+  test(`OpenCode resumed turn cost uses ${replayCost ? "replayed" : "unknown"} session totals`, async () => {
+    const cwd = await mkdtemp(join(directory, "resume-cost-"));
+    if (replayCost) await writeFile(join(cwd, "replay-cost"), "");
+    const session = new HarnessSession({
+      harness: "opencode",
+      executable,
+      cwd,
+      sessionId: "ses_fixture",
+    });
+    try {
+      for (const expectedCost of [replayCost ? 0.25 : undefined, 0]) {
+        const updates: HarnessUpdate[] = [];
+        await session.start({
+          prompt: "priced follow-up",
+          onUpdate: (update) => updates.push(update),
+        }).done;
+        expect(updates.find((update) => update.type === "usage")).toMatchObject({
+          cumulative: false,
+          usage: { costUSD: expectedCost },
+        });
+      }
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+}
+
+test("OpenCode ignores replayed history while loading an opaque native session identifier", async () => {
+  const cwd = await mkdtemp(join(directory, "resume-"));
+  const session = new HarnessSession({
+    harness: "opencode",
+    executable,
+    cwd,
+    sessionId: "ses_fixture",
+  });
+  const updates: HarnessUpdate[] = [];
+  try {
+    await session.start({ prompt: "Continue", onUpdate: (update) => updates.push(update) }).done;
+    expect(session.sessionId).toBe("ses_fixture");
+    expect(nativeSessionIdSchema.safeParse("--permission-mode").success).toBe(false);
+    expect(updates.filter((update) => update.type === "message")).toEqual([
+      { type: "message", id: expect.any(String), text: "OK", append: true },
+    ]);
+  } finally {
+    session.close();
+    await session.done;
+  }
+});
+
+test("concurrent capability requests share initialization and close their temporary connection", async () => {
+  const cwd = await mkdtemp(join(directory, "metadata-"));
+  const { withHarnessConnection } = await import("./harness-connection");
+  const input = { harness: "codex" as const, executable, cwd };
+  await Promise.all(
+    [0, 1].map(() =>
+      withHarnessConnection(input, async (request) => {
+        await request("initialize");
+        await request("thread/start");
+      }),
+    ),
+  );
+  const recorded = await events(cwd);
+  expect(recorded.filter((event) => event.method === "initialize")).toHaveLength(1);
+  expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+  const pid = recorded[0].pid;
+  expect(() => process.kill(pid, 0)).toThrow();
+});
+
+test("OpenCode replays command discovery to late subscribers and reuses legacy discovery sessions", async () => {
+  const { withHarnessConnection } = await import("./harness-connection");
+  const { HarnessSkills } = await import("./harness-skills");
+  const cwd = await mkdtemp(join(directory, "discovery-replay-"));
+  const input = { harness: "opencode" as const, executable, cwd };
+  const announced = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const inspection = withHarnessConnection(input, async (request) => {
+    await request("initialize");
+    await request("session/new", { cwd, mcpServers: [] });
+    announced.resolve();
+    await release.promise;
+  });
+  try {
+    await announced.promise;
+    const catalog = new HarnessSkills(async () => executable);
+    expect((await catalog.list(input)).skills.map((skill) => skill.name)).toEqual(["review"]);
+    release.resolve();
+    await inspection;
+    expect(
+      (await catalog.list({ ...input, refresh: true })).skills.map((skill) => skill.name),
+    ).toEqual(["review"]);
+    const recorded = await events(cwd);
+    expect(recorded.filter((event) => event.method === "session/new")).toHaveLength(1);
+    expect(recorded.filter((event) => event.method === "session/load")).toHaveLength(1);
+    expect(
+      recorded.some(
+        (event) => event.method === "session/prompt" || event.method === "session/delete",
+      ),
+    ).toBe(false);
+    for (const { pid } of recorded) expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    release.resolve();
+    await inspection;
+  }
+});
+
+test("OpenCode deletes shared temporary discovery sessions after the final reader, including failed readers", async () => {
+  const { withHarnessConnection } = await import("./harness-connection");
+  const { inspectHarness } = await import("./harness-details");
+  const { HarnessSkills } = await import("./harness-skills");
+  const cwd = await mkdtemp(join(directory, "discovery-cleanup-"));
+  await writeFile(join(cwd, "delete-capability"), "");
+  const input = { harness: "opencode" as const, executable, cwd };
+  const [details, catalog] = await Promise.all([
+    inspectHarness(executable, "opencode", cwd),
+    new HarnessSkills(async () => executable).list(input),
+  ]);
+  expect(details.models.map((model) => model.id)).toEqual(["fixture/model"]);
+  expect(catalog.skills.map((skill) => skill.name)).toEqual(["review"]);
+  await expect(
+    withHarnessConnection(input, async (request) => {
+      await request("initialize");
+      await request("session/new", { cwd, mcpServers: [] });
+      throw new Error("Reader failed");
+    }),
+  ).rejects.toThrow("Reader failed");
+  await rm(join(cwd, "delete-capability"));
+  await writeFile(join(cwd, "no-load-capability"), "");
+  await expect(new HarnessSkills(async () => executable).list(input)).rejects.toThrow(
+    "Update OpenCode",
+  );
+  const recorded = await events(cwd);
+  expect(recorded.filter((event) => event.method === "session/new")).toHaveLength(2);
+  expect(recorded.filter((event) => event.method === "session/delete")).toHaveLength(2);
+  for (const { pid } of recorded) expect(() => process.kill(pid, 0)).toThrow();
+});
+
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} shares the idle budget with composer preparation and prepares evicted conversations for send`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-reopen-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
+    const context = { projectId: "project", harness, executable, cwd };
+    let sessionId: string | undefined;
+    try {
+      await sessions.prepare({ kind: "composer", id: "project", context });
+      if (harness === "opencode")
+        expect((await events(cwd)).some((event) => event.method === "session/new")).toBe(false);
+      expect(
+        (await events(cwd)).filter(
+          (event) =>
+            event.method === "turn/start" ||
+            event.method === "session/prompt" ||
+            event.type === "user",
+        ),
+      ).toHaveLength(0);
+      await sessions.start("first", {
+        ...context,
+        prompt: "first",
+        onUpdate(update) {
+          if (update.type === "session") sessionId = update.id;
+        },
+      }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+      await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      await sessions.prepare({ kind: "thread", id: "first", context: { ...context, sessionId } });
+      const prepared = await events(cwd);
+      const prompts = prepared.filter(
+        (event) =>
+          event.method === "turn/start" ||
+          event.method === "session/prompt" ||
+          event.type === "user",
+      );
+      expect(prompts).toHaveLength(2);
+      expect(new Set(prepared.map((event) => event.pid)).size).toBe(3);
+      await sessions.start("first", { ...context, sessionId, prompt: "continue", onUpdate() {} })
+        .done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(3);
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test("preparing an existing conversation uses its private native identity and stored permissions", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "authority-"));
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const completed = () =>
+    new Promise<Awaited<ReturnType<typeof service.readThread>>>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve(event.thread);
+        }
+      });
+    });
+  try {
+    const initialDone = completed();
+    await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Initial",
+      designIds: [],
+      settings: { permissionMode: "read-only" },
+    });
+    const thread = await initialDone;
+    const recover = await service.prepareUpdate();
+    recover();
+    const previous = (await events(cwd)).length;
+    await service.warmThread({
+      projectId: project.id,
+      threadId: thread.id,
+      harness: "opencode",
+      settings: { permissionMode: "auto" },
+    });
+    const prepared = (await events(cwd)).slice(previous);
+    expect(prepared.find((event) => event.method === "thread/resume")?.value.params).toMatchObject({
+      threadId: thread.sessionId,
+      sandbox: "read-only",
+    });
+    expect(prepared.some((event) => event.method === "turn/start")).toBe(false);
+    const done = completed();
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
+    expect((await done).messages.at(-1)?.text).toBe("OK");
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+  } finally {
+    await service.close();
+  }
+});

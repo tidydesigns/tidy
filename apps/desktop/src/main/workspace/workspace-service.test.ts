@@ -909,7 +909,11 @@ test("attachment-only turns keep files with the message and send images to the h
     "Notes.txt",
   ]);
   expect(JSON.stringify(thread)).not.toContain(png);
-  expect(runs[0].input.images?.[0].data).toBe(png);
+  expect(runs[0].input.images?.[0]).toMatchObject({
+    path: (await store.resolveAttachment(project.id, image.id)).path,
+    mimeType: "image/png",
+    data: "",
+  });
   expect(runs[0].input.prompt).toContain((await store.resolveAttachment(project.id, file.id)).path);
   const complete = finished(service, thread.id);
   runs[0].complete();
@@ -1318,7 +1322,11 @@ test("skill selection resolves in the main process, preserves the transcript and
       return [{ kind: "command", name: "review", description: "Review changes" }];
     },
   };
-  const skills = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+  const skills = new HarnessSkills(async () => "/fixture", {
+    codex: adapter,
+    claude: adapter,
+    opencode: adapter,
+  });
   const { service, store, project, runs } = await fixture(undefined, false, skills);
   const catalog = await skills.list({ harness: "claude", cwd: project.path });
   const input = {

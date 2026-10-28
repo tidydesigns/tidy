@@ -40,6 +40,14 @@ export const permissionModes = {
     },
     auto,
   ],
+  opencode: [
+    {
+      value: "default",
+      label: "Ask before tools",
+      description: "Review tools before they run.",
+    },
+    auto,
+  ],
   claude: [
     {
       value: "default",

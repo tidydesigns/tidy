@@ -1,3 +1,4 @@
+import { acpInitializeParams, acpCommandsSchema } from "./opencode-adapter";
 import { isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -21,6 +22,7 @@ const nativeSkillSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("command"), name: skillNameSchema, description: z.string() }),
 ]);
+const commandSchema = nativeSkillSchema.options[1].omit({ kind: true });
 type NativeSkill = z.infer<typeof nativeSkillSchema>;
 type CatalogEntry = { public: Skill; native: NativeSkill };
 type CachedCatalog = {
@@ -74,6 +76,43 @@ const adapters = {
               }),
           );
       }),
+  },
+  opencode: {
+    async discover(input) {
+      const commands: NativeSkill[] = [];
+      const announced = Promise.withResolvers<void>();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await withHarnessConnection(
+          input,
+          async (request) => {
+            await request("initialize", acpInitializeParams);
+            await request("session/new", { cwd: input.cwd, mcpServers: [] });
+            await Promise.race([
+              announced.promise,
+              new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, 1000);
+              }),
+            ]);
+          },
+          (message) => {
+            if (message.method !== "session/update") return;
+            const parsed = acpCommandsSchema.safeParse(message.params);
+            if (parsed.success) {
+              commands.length = 0;
+              for (const command of parsed.data.update.availableCommands) {
+                const entry = commandSchema.safeParse(command);
+                if (entry.success) commands.push({ ...entry.data, kind: "command" });
+              }
+              announced.resolve();
+            }
+          },
+        );
+        return commands;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
   },
   claude: {
     discover: (input) =>

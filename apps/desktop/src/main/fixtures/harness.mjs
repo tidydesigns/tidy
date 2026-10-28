@@ -72,6 +72,7 @@ if (metadataArgs[0] === "app-server" || metadataArgs.includes("--input-format"))
               account: { email: "private@example.invalid", tokenSource: "oauth" },
             },
       );
+    else if (method === "skills/list") reply({ data: [{ cwd: process.cwd(), skills: [] }] });
     else if (method === "model/list")
       reply({
         data: [

@@ -1,3 +1,4 @@
+import { acpInitializeParams, acpSessionSchema } from "./opencode-adapter";
 import { version } from "../../../package.json";
 import { validatePermissionMode } from "../../shared/contracts/permissions";
 import { withHarnessConnection } from "./harness-connection";
@@ -46,6 +47,31 @@ export async function inspectHarness(
 ): Promise<HarnessDetails> {
   return withHarnessConnection({ executable, harness, cwd }, async (request) => {
     try {
+      if (harness === "opencode") {
+        await request("initialize", acpInitializeParams);
+        const session = acpSessionSchema.parse(
+          await request("session/new", { cwd, mcpServers: [] }),
+        );
+        const model = session.configOptions.find((option) => option.id === "model");
+        const efforts =
+          session.configOptions
+            .find((option) => option.category === "thought_level")
+            ?.options.map((option) => option.value) ?? [];
+        return {
+          models:
+            model?.options.map((option) => ({ id: option.value, name: option.name, efforts })) ??
+            session.models?.availableModels.map((model) => ({
+              id: model.modelId,
+              name: model.name,
+              efforts,
+            })) ??
+            [],
+          defaultModel: model?.currentValue ?? session.models?.currentModelId,
+          windows: [],
+          updatedAt: new Date().toISOString(),
+          usagePage: "api",
+        };
+      }
       if (harness === "claude") {
         const result = claudeInit.parse(await request("initialize"));
         const models = result.models.map((model) => ({

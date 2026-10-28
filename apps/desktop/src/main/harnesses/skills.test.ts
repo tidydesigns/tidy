@@ -17,7 +17,11 @@ describe("skill catalog boundaries", () => {
         return provider.discover(input);
       },
     };
-    const catalog = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+    const catalog = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
     const input = { harness: "claude" as const, cwd: "/project" };
     const [first, second] = await Promise.all([catalog.list(input), catalog.list(input)]);
     expect(discoveries).toBe(1);
@@ -51,7 +55,7 @@ describe("skill catalog boundaries", () => {
     };
     const catalog = new HarnessSkills(
       async () => "/fixture",
-      { codex: adapter, claude: adapter },
+      { codex: adapter, claude: adapter, opencode: adapter },
       () => now,
     );
     const input = { harness: "claude" as const, cwd: "/project" };
@@ -84,7 +88,7 @@ describe("skill catalog boundaries", () => {
     };
     const catalog = new HarnessSkills(
       async () => "/fixture",
-      { codex: adapter, claude: adapter },
+      { codex: adapter, claude: adapter, opencode: adapter },
       () => now,
     );
     const input = { harness: "claude" as const, cwd: "/project" };
@@ -108,7 +112,11 @@ describe("skill catalog boundaries", () => {
         return mode === "empty" ? [] : provider.discover(input);
       },
     };
-    const catalog = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+    const catalog = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
     const input = { harness: "claude" as const, cwd: "/project" };
     await expect(catalog.list(input)).rejects.toThrow("offline");
     mode = "ready";

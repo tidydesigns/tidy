@@ -143,7 +143,7 @@ export function ModelPicker({
                 className={modelProviderClassName}
                 disabled={connection.status !== "ready"}
                 title={`${connection.name}${connection.status !== "ready" ? " · Not connected" : ""}`}
-                aria-label={`${connection.id === "codex" ? "OpenAI" : "Anthropic"} models`}
+                aria-label={`${connection.name} models`}
                 aria-pressed={!favoritesOnly && connection.id === harness}
                 onClick={() => {
                   setFavoritesOnly(false);

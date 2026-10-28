@@ -22,7 +22,12 @@ import type { HarnessUpdateState, UpdatableHarnessId } from "./harness-updates";
 import type { CloudAPI } from "./cloud-sync";
 
 const id = z.string().uuid();
-export const harnessIdSchema = z.enum(["codex", "claude"]);
+export const nativeSessionIdSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/);
+export const harnessIdSchema = z.enum(["codex", "claude", "opencode"]);
 export const harnessConnectionSchema = z.object({
   id: harnessIdSchema,
   name: z.string(),
@@ -66,7 +71,7 @@ export const storedThreadSchema = z.object({
   executionProjectId: id.optional(),
   title: z.string().max(120),
   harness: harnessIdSchema,
-  sessionId: id.optional(),
+  sessionId: nativeSessionIdSchema.optional(),
   settings: harnessSettingsSchema.optional(),
   usage: tokenUsageSchema.optional(),
   actualModel: z.string().max(200).optional(),
@@ -209,6 +214,12 @@ export type DesktopAPI = {
     attachmentIds?: string[];
     skillId?: string;
   }): Promise<Thread>;
+  warmThread?(
+    input: Pick<
+      Parameters<DesktopAPI["startThread"]>[0],
+      "projectId" | "executionProjectId" | "harness" | "settings" | "threadId"
+    >,
+  ): Promise<void>;
   sendMessage(input: {
     delivery?: MessageDelivery;
     messageId?: string;

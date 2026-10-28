@@ -123,6 +123,7 @@ const remoteReadOperations = new Set([
   "harness-details",
   "harnesses",
   "read-thread",
+  "warm-thread",
   "read-attachment",
   "read-design",
   "preview-design",

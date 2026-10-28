@@ -74,6 +74,8 @@ await writeFile(
   `const {contextBridge,ipcRenderer}=require('electron');let events=0;ipcRenderer.on('tidy:event',()=>events++);contextBridge.exposeInMainWorld('probe',{invoke:(name,input)=>ipcRenderer.invoke('tidy:'+name,input),events:()=>events});`,
 );
 app.setPath("userData", data);
+process.env.TIDY_HOST_STATE = join(temporary, "host");
+process.chdir(temporary);
 process.env.PATH = `${bin}:${process.env.PATH}`;
 delete process.env.ELECTRON_RENDERER_URL;
 let result = 1;
@@ -546,7 +548,9 @@ app.on("browser-window-created", (_event, window) => {
       );
       await evaluate("document.querySelector('#workspace-tab-code').click();true");
       await wait("document.querySelector('#thread-prompt')!==null");
-      await wait("document.querySelector('[aria-label^=\"Model:\"]')?.disabled===false");
+      await wait(
+        "document.querySelector('[aria-label^=\"Model:\"]')?.textContent==='Fixture Codex'",
+      );
       assert.equal(
         await evaluate("document.querySelector('[aria-label^=\"Model:\"]').textContent"),
         "Fixture Codex",
