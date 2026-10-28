@@ -203,6 +203,7 @@ function workspaceApi(machineId?: string): DesktopAPI {
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
     readThread: (projectId, threadId) => scopedRequest("read-thread", { projectId, threadId }),
+    warmThread: (input) => scopedRequest("warm-thread", input),
     startThread: (input) => scopedRequest("start-thread", input),
     sendMessage: (input) => scopedRequest("send-message", input),
     updateMessageQueue: (input) => scopedRequest("message-queue", input),

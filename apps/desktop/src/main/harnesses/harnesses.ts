@@ -10,12 +10,17 @@ import type { ApprovalRequest, ApprovalDecision } from "../../shared/contracts/p
 import { createToolEventParser } from "./tool-events";
 import type { ToolActivityUpdate } from "../../shared/contracts/tool-activity";
 import type { TokenUsage } from "../../shared/contracts/harness-settings";
-import type { HarnessConnection, HarnessId } from "../../shared/contracts/desktop";
+import {
+  harnessIdSchema,
+  type HarnessConnection,
+  type HarnessId,
+} from "../../shared/contracts/desktop";
+import { harnessNames as names } from "../../shared/contracts/harness-updates";
 
 const execute = promisify(execFile);
-const names = { codex: "Codex", claude: "Claude Code" };
 export type HarnessUpdate =
   | { type: "activity"; activity: "Thinking" | "Working" }
+  | { type: "started" }
   | { type: "approval"; request: ApprovalRequest }
   | { type: "approval-resolved"; id: string }
   | { type: "tool"; tool: ToolActivityUpdate }
@@ -40,7 +45,7 @@ const record = (value: unknown): Record<string, unknown> =>
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
 /** Build the CLI environment from an allowlist and include standard user installation paths. */
-export function harnessEnvironment(): NodeJS.ProcessEnv {
+export function harnessEnvironment(harness?: HarnessId): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of [
     "HOME",
@@ -62,6 +67,9 @@ export function harnessEnvironment(): NodeJS.ProcessEnv {
     "OPENAI_API_KEY",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
+    ...(harness === "opencode"
+      ? ["OPENCODE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"]
+      : []),
     "HTTPS_PROXY",
     "HTTP_PROXY",
     "NO_PROXY",
@@ -105,20 +113,24 @@ export async function findExecutable(id: string, environment = harnessEnvironmen
   return null;
 }
 
-export function findHarness(id: HarnessId | "opencode", environment = harnessEnvironment()) {
+export function findHarness(id: HarnessId, environment = harnessEnvironment()) {
   return findExecutable(id, environment);
 }
 
 export async function checkHarnesses(): Promise<HarnessConnection[]> {
   return Promise.all(
-    (["codex", "claude"] as const).map(async (id) => {
+    harnessIdSchema.options.map(async (id) => {
       const executable = await findHarness(id);
       if (!executable) return { id, name: names[id], status: "not-installed" };
       try {
         const result = await execute(
           executable,
-          id === "codex" ? ["login", "status"] : ["auth", "status", "--json"],
-          { env: harnessEnvironment(), timeout: 8000, maxBuffer: 64 * 1024, windowsHide: true },
+          id === "codex"
+            ? ["login", "status"]
+            : id === "claude"
+              ? ["auth", "status", "--json"]
+              : ["--version"],
+          { env: harnessEnvironment(id), timeout: 8000, maxBuffer: 64 * 1024, windowsHide: true },
         );
         if (id === "claude" && record(JSON.parse(result.stdout)).loggedIn === false)
           throw new Error("Sign in required.");
@@ -167,6 +179,7 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
     }
     if (value.type === "assistant") {
       const message = record(value.message);
+      claudeMessageId = text(message.id) || claudeMessageId;
       const content = Array.isArray(message.content) ? message.content.map(record) : [];
       const visible = content
         .filter((block) => block.type === "text")

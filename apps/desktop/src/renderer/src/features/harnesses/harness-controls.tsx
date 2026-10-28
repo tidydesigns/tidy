@@ -1,3 +1,4 @@
+import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import { codeControlClassName, codeMenuClassName } from "../../styles/code-ui";
 import type { HarnessCatalog, ModelSelection } from "./harness-catalog";
 import { ModelPicker } from "./model-picker";
@@ -38,7 +39,7 @@ export function HarnessControls({
   const configuredModel = settings.model ?? actualModel ?? details?.defaultModel;
   const modelId = configuredModel === "default" ? undefined : configuredModel;
   const model = details?.models.find((model) => model.id === (modelId ?? "default"));
-  const name = harness === "codex" ? "Codex" : "Claude Code";
+  const name = harnessNames[harness];
   const defaultEffort = details?.defaultEffort ?? model?.defaultEffort;
   const effort = settings.effort ?? defaultEffort;
   return (

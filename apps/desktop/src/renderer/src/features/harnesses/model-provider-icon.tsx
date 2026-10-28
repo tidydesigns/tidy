@@ -11,7 +11,7 @@ export function ModelProviderIcon({ harness, size }: { harness: HarnessId; size?
     />
   ) : (
     <span
-      className="model-provider-icon inline-flex size-[15px] shrink-0 items-center justify-center text-[light-dark(#9b5841,#ce9b82)]"
+      className={`model-provider-icon inline-flex size-[15px] shrink-0 items-center justify-center ${harness === "claude" ? "text-[light-dark(#9b5841,#ce9b82)]" : ""}`}
       style={{ width: size, height: size }}
     >
       <HarnessIcon harness={harness} size={size ?? 14} />

@@ -1,3 +1,4 @@
+import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import { codeFontClassName } from "../../styles/code-ui";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
@@ -178,11 +179,8 @@ export function ThreadCard({
           className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-3.5 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
         >
           <ModelProviderIcon harness={thread.harness} />
-          <span
-            className="thread-provider-name shrink-0"
-            title={thread.harness === "codex" ? "Codex" : "Claude Code"}
-          >
-            {thread.harness === "codex" ? "Codex" : "Claude"}
+          <span className="thread-provider-name shrink-0" title={harnessNames[thread.harness]}>
+            {harnessNames[thread.harness]}
           </span>
         </span>
         <time

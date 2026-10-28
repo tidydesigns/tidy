@@ -3,13 +3,14 @@ import { lstat, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { permissionModeSchema } from "../../shared/contracts/permissions";
+import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import type { Thread } from "../../shared/contracts/desktop";
 import { readLocalFile } from "../platform/local-files";
 
 const authoritySchema = z
   .object({
-    harness: z.enum(["codex", "claude"]),
-    sessionId: z.string().uuid().optional(),
+    harness: harnessIdSchema,
+    sessionId: nativeSessionIdSchema.optional(),
     permissionMode: permissionModeSchema.optional(),
     executionProjectId: z.uuid().optional(),
     executionProjectPath: z.string().optional(),

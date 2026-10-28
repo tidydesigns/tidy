@@ -464,6 +464,63 @@ export function App({
     }
   }, [api, executionProject?.id, Boolean(thread), harnesses]);
 
+  useEffect(() => {
+    if (
+      !api?.warmThread ||
+      !project ||
+      !executionProject ||
+      selectedThreadId ||
+      !harnessReady ||
+      mode !== "code" ||
+      settingsOpen ||
+      switchingBranch
+    )
+      return;
+    let lastWarm = 0;
+    const warm = () => {
+      if (document.visibilityState === "hidden") return;
+      lastWarm = Date.now();
+      void api
+        .warmThread?.({
+          projectId: project.id,
+          executionProjectId: project.cloud ? executionProject.id : undefined,
+          harness: selectedHarness,
+          settings: draft.settings,
+        })
+        .catch(() => {});
+    };
+    const interact = (event: Event) => {
+      if (
+        event.target instanceof HTMLElement &&
+        event.target.id === "thread-prompt" &&
+        Date.now() - lastWarm >= 30_000
+      )
+        warm();
+    };
+    warm();
+    window.addEventListener("focus", warm);
+    document.addEventListener("input", interact);
+    document.addEventListener("focusin", interact);
+    return () => {
+      window.removeEventListener("focus", warm);
+      document.removeEventListener("input", interact);
+      document.removeEventListener("focusin", interact);
+    };
+  }, [
+    api,
+    project?.id,
+    executionProject?.id,
+    selectedThreadId,
+    harnessReady,
+    selectedHarness,
+    draft.settings?.model,
+    draft.settings?.effort,
+    draft.settings?.permissionMode,
+    mode,
+    settingsOpen,
+    switchingBranch,
+  ]);
+
   async function changeSettings(settings: HarnessSettings) {
     if (!thread) {
       updateDraft({ settings });
@@ -2115,7 +2172,11 @@ export function App({
                             needs to be installed and signed in on{" "}
                             {machine?.current.label ?? "this machine"}. Run{" "}
                             <code>
-                              {selectedHarness === "codex" ? "codex login" : "claude auth login"}
+                              {selectedHarness === "codex"
+                                ? "codex login"
+                                : selectedHarness === "claude"
+                                  ? "claude auth login"
+                                  : "opencode auth login"}
                             </code>{" "}
                             in your terminal.
                           </span>

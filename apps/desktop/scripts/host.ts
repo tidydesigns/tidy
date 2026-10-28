@@ -1,5 +1,4 @@
 import { workspaceRuntime } from "../src/main/remote/workspace-host";
-import { startInteractiveHarness } from "../src/main/harnesses/interactive-harness";
 import { chmod, mkdir, open, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -113,9 +112,8 @@ try {
       .parse((await readFile(identityPath, "utf8")).trim());
     const locks = projectLocks();
     const store = new ProjectStore(join(directory, "workspace"), "/__tidy/assets", locks.claim);
-    const service = new WorkspaceService(store, (input) =>
-      startInteractiveHarness({ ...input, superviseParent: true }),
-    );
+    const service = new WorkspaceService(store);
+    service.superviseHarnessParent = true;
     const identity = { hostId, instanceId: randomUUID(), buildId };
     const host = createRemoteHost({
       service,

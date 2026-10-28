@@ -521,7 +521,11 @@ for (const native of [false, true]) {
         return [{ kind: "command", name: "review", description: "Review changes" }];
       },
     };
-    const skills = new HarnessSkills(async () => "/fixture", { codex: adapter, claude: adapter });
+    const skills = new HarnessSkills(async () => "/fixture", {
+      codex: adapter,
+      claude: adapter,
+      opencode: adapter,
+    });
     const { service, project, thread, runs, read, action, store } = await fixture(
       native,
       true,

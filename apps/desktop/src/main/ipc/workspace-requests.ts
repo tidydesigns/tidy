@@ -1,5 +1,6 @@
 import { DraftImports } from "../workspace/draft-imports";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
+import { harnessIdSchema } from "../../shared/contracts/desktop";
 import { branchNameSchema } from "../../shared/contracts/repository-context";
 import { readLocalFile } from "../platform/local-files";
 import {
@@ -178,9 +179,7 @@ export function createWorkspaceRequests<Context>(
   });
   handle(
     "skills",
-    z
-      .object({ projectId, harness: z.enum(["codex", "claude"]), refresh: z.boolean().optional() })
-      .strict(),
+    z.object({ projectId, harness: harnessIdSchema, refresh: z.boolean().optional() }).strict(),
     (value) =>
       service.skills.list({
         harness: value.harness,
@@ -190,26 +189,24 @@ export function createWorkspaceRequests<Context>(
   );
   handle(
     "harness-details",
-    z
-      .object({ projectId, harness: z.enum(["codex", "claude"]), refresh: z.boolean().optional() })
-      .strict(),
+    z.object({ projectId, harness: harnessIdSchema, refresh: z.boolean().optional() }).strict(),
     (value) =>
       readHarnessDetails(value.harness, store.project(value.projectId).path, value.refresh),
   );
   handle(
     "harness-usage-page",
-    z
-      .object({ harness: z.enum(["codex", "claude"]), page: z.enum(["subscription", "api"]) })
-      .strict(),
+    z.object({ harness: harnessIdSchema, page: z.enum(["subscription", "api"]) }).strict(),
     (value) =>
       platform.openExternal(
-        value.harness === "codex"
-          ? value.page === "api"
-            ? "https://platform.openai.com/usage"
-            : "https://chatgpt.com/codex/settings/usage"
-          : value.page === "api"
-            ? "https://platform.claude.com/usage"
-            : "https://claude.ai/settings/usage",
+        value.harness === "opencode"
+          ? "https://opencode.ai/auth"
+          : value.harness === "codex"
+            ? value.page === "api"
+              ? "https://platform.openai.com/usage"
+              : "https://chatgpt.com/codex/settings/usage"
+            : value.page === "api"
+              ? "https://platform.claude.com/usage"
+              : "https://claude.ai/settings/usage",
       ),
   );
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
@@ -231,6 +228,18 @@ export function createWorkspaceRequests<Context>(
     service.readThread(value.projectId, value.threadId),
   );
   handle(
+    "warm-thread",
+    z
+      .object({
+        projectId,
+        executionProjectId: uuid.optional(),
+        harness: harnessIdSchema,
+        settings: harnessSettingsSchema.optional(),
+      })
+      .strict(),
+    (value) => service.warmThread(value),
+  );
+  handle(
     "start-thread",
     z
       .object({
@@ -238,7 +247,7 @@ export function createWorkspaceRequests<Context>(
         executionProjectId: uuid.optional(),
         threadId: uuid.optional(),
         messageId: uuid.optional(),
-        harness: z.enum(["codex", "claude"]),
+        harness: harnessIdSchema,
         prompt: z.string().trim().max(32_000),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
         skillId: skillIdSchema.optional(),

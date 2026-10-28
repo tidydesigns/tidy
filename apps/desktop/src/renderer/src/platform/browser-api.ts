@@ -102,6 +102,7 @@ const api: DesktopAPI = {
         api: "https://platform.openai.com/usage",
         subscription: "https://chatgpt.com/codex/settings/usage",
       },
+      opencode: { api: "https://opencode.ai/auth", subscription: "https://opencode.ai/auth" },
       claude: {
         api: "https://platform.claude.com/usage",
         subscription: "https://claude.ai/settings/usage",
@@ -121,6 +122,7 @@ const api: DesktopAPI = {
   repositoryContext: (projectId) => request("repository-context", { projectId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
+  warmThread: (input) => request("warm-thread", input),
   startThread: (input) => request("start-thread", input),
   sendMessage: (input) => request("send-message", input),
   updateMessageQueue: (input) => request("message-queue", input),

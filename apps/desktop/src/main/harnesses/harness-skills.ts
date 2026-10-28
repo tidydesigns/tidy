@@ -1,3 +1,4 @@
+import { acpInitializeParams } from "./opencode-adapter";
 import { isAbsolute } from "node:path";
 import { createHash } from "node:crypto";
 import { z } from "zod";
@@ -74,6 +75,49 @@ const adapters = {
               }),
           );
       }),
+  },
+  opencode: {
+    async discover(input) {
+      const commands: NativeSkill[] = [];
+      const announced = Promise.withResolvers<void>();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await withHarnessConnection(
+          input,
+          async (request) => {
+            await request("initialize", acpInitializeParams);
+            await request("session/new", { cwd: input.cwd, mcpServers: [] });
+            await Promise.race([
+              announced.promise,
+              new Promise<void>((resolve) => {
+                timer = setTimeout(resolve, 1000);
+              }),
+            ]);
+          },
+          (message) => {
+            if (message.method !== "session/update") return;
+            const parsed = z
+              .object({
+                update: z.object({
+                  sessionUpdate: z.literal("available_commands_update"),
+                  availableCommands: z.array(
+                    z.object({ name: skillNameSchema, description: z.string() }),
+                  ),
+                }),
+              })
+              .safeParse(message.params);
+            if (parsed.success) {
+              for (const command of parsed.data.update.availableCommands)
+                commands.push({ ...command, kind: "command" });
+              announced.resolve();
+            }
+          },
+        );
+        return commands;
+      } finally {
+        clearTimeout(timer);
+      }
+    },
   },
   claude: {
     discover: (input) =>

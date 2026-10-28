@@ -1,4 +1,7 @@
 import { attachmentReference, attachmentText } from "../../shared/models/attachment-references";
+import { HarnessSessions } from "../harnesses/harness-sessions";
+import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
+import { harnessNames } from "../../shared/contracts/harness-updates";
 import { repositoryRoot, switchRepositoryBranch } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
 import { summarizeThread } from "../../shared/models/thread-updates";
@@ -20,7 +23,7 @@ import type {
 } from "../../shared/contracts/desktop";
 import {
   findHarness,
-  startHarness,
+  type startHarness,
   type HarnessUpdate,
   type RunningHarness,
 } from "../harnesses/harnesses";
@@ -103,7 +106,7 @@ export class WorkspaceService {
     await this.authorizeCloudProject(projectId);
   }
 
-  private executionProject(thread: Thread) {
+  private executionProject(thread: Pick<Thread, "projectId" | "executionProjectId">) {
     const owner = this.store.project(thread.projectId);
     const project = this.store.project(thread.executionProjectId ?? thread.projectId);
     if (thread.executionProjectId && (!owner.cloud || project.cloud))
@@ -129,9 +132,13 @@ export class WorkspaceService {
   private executionProjects = new Map<string, string>();
   private preparingHarnesses = new Map<string, HarnessId>();
 
+  private sessionGeneration = 0;
+  private sessions = new HarnessSessions();
+  superviseHarnessParent = false;
+
   constructor(
     readonly store: ProjectStore,
-    private launch = startHarness,
+    private launch?: typeof startHarness,
     private locate = findHarness,
     private configure = validateHarnessSettings,
     readonly skills = new HarnessSkills(locate),
@@ -153,6 +160,41 @@ export class WorkspaceService {
       this.watchers.get(key)?.close();
       this.watchers.delete(key);
     }
+  }
+
+  async warmThread(input: Parameters<NonNullable<DesktopAPI["warmThread"]>>[0]) {
+    if (this.closing || this.repositoryChanges.size || this.updatingHarnesses.has(input.harness))
+      return;
+    const generation = ++this.sessionGeneration;
+    await this.assertProjectAccess(input.projectId);
+    const owner = this.store.project(input.projectId);
+    const project = this.executionProject(input);
+    if ((await realpath(project.path)) !== project.path)
+      throw new Error("The execution project directory moved. Open it again.");
+    const settings = harnessSettingsSchema.parse(input.settings ?? {});
+    validatePermissionMode(input.harness, settings.permissionMode);
+    const [executable, designDirectory, assetDirectory] = await Promise.all([
+      this.locate(input.harness),
+      this.store.storagePath(owner.id, "designs"),
+      this.store.storagePath(owner.id, "assets"),
+    ]);
+    await this.assertProjectAccess(input.projectId);
+    if (
+      !executable ||
+      generation !== this.sessionGeneration ||
+      this.closing ||
+      this.repositoryChanges.size ||
+      this.updatingHarnesses.has(input.harness)
+    )
+      return;
+    await this.sessions.warm(input.projectId, {
+      executable,
+      harness: input.harness,
+      cwd: project.path,
+      settings,
+      superviseParent: this.superviseHarnessParent,
+      additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+    });
   }
 
   async switchBranch(projectId: string, branch: string) {
@@ -183,6 +225,8 @@ export class WorkspaceService {
         throw new Error(
           "Wait for this repository's active work to finish before switching branches.",
         );
+      this.sessionGeneration++;
+      await this.sessions.clear({ idleOnly: true });
       return await switchRepositoryBranch(project.path, branch);
     })();
     this.repositoryChanges.set(projectId, operation);
@@ -217,6 +261,8 @@ export class WorkspaceService {
       (!options.allowActiveRuns && [...this.jobs.values()].some((job) => job.thread.harness === id))
     )
       return null;
+    this.sessionGeneration++;
+    void this.sessions.clear({ harness: id, idleOnly: true });
     this.updatingHarnesses.add(id);
     return () => {
       this.updatingHarnesses.delete(id);
@@ -644,7 +690,10 @@ export class WorkspaceService {
         .map(async (file) => ({
           path: file.path,
           mimeType: file.mimeType,
-          data: (await readLocalFile(file.path, MAX_IMAGE_BYTES)).toString("base64"),
+          data:
+            thread.harness === "codex"
+              ? ""
+              : (await readLocalFile(file.path, MAX_IMAGE_BYTES)).toString("base64"),
         })),
     );
     if (!thread.messages.length)
@@ -662,9 +711,7 @@ export class WorkspaceService {
       imagesPromise,
     ]);
     if (!executable)
-      throw new Error(
-        `Install ${thread.harness === "codex" ? "Codex" : "Claude Code"} and sign in with its CLI first.`,
-      );
+      throw new Error(`Install ${harnessNames[thread.harness]} and sign in with its CLI first.`);
     const skill = skillId
       ? await this.skills.resolve({
           harness: thread.harness,
@@ -834,7 +881,8 @@ export class WorkspaceService {
         await this.finish({ job, kind: "stop" });
         return structuredClone(thread);
       }
-      job.process = this.launch({
+      this.sessionGeneration++;
+      const launchInput = {
         harness: thread.harness,
         executable,
         cwd: project.path,
@@ -844,8 +892,10 @@ export class WorkspaceService {
         sessionId: thread.sessionId,
         settings: thread.settings,
         images,
-        onUpdate: (update) => this.update(job, update),
-      });
+        onUpdate: (update: HarnessUpdate) => this.update(job, update),
+        superviseParent: this.superviseHarnessParent,
+      };
+      job.process = this.launch?.(launchInput) ?? this.sessions.start(thread.id, launchInput);
       job.analytics?.({ name: "harness_turn_started", harness: thread.harness });
       if (job.stopped) job.process.stop();
       job.completion = this.complete(job);
@@ -887,6 +937,10 @@ export class WorkspaceService {
       return;
     } else if (update.type === "activity") {
       thread.activity = update.activity;
+    } else if (update.type === "started") {
+      thread.activity = "Working";
+      this.emit({ type: "thread", thread });
+      return;
     } else if (update.type === "tool") {
       const activities = thread.toolActivities ?? (thread.toolActivities = []);
       const existing = activities.find((tool) => tool.id === job.tools.get(update.tool.id));
@@ -921,8 +975,7 @@ export class WorkspaceService {
       };
     } else if (update.type === "model") thread.actualModel = update.model.slice(0, 200);
     else if (update.type === "session") {
-      if (z.string().uuid().safeParse(update.id).success) thread.sessionId = update.id;
-      if (thread.activity === "Starting") thread.activity = "Working";
+      if (nativeSessionIdSchema.safeParse(update.id).success) thread.sessionId = update.id;
     } else if (update.type === "error") thread.error = update.text.slice(0, 4000);
     else {
       thread.activity = "Replying";
@@ -1072,6 +1125,8 @@ export class WorkspaceService {
   }
 
   async stopCloudThreads() {
+    this.sessionGeneration++;
+    await this.sessions.clear({ idleOnly: true });
     const owners = new Map(this.starting);
     for (const job of this.jobs.values()) owners.set(job.thread.id, job.thread.projectId);
     await Promise.all(
@@ -1146,6 +1201,8 @@ export class WorkspaceService {
       await this.store.writeThread({ ...job.thread, status: "interrupted", activity: undefined });
     await Promise.all(jobs.map((job) => job.completion));
     await Promise.allSettled(this.repositoryChanges.values());
+    this.sessionGeneration++;
+    await this.sessions.clear();
     await this.store.flush();
   }
 
