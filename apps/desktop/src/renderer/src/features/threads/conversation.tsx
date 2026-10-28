@@ -137,7 +137,13 @@ const ConversationEntry = memo(function ConversationEntry({
   const sentAt = message.sentAt ?? message.turn?.startedAt;
   return (
     <div className="conversation-entry" ref={register}>
-      <div className={message.role === "user" ? "user-prompt" : undefined}>
+      <div
+        className={
+          message.role === "user"
+            ? "group/prompt relative ml-auto w-fit max-w-[90%] pb-7.5"
+            : undefined
+        }
+      >
         <article
           className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
           aria-label={message.role === "user" ? "Your message" : "Assistant message"}
@@ -154,7 +160,7 @@ const ConversationEntry = memo(function ConversationEntry({
           )}
         </article>
         {message.role === "user" && (
-          <div className="user-prompt-actions">
+          <div className="pointer-events-none absolute right-0 bottom-0 flex h-7 items-center gap-2 text-xs text-muted-ink opacity-0 group-focus-within/prompt:pointer-events-auto group-focus-within/prompt:opacity-100 group-hover/prompt:pointer-events-auto group-hover/prompt:opacity-100">
             {sentAt && (
               <time dateTime={sentAt} title={new Date(sentAt).toLocaleString()}>
                 {messageTime.format(new Date(sentAt))}
@@ -162,7 +168,7 @@ const ConversationEntry = memo(function ConversationEntry({
             )}
             <Button
               type="button"
-              className="user-prompt-copy"
+              className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:text-[light-dark(#292929,#ffffff)] focus-visible:outline-2 focus-visible:outline-offset-2"
               aria-label="Copy prompt"
               title="Copy prompt"
               onClick={() => {
