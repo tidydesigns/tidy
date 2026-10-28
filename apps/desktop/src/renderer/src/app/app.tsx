@@ -1694,7 +1694,7 @@ export function App() {
                     />
                   )}
                   <form
-                    className={`composer @container/composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
+                    className={`composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
                       if (event.dataTransfer.types.includes("Files") && !thread?.doneAt)
                         event.preventDefault();
