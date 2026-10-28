@@ -1,10 +1,43 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { ProductCaptureImage } from "./product-capture";
 import styles from "./machine.module.css";
 
-/** The actual desktop renderer, hosted with an in-memory sample project. */
+// Keep this query aligned with the mobile layout in machine.module.css.
+const mobileQuery = "(max-width: 800px)";
+function subscribeViewport(callback: () => void) {
+  const media = window.matchMedia(mobileQuery);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
+function mobileSnapshot() {
+  return window.matchMedia(mobileQuery).matches;
+}
+function serverSnapshot() {
+  return null;
+}
+
 export function ProductPreview() {
+  const mobile = useSyncExternalStore(subscribeViewport, mobileSnapshot, serverSnapshot);
+  return (
+    <figure id="desktop-demo" className={styles.productPreview}>
+      <div className={styles.desktopWindow}>
+        {mobile === true && (
+          <ProductCaptureImage
+            product="desktop-initial"
+            alt="Tidy for macOS as the sample project opens, with its thread sidebar, conversation and floating design preview."
+            sizes="calc(100vw - 48px)"
+          />
+        )}
+        {mobile === false && <InteractiveDesktopPreview />}
+      </div>
+    </figure>
+  );
+}
+
+/** Mount the actual desktop renderer only when there is room to use it. */
+function InteractiveDesktopPreview() {
   const windowRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [source, setSource] = useState<string>();
@@ -51,8 +84,8 @@ export function ProductPreview() {
   }, []);
 
   return (
-    <figure id="desktop-demo" className={styles.productPreview}>
-      <div ref={windowRef} className={styles.desktopWindow}>
+    <>
+      <div ref={windowRef} className={styles.desktopLive}>
         <div className={styles.windowControls} aria-hidden="true">
           <i />
           <i />
@@ -83,11 +116,11 @@ export function ProductPreview() {
           />
         )}
       </div>
-      <figcaption id="desktop-demo-description" className="sr-only">
+      <p id="desktop-demo-description" className="sr-only">
         Interactive sample project using the real Tidy desktop app. Open the floating design preview
         to edit the canvas, then minimise the canvas to return to the thread. Changes stay in this
         demo until the page reloads. Coding agents are simulated.
-      </figcaption>
-    </figure>
+      </p>
+    </>
   );
 }

@@ -44,3 +44,20 @@ From the repository root, regenerate exports with:
 ```sh
 bun apps/site/scripts/build-product-captures.mjs
 ```
+
+## Mobile hero
+
+`desktop-initial-light.png` and `desktop-initial-dark.png` capture the interactive
+hero's initial loaded state, with the default floating preview position and tool
+activity collapsed. They use the actual desktop renderer and the same public
+sample project as the live hero, without opening tools or rearranging the app.
+
+These masters are 2560 × 1600: a 1280 × 800 CSS app window, captured as four
+1280 × 800 tiles at 2× output resolution. With the T3 browser at 1536 × 960 CSS
+pixels, scale the existing hero window by 2.4 and translate it one viewport for
+each column and row. Include the hero's macOS window controls, but exclude its
+border, shadow, surrounding page and development indicator. Wait for the
+conversation, fonts and images to finish loading before capturing either theme.
+
+The mobile hero uses these responsive exports at viewport widths up to 800px;
+it does not mount or fetch the interactive desktop demo at those widths.
