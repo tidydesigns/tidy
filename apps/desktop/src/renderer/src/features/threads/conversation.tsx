@@ -197,14 +197,67 @@ const ConversationEntry = memo(function ConversationEntry({
 });
 const emptyActivities: NonNullable<Thread["toolActivities"]> = [];
 
-function TurnButton({
+const TurnButton = memo(function TurnButton({
+  id,
   prompt,
   index,
-  ...props
-}: ComponentProps<typeof Button> & { prompt: string; index: number }) {
+  count,
+  previewId,
+  previewing,
+  distance,
+  current,
+  focusable,
+  onPreview,
+  onJump,
+}: {
+  id: string;
+  prompt: string;
+  index: number;
+  count: number;
+  previewId: string;
+  previewing: boolean;
+  distance?: number;
+  current: boolean;
+  focusable: boolean;
+  onPreview: (index: number | null) => void;
+  onJump: (id: string, index: number) => void;
+}) {
   const label = useMemo(() => prompt.replace(/\s+/g, " ").slice(0, 100) || "Attachment", [prompt]);
-  return <Button {...props} aria-label={`Jump to turn ${index + 1}: ${label}`} />;
-}
+  return (
+    <Button
+      aria-label={`Jump to turn ${index + 1}: ${label}`}
+      className={`conversation-tick ${previewing ? "previewing" : ""}`}
+      data-hover-distance={distance}
+      aria-current={current ? "step" : undefined}
+      aria-describedby={previewing ? previewId : undefined}
+      tabIndex={focusable ? 0 : -1}
+      style={{
+        top: `${count <= 1 ? 0 : (index / (count - 1)) * 100}%`,
+        height: Math.min(8, 288 / (count - 1)),
+      }}
+      onPointerEnter={() => onPreview(index)}
+      onFocus={() => onPreview(index)}
+      onBlur={() => onPreview(null)}
+      onClick={() => onJump(id, index)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onPreview(null);
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          const buttons =
+            event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button");
+          if (!buttons?.length) return;
+          const next = Math.max(
+            0,
+            Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
+          );
+          buttons[next]?.focus();
+        }
+      }}
+    >
+      <span />
+    </Button>
+  );
+});
 
 export const Conversation = memo(function Conversation({
   thread,
@@ -251,14 +304,21 @@ export const Conversation = memo(function Conversation({
     }
     return result;
   }, [thread?.messages]);
+  const previousToolsByTurn = useRef<ReturnType<typeof groupTurnActivity>>(new Map());
   const toolsByTurn = useMemo(
     () =>
-      groupTurnActivity({
-        messages: thread?.messages ?? [],
-        toolActivities: thread?.toolActivities,
-      }),
+      groupTurnActivity(
+        {
+          messages: thread?.messages ?? [],
+          toolActivities: thread?.toolActivities,
+        },
+        previousToolsByTurn.current,
+      ),
     [thread?.messages, thread?.toolActivities],
   );
+  useLayoutEffect(() => {
+    previousToolsByTurn.current = toolsByTurn;
+  }, [toolsByTurn]);
 
   function measure() {
     const element = viewport.current;
@@ -296,9 +356,9 @@ export const Conversation = memo(function Conversation({
     if (element) scrollTo(element.scrollHeight);
     measure();
   }
-  function jump(index: number) {
+  const jump = useCallback((id: string, index: number) => {
     const element = viewport.current;
-    const node = nodes.current.get(turns[index]?.id);
+    const node = nodes.current.get(id);
     if (!element || !node) return;
     following.current = false;
     scrollTo(
@@ -309,8 +369,8 @@ export const Conversation = memo(function Conversation({
     );
     setCurrent(index);
     setPreview(null);
-    measure();
-  }
+    measureRef.current();
+  }, []);
 
   useLayoutEffect(() => {
     if (!active || !thread || !viewport.current) return;
@@ -456,40 +516,16 @@ export const Conversation = memo(function Conversation({
                 key={turn.id}
                 prompt={turn.prompt}
                 index={index}
-                className={`conversation-tick ${preview === index ? "previewing" : ""}`}
-                data-hover-distance={
-                  preview === null ? undefined : Math.min(3, Math.abs(index - preview))
-                }
-                aria-current={current === index ? "step" : undefined}
-                aria-describedby={preview === index ? previewId : undefined}
-                tabIndex={(preview ?? current) === index ? 0 : -1}
-                style={{
-                  top: `${turns.length <= 1 ? 0 : (index / (turns.length - 1)) * 100}%`,
-                  height: Math.min(8, 288 / (turns.length - 1)),
-                }}
-                onPointerEnter={() => setPreview(index)}
-                onFocus={() => setPreview(index)}
-                onBlur={() => setPreview(null)}
-                onClick={() => jump(index)}
-                onKeyDown={(event) => {
-                  if (event.key === "Escape") setPreview(null);
-                  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-                    event.preventDefault();
-                    const buttons =
-                      event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>(
-                        "button",
-                      );
-                    if (!buttons?.length) return;
-                    const next = Math.max(
-                      0,
-                      Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
-                    );
-                    buttons[next]?.focus();
-                  }
-                }}
-              >
-                <span />
-              </TurnButton>
+                id={turn.id}
+                count={turns.length}
+                previewId={previewId}
+                previewing={preview === index}
+                distance={preview === null ? undefined : Math.min(3, Math.abs(index - preview))}
+                current={current === index}
+                focusable={(preview ?? current) === index}
+                onPreview={setPreview}
+                onJump={jump}
+              />
             ))}
             {selected && (
               <div
