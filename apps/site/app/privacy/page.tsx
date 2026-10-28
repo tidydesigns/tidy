@@ -13,7 +13,7 @@ export default function PrivacyPage() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.tidydesign.co";
   return (
     <div className="page">
-      <main id="main-content">
+      <main id="main-content" tabIndex={-1}>
         <PrivacyPolicy accountUrl={new URL("/account/privacy", appUrl).href} />
       </main>
       <SiteFooter />

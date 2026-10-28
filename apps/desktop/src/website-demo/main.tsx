@@ -1,14 +1,17 @@
-import { StrictMode, useEffect } from "react";
+import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ToastViewport } from "@tidy/ui/toast";
 import { App } from "../renderer/src/app/app";
 import { prepareDemo } from "./host";
+import { LocalCanvas } from "../renderer/src/features/designs/local-canvas";
+import { project, sampleDesign } from "./fixture";
 import "@tidy/ui/fonts.css";
 import "@tidy/ui/toast.css";
 import "./demo.css";
 
 prepareDemo();
-document.documentElement.dataset.titlebar = "hidden";
+const canvasView = new URLSearchParams(location.search).get("view") === "canvas";
+if (!canvasView) document.documentElement.dataset.titlebar = "hidden";
 const applyTheme = (theme: string | null) => {
   document.documentElement.style.colorScheme = theme === "dark" ? "dark" : "light";
 };
@@ -23,7 +26,11 @@ window.addEventListener("message", (event) => {
 });
 // Let visitors scroll past the thread preview. Once they open a canvas or an app
 // overlay, leave all scrolling and gestures to the real desktop implementation.
-if (parent !== window && new URLSearchParams(location.search).get("scroll") === "website") {
+if (
+  !canvasView &&
+  parent !== window &&
+  new URLSearchParams(location.search).get("scroll") === "website"
+) {
   window.addEventListener(
     "wheel",
     (event) => {
@@ -46,10 +53,29 @@ if (parent !== window && new URLSearchParams(location.search).get("scroll") === 
     { capture: true, passive: false },
   );
 }
+/** The same FileEditor used by apps/web, with an example file and local persistence. */
+function CanvasView() {
+  const [design, setDesign] = useState(sampleDesign);
+  const api = window.tidy;
+  if (!api) return null;
+  return (
+    <main className="h-full" aria-label="Example design editor">
+      <LocalCanvas
+        api={api}
+        projectId={project.id}
+        initial={design}
+        active
+        initialPanelsOpen
+        onBack={() => location.assign("/")}
+        onUpdate={setDesign}
+      />
+    </main>
+  );
+}
 function Demo() {
   useEffect(() => {
     parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
-    if (innerWidth >= 700) return;
+    if (canvasView || innerWidth >= 700) return;
     const collapse = () => {
       const toggle = document.querySelector<HTMLButtonElement>('[aria-label="Hide sidebar"]');
       if (toggle) {
@@ -64,7 +90,14 @@ function Demo() {
   }, []);
   return (
     <>
-      <App />
+      {canvasView ? <CanvasView /> : <App />}
+      {new URLSearchParams(location.search).get("view") === "desktop" && (
+        <div className="capture-window-controls" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+        </div>
+      )}
       <ToastViewport />
     </>
   );

@@ -29,7 +29,7 @@ export function CloudFooter({
           something good.
         </h2>
         <a className={styles.action} href={appUrl}>
-          Get Tidy
+          Open Tidy
         </a>
       </div>
       <div className={styles.wordmark}>
@@ -46,7 +46,6 @@ export function CloudFooter({
           <Link href="/changelog">Changelog</Link>
           <Link href="/privacy">Privacy</Link>
         </nav>
-        <span className={styles.signoff}>A space for what’s next.</span>
       </div>
     </footer>
   );

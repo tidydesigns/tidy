@@ -136,9 +136,8 @@ export function SkillPrompt({
         {...props}
         ref={input}
         value={value}
-        role="combobox"
         aria-autocomplete="list"
-        aria-expanded={visible}
+        aria-haspopup="listbox"
         aria-controls={visible ? id : undefined}
         aria-activedescendant={visible && selected ? `${id}-${selectedIndex}` : undefined}
         onFocus={() => {

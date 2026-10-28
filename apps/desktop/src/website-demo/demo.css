@@ -8,3 +8,26 @@ body,
   height: 100%;
   overflow: hidden;
 }
+
+/* Native window controls supplied by macOS outside Electron's renderer. */
+.capture-window-controls {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  z-index: 100;
+  display: flex;
+  gap: 8px;
+  pointer-events: none;
+}
+.capture-window-controls i {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+.capture-window-controls i:nth-child(2) {
+  background: #febc2e;
+}
+.capture-window-controls i:nth-child(3) {
+  background: #28c840;
+}

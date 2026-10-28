@@ -98,6 +98,10 @@
   padding: 0;
   border: 0;
   border-radius: 0;
+  /* Clip the composited blur at its own corners as well as the outer surface. */
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+  overflow: hidden;
   background: light-dark(#f4f4f4, #171717);
   color: var(--color-ink);
   cursor: pointer;

@@ -14,7 +14,9 @@ test("site deployment rejects unsafe private configs before invoking Wrangler", 
     writeFileSync(
       path.join(directory, "bunx"),
       `#!${process.execPath}
-await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify(process.argv.slice(2)));
+const args = process.argv.slice(2);
+const config = JSON.parse(await Bun.file(args[args.indexOf('--config') + 1]).text());
+await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config }));
 `,
       { mode: 0o700 },
     );
@@ -53,13 +55,24 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify(process.argv.s
     const result = deploy();
     expect(result.error).toBeUndefined();
     expect(result.status).toBe(0);
-    expect(JSON.parse(readFileSync(invocation, "utf8"))).toEqual([
+    const invoked = JSON.parse(readFileSync(invocation, "utf8"));
+    expect(invoked.args).toEqual([
       "wrangler",
       "deploy",
       "--config",
-      config,
+      expect.stringContaining("wrangler.deploy.jsonc"),
       "--keep-vars",
     ]);
+    expect(invoked.config.name).toBe("fixture-site");
+    expect(invoked.config.main).toBe(fileURLToPath(new URL("../worker/index.ts", import.meta.url)));
+    expect(invoked.config.assets.binding).toBe("ASSETS");
+    expect(invoked.config.assets.run_worker_first).toEqual(["/download/mac", "/download/mac/"]);
+    expect(existsSync(invoked.args[3])).toBe(false);
+    expect(JSON.parse(readFileSync(config, "utf8"))).toEqual({
+      name: "fixture-site",
+      workers_dev: false,
+      preview_urls: false,
+    });
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -299,14 +299,20 @@ export function prepareDemo() {
         JSON.stringify({
           ids: [demoId(2)],
           openIds: [demoId(2)],
-          geometry: {
-            [demoId(2)]: {
-              x: Math.max(16, innerWidth - 264 - 320),
-              y: 64,
-              width: 296,
-              height: 197,
-            },
-          },
+          // Stage the product capture below the conversation using the app's
+          // persisted window geometry. The interactive demo keeps native defaults.
+          ...(new URLSearchParams(location.search).get("view") === "desktop"
+            ? {
+                geometry: {
+                  [demoId(2)]: {
+                    x: Math.max(16, innerWidth - 264 - 332),
+                    y: Math.max(16, innerHeight - 430),
+                    width: 296,
+                    height: 197,
+                  },
+                },
+              }
+            : {}),
         }),
       );
   } catch {

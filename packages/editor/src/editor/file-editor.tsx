@@ -4401,6 +4401,7 @@ export function FileEditor({
 
   return (
     <CanvasColorPicker
+      embedded={local}
       canvas={viewport}
       nodes={renderedNodes}
       tokens={tokens}

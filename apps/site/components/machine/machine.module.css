@@ -85,6 +85,28 @@
   flex-wrap: wrap;
   gap: 12px;
 }
+.betaLabel {
+  padding-left: 12px;
+  border-left: 1px solid #ffffff40;
+  color: #ededed;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: 0;
+}
+.openSourceNote {
+  margin: 18px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.openSourceNote a {
+  text-underline-offset: 3px;
+  text-decoration-color: var(--muted);
+}
+:global([data-theme="dark"]) .openSourceNote {
+  color: #fff;
+}
 .productPreview {
   width: min(calc(100% - 96px), 1280px);
   margin: 42px auto 0;

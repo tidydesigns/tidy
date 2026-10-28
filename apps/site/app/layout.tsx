@@ -23,8 +23,8 @@ export const metadata: Metadata = {
   metadataBase: siteUrl,
   ...pageMetadata(
     "/",
-    "Tidy — One space. Full possibility.",
-    "The open-source product development environment for designers, engineers and agents. Bring your canvas, code and coding agents together. Build with less friction.",
+    "Tidy: Design and build in the same app",
+    "A full design canvas in your browser, and a desktop app with your canvas, code and coding agents together. Open source under the Apache License 2.0.",
   ),
 };
 

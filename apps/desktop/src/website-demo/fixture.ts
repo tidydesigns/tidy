@@ -46,7 +46,7 @@ export function sampleDesign(): LocalDesign {
     updatedAt: timestamp,
     version: "1",
     nodeCount: 13,
-    assets: { [artwork]: "/artwork/cloud-spectrum-1024.webp" },
+    assets: { [artwork]: "/artwork/cloud-spectrum-1536.avif" },
     document: parseDesignDocument({
       schemaVersion: 1,
       warnings: [],
@@ -153,16 +153,46 @@ export function sampleThreads(): Thread[] {
       status: "completed",
       designIds: [demoId(2)],
       updatedAt: timestamp,
+      // Example activity for the public demo, rendered by the real desktop tool UI.
+      // These entries illustrate a workflow; they do not execute an agent or commands.
+      toolActivities: [
+        {
+          id: demoId(13),
+          afterMessageId: demoId(11),
+          kind: "read",
+          title: "Read the attached design",
+          toolName: "read_design",
+          status: "completed",
+          startedAt: timestamp,
+          endedAt: timestamp,
+          output: "Form — Landing page\nLanding / Desktop · 960 × 860\n13 editable layers",
+        },
+        {
+          id: demoId(14),
+          afterMessageId: demoId(11),
+          kind: "edit",
+          title: "Update the React page and styles",
+          toolName: "apply_patch",
+          status: "completed",
+          startedAt: timestamp,
+          endedAt: timestamp,
+          files: [
+            { path: "src/App.tsx", kind: "modified" },
+            { path: "src/app.css", kind: "modified" },
+          ],
+          output: "Updated the page layout, typography and colours from the design.",
+        },
+      ],
       messages: [
         {
           id: demoId(11),
           role: "user",
-          text: "Let’s build Form’s landing page. Give it generous spacing, clear typography and a little colour. Keep the design editable so we can work through the details together.",
+          text: "Build this landing page in my React project. Use the attached design and match the typography, colours and spacing.",
         },
         {
           id: demoId(12),
           role: "assistant",
-          text: "I’ve put together the first version of the landing page.\n\n- An open, quiet layout with Instrument Sans\n- Editable typography, spacing and colour\n- A cloud artwork panel to give it some character\n\nThe live design is open beside this conversation. Click it to expand the canvas, make a change, then minimise it to come back here.",
+          text: "The page and styles have been updated from the attached design. The design file stays open beside this thread, so you can adjust it and ask for the next change.",
         },
       ],
     },

@@ -68,7 +68,7 @@ export function ProductPreview() {
             ref={frameRef}
             className={styles.desktopFrame}
             src={source}
-            title="Interactive Tidy desktop app — sample project"
+            title="Interactive Tidy desktop app: sample project"
             aria-describedby="desktop-demo-description"
             sandbox="allow-scripts allow-same-origin allow-downloads"
             onLoad={() =>

@@ -27,3 +27,9 @@ Generated `demo-dist` and `public/desktop-demo` directories are ignored. Re-run
 `node apps/site/scripts/copy-desktop-demo.mjs` after changing desktop source during
 an existing site development session. Run host tests with
 `bun test apps/desktop/src/website-demo/host.test.ts`.
+
+For product imagery, `?view=canvas` mounts the shared web/desktop FileEditor with
+the example design and real inspectors. `?view=desktop` adds native window-control
+representation to the actual desktop renderer. See
+[`design/product-captures`](../../../../design/product-captures/README.md) for the
+original captures and export instructions. Fixture tool activity is simulated.

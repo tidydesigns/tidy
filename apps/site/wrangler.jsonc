@@ -4,8 +4,11 @@
   "compatibility_date": "2026-09-29",
   "workers_dev": false,
   "preview_urls": false,
+  "main": "./worker/index.ts",
   "assets": {
     "directory": "./out",
+    "binding": "ASSETS",
+    "run_worker_first": ["/download/mac", "/download/mac/"],
     "not_found_handling": "404-page",
   },
 }

@@ -240,10 +240,6 @@
     margin-left: auto;
     gap: 14px;
   }
-  .signoff {
-    width: 100%;
-    padding-top: 8px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .action {

@@ -53,6 +53,11 @@
       "cache": false,
       "persistent": true
     },
+    "@tidy/site#dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["DESKTOP_RELEASE_REPOSITORY", "GITHUB_RELEASES_TOKEN"]
+    },
     "typecheck:tsc": {
       "dependsOn": ["^typecheck:tsc"]
     },

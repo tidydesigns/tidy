@@ -114,6 +114,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   return (
     <div
       className="project-sidebar flex min-h-0 min-w-0 flex-1 flex-col px-2 pb-2"
+      role="region"
       aria-label="Threads"
     >
       <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent]">

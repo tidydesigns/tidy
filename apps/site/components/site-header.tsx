@@ -69,7 +69,7 @@ export function SiteHeader() {
         <span />
         <div className="header-tint" />
       </div>
-      <header className="header">
+      <header className="header" aria-label="Tidy website">
         <div className="header-surface" aria-hidden="true" />
         <Link className="tidy-logo" href="/" aria-label="Tidy home">
           Tidy
@@ -93,7 +93,7 @@ export function SiteHeader() {
         <div className="header-actions">
           <ThemeSwitch />
           <a className="button button-primary header-cta" href={appUrl}>
-            Get Tidy
+            Open Tidy
           </a>
         </div>
       </header>
