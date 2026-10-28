@@ -22,6 +22,19 @@ export const acpSessionSchema = z.object({
     })
     .optional(),
 });
+export const acpInitializationSchema = z.object({
+  agentCapabilities: z.object({
+    loadSession: z.boolean().optional(),
+    sessionCapabilities: z.object({ delete: z.object({}).optional() }).optional(),
+  }),
+});
+export const acpCommandsSchema = z.object({
+  sessionId: nativeSessionIdSchema,
+  update: z.object({
+    sessionUpdate: z.literal("available_commands_update"),
+    availableCommands: z.array(z.unknown()),
+  }),
+});
 export const acpInitializeParams = {
   protocolVersion: 1,
   clientCapabilities: {},
@@ -81,13 +94,9 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
     string,
     { title: string; kind: "read" | "edit" | "search" | "command" | "tool" }
   >();
-  return {
-    async initialize() {
-      const capabilities = z
-        .object({ agentCapabilities: z.object({ loadSession: z.boolean().optional() }) })
-        .parse(await transport.request("initialize", acpInitializeParams));
-      if (sessionId && !capabilities.agentCapabilities.loadSession)
-        throw new Error("Update OpenCode to resume this conversation.");
+  let session: Promise<void> | undefined;
+  const ensureSession = () =>
+    (session ??= (async () => {
       const session = acpSessionSchema.parse({
         ...(sessionId ? { sessionId } : {}),
         ...object(
@@ -128,8 +137,20 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         session.models?.currentModelId;
       if (model) emit({ type: "model", model });
       initialized = true;
+    })());
+  return {
+    async initialize() {
+      const capabilities = acpInitializationSchema.parse(
+        await transport.request("initialize", acpInitializeParams),
+      );
+      if (sessionId && !capabilities.agentCapabilities.loadSession)
+        throw new Error("Update OpenCode to resume this conversation.");
+      if (sessionId) await ensureSession();
     },
     async submit(message) {
+      await ensureSession();
+      costUSD = undefined;
+      tools.clear();
       messageId = crypto.randomUUID();
       const prompt =
         message.skill?.invocation.kind === "command"

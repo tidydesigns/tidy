@@ -1,3 +1,4 @@
+import { isAbsolute, relative, sep } from "node:path";
 import { effectivePermissionMode } from "../../shared/contracts/permissions";
 import type { HarnessId } from "../../shared/contracts/desktop";
 import type { RunningHarness } from "./harnesses";
@@ -6,6 +7,20 @@ import { HarnessNotSubmittedError } from "./harness-transport";
 import type { SessionContext, TurnInput } from "./session-types";
 
 type ManagedContext = SessionContext & { projectId: string };
+type SessionFilter = {
+  harness?: HarnessId;
+  projectIds?: ReadonlySet<string>;
+  directory?: string;
+};
+const matches = (context: ManagedContext, filter: SessionFilter) => {
+  if (filter.harness && context.harness !== filter.harness) return false;
+  if (filter.projectIds && !filter.projectIds.has(context.projectId)) return false;
+  if (filter.directory) {
+    const path = relative(filter.directory, context.cwd);
+    if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) return false;
+  }
+  return true;
+};
 type Entry = {
   id: string;
   context: ManagedContext;
@@ -32,7 +47,7 @@ const contextKey = (input: ManagedContext) =>
 export class HarnessSessions {
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
-  private generation = 0;
+  private acquiring = new Set<{ context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
     private options: { idleLimit: number; idleMs: number; backgroundSilentMs?: number } = {
@@ -108,12 +123,12 @@ export class HarnessSessions {
       this.retire(key, item);
   }
   private acquire(id: string, context: ManagedContext, composer = false): Promise<Entry> {
-    const generation = this.generation;
+    const pending = { context, invalidated: false };
+    this.acquiring.add(pending);
     const operation = this.changes
       .catch(() => {})
       .then(async () => {
-        if (generation !== this.generation)
-          throw new Error("The harness context changed. Try again.");
+        if (pending.invalidated) throw new Error("The harness context changed. Try again.");
         const key = contextKey(context);
         let entry = this.entries.get(id);
         if (
@@ -159,8 +174,7 @@ export class HarnessSessions {
           ))
             this.retire(key, item);
           await Promise.all(this.retiring);
-          if (generation !== this.generation)
-            throw new Error("The harness context changed. Try again.");
+          if (pending.invalidated) throw new Error("The harness context changed. Try again.");
           const {
             projectId,
             harness,
@@ -199,7 +213,8 @@ export class HarnessSessions {
         }
         clearTimeout(entry.timer);
         return entry;
-      });
+      })
+      .finally(() => this.acquiring.delete(pending));
     this.changes = operation;
     return operation;
   }
@@ -261,19 +276,11 @@ export class HarnessSessions {
       },
     };
   }
-  clear({
-    harness,
-    projectIds,
-    idleOnly = false,
-  }: {
-    harness?: HarnessId;
-    projectIds?: ReadonlySet<string>;
-    idleOnly?: boolean;
-  } = {}) {
-    this.generation++;
+  clear({ idleOnly = false, ...filter }: SessionFilter & { idleOnly?: boolean } = {}) {
+    for (const pending of this.acquiring)
+      if (matches(pending.context, filter)) pending.invalidated = true;
     for (const [id, entry] of this.entries) {
-      if (harness && entry.context.harness !== harness) continue;
-      if (projectIds && !projectIds.has(entry.context.projectId)) continue;
+      if (!matches(entry.context, filter)) continue;
       entry.invalidated = true;
       if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
         this.retire(id, entry);

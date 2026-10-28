@@ -243,7 +243,7 @@ export class WorkspaceService {
           "Wait for this repository's active work to finish before switching branches.",
         );
       this.sessionGeneration++;
-      await this.sessions.clear({ idleOnly: true });
+      await this.sessions.clear({ directory: root, idleOnly: true });
       return await switchRepositoryBranch(project.path, branch);
     })();
     this.repositoryChanges.set(projectId, operation);

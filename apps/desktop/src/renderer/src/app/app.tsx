@@ -484,7 +484,7 @@ export function App({
         .warmThread?.({
           projectId: project.id,
           threadId: thread?.id,
-          executionProjectId: project.cloud ? executionProject.id : undefined,
+          executionProjectId: project.cloud ? executionProjectId : undefined,
           harness: selectedHarness,
           settings: thread?.settings ?? draft.settings,
         })
@@ -511,6 +511,7 @@ export function App({
     api,
     project?.id,
     executionProject?.id,
+    executionProjectId,
     selectedThreadId,
     thread?.id,
     thread?.status,

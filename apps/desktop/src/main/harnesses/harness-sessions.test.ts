@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -39,6 +39,48 @@ async function events(cwd: string) {
       .split("\n")
       .map((line) => JSON.parse(line)),
   );
+}
+
+for (const scope of ["harness", "project", "repository"] as const) {
+  test(`clearing a ${scope} cancels matching queued acquisitions while preserving unrelated sends`, async () => {
+    const cwd = await mkdtemp(join(directory, "scoped-clear-"));
+    const sessions = new HarnessSessions();
+    const context = { projectId: "local", harness: "codex" as const, executable, cwd };
+    const clearedPath = join(cwd, "cloud");
+    await mkdir(clearedPath);
+    try {
+      const local = sessions.start("local", { ...context, prompt: "Local", onUpdate() {} });
+      const other = sessions.prepare({
+        kind: "thread",
+        id: "cloud",
+        context: {
+          ...context,
+          projectId: "cloud",
+          harness: "claude",
+          cwd: clearedPath,
+        },
+      });
+      const settled = Promise.allSettled([local.done, other]);
+      await sessions.clear({
+        idleOnly: true,
+        ...(scope === "harness"
+          ? { harness: "claude" as const }
+          : scope === "project"
+            ? { projectIds: new Set(["cloud"]) }
+            : { directory: clearedPath }),
+      });
+      expect(await settled).toEqual([
+        { status: "fulfilled", value: undefined },
+        {
+          status: "rejected",
+          reason: expect.objectContaining({ message: expect.stringContaining("context changed") }),
+        },
+      ]);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+    } finally {
+      await sessions.clear();
+    }
+  });
 }
 
 test("a duplicate start or incompatible preparation cannot close another running turn", async () => {
@@ -109,6 +151,8 @@ test("cloud access withdrawal terminates retained background sessions without st
       });
     });
   try {
+    await service.warmThread({ projectId: cloud.id, harness: "codex" });
+    expect((await events(cloudPath)).some((event) => event.method === "thread/start")).toBe(true);
     const cloudDone = completed();
     await service.startThread({
       projectId: cloud.id,
@@ -418,11 +462,11 @@ test("OpenCode preserves selected model, native command and image inputs and rep
   const updates: HarnessUpdate[] = [];
   try {
     await session.start({
-      prompt: "Project context /review file",
+      prompt: "Project context priced /review file",
       skill: {
         invocation: { kind: "command", name: "review", description: "Review" },
         prompt: "/review file",
-        context: "Project context",
+        context: "Project context priced",
       },
       images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
       onUpdate: (update) => updates.push(update),
@@ -434,14 +478,19 @@ test("OpenCode preserves selected model, native command and image inputs and rep
     expect(recorded.find((event) => event.method === "session/prompt")?.value.params).toMatchObject(
       {
         prompt: [
-          { type: "text", text: "/review file\n\nProject context" },
+          { type: "text", text: "/review file\n\nProject context priced" },
           { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
         ],
       },
     );
     expect(updates.find((update) => update.type === "usage")).toMatchObject({
       cumulative: false,
-      usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8 },
+      usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8, costUSD: 0.25 },
+    });
+    const next: HarnessUpdate[] = [];
+    await session.start({ prompt: "Continue", onUpdate: (update) => next.push(update) }).done;
+    expect(next.find((update) => update.type === "usage")).toMatchObject({
+      usage: { costUSD: undefined },
     });
   } finally {
     session.close();
@@ -490,6 +539,74 @@ test("concurrent capability requests share initialization and close their tempor
   expect(() => process.kill(pid, 0)).toThrow();
 });
 
+test("OpenCode replays command discovery to late subscribers and reuses legacy discovery sessions", async () => {
+  const { withHarnessConnection } = await import("./harness-connection");
+  const { HarnessSkills } = await import("./harness-skills");
+  const cwd = await mkdtemp(join(directory, "discovery-replay-"));
+  const input = { harness: "opencode" as const, executable, cwd };
+  const announced = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const inspection = withHarnessConnection(input, async (request) => {
+    await request("initialize");
+    await request("session/new", { cwd, mcpServers: [] });
+    announced.resolve();
+    await release.promise;
+  });
+  try {
+    await announced.promise;
+    const catalog = new HarnessSkills(async () => executable);
+    expect((await catalog.list(input)).skills.map((skill) => skill.name)).toEqual(["review"]);
+    release.resolve();
+    await inspection;
+    expect(
+      (await catalog.list({ ...input, refresh: true })).skills.map((skill) => skill.name),
+    ).toEqual(["review"]);
+    const recorded = await events(cwd);
+    expect(recorded.filter((event) => event.method === "session/new")).toHaveLength(1);
+    expect(recorded.filter((event) => event.method === "session/load")).toHaveLength(1);
+    expect(
+      recorded.some(
+        (event) => event.method === "session/prompt" || event.method === "session/delete",
+      ),
+    ).toBe(false);
+    for (const { pid } of recorded) expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    release.resolve();
+    await inspection;
+  }
+});
+
+test("OpenCode deletes shared temporary discovery sessions after the final reader, including failed readers", async () => {
+  const { withHarnessConnection } = await import("./harness-connection");
+  const { inspectHarness } = await import("./harness-details");
+  const { HarnessSkills } = await import("./harness-skills");
+  const cwd = await mkdtemp(join(directory, "discovery-cleanup-"));
+  await writeFile(join(cwd, "delete-capability"), "");
+  const input = { harness: "opencode" as const, executable, cwd };
+  const [details, catalog] = await Promise.all([
+    inspectHarness(executable, "opencode", cwd),
+    new HarnessSkills(async () => executable).list(input),
+  ]);
+  expect(details.models.map((model) => model.id)).toEqual(["fixture/model"]);
+  expect(catalog.skills.map((skill) => skill.name)).toEqual(["review"]);
+  await expect(
+    withHarnessConnection(input, async (request) => {
+      await request("initialize");
+      await request("session/new", { cwd, mcpServers: [] });
+      throw new Error("Reader failed");
+    }),
+  ).rejects.toThrow("Reader failed");
+  await rm(join(cwd, "delete-capability"));
+  await writeFile(join(cwd, "no-load-capability"), "");
+  await expect(new HarnessSkills(async () => executable).list(input)).rejects.toThrow(
+    "Update OpenCode",
+  );
+  const recorded = await events(cwd);
+  expect(recorded.filter((event) => event.method === "session/new")).toHaveLength(2);
+  expect(recorded.filter((event) => event.method === "session/delete")).toHaveLength(2);
+  for (const { pid } of recorded) expect(() => process.kill(pid, 0)).toThrow();
+});
+
 for (const harness of harnessIdSchema.options) {
   test(`${harness} shares the idle budget with composer preparation and prepares evicted conversations for send`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-reopen-`));
@@ -498,6 +615,8 @@ for (const harness of harnessIdSchema.options) {
     let sessionId: string | undefined;
     try {
       await sessions.prepare({ kind: "composer", id: "project", context });
+      if (harness === "opencode")
+        expect((await events(cwd)).some((event) => event.method === "session/new")).toBe(false);
       expect(
         (await events(cwd)).filter(
           (event) =>

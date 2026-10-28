@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { z } from "zod";
 const record = z.record(z.string(), z.unknown());
@@ -126,7 +126,13 @@ for await (const line of createInterface({ input: process.stdin })) {
     "session-events.jsonl",
     JSON.stringify({ pid: process.pid, method, type: value.type, value }) + "\n",
   );
-  if (method === "initialize") reply(value, { agentCapabilities: { loadSession: true } });
+  if (method === "initialize")
+    reply(value, {
+      agentCapabilities: {
+        loadSession: !existsSync("no-load-capability"),
+        ...(existsSync("delete-capability") ? { sessionCapabilities: { delete: {} } } : {}),
+      },
+    });
   else if (method === "thread/start" || method === "thread/resume")
     reply(value, { thread: { id: sessionId } });
   else if (method === "session/new" || method === "session/load") {
@@ -141,6 +147,20 @@ for await (const line of createInterface({ input: process.stdin })) {
           },
         },
       });
+    send({
+      method: "session/update",
+      params: {
+        sessionId,
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: [
+            { name: "review", description: "Review changes" },
+            { name: "deploy.prod", description: "Invalid name" },
+            null,
+          ],
+        },
+      },
+    });
     reply(value, {
       ...(method === "session/new" ? { sessionId } : {}),
       configOptions: [
@@ -151,7 +171,8 @@ for await (const line of createInterface({ input: process.stdin })) {
         },
       ],
     });
-  } else if (method === "session/set_config_option" || method === "session/set_model")
+  } else if (method === "session/delete") reply(value, {});
+  else if (method === "session/set_config_option" || method === "session/set_model")
     reply(value, {});
   else if (method === "turn/interrupt" || method === "interrupt" || method === "session/cancel") {
     if (stubborn) continue;
@@ -171,6 +192,14 @@ for await (const line of createInterface({ input: process.stdin })) {
     const prompt = JSON.stringify(claude ? value.message : (params.input ?? params.prompt));
     stubborn = prompt.includes("stubborn");
     if (prompt.includes("crash")) process.exit(1);
+    if (acp && prompt.includes("priced"))
+      send({
+        method: "session/update",
+        params: {
+          sessionId,
+          update: { sessionUpdate: "usage_update", cost: { amount: 0.25, currency: "USD" } },
+        },
+      });
     if (acp)
       send({
         method: "session/update",

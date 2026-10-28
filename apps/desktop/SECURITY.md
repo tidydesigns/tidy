@@ -37,6 +37,11 @@ projects and harness configurations you trust.
   hours without provider activity. Cleanup releases processes without deleting saved
   conversations. Cloud access withdrawal terminates its retained connections,
   including background work, while preserving independent local connections.
+- Preparing an unused OpenCode draft initializes the process without creating a
+  saved native session. Capability discovery deletes its temporary sessions when
+  supported. Older versions reuse discovery IDs per working directory through a
+  bounded cache, so an empty provider-history entry can remain until the provider
+  removes it. Discovery never submits a prompt.
 
 ## Portable data and private authority
 
