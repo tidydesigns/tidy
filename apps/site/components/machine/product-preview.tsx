@@ -22,13 +22,20 @@ export function ProductPreview() {
   const mobile = useSyncExternalStore(subscribeViewport, mobileSnapshot, serverSnapshot);
   return (
     <figure id="desktop-demo" className={styles.productPreview}>
+      <noscript>
+        <style>{`
+          .${styles.desktopStill} { display: block; }
+          .${styles.desktopLive} { display: none; }
+          .${styles.desktopWindow} { height: auto; aspect-ratio: 8 / 5; }
+        `}</style>
+      </noscript>
       <div className={styles.desktopWindow}>
         <div className={styles.desktopStill}>
           <ProductCaptureImage
             product="desktop-initial"
             enabled={mobile === true}
             alt="Tidy for macOS as the sample project opens, with its thread sidebar, conversation and floating design preview."
-            sizes="calc(100vw - 48px)"
+            sizes="(max-width: 800px) calc(100vw - 48px), (max-width: 1376px) calc(100vw - 96px), 1280px"
           />
         </div>
         <InteractiveDesktopPreview />

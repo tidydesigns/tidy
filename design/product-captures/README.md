@@ -63,4 +63,4 @@ The mobile hero uses these responsive exports at viewport widths up to 800px;
 it does not fetch the interactive desktop demo on an initial mobile visit. Once
 loaded on a wider screen, the demo stays mounted but hidden on mobile so edits
 survive resizing. The static image fallback is also included in the server HTML
-for visitors with JavaScript disabled.
+for visitors with JavaScript disabled at any viewport width.
