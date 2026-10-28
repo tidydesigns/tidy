@@ -28,6 +28,7 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
           encoding: "utf8",
           env: {
             ...process.env,
+            GITHUB_RELEASES_TOKEN: "",
             CLOUDFLARE_ENV: environment,
             PATH: directory,
             TIDY_SITE_DEPLOY_CONFIG: config,
@@ -220,6 +221,72 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
     expect(dryRun.error).toBeUndefined();
     expect(dryRun.status, dryRun.stdout + dryRun.stderr).toBe(0);
     expect(dryRun.stdout).toContain("--dry-run: exiting now.");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("site deployment uploads a build secret with code and cleans up after success or failure", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "tidy-site-secret-test-"));
+  const config = path.join(directory, "wrangler.deploy.jsonc");
+  const invocation = path.join(directory, "invocation.json");
+  const token = 'fixture-release-token-"quoted"';
+  const settings = { name: "fixture-site", workers_dev: false, preview_urls: false };
+  try {
+    writeFileSync(config, JSON.stringify(settings));
+    // No network or real deployment: inspect the secret file while the child runs.
+    writeFileSync(
+      path.join(directory, "bunx"),
+      `#!${process.execPath}
+import { statSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+const args = process.argv.slice(2);
+const secretFile = args[args.indexOf("--secrets-file") + 1];
+writeFileSync(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({
+  args,
+  secrets: JSON.parse(readFileSync(secretFile, "utf8")),
+  fileMode: statSync(secretFile).mode & 0o777,
+  directoryMode: statSync(path.dirname(secretFile)).mode & 0o777,
+  inheritedToken: process.env.GITHUB_RELEASES_TOKEN ?? null,
+  config: JSON.parse(readFileSync(args[args.indexOf("--config") + 1], "utf8")),
+}));
+process.exit(Number(process.env.TIDY_DEPLOY_TEST_EXIT));
+`,
+      { mode: 0o700 },
+    );
+    for (const exitCode of [0, 1]) {
+      const result = spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./deploy.mjs", import.meta.url))],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLOUDFLARE_ENV: "",
+            GITHUB_RELEASES_TOKEN: token,
+            PATH: directory,
+            TIDY_SITE_DEPLOY_CONFIG: config,
+            TIDY_DEPLOY_TEST_ARGS: invocation,
+            TIDY_DEPLOY_TEST_EXIT: String(exitCode),
+          },
+        },
+      );
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(exitCode);
+      expect(result.stdout + result.stderr).not.toContain(token);
+      const invoked = JSON.parse(readFileSync(invocation, "utf8"));
+      expect(invoked.secrets).toEqual({ GITHUB_RELEASES_TOKEN: token });
+      expect(invoked.fileMode).toBe(0o600);
+      expect(invoked.directoryMode).toBe(0o700);
+      expect(invoked.inheritedToken).toBeNull();
+      expect(JSON.stringify(invoked.args)).not.toContain(token);
+      expect(JSON.stringify(invoked.config)).not.toContain(token);
+      expect(invoked.config.secrets.required).toEqual(["GITHUB_RELEASES_TOKEN"]);
+      expect(invoked.args).toContain("--env=");
+      expect(existsSync(invoked.args[3])).toBe(false);
+      expect(existsSync(invoked.args[invoked.args.indexOf("--secrets-file") + 1])).toBe(false);
+      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual(settings);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

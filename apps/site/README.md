@@ -57,8 +57,23 @@ Run `bun test apps/site/worker apps/site/scripts/deploy.test.mjs`,
 `bun run build:site`. `bunx wrangler deploy --dry-run --outdir /tmp/tidy-site-worker`
 from `apps/site` checks the Worker bundle without publishing anything.
 
-Before deploying, provision `GITHUB_RELEASES_TOKEN` on the site Worker. For
-deployment, the existing deploy script preserves the operator's private
+For the first deployment from an assets-only site, add `GITHUB_RELEASES_TOKEN`
+as an encrypted **build secret** under the site Worker's **Settings > Build >
+Build variables and secrets**. An assets-only Worker cannot accept runtime
+secrets through **Variables and Secrets** yet. The deploy script reads the build
+secret, writes it to a temporary file accessible only by the current user, and
+passes it with `--secrets-file` so the Worker code and runtime secret are uploaded
+together. It removes the temporary file after deployment, including failures.
+The token is not included in command arguments or the public website build.
+
+For local deployment, supply `GITHUB_RELEASES_TOKEN` in the deploy process's
+environment and use the operator's private `TIDY_SITE_DEPLOY_CONFIG` as usual.
+After a successful deployment, the runtime secret is preserved when the build
+secret is absent; you may remove the build secret and manage the runtime secret
+in **Variables and Secrets**. If the build secret remains, each deployment applies
+its value again, so update it when rotating the token.
+
+For deployment, the existing deploy script preserves the operator's private
 target/configuration and creates a temporary config with the Worker entrypoint,
 `ASSETS` binding and selective download routing. It adds `GITHUB_RELEASES_TOKEN`
 to `secrets.required`, preserving existing required secrets, so Wrangler rejects

@@ -43,12 +43,23 @@ try {
     }),
     { mode: 0o600 },
   );
+  // Assets-only Workers cannot accept runtime secrets before their first script
+  // deployment. Upload the build secret with the new Worker version instead.
+  const { GITHUB_RELEASES_TOKEN: releaseToken, ...deploymentEnv } = process.env;
+  const secretArgs = [];
+  if (releaseToken) {
+    const secrets = path.join(temporary, "secrets.json");
+    await writeFile(secrets, JSON.stringify({ GITHUB_RELEASES_TOKEN: releaseToken }), {
+      mode: 0o600,
+    });
+    secretArgs.push("--secrets-file", secrets);
+  }
   // An explicit empty environment also overrides selectors loaded by Wrangler
   // from dotenv files after this process has validated its environment.
   // Keep the value attached so subprocess forwarding cannot drop an empty arg.
   const child = Bun.spawn(
-    ["bunx", "wrangler", "deploy", "--config", prepared, "--env=", "--keep-vars"],
-    { stdout: "inherit", stderr: "inherit" },
+    ["bunx", "wrangler", "deploy", "--config", prepared, "--env=", "--keep-vars", ...secretArgs],
+    { stdout: "inherit", stderr: "inherit", env: deploymentEnv },
   );
   process.exitCode = await child.exited;
 } finally {
