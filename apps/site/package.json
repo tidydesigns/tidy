@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && bun scripts/dev.mjs",
-    "build": "node scripts/copy-desktop-demo.mjs && next build",
+    "build": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && next build",
     "deploy": "bun scripts/deploy.mjs",
     "preview": "wrangler preview",
     "lint": "eslint",

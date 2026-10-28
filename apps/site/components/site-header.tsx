@@ -24,7 +24,7 @@ export function SiteHeader() {
     function paint() {
       frame = 0;
       const distance = Math.min(1, Math.max(0, window.scrollY) / 160);
-      const progress = distance * distance * (3 - 2 * distance);
+      const progress = reduced.matches ? 1 : distance * distance * (3 - 2 * distance);
       if (progress === lastProgress) return;
       lastProgress = progress;
       // Animate each blur layer directly: opacity on their parent would prevent

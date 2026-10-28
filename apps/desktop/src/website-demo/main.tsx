@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { ToastViewport } from "@tidy/ui/toast";
 import { App } from "../renderer/src/app/app";
+import { useCloud } from "../renderer/src/features/cloud/use-cloud";
 import { prepareDemo } from "./host";
 import { LocalCanvas } from "../renderer/src/features/designs/local-canvas";
 import { project, sampleDesign } from "./fixture";
@@ -35,6 +36,13 @@ if (
     "wheel",
     (event) => {
       if (document.querySelector(".desktop-canvas-focused, dialog[open], [popover]:popover-open"))
+        return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          "textarea, .queue-list, .message-markdown pre, .message-markdown table",
+        )
+      )
         return;
       if (event.ctrlKey || event.metaKey || event.shiftKey || !event.deltaY) return;
       event.preventDefault();
@@ -73,6 +81,8 @@ function CanvasView() {
   );
 }
 function Demo() {
+  // No cloud API is supplied: the public example stays entirely in memory.
+  const cloud = useCloud();
   useEffect(() => {
     parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
     if (canvasView || innerWidth >= 700) return;
@@ -90,7 +100,7 @@ function Demo() {
   }, []);
   return (
     <>
-      {canvasView ? <CanvasView /> : <App />}
+      {canvasView ? <CanvasView /> : <App cloud={cloud} />}
       {new URLSearchParams(location.search).get("view") === "desktop" && (
         <div className="capture-window-controls" aria-hidden="true">
           <i />
