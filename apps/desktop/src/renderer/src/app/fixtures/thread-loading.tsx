@@ -237,7 +237,10 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   await until(() => Boolean(modal()), "Failure dialog");
   await settle();
   check(modal()?.querySelector("h2")?.textContent === "Request blocked", "Policy guidance missing");
-  check(document.activeElement?.textContent === "Dismiss", "Dismiss did not receive initial focus");
+  check(
+    document.activeElement?.getAttribute("aria-label") === "Dismiss error",
+    "Dismiss did not receive initial focus",
+  );
   check(!modal()?.querySelector("details")?.open, "Technical details expanded by default");
   emit({ ...thread, revision: 2 });
   modal()?.close();

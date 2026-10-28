@@ -1,5 +1,4 @@
-import { HarnessFailureDialog } from "./harness-failure-dialog";
-import { describeHarnessFailure } from "../../../../shared/models/harness-failure";
+import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
 import { codeFontClassName } from "../../styles/code-ui";
 import {
   memo,
@@ -382,11 +381,7 @@ export const Conversation = memo(function Conversation({
             />
           ))}
           {thread?.error && (
-            <Button className="thread-error-button" onClick={() => setShowFailure(true)}>
-              <span aria-hidden="true">!</span>
-              {describeHarnessFailure(thread.error).title}
-              <span className="text-muted-ink">View details</span>
-            </Button>
+            <HarnessFailureSummary error={thread.error} onDetails={() => setShowFailure(true)} />
           )}
           {thread?.status === "stopped" && !thread.messages.some((message) => message.turn) && (
             <p className="thread-activity text-xs wrap-anywhere">Stopped</p>
