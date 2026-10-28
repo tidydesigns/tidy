@@ -21,6 +21,11 @@ if (settings.workers_dev !== false || settings.preview_urls !== false)
 // runtime entrypoint without editing the operator's config or changing its target.
 const site = path.resolve(import.meta.dirname, "..");
 const temporary = await mkdtemp(path.join(tmpdir(), "tidy-site-deploy-"));
+const cancellation = new AbortController();
+const onInterrupt = () => cancellation.abort("SIGINT");
+const onTerminate = () => cancellation.abort("SIGTERM");
+process.on("SIGINT", onInterrupt);
+process.on("SIGTERM", onTerminate);
 try {
   const prepared = path.join(temporary, "wrangler.deploy.jsonc");
   await writeFile(
@@ -43,14 +48,35 @@ try {
     }),
     { mode: 0o600 },
   );
+  // Assets-only Workers cannot accept runtime secrets before their first script
+  // deployment. Upload the build secret with the new Worker version instead.
+  const { GITHUB_RELEASES_TOKEN: releaseToken, ...deploymentEnv } = process.env;
+  const secretArgs = [];
+  if (releaseToken) {
+    const secrets = path.join(temporary, "secrets.json");
+    await writeFile(secrets, JSON.stringify({ GITHUB_RELEASES_TOKEN: releaseToken }), {
+      mode: 0o600,
+    });
+    secretArgs.push("--secrets-file", secrets);
+  }
   // An explicit empty environment also overrides selectors loaded by Wrangler
   // from dotenv files after this process has validated its environment.
   // Keep the value attached so subprocess forwarding cannot drop an empty arg.
   const child = Bun.spawn(
-    ["bunx", "wrangler", "deploy", "--config", prepared, "--env=", "--keep-vars"],
-    { stdout: "inherit", stderr: "inherit" },
+    ["bunx", "wrangler", "deploy", "--config", prepared, "--env=", "--keep-vars", ...secretArgs],
+    { stdout: "inherit", stderr: "inherit", env: deploymentEnv, signal: cancellation.signal },
   );
-  process.exitCode = await child.exited;
+  const exitCode = await child.exited;
+  process.exitCode = cancellation.signal.aborted
+    ? cancellation.signal.reason === "SIGINT"
+      ? 130
+      : 143
+    : exitCode;
 } finally {
-  await rm(temporary, { recursive: true, force: true });
+  try {
+    await rm(temporary, { recursive: true, force: true });
+  } finally {
+    process.off("SIGINT", onInterrupt);
+    process.off("SIGTERM", onTerminate);
+  }
 }
