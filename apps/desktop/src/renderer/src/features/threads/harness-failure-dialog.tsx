@@ -1,3 +1,4 @@
+import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import type { HarnessFailureKind } from "../../../../shared/contracts/harness-failure";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
@@ -109,7 +110,7 @@ export function HarnessFailureDialog({
               className="mt-[3px] truncate text-[11px] leading-4 text-muted-ink"
               title={thread.title}
             >
-              {thread.harness === "codex" ? "Codex" : "Claude Code"}
+              {harnessNames[thread.harness]}
               <span aria-hidden="true"> · </span>
               {thread.title}
             </p>

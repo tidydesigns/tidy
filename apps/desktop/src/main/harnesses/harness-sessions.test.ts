@@ -751,3 +751,33 @@ test("preparing an existing conversation uses its private native identity and st
     await service.close();
   }
 });
+
+for (const [harness, code, kind] of [
+  ["codex", "sandboxError", "sandbox"],
+  ["claude", "error_max_budget_usd", "budget"],
+] as const) {
+  test(`${harness} retains failure details and categories, then recovers on the same session`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-provider-failure-`));
+    const session = new HarnessSession({ harness, executable, cwd });
+    const updates: HarnessUpdate[] = [];
+    const start = (prompt: string) =>
+      session.start({ prompt, onUpdate: (update) => updates.push(update) }).done;
+    try {
+      await session.ready;
+      await expect(start("provider-failure-fixture")).rejects.toMatchObject({
+        kind: "policy",
+        message: "This content was flagged for possible cybersecurity risk.",
+      });
+      await start("provider-retry-fixture");
+      if (harness === "claude")
+        expect(updates.at(-2)).toEqual({ type: "error-cleared", text: "Too many requests" });
+      await expect(start(`structured-failure-fixture ${code}`)).rejects.toMatchObject({ kind });
+      await start("continue");
+      expect(session.idle).toBe(true);
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+}

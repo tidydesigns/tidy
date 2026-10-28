@@ -595,22 +595,6 @@ test("Claude subagent errors do not fail the parent turn", () => {
   expect(updates.some((update) => update.type === "error")).toBe(false);
 });
 
-for (const harness of ["codex", "claude"] as const) {
-  test(`${harness} preserves a specific provider failure when completion has no details`, async () => {
-    const { directory, executable } = await fixture();
-    const run = startHarness({
-      harness,
-      executable,
-      cwd: directory,
-      prompt: "provider-failure-fixture",
-      onUpdate() {},
-    });
-    await expect(run.done).rejects.toThrow(
-      "This content was flagged for possible cybersecurity risk.",
-    );
-  });
-}
-
 for (const [subtype, kind] of [
   ["error_max_turns", "turn-limit"],
   ["error_max_budget_usd", "budget"],
@@ -707,34 +691,3 @@ test("Claude warnings and retries do not fail turns, rejected limits can recover
   parse({ type: "result", subtype: "success", is_error: false });
   expect(updates.at(-1)).toMatchObject({ type: "error-cleared" });
 });
-
-for (const harness of ["codex", "claude"] as const) {
-  test(`${harness} succeeds after a recovered provider retry`, async () => {
-    const { directory, executable } = await fixture();
-    const run = startHarness({
-      harness,
-      executable,
-      cwd: directory,
-      prompt: "provider-retry-fixture",
-      onUpdate() {},
-    });
-    await run.done;
-  });
-}
-
-for (const [harness, code, kind] of [
-  ["codex", "sandboxError", "sandbox"],
-  ["claude", "error_max_budget_usd", "budget"],
-] as const) {
-  test(`${harness} preserves ${code} through process completion`, async () => {
-    const { directory, executable } = await fixture();
-    const run = startHarness({
-      harness,
-      executable,
-      cwd: directory,
-      prompt: `structured-failure-fixture ${code}`,
-      onUpdate() {},
-    });
-    await expect(run.done).rejects.toMatchObject({ kind });
-  });
-}

@@ -1,3 +1,4 @@
+import { codexFailure, HarnessFailureError } from "./provider-failure";
 import { version } from "../../../package.json";
 import { z } from "zod";
 import {
@@ -74,7 +75,9 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
   const write = context.transport.write.bind(context.transport);
   const rejectRequest = context.transport.reject.bind(context.transport);
   const mode = validatePermissionMode(input.harness, input.settings?.permissionMode);
-  let threadId: string | undefined, turnId: string | undefined, failure: string | undefined;
+  let threadId: string | undefined,
+    turnId: string | undefined,
+    failure: HarnessFailureError | undefined;
   let started = Promise.withResolvers<void>();
   let completedTurnId: string | undefined;
   const filePreviews = new Map<string, string>();
@@ -284,18 +287,22 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
         );
       codexEvent?.(method, params);
       if (method === "item/completed") filePreviews.delete(text(item.id));
-      if (method === "error" && !params.willRetry)
-        failure = text(object(params.error).message) || "Codex could not complete this turn.";
+      if (method === "error" && !params.willRetry) failure = codexFailure(params.error);
       if (method === "turn/completed") {
         const turn = object(params.turn);
         completedTurnId = text(turn.id) || turnId;
 
-        if (turn.status === "failed")
-          failure = text(object(turn.error).message) || "Codex could not complete this turn.";
-        if (turn.status === "interrupted") failure = "The harness turn was interrupted.";
+        if (turn.status === "failed") {
+          const error = codexFailure(turn.error);
+          if (!failure) failure = error;
+          else if (failure.kind === "unknown")
+            failure = new HarnessFailureError(failure.message, error.kind);
+        }
+        if (turn.status === "interrupted")
+          failure = new HarnessFailureError("The harness turn was interrupted.");
         codexEvent = undefined;
         filePreviews.clear();
-        complete(failure ? new Error(failure) : undefined);
+        complete(failure);
       }
     },
     async interrupt() {
