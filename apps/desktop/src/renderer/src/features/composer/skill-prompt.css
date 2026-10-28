@@ -2,6 +2,12 @@
   position: relative;
 }
 @media (forced-colors: none) {
+  .composer-body {
+    border-color: light-dark(#e5e5e5, #303030);
+  }
+  .composer-body:focus-within {
+    border-color: light-dark(#c9c9c9, #424242);
+  }
   .skill-prompt > textarea::-webkit-scrollbar {
     width: 8px;
     background: transparent;
