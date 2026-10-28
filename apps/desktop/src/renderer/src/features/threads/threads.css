@@ -425,15 +425,19 @@
   line-height: 1.6;
 }
 .turn-status-heading {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 31px;
   padding-bottom: 6px;
   margin-bottom: 6px;
   border-bottom: 1px solid var(--color-border);
 }
 .turn-status-icon {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: grid;
   place-items: center;
   width: 24px;
@@ -441,7 +445,13 @@
   flex-shrink: 0;
 }
 .turn-status-time {
+  line-height: 24px;
   font-variant-numeric: tabular-nums;
+  transform: translateX(0);
+  transition: transform 260ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.turn-status-heading[data-running] .turn-status-time {
+  transform: translateX(30px);
 }
 .working-matrix {
   display: grid;
@@ -499,6 +509,9 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .turn-status-time {
+    transition: none;
+  }
   .working-matrix i,
   .turn-status[data-active] .activity-summary-content[data-live] {
     animation: none;
