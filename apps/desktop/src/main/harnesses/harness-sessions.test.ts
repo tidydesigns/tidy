@@ -487,6 +487,15 @@ test("OpenCode preserves selected model, native command and image inputs and rep
       cumulative: false,
       usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8, costUSD: 0.25 },
     });
+    const followUp: HarnessUpdate[] = [];
+    await session.start({
+      prompt: "priced follow-up",
+      onUpdate: (update) => followUp.push(update),
+    }).done;
+    expect(followUp.find((update) => update.type === "usage")).toMatchObject({
+      cumulative: false,
+      usage: { costUSD: 0.25 },
+    });
     const next: HarnessUpdate[] = [];
     await session.start({ prompt: "Continue", onUpdate: (update) => next.push(update) }).done;
     expect(next.find((update) => update.type === "usage")).toMatchObject({
@@ -497,6 +506,35 @@ test("OpenCode preserves selected model, native command and image inputs and rep
     await session.done;
   }
 });
+
+for (const replayCost of [false, true]) {
+  test(`OpenCode resumed turn cost uses ${replayCost ? "replayed" : "unknown"} session totals`, async () => {
+    const cwd = await mkdtemp(join(directory, "resume-cost-"));
+    if (replayCost) await writeFile(join(cwd, "replay-cost"), "");
+    const session = new HarnessSession({
+      harness: "opencode",
+      executable,
+      cwd,
+      sessionId: "ses_fixture",
+    });
+    try {
+      for (const expectedCost of [replayCost ? 0.25 : undefined, 0]) {
+        const updates: HarnessUpdate[] = [];
+        await session.start({
+          prompt: "priced follow-up",
+          onUpdate: (update) => updates.push(update),
+        }).done;
+        expect(updates.find((update) => update.type === "usage")).toMatchObject({
+          cumulative: false,
+          usage: { costUSD: expectedCost },
+        });
+      }
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });
+}
 
 test("OpenCode ignores replayed history while loading an opaque native session identifier", async () => {
   const cwd = await mkdtemp(join(directory, "resume-"));

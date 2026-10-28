@@ -8,6 +8,15 @@ const claude = process.argv.includes("--input-format");
 const acp = process.argv.includes("acp");
 const sessionId = acp ? "ses_fixture" : "b56ba7bb-00aa-4a56-a64c-593c3c377dcc";
 const send = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
+function cost(amount: number) {
+  send({
+    method: "session/update",
+    params: {
+      sessionId,
+      update: { sessionUpdate: "usage_update", cost: { amount, currency: "USD" } },
+    },
+  });
+}
 let sequence = 0;
 let promptId: unknown;
 let turnId = "";
@@ -136,6 +145,7 @@ for await (const line of createInterface({ input: process.stdin })) {
   else if (method === "thread/start" || method === "thread/resume")
     reply(value, { thread: { id: sessionId } });
   else if (method === "session/new" || method === "session/load") {
+    if (method === "session/load" && existsSync("replay-cost")) cost(0.25);
     if (method === "session/load")
       send({
         method: "session/update",
@@ -192,14 +202,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     const prompt = JSON.stringify(claude ? value.message : (params.input ?? params.prompt));
     stubborn = prompt.includes("stubborn");
     if (prompt.includes("crash")) process.exit(1);
-    if (acp && prompt.includes("priced"))
-      send({
-        method: "session/update",
-        params: {
-          sessionId,
-          update: { sessionUpdate: "usage_update", cost: { amount: 0.25, currency: "USD" } },
-        },
-      });
+    if (acp && prompt.includes("priced")) cost(prompt.includes("follow-up") ? 0.5 : 0.25);
     if (acp)
       send({
         method: "session/update",

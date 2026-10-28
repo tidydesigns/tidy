@@ -88,6 +88,8 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
   const { input, transport, emit } = context;
   let sessionId = input.sessionId;
   let messageId = "";
+  let sessionCostUSD: number | undefined = input.sessionId ? undefined : 0;
+  let costBaselineUSD: number | undefined;
   let costUSD: number | undefined;
   let initialized = false;
   const tools = new Map<
@@ -149,6 +151,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
     },
     async submit(message) {
       await ensureSession();
+      costBaselineUSD = sessionCostUSD;
       costUSD = undefined;
       tools.clear();
       messageId = crypto.randomUUID();
@@ -235,12 +238,23 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         transport.reject(message.id, "This client capability is not available.");
         return;
       }
-      if (message.method !== "session/update" || !initialized) return;
+      if (message.method !== "session/update") return;
       const notification = updateSchema.parse(message.params);
       if (notification.sessionId !== sessionId) return;
       const parsed = supportedUpdate.safeParse(notification.update);
       if (!parsed.success) return;
       const update = parsed.data;
+      if (update.sessionUpdate === "usage_update" && update.cost) {
+        sessionCostUSD = update.cost.currency === "USD" ? update.cost.amount : undefined;
+        if (initialized && context.isActive())
+          costUSD =
+            sessionCostUSD !== undefined &&
+            costBaselineUSD !== undefined &&
+            sessionCostUSD >= costBaselineUSD
+              ? sessionCostUSD - costBaselineUSD
+              : undefined;
+      }
+      if (!initialized) return;
       if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
         context.activity({
           id: update.toolCallId,
@@ -265,8 +279,6 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         ].includes(update.sessionUpdate)
       )
         context.accepted();
-      if (update.sessionUpdate === "usage_update" && update.cost?.currency === "USD")
-        costUSD = update.cost.amount;
       if (update.sessionUpdate === "agent_message_chunk") {
         emit({ type: "message", id: messageId, text: update.content.text, append: true });
       } else if (
