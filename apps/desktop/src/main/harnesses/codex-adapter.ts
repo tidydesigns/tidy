@@ -8,7 +8,7 @@ import {
 import { createCodexEvents } from "./codex-events";
 import { object, text } from "./harness-transport";
 import { plainToolText } from "./tool-events";
-import type { AdapterContext, HarnessAdapter } from "./session-types";
+import type { AdapterContext, HarnessAdapter, TurnInput } from "./session-types";
 
 const workId = z.string().min(1).max(512);
 const workItem = z.discriminatedUnion("type", [
@@ -45,6 +45,28 @@ const threadStatus = z.object({
   threadId: workId,
   status: z.object({ type: z.enum(["active", "idle", "notLoaded", "systemError"]) }),
 });
+
+function codexInput(message: Pick<TurnInput, "prompt" | "skill" | "images">) {
+  return [
+    {
+      type: "text",
+      text: message.skill
+        ? `${message.skill.context}\n\nUser request:\n\n$${message.skill.prompt.slice(1)}`
+        : message.prompt,
+      text_elements: [],
+    },
+    ...(message.skill?.invocation.kind === "file"
+      ? [
+          {
+            type: "skill",
+            name: message.skill.invocation.name,
+            path: message.skill.invocation.path,
+          },
+        ]
+      : []),
+    ...(message.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
+  ];
+}
 
 export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
   const { input, emit, accepted, complete, ask, cancelApproval } = context;
@@ -107,25 +129,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       const responseTurn = object(
         await request("turn/start", {
           threadId,
-          input: [
-            {
-              type: "text",
-              text: message.skill
-                ? `${message.skill.context}\n\nUser request:\n\n$${message.skill.prompt.slice(1)}`
-                : message.prompt,
-              text_elements: [],
-            },
-            ...(message.skill?.invocation.kind === "file"
-              ? [
-                  {
-                    type: "skill",
-                    name: message.skill.invocation.name,
-                    path: message.skill.invocation.path,
-                  },
-                ]
-              : []),
-            ...(message.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
-          ],
+          input: codexInput(message),
           ...(input.settings?.effort ? { effort: input.settings.effort } : {}),
         }),
       );
@@ -228,7 +232,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
             text(params.reason),
             [
               command,
-              filePreviews.has(text(params.itemId)) ? filePreviews.get(text(params.itemId))! : "",
+              filePreviews.get(text(params.itemId)) ?? "",
               text(params.cwd) && `Directory: ${text(params.cwd)}`,
               text(params.grantRoot) && `Write access: ${text(params.grantRoot)}`,
               network.host && JSON.stringify(network),
@@ -303,25 +307,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
       await request("turn/steer", {
         threadId,
         expectedTurnId: turnId,
-        input: [
-          {
-            type: "text",
-            text: message.skill
-              ? `${message.skill.context}\n\nUser request:\n\n$${message.skill.prompt.slice(1)}`
-              : message.prompt,
-            text_elements: [],
-          },
-          ...(message.skill?.invocation.kind === "file"
-            ? [
-                {
-                  type: "skill",
-                  name: message.skill.invocation.name,
-                  path: message.skill.invocation.path,
-                },
-              ]
-            : []),
-          ...(message.images ?? []).map((image) => ({ type: "localImage", path: image.path })),
-        ],
+        input: codexInput(message),
       });
       return true;
     },

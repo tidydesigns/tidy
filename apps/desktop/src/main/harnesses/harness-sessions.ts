@@ -134,9 +134,9 @@ export class HarnessSessions {
         }
         if (!entry && !composer && !context.sessionId) {
           const warm = [...this.entries].find(
-            ([key, item]) =>
-              key.startsWith("composer:") &&
-              item.key === contextKey(context) &&
+            ([id, item]) =>
+              id.startsWith("composer:") &&
+              item.key === key &&
               item.session.idle &&
               item.session.available,
           );

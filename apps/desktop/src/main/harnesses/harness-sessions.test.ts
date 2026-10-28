@@ -25,7 +25,12 @@ afterAll(async () => {
   await rm(directory, { recursive: true, force: true });
 });
 const eventsSchema = z.array(
-  z.object({ pid: z.number(), method: z.string().optional(), type: z.string().optional() }),
+  z.object({
+    pid: z.number(),
+    method: z.string().optional(),
+    type: z.string().optional(),
+    value: z.object({ params: z.unknown().optional() }),
+  }),
 );
 async function events(cwd: string) {
   return eventsSchema.parse(
@@ -300,29 +305,6 @@ for (const harness of harnessIdSchema.options) {
       await session.done;
     }
   });
-  test(`${harness} shares the idle budget with composer preparation and recreates evicted sessions`, async () => {
-    const cwd = await mkdtemp(join(directory, `${harness}-cache-`));
-    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
-    const context = { projectId: "project", harness, executable, cwd };
-    try {
-      await sessions.prepare({ kind: "composer", id: "project", context });
-      expect(
-        (await events(cwd)).filter(
-          (event) =>
-            event.method === "turn/start" ||
-            event.method === "session/prompt" ||
-            event.type === "user",
-        ),
-      ).toHaveLength(0);
-      await sessions.start("first", { ...context, prompt: "first", onUpdate() {} }).done;
-      const first = await events(cwd);
-      expect(new Set(first.map((event) => event.pid)).size).toBe(1);
-      await sessions.start("second", { ...context, prompt: "second", onUpdate() {} }).done;
-      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
-    } finally {
-      await sessions.clear();
-    }
-  });
 }
 
 test("an unresponsive interrupt closes the connection before a later turn can use it", async () => {
@@ -445,19 +427,7 @@ test("OpenCode preserves selected model, native command and image inputs and rep
       images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
       onUpdate: (update) => updates.push(update),
     }).done;
-    const recorded = z
-      .array(
-        z.object({
-          method: z.string().optional(),
-          value: z.object({ params: z.unknown().optional() }),
-        }),
-      )
-      .parse(
-        (await readFile(join(cwd, "session-events.jsonl"), "utf8"))
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line)),
-      );
+    const recorded = await events(cwd);
     expect(
       recorded.find((event) => event.method === "session/set_config_option")?.value.params,
     ).toMatchObject({ configId: "model", value: "fixture/model" });
@@ -521,12 +491,21 @@ test("concurrent capability requests share initialization and close their tempor
 });
 
 for (const harness of harnessIdSchema.options) {
-  test(`${harness} prepares an evicted conversation without submitting a prompt and reuses it on send`, async () => {
+  test(`${harness} shares the idle budget with composer preparation and prepares evicted conversations for send`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-reopen-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
     const context = { projectId: "project", harness, executable, cwd };
     let sessionId: string | undefined;
     try {
+      await sessions.prepare({ kind: "composer", id: "project", context });
+      expect(
+        (await events(cwd)).filter(
+          (event) =>
+            event.method === "turn/start" ||
+            event.method === "session/prompt" ||
+            event.type === "user",
+        ),
+      ).toHaveLength(0);
       await sessions.start("first", {
         ...context,
         prompt: "first",
@@ -534,7 +513,9 @@ for (const harness of harnessIdSchema.options) {
           if (update.type === "session") sessionId = update.id;
         },
       }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
       await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
       await sessions.prepare({ kind: "thread", id: "first", context: { ...context, sessionId } });
       const prepared = await events(cwd);
       const prompts = prepared.filter(
@@ -595,21 +576,7 @@ test("preparing an existing conversation uses its private native identity and st
       harness: "opencode",
       settings: { permissionMode: "auto" },
     });
-    const schema = z.array(
-      z.object({
-        pid: z.number(),
-        method: z.string().optional(),
-        value: z.object({ params: z.unknown().optional() }),
-      }),
-    );
-    const prepared = schema
-      .parse(
-        (await readFile(join(cwd, "session-events.jsonl"), "utf8"))
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line)),
-      )
-      .slice(previous);
+    const prepared = (await events(cwd)).slice(previous);
     expect(prepared.find((event) => event.method === "thread/resume")?.value.params).toMatchObject({
       threadId: thread.sessionId,
       sandbox: "read-only",
