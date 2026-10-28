@@ -12,7 +12,7 @@ export function describeHarnessFailure(message: string) {
       daybreak: /daybreak/i.test(message),
     } as const;
   if (
-    /quota|insufficient.?credit|credit balance|billing|spending.?limit|budget|payment/i.test(
+    /quota|insufficient.?credit|out of credits|credit balance|billing|spending.?limit|budget|payment/i.test(
       message,
     )
   )
@@ -22,7 +22,18 @@ export function describeHarnessFailure(message: string) {
       guidance: "Check your provider’s balance or usage allowance before sending another message.",
     } as const;
   if (
-    /context.{0,25}(window|length|limit|exceed|full)|too many tokens|prompt.{0,15}(long|large)|request too large|413/i.test(
+    /session (not found|expired|no longer exists)|unknown session|no conversation found|no rollout found/i.test(
+      message,
+    )
+  )
+    return {
+      kind: "session",
+      title: "Session unavailable",
+      guidance:
+        "The provider could not resume this session. Start a new thread with a summary of where you left off.",
+    } as const;
+  if (
+    /context.{0,25}(window|length|limit|exceed|full)|too many tokens|prompt.{0,15}(long|large)|request too large|\b413\b/i.test(
       message,
     )
   )
@@ -33,7 +44,9 @@ export function describeHarnessFailure(message: string) {
         "Start a new thread with a shorter summary, or reduce the size of your message and attachments.",
     } as const;
   if (
-    /rate.?limit|too many requests|429|usage.?limit|limit.{0,20}(reached|exceeded)/i.test(message)
+    /rate.?limit|too many requests|\b429\b|hit your limit|usage.?limit|limit.{0,20}(reached|exceeded)/i.test(
+      message,
+    )
   )
     return {
       kind: "rate-limit",
@@ -42,7 +55,7 @@ export function describeHarnessFailure(message: string) {
         "Your provider is limiting requests. Wait for the limit to reset, then send your message again.",
     } as const;
   if (
-    /unauthori[sz]ed|unauthenticated|authentication|not.{0,10}(logged|signed).?in|log.?in|sign.?in|api.?key|token.{0,15}(expired|invalid)|401/i.test(
+    /unauthori[sz]ed|unauthenticated|authentication|not.{0,10}(logged|signed).?in|log.?in|sign.?in|api.?key|token.{0,15}(expired|invalid)|\b401\b/i.test(
       message,
     )
   )
@@ -62,14 +75,21 @@ export function describeHarnessFailure(message: string) {
       title: "Model unavailable",
       guidance: "Choose a model available to your provider account, then send your message again.",
     } as const;
-  if (/permission denied|access denied|forbidden|403|EACCES|EPERM/i.test(message))
+  if (/permission denied|access denied|forbidden|\b403\b|EACCES|EPERM/i.test(message))
     return {
       kind: "permission",
       title: "Access denied",
       guidance: "Check your account and project permissions before trying again.",
     } as const;
+  if (/timed? ?out|timeout|deadline exceeded|ETIMEDOUT/i.test(message))
+    return {
+      kind: "timeout",
+      title: "Request timed out",
+      guidance:
+        "The provider did not finish in time. Check the conversation and any changes already made before sending your message again.",
+    } as const;
   if (
-    /network|connection|fetch failed|ECONN|ENOTFOUND|offline|socket|disconnected|timed? ?out|timeout/i.test(
+    /network|connection|fetch failed|ECONN|ENOTFOUND|offline|socket|disconnected|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|EPIPE/i.test(
       message,
     )
   )
@@ -79,7 +99,7 @@ export function describeHarnessFailure(message: string) {
       guidance:
         "Check your connection and the machine running this thread, then send your message again.",
     } as const;
-  if (/overloaded|capacity|service unavailable|internal server error|50[0234]/i.test(message))
+  if (/overloaded|capacity|service unavailable|internal server error|\b50[0234]\b/i.test(message))
     return {
       kind: "unavailable",
       title: "Provider unavailable",
