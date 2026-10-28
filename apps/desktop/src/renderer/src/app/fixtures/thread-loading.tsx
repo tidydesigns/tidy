@@ -233,6 +233,10 @@ export async function runHarnessFailureNoticeTests(root: Root) {
     for (const listener of listeners) listener({ type: "thread", thread: value });
   };
   const modal = () => host.querySelector<HTMLDialogElement>("dialog[open]");
+  emit({ ...thread, id: "historical-failure" });
+  emit({ ...thread, id: "historical-failure", revision: 2, doneAt: timestamp });
+  await settle();
+  check(!modal(), "Historical failure opened a new dialog after a metadata update");
   emit({ ...thread, status: "running", error: undefined });
   emit(thread);
   await until(() => Boolean(modal()), "Failure dialog");
@@ -265,6 +269,7 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   );
   await settle();
   check(Boolean(modal()), "Old close event dismissed the replacement failure");
+  emit({ ...thread, id: "second-failure", status: "running", error: undefined });
   emit({
     ...thread,
     id: "second-failure",

@@ -169,15 +169,15 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
   const [queue, setQueue] = useState<Failure[]>([]);
   useEffect(() => {
     setQueue([]);
-    const seen = new Map<string, { revision: number; failed: boolean }>();
+    const seen = new Map<string, { revision: number; status: ThreadSummary["status"] }>();
     return api?.onEvent((event) => {
       if (event.type === "designs") return;
       const thread = event.type === "thread-patch" ? event.summary : event.thread;
       const previous = seen.get(thread.id);
       if (previous && previous.revision > thread.revision) return;
-      seen.set(thread.id, { revision: thread.revision, failed: thread.status === "failed" });
+      seen.set(thread.id, { revision: thread.revision, status: thread.status });
       if (thread.status !== "failed") {
-        if (!previous?.failed) return;
+        if (previous?.status !== "failed") return;
         setQueue((current) =>
           current.some((item) => item.id === thread.id)
             ? current.filter((item) => item.id !== thread.id)
@@ -185,7 +185,7 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
         );
         return;
       }
-      if (previous?.failed) return;
+      if (previous?.status !== "running") return;
       const { id, projectId, revision, title, harness, error, errorKind } = thread;
       const notice: Failure = { id, projectId, revision, title, harness, error, errorKind };
       setQueue((current) => [...current, notice]);
