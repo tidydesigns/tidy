@@ -19,18 +19,20 @@ function serverSnapshot() {
 export function ProductCaptureImage({
   product,
   alt,
+  enabled = true,
+  sizes = "(max-width: 760px) calc(100vw - 48px), (max-width: 1264px) calc(100vw - 64px), 1200px",
 }: {
-  product: "canvas" | "desktop";
+  product: "canvas" | "desktop" | "desktop-initial";
   alt: string;
+  enabled?: boolean;
+  sizes?: string;
 }) {
   const theme = useSyncExternalStore(subscribe, snapshot, serverSnapshot);
   const light = captures[`${product}-light`];
   const dark = captures[`${product}-dark`];
   const sourceSet = (capture: typeof light) =>
     capture.files.map((file) => `${file.src} ${file.width}w`).join(", ");
-  const selected = theme === "system" ? undefined : theme === "dark" ? dark : light;
-  const sizes =
-    "(max-width: 760px) calc(100vw - 48px), (max-width: 1264px) calc(100vw - 64px), 1200px";
+  const selected = !enabled || theme === "system" ? undefined : theme === "dark" ? dark : light;
   return (
     <>
       {/* Prebuilt exports support static hosting without a runtime image service. */}

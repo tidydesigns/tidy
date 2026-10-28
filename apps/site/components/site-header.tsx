@@ -2,14 +2,67 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
+import { SelectMenu } from "@tidy/ui/select-menu";
 import { ThemeSwitch } from "./brand/theme-switch";
 import { BrandIcon } from "./brand/brand-icon";
 import { appUrl, repositoryUrl } from "../lib/site-links";
 
+const mobileNavigationQuery = "(max-width: 900px)";
+function subscribeViewport(callback: () => void) {
+  const media = window.matchMedia(mobileNavigationQuery);
+  media.addEventListener("change", callback);
+  return () => media.removeEventListener("change", callback);
+}
+function mobileSnapshot() {
+  return window.matchMedia(mobileNavigationQuery).matches;
+}
+
+function HeaderLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  return (
+    <nav className="header-nav" aria-label="Main navigation">
+      <Link
+        className="header-link product-link"
+        href="/#product"
+        onClick={onNavigate}
+        data-select-initial
+      >
+        Product
+      </Link>
+      <Link
+        className="header-link"
+        href="/changelog"
+        aria-current={pathname === "/changelog" ? "page" : undefined}
+        onClick={onNavigate}
+      >
+        Changelog
+      </Link>
+      <a className="header-link github-link" href={repositoryUrl} onClick={onNavigate}>
+        <BrandIcon name="github" />
+        GitHub
+      </a>
+    </nav>
+  );
+}
+
+function HeaderActions({ onNavigate }: { onNavigate?: () => void }) {
+  return (
+    <div className="header-actions">
+      <div className="header-appearance">
+        <span className="header-appearance-label">Appearance</span>
+        <ThemeSwitch />
+      </div>
+      <a className="button button-primary header-cta" href={appUrl} onClick={onNavigate}>
+        Open Tidy
+      </a>
+    </div>
+  );
+}
+
 export function SiteHeader() {
   const pathname = usePathname();
   const shell = useRef<HTMLDivElement>(null);
+  const mobile = useSyncExternalStore(subscribeViewport, mobileSnapshot, () => false);
 
   useEffect(() => {
     const element = shell.current;
@@ -74,28 +127,35 @@ export function SiteHeader() {
         <Link className="tidy-logo" href="/" aria-label="Tidy home">
           Tidy
         </Link>
-        <nav className="header-nav" aria-label="Main navigation">
-          <Link className="header-link product-link" href="/#product">
-            Product
-          </Link>
-          <Link
-            className="header-link"
-            href="/changelog"
-            aria-current={pathname === "/changelog" ? "page" : undefined}
-          >
-            Changelog
-          </Link>
-          <a className="header-link github-link" href={repositoryUrl}>
-            <BrandIcon name="github" />
-            GitHub
-          </a>
-        </nav>
-        <div className="header-actions">
-          <ThemeSwitch />
-          <a className="button button-primary header-cta" href={appUrl}>
-            Open Tidy
-          </a>
+        <div className="header-desktop">
+          <HeaderLinks pathname={pathname} />
+          <HeaderActions />
         </div>
+        <SelectMenu
+          className="mobile-navigation"
+          triggerClassName="mobile-navigation-trigger"
+          menuClassName="mobile-navigation-panel"
+          label="Navigation menu"
+          value=""
+          options={[]}
+          onChange={() => {}}
+          actionMenu
+          disabled={!mobile}
+          align="end"
+          maxMenuHeight={400}
+          triggerContent={
+            <>
+              <BrandIcon className="navigation-open-icon" name="menu" width="24" height="24" />
+              <BrandIcon className="navigation-close-icon" name="close" width="24" height="24" />
+            </>
+          }
+          menuContent={(close) => (
+            <>
+              <HeaderLinks pathname={pathname} onNavigate={close} />
+              <HeaderActions onNavigate={close} />
+            </>
+          )}
+        />
       </header>
     </div>
   );

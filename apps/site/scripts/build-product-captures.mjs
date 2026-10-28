@@ -8,7 +8,14 @@ const source = path.join(root, "design/product-captures");
 const destination = path.join(root, "apps/site/public/product");
 await mkdir(destination, { recursive: true });
 const captures = {};
-for (const name of ["canvas-dark", "canvas-light", "desktop-dark", "desktop-light"]) {
+for (const name of [
+  "canvas-dark",
+  "canvas-light",
+  "desktop-dark",
+  "desktop-light",
+  "desktop-initial-dark",
+  "desktop-initial-light",
+]) {
   const image = sharp(path.join(source, `${name}.png`));
   const { width, height } = await image.metadata();
   if (!width || !height) throw new Error(`Invalid capture: ${name}`);
@@ -34,4 +41,4 @@ for (const name of ["canvas-dark", "canvas-light", "desktop-dark", "desktop-ligh
   captures[name] = { width, height, files };
 }
 await writeFile(path.join(destination, "manifest.json"), `${JSON.stringify(captures, null, 2)}\n`);
-console.info("Exported four real app captures as responsive WebP images.");
+console.info("Exported six real app captures as responsive WebP images.");
