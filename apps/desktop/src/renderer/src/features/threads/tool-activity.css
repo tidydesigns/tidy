@@ -120,14 +120,12 @@
 .tool-detail-toggle {
   display: block;
   margin-top: 7px;
-  min-height: 32px;
-  padding: 6px 8px;
-  margin-left: -8px;
+  padding: 2px 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 3px;
   background: transparent;
   color: var(--color-muted-ink);
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 .tool-detail-toggle:hover {
