@@ -1,7 +1,6 @@
 import { PrivacyPolicy } from "@tidy/ui/privacy-policy";
 import "@tidy/ui/privacy-policy.css";
 import { SiteFooter } from "../../components/site-footer";
-import { SiteHeader } from "../../components/site-header";
 import { pageMetadata } from "../../lib/page-metadata";
 
 export const metadata = pageMetadata(
@@ -14,8 +13,7 @@ export default function PrivacyPage() {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://app.tidydesign.co";
   return (
     <div className="page">
-      <SiteHeader />
-      <main>
+      <main id="main-content" tabIndex={-1}>
         <PrivacyPolicy accountUrl={new URL("/account/privacy", appUrl).href} />
       </main>
       <SiteFooter />

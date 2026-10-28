@@ -1,0 +1,209 @@
+{
+  "version": 1,
+  "assets": {
+    "cloud-atmosphere": {
+      "master": "design/brand/clouds/masters/cloud-atmosphere.png",
+      "width": 1254,
+      "height": 1254,
+      "sha256": "38eb28ee68ce2c12a896ce700fbcacdb8307ebd213b9d4445db0d068f8563598",
+      "outputs": [
+        {
+          "src": "/artwork/cloud-atmosphere-480.avif",
+          "format": "avif",
+          "width": 480,
+          "height": 480,
+          "bytes": 51195
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-480.webp",
+          "format": "webp",
+          "width": 480,
+          "height": 480,
+          "bytes": 73600
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-768.avif",
+          "format": "avif",
+          "width": 768,
+          "height": 768,
+          "bytes": 140087
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-768.webp",
+          "format": "webp",
+          "width": 768,
+          "height": 768,
+          "bytes": 198242
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-1024.avif",
+          "format": "avif",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 230400
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-1024.webp",
+          "format": "webp",
+          "width": 1024,
+          "height": 1024,
+          "bytes": 347088
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-1254.avif",
+          "format": "avif",
+          "width": 1254,
+          "height": 1254,
+          "bytes": 315134
+        },
+        {
+          "src": "/artwork/cloud-atmosphere-1254.webp",
+          "format": "webp",
+          "width": 1254,
+          "height": 1254,
+          "bytes": 503988
+        }
+      ],
+      "design": {
+        "src": "design/brand/clouds/design/cloud-atmosphere.webp",
+        "bytes": 615004
+      }
+    },
+    "cloud-spectrum": {
+      "master": "design/brand/clouds/masters/cloud-spectrum.png",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "8a6ae2c81e284dfa175491f9d3d34254026d58deb31543a98aeb1aa2603dbcc1",
+      "outputs": [
+        {
+          "src": "/artwork/cloud-spectrum-480.avif",
+          "format": "avif",
+          "width": 480,
+          "height": 320,
+          "bytes": 34374
+        },
+        {
+          "src": "/artwork/cloud-spectrum-480.webp",
+          "format": "webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 52828
+        },
+        {
+          "src": "/artwork/cloud-spectrum-768.avif",
+          "format": "avif",
+          "width": 768,
+          "height": 512,
+          "bytes": 75684
+        },
+        {
+          "src": "/artwork/cloud-spectrum-768.webp",
+          "format": "webp",
+          "width": 768,
+          "height": 512,
+          "bytes": 127264
+        },
+        {
+          "src": "/artwork/cloud-spectrum-1024.avif",
+          "format": "avif",
+          "width": 1024,
+          "height": 683,
+          "bytes": 120106
+        },
+        {
+          "src": "/artwork/cloud-spectrum-1024.webp",
+          "format": "webp",
+          "width": 1024,
+          "height": 683,
+          "bytes": 202304
+        },
+        {
+          "src": "/artwork/cloud-spectrum-1536.avif",
+          "format": "avif",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 225229
+        },
+        {
+          "src": "/artwork/cloud-spectrum-1536.webp",
+          "format": "webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 402460
+        }
+      ],
+      "design": {
+        "src": "design/brand/clouds/design/cloud-spectrum.webp",
+        "bytes": 605510
+      }
+    },
+    "cloud-coral": {
+      "master": "design/brand/clouds/masters/cloud-coral.png",
+      "width": 1536,
+      "height": 1024,
+      "sha256": "a50d0a58a6c0c05ce98996c6fb4b5e44af8b5b7e127728bbbb87dcc32a227dbe",
+      "outputs": [
+        {
+          "src": "/artwork/cloud-coral-480.avif",
+          "format": "avif",
+          "width": 480,
+          "height": 320,
+          "bytes": 33612
+        },
+        {
+          "src": "/artwork/cloud-coral-480.webp",
+          "format": "webp",
+          "width": 480,
+          "height": 320,
+          "bytes": 55804
+        },
+        {
+          "src": "/artwork/cloud-coral-768.avif",
+          "format": "avif",
+          "width": 768,
+          "height": 512,
+          "bytes": 93540
+        },
+        {
+          "src": "/artwork/cloud-coral-768.webp",
+          "format": "webp",
+          "width": 768,
+          "height": 512,
+          "bytes": 156490
+        },
+        {
+          "src": "/artwork/cloud-coral-1024.avif",
+          "format": "avif",
+          "width": 1024,
+          "height": 683,
+          "bytes": 178995
+        },
+        {
+          "src": "/artwork/cloud-coral-1024.webp",
+          "format": "webp",
+          "width": 1024,
+          "height": 683,
+          "bytes": 295826
+        },
+        {
+          "src": "/artwork/cloud-coral-1536.avif",
+          "format": "avif",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 417534
+        },
+        {
+          "src": "/artwork/cloud-coral-1536.webp",
+          "format": "webp",
+          "width": 1536,
+          "height": 1024,
+          "bytes": 715144
+        }
+      ],
+      "design": {
+        "src": "design/brand/clouds/design/cloud-coral.webp",
+        "bytes": 916958
+      }
+    }
+  }
+}

@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { SiteHeader } from "../components/site-header";
 import { siteUrl } from "../lib/site-url";
 import { pageMetadata } from "../lib/page-metadata";
 import "./globals.css";
 
 const instrumentSans = localFont({
   src: "./fonts/instrument-sans-latin.woff2",
+  variable: "--font-sans",
   weight: "400 700",
   display: "swap",
 });
@@ -21,15 +23,32 @@ export const metadata: Metadata = {
   metadataBase: siteUrl,
   ...pageMetadata(
     "/",
-    "Tidy. Open-source design canvas for teams and AI agents",
-    "Design interfaces together in Tidy. Edit designs with AI agents through MCP, capture webpages, and self-host an open-source product canvas under Apache 2.0.",
+    "Tidy: Design and build in the same app",
+    "A full design canvas in your browser, and a desktop app with your canvas, code and coding agents together. Open source under the Apache License 2.0.",
   ),
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${instrumentSans.className} ${instrumentSerif.variable}`}>
-      <body>{children}</body>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      className={`${instrumentSans.className} ${instrumentSans.variable} ${instrumentSerif.variable}`}
+    >
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{var t=localStorage.getItem('tidy-theme');document.documentElement.dataset.theme=t==='dark'||t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}catch{document.documentElement.dataset.theme=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'}`,
+          }}
+        />
+      </head>
+      <body>
+        <a className="skip-link" href="#main-content">
+          Skip to content
+        </a>
+        <SiteHeader />
+        {children}
+      </body>
     </html>
   );
 }

@@ -53,6 +53,11 @@
       "cache": false,
       "persistent": true
     },
+    "@tidy/site#dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["DESKTOP_RELEASE_REPOSITORY", "GITHUB_RELEASES_TOKEN"]
+    },
     "typecheck:tsc": {
       "dependsOn": ["^typecheck:tsc"]
     },
@@ -63,6 +68,37 @@
     "@tidy/extension#typecheck:tsc": {
       "dependsOn": ["^typecheck:tsc"],
       "outputs": [".wxt/**"]
+    },
+    "@tidy/desktop#build:demo": {
+      "dependsOn": ["^build"],
+      "outputs": ["demo-dist/**"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/scripts/bundle-licenses.ts",
+        "$TURBO_ROOT$/licenses/bundled/**",
+        "$TURBO_ROOT$/LICENSE",
+        "$TURBO_ROOT$/packages/editor/src/**",
+        "$TURBO_ROOT$/packages/editor/*.css",
+        "$TURBO_ROOT$/packages/design/*.ts",
+        "$TURBO_ROOT$/packages/design-renderer/*.ts",
+        "$TURBO_ROOT$/packages/design-renderer/*.tsx",
+        "$TURBO_ROOT$/packages/ui/*.tsx",
+        "$TURBO_ROOT$/packages/ui/*.ts",
+        "$TURBO_ROOT$/packages/{editor,design,design-renderer,ui}/package.json",
+        "$TURBO_ROOT$/packages/ui/*.css",
+        "$TURBO_ROOT$/packages/ui/fonts/**",
+        "$TURBO_ROOT$/packages/ui/harness-icons/**"
+      ]
+    },
+    "@tidy/site#build": {
+      "dependsOn": ["^build", "@tidy/desktop#build:demo"],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "!.next/dev/**",
+        "out/**",
+        "public/desktop-demo/**"
+      ]
     }
   }
 }

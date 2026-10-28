@@ -36,6 +36,7 @@ export function CanvasColorPicker({
   tokens,
   children,
   className,
+  embedded = false,
   "data-mobile-panels-open": mobilePanelsOpen,
 }: {
   canvas: RefObject<HTMLDivElement | null>;
@@ -43,6 +44,7 @@ export function CanvasColorPicker({
   tokens: Readonly<Record<string, string>>;
   children: ReactNode;
   className: string;
+  embedded?: boolean;
   "data-mobile-panels-open": boolean;
 }) {
   const [request, setRequest] = useState<Request | null>(null);
@@ -288,9 +290,10 @@ export function CanvasColorPicker({
       document.removeEventListener("keydown", escape, true);
     };
   }, [request, canvas, tokens, nodes]);
+  const Workspace = embedded ? "div" : "main";
   return (
     <Context.Provider value={context}>
-      <main
+      <Workspace
         className={className}
         data-mobile-panels-open={mobilePanelsOpen}
         data-picking-canvas-color={request ? "" : undefined}
@@ -326,7 +329,7 @@ export function CanvasColorPicker({
             </button>
           </div>
         )}
-      </main>
+      </Workspace>
     </Context.Provider>
   );
 }

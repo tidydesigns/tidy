@@ -1,0 +1,166 @@
+{
+  "canvas-dark": {
+    "width": 3840,
+    "height": 2400,
+    "files": [
+      {
+        "src": "/product/canvas-dark-640.webp",
+        "width": 640,
+        "bytes": 62738
+      },
+      {
+        "src": "/product/canvas-dark-960.webp",
+        "width": 960,
+        "bytes": 119124
+      },
+      {
+        "src": "/product/canvas-dark-1280.webp",
+        "width": 1280,
+        "bytes": 188292
+      },
+      {
+        "src": "/product/canvas-dark-1920.webp",
+        "width": 1920,
+        "bytes": 357614
+      },
+      {
+        "src": "/product/canvas-dark-2400.webp",
+        "width": 2400,
+        "bytes": 515588
+      },
+      {
+        "src": "/product/canvas-dark-3200.webp",
+        "width": 3200,
+        "bytes": 834574
+      },
+      {
+        "src": "/product/canvas-dark-3840.webp",
+        "width": 3840,
+        "bytes": 1076840
+      }
+    ]
+  },
+  "canvas-light": {
+    "width": 3840,
+    "height": 2400,
+    "files": [
+      {
+        "src": "/product/canvas-light-640.webp",
+        "width": 640,
+        "bytes": 63654
+      },
+      {
+        "src": "/product/canvas-light-960.webp",
+        "width": 960,
+        "bytes": 117952
+      },
+      {
+        "src": "/product/canvas-light-1280.webp",
+        "width": 1280,
+        "bytes": 187668
+      },
+      {
+        "src": "/product/canvas-light-1920.webp",
+        "width": 1920,
+        "bytes": 358290
+      },
+      {
+        "src": "/product/canvas-light-2400.webp",
+        "width": 2400,
+        "bytes": 517020
+      },
+      {
+        "src": "/product/canvas-light-3200.webp",
+        "width": 3200,
+        "bytes": 836086
+      },
+      {
+        "src": "/product/canvas-light-3840.webp",
+        "width": 3840,
+        "bytes": 1079120
+      }
+    ]
+  },
+  "desktop-dark": {
+    "width": 3840,
+    "height": 2400,
+    "files": [
+      {
+        "src": "/product/desktop-dark-640.webp",
+        "width": 640,
+        "bytes": 22114
+      },
+      {
+        "src": "/product/desktop-dark-960.webp",
+        "width": 960,
+        "bytes": 39378
+      },
+      {
+        "src": "/product/desktop-dark-1280.webp",
+        "width": 1280,
+        "bytes": 58340
+      },
+      {
+        "src": "/product/desktop-dark-1920.webp",
+        "width": 1920,
+        "bytes": 102250
+      },
+      {
+        "src": "/product/desktop-dark-2400.webp",
+        "width": 2400,
+        "bytes": 141452
+      },
+      {
+        "src": "/product/desktop-dark-3200.webp",
+        "width": 3200,
+        "bytes": 226084
+      },
+      {
+        "src": "/product/desktop-dark-3840.webp",
+        "width": 3840,
+        "bytes": 285952
+      }
+    ]
+  },
+  "desktop-light": {
+    "width": 3840,
+    "height": 2400,
+    "files": [
+      {
+        "src": "/product/desktop-light-640.webp",
+        "width": 640,
+        "bytes": 22280
+      },
+      {
+        "src": "/product/desktop-light-960.webp",
+        "width": 960,
+        "bytes": 38930
+      },
+      {
+        "src": "/product/desktop-light-1280.webp",
+        "width": 1280,
+        "bytes": 61034
+      },
+      {
+        "src": "/product/desktop-light-1920.webp",
+        "width": 1920,
+        "bytes": 104540
+      },
+      {
+        "src": "/product/desktop-light-2400.webp",
+        "width": 2400,
+        "bytes": 146510
+      },
+      {
+        "src": "/product/desktop-light-3200.webp",
+        "width": 3200,
+        "bytes": 233328
+      },
+      {
+        "src": "/product/desktop-light-3840.webp",
+        "width": 3840,
+        "bytes": 299142
+      }
+    ]
+  }
+}

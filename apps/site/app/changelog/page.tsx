@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { SiteFooter } from "../../components/site-footer";
-import { SiteHeader } from "../../components/site-header";
 import { changelog, type ChangelogItem } from "../../content/changelog";
 import { pageMetadata } from "../../lib/page-metadata";
 
@@ -47,8 +46,7 @@ export default function ChangelogPage() {
 
   return (
     <div className="page">
-      <SiteHeader currentPage="changelog" />
-      <main className="changelog-content">
+      <main id="main-content" tabIndex={-1} className="changelog-content">
         <div className="changelog-intro">
           <h1>Changelog</h1>
           <p>What&#39;s new and what&#39;s fixed in Tidy.</p>

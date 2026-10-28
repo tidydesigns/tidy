@@ -11,6 +11,11 @@
     "jsx": "react-jsx",
     "esModuleInterop": true
   },
-  "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"],
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/website-demo/**/*.ts",
+    "src/website-demo/**/*.tsx"
+  ],
   "exclude": ["src/**/*.test.ts"]
 }

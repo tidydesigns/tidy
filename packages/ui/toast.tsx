@@ -110,7 +110,7 @@ export function ToastViewport({ children }: { children?: ReactNode }) {
   }, []);
   if (!container) return null;
   return createPortal(
-    <div className="tidy-toast-viewport" aria-label="Notifications">
+    <div className="tidy-toast-viewport" role="region" aria-label="Notifications">
       {notices.map((notice) => (
         <Toast key={notice.id} {...notice} onDismiss={() => dismissToast(notice.id, true)} />
       ))}

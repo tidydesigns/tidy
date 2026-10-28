@@ -23,7 +23,8 @@
     "typecheck:tsc": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.test.json",
     "build:host": "bun scripts/build-host.ts",
     "host": "node --import tsx scripts/host.ts",
-    "test:remote": "bun run build && bun scripts/test-remote.ts"
+    "test:remote": "bun run build && bun scripts/test-remote.ts",
+    "build:demo": "vite build --config website-demo.vite.config.ts"
   },
   "dependencies": {
     "@tidy/design": "workspace:*",

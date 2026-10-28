@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
-    "build": "next build",
+    "dev": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && bun scripts/dev.mjs",
+    "build": "bun run --cwd ../desktop build:demo && node scripts/copy-desktop-demo.mjs && next build",
     "deploy": "bun scripts/deploy.mjs",
     "preview": "wrangler preview",
     "lint": "eslint",
@@ -23,6 +23,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.2",
+    "sharp": "0.35.5",
     "typescript": "^5",
     "wrangler": "4.148.0"
   }

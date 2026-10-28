@@ -1,32 +1,102 @@
+"use client";
+
 import Link from "next/link";
-import { GitHubStars } from "./github-stars";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
+import { ThemeSwitch } from "./brand/theme-switch";
+import { BrandIcon } from "./brand/brand-icon";
+import { appUrl, repositoryUrl } from "../lib/site-links";
 
-const githubUrl = process.env.NEXT_PUBLIC_REPOSITORY_URL;
+export function SiteHeader() {
+  const pathname = usePathname();
+  const shell = useRef<HTMLDivElement>(null);
 
-export function SiteHeader({ currentPage }: { currentPage?: "changelog" }) {
+  useEffect(() => {
+    const element = shell.current;
+    if (!element) return;
+    const header = element.querySelector<HTMLElement>(".header")!;
+    const surface = element.querySelector<HTMLElement>(".header-surface")!;
+    const backdrop = [...element.querySelectorAll<HTMLElement>(".site-header-backdrop > *")];
+    const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+    let frame = 0;
+    let lastProgress = -1;
+
+    function paint() {
+      frame = 0;
+      const distance = Math.min(1, Math.max(0, window.scrollY) / 160);
+      const progress = reduced.matches ? 1 : distance * distance * (3 - 2 * distance);
+      if (progress === lastProgress) return;
+      lastProgress = progress;
+      // Animate each blur layer directly: opacity on their parent would prevent
+      // backdrop-filter from sampling the page underneath during the crossfade.
+      for (const layer of backdrop) layer.style.opacity = String(1 - progress);
+      surface.style.opacity = String(progress);
+      header.style.transform = reduced.matches ? "none" : `translateY(${4 * progress}px)`;
+    }
+    function onScroll() {
+      if (!frame) frame = requestAnimationFrame(paint);
+    }
+    function onPreference() {
+      lastProgress = -1;
+      paint();
+    }
+    // Keep enlarged text in flow without changing layout during the transition.
+    const resize = new ResizeObserver(() => {
+      const height = `${element!.offsetHeight}px`;
+      const root = document.documentElement;
+      if (root.style.getPropertyValue("--site-header-height") !== height) {
+        root.style.setProperty("--site-header-height", height);
+      }
+    });
+    resize.observe(element);
+    paint();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    reduced.addEventListener("change", onPreference);
+    return () => {
+      cancelAnimationFrame(frame);
+      resize.disconnect();
+      window.removeEventListener("scroll", onScroll);
+      reduced.removeEventListener("change", onPreference);
+    };
+  }, []);
+
   return (
-    <header className="header">
-      <Link className="tidy-logo" href="/" aria-label="Tidy home">
-        Tidy
-      </Link>
-      <nav className="header-nav" aria-label="Main navigation">
-        <Link
-          className="header-link"
-          href="/changelog"
-          aria-current={currentPage === "changelog" ? "page" : undefined}
-        >
-          Changelog
+    <div ref={shell} className="site-header-shell">
+      <div className="site-header-backdrop" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+        <span />
+        <div className="header-tint" />
+      </div>
+      <header className="header" aria-label="Tidy website">
+        <div className="header-surface" aria-hidden="true" />
+        <Link className="tidy-logo" href="/" aria-label="Tidy home">
+          Tidy
         </Link>
-        {githubUrl && (
-          <a className="github-link" href={githubUrl}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M12 .75a11.25 11.25 0 0 0-3.558 21.923c.563.104.768-.244.768-.543 0-.267-.01-.974-.015-1.912-3.13.68-3.79-1.508-3.79-1.508-.512-1.3-1.25-1.646-1.25-1.646-1.023-.699.077-.685.077-.685 1.13.08 1.725 1.16 1.725 1.16 1.006 1.724 2.64 1.226 3.283.937.103-.728.394-1.226.716-1.508-2.498-.284-5.124-1.25-5.124-5.563 0-1.228.439-2.232 1.16-3.019-.117-.284-.503-1.429.11-2.979 0 0 .945-.302 3.094 1.153a10.79 10.79 0 0 1 5.634 0c2.15-1.455 3.093-1.153 3.093-1.153.614 1.55.228 2.695.112 2.979.722.787 1.158 1.791 1.158 3.019 0 4.324-2.63 5.276-5.136 5.554.404.35.766 1.042.766 2.1 0 1.516-.014 2.738-.014 3.11 0 .302.203.653.774.542A11.25 11.25 0 0 0 12 .75Z" />
-            </svg>
+        <nav className="header-nav" aria-label="Main navigation">
+          <Link className="header-link product-link" href="/#product">
+            Product
+          </Link>
+          <Link
+            className="header-link"
+            href="/changelog"
+            aria-current={pathname === "/changelog" ? "page" : undefined}
+          >
+            Changelog
+          </Link>
+          <a className="header-link github-link" href={repositoryUrl}>
+            <BrandIcon name="github" />
             GitHub
-            <GitHubStars key={githubUrl} repositoryUrl={githubUrl} />
           </a>
-        )}
-      </nav>
-    </header>
+        </nav>
+        <div className="header-actions">
+          <ThemeSwitch />
+          <a className="button button-primary header-cta" href={appUrl}>
+            Open Tidy
+          </a>
+        </div>
+      </header>
+    </div>
   );
 }
