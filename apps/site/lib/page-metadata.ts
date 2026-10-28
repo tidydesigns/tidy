@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 
 export function pageMetadata(path: string, title: string, description: string): Metadata {
   const image = {
-    url: "/share-card.png",
-    width: 1200,
-    height: 630,
-    alt: "Tidy. An open-source design canvas for people and AI agents",
+    url: "/share-card-hero-v3.png",
+    width: 2400,
+    height: 1260,
+    alt: "Tidy in Instrument Serif, centered over the website’s monochrome clouds and colorful stepped artwork.",
   };
 
   return {
