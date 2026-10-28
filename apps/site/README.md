@@ -63,5 +63,10 @@ target/configuration and creates a temporary config with the Worker entrypoint,
 `ASSETS` binding and selective download routing. It adds `GITHUB_RELEASES_TOKEN`
 to `secrets.required`, preserving existing required secrets, so Wrangler rejects
 a deployment when the token is missing. It does not edit the private config.
+The wrapper deploys only the top-level target in `TIDY_SITE_DEPLOY_CONFIG`.
+It rejects `CLOUDFLARE_ENV` and CLI arguments and explicitly selects Wrangler's
+top-level environment, so named environments cannot bypass the validated target,
+required secrets or asset routing. Use a separate private config with the desired
+target at the top level for another deployment target.
 A website deployment is required once to introduce this endpoint; later
 desktop beta releases require no website changes or deployments.

@@ -2,6 +2,12 @@ import path from "node:path";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolveDeploymentConfig } from "../../../scripts/deployment-config.mjs";
+// This wrapper validates one top-level private target. Do not let an ambient
+// Wrangler environment select a different target after those safety checks.
+if (process.env.CLOUDFLARE_ENV || process.argv.length > 2)
+  throw new Error(
+    "Named environments and CLI arguments are not supported by the site deploy script. Unset CLOUDFLARE_ENV and use TIDY_SITE_DEPLOY_CONFIG with the intended target at the top level.",
+  );
 const config = await resolveDeploymentConfig(
   path.resolve(import.meta.dirname, ".."),
   "TIDY_SITE_DEPLOY_CONFIG",
@@ -37,10 +43,12 @@ try {
     }),
     { mode: 0o600 },
   );
-  const child = Bun.spawn(["bunx", "wrangler", "deploy", "--config", prepared, "--keep-vars"], {
-    stdout: "inherit",
-    stderr: "inherit",
-  });
+  // An explicit empty environment also overrides selectors loaded by Wrangler
+  // from dotenv files after this process has validated its environment.
+  const child = Bun.spawn(
+    ["bunx", "wrangler", "deploy", "--config", prepared, "--env", "", "--keep-vars"],
+    { stdout: "inherit", stderr: "inherit" },
+  );
   process.exitCode = await child.exited;
 } finally {
   await rm(temporary, { recursive: true, force: true });
