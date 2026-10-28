@@ -60,4 +60,7 @@ border, shadow, surrounding page and development indicator. Wait for the
 conversation, fonts and images to finish loading before capturing either theme.
 
 The mobile hero uses these responsive exports at viewport widths up to 800px;
-it does not mount or fetch the interactive desktop demo at those widths.
+it does not fetch the interactive desktop demo on an initial mobile visit. Once
+loaded on a wider screen, the demo stays mounted but hidden on mobile so edits
+survive resizing. The static image fallback is also included in the server HTML
+for visitors with JavaScript disabled.

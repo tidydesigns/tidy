@@ -124,6 +124,13 @@
     0 28px 80px -24px #0008,
     0 8px 24px -12px #0006;
 }
+.desktopStill {
+  display: none;
+}
+.desktopStill noscript picture {
+  position: absolute;
+  inset: 0;
+}
 .desktopLive {
   height: 100%;
 }
@@ -230,6 +237,12 @@
   }
   .cloudSmallLeft,
   .cloudSmallRight {
+    display: none;
+  }
+  .desktopStill {
+    display: block;
+  }
+  .desktopLive {
     display: none;
   }
   .desktopWindow {

@@ -23,20 +23,21 @@ export function ProductPreview() {
   return (
     <figure id="desktop-demo" className={styles.productPreview}>
       <div className={styles.desktopWindow}>
-        {mobile === true && (
+        <div className={styles.desktopStill}>
           <ProductCaptureImage
             product="desktop-initial"
+            enabled={mobile === true}
             alt="Tidy for macOS as the sample project opens, with its thread sidebar, conversation and floating design preview."
             sizes="calc(100vw - 48px)"
           />
-        )}
-        {mobile === false && <InteractiveDesktopPreview />}
+        </div>
+        <InteractiveDesktopPreview />
       </div>
     </figure>
   );
 }
 
-/** Mount the actual desktop renderer only when there is room to use it. */
+/** Load only on wider screens, then retain the iframe so resizing preserves edits. */
 function InteractiveDesktopPreview() {
   const windowRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -69,7 +70,7 @@ function InteractiveDesktopPreview() {
     });
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (!entry?.isIntersecting) return;
+        if (!entry?.isIntersecting || window.matchMedia(mobileQuery).matches) return;
         setSource(`/desktop-demo/index.html?theme=${theme()}&scroll=website`);
         observer.disconnect();
       },
@@ -84,43 +85,41 @@ function InteractiveDesktopPreview() {
   }, []);
 
   return (
-    <>
-      <div ref={windowRef} className={styles.desktopLive}>
-        <div className={styles.windowControls} aria-hidden="true">
-          <i />
-          <i />
-          <i />
-        </div>
-        {!ready && (
-          <div className={styles.desktopLoading} role="status">
-            Opening the sample project…
-          </div>
-        )}
-        {source && (
-          <iframe
-            ref={frameRef}
-            className={styles.desktopFrame}
-            src={source}
-            title="Interactive Tidy desktop app: sample project"
-            aria-describedby="desktop-demo-description"
-            sandbox="allow-scripts allow-same-origin allow-downloads"
-            onLoad={() =>
-              frameRef.current?.contentWindow?.postMessage(
-                {
-                  type: "tidy-demo-theme",
-                  theme: document.documentElement.dataset.theme,
-                },
-                location.origin,
-              )
-            }
-          />
-        )}
+    <div ref={windowRef} className={styles.desktopLive}>
+      <div className={styles.windowControls} aria-hidden="true">
+        <i />
+        <i />
+        <i />
       </div>
+      {!ready && (
+        <div className={styles.desktopLoading} role="status">
+          Opening the sample project…
+        </div>
+      )}
+      {source && (
+        <iframe
+          ref={frameRef}
+          className={styles.desktopFrame}
+          src={source}
+          title="Interactive Tidy desktop app: sample project"
+          aria-describedby="desktop-demo-description"
+          sandbox="allow-scripts allow-same-origin allow-downloads"
+          onLoad={() =>
+            frameRef.current?.contentWindow?.postMessage(
+              {
+                type: "tidy-demo-theme",
+                theme: document.documentElement.dataset.theme,
+              },
+              location.origin,
+            )
+          }
+        />
+      )}
       <p id="desktop-demo-description" className="sr-only">
         Interactive sample project using the real Tidy desktop app. Open the floating design preview
         to edit the canvas, then minimise the canvas to return to the thread. Changes stay in this
         demo until the page reloads. Coding agents are simulated.
       </p>
-    </>
+    </div>
   );
 }
