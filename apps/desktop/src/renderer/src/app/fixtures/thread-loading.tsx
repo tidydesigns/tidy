@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type {
   DesktopAPI,
+  Bootstrap,
   DesktopEvent,
   ProjectSnapshot,
   Thread,
@@ -13,6 +14,8 @@ import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { ThreadSidebar } from "../../features/threads/thread-sidebar";
+import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
+import type { ProjectSetupResult } from "../../../../shared/contracts/workspace-response";
 import { useWorkspaceState } from "../use-workspace-state";
 
 const projectId = crypto.randomUUID();
@@ -133,8 +136,12 @@ async function workspaceFixture(root: Root) {
     designs: [],
     folders: [],
   };
+  let online = true;
+  let bootstraps = 0;
   const api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> = {
     async bootstrap() {
+      bootstraps++;
+      if (!online) return { projects: [], harnesses: [], activeProject: null };
       return { projects: [snapshot.project], harnesses: [], activeProject: snapshot };
     },
     async selectProject(id) {
@@ -154,9 +161,17 @@ async function workspaceFixture(root: Root) {
   };
   let current: ReturnType<typeof useWorkspaceState> | undefined;
   const errors: unknown[] = [];
+  let changeConnection: (connection: string) => void = () => {};
   function Probe() {
     const navigation = useRef(0);
-    current = useWorkspaceState({ api, navigation, onError: (error) => errors.push(error) });
+    const [connection, setConnection] = useState("connected");
+    changeConnection = setConnection;
+    current = useWorkspaceState({
+      api,
+      navigation,
+      connection,
+      onError: (error) => errors.push(error),
+    });
     return null;
   }
   flushSync(() => root.render(<Probe />));
@@ -168,7 +183,22 @@ async function workspaceFixture(root: Root) {
     });
   }
   const pending = (id: string) => required(requests.get(id), "Pending read");
-  return { initial, state, calls, pending, emit, listeners, errors };
+  return {
+    initial,
+    state,
+    calls,
+    pending,
+    emit,
+    listeners,
+    errors,
+    get bootstraps() {
+      return bootstraps;
+    },
+    connection(connected: boolean) {
+      online = connected;
+      flushSync(() => changeConnection(connected ? "connected" : "offline"));
+    },
+  };
 }
 
 async function runThreadLoadingTests(): Promise<string[]> {
@@ -185,6 +215,221 @@ async function runThreadLoadingTests(): Promise<string[]> {
       flushSync(() => root.unmount());
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
+  }
+
+  await run(
+    "offline transitions retain loaded projects and refresh once on reconnect",
+    async (root) => {
+      const f = await workspaceFixture(root);
+      const snapshot = f.state().snapshots[projectId];
+      const harnesses = f.state().harnesses;
+      check(f.bootstraps === 1, "Initial bootstrap did not run once");
+      f.connection(false);
+      await settle();
+      check(f.bootstraps === 1, "Offline transition called bootstrap");
+      check(f.state().activeProjectId === projectId, "Offline transition cleared the project");
+      check(
+        f.state().snapshots[projectId] === snapshot,
+        "Offline transition replaced loaded content",
+      );
+      check(f.state().harnesses === harnesses, "Offline transition replaced harnesses");
+      check(f.listeners.size === 1, "Offline transition dropped event subscription");
+      check(f.errors.length === 0, "Offline transition showed a bootstrap error");
+      f.connection(true);
+      await settle();
+      check(Number(f.bootstraps) === 2, "Reconnect did not refresh exactly once");
+      check(f.state().activeProjectId === projectId, "Reconnect lost project selection");
+    },
+  );
+
+  await run(
+    "an in-flight import survives reconnect without starting another copy",
+    async (root) => {
+      const project = {
+        id: crypto.randomUUID(),
+        path: "/fixture/project",
+        name: "Project",
+        openedAt: timestamp,
+      };
+      const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
+      const attachment = {
+        id: crypto.randomUUID(),
+        name: "notes.txt",
+        size: 5,
+        mimeType: "text/plain",
+      };
+      const source = {
+        project,
+        contextProjectId: project.id,
+        draft: {
+          text: "Keep draft",
+          harness: "codex" as const,
+          designIds: [],
+          attachments: [attachment],
+        },
+      };
+      let complete: (
+        value: Awaited<ReturnType<NonNullable<DesktopAPI["importDraft"]>>>,
+      ) => void = () => {};
+      const pending = new Promise<Awaited<ReturnType<NonNullable<DesktopAPI["importDraft"]>>>>(
+        (resolve) => {
+          complete = resolve;
+        },
+      );
+      let imports = 0;
+      let completed = 0;
+      let closes = 0;
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        bootstrap: async () => ({ projects: [project], activeProject: snapshot, harnesses: [] }),
+        projectCheckouts: async () => [
+          {
+            projectId: project.id,
+            remotes: ["https://git.example/team/project.git"],
+            repositoryPath: "",
+          },
+        ],
+        selectProject: async () => snapshot,
+        exportAttachment: async () => ({
+          name: attachment.name,
+          dataUrl: "data:text/plain;base64,aGVsbG8=",
+        }),
+        importDraft: async () => {
+          imports++;
+          return pending;
+        },
+      };
+      const machineId = crypto.randomUUID();
+      function render(connected: boolean) {
+        flushSync(() =>
+          root.render(
+            <ProjectSetupDialog
+              machine={{
+                id: machineId,
+                label: "Remote",
+                status: connected
+                  ? { kind: "connected", target: "remote" }
+                  : { kind: "reconnecting", target: "remote", message: "Reconnecting", attempt: 1 },
+              }}
+              api={api}
+              sourceAPI={api}
+              source={source}
+              onSetup={() => {}}
+              onClose={() => {
+                closes++;
+              }}
+              onReady={({ draft }) => {
+                check(
+                  draft?.attachments?.[0].id === attachment.id,
+                  "Recovered import lost attachment",
+                );
+                completed++;
+              }}
+            />,
+          ),
+        );
+      }
+      render(true);
+      await until(() => imports === 1, "Import started");
+      const close = required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Close project setup']"),
+        "Close button",
+      );
+      check(close.disabled, "Import can be dismissed before its result is known");
+      host.querySelector("dialog")?.dispatchEvent(new Event("cancel", { cancelable: true }));
+      check(closes === 0, "Escape dismissed the import");
+      render(false);
+      await settle();
+      render(true);
+      await settle();
+      check(imports === 1, "Reconnect duplicated the import");
+      complete({ attachments: [attachment], designIds: [], snapshot });
+      await until(() => completed === 1, "Recovered import completes");
+      check(imports === 1, "Recovered import was repeated");
+    },
+  );
+
+  for (const failure of ["rejection", "result"] as const) {
+    await run(`background clone ${failure} returns to an actionable form`, async (root) => {
+      const project = {
+        id: crypto.randomUUID(),
+        path: "/fixture/project",
+        name: "Project",
+        openedAt: timestamp,
+      };
+      const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
+      const bootstrap: Bootstrap = { projects: [], harnesses: [], activeProject: null };
+      let resolve: (value: ProjectSetupResult) => void = () => {};
+      let reject: (error: Error) => void = () => {};
+      const pending = new Promise<ProjectSetupResult>((yes, no) => {
+        resolve = yes;
+        reject = no;
+      });
+      let setups = 0;
+      let completed = 0;
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        bootstrap: async () => bootstrap,
+        projectCheckouts: async () => [],
+        projectDirectories: async () => ({
+          path: "/fixture",
+          parent: "/",
+          directories: [],
+          initialProject: "/fixture",
+        }),
+        selectProject: async () => snapshot,
+        setupProject: async () => {
+          setups++;
+          return { kind: "ready", snapshot };
+        },
+      };
+      const sourceAPI: DesktopAPI = {
+        ...api,
+        projectCheckouts: async () => [
+          {
+            projectId: project.id,
+            remotes: ["https://git.example/team/project.git"],
+            repositoryPath: "",
+          },
+        ],
+      };
+      flushSync(() =>
+        root.render(
+          <ProjectSetupDialog
+            machine={{ id: "local", label: "This machine", status: null }}
+            api={api}
+            sourceAPI={sourceAPI}
+            source={{
+              project,
+              contextProjectId: project.id,
+              draft: { text: "Keep this draft", harness: "codex", designIds: [] },
+            }}
+            pendingSetup={pending}
+            onSetup={() => {}}
+            onClose={() => {}}
+            onReady={() => {
+              completed++;
+            }}
+          />,
+        ),
+      );
+      await until(() => host.textContent?.includes("Cloning repository") ?? false, "Pending clone");
+      if (failure === "rejection") reject(new Error("Connection interrupted"));
+      else resolve({ kind: "failed", reason: "clone-failed" });
+      await until(
+        () => Boolean(host.querySelector("input[aria-label='Parent folder']")),
+        "Actionable retry form",
+      );
+      check(Boolean(host.querySelector("[role='alert']")), "Clone failure message is missing");
+      const submit = required(
+        host.querySelector<HTMLButtonElement>("button[type='submit']"),
+        "Clone button",
+      );
+      await until(() => !submit.disabled, "Clone retry enabled");
+      submit.click();
+      await until(() => completed === 1, "Fresh clone completes");
+      check(setups === 1, "Retry reused the settled promise or started duplicate clones");
+    });
   }
 
   await run("failed lazy views stay local and retry with current props", async (root) => {

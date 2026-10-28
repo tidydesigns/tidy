@@ -4,12 +4,16 @@ import {
   codeStatusClassName,
   codeSubmitClassName,
 } from "../styles/code-ui";
-import { useDesktopDiagnostics } from "../features/settings/use-diagnostics";
 import { z } from "zod";
 import { useSessionState } from "./session-state";
 import { selectionSchema } from "./navigation-state";
 import { useWorkspaceNavigation } from "./use-workspace-navigation";
 import { ComposerContext } from "../features/composer/composer-context";
+import type {
+  Draft,
+  MachineContext,
+  PreparedWorkspace,
+} from "../features/composer/machine-context";
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { SkillPrompt } from "../features/composer/skill-prompt";
 import { skillCommand, type Skill } from "../../../shared/contracts/skills";
@@ -44,7 +48,6 @@ import {
   MAX_ATTACHMENT_BYTES,
   MAX_IMAGE_BYTES,
   MAX_ATTACHMENT_TOTAL_BYTES,
-  type AttachedFile,
 } from "../../../shared/contracts/attachments";
 import { ProjectFiles } from "../features/workspace/project-files";
 import { HarnessControls } from "../features/harnesses/harness-controls";
@@ -54,7 +57,7 @@ import { MessageActionIcon } from "../features/threads/message-action-icon";
 import { useMessageQueue } from "../features/threads/use-message-queue";
 import { MAX_QUEUED_MESSAGES, type MessageDelivery } from "../../../shared/contracts/message-queue";
 import { AppUpdate } from "../features/updates/app-update";
-import { useCloud } from "../features/cloud/use-cloud";
+import type { CloudConnection } from "../features/cloud/use-cloud";
 import { CloudWorkspace } from "../features/cloud/cloud-workspace";
 import { SyncStatus } from "../features/cloud/sync-status";
 import type { CloudCatalog } from "../../../shared/contracts/cloud-sync";
@@ -66,6 +69,7 @@ import type {
   LocalDesign,
   Thread,
   ThreadSummary,
+  DesktopAPI,
 } from "../../../shared/contracts/desktop";
 
 const modes = [
@@ -77,22 +81,22 @@ const modePreloaders = {
   design: preloadCanvasEditor,
   code: preloadConversation,
 } satisfies Record<Mode, () => void>;
-type Draft = {
-  text: string;
-  harness: HarnessId;
-  designIds: string[];
-  cloudFileIds?: string[];
-  executionProjectId?: string;
-  settings?: HarnessSettings;
-  attachments?: AttachedFile[];
-  skill?: { id: string; name: string; harness: HarnessId };
-};
 const emptyDraft: Draft = { text: "", harness: "codex", designIds: [] };
 
-export function App() {
-  const api = window.tidy;
-  useDesktopDiagnostics(api?.analytics);
-  const cloud = useCloud(api?.cloud);
+export function App({
+  workspaceAPI,
+  machine,
+  initial,
+  draftCache,
+  cloud,
+}: {
+  workspaceAPI?: DesktopAPI;
+  machine?: MachineContext;
+  initial?: PreparedWorkspace;
+  draftCache?: Map<string, Record<string, Draft>>;
+  cloud: CloudConnection;
+}) {
+  const api = machine ? workspaceAPI : window.tidy;
   const cloudLibrary = useMemo(
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
@@ -140,7 +144,23 @@ export function App() {
   );
   const [selectedThreads, setSelectedThreads] = useSessionState("threads", selectionSchema, {});
   const [selectedDesigns, setSelectedDesigns] = useSessionState("designs", selectionSchema, {});
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [drafts, setDrafts] = useState<Record<string, Draft>>(() => ({
+    ...draftCache?.get(machine?.current.id ?? "local"),
+    ...(initial?.draft && initial.bootstrap.activeProject
+      ? { [`${initial.bootstrap.activeProject.project.id}:new`]: initial.draft }
+      : {}),
+  }));
+  useLayoutEffect(() => {
+    if (machine) draftCache?.set(machine.current.id, drafts);
+  }, [drafts, machine?.current.id, draftCache]);
+  useLayoutEffect(() => {
+    const project = initial?.bootstrap.activeProject?.project;
+    if (!initial?.draft || !project) return;
+    setSelectedThreads((current) => ({ ...current, [project.id]: null }));
+    setMode("code");
+    selectLocalWorkspace();
+    document.getElementById("thread-prompt")?.focus();
+  }, []);
   const [harnessDetails, setHarnessDetails] = useState<
     Record<string, { info?: HarnessDetails; error?: string; loading: boolean }>
   >({});
@@ -180,7 +200,13 @@ export function App() {
     designs,
     setDesigns,
     applySnapshot,
-  } = useWorkspaceState({ api, navigation, onError: setError });
+  } = useWorkspaceState({
+    api,
+    navigation,
+    onError: setError,
+    initial: initial?.bootstrap,
+    connection: machine ? (machine.connected ? "connected" : "offline") : undefined,
+  });
   const threadSelection = useRef<Record<string, number>>({});
   const referenceSelections = useRef(new Map<string, number>());
   const workspaceProjectId = location === "cloud" ? cloudProjects[cloudKey] : activeProjectId;
@@ -336,6 +362,7 @@ export function App() {
         ? "Send"
         : "Start thread";
   const canSend =
+    (!machine || (machine.connected && !machine.switching)) &&
     hasMessage &&
     referencesReady &&
     executionReady &&
@@ -813,6 +840,7 @@ export function App() {
 
   async function send(delivery: MessageDelivery = "queue") {
     if (
+      (machine && (!machine.connected || machine.switching)) ||
       !api ||
       !project ||
       !referencesReady ||
@@ -1275,7 +1303,7 @@ export function App() {
           <div className="workspace-project-row flex items-center gap-0 pr-1">
             <SidebarToggle />
             <div className="project-picker min-w-0 w-full flex-1" title={project?.name}>
-              {(project || cloud.account) && (
+              {(project || cloud.account || machine) && (
                 <SelectMenu
                   value={
                     target?.kind === "cloud"
@@ -1293,7 +1321,7 @@ export function App() {
                           },
                         ]
                       : []),
-                    ...(cloud.account?.organizations
+                    ...((api?.cloud ? (cloud.account?.organizations ?? []) : [])
                       .filter((o) => o.canEdit)
                       .map((o) => ({
                         value: `cloud:${o.id}`,
@@ -1304,15 +1332,25 @@ export function App() {
                     ...projects.map((item) => ({
                       value: item.id,
                       label: item.name,
-                      description: "Local",
+                      description: machine?.current.label ?? "Local",
                       icon: <Icon name="computer" size={16} className="text-secondary-ink" />,
                     })),
                     { value: "open", label: "Open project…" },
+                    ...(machine?.machines
+                      .filter((item) => item.id !== machine.current.id)
+                      .map((item) => ({
+                        value: `machine:${item.id}`,
+                        label: `Projects on ${item.label}`,
+                        disabled: busy || Boolean(uploading[draftKey]),
+                        description:
+                          item.id === "local" || item.status?.kind === "connected" ? "" : "Offline",
+                      })) ?? []),
                   ]}
                   label="Workspace"
                   disabled={opening}
                   onChange={(value) => {
-                    if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
+                    if (value.startsWith("machine:")) machine?.navigate(value.slice(8));
+                    else if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
                   triggerClassName="project-trigger flex min-h-[34px] w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:flex-initial [&>[data-ph-private]]:truncate"
@@ -1631,6 +1669,7 @@ export function App() {
                       <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
                           repository={repository}
+                          machine={machine ? { label: machine.current.label } : undefined}
                           execution={executionContext}
                           designs={snapshot.designs}
                           selected={thread.designIds}
@@ -1718,6 +1757,23 @@ export function App() {
                     >
                       <ComposerContext
                         repository={repository}
+                        machine={
+                          machine
+                            ? {
+                                label: machine.current.label,
+                                value: machine.current.id,
+                                options: machine.machines,
+                                onChange: (id) => {
+                                  if (!project || !executionProject) return;
+                                  machine.select(id, {
+                                    project: executionProject,
+                                    contextProjectId: project.id,
+                                    draft: { ...draft, designIds: referenceDesignIds },
+                                  });
+                                },
+                              }
+                            : undefined
+                        }
                         execution={executionContext}
                         designs={
                           location === "cloud"
@@ -1733,12 +1789,30 @@ export function App() {
                             : (designIds) => updateDraft({ designIds })
                         }
                         onBranchChange={(branch) => void switchBranch(branch)}
-                        disabled={Boolean(thread) || busy || opening}
+                        disabled={
+                          Boolean(thread) ||
+                          busy ||
+                          opening ||
+                          Boolean(uploading[draftKey]) ||
+                          machine?.switching === true
+                        }
                         branchDisabled={snapshot.threads.some((item) => item.status === "running")}
                         pending={Boolean(switchingBranch)}
                       />
                     </div>
                     <div className="composer-body relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
+                      {machine && !machine.connected && (
+                        <p
+                          role="status"
+                          className="mx-2.5 mt-1 mb-2 text-xs leading-5 text-muted-ink"
+                        >
+                          {machine.current.label} is{" "}
+                          {machine.current.status?.kind === "reconnecting"
+                            ? "reconnecting"
+                            : "offline"}
+                          . Your draft is kept here.
+                        </p>
+                      )}
                       <AttachmentList
                         files={draft.attachments ?? []}
                         onRemove={
@@ -1961,7 +2035,8 @@ export function App() {
                           <span>
                             {harnesses.find((item) => item.id === selectedHarness)?.name ??
                               "Your harness"}{" "}
-                            needs to be installed and signed in locally. Run{" "}
+                            needs to be installed and signed in on{" "}
+                            {machine?.current.label ?? "this machine"}. Run{" "}
                             <code>
                               {selectedHarness === "codex" ? "codex login" : "claude auth login"}
                             </code>{" "}

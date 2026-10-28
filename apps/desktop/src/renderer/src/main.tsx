@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { ToastViewport } from "@tidy/ui/toast";
 import "@tidy/ui/toast.css";
-import { App } from "./app/app";
+import { MachineWorkspace } from "./app/machine-workspace";
 import { HarnessUpdateNotices } from "./features/harnesses/harness-updates";
 import "@tidy/ui/fonts.css";
 import "./styles.css";
@@ -17,7 +17,7 @@ window.tidy?.onWindowFullscreen?.((fullscreen) => {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <MachineWorkspace />
     <ToastViewport>
       <HarnessUpdateNotices api={window.tidy} />
     </ToastViewport>

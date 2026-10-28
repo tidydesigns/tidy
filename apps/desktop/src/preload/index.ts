@@ -49,6 +49,13 @@ function workspaceApi(machineId?: string): DesktopAPI {
   const scopedRequest = <Name extends WorkspaceOperation>(name: Name, input?: unknown) =>
     request(name, input, machineId);
   return {
+    projectDirectories: (path) => scopedRequest("project-directories", path),
+    projectCheckouts: (projectId) => scopedRequest("project-checkouts", projectId),
+    setupProject: (input) => scopedRequest("setup-project", input),
+    exportAttachment: (projectId, attachmentId) =>
+      scopedRequest("export-attachment", { projectId, attachmentId }),
+    exportDesign: (projectId, designId) => scopedRequest("export-design", { projectId, designId }),
+    importDraft: (input) => scopedRequest("import-draft", input),
     reloadApp: async () => {
       await ipcRenderer.invoke("tidy:reload-app");
     },

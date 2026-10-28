@@ -299,10 +299,6 @@ export function RemoteMachines({
           ))}
         </ul>
       )}
-      <p className="remote-scope-note">
-        This sets up the connection. Remote project and thread selection is not available in the app
-        yet.
-      </p>
     </section>
   );
 }

@@ -1,4 +1,14 @@
+import { DraftImports } from "../workspace/draft-imports";
+import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { branchNameSchema } from "../../shared/contracts/repository-context";
+import { readLocalFile } from "../platform/local-files";
+import {
+  projectDirectories,
+  projectRemotes,
+  projectRepositoryPath,
+  setupProject,
+} from "../repository/project-setup";
+import { projectSetupSchema } from "../../shared/contracts/project-setup";
 import { readRepositoryContext } from "../repository/repository-context";
 import { skillIdSchema } from "../../shared/contracts/skills";
 import { z } from "zod";
@@ -23,6 +33,7 @@ export function createWorkspaceRequests<Context>(
   platform: WorkspacePlatform<Context>,
 ) {
   const store = service.store;
+  const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
   const projectId = uuid;
   const handlers = new Map<string, (input: unknown, context: Context) => Promise<unknown>>();
@@ -53,6 +64,77 @@ export function createWorkspaceRequests<Context>(
       threads: service.withLiveThreads(snapshot.project.id, snapshot.threads),
     };
   }
+  handle(
+    "project-directories",
+    z
+      .string()
+      .max(4096)
+      .refine((path) => !path || path.startsWith("/")),
+    projectDirectories,
+  );
+  handle("project-checkouts", uuid.optional(), async (projectId) => {
+    const projects = store.projects.filter(
+      (project) => !project.cloud && (!projectId || project.id === projectId),
+    );
+    const result = [];
+    for (let start = 0; start < projects.length; start += 4) {
+      result.push(
+        ...(await Promise.all(
+          projects.slice(start, start + 4).map(async (project) => ({
+            projectId: project.id,
+            remotes: await projectRemotes(project.path),
+            repositoryPath: await projectRepositoryPath(project.path),
+          })),
+        )),
+      );
+    }
+    return result;
+  });
+  handle("setup-project", projectSetupSchema, async (input) => {
+    const result = await setupProject(input);
+    if (result.kind !== "ready") return result;
+    if (store.projects.some((project) => project.path === result.path && project.cloud))
+      throw new Error("Open this cloud workspace through your account instead.");
+    const snapshot = await store.open(result.path);
+    await service.assertProjectAccess(snapshot.project.id);
+    await imports.recover(snapshot.project.id);
+    await service.observe(snapshot.project.id);
+    return {
+      kind: "ready",
+      snapshot: liveSnapshot(await store.snapshot(snapshot.project.id)),
+    } as const;
+  });
+  handle(
+    "export-attachment",
+    z.object({ projectId, attachmentId: uuid }).strict(),
+    async (input) => {
+      const file = await store.resolveAttachment(input.projectId, input.attachmentId);
+      return {
+        name: file.name,
+        dataUrl: `data:${file.mimeType};base64,${(await readLocalFile(file.path, MAX_ATTACHMENT_BYTES)).toString("base64")}`,
+      };
+    },
+  );
+  handle("export-design", z.object({ projectId, designId: uuid }).strict(), async (input) => {
+    const design = await store.readDesign(input.projectId, input.designId);
+    const assets: Record<string, string> = {};
+    let size = Buffer.byteLength(JSON.stringify(design.document));
+    if (size > 28_000_000)
+      throw new Error("This design is too large to transfer. Choose a smaller reference.");
+    for (const id of Object.keys(design.assets)) {
+      const value = await store.readSyncAsset(input.projectId, id);
+      if (!value || !/^data:image\/(?:png|jpeg|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(value))
+        throw new Error(
+          "A design image is unavailable. Open the design on its machine and try again.",
+        );
+      size += Buffer.byteLength(value);
+      if (size > 28_000_000)
+        throw new Error("This design is too large to transfer. Choose a smaller reference.");
+      assets[id] = value;
+    }
+    return { ...design, assets };
+  });
+  handle("import-draft", draftImportSchema, (input) => imports.import(input));
   handle("bootstrap", z.undefined(), async () => {
     const harnesses = checkHarnesses();
     let activeProject = null;
@@ -61,6 +143,7 @@ export function createWorkspaceRequests<Context>(
       store.projects.some((project) => project.id === store.activeProjectId && !project.cloud)
     ) {
       try {
+        await imports.recover(store.activeProjectId);
         activeProject = liveSnapshot(await store.snapshot(store.activeProjectId));
         await service.observe(store.activeProjectId);
       } catch {
@@ -77,11 +160,13 @@ export function createWorkspaceRequests<Context>(
     const path = await platform.chooseProject(event);
     if (!path) return null;
     const snapshot = await store.open(path);
+    await imports.recover(snapshot.project.id);
     await service.observe(snapshot.project.id);
-    return liveSnapshot(snapshot);
+    return liveSnapshot(await store.snapshot(snapshot.project.id));
   });
   handle("project-snapshot", projectId, async (value) => liveSnapshot(await store.snapshot(value)));
   handle("select-project", projectId, async (value) => {
+    await imports.recover(value);
     const snapshot = await store.select(value);
     await service.observe(value);
     return liveSnapshot(snapshot);

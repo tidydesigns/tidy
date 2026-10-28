@@ -1,4 +1,7 @@
+import { draftImportResultSchema } from "./draft-import";
 import { repositoryContextSchema } from "./repository-context";
+import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
+import { directorySchema } from "./browser-directory";
 import { skillCatalogSchema } from "./skills";
 import { z } from "zod";
 import { designDocumentSchema } from "@tidy/design/document";
@@ -24,8 +27,19 @@ export const projectSnapshotSchema = z.object({
   designs: z.array(designSchema),
   folders: z.array(folderSchema),
 });
+export const projectSetupResultSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ready"), snapshot: projectSnapshotSchema }),
+  ...projectSetupIssueSchema.options,
+]);
+export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
+  "project-directories": directorySchema,
+  "project-checkouts": z.array(projectCheckoutSchema),
+  "setup-project": projectSetupResultSchema,
+  "export-attachment": z.object({ name: z.string().max(200), dataUrl: z.string().max(28_000_000) }),
+  "export-design": localDesignSchema,
+  "import-draft": draftImportResultSchema.extend({ snapshot: projectSnapshotSchema }),
   bootstrap: z.object({
     projects: z.array(projectSchema),
     activeProject: projectSnapshotSchema.nullable(),

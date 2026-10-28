@@ -144,8 +144,7 @@
 }
 .remote-intro,
 .remote-machine-detail,
-.remote-requirements,
-.remote-scope-note {
+.remote-requirements {
   color: var(--color-muted-ink);
 }
 .remote-connect {
@@ -250,10 +249,6 @@
   margin-top: 12px;
   color: var(--desktop-status-danger);
   overflow-wrap: anywhere;
-}
-.settings-remote .remote-scope-note {
-  margin-top: 28px;
-  font-size: 12px;
 }
 .settings-remote button:active,
 .settings-section:active {

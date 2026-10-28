@@ -7,6 +7,7 @@ import { SelectMenu } from "@tidy/ui/select-menu";
 import type { DesignSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
 import { ComposerChevron, ComposerIcon } from "./composer-icon";
+import type { WorkspaceMachine } from "../../../../shared/remote";
 
 export function ComposerContext({
   repository,
@@ -18,6 +19,7 @@ export function ComposerContext({
   branchDisabled = false,
   pending,
   execution,
+  machine,
 }: {
   repository?: RepositoryContext;
   designs: Pick<DesignSummary, "id" | "name">[];
@@ -27,6 +29,12 @@ export function ComposerContext({
   disabled: boolean;
   branchDisabled?: boolean;
   pending: boolean;
+  machine?: {
+    label: string;
+    value?: string;
+    options?: WorkspaceMachine[];
+    onChange?(id: string): void;
+  };
   execution?: {
     value: string;
     options: Array<{ value: string; label: string; description?: string }>;
@@ -91,13 +99,52 @@ export function ComposerContext({
           menuClassName={codeMenuClassName}
         />
       )}
-      <span
-        className={`context-machine ml-auto ${codeContextClassName} [&>span]:max-w-[135px] [&>span]:truncate max-[700px]:[&>span]:max-w-[85px]`}
-        title={repository?.machine}
-      >
-        <ComposerIcon name="machine" />
-        <span>{repository?.machine ?? "This machine"}</span>
-      </span>
+      {machine?.onChange && machine.options && machine.options.length > 1 ? (
+        <SelectMenu
+          label="Run on"
+          value={machine.value ?? "local"}
+          disabled={disabled}
+          placement="top"
+          align="end"
+          className="context-machine ml-auto min-w-0"
+          triggerClassName={`${codeContextTriggerClassName} max-w-[170px] max-[700px]:max-w-[110px]`}
+          menuClassName={`${codeMenuClassName} [&]:min-w-[220px]! [&]:max-w-[min(320px,calc(100vw-16px))]`}
+          menuHeader={<p className="m-0 px-2 pt-1 pb-2 text-[11px] text-muted-ink">Run on</p>}
+          triggerContent={
+            <>
+              <ComposerIcon name="machine" />
+              <span>{machine.label}</span>
+              <ComposerChevron />
+            </>
+          }
+          options={machine.options.map((item) => ({
+            value: item.id,
+            label: item.label,
+            description:
+              item.id === "local"
+                ? "This device"
+                : item.status?.kind === "connected"
+                  ? "Connected"
+                  : item.status?.kind === "reconnecting"
+                    ? "Reconnecting…"
+                    : "Offline",
+            icon: (
+              <span
+                className={`size-1.5 shrink-0 rounded-full ${item.id === "local" || item.status?.kind === "connected" ? "bg-emerald-500" : "bg-muted-ink/40"}`}
+              />
+            ),
+          }))}
+          onChange={machine.onChange}
+        />
+      ) : (
+        <span
+          className={`context-machine ml-auto ${codeContextClassName} [&>span]:max-w-[135px] [&>span]:truncate max-[700px]:[&>span]:max-w-[85px]`}
+          title={machine?.label ?? repository?.machine}
+        >
+          <ComposerIcon name="machine" />
+          <span>{machine?.label ?? repository?.machine ?? "This machine"}</span>
+        </span>
+      )}
       {repository && !repository.repository ? (
         <span className={`${codeContextClassName} p-1.5`}>
           <ComposerIcon name="branch" />
