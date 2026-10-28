@@ -61,7 +61,6 @@ const normalizeCode = (code: string) => code.replace(/[_-]/g, "").toLowerCase();
 export function providerFailureKind(message: string, code: string): HarnessFailureKind {
   const normalized = normalizeCode(code);
   const kind = Object.hasOwn(codes, normalized) ? codes[normalized] : undefined;
-  const inferred = describeHarnessFailure(message).kind;
   const generic = [
     "badrequest",
     "httpconnectionfailed",
@@ -69,7 +68,9 @@ export function providerFailureKind(message: string, code: string): HarnessFailu
     "responsestreamdisconnected",
     "responsetoomanyfailedattempts",
   ].includes(normalized);
-  return !kind || generic ? (inferred === "unknown" ? (kind ?? "unknown") : inferred) : kind;
+  if (kind && !generic) return kind;
+  const inferred = describeHarnessFailure(message).kind;
+  return inferred === "unknown" ? (kind ?? "unknown") : inferred;
 }
 
 export class HarnessFailureError extends Error {
@@ -87,6 +88,16 @@ const codexFailureSchema = z.object({
 });
 const statusSchema = z.object({ httpStatusCode: z.number().int().min(100).max(599).nullish() });
 
+const httpFailureKinds = new Map<number, HarnessFailureKind>([
+  [401, "authentication"],
+  [402, "billing"],
+  [403, "permission"],
+  [408, "timeout"],
+  [413, "request-size"],
+  [429, "rate-limit"],
+  [504, "timeout"],
+]);
+
 export function codexFailure(value: unknown): HarnessFailureError {
   const parsed = codexFailureSchema.safeParse(value);
   if (!parsed.success) return new HarnessFailureError("Codex could not complete this turn.");
@@ -103,24 +114,10 @@ export function codexFailure(value: unknown): HarnessFailureError {
     status = statusSchema.safeParse(entry[1]).data?.httpStatusCode;
   }
   const kind = providerFailureKind(detail, code);
-  const statusKind =
-    status === 401
-      ? "authentication"
-      : status === 402
-        ? "billing"
-        : status === 403
-          ? "permission"
-          : status === 408 || status === 504
-            ? "timeout"
-            : status === 413
-              ? "request-size"
-              : status === 429
-                ? "rate-limit"
-                : status && status >= 500
-                  ? "unavailable"
-                  : status && status >= 400
-                    ? "request"
-                    : undefined;
+  const statusKind = status
+    ? (httpFailureKinds.get(status) ??
+      (status >= 500 ? "unavailable" : status >= 400 ? "request" : undefined))
+    : undefined;
   return new HarnessFailureError(
     detail,
     ["unknown", "connection", "unavailable", "request"].includes(kind)

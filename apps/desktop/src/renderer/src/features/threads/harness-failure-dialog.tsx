@@ -8,8 +8,13 @@ import { ChatLink } from "../../components/chat-link";
 
 type Failure = Pick<
   ThreadSummary,
-  "id" | "projectId" | "title" | "harness" | "error" | "errorKind"
+  "id" | "projectId" | "title" | "harness" | "error" | "errorKind" | "revision"
 >;
+
+const failureColor = (kind: HarnessFailureKind) =>
+  kind === "billing" || kind === "rate-limit"
+    ? "text-(--desktop-status-warning)"
+    : "text-(--desktop-status-danger)";
 
 function FailureIcon() {
   return (
@@ -40,17 +45,21 @@ export function HarnessFailureSummary({
   onDetails(): void;
 }) {
   const failure = describeHarnessFailure(error, kind);
-  const warning = failure.kind === "billing" || failure.kind === "rate-limit";
   return (
-    <div className="thread-failure" data-tone={warning ? "warning" : "error"}>
-      <Button className="thread-failure-heading" onClick={onDetails}>
+    <div className="py-2">
+      <Button
+        className={`group flex w-fit max-w-full cursor-pointer items-center gap-2.5 rounded border-0 bg-transparent p-0 text-left text-[13px] leading-5 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-muted-ink [&>svg]:shrink-0 ${failureColor(failure.kind)}`}
+        onClick={onDetails}
+      >
         <FailureIcon />
         <span>{failure.title}</span>
-        <span className="thread-failure-action">
+        <span className="ml-0.5 shrink-0 text-[11px] font-normal text-muted-ink group-hover:text-ink">
           Details <span aria-hidden="true">›</span>
         </span>
       </Button>
-      <p>{failure.guidance}</p>
+      <p className="mt-[5px] ml-[26px] max-w-[54ch] text-[13px] leading-5 text-secondary-ink">
+        {failure.guidance}
+      </p>
     </div>
   );
 }
@@ -79,20 +88,27 @@ export function HarnessFailureDialog({
       role="alertdialog"
       size="md"
       padded={false}
-      className="harness-failure-dialog"
+      className="max-w-[420px] rounded-[10px] shadow-[0_12px_48px_#0002,0_2px_6px_#0001]"
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       onClose={onClose}
-      data-tone={failure.kind === "billing" || failure.kind === "rate-limit" ? "warning" : "error"}
     >
-      <div className="harness-failure-body">
-        <div className="harness-failure-heading">
-          <span className="harness-failure-icon">
+      <div className="p-5">
+        <div className="flex items-start gap-2.5">
+          <span className={`shrink-0 pt-0.5 ${failureColor(failure.kind)}`}>
             <FailureIcon />
           </span>
-          <div className="min-w-0">
-            <h2 id={titleId}>{failure.title}</h2>
-            <p className="harness-failure-context" title={thread.title}>
+          <div className="min-w-0 flex-1">
+            <h2
+              id={titleId}
+              className={`text-sm leading-5 font-medium ${failureColor(failure.kind)}`}
+            >
+              {failure.title}
+            </h2>
+            <p
+              className="mt-[3px] truncate text-[11px] leading-4 text-muted-ink"
+              title={thread.title}
+            >
               {thread.harness === "codex" ? "Codex" : "Claude Code"}
               <span aria-hidden="true"> · </span>
               {thread.title}
@@ -101,7 +117,7 @@ export function HarnessFailureDialog({
           <Button
             ref={dismiss}
             autoFocus
-            className="harness-failure-dismiss"
+            className="-mt-[3px] -mr-1 grid size-6 shrink-0 cursor-pointer place-items-center rounded-[5px] border-0 bg-transparent p-0 text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-muted-ink active:scale-97"
             aria-label="Dismiss error"
             onClick={() => dialog.current?.close()}
           >
@@ -119,11 +135,11 @@ export function HarnessFailureDialog({
             </svg>
           </Button>
         </div>
-        <p id={descriptionId} className="harness-failure-guidance">
+        <p id={descriptionId} className="mt-3.5 ml-[26px] text-[13px] leading-5 text-secondary-ink">
           {failure.guidance}
         </p>
         {failure.kind === "policy" && failure.daybreak && (
-          <p className="harness-failure-access">
+          <p className="mt-2.5 ml-[26px] text-[13px] leading-5 text-secondary-ink [&_a]:text-ink [&_a]:underline [&_a]:underline-offset-[3px]">
             For authorized security work,{" "}
             <ChatLink
               api={api}
@@ -135,9 +151,13 @@ export function HarnessFailureDialog({
             .
           </p>
         )}
-        <details className="harness-failure-details">
-          <summary>Error details</summary>
-          <pre>{thread.error || "The harness stopped unexpectedly."}</pre>
+        <details className="mt-3.5 ml-[26px] text-xs leading-[18px]">
+          <summary className="w-fit cursor-pointer rounded-xs text-muted-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-border">
+            Error details
+          </summary>
+          <pre className="mt-2.5 max-h-[180px] overflow-auto text-xs leading-5 wrap-anywhere whitespace-pre-wrap text-secondary-ink [font-family:inherit] select-text">
+            {thread.error || "The harness stopped unexpectedly."}
+          </pre>
         </details>
       </div>
     </Dialog>
@@ -148,15 +168,15 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
   const [queue, setQueue] = useState<Failure[]>([]);
   useEffect(() => {
     setQueue([]);
-    const failed = new Set<string>();
-    const revisions = new Map<string, number>();
+    const seen = new Map<string, { revision: number; failed: boolean }>();
     return api?.onEvent((event) => {
       if (event.type === "designs") return;
       const thread = event.type === "thread-patch" ? event.summary : event.thread;
-      if ((revisions.get(thread.id) ?? -1) > thread.revision) return;
-      revisions.set(thread.id, thread.revision);
+      const previous = seen.get(thread.id);
+      if (previous && previous.revision > thread.revision) return;
+      seen.set(thread.id, { revision: thread.revision, failed: thread.status === "failed" });
       if (thread.status !== "failed") {
-        if (!failed.delete(thread.id)) return;
+        if (!previous?.failed) return;
         setQueue((current) =>
           current.some((item) => item.id === thread.id)
             ? current.filter((item) => item.id !== thread.id)
@@ -164,18 +184,19 @@ export function HarnessFailureNotices({ api }: { api?: DesktopAPI }) {
         );
         return;
       }
-      if (failed.has(thread.id)) return;
-      failed.add(thread.id);
-      setQueue((current) => [...current, thread]);
+      if (previous?.failed) return;
+      const { id, projectId, revision, title, harness, error, errorKind } = thread;
+      const notice: Failure = { id, projectId, revision, title, harness, error, errorKind };
+      setQueue((current) => [...current, notice]);
     });
   }, [api]);
   const thread = queue[0];
   return thread && api ? (
     <HarnessFailureDialog
-      key={thread.id}
+      key={`${thread.id}:${thread.revision}`}
       thread={thread}
       api={api}
-      onClose={() => setQueue((current) => current.filter((item) => item.id !== thread.id))}
+      onClose={() => setQueue((current) => current.filter((item) => item !== thread))}
     />
   ) : null;
 }

@@ -255,6 +255,16 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   check(!modal(), "Stale failure interrupted a retry");
   emit({ ...thread, revision: 5 });
   await until(() => Boolean(modal()), "New failure after retry");
+  const previousDialog = required(modal(), "Previous failure dialog");
+  previousDialog.close();
+  emit({ ...thread, revision: 6, status: "running", error: undefined });
+  emit({ ...thread, revision: 7, errorKind: "account", error: "Verification required" });
+  await until(
+    () => modal()?.querySelector("h2")?.textContent === "Account needs attention",
+    "Replacement failure after immediate retry",
+  );
+  await settle();
+  check(Boolean(modal()), "Old close event dismissed the replacement failure");
   emit({
     ...thread,
     id: "second-failure",

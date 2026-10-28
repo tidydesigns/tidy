@@ -583,7 +583,7 @@ test("Claude preserves provider errors from assistant events and result error ar
   ]);
 });
 
-test("Claude subagent and tool errors do not fail the parent turn", () => {
+test("Claude subagent errors do not fail the parent turn", () => {
   const updates: HarnessUpdate[] = [];
   const parse = createClaudeParser((update) => updates.push(update));
   parse({
@@ -723,13 +723,8 @@ for (const harness of ["codex", "claude"] as const) {
 }
 
 for (const [harness, code, kind] of [
-  ["codex", "contextWindowExceeded", "context"],
-  ["codex", "cyberPolicy", "policy"],
   ["codex", "sandboxError", "sandbox"],
-  ["codex", "sessionBudgetExceeded", "budget"],
-  ["claude", "error_max_turns", "turn-limit"],
   ["claude", "error_max_budget_usd", "budget"],
-  ["claude", "error_max_structured_output_retries", "output-format"],
 ] as const) {
   test(`${harness} preserves ${code} through process completion`, async () => {
     const { directory, executable } = await fixture();

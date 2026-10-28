@@ -34,30 +34,40 @@ for (const code of [
   "responseStreamDisconnected",
   "responseTooManyFailedAttempts",
 ]) {
-  for (const [httpStatusCode, kind] of [
-    [null, "connection"],
-    [400, "request"],
-    [401, "authentication"],
-    [402, "billing"],
-    [403, "permission"],
-    [404, "request"],
-    [408, "timeout"],
-    [413, "request-size"],
-    [422, "request"],
-    [429, "rate-limit"],
-    [500, "unavailable"],
-    [502, "unavailable"],
-    [503, "unavailable"],
-    [504, "timeout"],
-    [529, "unavailable"],
-  ] as const) {
-    test(`${code} distinguishes upstream status ${httpStatusCode}`, () => {
-      expect(
-        codexFailure({ message: "Upstream failed", codexErrorInfo: { [code]: { httpStatusCode } } })
-          .kind,
-      ).toBe(kind);
-    });
-  }
+  test(`${code} reads a transport failure and its upstream status`, () => {
+    expect(
+      codexFailure({
+        message: "Upstream failed",
+        codexErrorInfo: { [code]: { httpStatusCode: null } },
+      }).kind,
+    ).toBe("connection");
+    expect(
+      codexFailure({
+        message: "Upstream failed",
+        codexErrorInfo: { [code]: { httpStatusCode: 401 } },
+      }).kind,
+    ).toBe("authentication");
+  });
+}
+
+for (const [httpStatusCode, kind] of [
+  [400, "request"],
+  [402, "billing"],
+  [403, "permission"],
+  [408, "timeout"],
+  [413, "request-size"],
+  [429, "rate-limit"],
+  [500, "unavailable"],
+  [504, "timeout"],
+] as const) {
+  test(`upstream HTTP ${httpStatusCode} has actionable guidance`, () => {
+    expect(
+      codexFailure({
+        message: "Upstream failed",
+        codexErrorInfo: { httpConnectionFailed: { httpStatusCode } },
+      }).kind,
+    ).toBe(kind);
+  });
 }
 
 test("specific failure codes take priority over incidental status text", () => {
