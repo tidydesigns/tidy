@@ -15,6 +15,7 @@ import type { HarnessConnection, HarnessId } from "../../shared/contracts/deskto
 const execute = promisify(execFile);
 const names = { codex: "Codex", claude: "Claude Code" };
 export type HarnessUpdate =
+  | { type: "activity"; activity: "Thinking" | "Working" }
   | { type: "approval"; request: ApprovalRequest }
   | { type: "approval-resolved"; id: string }
   | { type: "tool"; tool: ToolActivityUpdate }
@@ -154,8 +155,12 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
     if (value.parent_tool_use_id) return;
     const event = record(value.event);
     if (value.type === "stream_event") {
-      if (event.type === "message_start")
+      if (event.type === "content_block_start" && record(event.content_block).type === "thinking")
+        emit({ type: "activity", activity: "Thinking" });
+      if (event.type === "message_start") {
+        emit({ type: "activity", activity: "Working" });
         claudeMessageId = text(record(event.message).id) || "response";
+      }
       const delta = record(event.delta);
       if (delta.type === "text_delta")
         emit({ type: "message", id: claudeMessageId, text: text(delta.text), append: true });

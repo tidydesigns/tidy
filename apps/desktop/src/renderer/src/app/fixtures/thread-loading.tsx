@@ -921,6 +921,315 @@ async function runThreadLoadingTests(): Promise<string[]> {
     },
   );
 
+  await run(
+    "working clocks persist through tool activity and pause their loader for permission",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      const startedAt = new Date(Date.now() - 5000).toISOString();
+      a.messages = [{ ...a.messages[0], turn: { startedAt } }];
+      a.activity = "Thinking";
+      render({ selected: a.id });
+      await until(() => Boolean(host.querySelector(".working-matrix")), "Working indicator mounts");
+      const first = host.querySelector(".turn-status-time")?.textContent;
+      await until(
+        () => host.querySelector(".turn-status-time")?.textContent !== first,
+        "Elapsed clock advances",
+      );
+      const thinkingRow = required(host.querySelector(".activity-row"), "Thinking row");
+      const thinkingBox = thinkingRow.getBoundingClientRect();
+      const tool: ToolActivity = {
+        id: crypto.randomUUID(),
+        kind: "read",
+        title: "Reading styles",
+        toolName: "Read",
+        status: "running",
+        startedAt,
+        afterMessageId: a.messages[0].id,
+      };
+      threads[a.id] = { ...a, activity: tool.title, toolActivities: [tool] };
+      render({ selected: a.id });
+      check(
+        Boolean(host.querySelector(".working-matrix")),
+        "Tool activity removed the working clock",
+      );
+      const commandRow = required(
+        host.querySelector(".tool-activity-group > summary"),
+        "Activity summary",
+      );
+      check(
+        Math.abs(commandRow.getBoundingClientRect().top - thinkingBox.top) < 1 &&
+          Math.abs(commandRow.getBoundingClientRect().height - thinkingBox.height) < 1,
+        "Switching from thinking to tool activity moved the activity row",
+      );
+      check(
+        host.querySelectorAll(".activity-summary-text").length === 1,
+        "Tool label was duplicated",
+      );
+      threads[a.id] = {
+        ...threads[a.id],
+        pendingApprovals: [
+          {
+            id: "permission",
+            title: "Run command",
+            choices: ["allow", "deny"],
+          },
+        ],
+      };
+      render({ selected: a.id });
+      check(
+        !host.querySelector(".turn-status[data-active]"),
+        "Loader kept moving while waiting for permission",
+      );
+      check(
+        host.textContent?.includes("Waiting for permission"),
+        "Permission state was hidden by a running tool",
+      );
+      threads[a.id] = {
+        ...a,
+        status: "completed",
+        activity: undefined,
+        messages: [
+          {
+            ...a.messages[0],
+            turn: { startedAt, endedAt: new Date(Date.parse(startedAt) + 8000).toISOString() },
+          },
+        ],
+      };
+      render({ selected: a.id });
+      check(
+        host.querySelector(".turn-status-time")?.textContent === "Worked for 8s",
+        "Completed turn lost its duration",
+      );
+      check(!host.querySelector(".working-matrix"), "Completed turn kept its loader");
+    },
+  );
+
+  await run(
+    "streaming reveals coherent sections, retains their DOM and flushes the final tail",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      const replyId = crypto.randomUUID();
+      a.messages = [a.messages[0], { id: replyId, role: "assistant", text: "" }];
+      a.activity = "Replying";
+      render({ selected: a.id });
+      await settle();
+      const update = (text: string) => {
+        threads[a.id] = {
+          ...threads[a.id],
+          messages: [a.messages[0], { id: replyId, role: "assistant", text }],
+        };
+        render({ selected: a.id });
+      };
+      update("A **clear");
+      await settle();
+      check(!host.querySelector(".message-markdown")?.textContent, "A partial paragraph leaked");
+      const paragraph = "A **clear** [response](https://example.com).\n\n";
+      update(paragraph);
+      await until(
+        () => host.querySelector(".message-markdown strong")?.textContent === "clear",
+        "Completed paragraph appears",
+      );
+      const first = required(host.querySelector(".message-markdown > p"), "First paragraph");
+      const link = required(first.querySelector("a"), "Response link");
+      link.focus();
+      update(`${paragraph}### Details\n`);
+      await settle();
+      check(!host.querySelector(".message-markdown h3"), "A heading appeared without content");
+      const list = `${paragraph}### Details\n\n- First item\n- Sec`;
+      update(list);
+      await until(
+        () => host.querySelector(".message-markdown li")?.textContent === "First item",
+        "Completed list item appears",
+      );
+      check(host.querySelectorAll(".message-markdown li").length === 1, "A partial item leaked");
+      const listBlock = required(host.querySelector(".message-markdown > ul"), "List block");
+      check(
+        getComputedStyle(required(listBlock.querySelector("li"), "List item"))
+          .transitionDuration === "0s",
+        "A list item has its own fade",
+      );
+      check(host.querySelector(".message-markdown > p") === first, "An earlier block remounted");
+      check(
+        first.querySelector("a") === link && document.activeElement === link,
+        "Streaming replaced or unfocused an earlier link",
+      );
+      const code = `${paragraph}### Details\n\n- First item\n- Second item\n\n\`\`\`css\n.item {`;
+      update(code);
+      await until(
+        () => host.querySelectorAll(".message-markdown li").length === 2,
+        "Second list item appears",
+      );
+      check(!host.querySelector(".message-markdown pre"), "An open code fence leaked");
+      check(
+        host.querySelector(".message-markdown > ul") === listBlock,
+        "Appending an item remounted its list",
+      );
+      const closed = `${code}\n  color: red;\n}\n\`\`\``;
+      update(closed);
+      await until(
+        () => Boolean(host.querySelector(".message-markdown pre")?.textContent?.includes("red")),
+        "Closed code block appears",
+      );
+      const codeBlock = host.querySelector(".message-markdown pre");
+      update(`${closed}\n\nFinal **finished** sentence.`);
+      await settle();
+      check(
+        !host.querySelector(".message-markdown")?.textContent?.includes("Final"),
+        "A final partial section leaked",
+      );
+      threads[a.id] = { ...threads[a.id], status: "completed", activity: undefined };
+      render({ selected: a.id });
+      check(
+        host.querySelector(".message-markdown")?.textContent?.endsWith("Final finished sentence."),
+        "Completion left the final section hidden",
+      );
+      check(host.querySelector(".message-markdown > p") === first, "Completion remounted text");
+      check(host.querySelector(".message-markdown pre") === codeBlock, "Completion remounted code");
+      check(
+        !host.querySelector(".message-markdown[data-streaming]"),
+        "Completed text kept its fade",
+      );
+      check(
+        Boolean(host.querySelector(".message-markdown[data-revealing]")),
+        "Completion removed the final section's reveal before it could finish",
+      );
+      await until(
+        () => !host.querySelector(".message-markdown[data-revealing]"),
+        "Final reveal settles",
+      );
+    },
+  );
+  await run("historical replies mount fully visible without replaying reveals", async (root) => {
+    const { a, render } = conversationFixture(root);
+    a.status = "completed";
+    a.activity = undefined;
+    render({ selected: a.id });
+    await settle();
+    check(Boolean(host.querySelector(".message-markdown p")), "History did not render");
+    check(
+      !host.querySelector(".message-markdown[data-revealing]"),
+      "Opening history replayed a reveal",
+    );
+  });
+  await run("activity transitions never hide text that is already visible", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    const replyId = crypto.randomUUID();
+    a.messages = [a.messages[0], { id: replyId, role: "assistant", text: "An existing fragment" }];
+    a.activity = "Thinking";
+    render({ selected: a.id });
+    await settle();
+    check(
+      host.querySelector(".message-markdown")?.textContent === "An existing fragment",
+      "Existing text was held back",
+    );
+    threads[a.id] = {
+      ...a,
+      activity: "Replying",
+      messages: [
+        a.messages[0],
+        { id: replyId, role: "assistant", text: "An existing fragment grows" },
+      ],
+    };
+    render({ selected: a.id });
+    check(
+      host.querySelector(".message-markdown")?.textContent?.startsWith("An existing fragment"),
+      "Resuming streaming hid text",
+    );
+    await until(
+      () => host.querySelector(".message-markdown")?.textContent === "An existing fragment grows",
+      "An already visible section can continue growing",
+    );
+  });
+  await run(
+    "command groups stay anchored above replies and preserve the reader's place",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      a.messages = [{ ...a.messages[0], turn: { startedAt: timestamp } }];
+      const tool: ToolActivity = {
+        id: crypto.randomUUID(),
+        afterMessageId: a.messages[0].id,
+        kind: "command",
+        toolName: "Shell",
+        title: "bun run typecheck",
+        input: "bun run typecheck\nbun run lint",
+        status: "completed",
+        startedAt: timestamp,
+        endedAt: timestamp,
+        output: "All checks passed",
+      };
+      a.toolActivities = [tool];
+      a.activity = "Thinking";
+      render({ selected: a.id });
+      await settle();
+      const group = required(
+        host.querySelector<HTMLDetailsElement>(".tool-activity-group"),
+        "Activity group",
+      );
+      required(group.querySelector("summary"), "Activity summary").click();
+      await until(() => Boolean(group.querySelector(".tool-call")), "Expand commands");
+      const row = required(group.querySelector<HTMLDetailsElement>(".tool-call"), "Command");
+      const summary = required(row.querySelector("summary"), "Command summary");
+      const title = required(row.querySelector(".tool-call-title"), "Command title").textContent;
+      const height = summary.getBoundingClientRect().height;
+      summary.click();
+      await until(() => Boolean(row.querySelector("pre")), "Expand command details");
+      check(
+        row.querySelector(".tool-call-title")?.textContent === title &&
+          summary.getBoundingClientRect().height === height,
+        "Opening details changed the command label or row height",
+      );
+      const reply = {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        text: "The checks passed. I am checking the sidebar next.",
+      };
+      const next = {
+        ...tool,
+        id: crypto.randomUUID(),
+        afterMessageId: reply.id,
+        title: "bun test sidebar.test.ts",
+        status: "running" as const,
+        endedAt: undefined,
+      };
+      threads[a.id] = {
+        ...a,
+        messages: [...a.messages, reply],
+        toolActivities: [tool, next],
+        activity: "Replying",
+      };
+      render({ selected: a.id });
+      check(
+        host.querySelectorAll(".tool-activity-group").length === 1 &&
+          host.querySelector(".tool-activity-group") === group,
+        "New commands moved or recreated the turn's group",
+      );
+      const response = required(host.querySelector(".message-assistant"), "Reply");
+      check(
+        Boolean(group.compareDocumentPosition(response) & Node.DOCUMENT_POSITION_FOLLOWING),
+        "Commands appeared below the reply",
+      );
+      const many = Array.from({ length: 35 }, () => ({ ...tool, id: crypto.randomUUID() }));
+      threads[a.id] = { ...threads[a.id], toolActivities: [...many, next] };
+      render({ selected: a.id });
+      const list = required(
+        group.querySelector<HTMLDivElement>(".tool-activity-list"),
+        "Command list",
+      );
+      check(
+        list.clientHeight <= Math.min(320, innerHeight * 0.45) + 1 &&
+          list.scrollHeight > list.clientHeight,
+        "Expanded commands exceeded their scroll boundary",
+      );
+      list.scrollTop = 0;
+      list.dispatchEvent(new Event("scroll"));
+      threads[a.id] = {
+        ...threads[a.id],
+        toolActivities: [...many, next, { ...tool, id: crypto.randomUUID() }],
+      };
+      render({ selected: a.id });
+      check(list.scrollTop === 0, "A new command pulled the reader away from earlier output");
+    },
+  );
   return passed;
 }
 

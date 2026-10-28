@@ -43,6 +43,10 @@ export function createCodexEvents(emit: (update: HarnessUpdate) => void) {
       id = text(item.id),
       type = text(item.type);
     if (!id) return;
+    if (type === "reasoning") {
+      emit({ type: "activity", activity: method === "item/started" ? "Thinking" : "Working" });
+      return;
+    }
     const event = method === "item/started" ? "item.started" : "item.completed";
     if (type === "agentMessage") {
       if (method === "item/completed") emit({ type: "message", id, text: text(item.text) });

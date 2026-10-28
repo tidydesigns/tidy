@@ -418,3 +418,96 @@
     pointer-events: auto;
   }
 }
+.turn-status {
+  margin: 0 0 20px;
+  color: var(--color-muted-ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.turn-status-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+.turn-status-icon {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+.turn-status-time {
+  font-variant-numeric: tabular-nums;
+}
+.working-matrix {
+  display: grid;
+  grid-template-columns: repeat(4, 2px);
+  gap: 2px;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.working-matrix i {
+  width: 2px;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.25;
+  animation: working-dot-pulse 1200ms linear infinite;
+  animation-play-state: paused;
+}
+.working-matrix i:is(:nth-child(1), :nth-child(4), :nth-child(13), :nth-child(16)) {
+  visibility: hidden;
+}
+.turn-status[data-active] .working-matrix i {
+  animation-play-state: running;
+}
+.turn-status[data-active] .activity-summary-content[data-live] {
+  color: var(--color-ink);
+  mask-image: linear-gradient(100deg, rgb(0 0 0 / 55%) 40%, black 50%, rgb(0 0 0 / 55%) 60%);
+  mask-size: 300% 100%;
+  mask-repeat: no-repeat;
+  animation: working-shimmer 2400ms linear infinite;
+}
+@keyframes working-dot-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.25;
+  }
+  30% {
+    opacity: 0.9;
+  }
+}
+@keyframes working-shimmer {
+  from {
+    mask-position: 100% 0;
+  }
+  to {
+    mask-position: 0% 0;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .message-markdown[data-revealing] > * {
+    transition: opacity 600ms ease-out;
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .working-matrix i,
+  .turn-status[data-active] .activity-summary-content[data-live] {
+    animation: none;
+  }
+  .turn-status[data-active] .activity-summary-content[data-live] {
+    mask-image: none;
+    color: inherit;
+  }
+  .working-matrix i {
+    opacity: 0.55;
+  }
+}

@@ -54,6 +54,7 @@ import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates"
 type Job = {
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   thread: Thread;
+  turn: NonNullable<Thread["messages"][number]["turn"]>;
   queuedDelivery?: { message: QueuedMessage; index: number };
   process?: RunningHarness;
   completion?: Promise<void>;
@@ -718,6 +719,8 @@ export class WorkspaceService {
     messageId?: string,
     skillId?: string,
   ) {
+    const startedAt = new Date().toISOString();
+    const turn: Job["turn"] = { startedAt };
     const {
       executable,
       prompt: preparedPrompt,
@@ -740,6 +743,7 @@ export class WorkspaceService {
       id: messageId ?? randomUUID(),
       role: "user",
       text: prompt,
+      turn,
       ...(attachments.length
         ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }
         : {}),
@@ -752,6 +756,7 @@ export class WorkspaceService {
     const job: Job = {
       analytics: this.analyticsScope?.() ?? this.analytics,
       thread,
+      turn,
       queuedDelivery:
         queuedMessages && queuedIndex >= 0
           ? { message: queuedMessages[queuedIndex], index: queuedIndex }
@@ -778,6 +783,7 @@ export class WorkspaceService {
       }
       thread.status = "stopped";
       thread.activity = undefined;
+      turn.endedAt = new Date().toISOString();
       thread.revision++;
       this.jobs.delete(thread.id);
       await this.store.writeThread(thread);
@@ -818,6 +824,8 @@ export class WorkspaceService {
       }
       this.automaticQueues.delete(thread.id);
       thread.status = "failed";
+      turn.endedAt = new Date().toISOString();
+      thread.activity = undefined;
       thread.error = error instanceof Error ? error.message : "The harness could not start.";
       this.jobs.delete(thread.id);
       await this.store.writeThread(thread);
@@ -845,6 +853,8 @@ export class WorkspaceService {
       thread.activity = thread.pendingApprovals?.length ? "Needs permission" : "Working";
       this.emit({ type: "thread", thread });
       return;
+    } else if (update.type === "activity") {
+      thread.activity = update.activity;
     } else if (update.type === "tool") {
       const activities = thread.toolActivities ?? (thread.toolActivities = []);
       const existing = activities.find((tool) => tool.id === job.tools.get(update.tool.id));
@@ -868,7 +878,7 @@ export class WorkspaceService {
         size -= toolLogSize(activities.shift()!);
         thread.toolActivityTruncated = true;
       }
-      thread.activity = value.status === "running" ? value.title : undefined;
+      thread.activity = value.status === "running" ? value.title : "Working";
     } else if (update.type === "usage") {
       const base = update.cumulative ? undefined : job.usageBase;
       thread.usage = {
@@ -880,8 +890,10 @@ export class WorkspaceService {
     } else if (update.type === "model") thread.actualModel = update.model.slice(0, 200);
     else if (update.type === "session") {
       if (z.string().uuid().safeParse(update.id).success) thread.sessionId = update.id;
+      if (thread.activity === "Starting") thread.activity = "Working";
     } else if (update.type === "error") thread.error = update.text.slice(0, 4000);
     else {
+      thread.activity = "Replying";
       let message = thread.messages.find((item) => item.id === job.messages.get(update.id));
       if (!message) {
         if (thread.messages.length >= 998) {
@@ -973,6 +985,7 @@ export class WorkspaceService {
     job.thread.pendingApprovals = undefined;
     job.thread.revision++;
     job.thread.updatedAt = new Date().toISOString();
+    if (!job.turn.endedAt) job.turn.endedAt = job.thread.updatedAt;
     const previousDoneAt = job.thread.doneAt;
     if (request.kind === "done") job.thread.doneAt = request.doneAt;
     let writeFailure: { cause: unknown } | undefined;

@@ -924,6 +924,7 @@ export function App({
           id: messageId,
           role: "user",
           text: submitted,
+          turn: { startedAt: new Date().toISOString() },
           ...(draft.attachments?.length ? { attachments: draft.attachments } : {}),
         },
       ],

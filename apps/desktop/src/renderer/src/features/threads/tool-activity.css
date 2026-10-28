@@ -1,16 +1,20 @@
 .tool-activity-group {
-  margin: 0 0 24px;
+  margin: 0;
   color: var(--color-muted-ink);
-  font-size: 12px;
+  font-size: 14px;
 }
+.activity-row,
 .tool-activity-group > summary {
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 32px;
-  padding: 4px 0;
-  cursor: pointer;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 0;
+  line-height: 24px;
   list-style: none;
+}
+.tool-activity-group > summary {
+  cursor: pointer;
 }
 .tool-activity-group > summary::-webkit-details-marker,
 .tool-call > summary::-webkit-details-marker {
@@ -18,7 +22,7 @@
 }
 .activity-chevron {
   flex-shrink: 0;
-  width: 12px;
+  width: 16px;
   text-align: center;
   font-size: 18px;
 }
@@ -36,26 +40,63 @@
 .activity-summary-title {
   flex: 1;
 }
+.activity-summary-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-right: auto;
+}
+.activity-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+.tool-call-verb {
+  flex-shrink: 0;
+  width: 72px;
+}
+.activity-summary-title[data-command],
+code.tool-call-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+.tool-activity-group > summary:focus-visible,
+.tool-call > summary:focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 .activity-count,
 .tool-status,
 .tool-duration {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .tool-activity-group svg,
 .tool-call svg {
   flex-shrink: 0;
 }
 .tool-activity-list {
-  padding: 2px 0 2px 18px;
-  margin: 6px 0 0;
+  padding: 0 0 0 12px;
+  margin: 6px 0 4px 12px;
+  border-left: 1px solid var(--color-border);
+  max-height: min(320px, 45dvh);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
 }
 .tool-call > summary {
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 34px;
-  padding: 5px 0;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 0;
+  line-height: 24px;
   border-radius: 5px;
   cursor: pointer;
   list-style: none;
@@ -67,16 +108,12 @@
   flex: 1;
   color: var(--color-muted-ink);
 }
-.tool-call[open] > summary .tool-call-title {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
 .tool-call-nested {
   margin-left: 12px;
 }
 .tool-status-failed {
   color: var(--desktop-status-danger);
-  font-size: 11px;
+  font-size: 12px;
 }
 .tool-status-cancelled {
   color: var(--color-muted-ink);
@@ -91,11 +128,17 @@
   color: var(--desktop-status-success);
 }
 .tool-call-details {
-  padding: 4px 0 16px 32px;
+  padding: 6px 12px 12px 30px;
+}
+.tool-detail-section {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--desktop-surface);
 }
 .tool-detail-section ~ .tool-detail-section,
 .tool-files + .tool-detail-section {
-  margin-top: 16px;
+  margin-top: 8px;
 }
 .tool-input,
 .tool-output {
@@ -104,7 +147,7 @@
   border: 0;
   background: transparent;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.65;
   tab-size: 2;
   white-space: pre-wrap;
@@ -125,7 +168,7 @@
   border-radius: 3px;
   background: transparent;
   color: var(--color-muted-ink);
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 .tool-detail-toggle:hover {
@@ -145,7 +188,7 @@
 .tool-empty-output,
 .tool-log-notice {
   margin: 10px 0;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-muted-ink);
 }
 .tool-files {
@@ -167,7 +210,7 @@
 .tool-files code {
   color: var(--color-ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 12px;
   overflow-wrap: anywhere;
 }
 @media (max-width: 700px) {
