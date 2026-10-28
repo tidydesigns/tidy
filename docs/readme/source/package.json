@@ -1,0 +1,8 @@
+{
+  "name": "tidy-readme-media",
+  "private": true,
+  "scripts": {
+    "check": "npx --yes hyperframes@0.8.214 check",
+    "render": "npx --yes hyperframes@0.8.214 render --quality delivery --output ../desktop-loop.mp4"
+  }
+}
