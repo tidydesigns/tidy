@@ -560,8 +560,7 @@
   cursor: pointer;
 }
 .user-prompt-copy:hover {
-  background: var(--color-hover-surface);
-  color: var(--color-ink);
+  color: light-dark(#292929, #ffffff);
 }
 .user-prompt-copy:focus-visible {
   outline: 2px solid currentColor;
