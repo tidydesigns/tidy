@@ -83,8 +83,7 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
       "deploy",
       "--config",
       expect.stringContaining("wrangler.deploy.jsonc"),
-      "--env",
-      "",
+      "--env=",
       "--keep-vars",
     ]);
     expect(invoked.config.name).toBe("fixture-site");
@@ -160,7 +159,7 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
           ...process.env,
           CLOUDFLARE_ENV: "staging",
           TIDY_DEPLOY_TEST_CONFIG: resolvedConfig,
-          TIDY_DEPLOY_TEST_ENV: prepared.args[prepared.args.indexOf("--env") + 1],
+          TIDY_DEPLOY_TEST_ENV: prepared.args.find((arg) => arg.startsWith("--env=")).slice(6),
           WRANGLER_SEND_METRICS: "false",
         },
       },
@@ -179,6 +178,48 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
     expect(active.assets.binding).toBe("ASSETS");
     expect(active.assets.run_worker_first).toEqual(["/download/mac", "/download/mac/"]);
     expect(JSON.parse(readFileSync(config, "utf8"))).toEqual(settings);
+
+    // Exercise the real CLI too: the resolver above bypasses argument parsing.
+    // Model the missing empty argument seen in Workers Builds when forwarding
+    // through bunx, and ensure a late environment selector cannot change targets.
+    const fixtureWorker = path.join(directory, "worker.js");
+    writeFileSync(fixtureWorker, 'export default { fetch() { return new Response("fixture"); } };');
+    writeFileSync(
+      resolvedConfig,
+      JSON.stringify({
+        ...prepared.config,
+        main: fixtureWorker,
+        assets: undefined,
+        env: { staging: { main: "must-not-use-staging.js" } },
+      }),
+    );
+    const dryRun = spawnSync(
+      process.execPath,
+      [
+        "x",
+        "--no-install",
+        ...prepared.args
+          .filter(Boolean)
+          .map((arg) => (arg === prepared.args[3] ? resolvedConfig : arg)),
+        "--dry-run",
+        "--outdir",
+        path.join(directory, "output"),
+      ],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        encoding: "utf8",
+        timeout: 30_000,
+        env: {
+          ...process.env,
+          CLOUDFLARE_ENV: "staging",
+          WRANGLER_LOG: "log",
+          WRANGLER_SEND_METRICS: "false",
+        },
+      },
+    );
+    expect(dryRun.error).toBeUndefined();
+    expect(dryRun.status, dryRun.stdout + dryRun.stderr).toBe(0);
+    expect(dryRun.stdout).toContain("--dry-run: exiting now.");
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

@@ -45,8 +45,9 @@ try {
   );
   // An explicit empty environment also overrides selectors loaded by Wrangler
   // from dotenv files after this process has validated its environment.
+  // Keep the value attached so subprocess forwarding cannot drop an empty arg.
   const child = Bun.spawn(
-    ["bunx", "wrangler", "deploy", "--config", prepared, "--env", "", "--keep-vars"],
+    ["bunx", "wrangler", "deploy", "--config", prepared, "--env=", "--keep-vars"],
     { stdout: "inherit", stderr: "inherit" },
   );
   process.exitCode = await child.exited;
