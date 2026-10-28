@@ -306,3 +306,34 @@ test("selection inspector cycles do not drift artwork while explicit resizes pre
     }
   }
 });
+
+test("canvas stylesheet defaults survive appearance edits and undo", async ({ page }) => {
+  await page.goto("/dev/hover-preview");
+  await page.getByRole("button", { name: "Select Header", exact: true }).click();
+  const layer = page.locator('[data-node-id="hover-header"]');
+  const defaults = async () => {
+    await expect(layer).toHaveCSS("box-sizing", "border-box");
+    await expect(layer).toHaveCSS("flex-direction", "row");
+    await expect(layer).toHaveCSS("flex-wrap", "nowrap");
+    await expect(layer).toHaveCSS("border-top-color", "rgb(0, 0, 0)");
+    await expect(layer).toHaveCSS("border-top-style", "solid");
+    await expect(layer).toHaveCSS("border-top-width", "0px");
+    await expect(layer).toHaveCSS("border-top-left-radius", "0px");
+    await expect(layer).toHaveCSS("border-image-source", "none");
+  };
+  await defaults();
+  await page
+    .locator("summary")
+    .filter({ hasText: /^Add appearance$/ })
+    .click();
+  await page.getByRole("button", { name: "Add stroke", exact: true }).click();
+  await expect(layer).not.toHaveCSS("border-image-source", "none");
+  const stroke = await layer.evaluate((element) => getComputedStyle(element).borderImageSource);
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  await page.keyboard.press("ControlOrMeta+z");
+  await defaults();
+  await page.keyboard.press("ControlOrMeta+Shift+z");
+  await expect(layer).toHaveCSS("border-image-source", stroke);
+  await expect(page.locator('[data-node-id="hover-table"]')).toHaveCSS("flex-direction", "column");
+  await expect(page.locator('[data-node-id="hover-title"]')).toHaveCSS("flex-direction", "column");
+});

@@ -16,6 +16,7 @@ import type { DesignNode } from "../design/document";
 import { createArtworkBranches, type Branch } from "./artwork-branches";
 import { isFixedClippedArtboard } from "../design/canvas-culling";
 import { nodeStyle } from "../design/node-style";
+import { omitCanvasStyleDefaults } from "./canvas-node-style";
 import { responsiveNode } from "../design/responsive-layout";
 import { NodeStrokes } from "@tidy/design-renderer/node-strokes";
 import { NodeFills } from "@tidy/design-renderer/node-fills";
@@ -99,7 +100,9 @@ const ArtworkNode = memo(function ArtworkNode({
   }, [branch, handlers, node.id, node.parentId]);
   const rendered = responsiveNode(branch.painted, viewportWidth);
   const style: React.CSSProperties = {
-    ...nodeStyle(rendered, parent?.layout ?? "absolute", tokens, parent, flowIndex),
+    ...omitCanvasStyleDefaults(
+      nodeStyle(rendered, parent?.layout ?? "absolute", tokens, parent, flowIndex),
+    ),
     ...(editing ? { textDecoration: "none" } : {}),
     ...branch.composite,
     outline: selected
@@ -116,6 +119,7 @@ const ArtworkNode = memo(function ArtworkNode({
   return (
     <div
       ref={register}
+      className="canvas-node"
       data-node-id={node.id}
       data-selected={selected}
       style={style}
