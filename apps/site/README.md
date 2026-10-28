@@ -60,6 +60,8 @@ from `apps/site` checks the Worker bundle without publishing anything.
 Before deploying, provision `GITHUB_RELEASES_TOKEN` on the site Worker. For
 deployment, the existing deploy script preserves the operator's private
 target/configuration and creates a temporary config with the Worker entrypoint,
-`ASSETS` binding and selective download routing. It does not edit the private
-config. A website deployment is required once to introduce this endpoint; later
+`ASSETS` binding and selective download routing. It adds `GITHUB_RELEASES_TOKEN`
+to `secrets.required`, preserving existing required secrets, so Wrangler rejects
+a deployment when the token is missing. It does not edit the private config.
+A website deployment is required once to introduce this endpoint; later
 desktop beta releases require no website changes or deployments.

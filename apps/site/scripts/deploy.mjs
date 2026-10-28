@@ -21,6 +21,10 @@ try {
     prepared,
     JSON.stringify({
       ...settings,
+      secrets: {
+        ...settings.secrets,
+        required: [...new Set([...(settings.secrets?.required ?? []), "GITHUB_RELEASES_TOKEN"])],
+      },
       main: path.join(site, "worker/index.ts"),
       assets: {
         ...settings.assets,

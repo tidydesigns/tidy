@@ -64,6 +64,7 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
       "--keep-vars",
     ]);
     expect(invoked.config.name).toBe("fixture-site");
+    expect(invoked.config.secrets.required).toEqual(["GITHUB_RELEASES_TOKEN"]);
     expect(invoked.config.main).toBe(fileURLToPath(new URL("../worker/index.ts", import.meta.url)));
     expect(invoked.config.assets.binding).toBe("ASSETS");
     expect(invoked.config.assets.run_worker_first).toEqual(["/download/mac", "/download/mac/"]);
@@ -73,6 +74,29 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
       workers_dev: false,
       preview_urls: false,
     });
+
+    for (const required of [
+      ["EXISTING_SECRET"],
+      ["GITHUB_RELEASES_TOKEN", "EXISTING_SECRET", "GITHUB_RELEASES_TOKEN"],
+    ]) {
+      const settings = {
+        name: "fixture-site",
+        workers_dev: false,
+        preview_urls: false,
+        secrets: { required },
+      };
+      writeFileSync(config, JSON.stringify(settings));
+      const result = deploy();
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      const invoked = JSON.parse(readFileSync(invocation, "utf8"));
+      expect(invoked.config.secrets.required.toSorted()).toEqual([
+        "EXISTING_SECRET",
+        "GITHUB_RELEASES_TOKEN",
+      ]);
+      expect(JSON.parse(readFileSync(config, "utf8"))).toEqual(settings);
+      expect(existsSync(invoked.args[3])).toBe(false);
+    }
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
