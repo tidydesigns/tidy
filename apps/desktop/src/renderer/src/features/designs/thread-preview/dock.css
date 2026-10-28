@@ -74,25 +74,32 @@
   left: 0;
   width: min(296px, calc(100cqw - 32px), calc((100cqh - 32px) * 1.5));
   height: 197px;
-  border-radius: 14px;
+  border-radius: 20px;
   pointer-events: auto;
   user-select: none;
   transform-origin: top left;
 }
+.thread-design-surface {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  background: light-dark(#ececec, #292929);
+  box-shadow:
+    0 2px 6px #00000014,
+    0 12px 32px #00000030;
+}
 .thread-design-peek {
   position: absolute;
-  inset: 32px 0 0;
+  inset: 40px 0 0;
   display: block;
   width: 100%;
-  height: calc(100% - 32px);
+  height: calc(100% - 40px);
   padding: 0;
   border: 0;
-  border-radius: inherit;
+  border-radius: 0;
   background: light-dark(#f4f4f4, #171717);
   color: var(--color-ink);
-  box-shadow:
-    0 8px 24px #00000028,
-    0 0 0 1px light-dark(#00000014, #ffffff14);
   cursor: pointer;
   touch-action: none;
   user-select: none;
@@ -120,24 +127,14 @@
 .thread-design-header {
   position: absolute;
   inset: 0 0 auto;
-  height: 32px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 6px;
-  padding: 0 8px 0 12px;
-  border-radius: 14px 14px 0 0;
-  background: var(--color-panel);
+  padding: 8px;
+  border-bottom: 1px solid light-dark(#0000000d, #ffffff0d);
   cursor: grab;
   touch-action: none;
-}
-.thread-design-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--color-muted-ink);
 }
 .thread-design-close {
   display: grid;
@@ -150,10 +147,18 @@
   border-radius: 4px;
   background: transparent;
   color: var(--color-muted-ink);
+  opacity: 0;
+  pointer-events: none;
   cursor: pointer;
+  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
 }
-.thread-design-close:hover {
-  background: light-dark(#00000008, #ffffff08);
+.thread-design-close:active {
+  transform: scale(0.97);
+}
+@media (hover: hover) and (pointer: fine) {
+  .thread-design-close:hover {
+    color: var(--color-ink);
+  }
 }
 .thread-design-frame[data-dragging="true"] .thread-design-header {
   cursor: grabbing;
@@ -232,9 +237,35 @@
   cursor: nwse-resize;
 }
 .thread-design-resize[data-edge="sw"] {
-  bottom: -3px;
-  left: -3px;
+  display: grid;
+  place-items: center;
+  bottom: 6px;
+  left: 6px;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--color-muted-ink);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms cubic-bezier(0.23, 1, 0.32, 1);
   cursor: nesw-resize;
+}
+.thread-design-frame:is(:hover, :focus-within)
+  :is(.thread-design-close, .thread-design-resize[data-edge="sw"]),
+.thread-design-frame[data-resizing="true"] .thread-design-resize[data-edge="sw"] {
+  opacity: 1;
+  pointer-events: auto;
+}
+.thread-design-resize[data-edge="sw"]:is(:hover, :focus-visible) {
+  background: transparent;
+  color: var(--color-ink);
+}
+@media (hover: none) {
+  .thread-design-close,
+  .thread-design-resize[data-edge="sw"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 .thread-design-lens {
   position: absolute;
@@ -257,7 +288,7 @@
   overflow: hidden;
   padding: 1px;
   border-radius: inherit;
-  opacity: 0.45;
+  background: light-dark(#00000018, #ffffff18);
   mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
@@ -270,15 +301,15 @@
   inset: -50%;
   background: conic-gradient(
     from 20deg,
-    #ffffff00 3%,
-    #ffffff18 12%,
-    #ffffff40 17%,
-    #ffffff05 24%,
-    #ffffff00 40%,
-    #ffffff14 53%,
-    #ffffff30 58%,
-    #ffffff05 66%,
-    #ffffff00 83%
+    transparent 3%,
+    light-dark(#00000018, #ffffff28) 12%,
+    light-dark(#00000038, #ffffff60) 17%,
+    transparent 27%,
+    transparent 40%,
+    light-dark(#00000014, #ffffff20) 53%,
+    light-dark(#0000002c, #ffffff48) 58%,
+    transparent 69%,
+    transparent 83%
   );
 }
 .thread-design-window[data-working="true"] .thread-design-rim::before {
@@ -362,6 +393,10 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  .thread-design-close,
+  .thread-design-resize[data-edge="sw"] {
+    transition: none;
+  }
   .thread-design-peek,
   .thread-design-window[data-working="true"] .thread-design-peek,
   .thread-design-window[data-working="true"] .thread-design-rim::before {

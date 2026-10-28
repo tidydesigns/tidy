@@ -13,7 +13,7 @@ import { ComposerChevron, ComposerIcon } from "../composer/composer-icon";
 import { ModelProviderIcon } from "./model-provider-icon";
 
 const modelProviderClassName =
-  "mb-1 grid size-[30px] cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted-ink hover:enabled:bg-hover-surface hover:enabled:text-ink aria-pressed:bg-hover-surface aria-pressed:text-ink disabled:cursor-default disabled:opacity-30";
+  "grid size-[30px] shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 text-muted-ink hover:enabled:bg-hover-surface hover:enabled:text-ink aria-pressed:bg-hover-surface aria-pressed:text-ink disabled:cursor-default disabled:opacity-30";
 
 const modelMenuClassName = [
   codeMenuClassName,
@@ -22,10 +22,10 @@ const modelMenuClassName = [
   "[&&_[data-slot=select-menu-label]]:text-sm",
   "[&_.select-menu-columns]:flex [&_.select-menu-columns]:h-(--model-list-height) [&_.select-menu-columns]:min-h-20",
   "[&_.select-menu-options]:min-w-0 [&_.select-menu-options]:flex-1 [&_.select-menu-options]:overflow-y-auto [&_.select-menu-options]:p-1 [&_.select-menu-options]:max-h-[205px]",
-  "[&_.select-menu-option-row]:flex [&_.select-menu-option-row]:items-center [&_.select-menu-option-row]:rounded-md",
+  "[&_.select-menu-option-row]:flex [&_.select-menu-option-row]:items-center [&_.select-menu-option-row]:rounded-md [&_.select-menu-option-row]:px-1",
   "[&_.select-menu-option-row:hover]:bg-hover-surface",
   "[&_.select-menu-option-row:focus-within]:bg-hover-surface",
-  "[&&_[role=menuitemradio]]:min-w-0 [&&_[role=menuitemradio]]:flex-1 [&&_[role=menuitemradio]]:gap-[3px] [&&_[role=menuitemradio]]:bg-transparent [&&_[role=menuitemradio]]:px-1.5 [&&_[role=menuitemradio]]:py-[7px]",
+  "[&&_[role=menuitemradio]]:min-w-0 [&&_[role=menuitemradio]]:flex-1 [&&_[role=menuitemradio]]:gap-[3px] [&&_[role=menuitemradio]]:bg-transparent [&&_[role=menuitemradio]]:px-1 [&&_[role=menuitemradio]]:py-[7px]",
   "[&_[data-slot=select-menu-content]]:min-w-0 [&_[data-slot=select-menu-content]]:flex-1",
   "[&_[data-slot=select-menu-text]]:min-w-0 [&_[data-slot=select-menu-text]]:flex-1",
   "[&_.select-menu-empty]:m-0 [&_.select-menu-empty]:p-2.5 [&_.select-menu-empty]:text-[11px] [&_.select-menu-empty]:text-muted-ink",
@@ -107,7 +107,7 @@ export function ModelPicker({
         menuClassName={modelMenuClassName}
         optionsClassName={codeScrollbarClassName}
         menuHeader={
-          <div className="model-search flex items-center gap-[7px] border-b border-border py-[7px] pr-1 pl-2 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-ink">
+          <div className="model-search flex items-center gap-[7px] border-b border-border px-2 py-[7px] [&>svg]:size-3.5 [&>svg]:shrink-0 [&>svg]:text-muted-ink">
             <ComposerIcon name="search" />
             <input
               data-select-search
@@ -133,7 +133,7 @@ export function ModelPicker({
         }
         menuSidebar={
           <div
-            className="model-providers w-[38px] shrink-0 border-r border-border px-[3px] py-[5px]"
+            className="model-providers flex w-10 shrink-0 flex-col items-center gap-1 border-r border-border py-[5px]"
             aria-label="Model providers"
           >
             {available.map(({ connection }) => (
