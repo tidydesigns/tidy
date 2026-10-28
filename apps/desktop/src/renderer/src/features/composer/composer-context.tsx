@@ -114,13 +114,7 @@ export function ComposerContext({
           triggerContent={
             <>
               <ComposerIcon name="branch" />
-              <span>
-                {repository
-                  ? repository.repository
-                    ? (repository.branch ?? "Detached HEAD")
-                    : "No repository"
-                  : "Branch"}
-              </span>
+              <span>{repository ? (repository.branch ?? "Detached HEAD") : "Branch"}</span>
               <ComposerChevron />
             </>
           }
