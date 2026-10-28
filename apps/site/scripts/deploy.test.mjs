@@ -21,16 +21,20 @@ await Bun.write(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify({ args, config
       { mode: 0o700 },
     );
     const deploy = ({ environment = "", args = [] } = {}) =>
-      spawnSync(process.execPath, [fileURLToPath(new URL("./deploy.mjs", import.meta.url)), ...args], {
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          CLOUDFLARE_ENV: environment,
-          PATH: directory,
-          TIDY_SITE_DEPLOY_CONFIG: config,
-          TIDY_DEPLOY_TEST_ARGS: invocation,
+      spawnSync(
+        process.execPath,
+        [fileURLToPath(new URL("./deploy.mjs", import.meta.url)), ...args],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            CLOUDFLARE_ENV: environment,
+            PATH: directory,
+            TIDY_SITE_DEPLOY_CONFIG: config,
+            TIDY_DEPLOY_TEST_ARGS: invocation,
+          },
         },
-      });
+      );
 
     for (const flags of [
       {},
