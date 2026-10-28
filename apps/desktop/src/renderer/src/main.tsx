@@ -6,6 +6,9 @@ import { MachineWorkspace } from "./app/machine-workspace";
 import { HarnessUpdateNotices } from "./features/harnesses/harness-updates";
 import "@tidy/ui/fonts.css";
 import "./styles.css";
+import { initializeTheme } from "./theme";
+
+initializeTheme();
 
 if (import.meta.env.DEV && !window.tidy) await import("./platform/browser-api");
 
