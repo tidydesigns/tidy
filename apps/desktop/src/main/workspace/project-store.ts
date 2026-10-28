@@ -213,11 +213,31 @@ export class ProjectStore {
     }
   }
 
+  /** Forget a local registration; project files and storage ownership remain intact. */
+  async remove(projectId: string) {
+    const project = this.project(projectId);
+    if (project.cloud) throw new Error("Cloud workspaces cannot be removed from this list.");
+    const previous = this.registry;
+    const next = {
+      ...previous,
+      projects: previous.projects.filter((item) => item.id !== projectId),
+      activeProjectId: previous.activeProjectId === projectId ? null : previous.activeProjectId,
+    };
+    this.registry = next;
+    try {
+      await this.writeRegistry();
+    } catch (error) {
+      if (this.registry === next) this.registry = previous;
+      throw error;
+    }
+  }
+
   async select(projectId: string) {
     const project = this.project(projectId);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The project directory has moved. Open it again.");
     const snapshot = await this.snapshot(projectId);
+    this.project(projectId);
     this.registry.activeProjectId = projectId;
     await this.writeRegistry();
     return snapshot;

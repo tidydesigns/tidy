@@ -16,6 +16,7 @@ import {
 import type { DesktopEvent } from "../../shared/contracts/desktop";
 import {
   parseWorkspaceResponse,
+  WorkspaceRequestError,
   type WorkspaceOperation,
 } from "../../shared/contracts/workspace-response";
 import { browserRecovery } from "../../shared/runtime/browser-recovery";
@@ -190,6 +191,37 @@ export class RemoteClient {
     });
   }
   async operation<Name extends WorkspaceOperation>(
+    name: Name,
+    input?: unknown,
+    context?: Pick<RemoteRequest, "projectPath" | "file">,
+  ) {
+    if (name !== "remove-project") return this.operationNow(name, input, context);
+    const removal = await this.cache.prepareProjectRemoval(input);
+    try {
+      let result: ReturnType<typeof parseWorkspaceResponse<Name>>;
+      try {
+        result = await this.operationNow(name, input, context);
+      } catch (error) {
+        if (error instanceof WorkspaceRequestError) {
+          let registered = false;
+          try {
+            const snapshot = parseWorkspaceResponse(
+              "project-snapshot",
+              await this.request("project-snapshot", input),
+            );
+            registered = snapshot.project.id === input && !snapshot.project.cloud;
+          } catch {}
+          if (registered) await removal.rollback();
+        }
+        throw error;
+      }
+      if (typeof input === "string") this.recovery.forget(input);
+      return result;
+    } finally {
+      removal.finish();
+    }
+  }
+  private async operationNow<Name extends WorkspaceOperation>(
     name: Name,
     input?: unknown,
     context?: Pick<RemoteRequest, "projectPath" | "file">,

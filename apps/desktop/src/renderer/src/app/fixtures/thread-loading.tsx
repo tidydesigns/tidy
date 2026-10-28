@@ -14,6 +14,8 @@ import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { ThreadSidebar } from "../../features/threads/thread-sidebar";
+import { UserFacingError } from "@tidy/ui/errors";
+import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
 import type { ProjectSetupResult } from "../../../../shared/contracts/workspace-response";
 import { useWorkspaceState } from "../use-workspace-state";
@@ -1230,6 +1232,338 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(list.scrollTop === 0, "A new command pulled the reader away from earlier output");
     },
   );
+  await run(
+    "project switcher preloads machines and only navigates on project selection",
+    async (root) => {
+      const local = {
+        id: crypto.randomUUID(),
+        path: "/local/tidy",
+        name: "tidy",
+        openedAt: timestamp,
+      };
+      const remoteProject = { ...local, id: crypto.randomUUID(), path: "/remote/tidy" };
+      const remoteId = crypto.randomUUID();
+      let loads = 0;
+      const choices: { machine: string; project?: string }[] = [];
+      let added = 0;
+      const renderPicker = (disabled = false) =>
+        flushSync(() =>
+          root.render(
+            <ProjectSwitcher
+              machines={[
+                { id: "local", label: "This machine", status: null },
+                { id: remoteId, label: "Mac", status: { kind: "connected", target: "mac" } },
+              ]}
+              projects={[{ ...local, id: crypto.randomUUID() }, local]}
+              projectId={local.id}
+              disabled={disabled}
+              loadProjects={async () => {
+                loads++;
+                return [remoteProject];
+              }}
+              onChoose={async (machine, project) => {
+                choices.push({ machine, project });
+              }}
+              onAddMachine={() => {
+                added++;
+              }}
+              cloudWorkspaces={[]}
+              onCloudChange={() => {}}
+            />,
+          ),
+        );
+      renderPicker();
+      await until(() => loads === 1, "Remote projects preloaded");
+      await settle();
+      const trigger = required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Switch project']"),
+        "Switcher trigger",
+      );
+      trigger.click();
+      await settle();
+      let dialog = required(
+        host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
+        "Project switcher",
+      );
+      check(dialog.matches(":popover-open"), "Project switcher did not open");
+      check(!host.querySelector("dialog[open]"), "Project picker opened a modal");
+      const anchor = trigger.getBoundingClientRect();
+      const popup = dialog.getBoundingClientRect();
+      check(
+        Math.abs(popup.left - Math.max(8, anchor.left)) < 2 && popup.top >= anchor.bottom,
+        "Project dropdown is not anchored below its trigger",
+      );
+      check(!dialog.querySelector("input"), "Project switcher contains a search field");
+      let groups = dialog.querySelectorAll<HTMLDetailsElement>("details");
+      check(
+        groups[0].querySelectorAll(".machine-project-row").length === 1 &&
+          groups[0].querySelector(".machine-project-row")?.getAttribute("aria-current") === "page",
+        "The same project folder appeared twice or lost its active selection",
+      );
+      required(groups[0].querySelector("summary"), "Local machine heading").click();
+      await settle();
+      check(!groups[0].open, "Local machine did not collapse");
+      trigger.click();
+      await settle();
+      trigger.click();
+      await settle();
+      dialog = required(
+        host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
+        "Reopened dropdown",
+      );
+      groups = dialog.querySelectorAll<HTMLDetailsElement>("details");
+      const localHeading = required(groups[0].querySelector("summary"), "Local machine heading");
+      check(document.activeElement === localHeading, "Reopening tried to focus a hidden project");
+      localHeading.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+      const remoteHeading = required(groups[1].querySelector("summary"), "Remote machine heading");
+      check(
+        document.activeElement === remoteHeading,
+        "Arrow navigation skipped a collapsed machine",
+      );
+      remoteHeading.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+      );
+      check(
+        document.activeElement === localHeading,
+        "Arrow navigation entered a collapsed machine",
+      );
+      remoteHeading.click();
+      await settle();
+      check(choices.length === 0, "Expanding a machine changed workspaces");
+      const project = required(
+        groups[1].querySelector<HTMLButtonElement>(".machine-project-row"),
+        "Remote project",
+      );
+      check(project.title === "/remote/tidy", "Project metadata was not preloaded");
+      project.click();
+      await until(() => !dialog.matches(":popover-open"), "Project opens and closes switcher");
+      check(
+        choices[0]?.machine === remoteId && choices[0]?.project === remoteProject.id,
+        "Project opened on the wrong machine",
+      );
+      await until(() => document.activeElement === trigger, "Closing restores trigger focus");
+      trigger.click();
+      await settle();
+      const outside = document.createElement("button");
+      document.body.append(outside);
+      try {
+        outside.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+        await until(
+          () => !host.querySelector("[popover]:popover-open"),
+          "Click away closes dropdown",
+        );
+        check(Number(choices.length) === 1, "Click away changed the selected project");
+      } finally {
+        outside.remove();
+      }
+      trigger.click();
+      await settle();
+      const reopened = required(
+        host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
+        "Reopened dropdown",
+      );
+      required(
+        reopened.querySelector<HTMLButtonElement>(".machine-project-footer .machine-project-add"),
+        "Add machine",
+      ).click();
+      await until(() => !reopened.matches(":popover-open"), "Add machine closes dropdown");
+      check(
+        added === 1 && !reopened.matches(":popover-open"),
+        "Add machine did not dismiss the switcher",
+      );
+      trigger.click();
+      await settle();
+      renderPicker(true);
+      await until(
+        () => !host.querySelector("[popover]:popover-open"),
+        "Disabling closes the dropdown",
+      );
+      renderPicker();
+      await settle();
+      check(
+        !host.querySelector("[popover]:popover-open"),
+        "Re-enabling reopened a dismissed dropdown",
+      );
+    },
+  );
+
+  await run(
+    "project switcher retains failed catalogs and cancels pending selections on Escape",
+    async (root) => {
+      const remoteId = crypto.randomUUID();
+      const project = {
+        id: crypto.randomUUID(),
+        path: "/remote/tidy",
+        name: "tidy",
+        openedAt: timestamp,
+      };
+      let fail = true;
+      let cancel = 0;
+      let resolve: () => void = () => {};
+      const pending = new Promise<void>((done) => {
+        resolve = done;
+      });
+      flushSync(() =>
+        root.render(
+          <ProjectSwitcher
+            machines={[
+              { id: remoteId, label: "Mac", status: { kind: "connected", target: "mac" } },
+            ]}
+            projects={[]}
+            disabled={false}
+            loadProjects={async () => {
+              if (fail) throw new Error("Unavailable");
+              return [project];
+            }}
+            onChoose={() => pending}
+            onCancelNavigation={() => {
+              cancel++;
+            }}
+            cloudWorkspaces={[]}
+            onCloudChange={() => {}}
+          />,
+        ),
+      );
+      const trigger = required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Switch project']"),
+        "Switcher trigger",
+      );
+      trigger.click();
+      await settle();
+      const dialog = required(
+        host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
+        "Project switcher",
+      );
+      required(dialog.querySelector("summary"), "Machine heading").click();
+      await until(
+        () => Boolean(dialog.querySelector(".machine-project-retry")),
+        "Failed catalog retry",
+      );
+      fail = false;
+      required(dialog.querySelector<HTMLButtonElement>(".machine-project-retry"), "Retry").click();
+      await until(() => Boolean(dialog.querySelector(".machine-project-row")), "Catalog recovers");
+      required(dialog.querySelector<HTMLButtonElement>(".machine-project-row"), "Project").click();
+      await settle();
+      dialog.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await until(() => !dialog.matches(":popover-open"), "Escape closes dropdown");
+      check(
+        !dialog.matches(":popover-open") && cancel === 1,
+        "Escape did not cancel the pending selection",
+      );
+      resolve();
+      await settle();
+      check(
+        !dialog.matches(":popover-open") && cancel === 1,
+        "Late selection changed the dismissed dialog",
+      );
+    },
+  );
+
+  await run("project removal is immediate, machine-scoped and recoverable", async (root) => {
+    const project = {
+      id: crypto.randomUUID(),
+      path: "/project",
+      name: "Project",
+      openedAt: timestamp,
+    };
+    const remoteId = crypto.randomUUID();
+    let rejectRemoval: (error: Error) => void = () => {};
+    const calls: string[] = [];
+    flushSync(() =>
+      root.render(
+        <ProjectSwitcher
+          machines={[
+            { id: "local", label: "This machine", status: null },
+            { id: remoteId, label: "Mac", status: { kind: "connected", target: "mac" } },
+          ]}
+          projects={[project]}
+          projectId={project.id}
+          disabled={false}
+          loadProjects={async () => [project]}
+          onChoose={async () => {}}
+          onRemove={(machine, id) => {
+            calls.push(`${machine}:${id}`);
+            if (calls.length > 1) return Promise.resolve();
+            return new Promise<void>((_, reject) => {
+              rejectRemoval = reject;
+            });
+          }}
+          cloudWorkspaces={[]}
+          onCloudChange={() => {}}
+        />,
+      ),
+    );
+    await settle();
+    required(
+      host.querySelector<HTMLButtonElement>("[aria-label='Switch project']"),
+      "Trigger",
+    ).click();
+    await settle();
+    const dialog = required(
+      host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
+      "Dropdown",
+    );
+    const headings = dialog.querySelectorAll("summary");
+    const remoteHeading = required(headings[1], "Remote machine");
+    remoteHeading.click();
+    await settle();
+    const remove = required(
+      dialog.querySelector<HTMLButtonElement>("[aria-label='Remove Project from Mac']"),
+      "Remove action",
+    );
+    remove.focus();
+    remove.click();
+    await settle();
+    check(document.activeElement === remoteHeading, "Removal lost focus outside the dropdown");
+    check(
+      calls.length === 1 && calls[0] === `${remoteId}:${project.id}`,
+      "Removal targeted a different machine",
+    );
+    check(
+      dialog.querySelectorAll(".machine-project-row").length === 1,
+      "Removed row remained visible or removed the local copy",
+    );
+    check(dialog.matches(":popover-open"), "Removal dismissed the dropdown");
+    const updateMessage = "Update Tidy on this machine to remove projects.";
+    rejectRemoval(new UserFacingError(updateMessage));
+    await until(
+      () => dialog.querySelectorAll(".machine-project-row").length === 2,
+      "Failed removal restores row",
+    );
+    check(
+      dialog.querySelector("[role=alert]")?.textContent === updateMessage,
+      "Removal failure was hidden",
+    );
+    remoteHeading.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    check(
+      document.activeElement ===
+        remoteHeading.closest("details")?.querySelector(".machine-project-row"),
+      "Restored project was not reachable with the keyboard",
+    );
+    required(
+      dialog.querySelector<HTMLButtonElement>("[aria-label='Remove Project from Mac']"),
+      "Retry removal",
+    ).click();
+    await until(
+      () => dialog.querySelectorAll(".machine-project-row").length === 1,
+      "Removal succeeds",
+    );
+    await settle();
+    check(!dialog.querySelector("[role=alert]"), "Successful retry retained its error");
+    check(Number(calls.length) === 2, "Removal could not be retried after failure");
+    check(document.activeElement === remoteHeading, "Successful removal lost keyboard focus");
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
+  });
+
   return passed;
 }
 

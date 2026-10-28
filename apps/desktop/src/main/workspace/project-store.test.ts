@@ -722,3 +722,34 @@ test("recovery rolls back one shared claim after reading storage and a failed ch
   expect(claims).toBe(2);
   expect(held).toBe(1);
 });
+
+test("removing a registration preserves files, history and identity when reopened", async () => {
+  const f = await fixture();
+  const first = await f.store.open(f.root);
+  const value = thread(first.project.id);
+  await f.store.writeThread(value);
+  await writeFile(join(f.root, "keep.txt"), "Keep this file");
+  const otherRoot = join(f.directory, "other");
+  await mkdir(otherRoot);
+  const other = await f.store.open(otherRoot);
+  await f.store.remove(first.project.id);
+  expect(f.store.projects.map((project) => project.id)).toEqual([other.project.id]);
+  expect(f.store.activeProjectId).toBe(other.project.id);
+  expect(await readFile(join(f.root, "keep.txt"), "utf8")).toBe("Keep this file");
+  const restored = new ProjectStore(join(f.directory, "app-data"));
+  await restored.initialize();
+  expect(restored.projects.map((project) => project.id)).toEqual([other.project.id]);
+  const reopened = await f.store.open(f.root);
+  expect(reopened.project.id).toBe(first.project.id);
+  expect((await f.store.readThread(first.project.id, value.id)).id).toBe(value.id);
+  await f.store.remove(first.project.id);
+  expect(f.store.activeProjectId).toBeNull();
+});
+
+test("removal rejects unknown IDs and cloud registrations", async () => {
+  const f = await fixture();
+  await expect(f.store.remove(randomUUID())).rejects.toThrow("Open this project");
+  const project = await f.store.register(f.root, "Cloud workspace");
+  await expect(f.store.remove(project.id)).rejects.toThrow("Cloud workspaces");
+  expect(f.store.projects).toHaveLength(1);
+});

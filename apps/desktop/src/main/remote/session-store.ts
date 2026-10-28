@@ -1,5 +1,5 @@
-import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve, sep } from "node:path";
 import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { sessionTokenSchema } from "../../shared/remote";
@@ -46,11 +46,23 @@ export class SessionStore {
     await rm(this.path(clientId), { force: true });
   }
 }
-export async function writePrivateJSON(path: string, value: unknown) {
+export async function writePrivateJSON(
+  path: string,
+  value: unknown,
+  { durable = false }: { durable?: boolean } = {},
+) {
   const temporary = `${path}.${randomBytes(8).toString("hex")}.tmp`;
   try {
-    await writeFile(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600 });
+    await writeFile(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600, flush: durable });
     await rename(temporary, path);
+    if (durable && process.platform !== "win32") {
+      const directory = await open(dirname(path), "r");
+      try {
+        await directory.sync();
+      } finally {
+        await directory.close();
+      }
+    }
   } finally {
     await rm(temporary, { force: true });
   }

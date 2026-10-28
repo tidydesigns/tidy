@@ -22,6 +22,16 @@ export function browserRecovery({
   let generation = 0;
   let closed = false;
   return {
+    forget(projectId: string) {
+      generation++;
+      projects.delete(projectId);
+      designVersions.delete(projectId);
+      for (const [id, owner] of threads) {
+        if (owner !== projectId) continue;
+        threads.delete(id);
+        revisions.delete(id);
+      }
+    },
     remember(value: ProjectSnapshot | null) {
       if (value) {
         projects.delete(value.project.id);

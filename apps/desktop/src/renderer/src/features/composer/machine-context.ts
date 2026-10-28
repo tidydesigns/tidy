@@ -33,6 +33,10 @@ export type MachineContext = {
   switching: boolean;
   select(id: string, source: MachineSelection): void;
   navigate(id: string): void;
+  cancelProjectNavigation(): void;
+  projects(id: string, refresh?: boolean): Promise<Project[]>;
+  openProject(id: string, projectId?: string): Promise<void>;
+  removeProject?(id: string, projectId: string): Promise<void>;
 };
 export type PreparedWorkspace = {
   bootstrap: Bootstrap;

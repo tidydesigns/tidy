@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
-import type { DesktopAPI, LocalDesign } from "../../../shared/contracts/desktop";
+import { UserFacingError } from "@tidy/ui/errors";
+import type { Bootstrap, DesktopAPI, LocalDesign } from "../../../shared/contracts/desktop";
 import type { ProjectSetupResult } from "../../../shared/contracts/workspace-response";
 import type { WorkspaceMachine } from "../../../shared/remote";
 import { App } from "./app";
@@ -38,61 +39,93 @@ export function MachineWorkspace() {
     }
   });
   const [prepared, setPrepared] = useState<PreparedWorkspace>();
-  const [setup, setSetup] = useState<{ id: string; source: MachineSelection | null } | null>(null);
+  const [setup, setSetup] = useState<{
+    id: string;
+    source: MachineSelection | null;
+  } | null>(null);
   const drafts = useRef(new Map<string, Record<string, Draft>>());
   const machineLabels = useRef(machines);
   machineLabels.current = machines;
   const apis = useRef(new Map<string, DesktopAPI>());
   const projectSetups = useRef(new Map<string, Promise<ProjectSetupResult>>());
   const pendingList = useRef(0);
-  const apiFor = (machineId: string) => {
-    if (machineId === "local") return window.tidy;
-    const cached = apis.current.get(machineId);
-    if (cached) return cached;
-    if (!bridge) return undefined;
-    const workspace = bridge.workspace(machineId);
-    const portable = (projectId: string, design: LocalDesign) =>
-      workspace.api.exportDesign
-        ? workspace.api.exportDesign(projectId, design.id)
-        : Promise.resolve(design);
-    const api: DesktopAPI = {
-      ...workspace.api,
-      cloud: undefined,
-      readDesign: (projectId, designId) =>
+  const catalogs = useRef(new Map<string, { promise: Promise<Bootstrap>; loadedAt: number }>());
+  const projectNavigation = useRef(0);
+  const apiFor = useCallback(
+    (machineId: string) => {
+      if (machineId === "local") return window.tidy;
+      const cached = apis.current.get(machineId);
+      if (cached) return cached;
+      if (!bridge) return undefined;
+      const workspace = bridge.workspace(machineId);
+      const portable = (projectId: string, design: LocalDesign) =>
         workspace.api.exportDesign
-          ? workspace.api.exportDesign(projectId, designId)
-          : workspace.api.readDesign(projectId, designId),
-      previewDesign: (projectId, designId) =>
-        workspace.api.exportDesign
-          ? workspace.api.exportDesign(projectId, designId)
-          : workspace.api.previewDesign(projectId, designId),
-      refreshDesign: async (projectId, designId, version) => {
-        const design = await workspace.api.refreshDesign(projectId, designId, version);
-        return design ? portable(projectId, design) : null;
-      },
-      createDesign: async (projectId, folderId) =>
-        portable(projectId, await workspace.api.createDesign(projectId, folderId)),
-      updateDesign: async (input) =>
-        portable(input.projectId, await workspace.api.updateDesign(input)),
-      importDesign: async (projectId, folderId) => {
-        const design = await workspace.api.importDesign(projectId, folderId);
-        return design ? portable(projectId, design) : null;
-      },
-      uploadDesignAsset: async (projectId, dataUrl) => ({
-        ...(await workspace.api.uploadDesignAsset(projectId, dataUrl)),
-        url: dataUrl,
-      }),
-      openProject: () =>
-        chooseBrowserProject(workspace.remote.openProject, {
-          directories: workspace.remote.directories,
-          machine:
-            machineLabels.current.find((machine) => machine.id === machineId)?.label ??
-            "Remote machine",
+          ? workspace.api.exportDesign(projectId, design.id)
+          : Promise.resolve(design);
+      const api: DesktopAPI = {
+        ...workspace.api,
+        cloud: undefined,
+        readDesign: (projectId, designId) =>
+          workspace.api.exportDesign
+            ? workspace.api.exportDesign(projectId, designId)
+            : workspace.api.readDesign(projectId, designId),
+        previewDesign: (projectId, designId) =>
+          workspace.api.exportDesign
+            ? workspace.api.exportDesign(projectId, designId)
+            : workspace.api.previewDesign(projectId, designId),
+        refreshDesign: async (projectId, designId, version) => {
+          const design = await workspace.api.refreshDesign(projectId, designId, version);
+          return design ? portable(projectId, design) : null;
+        },
+        createDesign: async (projectId, folderId) =>
+          portable(projectId, await workspace.api.createDesign(projectId, folderId)),
+        updateDesign: async (input) =>
+          portable(input.projectId, await workspace.api.updateDesign(input)),
+        importDesign: async (projectId, folderId) => {
+          const design = await workspace.api.importDesign(projectId, folderId);
+          return design ? portable(projectId, design) : null;
+        },
+        uploadDesignAsset: async (projectId, dataUrl) => ({
+          ...(await workspace.api.uploadDesignAsset(projectId, dataUrl)),
+          url: dataUrl,
         }),
-    };
-    apis.current.set(machineId, api);
-    return api;
-  };
+        openProject: () =>
+          chooseBrowserProject(workspace.remote.openProject, {
+            directories: workspace.remote.directories,
+            machine:
+              machineLabels.current.find((machine) => machine.id === machineId)?.label ??
+              "Remote machine",
+          }),
+      };
+      apis.current.set(machineId, api);
+      return api;
+    },
+    [bridge],
+  );
+  const catalogFor = useCallback(
+    (machineId: string, refresh = false) => {
+      const cached = catalogs.current.get(machineId);
+      if (cached && !refresh && Date.now() - cached.loadedAt < 30_000) return cached.promise;
+      const target = apiFor(machineId);
+      if (!target) return Promise.reject(new Error("This machine is unavailable."));
+      const pending = target.bootstrap().catch((cause: unknown) => {
+        if (catalogs.current.get(machineId)?.promise === pending)
+          catalogs.current.delete(machineId);
+        throw cause;
+      });
+      catalogs.current.set(machineId, {
+        promise: pending,
+        loadedAt: Date.now(),
+      });
+      return pending;
+    },
+    [apiFor],
+  );
+  const projectList = useCallback(
+    async (machineId: string, refresh?: boolean) => (await catalogFor(machineId, refresh)).projects,
+    [catalogFor],
+  );
+
   useEffect(() => {
     if (!bridge) return;
     let mounted = true;
@@ -117,7 +150,7 @@ export function MachineWorkspace() {
     label: "Machine unavailable",
     status: { kind: "closed", target: "" } as const,
   };
-  const api = useMemo(() => apiFor(id), [id]);
+  const api = useMemo(() => apiFor(id), [apiFor, id]);
   const destination = setup
     ? (machines.find((machine) => machine.id === setup.id) ?? {
         id: setup.id,
@@ -141,6 +174,44 @@ export function MachineWorkspace() {
             machines,
             connected,
             switching: Boolean(setup),
+            projects: projectList,
+            removeProject: async (machineId, projectId) => {
+              const target = apiFor(machineId);
+              if (!target?.removeProject)
+                throw new UserFacingError("Update Tidy on this machine to remove projects.");
+              try {
+                await target.removeProject(projectId);
+              } finally {
+                catalogs.current.delete(machineId);
+              }
+            },
+            cancelProjectNavigation: () => {
+              projectNavigation.current++;
+            },
+            openProject: async (next, projectId) => {
+              const generation = ++projectNavigation.current;
+              const target = apiFor(next);
+              if (!target) throw new Error("This machine is unavailable.");
+              const snapshot = projectId
+                ? await target.selectProject(projectId)
+                : await target.openProject();
+              if (!snapshot || generation !== projectNavigation.current) return;
+              const bootstrap = await catalogFor(next, !projectId);
+              if (generation !== projectNavigation.current) return;
+              setPrepared({
+                bootstrap: {
+                  ...bootstrap,
+                  activeProject: snapshot,
+                  projects: [
+                    snapshot.project,
+                    ...bootstrap.projects.filter((project) => project.id !== snapshot.project.id),
+                  ],
+                },
+                relation: "separate",
+              });
+              setSetup(null);
+              setId(next);
+            },
             select: (next, source) => {
               if (next !== id) setSetup({ id: next, source });
             },

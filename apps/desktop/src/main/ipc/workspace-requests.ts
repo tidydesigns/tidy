@@ -64,6 +64,11 @@ export function createWorkspaceRequests<Context>(
       threads: service.withLiveThreads(snapshot.project.id, snapshot.threads),
     };
   }
+  // A scalar ID keeps this acknowledgement machine-scoped after registration is removed.
+  handle("remove-project", uuid, async (id) => {
+    await service.removeProject(id);
+    return null;
+  });
   handle(
     "project-directories",
     z

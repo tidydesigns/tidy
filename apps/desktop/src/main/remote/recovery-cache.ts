@@ -64,6 +64,8 @@ export class RecoveryCache {
   private hostId: string | null;
   private closed = false;
   private epoch = 0;
+  private removedAt = new Map<string, number>();
+  private pendingRemovals = new Set<string>();
   private designs = new Map<
     string,
     { event: Extract<DesktopEvent, { type: "designs" }>; epoch: number }
@@ -112,10 +114,107 @@ export class RecoveryCache {
         : {}),
     };
   }
+  async prepareProjectRemoval(input: unknown) {
+    const projectId = snapshotInput.parse(input);
+    await this.ready;
+    if (this.closed) throw new Error("The machine connection is closed.");
+    if (this.pendingRemovals.has(projectId))
+      throw new Error("This project is already being removed.");
+    const previousDesign = this.designs.get(projectId);
+    const previousCutoff = this.removedAt.get(projectId);
+    let restored = false;
+    const previous = [...this.values].filter(
+      ([, entry]) =>
+        entry.name === "bootstrap" ||
+        (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId,
+    );
+    this.pendingRemovals.add(projectId);
+    const finish = () => {
+      this.pendingRemovals.delete(projectId);
+      const epoch = ++this.epoch;
+      if (!restored) this.removedAt.set(projectId, epoch);
+      else if (previousCutoff !== undefined) this.removedAt.set(projectId, previousCutoff);
+      else this.removedAt.delete(projectId);
+    };
+    this.removedAt.set(projectId, ++this.epoch);
+    const restore = () => {
+      restored = true;
+      if (previousDesign && !this.designs.has(projectId))
+        this.designs.set(projectId, previousDesign);
+      for (const [id, entry] of previous) {
+        if (entry.name !== "bootstrap") {
+          this.put(entry);
+          continue;
+        }
+        const latest = this.values.get(id);
+        const current =
+          latest?.name === "bootstrap"
+            ? latest.data
+            : { ...entry.data, projects: [], activeProject: null };
+        const project = entry.data.projects.find((item) => item.id === projectId);
+        const activeProject =
+          entry.data.activeProject?.project.id === projectId ? entry.data.activeProject : null;
+        this.put({
+          ...entry,
+          data: {
+            ...current,
+            projects:
+              project && !current.projects.some((item) => item.id === projectId)
+                ? [...current.projects, project]
+                : current.projects,
+            activeProject: current.activeProject ?? activeProject,
+          },
+        });
+      }
+    };
+    try {
+      this.designs.delete(projectId);
+      for (const [id, entry] of [...this.values]) {
+        if (entry.name === "bootstrap") {
+          this.put({
+            ...entry,
+            data: {
+              ...entry.data,
+              projects: entry.data.projects.filter((project) => project.id !== projectId),
+              activeProject:
+                entry.data.activeProject?.project.id === projectId
+                  ? null
+                  : entry.data.activeProject,
+            },
+          });
+        } else if (
+          (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId
+        )
+          this.values.delete(id);
+      }
+      await this.flush({ durable: true });
+      return {
+        finish,
+        rollback: async () => {
+          restore();
+          await this.flush({ durable: true });
+        },
+      };
+    } catch (error) {
+      restore();
+      finish();
+      throw error;
+    }
+  }
   capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
-    if (!this.path) return;
+    if (!this.path || this.closed) return;
+    const blocked = (projectId: string) =>
+      this.pendingRemovals.has(projectId) || startedAt < (this.removedAt.get(projectId) ?? -1);
     if (name === "bootstrap") {
-      const bootstrap = parseWorkspaceResponse(name, { ok: true, data });
+      const response = parseWorkspaceResponse(name, { ok: true, data });
+      const bootstrap = {
+        ...response,
+        projects: response.projects.filter((project) => !blocked(project.id)),
+        activeProject:
+          response.activeProject && !blocked(response.activeProject.project.id)
+            ? response.activeProject
+            : null,
+      };
       const activeProject = bootstrap.activeProject
         ? this.mergeSnapshot(bootstrap.activeProject, startedAt)
         : null;
@@ -132,10 +231,9 @@ export class RecoveryCache {
       name === "open-project"
     ) {
       if (data) {
-        const snapshot = this.mergeSnapshot(
-          parseWorkspaceResponse("project-snapshot", { ok: true, data }),
-          startedAt,
-        );
+        const response = parseWorkspaceResponse("project-snapshot", { ok: true, data });
+        if (blocked(response.project.id)) return;
+        const snapshot = this.mergeSnapshot(response, startedAt);
         this.put({ name: "project-snapshot", input: snapshot.project.id, data: snapshot });
       }
     } else if (
@@ -149,6 +247,7 @@ export class RecoveryCache {
       ].includes(name)
     ) {
       const thread = parseWorkspaceResponse("read-thread", { ok: true, data });
+      if (blocked(thread.projectId)) return;
       const previous = this.read("read-thread", {
         projectId: thread.projectId,
         threadId: thread.id,
@@ -233,7 +332,7 @@ export class RecoveryCache {
     this.closed = true;
     return this.flush();
   }
-  async flush() {
+  async flush({ durable = false }: { durable?: boolean } = {}) {
     await this.ready;
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -260,7 +359,7 @@ export class RecoveryCache {
     const snapshot = { version: 1, hostId: this.hostId, entries: [...this.values.values()] };
     const write = this.writes.then(async () => {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      await writePrivateJSON(path, snapshot);
+      await writePrivateJSON(path, snapshot, { durable });
     });
     this.writes = write.catch(() => {});
     return write;

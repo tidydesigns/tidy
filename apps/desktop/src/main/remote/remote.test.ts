@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, mkdir, rm, stat, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -14,6 +14,7 @@ import { RemoteFailure } from "./errors";
 import { sshArguments } from "./ssh";
 import { RequestReceipts } from "./receipts";
 import { SessionStore } from "./session-store";
+import * as sessionStore from "./session-store";
 
 import { type ConnectionStatus } from "../../shared/remote";
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
@@ -823,4 +824,104 @@ test("remote receipts reauthorize historical results and queued delivery without
   allowed = true;
   expect(await exchange(request)).toEqual(original);
   expect((await f.store.folders(cloud.id)).length).toBe(1);
+});
+
+test("remote removal persists its cache purge before reaching the host", async () => {
+  const f = await fixture();
+  const cachePath = join(f.root, "removal-cache.json");
+  const { client } = f.client(undefined, cachePath);
+  await until(() => client.status.kind === "connected");
+  await client.operation("bootstrap");
+  await client.flush();
+  expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
+  const remove = f.service.removeProject.bind(f.service);
+  const removal = spyOn(f.service, "removeProject").mockImplementation(async (id) => {
+    expect(await readFile(cachePath, "utf8")).not.toContain(id);
+    return remove(id);
+  });
+  try {
+    await client.operation("remove-project", f.project.id);
+    expect(removal).toHaveBeenCalledTimes(1);
+    expect(f.store.projects).toHaveLength(0);
+  } finally {
+    removal.mockRestore();
+  }
+});
+
+test("a failed cache purge prevents the remote removal request", async () => {
+  const f = await fixture();
+  const cachePath = join(f.root, "failed-removal-cache.json");
+  const { client } = f.client(undefined, cachePath);
+  await until(() => client.status.kind === "connected");
+  await client.operation("bootstrap");
+  await client.flush();
+  const removal = spyOn(f.service, "removeProject");
+  const write = sessionStore.writePrivateJSON;
+  const failure = spyOn(sessionStore, "writePrivateJSON").mockImplementation(
+    (path, value, options) => {
+      if (options?.durable) return Promise.reject(new Error("Cache purge write failed"));
+      return write(path, value, options);
+    },
+  );
+  try {
+    await expect(client.operation("remove-project", f.project.id)).rejects.toThrow(
+      "Cache purge write failed",
+    );
+    expect(removal).not.toHaveBeenCalled();
+    expect(f.store.projects.map((project) => project.id)).toContain(f.project.id);
+    expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
+    await client.flush();
+    expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
+  } finally {
+    failure.mockRestore();
+    removal.mockRestore();
+  }
+});
+
+test("a rejected removal preserves tracked thread recovery across reconnect", async () => {
+  const f = await fixture();
+  const cachePath = join(f.root, "tracked-cache.json");
+  const { client, events, drops } = f.client(undefined, cachePath);
+  await until(() => client.status.kind === "connected");
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: "Keep running",
+    designIds: [],
+  });
+  await expect(client.operation("remove-project", f.project.id)).rejects.toThrow("active work");
+  expect(await readFile(cachePath, "utf8")).toContain(thread.id);
+  expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
+  events.length = 0;
+  drops[0]();
+  await until(() => client.status.kind === "reconnecting");
+  await until(() => client.status.kind === "connected");
+  expect(events.some((event) => event.type === "thread" && event.thread.id === thread.id)).toBe(
+    true,
+  );
+});
+
+test("a lost removal acknowledgement does not restore purged offline data", async () => {
+  const f = await fixture();
+  const cachePath = join(f.root, "lost-removal-cache.json");
+  const { client } = f.client(undefined, cachePath);
+  await until(() => client.status.kind === "connected");
+  await client.operation("bootstrap");
+  await client.flush();
+  const request = client.request.bind(client);
+  const disconnect = spyOn(client, "request").mockImplementation(async (...args) => {
+    const result = await request(...args);
+    if (args[0] === "remove-project")
+      throw new RemoteFailure("unavailable", "Lost acknowledgement");
+    return result;
+  });
+  try {
+    await expect(client.operation("remove-project", f.project.id)).rejects.toThrow(
+      "Lost acknowledgement",
+    );
+    expect(f.store.projects).toHaveLength(0);
+    expect(await readFile(cachePath, "utf8")).not.toContain(f.project.id);
+  } finally {
+    disconnect.mockRestore();
+  }
 });
