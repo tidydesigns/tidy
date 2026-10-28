@@ -81,7 +81,12 @@ export function applyProjectEvent(snapshot: ProjectSnapshot, event: DesktopEvent
   if (projectId !== snapshot.project.id) return snapshot;
   if (event.type === "designs")
     return { ...snapshot, designs: event.designs, folders: event.folders };
-  const summary = event.type === "thread-patch" ? event.summary : summarizeThread(event.thread);
+  const summary =
+    event.type === "thread-patch"
+      ? event.summary
+      : event.type === "thread-summary"
+        ? event.thread
+        : summarizeThread(event.thread);
   const previous = snapshot.threads.find((item) => item.id === summary.id);
   if (previous && previous.revision > summary.revision) return snapshot;
   return {

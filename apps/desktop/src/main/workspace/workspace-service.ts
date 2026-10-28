@@ -78,11 +78,19 @@ export class WorkspaceService {
   authorizeCloudProject?: (projectId: string) => Promise<void>;
   canAccessCloudProject?: (projectId: string) => boolean;
 
+  canDeliverEvent(event: DesktopEvent) {
+    const id = event.type === "designs" ? event.projectId : event.thread.projectId;
+    return this.canAccessProject(id);
+  }
+
+  canAccessProject(id: string) {
+    const project = this.store.projects.find((item) => item.id === id);
+    return Boolean(project && (!project.cloud || this.canAccessCloudProject?.(id)));
+  }
+
   subscribeRenderer(listener: (event: DesktopEvent) => void) {
     return this.subscribe((event) => {
-      const id = event.type === "designs" ? event.projectId : event.thread.projectId;
-      const project = this.store.projects.find((item) => item.id === id);
-      if (project && (!project.cloud || this.canAccessCloudProject?.(id))) listener(event);
+      if (this.canDeliverEvent(event)) listener(event);
     });
   }
 
@@ -110,6 +118,8 @@ export class WorkspaceService {
   private watchers = new Map<string, FSWatcher>();
   private listeners = new Set<(event: DesktopEvent) => void>();
   private starting = new Map<string, string>();
+  private startingRuns = new Set<string>();
+  private requests = new Set<Promise<unknown>>();
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
   private closing: symbol | "quit" | undefined;
@@ -342,9 +352,11 @@ export class WorkspaceService {
     if (this.starting.has(threadId) || this.jobs.has(threadId))
       return Promise.reject(new Error("This thread is already running."));
     this.starting.set(threadId, input.projectId);
+    this.startingRuns.add(threadId);
     this.executionProjects.set(threadId, input.executionProjectId ?? input.projectId);
     return this.serialize(threadId, () => this.startThreadNow({ ...input, threadId })).finally(
       () => {
+        this.startingRuns.delete(threadId);
         this.executionProjects.delete(threadId);
       },
     );
@@ -684,11 +696,13 @@ export class WorkspaceService {
       throw new Error("This message was already sent.");
     if (thread.messages.length >= 998) throw new Error("The thread reached its message limit.");
     this.starting.set(thread.id, thread.projectId);
+    this.startingRuns.add(thread.id);
     this.preparingHarnesses.set(thread.id, thread.harness);
     this.executionProjects.set(thread.id, thread.executionProjectId ?? thread.projectId);
     try {
       return await this.runPrepared(thread, prompt, attachmentIds, messageId, skillId);
     } finally {
+      this.startingRuns.delete(thread.id);
       this.preparingHarnesses.delete(thread.id);
       this.executionProjects.delete(thread.id);
       this.starting.delete(thread.id);
@@ -1063,6 +1077,7 @@ export class WorkspaceService {
     const update = Symbol("update");
     this.closing = update;
     try {
+      await this.drainRequests(30_000);
       await this.stopAndFlush();
     } catch (error) {
       if (this.closing === update) this.closing = undefined;
@@ -1089,8 +1104,41 @@ export class WorkspaceService {
     await this.store.flush();
   }
 
-  async close() {
+  get activeRunCount() {
+    return new Set([...this.jobs.keys(), ...this.startingRuns]).size;
+  }
+
+  dispatch<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new Error("Tidy is closing."));
+    const request = Promise.resolve().then(() => {
+      if (this.closing) throw new Error("Tidy is closing.");
+      return action();
+    });
+    this.requests.add(request);
+    return request.finally(() => this.requests.delete(request));
+  }
+
+  private async drainRequests(timeoutMs: number) {
+    if (!this.requests.size) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.requests]),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(
+            () => reject(new Error("Workspace request shutdown timed out.")),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    await this.drainRequests(requestDrainTimeoutMs);
     for (const watcher of this.watchers.values()) watcher.close();
     await this.stopAndFlush();
   }

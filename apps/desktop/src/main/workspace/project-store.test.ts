@@ -207,6 +207,9 @@ test("project designs and threads survive restart and moving the directory", asy
   const design = await store.createDesign(first.project.id);
   const conversation = thread(first.project.id);
   conversation.designIds = [design.id];
+  conversation.pendingApprovals = [
+    { id: "expired", title: "Run command", choices: ["allow", "deny"] },
+  ];
   conversation.toolActivities = ["running", "completed", "failed"].map((status) => ({
     id: randomUUID(),
     afterMessageId: conversation.messages[0].id,
@@ -224,6 +227,8 @@ test("project designs and threads survive restart and moving the directory", asy
   expect(reopened.activeProjectId).toBe(first.project.id);
   const recovered = await reopened.readThread(first.project.id, conversation.id);
   expect(recovered.status).toBe("interrupted");
+  expect(recovered).not.toHaveProperty("pendingApprovals");
+  expect(recovered.revision).toBe(conversation.revision + 1);
   expect(recovered.sessionId).toBe(conversation.sessionId);
   expect(recovered.designIds).toEqual([design.id]);
   expect(recovered.toolActivities?.map((tool) => tool.status)).toEqual([
@@ -571,4 +576,70 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
     "execution project changed",
   );
   await expect(f.store.readThread(owner.id, value.id)).rejects.toThrow("execution project changed");
+});
+
+test("failed project registration and recovery release only their own claims", async () => {
+  const f = await fixture();
+  const claims = new Map<string, number>();
+  const claim = (path: string) => {
+    claims.set(path, (claims.get(path) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      claims.set(path, claims.get(path)! - 1);
+    };
+  };
+  const store = new ProjectStore(join(f.directory, "claimed-registry"), undefined, claim);
+  await store.initialize();
+  await mkdir(join(f.root, ".tidy"));
+  await writeFile(join(f.root, ".tidy", "project.json"), "invalid");
+  await expect(store.register(f.root)).rejects.toThrow();
+  expect(claims.get(f.root)).toBe(0);
+  await rm(join(f.root, ".tidy", "project.json"));
+  const project = await store.register(f.root);
+  expect(claims.get(f.root)).toBe(1);
+  await rm(join(f.directory, "claimed-registry", "projects.json"));
+  await mkdir(join(f.directory, "claimed-registry", "projects.json"));
+  await expect(store.register(f.root)).rejects.toThrow();
+  expect(claims.get(f.root)).toBe(1);
+  expect(store.projects).toHaveLength(1);
+  expect(store.projects[0].id).toBe(project.id);
+  await rm(join(f.root, ".tidy"), { recursive: true });
+  await writeFile(join(f.root, ".tidy"), "blocked");
+  await store.recover();
+  expect(claims.get(f.root)).toBe(1);
+});
+
+test("recovery rolls back one shared claim after reading storage and a failed checkpoint", async () => {
+  const f = await fixture();
+  const project = await f.store.register(f.root);
+  const running = thread(project.id);
+  await f.store.writeThread(running);
+  let claims = 0;
+  let held = 0;
+  const recovered = new ProjectStore(join(f.directory, "app-data"), undefined, () => {
+    claims++;
+    held++;
+    return () => {
+      held--;
+    };
+  });
+  await recovered.initialize();
+  const checkpoint = spyOn(recovered, "writeThread").mockRejectedValue(new Error("Disk full"));
+  await recovered.recover();
+  expect(checkpoint).toHaveBeenCalledTimes(1);
+  expect(claims).toBe(1);
+  expect(held).toBe(0);
+  checkpoint.mockRestore();
+  await recovered.recover();
+  expect(claims).toBe(2);
+  expect(held).toBe(1);
+  for (let index = 0; index < 10; index++) {
+    expect((await recovered.readThread(project.id, running.id)).status).toBe("interrupted");
+    await recovered.snapshot(project.id);
+    await recovered.register(f.root);
+  }
+  expect(claims).toBe(2);
+  expect(held).toBe(1);
 });

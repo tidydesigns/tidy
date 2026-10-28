@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { CloudConnection } from "../cloud/use-cloud";
+import { RemoteMachines } from "./remote-machines";
 import { PrivacySettings } from "./privacy-settings";
 
 export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): void }) {
-  const [page, setPage] = useState<"account" | "privacy">("account");
+  const [page, setPage] = useState<"account" | "privacy" | "remote">("account");
+  const machines = window.tidyMachines;
+  const remote = window.tidyRemote;
   const back = useRef<HTMLButtonElement>(null);
   useEffect(() => back.current?.focus(), []);
   const available = cloud.state?.available;
@@ -37,11 +40,23 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
               {item === "account" ? "Account" : "Privacy"}
             </Button>
           ))}
+          {machines && remote && (
+            <Button
+              className="settings-section"
+              aria-current={page === "remote" ? "page" : undefined}
+              aria-controls="settings-remote-panel"
+              onClick={() => setPage("remote")}
+            >
+              Remote machines
+            </Button>
+          )}
         </nav>
       </aside>
       <main className="workspace settings-workspace" aria-labelledby="settings-title">
         <div className="settings-content">
-          <h1 id="settings-title">{page === "account" ? "Account" : "Privacy"}</h1>
+          <h1 id="settings-title">
+            {page === "account" ? "Account" : page === "privacy" ? "Privacy" : "Remote machines"}
+          </h1>
           <section
             id="settings-account-panel"
             hidden={page !== "account"}
@@ -90,6 +105,11 @@ export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): 
               Local projects stay on this computer unless you add them to a workspace.
             </p>
           </section>
+          {page === "remote" && machines && remote && (
+            <div id="settings-remote-panel">
+              <RemoteMachines machines={machines} remote={remote} />
+            </div>
+          )}
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings />
           </div>

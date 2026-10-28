@@ -1,3 +1,4 @@
+import { projectLocks } from "../src/main/remote/project-locks";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -44,7 +45,8 @@ try {
 const token = (await readFile(tokenFile, "utf8")).trim();
 if (!/^[A-Za-z0-9_-]{43}$/.test(token))
   throw new Error("The token file must contain a 32-byte base64url token.");
-const store = new ProjectStore(state);
+const locks = projectLocks();
+const store = new ProjectStore(state, "/__tidy/assets", locks.claim);
 await store.initialize();
 await store.recover();
 const service = new WorkspaceService(store);
@@ -97,6 +99,7 @@ async function close() {
   closing = true;
   gateway.close();
   await service.close();
+  locks.close();
   await server.close();
   process.exit(0);
 }

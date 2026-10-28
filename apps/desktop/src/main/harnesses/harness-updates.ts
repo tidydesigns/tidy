@@ -15,6 +15,7 @@ import {
 const interval = 30 * 60_000;
 const ids = ["codex", "claude", "opencode"] as const;
 type Options = {
+  installDisabledReason?: string;
   reserve(id: UpdatableHarnessId, options: { allowActiveRuns: boolean }): (() => void) | null;
   inspect?: typeof inspectHarnessInstallation;
   latest?: typeof latestHarnessVersion;
@@ -111,10 +112,12 @@ export class HarnessUpdates {
             status: available ? "available" : "current",
             installedVersion: installation.version,
             latestVersion: latest,
-            canInstall: Boolean(installation.command),
-            ...(available && !installation.command
-              ? { message: "Update this installation with its package manager." }
-              : {}),
+            canInstall: Boolean(installation.command) && !this.options.installDisabledReason,
+            ...(available && this.options.installDisabledReason
+              ? { message: this.options.installDisabledReason }
+              : available && !installation.command
+                ? { message: "Update this installation with its package manager." }
+                : {}),
           });
         } catch {
           // Offline discovery is quiet and preserves previously discovered actionable updates.
@@ -125,6 +128,7 @@ export class HarnessUpdates {
   /** Queue once and return immediately; the user need not keep the project or thread open. */
   install(id: UpdatableHarnessId) {
     if (this.closing) throw new Error("Tidy is closing.");
+    if (this.options.installDisabledReason) throw new Error(this.options.installDisabledReason);
     const entry = this.entries.get(id);
     if (entry && ["queued", "installing"].includes(entry.status)) return;
     if (!entry || !entry.canInstall || !["available", "error"].includes(entry.status))

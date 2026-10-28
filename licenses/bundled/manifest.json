@@ -1,4 +1,5 @@
 {
+  "ws": { "source": "LICENSE", "notice": "ws.txt" },
   "paper": {
     "source": "LICENSE.txt",
     "notice": "Paper.js.txt"

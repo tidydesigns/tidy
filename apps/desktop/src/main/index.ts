@@ -1,3 +1,8 @@
+import { machineConnections } from "./remote/machine-connections";
+import { projectLocks } from "./remote/project-locks";
+import { RemoteClient } from "./remote/client";
+import { MachineProfiles } from "./remote/profiles";
+import { discoverSshHosts } from "./remote/ssh";
 import { version } from "../../package.json";
 import { DesktopAnalytics } from "./analytics";
 import {
@@ -7,12 +12,20 @@ import {
   nativeTheme,
   net,
   protocol,
-  powerMonitor,
   session,
   safeStorage,
   shell,
+  powerMonitor,
 } from "electron";
 import { join } from "node:path";
+import { readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import {
+  ensureWorkspaceHost,
+  migrateWorkspaceRegistry,
+  workspaceHostDirectory,
+  type WorkspaceHost,
+} from "./remote/workspace-host";
 import { pathToFileURL } from "node:url";
 import { ProjectStore } from "./workspace/project-store";
 import { projectAssetResponse } from "./workspace/project-assets";
@@ -45,6 +58,9 @@ protocol.registerSchemesAsPrivileged([
 ]);
 const entryURL = rendererURL(app.isPackaged, process.env.ELECTRON_RENDERER_URL);
 
+let localClient: RemoteClient | undefined;
+let ownedHost: WorkspaceHost | undefined;
+const remoteClients = new Map<string, RemoteClient>();
 let service: WorkspaceService | undefined;
 let analytics: DesktopAnalytics | undefined;
 let quitting: symbol | "quit" | undefined;
@@ -93,6 +109,10 @@ async function createWindow() {
   window.on("enter-full-screen", syncFullscreen);
   window.on("leave-full-screen", syncFullscreen);
   window.webContents.on("did-finish-load", syncFullscreen);
+  window.on("focus", () => {
+    localClient?.wake("active");
+    for (const client of remoteClients.values()) client.wake("active");
+  });
   window.once("ready-to-show", () => {
     window.show();
     const duration = Date.now() - startedAt;
@@ -118,7 +138,45 @@ async function createWindow() {
   await window.loadURL(entryURL);
 }
 
+function broadcast(channel: string, ...values: unknown[]) {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.isDestroyed() && trustedRendererURL(window.webContents.mainFrame.url, entryURL))
+      window.webContents.send(channel, ...values);
+  }
+}
+const connectMachine = machineConnections(async (target) => {
+  const machine = await profiles.remember(target);
+  const existing = remoteClients.get(machine.id);
+  if (existing) {
+    existing.retry();
+    return;
+  }
+  const client = new RemoteClient({
+    machine,
+    bundlePath: join(import.meta.dirname, "../host/tidy-host.js"),
+    temporaryDirectory: join(app.getPath("userData"), "ssh"),
+    cachePath: join(app.getPath("userData"), "remote-cache", `${machine.id}.json`),
+    event: (event) => broadcast("tidy:machine-event", machine.id, event),
+    statusChanged: (status) => {
+      broadcast("tidy:machine-status", machine.id, status);
+      broadcast("tidy:machines-changed");
+    },
+    connected: (hostId) => profiles.connected(machine.id, hostId),
+  });
+  remoteClients.set(machine.id, client);
+  try {
+    await profiles.setOpen(machine.id, true);
+  } catch (error) {
+    remoteClients.delete(machine.id);
+    client.close();
+    throw error;
+  }
+  client.start();
+  broadcast("tidy:machines-changed");
+});
+
 app.setName("Tidy");
+const profiles = new MachineProfiles(join(app.getPath("userData"), "remote-machines.json"));
 app.setAboutPanelOptions({ applicationName: "Tidy", applicationVersion: version });
 const ownsWorkspace = app.requestSingleInstanceLock();
 if (!ownsWorkspace) app.quit();
@@ -133,15 +191,125 @@ app
   .then(async () => {
     if (!ownsWorkspace) return;
     if (process.platform === "darwin" && appIcon) app.dock?.setIcon(appIcon);
-    const store = new ProjectStore(
-      join(app.getPath("userData"), "workspace"),
-      "tidy://app/__tidy/assets",
-    );
-    await store.initialize();
-    await store.recover();
-    service = new WorkspaceService(store);
-    registerWorkspaceIPC(service, entryURL);
+    await profiles.initialize();
+    const directory = workspaceHostDirectory();
+    const bundlePath = join(import.meta.dirname, "../host/tidy-host.js");
+    const buildId = createHash("sha256")
+      .update(await readFile(bundlePath))
+      .digest("hex");
+    const acquire = async () => {
+      const backend = await ensureWorkspaceHost({
+        directory,
+        buildId,
+        createService: async () => {
+          const locks = projectLocks();
+          try {
+            await migrateWorkspaceRegistry(
+              join(app.getPath("userData"), "workspace"),
+              join(directory, "workspace"),
+            );
+            const store = new ProjectStore(
+              join(directory, "workspace"),
+              "tidy://app/__tidy/assets",
+              locks.claim,
+            );
+            await store.initialize();
+            await store.recover();
+            return {
+              service: new WorkspaceService(store),
+              release: () => locks.close(),
+            };
+          } catch (error) {
+            locks.close();
+            throw error;
+          }
+        },
+      });
+      if (backend.service) ownedHost = backend;
+      return backend;
+    };
+    const initial = await acquire();
+    const ownsInitialService = Boolean(initial.service);
+    service =
+      initial.service ?? new WorkspaceService(new ProjectStore(join(directory, "unused-local")));
+    let first = true;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("The local workspace backend did not become ready.")),
+        75_000,
+      );
+      localClient = new RemoteClient({
+        machine: {
+          id: initial.host.clientId,
+          target: "This machine",
+          hostId: initial.host.hostId,
+          lastConnectedAt: null,
+        },
+        bundlePath,
+        temporaryDirectory: join(app.getPath("userData"), "ssh"),
+        cachePath: join(app.getPath("userData"), "remote-cache", "local.json"),
+        event: (event) => {
+          if (!ownsInitialService) broadcast("tidy:event", event);
+        },
+        statusChanged: (status) => {
+          if (status.kind === "connected") {
+            clearTimeout(timer);
+            resolve();
+          } else if (status.kind === "blocked") {
+            clearTimeout(timer);
+            reject(new Error(status.message));
+          }
+        },
+        connected: async () => {},
+        connector: async () => {
+          const backend = first ? initial : await acquire();
+          first = false;
+          return {
+            host: backend.host,
+            origin: `http://127.0.0.1:${backend.host.port}`,
+            close() {},
+            onClose() {},
+          };
+        },
+      });
+      localClient.start();
+    });
+    registerWorkspaceIPC(service, entryURL, {
+      get: () => (ownsInitialService ? undefined : localClient),
+      getMachine: (id) => remoteClients.get(id),
+      list: () => [
+        { id: "local", label: "This machine", status: null },
+        ...profiles
+          .list()
+          .filter((machine) => remoteClients.has(machine.id))
+          .map((machine) => ({
+            id: machine.id,
+            label: machine.target,
+            status: remoteClients.get(machine.id)!.status,
+          })),
+      ],
+      open: connectMachine,
+      connectivity: (input) => {
+        for (const client of remoteClients.values())
+          client.wake(input.kind, input.kind === "network" ? input.online : true);
+      },
+      machines: () => profiles.list(),
+      discover: () => discoverSshHosts(),
+      forget: async (id) => {
+        const client = remoteClients.get(id);
+        client?.close();
+        await client?.flush();
+        remoteClients.delete(id);
+        await profiles.forget(id);
+        await rm(join(app.getPath("userData"), "remote-cache", `${id}.json`), { force: true });
+        broadcast("tidy:machines-changed");
+      },
+    });
+    const store = service.store;
     harnessUpdates = new HarnessUpdates({
+      installDisabledReason: ownsInitialService
+        ? undefined
+        : "Agent updates are unavailable while attached to a background backend. Once its agents finish, stop that backend and reopen Tidy to update agents.",
       reserve: (id, options) => service!.reserveHarnessUpdate(id, options),
       installed: invalidateHarnessDetails,
     });
@@ -166,7 +334,7 @@ app
       },
       (url) => shell.openExternal(url),
     );
-    cloud = new CloudService(auth, service, privateState);
+    cloud = new CloudService(auth, service, privateState, undefined, ownsInitialService);
     analytics = new DesktopAnalytics({
       state: new PrivateState(join(app.getPath("userData"), "privacy")),
       origin: auth.origin,
@@ -233,7 +401,7 @@ app
           });
       }
     });
-    registerCloudIPC(cloud, entryURL);
+    registerCloudIPC(cloud, entryURL, service);
     // Do not put credential reads, catch-up, or network access on the first-paint path.
     void cloud.initialize();
     updates = new AppUpdates({
@@ -243,6 +411,10 @@ app
       native: autoUpdater,
       fetch: net.fetch.bind(net),
       async prepareInstall() {
+        if (!ownsInitialService)
+          throw new Error(
+            "Once background agents finish, stop the background backend and reopen Tidy to install this update.",
+          );
         if (harnessUpdates?.busy) throw new Error("Wait for harness updates to finish.");
         const resumeWorkspace = await service!.prepareUpdate();
         const update = Symbol("update");
@@ -292,7 +464,7 @@ app
             request,
             entryURL.startsWith("http") ? new URL(entryURL).origin : undefined,
             (projectId) => service!.assertProjectAccess(projectId),
-            (projectId, assetId) => cloud!.loadAsset(projectId, assetId),
+            (projectId, assetId) => service!.dispatch(() => cloud!.loadAsset(projectId, assetId)),
           );
         if (request.method !== "GET" && request.method !== "HEAD")
           return new Response(null, { status: 405 });
@@ -320,7 +492,21 @@ app
         Boolean(contents && BrowserWindow.fromWebContents(contents)),
     );
 
+    const restore = profiles.list().filter((machine) => machine.restoreOnLaunch);
     await createWindow();
+    powerMonitor.on("suspend", () => {
+      localClient?.suspend();
+      for (const client of remoteClients.values()) client.suspend();
+    });
+    powerMonitor.on("resume", () => {
+      localClient?.wake("resume");
+      for (const client of remoteClients.values()) client.wake("resume");
+    });
+
+    for (const machine of restore)
+      await connectMachine(machine.target).catch(() => {
+        console.error("Could not restore a saved machine connection.");
+      });
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -343,10 +529,18 @@ app.on("before-quit", (event) => {
   if (quitting || !service) return;
   event.preventDefault();
   quitting = "quit";
+  for (const client of remoteClients.values()) client.close();
+  localClient?.close();
+  const closingService = service;
+  const closeWorkspace = async () => {
+    await Promise.all([harnessUpdates?.close(), cloud?.close()]);
+    await (ownedHost ? ownedHost.close() : closingService.close());
+  };
   void Promise.allSettled([
-    service.close(),
-    harnessUpdates?.close(),
-    cloud?.close(),
+    closeWorkspace(),
     analytics?.close(),
+    profiles.flush(),
+    localClient?.flush(),
+    ...[...remoteClients.values()].map((client) => client.flush()),
   ]).finally(() => app.quit());
 });

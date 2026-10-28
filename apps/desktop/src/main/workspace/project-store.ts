@@ -75,12 +75,41 @@ export class ProjectStore {
   private summaryCache = new Map<string, DesignFileSummary>();
   private designReads = new Map<string, Promise<ParsedDesignFile>>();
 
+  private storageClaims = new Map<
+    string,
+    { release(): void; pending: number; retained: boolean }
+  >();
   private authority: ThreadAuthority;
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
+    private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+  }
+
+  private storageClaim(path: string) {
+    let claim = this.storageClaims.get(path);
+    if (!claim) {
+      claim = { release: this.claimProject(path), pending: 0, retained: false };
+      this.storageClaims.set(path, claim);
+    }
+    return claim;
+  }
+
+  private reserveStorage(path: string) {
+    const claim = this.storageClaim(path);
+    claim.pending++;
+    let finished = false;
+    return (retain: boolean) => {
+      if (finished) return;
+      finished = true;
+      claim.retained ||= retain;
+      if (--claim.pending === 0 && !claim.retained) {
+        claim.release();
+        this.storageClaims.delete(path);
+      }
+    };
   }
 
   async initialize() {
@@ -124,39 +153,58 @@ export class ProjectStore {
       openedAt: new Date().toISOString(),
       ...(cloudName ? { cloud: true } : {}),
     };
-    await this.prepare(project);
-    const metadataPath = join(path, ".tidy", "project.json");
+    const finishClaim = this.reserveStorage(path);
     try {
-      await writeFile(metadataPath, JSON.stringify({ version: 1, id: project.id }), {
-        flag: "wx",
-        mode: 0o600,
-      });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      const info = await lstat(metadataPath);
-      if (!info.isFile() || info.isSymbolicLink())
-        throw new Error("Project metadata must be a regular file.");
-      project.id = z.object({ version: z.literal(1), id }).parse(await this.read(metadataPath)).id;
-    }
-    const previous = this.projects.find((item) => item.id === project.id);
-    if (previous && previous.path !== path) {
-      const previousPath = await realpath(previous.path).catch((error) => {
-        if (missing(error)) return null;
-        throw error;
-      });
-      if (previousPath && previousPath !== path) {
-        // A copied identity must not redirect a registered project's active jobs or data.
-        project.id = randomUUID();
-        await this.atomicWrite(metadataPath, { version: 1, id: project.id });
+      await this.prepare(project);
+      const metadataPath = join(path, ".tidy", "project.json");
+      try {
+        await writeFile(metadataPath, JSON.stringify({ version: 1, id: project.id }), {
+          flag: "wx",
+          mode: 0o600,
+        });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        const info = await lstat(metadataPath);
+        if (!info.isFile() || info.isSymbolicLink())
+          throw new Error("Project metadata must be a regular file.");
+        project.id = z
+          .object({ version: z.literal(1), id })
+          .parse(await this.read(metadataPath)).id;
       }
+      const previous = this.projects.find((item) => item.id === project.id);
+      if (previous && previous.path !== path) {
+        const previousPath = await realpath(previous.path).catch((error) => {
+          if (missing(error)) return null;
+          throw error;
+        });
+        if (previousPath && previousPath !== path) {
+          // A copied identity must not redirect a registered project's active jobs or data.
+          project.id = randomUUID();
+          await this.atomicWrite(metadataPath, { version: 1, id: project.id });
+        }
+      }
+      const previousRegistry = this.registry;
+      const nextRegistry = {
+        ...previousRegistry,
+        projects: [project, ...this.projects.filter((item) => item.id !== project.id)].slice(
+          0,
+          100,
+        ),
+        activeProjectId: cloudName ? previousRegistry.activeProjectId : project.id,
+      };
+      this.registry = nextRegistry;
+      try {
+        await this.writeRegistry();
+      } catch (error) {
+        if (this.registry === nextRegistry) this.registry = previousRegistry;
+        throw error;
+      }
+      finishClaim(true);
+      return project;
+    } catch (error) {
+      finishClaim(false);
+      throw error;
     }
-    this.registry.projects = [
-      project,
-      ...this.projects.filter((item) => item.id !== project.id),
-    ].slice(0, 100);
-    if (!cloudName) this.registry.activeProjectId = project.id;
-    await this.writeRegistry();
-    return project;
   }
 
   async select(projectId: string) {
@@ -230,6 +278,8 @@ export class ProjectStore {
         if (!missing(error)) throw error;
       }
     }
+    const claim = this.storageClaim(project.path);
+    if (claim.pending === 0) claim.retained = true;
     return path;
   }
 
@@ -708,7 +758,9 @@ export class ProjectStore {
 
   async recover() {
     for (const project of this.projects) {
+      let finishClaim: ((retain: boolean) => void) | undefined;
       try {
+        finishClaim = this.reserveStorage(await realpath(project.path));
         await this.prepare(project);
         const summaries = await this.threadSummaries(project.id);
         for (const summary of summaries) {
@@ -717,14 +769,19 @@ export class ProjectStore {
           await this.writeThread({
             ...thread,
             status: "interrupted",
+            revision: thread.revision + 1,
+            pendingApprovals: undefined,
             activity: undefined,
             toolActivities: thread.toolActivities?.map((tool) =>
               tool.status === "running" ? { ...tool, status: "interrupted" as const } : tool,
             ),
-            error: "The app closed during this run. Send a message to continue.",
+            error:
+              "The backend stopped during this run. Check the workspace before sending a message to continue.",
           });
         }
+        finishClaim(true);
       } catch {
+        finishClaim?.(false);
         /* A removable or renamed project can be opened again later. */
       }
     }

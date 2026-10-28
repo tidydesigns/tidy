@@ -25,7 +25,7 @@ export const projectSnapshotSchema = z.object({
   folders: z.array(folderSchema),
 });
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
-const responseSchemas = {
+export const workspaceResponseSchemas = {
   bootstrap: z.object({
     projects: z.array(projectSchema),
     activeProject: projectSnapshotSchema.nullable(),
@@ -61,9 +61,10 @@ const responseSchemas = {
   "rename-design-folder": folderSchema,
   "upload-design-asset": z.object({ assetId: z.string(), url: z.string() }),
 };
-export type WorkspaceOperation = keyof typeof responseSchemas;
+export const workspaceOperationSchema = z.object(workspaceResponseSchemas).keyof();
+export type WorkspaceOperation = keyof typeof workspaceResponseSchemas;
 export type WorkspaceResponse<Name extends WorkspaceOperation> = z.output<
-  (typeof responseSchemas)[Name]
+  (typeof workspaceResponseSchemas)[Name]
 >;
 const envelopeSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), data: z.unknown().optional() }),
@@ -76,7 +77,7 @@ export function parseWorkspaceResponse<Name extends WorkspaceOperation>(
   const envelope = envelopeSchema.safeParse(value);
   if (!envelope.success) throw new Error("Invalid desktop response.");
   if (!envelope.data.ok) throw new Error(envelope.data.error);
-  const result = responseSchemas[name].safeParse(envelope.data.data);
+  const result = workspaceResponseSchemas[name].safeParse(envelope.data.data);
   if (!result.success) throw new Error("Invalid desktop response.");
   return result.data as WorkspaceResponse<Name>;
 }

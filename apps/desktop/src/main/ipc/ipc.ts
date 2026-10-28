@@ -1,13 +1,24 @@
+import { openConnectedChatLink } from "../workspace/chat-links";
+import { discoverTailnet } from "../remote/tailscale";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
 import { basename } from "node:path";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { trustedRendererURL } from "../app/renderer-security";
 import { readLocalFile } from "../platform/local-files";
 import { createWorkspaceRequests } from "./workspace-requests";
+import {
+  machineIdSchema,
+  type WorkspaceMachine,
+  remoteTargetSchema,
+  type RemoteMachine,
+} from "../../shared/remote";
+import type { RemoteClient } from "../remote/client";
+import { z } from "zod";
+import { workspaceOperationSchema } from "../../shared/contracts/workspace-response";
+
 import type { AppUpdates } from "../app/app-updates";
 import type { HarnessUpdates } from "../harnesses/harness-updates";
 import { updatableHarnessIdSchema } from "../../shared/contracts/harness-updates";
-import { z } from "zod";
 import { projectSnapshotSchema } from "../../shared/contracts/workspace-response";
 import {
   cloudAccountSchema,
@@ -21,7 +32,11 @@ import {
 } from "../../shared/contracts/cloud-sync";
 
 /** Native cloud actions have their own main-frame boundary; no tokens cross IPC. */
-export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
+export function registerCloudIPC(
+  cloud: CloudAPI,
+  rendererURL: string,
+  workspace: WorkspaceService,
+) {
   function endpoint<I extends unknown[], O>(
     input: z.ZodType<I>,
     output: z.ZodType<O>,
@@ -87,7 +102,7 @@ export function registerCloudIPC(cloud: CloudAPI, rendererURL: string) {
   for (const [name, invoke] of Object.entries(actions))
     ipcMain.handle(`tidy:cloud-${name}`, async (event, ...args: unknown[]) => {
       if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
-      return invoke(args);
+      return workspace.dispatch<unknown>(() => invoke(args));
     });
   return cloud.onState((state) => {
     for (const window of BrowserWindow.getAllWindows())
@@ -155,8 +170,140 @@ export function registerUpdateIPC(updates: AppUpdates, rendererURL: string) {
   });
 }
 
-/** Register validated workspace operations and forward events only to trusted app renderers. */
-export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: string) {
+export function registerWorkspaceIPC(
+  service: WorkspaceService,
+  rendererURL: string,
+  remote: {
+    get(id: number): RemoteClient | undefined;
+    getMachine?(id: string): RemoteClient | undefined;
+    list?(): WorkspaceMachine[];
+    connectivity?(input: { kind: "network"; online: boolean } | { kind: "network-changed" }): void;
+    open(target: string): Promise<void>;
+    machines(): RemoteMachine[];
+    discover(): Promise<{ alias: string }[]>;
+    forget(id: string): Promise<void>;
+  } = {
+    get: () => undefined,
+    open: async () => {
+      throw new Error("Remote setup is unavailable.");
+    },
+    machines: () => [],
+    discover: async () => [],
+    forget: async () => {},
+  },
+) {
+  function trusted(event: Pick<IpcMainInvokeEvent, "sender" | "senderFrame">) {
+    if (
+      !BrowserWindow.fromWebContents(event.sender) ||
+      event.senderFrame !== event.sender.mainFrame ||
+      !trustedRendererURL(event.senderFrame.url, rendererURL)
+    )
+      throw new Error("Untrusted desktop request.");
+  }
+  function clientFor(event: IpcMainInvokeEvent, scope: unknown) {
+    if (scope === undefined) return remote.get(event.sender.id);
+    const id = machineIdSchema.parse(scope);
+    if (id === "local") return remote.get(event.sender.id);
+    const client = remote.getMachine?.(id);
+    if (!client) throw new Error("This machine is not connected. Reconnect it before continuing.");
+    return client;
+  }
+  ipcMain.on("tidy:connectivity", (event, value: unknown) => {
+    try {
+      trusted(event);
+      const input = z
+        .discriminatedUnion("kind", [
+          z.object({ kind: z.literal("network"), online: z.boolean() }).strict(),
+          z.object({ kind: z.literal("network-changed") }).strict(),
+        ])
+        .parse(value);
+      remote.connectivity?.(input);
+    } catch {}
+  });
+  ipcMain.handle("tidy:machine-list", (event) => {
+    trusted(event);
+    return remote.list?.() ?? null;
+  });
+  ipcMain.handle("tidy:remote-connect", async (event, target: unknown) => {
+    trusted(event);
+    const destination = remoteTargetSchema.safeParse(target);
+    if (!destination.success) throw new Error("Enter an SSH alias or user@hostname.");
+    await remote.open(destination.data);
+  });
+  ipcMain.handle("tidy:remote-machines", (event) => {
+    trusted(event);
+    return remote.machines();
+  });
+  ipcMain.handle("tidy:remote-tailnet", (event) => {
+    trusted(event);
+    return discoverTailnet();
+  });
+  ipcMain.handle("tidy:remote-discover", (event) => {
+    trusted(event);
+    return remote.discover();
+  });
+  ipcMain.handle("tidy:remote-forget", (event, id: unknown) => {
+    trusted(event);
+    return remote.forget(z.string().uuid().parse(id));
+  });
+  ipcMain.handle("tidy:remote-retry", (event, scope: unknown) => {
+    trusted(event);
+    clientFor(event, scope)?.retry();
+  });
+  ipcMain.handle("tidy:remote-verify", async (event, id: unknown, scope: unknown) => {
+    trusted(event);
+    const client = clientFor(event, scope);
+    if (!client) throw new Error("No remote connection.");
+    await shell.openExternal(client.verificationURL(z.string().uuid().parse(id)));
+  });
+  ipcMain.handle("tidy:remote-cancel-verification", (event, id: unknown, scope: unknown) => {
+    trusted(event);
+    clientFor(event, scope)?.cancelVerification(z.string().uuid().parse(id));
+  });
+  ipcMain.handle("tidy:remote-activity", (event, input: unknown, scope: unknown) => {
+    trusted(event);
+    const activity = z
+      .discriminatedUnion("kind", [
+        z.object({ kind: z.literal("active") }).strict(),
+        z.object({ kind: z.literal("network"), online: z.boolean() }).strict(),
+      ])
+      .parse(input);
+    clientFor(event, scope)?.wake(
+      activity.kind,
+      activity.kind === "network" ? activity.online : true,
+    );
+  });
+  ipcMain.handle("tidy:remote-authenticate", (event, input: unknown, scope: unknown) => {
+    trusted(event);
+    const client = clientFor(event, scope);
+    if (!client) throw new Error("No remote connection.");
+    client.authenticate(
+      z
+        .object({ promptId: z.string().uuid(), answer: z.string().max(4096).nullable() })
+        .strict()
+        .parse(input),
+    );
+  });
+  ipcMain.handle("tidy:remote-status", (event, scope: unknown) => {
+    trusted(event);
+    return scope === undefined ? null : (clientFor(event, scope)?.status ?? null);
+  });
+  ipcMain.handle("tidy:remote-directories", async (event, path: unknown, scope: unknown) => {
+    trusted(event);
+    const projectPath = z.string().max(4096).parse(path);
+    return clientFor(event, scope)?.request(
+      "directories",
+      undefined,
+      projectPath ? { projectPath } : {},
+    );
+  });
+  ipcMain.handle("tidy:remote-open-project", async (event, path: unknown, scope: unknown) => {
+    trusted(event);
+    const projectPath = z.string().min(1).max(4096).startsWith("/").parse(path);
+    const client = clientFor(event, scope);
+    if (!client) throw new Error("No remote connection.");
+    return { ok: true, data: await client.operation("open-project", undefined, { projectPath }) };
+  });
   ipcMain.handle("tidy:reload-app", (event, ...args: unknown[]) => {
     if (!trustedRequest(event, rendererURL) || args.length)
       throw new Error("Untrusted desktop request.");
@@ -164,15 +311,15 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
       if (!event.sender.isDestroyed() && trustedRequest(event, rendererURL)) event.sender.reload();
     });
   });
-  const requests = createWorkspaceRequests<IpcMainInvokeEvent>(service, {
-    async chooseProject(event) {
+  const platform = {
+    async chooseProject(event: IpcMainInvokeEvent) {
       const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
         title: "Open project",
         properties: ["openDirectory"],
       });
       return result.canceled ? null : (result.filePaths[0] ?? null);
     },
-    async chooseDesign(event) {
+    async chooseDesign(event: IpcMainInvokeEvent) {
       const result = await dialog.showOpenDialog(BrowserWindow.fromWebContents(event.sender)!, {
         title: "Import Tidy design",
         properties: ["openFile"],
@@ -185,26 +332,84 @@ export function registerWorkspaceIPC(service: WorkspaceService, rendererURL: str
         document: JSON.parse((await readLocalFile(file)).toString("utf8")) as unknown,
       };
     },
-    openExternal: (url) => shell.openExternal(url),
-    showItemInFolder: (path) => shell.showItemInFolder(path),
-  });
-  for (const name of requests.names) {
-    ipcMain.handle(`tidy:${name}`, async (event, input: unknown) => {
-      try {
-        if (!trustedRequest(event, rendererURL)) throw new Error("Untrusted desktop request.");
-        return { ok: true, data: await requests.invoke(name, input, event) };
-      } catch (error) {
+    openExternal: (url: string) => shell.openExternal(url),
+    showItemInFolder: (path: string) => shell.showItemInFolder(path),
+  };
+  const requests = createWorkspaceRequests(service, platform);
+  async function invoke(
+    event: IpcMainInvokeEvent,
+    name: import("../../shared/contracts/workspace-response").WorkspaceOperation,
+    input: unknown,
+    scope?: unknown,
+  ) {
+    try {
+      trusted(event);
+      const client = clientFor(event, scope);
+      if (client && name === "open-chat-link") {
+        await openConnectedChatLink({
+          input,
+          platform,
+          getLocalProjectRoot:
+            scope === undefined || scope === "local"
+              ? async (projectId) => {
+                  const snapshot = projectSnapshotSchema.parse(
+                    await client.operation("project-snapshot", projectId),
+                  );
+                  if (snapshot.project.id !== projectId)
+                    throw new Error("The project identity does not match.");
+                  return snapshot.project.path;
+                }
+              : undefined,
+        });
+        return { ok: true, data: undefined };
+      }
+      if (client && name !== "harness-usage-page") {
+        const file = name === "import-design" ? await platform.chooseDesign(event) : undefined;
+        if (name === "import-design" && !file) return { ok: true, data: null };
+        const projectPath =
+          name === "open-project" && (scope === undefined || scope === "local")
+            ? await platform.chooseProject(event)
+            : undefined;
+        if (name === "open-project" && projectPath === null) return { ok: true, data: null };
         return {
-          ok: false,
-          error: error instanceof Error ? error.message : "The operation could not be completed.",
+          ok: true,
+          data: await client.operation(
+            name,
+            input,
+            file ? { file } : projectPath ? { projectPath } : undefined,
+          ),
         };
       }
-    });
+      return { ok: true, data: await requests.invoke(name, input, event) };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "The operation could not be completed.",
+      };
+    }
+  }
+  ipcMain.handle("tidy:workspace", (event, value: unknown) => {
+    trusted(event);
+    const request = z
+      .object({
+        machineId: machineIdSchema.optional(),
+        name: workspaceOperationSchema,
+        input: z.unknown().optional(),
+      })
+      .strict()
+      .parse(value);
+    return invoke(event, request.name, request.input, request.machineId);
+  });
+  for (const name of requests.names) {
+    ipcMain.handle(`tidy:${name}`, (event, input: unknown) =>
+      invoke(event, workspaceOperationSchema.parse(name), input),
+    );
   }
   return service.subscribeRenderer((event) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (
         !window.isDestroyed() &&
+        !remote.get(window.webContents.id) &&
         trustedRendererURL(window.webContents.mainFrame.url, rendererURL)
       )
         window.webContents.send("tidy:event", event);

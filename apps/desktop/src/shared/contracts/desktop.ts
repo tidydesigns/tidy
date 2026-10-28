@@ -100,6 +100,7 @@ export const threadSummarySchema = liveThreadSchema
     queuedMessageCount: z.number().int().nonnegative().optional(),
   });
 export const desktopEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("thread-summary"), thread: threadSummarySchema }),
   z.object({ type: z.literal("thread"), thread: liveThreadSchema }),
   z.object({
     type: z.literal("thread-patch"),
@@ -163,6 +164,7 @@ export type DesktopAPI = {
   installUpdate(): Promise<void>;
   onUpdate(listener: (state: AppUpdateState) => void): () => void;
   bootstrap(): Promise<Bootstrap>;
+  projectSnapshot?(projectId: string): Promise<ProjectSnapshot>;
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
   checkHarnesses(): Promise<HarnessConnection[]>;

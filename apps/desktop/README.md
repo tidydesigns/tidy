@@ -110,6 +110,14 @@ No deployment happens during development or tests.
 Live push notifications, project folder/name/deletion sync, automatic three-way
 merges and large-document latency measurements remain follow-up work.
 
+## Remote machines
+
+Remote backend installation, SSH transport, reconnection and machine-scoped IPC are implemented.
+Open **Settings → Remote machines** to add an SSH destination and manage its connection.
+Remote project and thread selection UI is still deferred; connecting does not move existing chats.
+The remote backend continues running when the desktop disconnects.
+See [backend installation and connection setup](REMOTE.md).
+
 ## Projects and threads
 
 1. Open a project directory, or choose a recent project from the top-left picker.
