@@ -63,7 +63,7 @@ test("copies selected designs and non-image attachments between real project sto
     "notes.txt",
     "data:text/plain;base64,aGVsbG8=",
   );
-  const draft = await copyDraft({
+  const { draft } = await copyDraft({
     api: {
       exportAttachment: async (projectId, attachmentId) =>
         parseWorkspaceResponse("export-attachment", {
@@ -88,11 +88,11 @@ test("copies selected designs and non-image attachments between real project sto
       },
     },
     target: {
-      addAttachment: (projectId, name, dataUrl) =>
-        target.store.addAttachment(projectId, name, dataUrl),
-      uploadDesignAsset: (projectId, dataUrl) => target.store.uploadDesignAsset(projectId, dataUrl),
-      createDesign: (projectId) => target.store.createDesign(projectId),
-      updateDesign: (input) => target.store.updateDesign(input),
+      importDraft: async (input) =>
+        parseWorkspaceResponse("import-draft", {
+          ok: true,
+          data: await target.requests.invoke("import-draft", input, {}),
+        }),
     },
     projectId: target.project.id,
   });
@@ -157,11 +157,11 @@ test("cancelling after a source read prevents writes to the destination", async 
       draft: { text: "Keep this draft", harness: "codex", designIds: [design.id] },
     },
     target: {
-      addAttachment: (projectId, name, dataUrl) =>
-        target.store.addAttachment(projectId, name, dataUrl),
-      uploadDesignAsset: (projectId, dataUrl) => target.store.uploadDesignAsset(projectId, dataUrl),
-      createDesign: (projectId) => target.store.createDesign(projectId),
-      updateDesign: (input) => target.store.updateDesign(input),
+      importDraft: async (input) =>
+        parseWorkspaceResponse("import-draft", {
+          ok: true,
+          data: await target.requests.invoke("import-draft", input, {}),
+        }),
     },
     projectId: target.project.id,
     signal: controller.signal,
@@ -182,4 +182,20 @@ test("project setup cannot reclassify a registered cloud workspace as local", as
     ),
   ).rejects.toThrow("cloud workspace");
   expect(source.store.project(source.project.id).cloud).toBe(true);
+});
+
+test("draft imports require current project access before staging", async () => {
+  const target = await fixture();
+  await target.store.register(target.project.path, "Shared workspace");
+  await expect(
+    target.requests.invoke(
+      "import-draft",
+      {
+        projectId: target.project.id,
+        attachments: [],
+        designs: [],
+      },
+      {},
+    ),
+  ).rejects.toThrow("Open this cloud workspace");
 });

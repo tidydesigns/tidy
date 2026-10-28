@@ -19,6 +19,12 @@ If the destination already has a draft, choose whether to keep it or replace it 
 The prompt and model selection stay with the draft. Selected design references, their images,
 and attachments are copied into the destination project with new host-local IDs. No other
 project files, environment files, credentials, dependencies or processes are transferred.
+
+Reference transfers are limited to 28 MB per batch. The destination stages the complete batch
+before publishing it with new IDs. Failed imports remove only their own files; private ownership
+records let the backend clean up interrupted imports when the project is opened again. Project
+access is checked again before publication and commit. Setup stays open during the final import.
+If the connection drops, the existing command receipt recovers its result without repeating it.
 Cloning uses Git credentials already configured on the destination and never replaces an
 existing folder. Closing a cloning dialog leaves that operation running in the background.
 

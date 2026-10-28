@@ -1,8 +1,13 @@
+import {
+  draftImportSchema,
+  MAX_DRAFT_IMPORT_BYTES,
+} from "../../../../shared/contracts/draft-import";
 import { UserFacingError } from "@tidy/ui/errors";
 import type {
   Bootstrap,
   DesktopAPI,
   Project,
+  ProjectSnapshot,
   HarnessId,
 } from "../../../../shared/contracts/desktop";
 import type { AttachedFile } from "../../../../shared/contracts/attachments";
@@ -40,61 +45,68 @@ export async function copyDraft({
   target,
   projectId,
   signal,
+  onImport,
 }: {
   api: Pick<DesktopAPI, "exportAttachment" | "exportDesign">;
   source: MachineSelection;
-  target: Pick<DesktopAPI, "addAttachment" | "uploadDesignAsset" | "createDesign" | "updateDesign">;
+  target: Pick<DesktopAPI, "importDraft">;
   projectId: string;
   signal?: AbortSignal;
-}): Promise<Draft> {
+  onImport?(): void;
+}): Promise<{ draft: Draft; snapshot: ProjectSnapshot | null }> {
   signal?.throwIfAborted();
   const attachments = [];
+  const designs = [];
+  let size = 0;
+  function bound(value: unknown) {
+    size += new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    if (size > MAX_DRAFT_IMPORT_BYTES)
+      throw new UserFacingError(
+        "These references are too large to move together. Remove some references and try again.",
+      );
+  }
   for (const attachment of source.draft.attachments ?? []) {
     if (!api.exportAttachment)
       throw new UserFacingError("Update Tidy on the source machine to copy attachments.");
-    signal?.throwIfAborted();
     const file = await api.exportAttachment(source.contextProjectId, attachment.id);
     signal?.throwIfAborted();
-    attachments.push(await target.addAttachment(projectId, file.name, file.dataUrl));
+    bound(file);
+    attachments.push(file);
   }
-  const designIds: string[] = [];
   for (const id of source.draft.designIds) {
     if (!api.exportDesign)
       throw new UserFacingError("Update Tidy on the source machine to copy design references.");
+    const { name, document, assets } = await api.exportDesign(source.contextProjectId, id);
     signal?.throwIfAborted();
-    const design = await api.exportDesign(source.contextProjectId, id);
-    const assets = new Map<string, string>();
-    for (const [assetId, dataUrl] of Object.entries(design.assets)) {
-      signal?.throwIfAborted();
-      const imported = await target.uploadDesignAsset(projectId, dataUrl);
-      assets.set(assetId, imported.assetId);
-    }
-    const { parseDesignDocument } = await import("@tidy/design/document");
-    const document = parseDesignDocument(
-      JSON.parse(
-        JSON.stringify(design.document, (key, value: unknown) =>
-          key === "assetId" && typeof value === "string" ? (assets.get(value) ?? value) : value,
-        ),
-      ),
-    );
-    signal?.throwIfAborted();
-    const created = await target.createDesign(projectId);
-    signal?.throwIfAborted();
-    const imported = await target.updateDesign({
-      projectId,
-      designId: created.id,
-      expectedVersion: created.version,
-      name: design.name,
-      document,
-    });
-    designIds.push(imported.id);
+    const design = { name, document, assets };
+    bound(design);
+    designs.push(design);
+  }
+  signal?.throwIfAborted();
+  let imported;
+  if (attachments.length || designs.length) {
+    const importDraft = target.importDraft;
+    if (!importDraft)
+      throw new UserFacingError(
+        "Update Tidy on the destination machine to copy references safely.",
+      );
+    const input = draftImportSchema.safeParse({ projectId, attachments, designs });
+    if (!input.success)
+      throw new UserFacingError(
+        input.error.issues[0]?.message ?? "These references could not be copied.",
+      );
+    onImport?.();
+    imported = await importDraft(input.data);
   }
   return {
-    ...source.draft,
-    attachments,
-    designIds,
-    cloudFileIds: undefined,
-    executionProjectId: undefined,
-    skill: undefined,
+    snapshot: imported?.snapshot ?? null,
+    draft: {
+      ...source.draft,
+      attachments: imported?.attachments ?? [],
+      designIds: imported?.designIds ?? [],
+      cloudFileIds: undefined,
+      executionProjectId: undefined,
+      skill: undefined,
+    },
   };
 }

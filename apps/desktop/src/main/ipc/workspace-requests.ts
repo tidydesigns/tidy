@@ -1,3 +1,5 @@
+import { DraftImports } from "../workspace/draft-imports";
+import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { branchNameSchema } from "../../shared/contracts/repository-context";
 import { readLocalFile } from "../platform/local-files";
 import {
@@ -31,6 +33,7 @@ export function createWorkspaceRequests<Context>(
   platform: WorkspacePlatform<Context>,
 ) {
   const store = service.store;
+  const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
   const projectId = uuid;
   const handlers = new Map<string, (input: unknown, context: Context) => Promise<unknown>>();
@@ -94,8 +97,12 @@ export function createWorkspaceRequests<Context>(
       throw new Error("Open this cloud workspace through your account instead.");
     const snapshot = await store.open(result.path);
     await service.assertProjectAccess(snapshot.project.id);
+    await imports.recover(snapshot.project.id);
     await service.observe(snapshot.project.id);
-    return { kind: "ready", snapshot: liveSnapshot(snapshot) } as const;
+    return {
+      kind: "ready",
+      snapshot: liveSnapshot(await store.snapshot(snapshot.project.id)),
+    } as const;
   });
   handle(
     "export-attachment",
@@ -127,6 +134,7 @@ export function createWorkspaceRequests<Context>(
     }
     return { ...design, assets };
   });
+  handle("import-draft", draftImportSchema, (input) => imports.import(input));
   handle("bootstrap", z.undefined(), async () => {
     const harnesses = checkHarnesses();
     let activeProject = null;
@@ -135,6 +143,7 @@ export function createWorkspaceRequests<Context>(
       store.projects.some((project) => project.id === store.activeProjectId && !project.cloud)
     ) {
       try {
+        await imports.recover(store.activeProjectId);
         activeProject = liveSnapshot(await store.snapshot(store.activeProjectId));
         await service.observe(store.activeProjectId);
       } catch {
@@ -151,11 +160,13 @@ export function createWorkspaceRequests<Context>(
     const path = await platform.chooseProject(event);
     if (!path) return null;
     const snapshot = await store.open(path);
+    await imports.recover(snapshot.project.id);
     await service.observe(snapshot.project.id);
-    return liveSnapshot(snapshot);
+    return liveSnapshot(await store.snapshot(snapshot.project.id));
   });
   handle("project-snapshot", projectId, async (value) => liveSnapshot(await store.snapshot(value)));
   handle("select-project", projectId, async (value) => {
+    await imports.recover(value);
     const snapshot = await store.select(value);
     await service.observe(value);
     return liveSnapshot(snapshot);

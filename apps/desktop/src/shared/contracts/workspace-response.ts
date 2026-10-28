@@ -1,3 +1,4 @@
+import { draftImportResultSchema } from "./draft-import";
 import { repositoryContextSchema } from "./repository-context";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
 import { directorySchema } from "./browser-directory";
@@ -38,6 +39,7 @@ export const workspaceResponseSchemas = {
   "setup-project": projectSetupResultSchema,
   "export-attachment": z.object({ name: z.string().max(200), dataUrl: z.string().max(28_000_000) }),
   "export-design": localDesignSchema,
+  "import-draft": draftImportResultSchema.extend({ snapshot: projectSnapshotSchema }),
   bootstrap: z.object({
     projects: z.array(projectSchema),
     activeProject: projectSnapshotSchema.nullable(),

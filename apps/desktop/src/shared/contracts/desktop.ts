@@ -159,6 +159,9 @@ export type DesktopAPI = {
     attachmentId: string,
   ): Promise<{ name: string; dataUrl: string }>;
   exportDesign?(projectId: string, designId: string): Promise<LocalDesign>;
+  importDraft?(
+    input: import("./draft-import").DraftImport,
+  ): Promise<import("./workspace-response").WorkspaceResponse<"import-draft">>;
   reloadApp?(): Promise<void>;
   analytics?: import("@tidy/design/analytics").AnalyticsAPI;
   /** The native window controls overlay the renderer on macOS. Absent in browser development. */

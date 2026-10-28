@@ -55,6 +55,7 @@ function workspaceApi(machineId?: string): DesktopAPI {
     exportAttachment: (projectId, attachmentId) =>
       scopedRequest("export-attachment", { projectId, attachmentId }),
     exportDesign: (projectId, designId) => scopedRequest("export-design", { projectId, designId }),
+    importDraft: (input) => scopedRequest("import-draft", input),
     reloadApp: async () => {
       await ipcRenderer.invoke("tidy:reload-app");
     },

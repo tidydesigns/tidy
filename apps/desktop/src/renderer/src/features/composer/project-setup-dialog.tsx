@@ -80,6 +80,7 @@ export function ProjectSetupDialog({
   onReady(value: PreparedWorkspace): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const consumedSetup = useRef<Promise<ProjectSetupResult> | undefined>(undefined);
   const titleId = useId();
   const descriptionId = useId();
   const [catalog, setCatalog] = useState<Catalog>({ kind: "loading" });
@@ -95,7 +96,7 @@ export function ProjectSetupDialog({
     null,
   );
   const transfer = useRef(new AbortController());
-  const [working, setWorking] = useState<"setup" | "copy" | null>(null);
+  const [working, setWorking] = useState<"setup" | "copy" | "import" | null>(null);
   const [browsing, setBrowsing] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const directories = useRef(new Map<string, Promise<Directory>>());
@@ -103,6 +104,8 @@ export function ProjectSetupDialog({
   const live = useRef(true);
   const operation = useRef(false);
   const ready = machine.id === "local" || machine.status?.kind === "connected";
+  const preparing = ready || working === "import";
+  const copying = working === "copy" || working === "import";
   useEffect(() => {
     live.current = true;
     dialog.current?.showModal();
@@ -174,20 +177,21 @@ export function ProjectSetupDialog({
     }
     setDraftConflict(null);
     setWorking("copy");
-    const draft =
-      draftChoice === "keep"
-        ? existing
-        : source
-          ? await copyDraft({
-              api: sourceAPI,
-              source,
-              target: api,
-              projectId: snapshot.project.id,
-              signal,
-            })
-          : undefined;
+    let activeProject = source ? await api.selectProject(snapshot.project.id) : snapshot;
     signal.throwIfAborted();
-    const activeProject = draft ? await api.selectProject(snapshot.project.id) : snapshot;
+    const copied =
+      source && draftChoice !== "keep"
+        ? await copyDraft({
+            api: sourceAPI,
+            source,
+            target: api,
+            projectId: snapshot.project.id,
+            signal,
+            onImport: () => setWorking("import"),
+          })
+        : null;
+    const draft = draftChoice === "keep" ? existing : copied?.draft;
+    activeProject = copied?.snapshot ?? activeProject;
     if (live.current && !signal.aborted)
       onReady({
         bootstrap: {
@@ -204,7 +208,7 @@ export function ProjectSetupDialog({
   }
 
   useEffect(() => {
-    if (!ready) return;
+    if (!preparing) return;
     let active = true;
     const controller = new AbortController();
     transfer.current = controller;
@@ -237,14 +241,24 @@ export function ProjectSetupDialog({
       );
       const automatic = preferred?.projectId ?? (matches.length === 1 ? matches[0] : undefined);
       setCatalog({ kind: "ready", bootstrap, matches });
-      if (pendingSetup) {
+      if (pendingSetup && consumedSetup.current !== pendingSetup) {
         operation.current = true;
         setMode("clone");
         setWorking("setup");
-        const result = await pendingSetup;
-        if (!active) return;
-        if (result.kind !== "ready") throw new UserFacingError(setupIssueText(result));
-        await finish({ snapshot: result.snapshot, bootstrap, signal });
+        try {
+          const result = await pendingSetup;
+          consumedSetup.current = pendingSetup;
+          if (!active) return;
+          if (result.kind !== "ready") throw new UserFacingError(setupIssueText(result));
+          await finish({ snapshot: result.snapshot, bootstrap, signal });
+        } catch (cause) {
+          consumedSetup.current = pendingSetup;
+          if (!active || isCancellation(cause)) return;
+          operation.current = false;
+          setWorking(null);
+          await browse("");
+          if (active) setError(errorText(cause));
+        }
       } else if (automatic) {
         operation.current = true;
         setWorking("copy");
@@ -267,7 +281,7 @@ export function ProjectSetupDialog({
       }
     }
     void prepare().catch((cause: unknown) => {
-      if (active && !isCancellation(cause)) {
+      if (active && live.current && !isCancellation(cause)) {
         setError(errorText(cause));
         setCatalog({ kind: "error" });
         setWorking(null);
@@ -278,7 +292,7 @@ export function ProjectSetupDialog({
       active = false;
       controller.abort();
     };
-  }, [api, sourceAPI, source, ready, attempt]);
+  }, [api, sourceAPI, source, preparing, attempt]);
 
   async function chooseProject(id: string) {
     if (catalog.kind !== "ready" || operation.current) return;
@@ -377,6 +391,7 @@ export function ProjectSetupDialog({
         )
       : [];
   function close() {
+    if (working === "import") return;
     if (working === "setup" && mode === "clone")
       showToast(`Cloning continues on ${machine.label}.`, "info");
     onClose();
@@ -409,7 +424,7 @@ export function ProjectSetupDialog({
             {source ? `Set up ${source.project.name}` : "Choose a project"}
           </h2>
           <p id={descriptionId} className="mt-1.5 mb-0 text-[13px] leading-5 text-muted-ink">
-            {working === "copy"
+            {copying
               ? "Copying your draft to this machine…"
               : source
                 ? catalog.kind !== "ready"
@@ -423,6 +438,7 @@ export function ProjectSetupDialog({
         <Button
           className="quiet-button -mr-2 -mt-1 grid size-8 shrink-0 place-items-center rounded-md text-muted-ink hover:bg-hover-surface"
           aria-label="Close project setup"
+          disabled={working === "import"}
           onClick={close}
         >
           ×
@@ -462,11 +478,9 @@ export function ProjectSetupDialog({
             {machine.status?.kind === "reconnecting" ? "reconnecting" : "unavailable"}. Reconnect it
             in Settings under Remote machines.
           </p>
-        ) : catalog.kind === "loading" ||
-          working === "copy" ||
-          (working === "setup" && pendingSetup) ? (
+        ) : catalog.kind === "loading" || copying || (working === "setup" && pendingSetup) ? (
           <p role="status" className="m-0 text-[13px] text-muted-ink">
-            {working === "copy"
+            {copying
               ? "Copying selected references and attachments…"
               : working === "setup"
                 ? "Cloning repository…"

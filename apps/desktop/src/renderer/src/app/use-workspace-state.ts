@@ -28,6 +28,7 @@ export function useWorkspaceState({
   connection?: string;
 }) {
   const initialBootstrap = useRef(initial);
+  const loaded = useRef(Boolean(initial));
   const [loading, setLoading] = useState(!initial);
   const [projects, setProjects] = useState<Project[]>(initial?.projects ?? []);
   const [activeProjectId, setActiveProjectId] = useSessionState(
@@ -104,7 +105,8 @@ export function useWorkspaceState({
       return;
     }
     let mounted = true;
-    let bootstrapping = true;
+    const refresh = connection !== "offline" || !loaded.current;
+    let bootstrapping = refresh;
     const initialEvents = new Map<string, DesktopEvent>();
     const unsubscribe = api.onEvent((event) => {
       if (!mounted) return;
@@ -140,12 +142,21 @@ export function useWorkspaceState({
         return next === entry ? current : { ...current, [projectId]: next };
       });
     });
+    if (!refresh) {
+      initialBootstrap.current = undefined;
+      setLoading(false);
+      return () => {
+        mounted = false;
+        unsubscribe();
+      };
+    }
     const initialNavigation = navigation.current;
     const prepared = initialBootstrap.current;
     initialBootstrap.current = undefined;
     void (prepared ? Promise.resolve(prepared) : api.bootstrap())
       .then(async (value) => {
         if (!mounted) return;
+        loaded.current = true;
         setProjects(value.projects.filter((p) => !p.cloud));
         setHarnesses(value.harnesses);
         let activeProject = value.activeProject;

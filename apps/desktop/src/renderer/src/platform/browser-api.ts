@@ -62,6 +62,7 @@ const api: DesktopAPI = {
   exportAttachment: (projectId, attachmentId) =>
     request("export-attachment", { projectId, attachmentId }),
   exportDesign: (projectId, designId) => request("export-design", { projectId, designId }),
+  importDraft: (input) => request("import-draft", input),
   /** Browser development has no native harness discovery or maintenance endpoint. */
   harnessUpdates: async () => [],
   /** Reject native update requests explicitly instead of exposing them through the dev server. */

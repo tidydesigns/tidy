@@ -126,6 +126,10 @@ export class ProjectStore {
     }
   }
 
+  get draftImportDirectory() {
+    return join(this.directory, "draft-imports");
+  }
+
   get projects() {
     return this.registry.projects;
   }
