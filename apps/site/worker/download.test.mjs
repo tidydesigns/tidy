@@ -156,6 +156,28 @@ describe("latest desktop beta download", () => {
     expect((await handler(click())).status).toBe(503);
   });
 
+  test("cancels unused upstream error bodies even if cancellation itself fails", async () => {
+    for (const failCancellation of [false, true]) {
+      let cancelled = false;
+      const handler = createDownloadHandler(
+        async () =>
+          new Response(
+            new ReadableStream({
+              cancel() {
+                cancelled = true;
+                if (failCancellation) throw new Error("Fixture cancellation failure");
+              },
+            }),
+            { status: 429 },
+          ),
+      );
+      const response = await handler(click());
+      expect(response.status).toBe(503);
+      expect(cancelled).toBe(true);
+      expect(await response.text()).not.toContain("Fixture cancellation failure");
+    }
+  });
+
   test("uses only the configured public repository and never forwards visitor credentials", async () => {
     const configured = "example/desktop";
     const value = release("1.0.0-beta.1");

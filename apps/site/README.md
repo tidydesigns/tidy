@@ -32,11 +32,13 @@ Runtime configuration (private Worker configuration, not public Next.js variable
 - `DESKTOP_RELEASE_REPOSITORY`: public GitHub `owner/repository`, default
   `tidydesigns/tidy`. Use its canonical case. The link to the source repository
   (`NEXT_PUBLIC_REPOSITORY_URL`) is independent of the installer repository.
-- `GITHUB_RELEASES_TOKEN`: optional server-only GitHub token for higher API rate
-  limits. Provision it as a Worker secret; never prefix it with `NEXT_PUBLIC_`.
-  The default public repository also works without a token, subject to GitHub's
-  unauthenticated API limits. No visitor headers, cookies or credentials are
-  forwarded upstream.
+- `GITHUB_RELEASES_TOKEN`: **required for production deployments**. Provision a
+  read-only GitHub token for the release repository as a Worker secret; never
+  prefix it with `NEXT_PUBLIC_`. Warm caches are local to each Worker instance,
+  and cold instances can share egress IPs, so anonymous API limits are unsuitable
+  for the production download CTA. The token is optional for local testing of a
+  public repository. No visitor headers, cookies or credentials are forwarded
+  upstream.
 
 Queries cannot select another repository, installer, architecture or redirect URL.
 Network requests stay on GitHub's fixed API host and never follow pagination URLs.
@@ -55,7 +57,8 @@ Run `bun test apps/site/worker apps/site/scripts/deploy.test.mjs`,
 `bun run build:site`. `bunx wrangler deploy --dry-run --outdir /tmp/tidy-site-worker`
 from `apps/site` checks the Worker bundle without publishing anything.
 
-For deployment, the existing deploy script preserves the operator's private
+Before deploying, provision `GITHUB_RELEASES_TOKEN` on the site Worker. For
+deployment, the existing deploy script preserves the operator's private
 target/configuration and creates a temporary config with the Worker entrypoint,
 `ASSETS` binding and selective download routing. It does not edit the private
 config. A website deployment is required once to introduce this endpoint; later

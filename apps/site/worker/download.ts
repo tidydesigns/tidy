@@ -63,7 +63,10 @@ export function selectLatestBeta(releases: unknown[], repository: string): Candi
 }
 
 async function releasePage(response: Response): Promise<unknown[]> {
-  if (!response.ok || !response.body) throw new Error("Release lookup unavailable.");
+  if (!response.ok || !response.body) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error("Release lookup unavailable.");
+  }
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
