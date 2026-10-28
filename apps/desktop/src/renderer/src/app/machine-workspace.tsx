@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
+import { UserFacingError } from "@tidy/ui/errors";
 import type { Bootstrap, DesktopAPI, LocalDesign } from "../../../shared/contracts/desktop";
 import type { ProjectSetupResult } from "../../../shared/contracts/workspace-response";
 import type { WorkspaceMachine } from "../../../shared/remote";
@@ -177,7 +178,7 @@ export function MachineWorkspace() {
             removeProject: async (machineId, projectId) => {
               const target = apiFor(machineId);
               if (!target?.removeProject)
-                throw new Error("Update Tidy on this machine to remove projects.");
+                throw new UserFacingError("Update Tidy on this machine to remove projects.");
               try {
                 await target.removeProject(projectId);
               } finally {

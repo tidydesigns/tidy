@@ -1380,6 +1380,7 @@ export function App({
                               if (wasActive && generation === navigation.current)
                                 setActiveProjectId(projectId);
                             }
+                            if (error instanceof UserFacingError) throw error;
                             const activeWork =
                               "Wait for this project's active work to finish before removing it.";
                             throw new UserFacingError(

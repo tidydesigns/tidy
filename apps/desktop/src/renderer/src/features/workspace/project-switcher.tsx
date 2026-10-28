@@ -293,9 +293,13 @@ export function ProjectSwitcher({
                               aria-label={`Remove ${project.name} from ${machine.label}`}
                               title="Remove from this machine. Files stay on disk."
                               className={`absolute right-1 grid size-7 cursor-pointer place-items-center rounded border-0 bg-transparent text-muted-ink opacity-0 group-hover/project:opacity-100 hover:bg-hover-surface hover:text-ink focus-visible:opacity-100 ${focusClassName}`}
-                              onClick={() => {
+                              onClick={(event) => {
                                 const key = `${machine.id}:${project.id}`;
                                 if (removing.current.has(key)) return;
+                                event.currentTarget
+                                  .closest("details")
+                                  ?.querySelector<HTMLElement>("summary")
+                                  ?.focus({ preventScroll: true });
                                 request.current++;
                                 onCancelNavigation?.();
                                 setSelection({ kind: "idle" });

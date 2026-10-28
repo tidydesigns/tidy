@@ -1508,13 +1508,17 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Dropdown",
     );
     const headings = dialog.querySelectorAll("summary");
-    required(headings[1], "Remote machine").click();
+    const remoteHeading = required(headings[1], "Remote machine");
+    remoteHeading.click();
     await settle();
-    required(
+    const remove = required(
       dialog.querySelector<HTMLButtonElement>("[aria-label='Remove Project from Mac']"),
       "Remove action",
-    ).click();
+    );
+    remove.focus();
+    remove.click();
     await settle();
+    check(document.activeElement === remoteHeading, "Removal lost focus outside the dropdown");
     check(
       calls.length === 1 && calls[0] === `${remoteId}:${project.id}`,
       "Removal targeted a different machine",
@@ -1524,14 +1528,23 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Removed row remained visible or removed the local copy",
     );
     check(dialog.matches(":popover-open"), "Removal dismissed the dropdown");
-    rejectRemoval(new UserFacingError("Wait for active work"));
+    const updateMessage = "Update Tidy on this machine to remove projects.";
+    rejectRemoval(new UserFacingError(updateMessage));
     await until(
       () => dialog.querySelectorAll(".machine-project-row").length === 2,
       "Failed removal restores row",
     );
     check(
-      dialog.querySelector("[role=alert]")?.textContent?.includes("Wait for active work"),
+      dialog.querySelector("[role=alert]")?.textContent === updateMessage,
       "Removal failure was hidden",
+    );
+    remoteHeading.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    check(
+      document.activeElement ===
+        remoteHeading.closest("details")?.querySelector(".machine-project-row"),
+      "Restored project was not reachable with the keyboard",
     );
     required(
       dialog.querySelector<HTMLButtonElement>("[aria-label='Remove Project from Mac']"),
@@ -1544,6 +1557,11 @@ async function runThreadLoadingTests(): Promise<string[]> {
     await settle();
     check(!dialog.querySelector("[role=alert]"), "Successful retry retained its error");
     check(Number(calls.length) === 2, "Removal could not be retried after failure");
+    check(document.activeElement === remoteHeading, "Successful removal lost keyboard focus");
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
   });
 
   return passed;
