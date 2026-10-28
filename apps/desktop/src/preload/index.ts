@@ -188,6 +188,9 @@ function workspaceApi(machineId?: string): DesktopAPI {
     bootstrap: () => scopedRequest("bootstrap"),
     openProject: () => scopedRequest("open-project"),
     selectProject: (projectId) => scopedRequest("select-project", projectId),
+    removeProject: async (projectId) => {
+      await scopedRequest("remove-project", projectId);
+    },
     skills: (projectId, harness, refresh) =>
       scopedRequest("skills", { projectId, harness, refresh }),
     harnessDetails: (projectId, harness, refresh) =>

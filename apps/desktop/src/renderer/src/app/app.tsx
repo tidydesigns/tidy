@@ -17,6 +17,7 @@ import type {
 import { useRepositoryContext } from "../features/repository/use-repository-context";
 import { SkillPrompt } from "../features/composer/skill-prompt";
 import { skillCommand, type Skill } from "../../../shared/contracts/skills";
+import { UserFacingError } from "@tidy/ui/errors";
 import { errorText, type WorkspaceError } from "./workspace-error";
 import { useWorkspaceState } from "./use-workspace-state";
 import { showToast, dismissToast } from "@tidy/ui/toast";
@@ -31,7 +32,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { Button } from "@tidy/ui/button";
-import { SelectMenu } from "@tidy/ui/select-menu";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { preloadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
@@ -55,6 +55,7 @@ import {
   MAX_IMAGE_BYTES,
   MAX_ATTACHMENT_TOTAL_BYTES,
 } from "../../../shared/contracts/attachments";
+import { ProjectSwitcher } from "../features/workspace/project-switcher";
 import { ProjectFiles } from "../features/workspace/project-files";
 import { HarnessControls } from "../features/harnesses/harness-controls";
 import { ThreadCard } from "../features/threads/thread-card";
@@ -107,6 +108,7 @@ export function App({
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
   );
+  const [settingsPage, setSettingsPage] = useState<"account" | "remote">("account");
   const [settingsOpen, setSettingsOpen] = useSessionState("settings", z.boolean(), false);
   const settingsTrigger = useRef<HTMLButtonElement>(null);
   const settingsWasOpen = useRef(false);
@@ -195,7 +197,9 @@ export function App({
   const {
     loading,
     projects,
+    setProjects,
     activeProjectId,
+    setActiveProjectId,
     snapshots,
     setSnapshots,
     harnesses,
@@ -631,7 +635,7 @@ export function App({
   }, [api, project, selectedDesignId, designs, snapshot?.designs, location, mode, settingsOpen]);
 
   async function chooseProject(projectId?: string) {
-    if (!api || opening) return;
+    if (!api) return;
     projectFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const generation = ++navigation.current;
@@ -1345,57 +1349,84 @@ export function App({
             <SidebarToggle />
             <div className="project-picker min-w-0 w-full flex-1" title={project?.name}>
               {(project || cloud.account || machine) && (
-                <SelectMenu
-                  value={
-                    target?.kind === "cloud"
-                      ? `cloud:${target.organizationId}`
-                      : (project?.id ?? "")
+                <ProjectSwitcher
+                  machines={machine?.machines}
+                  machineId={machine?.current.id}
+                  projects={projects}
+                  projectId={project?.id}
+                  loadProjects={machine?.projects}
+                  onRemove={
+                    machine?.removeProject || api?.removeProject
+                      ? async (machineId, projectId) => {
+                          const local = !machine || machineId === machine.current.id;
+                          const removed = projects.find((item) => item.id === projectId);
+                          const wasActive = activeProjectId === projectId;
+                          const generation = local ? ++navigation.current : navigation.current;
+                          if (local) {
+                            setProjects((items) => items.filter((item) => item.id !== projectId));
+                            if (wasActive) setActiveProjectId(null);
+                          }
+                          try {
+                            if (machine?.removeProject)
+                              await machine.removeProject(machineId, projectId);
+                            else if (api?.removeProject) await api.removeProject(projectId);
+                          } catch (error) {
+                            if (local && removed) {
+                              setProjects((items) =>
+                                items.some((item) => item.id === projectId)
+                                  ? items
+                                  : [...items, removed],
+                              );
+                              if (wasActive && generation === navigation.current)
+                                setActiveProjectId(projectId);
+                            }
+                            const activeWork =
+                              "Wait for this project's active work to finish before removing it.";
+                            throw new UserFacingError(
+                              error instanceof Error && error.message.includes(activeWork)
+                                ? activeWork
+                                : "Could not remove this project. Reconnect the machine and try again.",
+                              { cause: error },
+                            );
+                          }
+                        }
+                      : undefined
                   }
-                  options={[
-                    ...(target?.kind === "cloud" && !cloudOrganizationId
-                      ? [
-                          {
-                            value: `cloud:${target.organizationId}`,
-                            label: cloud.error ? "Workspace unavailable" : "Opening workspace…",
-                            description: "Cloud",
-                            icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
-                          },
-                        ]
-                      : []),
-                    ...((api?.cloud ? (cloud.account?.organizations ?? []) : [])
-                      .filter((o) => o.canEdit)
-                      .map((o) => ({
-                        value: `cloud:${o.id}`,
-                        label: o.name,
-                        description: "Cloud",
-                        icon: <Icon name="cloud" size={16} className="text-secondary-ink" />,
-                      })) ?? []),
-                    ...projects.map((item) => ({
-                      value: item.id,
-                      label: item.name,
-                      description: machine?.current.label ?? "Local",
-                      icon: <Icon name="computer" size={16} className="text-secondary-ink" />,
-                    })),
-                    { value: "open", label: "Open project…" },
-                    ...(machine?.machines
-                      .filter((item) => item.id !== machine.current.id)
-                      .map((item) => ({
-                        value: `machine:${item.id}`,
-                        label: `Projects on ${item.label}`,
-                        disabled: busy || Boolean(uploading[draftKey]),
-                        description:
-                          item.id === "local" || item.status?.kind === "connected" ? "" : "Offline",
-                      })) ?? []),
-                  ]}
-                  label="Workspace"
-                  disabled={opening}
-                  onChange={(value) => {
-                    if (value.startsWith("machine:")) machine?.navigate(value.slice(8));
-                    else if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
-                    else void chooseProject(value === "open" ? undefined : value);
+                  disabled={opening || busy || Boolean(uploading[draftKey])}
+                  label={
+                    target?.kind === "cloud"
+                      ? (cloud.account?.organizations.find(
+                          (item) => item.id === target.organizationId,
+                        )?.name ?? "Cloud workspace")
+                      : undefined
+                  }
+                  cloudId={target?.kind === "cloud" ? target.organizationId : undefined}
+                  cloudWorkspaces={
+                    api?.cloud
+                      ? (cloud.account?.organizations ?? []).filter((item) => item.canEdit)
+                      : []
+                  }
+                  onCloudChange={selectCloudWorkspace}
+                  onCancelNavigation={() => {
+                    navigation.current++;
+                    setOpening(false);
+                    machine?.cancelProjectNavigation();
                   }}
-                  triggerClassName="project-trigger flex min-h-[34px] w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:flex-initial [&>[data-ph-private]]:truncate"
-                  menuClassName="workspace-menu flex flex-col gap-0.5 [&_[role=menuitemradio]]:px-2.5 [&_[role=menuitemradio]]:py-2"
+                  onChoose={async (machineId, projectId) => {
+                    navigation.current++;
+                    machine?.cancelProjectNavigation();
+                    if (!machine || machineId === machine.current.id)
+                      await chooseProject(projectId);
+                    else await machine.openProject(machineId, projectId);
+                  }}
+                  onAddMachine={
+                    window.tidyMachines && window.tidyRemote
+                      ? () => {
+                          setSettingsPage("remote");
+                          setSettingsOpen(true);
+                        }
+                      : undefined
+                  }
                 />
               )}
             </div>
@@ -1540,6 +1571,7 @@ export function App({
             onClick={() => {
               navigation.current++;
               setOpening(false);
+              setSettingsPage("account");
               setSettingsOpen(true);
             }}
           >
@@ -2103,7 +2135,9 @@ export function App({
           )}
         </div>
       </main>
-      {settingsOpen && <Settings cloud={cloud} onBack={() => setSettingsOpen(false)} />}
+      {settingsOpen && (
+        <Settings initialPage={settingsPage} cloud={cloud} onBack={() => setSettingsOpen(false)} />
+      )}
     </DesktopShell>
   );
 }

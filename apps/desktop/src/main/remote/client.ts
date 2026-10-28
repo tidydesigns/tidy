@@ -223,6 +223,7 @@ export class RemoteClient {
       return result;
     }
     this.cache.capture(name, input, result, cacheRevision);
+    if (name === "remove-project" && typeof input === "string") this.recovery.forget(input);
     if (name === "bootstrap")
       this.recovery.remember(
         parseWorkspaceResponse("bootstrap", { ok: true, data: result }).activeProject,

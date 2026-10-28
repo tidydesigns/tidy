@@ -5,8 +5,16 @@ import type { CloudConnection } from "../cloud/use-cloud";
 import { RemoteMachines } from "./remote-machines";
 import { PrivacySettings } from "./privacy-settings";
 
-export function Settings({ cloud, onBack }: { cloud: CloudConnection; onBack(): void }) {
-  const [page, setPage] = useState<"account" | "privacy" | "remote">("account");
+export function Settings({
+  cloud,
+  onBack,
+  initialPage = "account",
+}: {
+  cloud: CloudConnection;
+  onBack(): void;
+  initialPage?: "account" | "remote";
+}) {
+  const [page, setPage] = useState<"account" | "privacy" | "remote">(initialPage);
   const machines = window.tidyMachines;
   const remote = window.tidyRemote;
   const back = useRef<HTMLButtonElement>(null);

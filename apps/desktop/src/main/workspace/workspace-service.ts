@@ -137,6 +137,24 @@ export class WorkspaceService {
     readonly skills = new HarnessSkills(locate),
   ) {}
 
+  async removeProject(projectId: string) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    if (
+      this.repositoryChanges.has(projectId) ||
+      [...this.starting.values(), ...this.executionProjects.values()].includes(projectId) ||
+      [...this.jobs.values()].some(
+        ({ thread }) => thread.projectId === projectId || thread.executionProjectId === projectId,
+      )
+    )
+      throw new Error("Wait for this project's active work to finish before removing it.");
+    // Unregister synchronously before yielding, so a new run cannot start in this project.
+    await this.store.remove(projectId);
+    for (const key of [projectId, `${projectId}:folders`]) {
+      this.watchers.get(key)?.close();
+      this.watchers.delete(key);
+    }
+  }
+
   async switchBranch(projectId: string, branch: string) {
     if (this.closing) throw new Error("Tidy is closing.");
     const project = this.store.project(projectId);

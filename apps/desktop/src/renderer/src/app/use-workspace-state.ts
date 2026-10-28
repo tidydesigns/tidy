@@ -203,7 +203,9 @@ export function useWorkspaceState({
   return {
     loading,
     projects,
+    setProjects,
     activeProjectId,
+    setActiveProjectId,
     snapshots,
     setSnapshots,
     harnesses,

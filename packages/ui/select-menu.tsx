@@ -47,7 +47,13 @@ export function SelectMenu({
   menuClassName = "",
   optionsClassName = "",
   optionAction,
+  menuContent,
+  maxMenuHeight = 256,
+  onOpenChange,
 }: {
+  menuContent?: (close: () => void) => ReactNode;
+  maxMenuHeight?: number;
+  onOpenChange?(open: boolean): void;
   menuHeader?: ReactNode;
   menuSidebar?: ReactNode;
   menuClassName?: string;
@@ -82,8 +88,23 @@ export function SelectMenu({
   const valueId = useId();
   const menuId = useId();
   const selected = options.find((option) => option.value === value);
-  const unavailable = disabled || (!menuHeader && !options.some((option) => !option.disabled));
+  const unavailable =
+    disabled || (!menuContent && !menuHeader && !options.some((option) => !option.disabled));
   const visible = open && !unavailable;
+  const openChange = useRef(onOpenChange);
+  openChange.current = onOpenChange;
+  const previousVisible = useRef(false);
+  useEffect(() => {
+    if (previousVisible.current === visible) return;
+    previousVisible.current = visible;
+    if (!visible) setOpen(false);
+    openChange.current?.(visible);
+  }, [visible]);
+
+  function close() {
+    setOpen(false);
+    trigger.current?.focus({ preventScroll: true });
+  }
 
   useLayoutEffect(() => {
     if (!visible || !menu.current || !trigger.current) return;
@@ -101,12 +122,12 @@ export function SelectMenu({
       const margin = 8,
         gap = 6;
       popup.style.minWidth = `${Math.min(bounds.width, window.innerWidth - margin * 2)}px`;
-      const height = Math.min(256, popup.scrollHeight + 2);
+      const height = Math.min(maxMenuHeight, popup.scrollHeight + 2);
       const below = window.innerHeight - bounds.bottom - gap - margin;
       const above = bounds.top - gap - margin;
       const useTop =
         placement === "top" ? above >= height || above > below : below < height && above > below;
-      popup.style.maxHeight = `${Math.max(0, Math.min(256, useTop ? above : below))}px`;
+      popup.style.maxHeight = `${Math.max(0, Math.min(maxMenuHeight, useTop ? above : below))}px`;
       const size = popup.getBoundingClientRect();
       const alignRight = align ? align === "end" : placement === "top";
       popup.style.left = `${Math.max(margin, Math.min(alignRight ? bounds.right - size.width : bounds.left, window.innerWidth - size.width - margin))}px`;
@@ -116,12 +137,15 @@ export function SelectMenu({
     position();
     const resize = new ResizeObserver(() => position());
     resize.observe(popup);
+    const preferred = popup.querySelector<HTMLElement>("[data-select-initial]");
     const active =
+      (preferred && !preferred.closest("details:not([open])") ? preferred : null) ??
       popup.querySelector<HTMLInputElement>("[data-select-search]") ??
       popup.querySelector<HTMLButtonElement>(
         '[role="menuitemradio"][aria-checked="true"]:not(:disabled)',
       ) ??
-      popup.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)');
+      popup.querySelector<HTMLButtonElement>('[role^="menuitem"]:not(:disabled)') ??
+      (menuContent ? popup.querySelector<HTMLElement>("summary,button:not(:disabled)") : null);
     active?.focus({ preventScroll: true });
     if (active)
       popup.scrollTop = Math.max(0, active.offsetTop + active.offsetHeight - popup.clientHeight);
@@ -136,7 +160,7 @@ export function SelectMenu({
       window.removeEventListener("resize", position);
       if (popup.matches(":popover-open")) popup.hidePopover();
     };
-  }, [visible, placement, align, dismissOnScroll]);
+  }, [visible, placement, align, dismissOnScroll, maxMenuHeight, Boolean(menuContent)]);
 
   useEffect(() => {
     if (!visible) return;
@@ -161,6 +185,7 @@ export function SelectMenu({
       trigger.current?.focus({ preventScroll: true });
       return;
     }
+    if (menuContent) return;
     if (
       menuHeader &&
       (event.key === "Tab" ||
@@ -212,7 +237,7 @@ export function SelectMenu({
           labelledBy ? undefined : actionMenu ? label : `${label}: ${selected?.label ?? value}`
         }
         aria-labelledby={labelledBy ? `${labelledBy} ${valueId}` : undefined}
-        aria-haspopup="menu"
+        aria-haspopup={menuContent ? "dialog" : "menu"}
         aria-expanded={visible}
         aria-controls={visible ? menuId : undefined}
         onClick={() => setOpen((current) => !current)}
@@ -257,7 +282,7 @@ export function SelectMenu({
         <div
           ref={menu}
           id={menuId}
-          role="menu"
+          role={menuContent ? "dialog" : "menu"}
           aria-orientation={layout === "horizontal" ? "horizontal" : undefined}
           popover="manual"
           data-ph-public-label={replayLabel || undefined}
@@ -265,101 +290,107 @@ export function SelectMenu({
           onKeyDown={onMenuKeyDown}
           onBlurCapture={(event) => {
             if (
-              menuHeader &&
+              (menuHeader || menuContent) &&
               event.relatedTarget instanceof Node &&
               !event.currentTarget.contains(event.relatedTarget) &&
               !trigger.current?.contains(event.relatedTarget)
             )
               setOpen(false);
           }}
-          className={`fixed inset-auto z-50 m-0 max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto overscroll-contain rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl [app-region:no-drag] ${layout === "horizontal" ? "flex" : ""} ${menuClassName}`}
+          className={`fixed inset-auto z-50 m-0 overscroll-contain [app-region:no-drag] ${menuContent ? "" : "max-h-64 w-max max-w-[min(28rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-primary-grey bg-surface p-1 text-primary-black shadow-xl"} ${layout === "horizontal" ? "flex" : ""} ${menuClassName}`}
         >
-          {menuHeader}
-          <div className={menuSidebar ? "select-menu-columns" : "contents"}>
-            {menuSidebar}
-            <div
-              className={`${optionAction ? "select-menu-options" : "contents"} ${optionsClassName}`}
-            >
-              {options.length === 0 && menuHeader && (
-                <p className="select-menu-empty">No matches</p>
-              )}
-              {options.map((option) => {
-                const button = (
-                  <button
-                    type="button"
-                    role={
-                      option.checked !== undefined
-                        ? "menuitemcheckbox"
-                        : actionMenu
-                          ? "menuitem"
-                          : "menuitemradio"
-                    }
-                    aria-checked={
-                      option.checked ?? (actionMenu ? undefined : value === option.value)
-                    }
-                    aria-label={option.ariaLabel}
-                    disabled={option.disabled}
-                    onClick={() => {
-                      if (closeOnSelect) {
-                        setOpen(false);
-                        trigger.current?.focus({ preventScroll: true });
-                      }
-                      if (actionMenu || option.value !== value) onChange(option.value);
-                    }}
-                    className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
-                  >
-                    <span
-                      data-slot="select-menu-content"
-                      className="flex min-w-0 items-center gap-2"
-                    >
-                      {option.icon}
-                      <span
-                        data-slot="select-menu-text"
-                        data-ph-public={replayOptions || undefined}
-                        data-ph-private={!replayOptions || undefined}
-                        className="min-w-0"
+          {menuContent ? (
+            menuContent(close)
+          ) : (
+            <>
+              {menuHeader}
+              <div className={menuSidebar ? "select-menu-columns" : "contents"}>
+                {menuSidebar}
+                <div
+                  className={`${optionAction ? "select-menu-options" : "contents"} ${optionsClassName}`}
+                >
+                  {options.length === 0 && menuHeader && (
+                    <p className="select-menu-empty">No matches</p>
+                  )}
+                  {options.map((option) => {
+                    const button = (
+                      <button
+                        type="button"
+                        role={
+                          option.checked !== undefined
+                            ? "menuitemcheckbox"
+                            : actionMenu
+                              ? "menuitem"
+                              : "menuitemradio"
+                        }
+                        aria-checked={
+                          option.checked ?? (actionMenu ? undefined : value === option.value)
+                        }
+                        aria-label={option.ariaLabel}
+                        disabled={option.disabled}
+                        onClick={() => {
+                          if (closeOnSelect) {
+                            setOpen(false);
+                            trigger.current?.focus({ preventScroll: true });
+                          }
+                          if (actionMenu || option.value !== value) onChange(option.value);
+                        }}
+                        className={`flex items-center rounded-lg font-normal enabled:hover:bg-primary-grey/20 focus-visible:bg-primary-grey/20 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 ${layout === "horizontal" ? "size-10 shrink-0 justify-center text-xl" : "min-h-9 w-full justify-between gap-2 px-2.5 text-left text-sm"} ${value === option.value ? "bg-primary-grey/20" : ""}`}
                       >
-                        <span data-slot="select-menu-label" className="block truncate">
-                          {option.label}
-                        </span>
-                        {option.description && (
+                        <span
+                          data-slot="select-menu-content"
+                          className="flex min-w-0 items-center gap-2"
+                        >
+                          {option.icon}
                           <span
-                            data-slot="select-menu-description"
-                            className="mt-0.5 block whitespace-normal text-xs text-secondary-ink"
+                            data-slot="select-menu-text"
+                            data-ph-public={replayOptions || undefined}
+                            data-ph-private={!replayOptions || undefined}
+                            className="min-w-0"
                           >
-                            {option.description}
+                            <span data-slot="select-menu-label" className="block truncate">
+                              {option.label}
+                            </span>
+                            {option.description && (
+                              <span
+                                data-slot="select-menu-description"
+                                className="mt-0.5 block whitespace-normal text-xs text-secondary-ink"
+                              >
+                                {option.description}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                        {layout !== "horizontal" && selectionIndicator === "check" && (
+                          <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
+                            {(option.checked ?? (!actionMenu && value === option.value)) && (
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <path
+                                  d="M5 13L9 17L19 7"
+                                  stroke="currentColor"
+                                  strokeWidth="1.5"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                />
+                              </svg>
+                            )}
                           </span>
                         )}
-                      </span>
-                    </span>
-                    {layout !== "horizontal" && selectionIndicator === "check" && (
-                      <span aria-hidden="true" className="w-4 shrink-0 text-accent-ink">
-                        {(option.checked ?? (!actionMenu && value === option.value)) && (
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <path
-                              d="M5 13L9 17L19 7"
-                              stroke="currentColor"
-                              strokeWidth="1.5"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        )}
-                      </span>
-                    )}
-                  </button>
-                );
-                return optionAction ? (
-                  <div key={option.value} className="select-menu-option-row">
-                    {button}
-                    {optionAction(option)}
-                  </div>
-                ) : (
-                  <Fragment key={option.value}>{button}</Fragment>
-                );
-              })}
-            </div>
-          </div>
+                      </button>
+                    );
+                    return optionAction ? (
+                      <div key={option.value} className="select-menu-option-row">
+                        {button}
+                        {optionAction(option)}
+                      </div>
+                    ) : (
+                      <Fragment key={option.value}>{button}</Fragment>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

@@ -1,0 +1,6 @@
+.machine-project-dropdown {
+  box-shadow:
+    0 8px 24px #0003,
+    0 2px 6px #0002,
+    inset 0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent);
+}

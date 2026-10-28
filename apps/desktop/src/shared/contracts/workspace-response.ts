@@ -47,6 +47,7 @@ export const workspaceResponseSchemas = {
   }),
   "open-project": projectSnapshotSchema.nullable(),
   "select-project": projectSnapshotSchema,
+  "remove-project": z.null(),
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
   "repository-context": repositoryContextSchema,

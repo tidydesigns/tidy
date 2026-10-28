@@ -239,3 +239,29 @@ test("setup receipts protect the project returned by the operation after access 
   });
   expect(calls).toBe(1);
 });
+
+test("project removal acknowledgement survives loss of project access and retries once", async () => {
+  const root = await mkdtemp(join(tmpdir(), "remove-receipt-"));
+  roots.push(root);
+  const client = randomUUID();
+  const request = { id: randomUUID(), name: "remove-project", input: randomUUID() };
+  let calls = 0;
+  const action = async () => {
+    calls++;
+    return null;
+  };
+  const authorize = async () => {
+    throw new Error("Project is no longer registered");
+  };
+  const receipts = new RequestReceipts(root);
+  expect(await receipts.execute(client, request, action, authorize)).toEqual({
+    ok: true,
+    data: null,
+  });
+  const reopened = new RequestReceipts(root);
+  expect(await reopened.execute(client, request, action, authorize)).toEqual({
+    ok: true,
+    data: null,
+  });
+  expect(calls).toBe(1);
+});

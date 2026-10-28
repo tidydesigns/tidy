@@ -1592,3 +1592,47 @@ test("update preparation drains accepted desktop requests before flushing and al
   );
   expect(await f.store.folders(f.project.id)).toHaveLength(2);
 });
+
+test("project removal refuses preparing and running work", async () => {
+  const f = await fixture(undefined, true);
+  const pending = f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  await f.preparation;
+  await expect(f.service.removeProject(f.project.id)).rejects.toThrow("active work");
+  f.resumePreparation();
+  const thread = await pending;
+  await expect(f.service.removeProject(f.project.id)).rejects.toThrow("active work");
+  const complete = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await complete;
+  await f.service.removeProject(f.project.id);
+  expect(f.store.projects).toHaveLength(0);
+  await expect(
+    f.service.startThread({
+      projectId: f.project.id,
+      harness: "codex",
+      prompt: "Late",
+      designIds: [],
+    }),
+  ).rejects.toThrow("Open this project");
+});
+
+test("remove-project validates its input and acknowledges removal after access is revoked", async () => {
+  const f = await fixture();
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  });
+  await expect(requests.invoke("remove-project", "../project", undefined)).rejects.toThrow(
+    "Invalid desktop request",
+  );
+  await requests.invoke("remove-project", f.project.id, undefined);
+  expect(f.service.canAccessProject(f.project.id)).toBe(false);
+  expect(f.store.activeProjectId).toBeNull();
+});

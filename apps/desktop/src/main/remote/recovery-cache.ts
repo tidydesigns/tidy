@@ -64,6 +64,7 @@ export class RecoveryCache {
   private hostId: string | null;
   private closed = false;
   private epoch = 0;
+  private removedAt = -1;
   private designs = new Map<
     string,
     { event: Extract<DesktopEvent, { type: "designs" }>; epoch: number }
@@ -113,7 +114,34 @@ export class RecoveryCache {
     };
   }
   capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
-    if (!this.path) return;
+    if (!this.path || this.closed) return;
+    if (name === "remove-project") {
+      const projectId = snapshotInput.parse(input);
+      this.removedAt = ++this.epoch;
+      this.designs.delete(projectId);
+      for (const [id, entry] of [...this.values]) {
+        if (entry.name === "bootstrap") {
+          this.put({
+            ...entry,
+            data: {
+              ...entry.data,
+              projects: entry.data.projects.filter((project) => project.id !== projectId),
+              activeProject:
+                entry.data.activeProject?.project.id === projectId
+                  ? null
+                  : entry.data.activeProject,
+            },
+          });
+        } else if (
+          (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId
+        )
+          this.values.delete(id);
+      }
+      void this.flush().catch(() => {});
+      return;
+    }
+    // Responses already in flight must not restore a forgotten registration to offline storage.
+    if (startedAt < this.removedAt) return;
     if (name === "bootstrap") {
       const bootstrap = parseWorkspaceResponse(name, { ok: true, data });
       const activeProject = bootstrap.activeProject

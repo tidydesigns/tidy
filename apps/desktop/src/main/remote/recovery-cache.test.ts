@@ -168,3 +168,44 @@ test("the offline bootstrap remains available when project snapshots exceed the 
   await cache.close();
   expect(cache.read("bootstrap", undefined)).toBeDefined();
 });
+
+test("removal clears only that project's offline data and ignores older responses", async () => {
+  const root = await mkdtemp(join(tmpdir(), "remove-cache-"));
+  roots.push(root);
+  const path = join(root, "machine.json");
+  const hostId = randomUUID();
+  const cache = new RecoveryCache(path, hostId);
+  await cache.ready;
+  const value = thread();
+  const project = {
+    id: value.projectId,
+    name: "Project",
+    path: "/project",
+    openedAt: new Date().toISOString(),
+  };
+  const other = { ...project, id: randomUUID(), path: "/other" };
+  const snapshot = { project, threads: [], designs: [], folders: [] };
+  const bootstrap = { projects: [project, other], activeProject: snapshot, harnesses: [] };
+  cache.capture("bootstrap", undefined, bootstrap);
+  const input = { projectId: value.projectId, threadId: value.id };
+  cache.capture("read-thread", input, value);
+  const earlier = cache.revision;
+  cache.capture("remove-project", project.id, undefined);
+  cache.capture("bootstrap", undefined, bootstrap, earlier);
+  cache.capture("project-snapshot", project.id, snapshot, earlier);
+  expect(cache.read("read-thread", input)).toBeUndefined();
+  expect(cache.read("project-snapshot", project.id)).toBeUndefined();
+  expect(cache.read("bootstrap", undefined)?.data).toMatchObject({
+    projects: [other],
+    activeProject: null,
+  });
+  await cache.close();
+  const restored = new RecoveryCache(path, hostId);
+  await restored.ready;
+  expect(restored.read("bootstrap", undefined)?.data).toMatchObject({
+    projects: [other],
+    activeProject: null,
+  });
+  expect(restored.read("project-snapshot", project.id)).toBeUndefined();
+  await restored.close();
+});

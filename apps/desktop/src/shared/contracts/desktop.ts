@@ -183,6 +183,7 @@ export type DesktopAPI = {
   projectSnapshot?(projectId: string): Promise<ProjectSnapshot>;
   openProject(): Promise<ProjectSnapshot | null>;
   selectProject(projectId: string): Promise<ProjectSnapshot>;
+  removeProject?(projectId: string): Promise<void>;
   checkHarnesses(): Promise<HarnessConnection[]>;
   repositoryContext(projectId: string): Promise<RepositoryContext>;
   switchBranch(projectId: string, branch: string): Promise<RepositoryContext>;
