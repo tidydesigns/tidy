@@ -18,6 +18,7 @@ import { useWorkspaceState } from "./use-workspace-state";
 import { showToast, dismissToast } from "@tidy/ui/toast";
 import {
   useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -185,6 +186,7 @@ export function App() {
   const workspaceProjectId = location === "cloud" ? cloudProjects[cloudKey] : activeProjectId;
   const snapshot = workspaceProjectId ? snapshots[workspaceProjectId] : undefined;
   const project = snapshot?.project;
+  const deferredThreadQueries = useDeferredValue(threadQueries);
   const reportRepositoryError = useCallback(
     ({ projectId, cause }: { projectId: string; cause: unknown }) =>
       setError({ projectId, text: errorText(cause), original: cause }),
@@ -1442,7 +1444,7 @@ export function App() {
                 key={project.id}
                 projectId={project.id}
                 threads={snapshot.threads}
-                search={threadQueries[project.id] ?? ""}
+                search={deferredThreadQueries[project.id] ?? ""}
                 renderThread={renderThread}
               />
             </div>

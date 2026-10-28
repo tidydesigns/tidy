@@ -73,7 +73,7 @@ function readOrder(projectId: string): string[] {
   }
 }
 
-export function ThreadSidebar({
+export const ThreadSidebar = memo(function ThreadSidebar({
   projectId,
   threads,
   search,
@@ -168,4 +168,4 @@ export function ThreadSidebar({
       )}
     </div>
   );
-}
+});
