@@ -1,5 +1,5 @@
 import { draftImportResultSchema } from "./draft-import";
-import { repositoryContextSchema } from "./repository-context";
+import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
 import { directorySchema } from "./browser-directory";
 import { skillCatalogSchema } from "./skills";
@@ -51,7 +51,7 @@ export const workspaceResponseSchemas = {
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
   "repository-context": repositoryContextSchema,
-  "switch-branch": repositoryContextSchema,
+  "switch-branch": branchSwitchResultSchema,
   "harness-details": harnessDetailsSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),

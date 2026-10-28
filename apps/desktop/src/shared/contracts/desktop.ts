@@ -191,7 +191,10 @@ export type DesktopAPI = {
   removeProject?(projectId: string): Promise<void>;
   checkHarnesses(): Promise<HarnessConnection[]>;
   repositoryContext(projectId: string): Promise<RepositoryContext>;
-  switchBranch(projectId: string, branch: string): Promise<RepositoryContext>;
+  switchBranch(
+    projectId: string,
+    branch: string,
+  ): Promise<import("./repository-context").BranchSwitchResult>;
   skills(projectId: string, harness: HarnessId, refresh?: boolean): Promise<SkillCatalog>;
   harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;

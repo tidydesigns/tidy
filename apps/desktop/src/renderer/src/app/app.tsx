@@ -1814,9 +1814,6 @@ export function App({
                           selected={thread.designIds}
                           onBranchChange={(branch) => void switchBranch(branch)}
                           disabled={running}
-                          branchDisabled={snapshot.threads.some(
-                            (item) => item.status === "running",
-                          )}
                           pending={Boolean(switchingBranch)}
                         />
                       </div>
@@ -1935,7 +1932,6 @@ export function App({
                           Boolean(uploading[draftKey]) ||
                           machine?.switching === true
                         }
-                        branchDisabled={snapshot.threads.some((item) => item.status === "running")}
                         pending={Boolean(switchingBranch)}
                       />
                     </div>
