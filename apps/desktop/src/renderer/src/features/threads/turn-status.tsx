@@ -79,9 +79,9 @@ export const TurnStatus = memo(function TurnStatus({
   return (
     <div className="turn-status" data-active={running && !waiting && visible ? "" : undefined}>
       {(message.turn || running) && (
-        <div className="turn-status-heading">
-          <span className="turn-status-icon" aria-hidden="true">
-            {running && (
+        <div className="turn-status-heading" data-running={running ? "" : undefined}>
+          {running && (
+            <span className="turn-status-icon" aria-hidden="true">
               <span className="working-matrix">
                 {Array.from({ length: 16 }, (_, index) => {
                   const step = matrixRing.indexOf(index);
@@ -96,8 +96,8 @@ export const TurnStatus = memo(function TurnStatus({
                   );
                 })}
               </span>
-            )}
-          </span>
+            </span>
+          )}
           <span className="turn-status-time" role="timer" aria-live="off">
             {timed && startedAt ? (
               <>
