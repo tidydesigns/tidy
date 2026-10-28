@@ -194,6 +194,20 @@ export class RemoteClient {
     input?: unknown,
     context?: Pick<RemoteRequest, "projectPath" | "file">,
   ) {
+    if (name !== "remove-project") return this.operationNow(name, input, context);
+    const finish = await this.cache.prepareProjectRemoval(input);
+    if (typeof input === "string") this.recovery.forget(input);
+    try {
+      return await this.operationNow(name, input, context);
+    } finally {
+      finish();
+    }
+  }
+  private async operationNow<Name extends WorkspaceOperation>(
+    name: Name,
+    input?: unknown,
+    context?: Pick<RemoteRequest, "projectPath" | "file">,
+  ) {
     await this.cache.ready;
     const cacheRevision = this.cache.revision;
     let result: ReturnType<typeof parseWorkspaceResponse<Name>>;
@@ -223,7 +237,6 @@ export class RemoteClient {
       return result;
     }
     this.cache.capture(name, input, result, cacheRevision);
-    if (name === "remove-project" && typeof input === "string") this.recovery.forget(input);
     if (name === "bootstrap")
       this.recovery.remember(
         parseWorkspaceResponse("bootstrap", { ok: true, data: result }).activeProject,

@@ -189,8 +189,22 @@ test("removal clears only that project's offline data and ignores older response
   cache.capture("bootstrap", undefined, bootstrap);
   const input = { projectId: value.projectId, threadId: value.id };
   cache.capture("read-thread", input, value);
+  await cache.flush();
   const earlier = cache.revision;
-  cache.capture("remove-project", project.id, undefined);
+  const finish = await cache.prepareProjectRemoval(project.id);
+  const duringRemoval = cache.revision;
+  cache.capture("bootstrap", undefined, bootstrap);
+  cache.capture("read-thread", input, value);
+  const restarted = new RecoveryCache(path, hostId);
+  await restarted.ready;
+  expect(restarted.read("read-thread", input)).toBeUndefined();
+  expect(restarted.read("bootstrap", undefined)?.data).toMatchObject({
+    projects: [other],
+    activeProject: null,
+  });
+  await restarted.close();
+  finish();
+  cache.capture("bootstrap", undefined, bootstrap, duringRemoval);
   cache.capture("bootstrap", undefined, bootstrap, earlier);
   cache.capture("project-snapshot", project.id, snapshot, earlier);
   expect(cache.read("read-thread", input)).toBeUndefined();

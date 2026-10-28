@@ -240,9 +240,16 @@ export class WorkspaceService {
 
   async observe(projectId: string) {
     if (this.watchers.has(projectId)) return;
+    const project = this.store.project(projectId);
     const directories = await Promise.all(
       (["designs", "folders"] as const).map((kind) => this.store.storagePath(projectId, kind)),
     );
+    if (
+      this.closing ||
+      this.watchers.has(projectId) ||
+      this.store.projects.find((item) => item.id === projectId) !== project
+    )
+      return;
     let refresh: ReturnType<typeof setTimeout> | undefined;
     const watchers = directories.map((directory) =>
       watch(directory, () => {

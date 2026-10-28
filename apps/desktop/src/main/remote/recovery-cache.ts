@@ -65,6 +65,7 @@ export class RecoveryCache {
   private closed = false;
   private epoch = 0;
   private removedAt = -1;
+  private pendingRemovals = 0;
   private designs = new Map<
     string,
     { event: Extract<DesktopEvent, { type: "designs" }>; epoch: number }
@@ -113,11 +114,17 @@ export class RecoveryCache {
         : {}),
     };
   }
-  capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
-    if (!this.path || this.closed) return;
-    if (name === "remove-project") {
-      const projectId = snapshotInput.parse(input);
+  async prepareProjectRemoval(input: unknown) {
+    const projectId = snapshotInput.parse(input);
+    await this.ready;
+    if (this.closed) throw new Error("The machine connection is closed.");
+    this.pendingRemovals++;
+    const finish = () => {
+      this.pendingRemovals--;
       this.removedAt = ++this.epoch;
+    };
+    this.removedAt = ++this.epoch;
+    try {
       this.designs.delete(projectId);
       for (const [id, entry] of [...this.values]) {
         if (entry.name === "bootstrap") {
@@ -137,9 +144,15 @@ export class RecoveryCache {
         )
           this.values.delete(id);
       }
-      void this.flush().catch(() => {});
-      return;
+      await this.flush({ durable: true });
+      return finish;
+    } catch (error) {
+      finish();
+      throw error;
     }
+  }
+  capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
+    if (!this.path || this.closed || this.pendingRemovals) return;
     // Responses already in flight must not restore a forgotten registration to offline storage.
     if (startedAt < this.removedAt) return;
     if (name === "bootstrap") {
@@ -261,7 +274,7 @@ export class RecoveryCache {
     this.closed = true;
     return this.flush();
   }
-  async flush() {
+  async flush({ durable = false }: { durable?: boolean } = {}) {
     await this.ready;
     clearTimeout(this.timer);
     this.timer = undefined;
@@ -288,7 +301,7 @@ export class RecoveryCache {
     const snapshot = { version: 1, hostId: this.hostId, entries: [...this.values.values()] };
     const write = this.writes.then(async () => {
       await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-      await writePrivateJSON(path, snapshot);
+      await writePrivateJSON(path, snapshot, { durable });
     });
     this.writes = write.catch(() => {});
     return write;
