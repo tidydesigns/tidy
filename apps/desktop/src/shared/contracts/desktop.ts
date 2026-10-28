@@ -53,6 +53,9 @@ const messageSchema = z.object({
   id,
   role: z.enum(["user", "assistant"]),
   text: z.string().max(1_000_000),
+  turn: z
+    .object({ startedAt: z.string().datetime(), endedAt: z.string().datetime().optional() })
+    .optional(),
   attachments: z.array(attachmentSchema).max(10).optional(),
 });
 export const storedThreadSchema = z.object({

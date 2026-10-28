@@ -15,43 +15,84 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI, Message, Thread } from "../../../../shared/contracts/desktop";
 import { MessageAttachments } from "../composer/message-attachments";
-import { ToolActivityGroup } from "./tool-activity";
+import { groupTurnActivity } from "./turn-activity";
 import { ChatLink } from "../../components/chat-link";
 import { parseChatLink } from "../../../../shared/models/chat-links";
 import { MarkdownPreview } from "../../components/markdown-preview";
+import { TurnStatus } from "./turn-status";
+import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
 
 const positions = new Map<string, { top: number; following: boolean }>();
-const markdownPlugins = [remarkGfm];
+const MarkdownContent = memo(function MarkdownContent({
+  text,
+  streaming,
+  minimum,
+  api,
+  projectId,
+}: {
+  text: string;
+  streaming: boolean;
+  minimum: number;
+  api: DesktopAPI;
+  projectId: string;
+}) {
+  const markdownPlugins = useMemo<ComponentProps<typeof Markdown>["remarkPlugins"]>(
+    () => [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }]],
+    [text, minimum, streaming],
+  );
+  const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
+    () => ({
+      a: ({ href, children }) => (
+        <ChatLink href={href} api={api} projectId={projectId}>
+          {children}
+        </ChatLink>
+      ),
+      img: ({ alt }) => <span className="text-xs text-muted-ink">{alt || "Image"}</span>,
+    }),
+    [api, projectId],
+  );
+  return (
+    <Markdown
+      remarkPlugins={markdownPlugins}
+      skipHtml
+      urlTransform={(url) => (parseChatLink(url)?.kind === "file" ? url : defaultUrlTransform(url))}
+      components={markdownComponents}
+    >
+      {text}
+    </Markdown>
+  );
+});
+
 const MessageBody = memo(function MessageBody({
   message,
   api,
   projectId,
+  streaming,
+  visible,
 }: {
   message: Message;
   api: DesktopAPI;
   projectId: string;
+  streaming: boolean;
+  visible: boolean;
 }) {
+  const buffered = useBufferedMarkdown(message.text, streaming && visible);
+  const revealing = useBlockReveal(streaming && visible);
   return message.role === "user" ? (
     <div className="message-text whitespace-pre-wrap">{message.text}</div>
   ) : (
-    <div className="message-markdown [&_table]:text-sm [&_th]:font-semibold [&_strong]:font-semibold">
-      <Markdown
-        remarkPlugins={markdownPlugins}
-        skipHtml
-        urlTransform={(url) =>
-          parseChatLink(url)?.kind === "file" ? url : defaultUrlTransform(url)
-        }
-        components={{
-          a: ({ href, children }) => (
-            <ChatLink href={href} api={api} projectId={projectId}>
-              {children}
-            </ChatLink>
-          ),
-          img: ({ alt }) => <span className="text-xs text-muted-ink">{alt || "Image"}</span>,
-        }}
-      >
-        {message.text}
-      </Markdown>
+    <div
+      className="message-markdown [&_table]:text-sm [&_th]:font-semibold [&_strong]:font-semibold"
+      data-streaming={streaming && visible ? "" : undefined}
+      data-revealing={revealing && visible ? "" : undefined}
+    >
+      <MarkdownContent
+        text={buffered.text}
+        streaming={streaming}
+        minimum={buffered.minimum}
+        api={api}
+        projectId={projectId}
+      />
     </div>
   );
 });
@@ -60,6 +101,8 @@ const ConversationEntry = memo(function ConversationEntry({
   message,
   activities,
   active,
+  streaming,
+  statusThread,
   api,
   projectId,
   nodes,
@@ -67,6 +110,8 @@ const ConversationEntry = memo(function ConversationEntry({
   message: Message;
   activities: NonNullable<Thread["toolActivities"]>;
   active: boolean;
+  streaming: boolean;
+  statusThread?: Thread;
   api: DesktopAPI;
   projectId: string;
   nodes: Map<string, HTMLElement>;
@@ -79,17 +124,30 @@ const ConversationEntry = memo(function ConversationEntry({
     [message.id, nodes],
   );
   return (
-    <div className="conversation-entry [&>.tool-activity-group]:mb-5" ref={register}>
+    <div className="conversation-entry" ref={register}>
       <article
         className={`message message-${message.role} mb-6 text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
         aria-label={message.role === "user" ? "Your message" : "Assistant message"}
       >
-        <MessageBody message={message} api={api} projectId={projectId} />
+        <MessageBody
+          message={message}
+          api={api}
+          projectId={projectId}
+          streaming={streaming}
+          visible={active}
+        />
         {message.attachments && message.attachments.length > 0 && (
           <MessageAttachments api={api} projectId={projectId} files={message.attachments} />
         )}
       </article>
-      <ToolActivityGroup activities={activities} visible={active} />
+      {message.role === "user" && (
+        <TurnStatus
+          message={message}
+          thread={statusThread}
+          visible={active}
+          activities={activities}
+        />
+      )}
     </div>
   );
 });
@@ -141,15 +199,14 @@ export const Conversation = memo(function Conversation({
     }
     return result;
   }, [thread?.messages]);
-  const toolsByMessage = useMemo(() => {
-    const result = new Map<string, NonNullable<Thread["toolActivities"]>>();
-    for (const tool of thread?.toolActivities ?? []) {
-      const list = result.get(tool.afterMessageId) ?? [];
-      list.push(tool);
-      result.set(tool.afterMessageId, list);
-    }
-    return result;
-  }, [thread?.toolActivities]);
+  const toolsByTurn = useMemo(
+    () =>
+      groupTurnActivity({
+        messages: thread?.messages ?? [],
+        toolActivities: thread?.toolActivities,
+      }),
+    [thread?.messages, thread?.toolActivities],
+  );
 
   function measure() {
     const element = viewport.current;
@@ -241,6 +298,15 @@ export const Conversation = memo(function Conversation({
 
   const selected = preview === null ? null : turns[preview];
   const running = thread?.status === "running";
+  const prompts = thread?.messages.filter((message) => message.role === "user");
+  const currentTurn = (
+    prompts
+      ?.slice()
+      .reverse()
+      .find((message) => message.turn) ?? prompts?.at(-1)
+  )?.id;
+  const streamingMessage =
+    running && thread.activity === "Replying" ? thread.messages.at(-1)?.id : undefined;
   return (
     <div className="conversation relative min-h-0 min-w-0 flex-1">
       <div
@@ -292,21 +358,15 @@ export const Conversation = memo(function Conversation({
             <ConversationEntry
               key={message.id}
               message={message}
-              activities={toolsByMessage.get(message.id) ?? emptyActivities}
+              activities={toolsByTurn.get(message.id) ?? emptyActivities}
               active={active}
+              streaming={message.role === "assistant" && message.id === streamingMessage}
+              statusThread={message.id === currentTurn ? thread : undefined}
               api={api}
               projectId={thread.projectId}
               nodes={nodes.current}
             />
           ))}
-          {running &&
-            !thread.pendingApprovals?.length &&
-            !thread.toolActivities?.some((tool) => tool.status === "running") && (
-              <p className="thread-activity text-xs wrap-anywhere" role="status">
-                <span className="working-dot mr-2 inline-block size-1.5 rounded-full bg-(--desktop-status-active)" />
-                {thread.activity ?? "Working"}
-              </p>
-            )}
           {thread?.error && (
             <p
               className="thread-error text-xs wrap-anywhere text-(--desktop-status-danger)"
@@ -315,7 +375,7 @@ export const Conversation = memo(function Conversation({
               {thread.error}
             </p>
           )}
-          {thread?.status === "stopped" && (
+          {thread?.status === "stopped" && !thread.messages.some((message) => message.turn) && (
             <p className="thread-activity text-xs wrap-anywhere">Stopped</p>
           )}
         </div>

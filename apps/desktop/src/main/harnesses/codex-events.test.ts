@@ -80,7 +80,8 @@ test("App Server file changes retain the native patch and usage remains cumulati
     item: { id: "reason", type: "reasoning", content: ["private reasoning"] },
   });
   parse("account/updated", { api_key: "private-auth" });
-  expect(updates).toHaveLength(count);
+  expect(updates.slice(count)).toEqual([{ type: "activity", activity: "Thinking" }]);
+  expect(JSON.stringify(updates)).not.toMatch(/private reasoning|private-auth/);
 });
 test("large command deltas retain bounded recent output with a visible truncation flag", () => {
   const updates: HarnessUpdate[] = [];

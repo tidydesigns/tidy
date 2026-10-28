@@ -940,6 +940,41 @@ test("missing attachments and empty turns cannot launch a harness", async () => 
   expect(runs.length).toBe(0);
 });
 
+test("turn timing survives storage, status follows events and resumed turns get their own clock", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Check the sidebar",
+    designIds: [],
+  });
+  const startedAt = thread.messages[0].turn?.startedAt;
+  expect(startedAt).toBeDefined();
+  if (!startedAt) throw new Error("The turn did not record its start time.");
+  expect(thread.activity).toBe("Starting");
+  const update = runs[0].input.onUpdate;
+  update({ type: "activity", activity: "Thinking" });
+  expect((await service.readThread(project.id, thread.id)).activity).toBe("Thinking");
+  update({ type: "message", id: "reply", text: "Checking " });
+  update({ type: "message", id: "reply", text: "the sidebar.", append: true });
+  expect((await service.readThread(project.id, thread.id)).activity).toBe("Replying");
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  const result = await completion;
+  expect(result.messages[0].turn).toEqual({ startedAt, endedAt: expect.any(String) });
+  expect(result.messages[1].text).toBe("Checking the sidebar.");
+  expect((await store.readThread(project.id, thread.id)).messages[0].turn).toEqual(
+    result.messages[0].turn,
+  );
+  await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
+  const resumed = await service.readThread(project.id, thread.id);
+  expect(resumed.messages[0].turn).toEqual(result.messages[0].turn);
+  expect(resumed.messages.at(-1)?.turn).toEqual({ startedAt: expect.any(String) });
+  const stopped = finished(service, thread.id);
+  await service.stopThread(project.id, thread.id);
+  expect((await stopped).messages.at(-1)?.turn?.endedAt).toBeDefined();
+});
+
 test("tool activity stays anchored, updates in place and persists independently of turn success", async () => {
   const { directory, service, store, project, runs } = await fixture();
   const thread = await service.startThread({

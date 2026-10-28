@@ -352,6 +352,42 @@ test("model and effort reach the native harness protocol literally", async () =>
   }
 });
 
+test("Claude reports the thinking phase without retaining reasoning text or signatures", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((update) => updates.push(update));
+  parse({ type: "stream_event", event: { type: "message_start", message: { id: "reply" } } });
+  parse({
+    type: "stream_event",
+    event: {
+      type: "content_block_start",
+      content_block: { type: "thinking", thinking: "private reasoning" },
+    },
+  });
+  parse({
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "thinking_delta", thinking: "private reasoning" },
+    },
+  });
+  parse({
+    type: "stream_event",
+    event: {
+      type: "content_block_delta",
+      delta: { type: "signature_delta", signature: "private signature" },
+    },
+  });
+  parse({
+    type: "stream_event",
+    event: { type: "content_block_delta", delta: { type: "text_delta", text: "Visible reply" } },
+  });
+  expect(updates).toEqual([
+    { type: "activity", activity: "Working" },
+    { type: "activity", activity: "Thinking" },
+    { type: "message", id: "reply", text: "Visible reply", append: true },
+  ]);
+});
+
 test("Claude startup failures cannot erase a resumed thread's recorded usage", () => {
   const updates: HarnessUpdate[] = [];
   createClaudeParser((update) => updates.push(update))({
