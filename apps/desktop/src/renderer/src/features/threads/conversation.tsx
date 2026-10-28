@@ -13,6 +13,8 @@ import {
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
+import { showToast } from "@tidy/ui/toast";
+import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI, Message, Thread } from "../../../../shared/contracts/desktop";
 import { attachmentText } from "../../../../shared/models/attachment-references";
 import { AttachmentText, MessageAttachments } from "../composer/message-attachments";
@@ -22,6 +24,12 @@ import { parseChatLink } from "../../../../shared/models/chat-links";
 import { MarkdownPreview } from "../../components/markdown-preview";
 import { TurnStatus } from "./turn-status";
 import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
+
+const messageTime = new Intl.DateTimeFormat(undefined, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+});
 
 const positions = new Map<string, { top: number; following: boolean }>();
 const MarkdownContent = memo(function MarkdownContent({
@@ -126,23 +134,49 @@ const ConversationEntry = memo(function ConversationEntry({
     },
     [message.id, nodes],
   );
+  const sentAt = message.sentAt ?? message.turn?.startedAt;
   return (
     <div className="conversation-entry" ref={register}>
-      <article
-        className={`message message-${message.role} mb-6 text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
-        aria-label={message.role === "user" ? "Your message" : "Assistant message"}
-      >
-        <MessageBody
-          message={message}
-          api={api}
-          projectId={projectId}
-          streaming={streaming}
-          visible={active}
-        />
-        {message.attachments && message.attachments.length > 0 && (
-          <MessageAttachments api={api} projectId={projectId} files={message.attachments} />
+      <div className={message.role === "user" ? "user-prompt" : undefined}>
+        <article
+          className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
+          aria-label={message.role === "user" ? "Your message" : "Assistant message"}
+        >
+          <MessageBody
+            message={message}
+            api={api}
+            projectId={projectId}
+            streaming={streaming}
+            visible={active}
+          />
+          {message.attachments && message.attachments.length > 0 && (
+            <MessageAttachments api={api} projectId={projectId} files={message.attachments} />
+          )}
+        </article>
+        {message.role === "user" && (
+          <div className="user-prompt-actions">
+            {sentAt && (
+              <time dateTime={sentAt} title={new Date(sentAt).toLocaleString()}>
+                {messageTime.format(new Date(sentAt))}
+              </time>
+            )}
+            <Button
+              type="button"
+              className="user-prompt-copy"
+              aria-label="Copy prompt"
+              title="Copy prompt"
+              onClick={() => {
+                void navigator.clipboard.writeText(message.text).then(
+                  () => showToast("Prompt copied", "success"),
+                  () => showToast("Could not copy the prompt. Please try again."),
+                );
+              }}
+            >
+              <Icon name="copy" size={16} />
+            </Button>
+          </div>
         )}
-      </article>
+      </div>
       {message.role === "user" && (
         <TurnStatus
           message={message}

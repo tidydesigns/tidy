@@ -633,7 +633,11 @@ export class WorkspaceService {
             images: prepared.images,
           }))
         ) {
-          thread.messages.splice(insertion, 0, { ...message, role: "user" });
+          thread.messages.splice(insertion, 0, {
+            ...message,
+            role: "user",
+            sentAt: new Date().toISOString(),
+          });
           if (!job.stopped && !this.closing) this.automaticQueues.add(thread.id);
           await this.persistQueue(
             thread,
@@ -845,6 +849,7 @@ export class WorkspaceService {
       id: messageId ?? randomUUID(),
       role: "user",
       text: prompt,
+      sentAt: startedAt,
       turn,
       ...(attachments.length
         ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }

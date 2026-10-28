@@ -524,3 +524,46 @@
     opacity: 0.55;
   }
 }
+
+.user-prompt {
+  position: relative;
+  width: fit-content;
+  max-width: 90%;
+  margin-left: auto;
+  padding-bottom: 30px;
+}
+.user-prompt-actions {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  opacity: 0;
+  pointer-events: none;
+}
+.user-prompt:hover .user-prompt-actions,
+.user-prompt:focus-within .user-prompt-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+.user-prompt-copy {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.user-prompt-copy:hover {
+  background: var(--color-hover-surface);
+  color: var(--color-ink);
+}
+.user-prompt-copy:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}

@@ -190,6 +190,7 @@ test("native steering promotes a queued message without interrupting or draining
   expect(runs[0].stopped).toBe(false);
   expect(runs[0].steers[0].prompt).toEndWith("Change direction");
   expect((await read()).messages.at(-1)?.id).toBe(message.id);
+  expect((await read()).messages.at(-1)?.sentAt).toEqual(expect.any(String));
   expect((await read()).queuedMessages?.map((item) => item.text)).toEqual(["Later"]);
   runs[0].finish();
   await waitForRun(2);
