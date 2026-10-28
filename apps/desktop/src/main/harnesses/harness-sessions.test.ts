@@ -118,7 +118,7 @@ test("a duplicate start or incompatible preparation cannot close another running
   }
 });
 
-test("cloud access withdrawal terminates retained background sessions without stopping local sessions", async () => {
+test("access withdrawal and project removal release scoped sessions and protect background work", async () => {
   const { ProjectStore } = await import("../workspace/project-store");
   const { WorkspaceService } = await import("../workspace/workspace-service");
   const cwd = await mkdtemp(join(directory, "cloud-retention-"));
@@ -166,6 +166,7 @@ test("cloud access withdrawal terminates retained background sessions without st
     const cloudPid = (await events(cwd))[0].pid;
     expect(service.reserveHarnessUpdate("codex")).toBeNull();
     await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
+    await expect(service.removeProject(local.id)).rejects.toThrow("active work");
     const localDone = completed();
     await service.startThread({
       projectId: local.id,
@@ -186,6 +187,9 @@ test("cloud access withdrawal terminates retained background sessions without st
     await expect(
       service.warmThread({ projectId: cloud.id, executionProjectId: local.id, harness: "codex" }),
     ).rejects.toThrow("Cloud access withdrawn");
+    await service.removeProject(local.id);
+    expect(store.projects.some((project) => project.id === local.id)).toBe(false);
+    for (const pid of localPids) expect(() => process.kill(pid, 0)).toThrow();
   } finally {
     await service.close();
   }

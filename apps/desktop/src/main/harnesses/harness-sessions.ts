@@ -10,11 +10,13 @@ type ManagedContext = SessionContext & { projectId: string };
 type SessionFilter = {
   harness?: HarnessId;
   projectIds?: ReadonlySet<string>;
+  cwd?: string;
   directory?: string;
 };
 const matches = (context: ManagedContext, filter: SessionFilter) => {
   if (filter.harness && context.harness !== filter.harness) return false;
   if (filter.projectIds && !filter.projectIds.has(context.projectId)) return false;
+  if (filter.cwd && context.cwd !== filter.cwd) return false;
   if (filter.directory) {
     const path = relative(filter.directory, context.cwd);
     if (isAbsolute(path) || path === ".." || path.startsWith(`..${sep}`)) return false;

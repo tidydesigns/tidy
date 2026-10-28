@@ -146,8 +146,10 @@ export class WorkspaceService {
 
   async removeProject(projectId: string) {
     if (this.closing) throw new Error("Tidy is closing.");
+    const project = this.store.project(projectId);
     if (
       this.repositoryChanges.has(projectId) ||
+      this.sessions.backgroundContexts.some((context) => context.cwd === project.path) ||
       [...this.starting.values(), ...this.executionProjects.values()].includes(projectId) ||
       [...this.jobs.values()].some(
         ({ thread }) => thread.projectId === projectId || thread.executionProjectId === projectId,
@@ -156,6 +158,8 @@ export class WorkspaceService {
       throw new Error("Wait for this project's active work to finish before removing it.");
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
+    this.sessionGeneration++;
+    await this.sessions.clear({ cwd: project.path });
     for (const key of [projectId, `${projectId}:folders`]) {
       this.watchers.get(key)?.close();
       this.watchers.delete(key);
