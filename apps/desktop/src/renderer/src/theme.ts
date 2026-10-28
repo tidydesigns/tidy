@@ -1,21 +1,26 @@
 export type Theme = "light" | "dark";
+export type ThemePreference = Theme | "system";
 
 const storageKey = "tidy:theme";
 const listeners = new Set<() => void>();
-let preference: Theme | null = null;
+let preference: ThemePreference = "system";
 let systemTheme: MediaQueryList;
 
-function readPreference(): Theme | null {
+function readPreference(): ThemePreference {
   try {
     const value = localStorage.getItem(storageKey);
-    return value === "light" || value === "dark" ? value : null;
+    return value === "light" || value === "dark" ? value : "system";
   } catch {
-    return null;
+    return "system";
   }
 }
 
 export function currentTheme(): Theme {
-  return preference ?? (systemTheme.matches ? "dark" : "light");
+  return preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
+}
+
+export function currentThemePreference(): ThemePreference {
+  return preference;
 }
 
 function applyTheme() {
@@ -28,7 +33,7 @@ export function initializeTheme() {
   preference = readPreference();
   applyTheme();
   systemTheme.addEventListener("change", () => {
-    if (preference === null) applyTheme();
+    if (preference === "system") applyTheme();
   });
   window.addEventListener("storage", (event) => {
     if (event.storageArea !== window.localStorage) return;
@@ -45,11 +50,12 @@ export function subscribeTheme(listener: () => void) {
   };
 }
 
-export function selectTheme(theme: Theme): boolean {
+export function selectTheme(theme: ThemePreference): boolean {
   preference = theme;
   applyTheme();
   try {
-    localStorage.setItem(storageKey, theme);
+    if (theme === "system") localStorage.removeItem(storageKey);
+    else localStorage.setItem(storageKey, theme);
     return true;
   } catch {
     return false;
