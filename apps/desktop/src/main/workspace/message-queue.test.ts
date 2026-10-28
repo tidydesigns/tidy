@@ -1,3 +1,4 @@
+import { attachmentReference } from "../../shared/models/attachment-references";
 import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 import { afterEach, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
@@ -370,17 +371,21 @@ test("attachments stay with queued messages and reach the delivered turn", async
     "notes.txt",
     "data:text/plain;base64,bm90ZXM=",
   );
+  const text = `Read ${attachmentReference(attachment)} before continuing`;
   await service.sendMessage({
     projectId: project.id,
     threadId: thread.id,
-    text: "Read these notes",
+    text,
     attachmentIds: [attachment.id],
     delivery: "queue",
   });
   expect((await read()).queuedMessages?.[0].attachments?.[0].name).toBe("notes.txt");
+  expect((await read()).queuedMessages?.[0].text).toBe(text);
   runs[0].finish();
   await waitForRun(2);
-  expect(runs[1].input.prompt).toContain("notes.txt");
+  expect(runs[1].input.prompt).toEndWith(text);
+  expect(runs[1].input.prompt).toContain(`${attachmentReference(attachment)} "notes.txt":`);
+  expect((await read()).messages.at(-1)?.text).toBe(text);
   expect((await read()).messages.at(-1)?.attachments?.[0].id).toBe(attachment.id);
 });
 

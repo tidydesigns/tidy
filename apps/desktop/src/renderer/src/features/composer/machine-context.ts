@@ -2,6 +2,7 @@ import {
   draftImportSchema,
   MAX_DRAFT_IMPORT_BYTES,
 } from "../../../../shared/contracts/draft-import";
+import { remapAttachmentReferences } from "../../../../shared/models/attachment-references";
 import { UserFacingError } from "@tidy/ui/errors";
 import type {
   Bootstrap,
@@ -102,6 +103,11 @@ export async function copyDraft({
     snapshot: imported?.snapshot ?? null,
     draft: {
       ...source.draft,
+      text: remapAttachmentReferences({
+        text: source.draft.text,
+        source: source.draft.attachments ?? [],
+        target: imported?.attachments ?? [],
+      }),
       attachments: imported?.attachments ?? [],
       designIds: imported?.designIds ?? [],
       cloudFileIds: undefined,

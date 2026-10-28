@@ -7,13 +7,12 @@ import {
   useState,
   type ComponentProps,
 } from "react";
+import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
 import { codeScrollbarClassName } from "../../styles/code-ui";
 import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
 
-type Props = Omit<ComponentProps<"textarea">, "value" | "onChange"> & {
-  value: string;
-  onChange(value: string): void;
+type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
   skills: Skill[];
   status: "loading" | "ready" | "error";
   retry(): void;
@@ -28,7 +27,7 @@ export function SkillPrompt({
   onKeyDown,
   ...props
 }: Props) {
-  const input = useRef<HTMLTextAreaElement>(null);
+  const input = useRef<PromptEditorHandle>(null);
   const menu = useRef<HTMLDivElement>(null);
   const selection = useRef<{ text: string; cursor: number } | null>(null);
   const id = useId();
@@ -133,7 +132,7 @@ export function SkillPrompt({
           )}
         </div>
       )}
-      <textarea
+      <PromptEditor
         {...props}
         ref={input}
         value={value}
@@ -144,12 +143,11 @@ export function SkillPrompt({
         aria-activedescendant={visible && selected ? `${id}-${selectedIndex}` : undefined}
         onFocus={() => {
           setFocused(true);
-          setCursor(input.current?.selectionStart ?? 0);
+          setCursor(input.current?.cursor() ?? 0);
         }}
-        onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-        onChange={(event) => {
-          onChange(event.target.value);
-          setCursor(event.target.selectionStart);
+        onCursorChange={setCursor}
+        onChange={(text) => {
+          onChange(text);
           setDismissed(false);
         }}
         onKeyDown={(event) => {

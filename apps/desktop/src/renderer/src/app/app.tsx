@@ -42,8 +42,14 @@ import { Conversations } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
 import { ApprovalRequests } from "../features/threads/approval-requests";
+import {
+  attachmentText,
+  removeAttachmentReference,
+  resolveAttachmentReferences,
+} from "../../../shared/models/attachment-references";
 import { AttachmentList } from "../features/composer/message-attachments";
 import {
+  type AttachedFile,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_BYTES,
   MAX_IMAGE_BYTES,
@@ -533,7 +539,7 @@ export function App({
   function updateDraft(patch: Partial<Draft>) {
     setDrafts((current) => ({
       ...current,
-      [draftKey]: { ...draft, ...patch },
+      [draftKey]: { ...(current[draftKey] ?? draft), ...patch },
     }));
   }
 
@@ -774,68 +780,100 @@ export function App({
     [workspaceProjectId],
   );
 
-  function attachFiles(files: File[]) {
-    if (!api || !project || thread?.doneAt || busy || !files.length) return;
+  function attachFiles(files: File[]): AttachedFile[] {
+    if (!api || !project || thread?.doneAt || busy || !files.length) return [];
     const projectId = project.id,
       key = draftKey,
       fallback = draft;
+    const attached = [...(draftsRef.current[key]?.attachments ?? fallback.attachments ?? [])];
+    const pending: { file: File; attachment: AttachedFile }[] = [];
+    const errors: string[] = [];
+    for (const file of files) {
+      if (attached.length >= MAX_ATTACHMENTS) {
+        errors.push("Attach up to 10 files per message.");
+        break;
+      }
+      const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type);
+      if (file.size > (image ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES)) {
+        errors.push(
+          `${file.name}: choose ${image ? "an image under 5 MB" : "a file under 20 MB"}.`,
+        );
+        continue;
+      }
+      if (
+        attached.reduce((total, value) => total + value.size, file.size) >
+        MAX_ATTACHMENT_TOTAL_BYTES
+      ) {
+        errors.push("Keep attachments under 25 MB per message.");
+        continue;
+      }
+      const attachment: AttachedFile = {
+        id: crypto.randomUUID(),
+        name: file.name.slice(0, 200) || "Pasted image.png",
+        mimeType: file.type,
+        size: file.size,
+        ...(image ? { previewUrl: URL.createObjectURL(file) } : {}),
+      };
+      attached.push(attachment);
+      pending.push({ file, attachment });
+    }
+    if (errors.length) setError({ projectId, text: [...new Set(errors)].join(" ") });
+    if (!pending.length) return [];
+    const next = { ...(draftsRef.current[key] ?? fallback), attachments: attached };
+    draftsRef.current = { ...draftsRef.current, [key]: next };
+    setDrafts((current) => ({
+      ...current,
+      [key]: { ...(current[key] ?? fallback), attachments: attached },
+    }));
     setUploading((current) => ({ ...current, [key]: (current[key] ?? 0) + 1 }));
     const queued = (uploads.current[key] ?? Promise.resolve())
       .then(async () => {
-        const attached = [...(draftsRef.current[key]?.attachments ?? fallback.attachments ?? [])];
-        const errors: string[] = [];
-        for (const file of files) {
-          if (attached.length >= MAX_ATTACHMENTS) {
-            errors.push("Attach up to 10 files per message.");
-            break;
-          }
-          const image = ["image/png", "image/jpeg", "image/webp", "image/gif"].includes(file.type);
-          if (file.size > (image ? MAX_IMAGE_BYTES : MAX_ATTACHMENT_BYTES)) {
-            errors.push(
-              `${file.name}: choose ${image ? "an image under 5 MB" : "a file under 20 MB"}.`,
-            );
-            continue;
-          }
-          if (
-            attached.reduce((total, value) => total + value.size, file.size) >
-            MAX_ATTACHMENT_TOTAL_BYTES
-          ) {
-            errors.push("Keep attachments under 25 MB per message.");
-            continue;
-          }
+        for (const { file, attachment } of pending) {
           try {
+            if (!draftsRef.current[key]?.attachments?.some((item) => item.id === attachment.id))
+              continue;
             const dataUrl = await new Promise<string>((resolve, reject) => {
               const reader = new FileReader();
               reader.onload = () => resolve(String(reader.result));
               reader.onerror = () => reject(new Error("Could not read this file."));
               reader.readAsDataURL(file);
             });
-            const value = await api.addAttachment(
-              projectId,
-              file.name.slice(0, 200) || "Pasted image.png",
-              dataUrl,
-            );
-            attached.push(value);
-            setDrafts((current) => ({
-              ...current,
-              [key]: {
-                ...(current[key] ?? fallback),
-                attachments: [...(current[key]?.attachments ?? fallback.attachments ?? []), value],
-              },
-            }));
+            const value = await api.addAttachment(projectId, attachment.name, dataUrl);
+            setDrafts((current) => {
+              const latest = current[key] ?? fallback;
+              return {
+                ...current,
+                [key]: {
+                  ...latest,
+                  attachments: latest.attachments?.map((item) =>
+                    item.id === attachment.id ? { ...value, referenceId: attachment.id } : item,
+                  ),
+                },
+              };
+            });
           } catch (cause) {
-            errors.push(errorText(cause));
+            setDrafts((current) => {
+              const latest = current[key] ?? fallback;
+              return {
+                ...current,
+                [key]: {
+                  ...latest,
+                  text: removeAttachmentReference(latest.text, attachment),
+                  attachments: latest.attachments?.filter((item) => item.id !== attachment.id),
+                },
+              };
+            });
+            setError({ projectId, text: errorText(cause) });
+          } finally {
+            if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
           }
         }
-        if (errors.length) setError({ projectId, text: [...new Set(errors)].join(" ") });
       })
       .finally(() => {
-        setUploading((current) => ({
-          ...current,
-          [key]: Math.max(0, (current[key] ?? 1) - 1),
-        }));
+        setUploading((current) => ({ ...current, [key]: Math.max(0, (current[key] ?? 1) - 1) }));
       });
     uploads.current[key] = queued.catch(() => {});
+    return pending.map(({ attachment }) => attachment);
   }
 
   async function send(delivery: MessageDelivery = "queue") {
@@ -857,7 +895,7 @@ export function App({
       (thread && settingsPending[thread.id])
     )
       return;
-    const submitted = draft.text;
+    const submitted = resolveAttachmentReferences(draft.text, draft.attachments ?? []);
     const command = skillCommand(submitted);
     const rememberedSkill =
       draft.skill?.harness === selectedHarness && draft.skill.name === command?.name
@@ -887,7 +925,7 @@ export function App({
       queue.enqueue(
         {
           id: crypto.randomUUID(),
-          text: draft.text,
+          text: submitted,
           attachments: draft.attachments,
           skillId: selectedSkill?.id,
         },
@@ -910,7 +948,9 @@ export function App({
         settings: draft.settings,
         executionProjectId: project.cloud ? draft.executionProjectId : undefined,
         title:
-          submitted.replace(/\s+/g, " ").slice(0, 80) ||
+          attachmentText(submitted, draft.attachments ?? [])
+            .replace(/\s+/g, " ")
+            .slice(0, 80) ||
           draft.attachments?.[0]?.name ||
           "New thread",
         designIds: referenceDesignIds,
@@ -1819,19 +1859,30 @@ export function App({
                         onRemove={
                           thread?.doneAt
                             ? undefined
-                            : (id) =>
+                            : (id) => {
+                                const file = draft.attachments?.find((item) => item.id === id);
                                 updateDraft({
-                                  attachments: draft.attachments?.filter((file) => file.id !== id),
-                                })
+                                  text: file
+                                    ? removeAttachmentReference(draft.text, file)
+                                    : draft.text,
+                                  attachments: draft.attachments?.filter((item) => item.id !== id),
+                                });
+                              }
                         }
                       />
                       {!thread && !referencesReady && (
-                        <span className="attachment-progress" role="status">
+                        <span
+                          className="attachment-progress block px-2 pt-0.5 pb-2 text-[11px] text-muted-ink"
+                          role="status"
+                        >
                           Preparing design references…
                         </span>
                       )}
                       {Boolean(uploading[draftKey]) && (
-                        <span className="attachment-progress" role="status">
+                        <span
+                          className="attachment-progress block px-2 pt-0.5 pb-2 text-[11px] text-muted-ink"
+                          role="status"
+                        >
                           Adding attachments…
                         </span>
                       )}
@@ -1846,9 +1897,6 @@ export function App({
                           event.currentTarget.value = "";
                         }}
                       />
-                      <label className="sr-only" htmlFor="thread-prompt">
-                        Message
-                      </label>
                       <SkillPrompt
                         className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
@@ -1858,6 +1906,7 @@ export function App({
                           void loadSkills(true);
                         }}
                         id="thread-prompt"
+                        aria-label="Message"
                         value={draft.text}
                         onChange={(text) => {
                           const name = skillCommand(text)?.name;
@@ -1871,13 +1920,8 @@ export function App({
                                 : undefined,
                           });
                         }}
-                        onPaste={(event) => {
-                          const files = Array.from(event.clipboardData.files);
-                          if (files.length) {
-                            event.preventDefault();
-                            attachFiles(files);
-                          }
-                        }}
+                        files={draft.attachments ?? []}
+                        onAttachFiles={attachFiles}
                         placeholder={
                           thread?.doneAt
                             ? "Reopen this thread to continue…"
@@ -1889,7 +1933,6 @@ export function App({
                         }
                         disabled={Boolean(thread?.doneAt) || busy}
                         maxLength={32_000}
-                        rows={1}
                         onKeyDown={(event) => {
                           if (
                             event.key === "Enter" &&
@@ -1920,7 +1963,7 @@ export function App({
                       <div className="composer-actions flex flex-wrap items-center gap-2 py-2">
                         <Button
                           type="button"
-                          className="quiet-button attachment-button size-8"
+                          className="flex size-8 cursor-pointer items-center justify-center rounded-[5px] border-0 bg-transparent p-1.5 text-xs text-muted-ink hover:bg-hover-surface"
                           aria-label="Attach files"
                           title="Attach files"
                           disabled={Boolean(thread?.doneAt) || busy}

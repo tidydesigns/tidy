@@ -13,7 +13,6 @@
 @import "./features/threads/threads.css";
 @import "./app/layout.css";
 @import "./features/workspace/project-files.css";
-@import "./features/composer/message-attachments.css";
 @import "./features/threads/tool-activity.css";
 @import "./features/threads/approval-requests.css";
 @import "./platform/browser-project-picker.css";
