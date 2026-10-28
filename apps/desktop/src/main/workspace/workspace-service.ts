@@ -197,6 +197,7 @@ export class WorkspaceService {
       kind: thread ? "thread" : "composer",
       id: thread?.id ?? input.projectId,
       context: {
+        projectId: input.projectId,
         executable,
         harness: binding.harness,
         sessionId: thread?.sessionId,
@@ -224,9 +225,14 @@ export class WorkspaceService {
       const root = await repositoryRoot(project.path);
       if (!root) throw new Error("Could not verify the repository root. Try switching again.");
       const activeRoots = await Promise.all(
-        [...activeProjects]
-          .filter((id) => !this.store.project(id).cloud)
-          .map((id) => repositoryRoot(this.store.project(id).path)),
+        [
+          ...new Set([
+            ...[...activeProjects]
+              .filter((id) => !this.store.project(id).cloud)
+              .map((id) => this.store.project(id).path),
+            ...this.sessions.backgroundContexts.map((context) => context.cwd),
+          ]),
+        ].map((path) => repositoryRoot(path)),
       );
       if (activeRoots.some((activeRoot) => !activeRoot))
         throw new Error(
@@ -269,7 +275,9 @@ export class WorkspaceService {
       this.closing ||
       this.updatingHarnesses.has(id) ||
       [...this.preparingHarnesses.values()].some((harness) => harness === id) ||
-      (!options.allowActiveRuns && [...this.jobs.values()].some((job) => job.thread.harness === id))
+      (!options.allowActiveRuns &&
+        ([...this.jobs.values()].some((job) => job.thread.harness === id) ||
+          this.sessions.backgroundContexts.some((context) => context.harness === id)))
     )
       return null;
     this.sessionGeneration++;
@@ -894,6 +902,7 @@ export class WorkspaceService {
       }
       this.sessionGeneration++;
       const launchInput = {
+        projectId: thread.projectId,
         harness: thread.harness,
         executable,
         cwd: project.path,
@@ -1137,7 +1146,6 @@ export class WorkspaceService {
 
   async stopCloudThreads() {
     this.sessionGeneration++;
-    await this.sessions.clear({ idleOnly: true });
     const owners = new Map(this.starting);
     for (const job of this.jobs.values()) owners.set(job.thread.id, job.thread.projectId);
     await Promise.all(
@@ -1145,6 +1153,11 @@ export class WorkspaceService {
         .filter(([, id]) => this.store.project(id).cloud)
         .map(([threadId, projectId]) => this.stopThread(projectId, threadId)),
     );
+    await this.sessions.clear({
+      projectIds: new Set(
+        this.store.projects.filter((project) => project.cloud).map((project) => project.id),
+      ),
+    });
   }
 
   async stopThread(projectId: string, threadId: string) {
@@ -1218,7 +1231,11 @@ export class WorkspaceService {
   }
 
   get activeRunCount() {
-    return new Set([...this.jobs.keys(), ...this.startingRuns]).size;
+    return new Set([
+      ...this.jobs.keys(),
+      ...this.startingRuns,
+      ...this.sessions.backgroundContexts.map((context) => context.threadId),
+    ]).size;
   }
 
   dispatch<T>(action: () => Promise<T>): Promise<T> {

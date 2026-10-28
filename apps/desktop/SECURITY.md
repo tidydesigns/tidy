@@ -1,7 +1,7 @@
 # Desktop security boundaries
 
-Tidy's Electron renderer is an editor and control pane. Installed Codex and Claude
-Code executables are trusted native programs with their own authentication,
+Tidy's Electron renderer is an editor and control pane. Installed Codex, Claude
+Code and OpenCode executables are trusted native programs with their own authentication,
 configuration, hooks, MCP servers and permission systems. The renderer sandbox
 does not sandbox those executables. Full access permits
 commands, edits and network access without routine approvals; use it only for
@@ -31,6 +31,12 @@ projects and harness configurations you trust.
 - Permission responses refer to live native requests. Unknown, expired and repeated
   responses are rejected. Stopping, completion and shutdown invalidate pending
   requests. Unsupported interactive requests fail closed.
+- Native connections may remain alive between turns. Up to two disposable idle
+  connections are retained for thirty minutes. Running turns and reported background
+  work are protected from idle eviction; background connections expire after four
+  hours without provider activity. Cleanup releases processes without deleting saved
+  conversations. Cloud access withdrawal terminates its retained connections,
+  including background work, while preserving independent local connections.
 
 ## Portable data and private authority
 

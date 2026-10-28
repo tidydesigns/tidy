@@ -5,9 +5,10 @@ import { HarnessSession } from "./interactive-harness";
 import { HarnessNotSubmittedError } from "./harness-transport";
 import type { SessionContext, TurnInput } from "./session-types";
 
+type ManagedContext = SessionContext & { projectId: string };
 type Entry = {
   id: string;
-  context: SessionContext;
+  context: ManagedContext;
   key: string;
   session: HarnessSession;
   timer?: ReturnType<typeof setTimeout>;
@@ -15,8 +16,9 @@ type Entry = {
   background: boolean;
   expiresAt: number;
 };
-const contextKey = (input: SessionContext) =>
+const contextKey = (input: ManagedContext) =>
   JSON.stringify([
+    input.projectId,
     input.harness,
     input.executable,
     input.cwd,
@@ -43,6 +45,11 @@ export class HarnessSessions {
     return [...this.entries].filter(
       ([, entry]) => entry.session.idle && !entry.session.hasBackgroundWork,
     );
+  }
+  get backgroundContexts() {
+    return [...this.entries.values()]
+      .filter((entry) => entry.session.available && entry.session.hasBackgroundWork)
+      .map(({ id, context }) => ({ threadId: id, harness: context.harness, cwd: context.cwd }));
   }
 
   private retire(id: string, entry: Entry) {
@@ -100,7 +107,7 @@ export class HarnessSessions {
     for (const [key, item] of idle.slice(0, Math.max(0, idle.length - this.options.idleLimit)))
       this.retire(key, item);
   }
-  private acquire(id: string, context: SessionContext, composer = false): Promise<Entry> {
+  private acquire(id: string, context: ManagedContext, composer = false): Promise<Entry> {
     const generation = this.generation;
     const operation = this.changes
       .catch(() => {})
@@ -118,7 +125,7 @@ export class HarnessSessions {
               ? entry.session.sessionId !== context.sessionId
               : entry.context.sessionId !== undefined))
         ) {
-          if (entry.session.available && entry.session.hasBackgroundWork)
+          if (entry.session.available && (!entry.session.idle || entry.session.hasBackgroundWork))
             throw new HarnessNotSubmittedError(
               "Wait for background work to finish before changing this conversation's settings.",
             );
@@ -155,6 +162,7 @@ export class HarnessSessions {
           if (generation !== this.generation)
             throw new Error("The harness context changed. Try again.");
           const {
+            projectId,
             harness,
             executable,
             cwd,
@@ -164,6 +172,7 @@ export class HarnessSessions {
             superviseParent,
           } = context;
           const binding = {
+            projectId,
             harness,
             executable,
             cwd,
@@ -201,7 +210,7 @@ export class HarnessSessions {
   }: {
     kind: "composer" | "thread";
     id: string;
-    context: SessionContext;
+    context: ManagedContext;
   }) {
     const key = kind === "composer" ? `composer:${id}` : id;
     const entry = await this.acquire(key, context, kind === "composer");
@@ -214,7 +223,7 @@ export class HarnessSessions {
       throw error;
     }
   }
-  start(id: string, input: SessionContext & TurnInput): RunningHarness {
+  start(id: string, input: ManagedContext & TurnInput): RunningHarness {
     let run: RunningHarness | undefined;
     let stopped = false;
     const completion = (async () => {
@@ -223,6 +232,8 @@ export class HarnessSessions {
         this.release(id, entry);
         return;
       }
+      if (!entry.session.idle)
+        throw new HarnessNotSubmittedError("This conversation already has a running turn.");
       try {
         run = entry.session.start(input);
         await run.done;
@@ -250,10 +261,19 @@ export class HarnessSessions {
       },
     };
   }
-  clear({ harness, idleOnly = false }: { harness?: HarnessId; idleOnly?: boolean } = {}) {
+  clear({
+    harness,
+    projectIds,
+    idleOnly = false,
+  }: {
+    harness?: HarnessId;
+    projectIds?: ReadonlySet<string>;
+    idleOnly?: boolean;
+  } = {}) {
     this.generation++;
     for (const [id, entry] of this.entries) {
       if (harness && entry.context.harness !== harness) continue;
+      if (projectIds && !projectIds.has(entry.context.projectId)) continue;
       entry.invalidated = true;
       if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
         this.retire(id, entry);

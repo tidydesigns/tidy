@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -36,11 +36,117 @@ async function events(cwd: string) {
   );
 }
 
+test("a duplicate start or incompatible preparation cannot close another running turn", async () => {
+  const cwd = await mkdtemp(join(directory, "concurrent-start-"));
+  const sessions = new HarnessSessions();
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
+  const accepted = Promise.withResolvers<void>();
+  try {
+    const running = sessions.start("thread", {
+      ...context,
+      prompt: "hold",
+      onUpdate(update) {
+        if (update.type === "started") accepted.resolve();
+      },
+    });
+    await accepted.promise;
+    const pid = (await events(cwd))[0].pid;
+    await expect(
+      sessions.start("thread", { ...context, prompt: "duplicate", onUpdate() {} }).done,
+    ).rejects.toThrow("running turn");
+    await expect(
+      sessions.prepare({
+        kind: "thread",
+        id: "thread",
+        context: { ...context, settings: { model: "other" } },
+      }),
+    ).rejects.toThrow("Wait for");
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    running.stop();
+    await running.done;
+    await sessions.start("thread", { ...context, prompt: "continue", onUpdate() {} }).done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+test("cloud access withdrawal terminates retained background sessions without stopping local sessions", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "cloud-retention-"));
+  const initialized = Bun.spawnSync(["git", "-c", "init.defaultBranch=main", "init", cwd]);
+  if (initialized.exitCode !== 0) throw new Error("Could not initialize fixture repository.");
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const local = (await store.open(cwd)).project;
+  const cloudPath = join(cwd, "cloud");
+  await mkdir(cloudPath);
+  const cloud = (await store.open(cloudPath, "Cloud workspace")).project;
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  let allowed = true;
+  service.canAccessCloudProject = () => allowed;
+  service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Cloud access withdrawn");
+  };
+  const completed = () =>
+    new Promise<void>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+  try {
+    const cloudDone = completed();
+    await service.startThread({
+      projectId: cloud.id,
+      executionProjectId: local.id,
+      harness: "codex",
+      prompt: "background silent",
+      designIds: [],
+    });
+    await cloudDone;
+    expect(service.activeRunCount).toBe(1);
+    const cloudPid = (await events(cwd))[0].pid;
+    expect(service.reserveHarnessUpdate("codex")).toBeNull();
+    await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
+    const localDone = completed();
+    await service.startThread({
+      projectId: local.id,
+      harness: "codex",
+      prompt: "Local work",
+      designIds: [],
+    });
+    await localDone;
+    const localPids = [...new Set((await events(cwd)).map((event) => event.pid))].filter(
+      (pid) => pid !== cloudPid,
+    );
+    expect(localPids).toHaveLength(1);
+    allowed = false;
+    await service.stopCloudThreads();
+    expect(service.activeRunCount).toBe(0);
+    expect(() => process.kill(cloudPid, 0)).toThrow();
+    for (const pid of localPids) expect(() => process.kill(pid, 0)).not.toThrow();
+    await expect(
+      service.warmThread({ projectId: cloud.id, executionProjectId: local.id, harness: "codex" }),
+    ).rejects.toThrow("Cloud access withdrawn");
+  } finally {
+    await service.close();
+  }
+});
+
 for (const harness of harnessIdSchema.options) {
   test(`${harness} protects background work from idle pressure, refreshes on progress and releases after completion`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-background-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 150, backgroundSilentMs: 200 });
-    const context = { harness, executable, cwd };
+    const context = { projectId: "project", harness, executable, cwd };
     const updates: HarnessUpdate[] = [];
     try {
       await sessions.start("background", {
@@ -70,7 +176,7 @@ for (const harness of harnessIdSchema.options) {
   test(`${harness} releases silent background work and shutdown overrides retention`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-silent-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 20, backgroundSilentMs: 200 });
-    const context = { harness, executable, cwd };
+    const context = { projectId: "project", harness, executable, cwd };
     try {
       await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} })
         .done;
@@ -100,7 +206,7 @@ for (const harness of harnessIdSchema.options) {
 test("background work survives idle invalidation and refuses incompatible settings until it finishes", async () => {
   const cwd = await mkdtemp(join(directory, "background-invalidation-"));
   const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 100, backgroundSilentMs: 1000 });
-  const context = { harness: "codex" as const, executable, cwd };
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
   try {
     await sessions.start("thread", { ...context, prompt: "background agent", onUpdate() {} }).done;
     const pid = (await events(cwd))[0].pid;
@@ -197,7 +303,7 @@ for (const harness of harnessIdSchema.options) {
   test(`${harness} shares the idle budget with composer preparation and recreates evicted sessions`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-cache-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
-    const context = { harness, executable, cwd };
+    const context = { projectId: "project", harness, executable, cwd };
     try {
       await sessions.prepare({ kind: "composer", id: "project", context });
       expect(
@@ -245,7 +351,7 @@ test("an unresponsive interrupt closes the connection before a later turn can us
 test("idle expiry, settings changes and crashes recreate connections without replaying a prompt", async () => {
   const cwd = await mkdtemp(join(directory, "recovery-"));
   const sessions = new HarnessSessions({ idleLimit: 2, idleMs: 25 });
-  const context = { harness: "codex" as const, executable, cwd };
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
   const send = (prompt: string, model?: string) =>
     sessions.start("thread", { ...context, settings: { model }, prompt, onUpdate() {} }).done;
   try {
@@ -266,7 +372,7 @@ test("idle expiry, settings changes and crashes recreate connections without rep
 test("idle cleanup preserves active turns and discarded handles cannot interrupt their successor", async () => {
   const cwd = await mkdtemp(join(directory, "active-"));
   const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 25 });
-  const context = { harness: "codex" as const, executable, cwd };
+  const context = { projectId: "project", harness: "codex" as const, executable, cwd };
   try {
     const started = Promise.withResolvers<void>();
     const first = sessions.start("thread", {
@@ -418,7 +524,7 @@ for (const harness of harnessIdSchema.options) {
   test(`${harness} prepares an evicted conversation without submitting a prompt and reuses it on send`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-reopen-`));
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
-    const context = { harness, executable, cwd };
+    const context = { projectId: "project", harness, executable, cwd };
     let sessionId: string | undefined;
     try {
       await sessions.start("first", {
