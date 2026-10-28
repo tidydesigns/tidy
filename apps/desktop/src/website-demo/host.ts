@@ -94,10 +94,13 @@ export function createDemoAPI(): DesktopAPI {
     switchBranch: async (_, value) => {
       branch = value;
       return {
-        machine: "Demo workspace",
-        repository: true,
-        branch,
-        branches: ["main", "feat/landing-page"],
+        kind: "switched",
+        context: {
+          machine: "Demo workspace",
+          repository: true,
+          branch,
+          branches: ["main", "feat/landing-page"],
+        },
       };
     },
     skills: async () => ({ skills: [] }),
