@@ -209,7 +209,12 @@ console.log(JSON.stringify({implicit: {name: implicit.name, secrets: implicit.se
         cwd: fileURLToPath(new URL("..", import.meta.url)),
         encoding: "utf8",
         timeout: 30_000,
-        env: { ...process.env, CLOUDFLARE_ENV: "staging", WRANGLER_SEND_METRICS: "false" },
+        env: {
+          ...process.env,
+          CLOUDFLARE_ENV: "staging",
+          WRANGLER_LOG: "log",
+          WRANGLER_SEND_METRICS: "false",
+        },
       },
     );
     expect(dryRun.error).toBeUndefined();
