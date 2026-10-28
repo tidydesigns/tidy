@@ -136,6 +136,7 @@ export function SkillPrompt({
         {...props}
         ref={input}
         value={value}
+        role="textbox"
         aria-autocomplete="list"
         aria-haspopup="listbox"
         aria-controls={visible ? id : undefined}

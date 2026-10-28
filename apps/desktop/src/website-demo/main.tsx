@@ -40,7 +40,7 @@ if (
       if (
         event.target instanceof Element &&
         event.target.closest(
-          "textarea, .queue-list, .message-markdown pre, .message-markdown table",
+          'textarea, [contenteditable="true"], [role="textbox"], .queue-list, .message-markdown pre, .message-markdown table',
         )
       )
         return;
