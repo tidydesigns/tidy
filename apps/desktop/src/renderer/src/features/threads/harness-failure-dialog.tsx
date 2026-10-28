@@ -1,3 +1,4 @@
+import type { HarnessFailureKind } from "../../../../shared/contracts/harness-failure";
 import { useEffect, useId, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
@@ -5,7 +6,10 @@ import type { DesktopAPI, ThreadSummary } from "../../../../shared/contracts/des
 import { describeHarnessFailure } from "../../../../shared/models/harness-failure";
 import { ChatLink } from "../../components/chat-link";
 
-type Failure = Pick<ThreadSummary, "id" | "projectId" | "title" | "harness" | "error">;
+type Failure = Pick<
+  ThreadSummary,
+  "id" | "projectId" | "title" | "harness" | "error" | "errorKind"
+>;
 
 function FailureIcon() {
   return (
@@ -26,8 +30,16 @@ function FailureIcon() {
   );
 }
 
-export function HarnessFailureSummary({ error, onDetails }: { error: string; onDetails(): void }) {
-  const failure = describeHarnessFailure(error);
+export function HarnessFailureSummary({
+  error,
+  kind,
+  onDetails,
+}: {
+  error: string;
+  kind?: HarnessFailureKind;
+  onDetails(): void;
+}) {
+  const failure = describeHarnessFailure(error, kind);
   const warning = failure.kind === "billing" || failure.kind === "rate-limit";
   return (
     <div className="thread-failure" data-tone={warning ? "warning" : "error"}>
@@ -56,7 +68,7 @@ export function HarnessFailureDialog({
   const dismiss = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const descriptionId = useId();
-  const failure = describeHarnessFailure(thread.error ?? "");
+  const failure = describeHarnessFailure(thread.error ?? "", thread.errorKind);
   useEffect(() => {
     dialog.current?.showModal();
     dismiss.current?.focus({ preventScroll: true });

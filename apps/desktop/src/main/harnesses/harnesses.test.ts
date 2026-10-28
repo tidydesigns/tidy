@@ -578,8 +578,8 @@ test("Claude preserves provider errors from assistant events and result error ar
   });
   parse({ type: "result", is_error: true, errors: ["Provider overloaded", "Try later"] });
   expect(updates).toEqual([
-    { type: "error", text: "Please sign in again" },
-    { type: "error", text: "Provider overloaded\nTry later" },
+    { type: "error", text: "Please sign in again", kind: "authentication" },
+    { type: "error", text: "Provider overloaded\nTry later", kind: "unavailable" },
   ]);
 });
 
@@ -608,5 +608,138 @@ for (const harness of ["codex", "claude"] as const) {
     await expect(run.done).rejects.toThrow(
       "This content was flagged for possible cybersecurity risk.",
     );
+  });
+}
+
+for (const [subtype, kind] of [
+  ["error_max_turns", "turn-limit"],
+  ["error_max_budget_usd", "budget"],
+  ["error_max_structured_output_retries", "output-format"],
+  ["error_during_execution", "unknown"],
+] as const) {
+  test(`Claude terminal subtype ${subtype} fails even without is_error`, () => {
+    const updates: HarnessUpdate[] = [];
+    createClaudeParser((value) => updates.push(value))({
+      type: "result",
+      subtype,
+      is_error: false,
+    });
+    expect(updates.at(-1)).toMatchObject({ type: "error", kind });
+  });
+}
+
+for (const terminal_reason of ["prompt_too_long", "image_error", "budget_exhausted"] as const) {
+  test(`Claude retains terminal reason ${terminal_reason}`, () => {
+    const updates: HarnessUpdate[] = [];
+    createClaudeParser((value) => updates.push(value))({
+      type: "result",
+      subtype: "error_during_execution",
+      terminal_reason,
+      is_error: true,
+    });
+    expect(updates.at(-1)).toMatchObject({
+      type: "error",
+      kind:
+        terminal_reason === "prompt_too_long"
+          ? "context"
+          : terminal_reason === "image_error"
+            ? "attachment"
+            : "budget",
+    });
+  });
+}
+
+test("Claude refuses explicitly without misclassifying successful output truncation", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((value) => updates.push(value));
+  parse({
+    type: "result",
+    subtype: "success",
+    stop_reason: "max_tokens",
+    result: "Partial output",
+  });
+  expect(updates.some((value) => value.type === "error")).toBe(false);
+  parse({
+    type: "result",
+    subtype: "success",
+    stop_reason: "refusal",
+    result: "The model declined this request.",
+  });
+  expect(updates.at(-1)).toMatchObject({ type: "error", kind: "policy" });
+});
+
+test("Claude refusal fallback clears only the pending provider failure", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((value) => updates.push(value));
+  parse({
+    type: "system",
+    subtype: "model_refusal_no_fallback",
+    api_refusal_explanation: "Policy blocked this request",
+  });
+  parse({ type: "system", subtype: "model_refusal_fallback", scope: "local" });
+  expect(updates.at(-1)).toMatchObject({ type: "error", kind: "policy" });
+  parse({ type: "system", subtype: "model_refusal_fallback", scope: "session" });
+  expect(updates.at(-1)).toEqual({ type: "error-cleared", text: "Policy blocked this request" });
+  parse({ type: "result", subtype: "success", result: "Recovered" });
+  expect(updates.at(-1)).toMatchObject({ type: "message", text: "Recovered" });
+});
+
+test("Claude no-fallback refusals survive generic successful-looking result frames", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((value) => updates.push(value));
+  parse({
+    type: "system",
+    subtype: "model_refusal_no_fallback",
+    content: "Policy refused this request",
+  });
+  parse({ type: "result", subtype: "success", is_error: false });
+  expect(updates.at(-1)).toMatchObject({ type: "error", kind: "policy" });
+});
+
+test("Claude warnings and retries do not fail turns, rejected limits can recover", () => {
+  const updates: HarnessUpdate[] = [];
+  const parse = createClaudeParser((value) => updates.push(value));
+  parse({ type: "system", subtype: "api_retry", error: "overloaded" });
+  parse({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning" } });
+  expect(updates).toEqual([]);
+  parse({ type: "rate_limit_event", rate_limit_info: { status: "rejected" } });
+  expect(updates.at(-1)).toMatchObject({ type: "error", kind: "rate-limit" });
+  parse({ type: "result", subtype: "success", is_error: false });
+  expect(updates.at(-1)).toMatchObject({ type: "error-cleared" });
+});
+
+for (const harness of ["codex", "claude"] as const) {
+  test(`${harness} succeeds after a recovered provider retry`, async () => {
+    const { directory, executable } = await fixture();
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: "provider-retry-fixture",
+      onUpdate() {},
+    });
+    await run.done;
+  });
+}
+
+for (const [harness, code, kind] of [
+  ["codex", "contextWindowExceeded", "context"],
+  ["codex", "cyberPolicy", "policy"],
+  ["codex", "sandboxError", "sandbox"],
+  ["codex", "sessionBudgetExceeded", "budget"],
+  ["claude", "error_max_turns", "turn-limit"],
+  ["claude", "error_max_budget_usd", "budget"],
+  ["claude", "error_max_structured_output_retries", "output-format"],
+] as const) {
+  test(`${harness} preserves ${code} through process completion`, async () => {
+    const { directory, executable } = await fixture();
+    const run = startHarness({
+      harness,
+      executable,
+      cwd: directory,
+      prompt: `structured-failure-fixture ${code}`,
+      onUpdate() {},
+    });
+    await expect(run.done).rejects.toMatchObject({ kind });
   });
 }

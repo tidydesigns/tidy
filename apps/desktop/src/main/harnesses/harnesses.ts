@@ -1,3 +1,5 @@
+import { providerFailureKind } from "./provider-failure";
+import type { HarnessFailureKind } from "../../shared/contracts/harness-failure";
 import type { SkillInvocation } from "./harness-skills";
 import { execFile } from "node:child_process";
 import { access, realpath, stat } from "node:fs/promises";
@@ -28,7 +30,8 @@ export type HarnessUpdate =
   | { type: "model"; model: string }
   | { type: "session"; id: string }
   | { type: "message"; id: string; text: string; append?: boolean }
-  | { type: "error"; text: string };
+  | { type: "error"; text: string; kind?: HarnessFailureKind }
+  | { type: "error-cleared"; text: string };
 export type RunningHarness = {
   readonly deliveryState?: "not-submitted" | "unknown" | "accepted" | "rejected";
   done: Promise<void>;
@@ -158,6 +161,8 @@ function readUsage(value: Record<string, unknown>): TokenUsage | undefined {
 export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
   let claudeMessageId = "response";
   let reportedError = "";
+  let reportedKind: HarnessFailureKind | undefined;
+  let refused = false;
   const tools = createToolEventParser("claude", (tool) => emit({ type: "tool", tool }));
   return (input: unknown) => {
     const value = record(input);
@@ -166,6 +171,30 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
       emit({ type: "model", model: value.model });
     if (typeof value.session_id === "string") emit({ type: "session", id: value.session_id });
     if (value.parent_tool_use_id) return;
+    if (value.type === "rate_limit_event" && record(value.rate_limit_info).status === "rejected") {
+      reportedError = "The provider usage limit was reached.";
+      reportedKind = "rate-limit";
+      emit({ type: "error", text: reportedError, kind: reportedKind });
+    }
+    if (value.type === "system" && value.subtype === "model_refusal_no_fallback") {
+      refused = true;
+      reportedError =
+        text(value.api_refusal_explanation) ||
+        text(value.content) ||
+        "The provider refused this request.";
+      reportedKind = "policy";
+      emit({ type: "error", text: reportedError, kind: reportedKind });
+    }
+    if (
+      value.type === "system" &&
+      value.subtype === "model_refusal_fallback" &&
+      value.scope !== "local"
+    ) {
+      if (reportedError) emit({ type: "error-cleared", text: reportedError });
+      refused = false;
+      reportedError = "";
+      reportedKind = undefined;
+    }
     const event = record(value.event);
     if (value.type === "stream_event") {
       if (event.type === "content_block_start" && record(event.content_block).type === "thinking")
@@ -188,10 +217,8 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
         .join("\n");
       if (value.error) {
         reportedError = visible || text(value.error) || "Claude Code could not complete this turn.";
-        emit({
-          type: "error",
-          text: reportedError,
-        });
+        reportedKind = providerFailureKind(reportedError, text(value.error));
+        emit({ type: "error", text: reportedError, kind: reportedKind });
         return;
       }
       if (visible)
@@ -199,6 +226,11 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
       tools(value);
     }
     if (value.type === "result") {
+      const failed =
+        Boolean(value.is_error) ||
+        text(value.subtype).startsWith("error_") ||
+        value.stop_reason === "refusal" ||
+        refused;
       const byModel = Object.values(record(value.modelUsage)).map(record);
       let usage: TokenUsage | undefined;
       if (byModel.length)
@@ -216,8 +248,7 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
         );
       else usage = readUsage(record(value.usage));
       // Startup errors can report zeroed accounting even when resuming a used session.
-      if (value.is_error && usage && usage.inputTokens === 0 && usage.outputTokens === 0)
-        usage = undefined;
+      if (failed && usage && usage.inputTokens === 0 && usage.outputTokens === 0) usage = undefined;
       if (usage) {
         if (
           typeof value.total_cost_usd === "number" &&
@@ -227,19 +258,33 @@ export function createClaudeParser(emit: (event: HarnessUpdate) => void) {
           usage.costUSD = value.total_cost_usd;
         emit({ type: "usage", usage, cumulative: byModel.length > 0 });
       }
-      if (value.is_error)
-        emit({
-          type: "error",
-          text:
-            text(value.result) ||
-            (Array.isArray(value.errors)
-              ? value.errors.map(text).filter(Boolean).join("\n")
-              : "") ||
-            reportedError ||
-            "Claude Code could not complete this turn.",
-        });
-      else if (text(value.result))
-        emit({ type: "message", id: claudeMessageId, text: text(value.result) });
+      if (failed) {
+        const message =
+          text(value.result) ||
+          (Array.isArray(value.errors) ? value.errors.map(text).filter(Boolean).join("\n") : "") ||
+          reportedError ||
+          "Claude Code could not complete this turn.";
+        const subtypeKind = providerFailureKind("", text(value.subtype));
+        const terminalKind = providerFailureKind("", text(value.terminal_reason));
+        const inferredKind = providerFailureKind(message, "");
+        const kind =
+          value.stop_reason === "refusal" || refused
+            ? "policy"
+            : subtypeKind !== "unknown"
+              ? subtypeKind
+              : terminalKind !== "unknown"
+                ? terminalKind
+                : inferredKind !== "unknown"
+                  ? inferredKind
+                  : (reportedKind ?? "unknown");
+        emit({ type: "error", text: message, kind });
+      } else {
+        if (reportedError) emit({ type: "error-cleared", text: reportedError });
+        reportedError = "";
+        reportedKind = undefined;
+        if (text(value.result))
+          emit({ type: "message", id: claudeMessageId, text: text(value.result) });
+      }
     }
   };
 }

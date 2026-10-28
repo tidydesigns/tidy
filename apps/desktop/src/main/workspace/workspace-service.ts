@@ -1,3 +1,4 @@
+import { HarnessFailureError } from "../harnesses/provider-failure";
 import { attachmentReference, attachmentText } from "../../shared/models/attachment-references";
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
@@ -853,6 +854,7 @@ export class WorkspaceService {
     thread.status = "running";
     thread.revision++;
     thread.error = undefined;
+    thread.errorKind = undefined;
     thread.activity = "Starting";
     thread.updatedAt = new Date().toISOString();
     const job: Job = {
@@ -933,6 +935,7 @@ export class WorkspaceService {
       turn.endedAt = new Date().toISOString();
       thread.activity = undefined;
       thread.error = error instanceof Error ? error.message : "The harness could not start.";
+      thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
       this.jobs.delete(thread.id);
       await this.store.writeThread(thread);
       this.emit({ type: "thread", thread });
@@ -1000,13 +1003,21 @@ export class WorkspaceService {
     } else if (update.type === "model") thread.actualModel = update.model.slice(0, 200);
     else if (update.type === "session") {
       if (nativeSessionIdSchema.safeParse(update.id).success) thread.sessionId = update.id;
-    } else if (update.type === "error") thread.error = update.text.slice(0, 4000);
-    else {
+    } else if (update.type === "error") {
+      thread.error = update.text.slice(0, 4000);
+      thread.errorKind = update.kind;
+    } else if (update.type === "error-cleared") {
+      if (thread.error === update.text.slice(0, 4000)) {
+        thread.error = undefined;
+        thread.errorKind = undefined;
+      }
+    } else {
       thread.activity = "Replying";
       let message = thread.messages.find((item) => item.id === job.messages.get(update.id));
       if (!message) {
         if (thread.messages.length >= 998) {
           job.thread.error = "The thread reached its message limit.";
+          job.thread.errorKind = "turn-limit";
           job.process?.stop();
           return;
         }
@@ -1041,6 +1052,7 @@ export class WorkspaceService {
         job.checkpoint = undefined;
         void this.store.writeThread(thread).catch(() => {
           thread.error = "Thread changes could not be written to disk.";
+          thread.errorKind = "storage";
           job.process?.stop();
         });
       }, 250);
@@ -1052,9 +1064,11 @@ export class WorkspaceService {
       job.thread.status = job.stopped ? "stopped" : job.thread.error ? "failed" : "completed";
     } catch (error) {
       job.thread.status = job.stopped ? "stopped" : "failed";
-      if (!job.stopped)
+      if (!job.stopped) {
         job.thread.error =
           error instanceof Error ? error.message : "The harness stopped unexpectedly.";
+        job.thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
+      }
     }
     job.analytics?.({
       name: "harness_turn_finished",
@@ -1104,6 +1118,8 @@ export class WorkspaceService {
       writeFailure = { cause };
       job.thread.doneAt = previousDoneAt;
       job.thread.error = "Thread changes could not be written to disk.";
+      job.thread.errorKind = "storage";
+      if (!job.stopped) job.thread.status = "failed";
     }
     this.jobs.delete(job.thread.id);
     this.emit({ type: "thread", thread: job.thread });

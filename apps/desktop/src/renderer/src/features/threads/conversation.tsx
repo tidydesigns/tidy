@@ -381,7 +381,11 @@ export const Conversation = memo(function Conversation({
             />
           ))}
           {thread?.error && (
-            <HarnessFailureSummary error={thread.error} onDetails={() => setShowFailure(true)} />
+            <HarnessFailureSummary
+              error={thread.error}
+              kind={thread.errorKind}
+              onDetails={() => setShowFailure(true)}
+            />
           )}
           {thread?.status === "stopped" && !thread.messages.some((message) => message.turn) && (
             <p className="thread-activity text-xs wrap-anywhere">Stopped</p>

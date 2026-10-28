@@ -226,7 +226,8 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   const thread = {
     ...makeThread(),
     status: "failed" as const,
-    error: "This content was flagged for possible cybersecurity risk. Apply for Daybreak access.",
+    error: "The provider could not complete this request.",
+    errorKind: "policy" as const,
   };
   const emit = (value: Thread) => {
     for (const listener of listeners) listener({ type: "thread", thread: value });
@@ -254,7 +255,12 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   check(!modal(), "Stale failure interrupted a retry");
   emit({ ...thread, revision: 5 });
   await until(() => Boolean(modal()), "New failure after retry");
-  emit({ ...thread, id: "second-failure", error: "401 authentication failed" });
+  emit({
+    ...thread,
+    id: "second-failure",
+    errorKind: undefined,
+    error: "401 authentication failed",
+  });
   await settle();
   modal()?.close();
   await until(
