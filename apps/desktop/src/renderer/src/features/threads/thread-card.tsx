@@ -184,16 +184,6 @@ export function ThreadCard({
           >
             {thread.harness === "codex" ? "Codex" : "Claude"}
           </span>
-          {projectName && (
-            <>
-              <span className="thread-project-separator shrink-0" aria-hidden="true">
-                ·
-              </span>
-              <span className="thread-project min-w-5 text-secondary-ink" title={projectName}>
-                {projectName}
-              </span>
-            </>
-          )}
         </span>
         <time
           className="thread-time absolute top-2.5 right-2 text-[11px] leading-5 text-muted-ink tabular-nums"

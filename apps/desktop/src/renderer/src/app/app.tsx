@@ -1392,11 +1392,7 @@ export function App() {
             className="workspace-tabs flex w-full flex-col gap-1 px-1"
           >
             {modes.map((item, index) => (
-              <div
-                className="workspace-destination flex items-center rounded-md data-[active=true]:bg-subtle-fill"
-                key={item.id}
-                data-active={mode === item.id}
-              >
+              <div className="workspace-destination flex items-center rounded-md" key={item.id}>
                 <Button
                   id={`workspace-tab-${item.id}`}
                   type="button"
@@ -1404,7 +1400,7 @@ export function App() {
                   aria-selected={mode === item.id}
                   aria-controls={`workspace-panel-${item.id}`}
                   tabIndex={mode === item.id ? 0 : -1}
-                  className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink aria-selected:bg-subtle-fill aria-selected:text-ink aria-selected:hover:bg-subtle-fill focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
+                  className="workspace-tab flex min-w-0 flex-auto cursor-pointer items-center justify-start gap-1.5 rounded-md border border-transparent bg-transparent px-2 py-[7px] text-sm leading-5 font-medium whitespace-nowrap text-muted-ink hover:bg-hover-surface hover:text-ink focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ink"
                   onPointerEnter={modePreloaders[item.id]}
                   onFocus={modePreloaders[item.id]}
                   onClick={() => setMode(item.id)}
@@ -1779,7 +1775,7 @@ export function App() {
                         Message
                       </label>
                       <SkillPrompt
-                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-2.5 py-2 text-[15px] leading-6 text-ink [field-sizing:content] min-h-[calc(2lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
+                        className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
                         skills={availableSkills}
                         status={skillCatalog.key === detailKey ? skillCatalog.status : "loading"}
@@ -1818,7 +1814,7 @@ export function App() {
                         }
                         disabled={Boolean(thread?.doneAt) || busy}
                         maxLength={32_000}
-                        rows={2}
+                        rows={1}
                         onKeyDown={(event) => {
                           if (
                             event.key === "Enter" &&
@@ -1846,10 +1842,10 @@ export function App() {
                           }
                         }}
                       />
-                      <div className="composer-actions flex flex-wrap items-center gap-2 p-2">
+                      <div className="composer-actions flex flex-wrap items-center gap-2 py-2">
                         <Button
                           type="button"
-                          className="quiet-button attachment-button size-[30px]"
+                          className="quiet-button attachment-button size-8"
                           aria-label="Attach files"
                           title="Attach files"
                           disabled={Boolean(thread?.doneAt) || busy}
