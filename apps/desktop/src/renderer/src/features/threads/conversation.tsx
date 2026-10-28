@@ -14,7 +14,8 @@ import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI, Message, Thread } from "../../../../shared/contracts/desktop";
-import { MessageAttachments } from "../composer/message-attachments";
+import { attachmentText } from "../../../../shared/models/attachment-references";
+import { AttachmentText, MessageAttachments } from "../composer/message-attachments";
 import { groupTurnActivity } from "./turn-activity";
 import { ChatLink } from "../../components/chat-link";
 import { parseChatLink } from "../../../../shared/models/chat-links";
@@ -79,7 +80,9 @@ const MessageBody = memo(function MessageBody({
   const buffered = useBufferedMarkdown(message.text, streaming && visible);
   const revealing = useBlockReveal(streaming && visible);
   return message.role === "user" ? (
-    <div className="message-text whitespace-pre-wrap">{message.text}</div>
+    <div className="message-text whitespace-pre-wrap">
+      <AttachmentText text={message.text} files={message.attachments ?? []} />
+    </div>
   ) : (
     <div
       className="message-markdown [&_table]:text-sm [&_th]:font-semibold [&_strong]:font-semibold"
@@ -194,7 +197,11 @@ export const Conversation = memo(function Conversation({
     const result: { id: string; prompt: string; response: string }[] = [];
     for (const message of thread?.messages ?? []) {
       if (message.role === "user")
-        result.push({ id: message.id, prompt: message.text, response: "" });
+        result.push({
+          id: message.id,
+          prompt: attachmentText(message.text, message.attachments ?? []),
+          response: "",
+        });
       else if (result.length) result[result.length - 1].response = message.text;
     }
     return result;

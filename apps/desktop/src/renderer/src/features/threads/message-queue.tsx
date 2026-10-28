@@ -1,4 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
+import { PromptEditor } from "../composer/prompt-editor";
+import { AttachmentText } from "../composer/message-attachments";
+import { attachmentText } from "../../../../shared/models/attachment-references";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import { MessageActionIcon } from "./message-action-icon";
@@ -248,7 +251,9 @@ function QueueRow({
     const next =
       row?.nextElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
       row?.previousElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
-      button.closest("section")?.nextElementSibling?.querySelector<HTMLTextAreaElement>("textarea");
+      button
+        .closest("section")
+        ?.nextElementSibling?.querySelector<HTMLElement>('[contenteditable="true"]');
     next?.focus();
   }
   return (
@@ -300,13 +305,15 @@ function QueueRow({
       </Button>
       <div className="queue-content">
         {editing ? (
-          <textarea
+          <PromptEditor
+            className="block max-h-30 min-h-[50px] w-full overflow-y-auto rounded border border-border bg-(--desktop-surface) px-1.5 py-1 leading-[1.5] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+            role="textbox"
             autoFocus
             aria-label={`Edit queued message ${index + 1}`}
             value={text}
             maxLength={32_000}
-            rows={2}
-            onChange={(event) => setText(event.target.value)}
+            files={message.attachments ?? []}
+            onChange={setText}
             onBlur={finish}
             onKeyDown={(event) => {
               if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
@@ -323,8 +330,15 @@ function QueueRow({
             }}
           />
         ) : (
-          <span className="queue-text" title={message.text || "Attached files"}>
-            {message.text || "Attached files"}
+          <span
+            className="queue-text"
+            title={attachmentText(message.text, message.attachments ?? []) || "Attached files"}
+          >
+            {message.text ? (
+              <AttachmentText text={message.text} files={message.attachments ?? []} />
+            ) : (
+              "Attached files"
+            )}
           </span>
         )}
         {Boolean(message.attachments?.length) && (

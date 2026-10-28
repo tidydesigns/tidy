@@ -6,6 +6,7 @@ import { ProjectStore } from "../../../../main/workspace/project-store";
 import { WorkspaceService } from "../../../../main/workspace/workspace-service";
 import { createWorkspaceRequests } from "../../../../main/ipc/workspace-requests";
 import { parseWorkspaceResponse } from "../../../../shared/contracts/workspace-response";
+import { attachmentReference } from "../../../../shared/models/attachment-references";
 import { copyDraft } from "./machine-context";
 
 const cleanups: (() => Promise<unknown>)[] = [];
@@ -63,6 +64,7 @@ test("copies selected designs and non-image attachments between real project sto
     "notes.txt",
     "data:text/plain;base64,aGVsbG8=",
   );
+  const referenceId = crypto.randomUUID();
   const { draft } = await copyDraft({
     api: {
       exportAttachment: async (projectId, attachmentId) =>
@@ -80,10 +82,10 @@ test("copies selected designs and non-image attachments between real project sto
       project: source.project,
       contextProjectId: source.project.id,
       draft: {
-        text: "Keep this prompt",
+        text: `Read ${attachmentReference({ id: referenceId })} before continuing`,
         harness: "codex",
         designIds: [design.id],
-        attachments: [attachment],
+        attachments: [{ ...attachment, referenceId }],
         executionProjectId: source.project.id,
       },
     },
@@ -96,7 +98,9 @@ test("copies selected designs and non-image attachments between real project sto
     },
     projectId: target.project.id,
   });
-  expect(draft.text).toBe("Keep this prompt");
+  expect(draft.text).toBe(`Read [[attachment:${draft.attachments?.[0].id}]] before continuing`);
+  expect(draft.text).not.toContain(referenceId);
+  expect(draft.text).not.toContain(attachment.id);
   expect(draft.executionProjectId).toBeUndefined();
   expect(draft.designIds[0]).not.toBe(design.id);
   expect(draft.attachments?.[0].id).not.toBe(attachment.id);

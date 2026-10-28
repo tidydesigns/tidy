@@ -1,3 +1,4 @@
+import { attachmentReference, attachmentText } from "../../shared/models/attachment-references";
 import { repositoryRoot, switchRepositoryBranch } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
 import { summarizeThread } from "../../shared/models/thread-updates";
@@ -621,7 +622,11 @@ export class WorkspaceService {
           data: (await readLocalFile(file.path, MAX_IMAGE_BYTES)).toString("base64"),
         })),
     );
-    if (!thread.title) thread.title = attachments[0]?.name.slice(0, 80) ?? "New thread";
+    if (!thread.messages.length)
+      thread.title =
+        attachmentText(prompt, attachments).replace(/\s+/g, " ").slice(0, 80) ||
+        attachments[0]?.name.slice(0, 80) ||
+        "New thread";
     // Model and effort are already chosen from the catalog. The native harness validates
     // them at launch; sending must never fetch account limits or refresh that catalog.
     const [executable, references, images] = await Promise.all([
@@ -665,7 +670,9 @@ export class WorkspaceService {
       ...(attachments.length
         ? [
             "The user attached these local files. Image attachments are also included as image input; read other files with your file tools as needed:",
-            ...attachments.map((file) => `${JSON.stringify(file.name)}: ${file.path}`),
+            ...attachments.map(
+              (file) => `${attachmentReference(file)} ${JSON.stringify(file.name)}: ${file.path}`,
+            ),
           ]
         : []),
     ].join("\n\n");
