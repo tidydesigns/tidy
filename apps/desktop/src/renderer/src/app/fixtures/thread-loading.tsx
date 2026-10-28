@@ -609,9 +609,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
     );
     await settle();
     const viewport = visibleTranscript();
-    check(
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
-      "Initial view did not follow the latest message",
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
+      "Initial view follows the latest message",
     );
     const original = required(viewport.querySelector("article"), "Original message");
     viewport.scrollTop = Math.floor((viewport.scrollHeight - viewport.clientHeight) / 2);
