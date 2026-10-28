@@ -114,7 +114,7 @@ for (const harness of harnessIdSchema.options) {
     const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
     const context = { harness, executable, cwd };
     try {
-      await sessions.warm("project", context);
+      await sessions.prepare({ kind: "composer", id: "project", context });
       expect(
         (await events(cwd)).filter(
           (event) =>
@@ -327,4 +327,108 @@ test("concurrent capability requests share initialization and close their tempor
   expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
   const pid = recorded[0].pid;
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} prepares an evicted conversation without submitting a prompt and reuses it on send`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-reopen-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 60_000 });
+    const context = { harness, executable, cwd };
+    let sessionId: string | undefined;
+    try {
+      await sessions.start("first", {
+        ...context,
+        prompt: "first",
+        onUpdate(update) {
+          if (update.type === "session") sessionId = update.id;
+        },
+      }).done;
+      await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
+      await sessions.prepare({ kind: "thread", id: "first", context: { ...context, sessionId } });
+      const prepared = await events(cwd);
+      const prompts = prepared.filter(
+        (event) =>
+          event.method === "turn/start" ||
+          event.method === "session/prompt" ||
+          event.type === "user",
+      );
+      expect(prompts).toHaveLength(2);
+      expect(new Set(prepared.map((event) => event.pid)).size).toBe(3);
+      await sessions.start("first", { ...context, sessionId, prompt: "continue", onUpdate() {} })
+        .done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(3);
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test("preparing an existing conversation uses its private native identity and stored permissions", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "authority-"));
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const completed = () =>
+    new Promise<Awaited<ReturnType<typeof service.readThread>>>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve(event.thread);
+        }
+      });
+    });
+  try {
+    const initialDone = completed();
+    await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "Initial",
+      designIds: [],
+      settings: { permissionMode: "read-only" },
+    });
+    const thread = await initialDone;
+    const recover = await service.prepareUpdate();
+    recover();
+    const previous = (await events(cwd)).length;
+    await service.warmThread({
+      projectId: project.id,
+      threadId: thread.id,
+      harness: "opencode",
+      settings: { permissionMode: "auto" },
+    });
+    const schema = z.array(
+      z.object({
+        pid: z.number(),
+        method: z.string().optional(),
+        value: z.object({ params: z.unknown().optional() }),
+      }),
+    );
+    const prepared = schema
+      .parse(
+        (await readFile(join(cwd, "session-events.jsonl"), "utf8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line)),
+      )
+      .slice(previous);
+    expect(prepared.find((event) => event.method === "thread/resume")?.value.params).toMatchObject({
+      threadId: thread.sessionId,
+      sandbox: "read-only",
+    });
+    expect(prepared.some((event) => event.method === "turn/start")).toBe(false);
+    const done = completed();
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
+    expect((await done).messages.at(-1)?.text).toBe("OK");
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+  } finally {
+    await service.close();
+  }
 });

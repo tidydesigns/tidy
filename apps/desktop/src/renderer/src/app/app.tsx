@@ -469,7 +469,7 @@ export function App({
       !api?.warmThread ||
       !project ||
       !executionProject ||
-      selectedThreadId ||
+      (selectedThreadId && (!thread || thread.status === "running" || thread.doneAt)) ||
       !harnessReady ||
       mode !== "code" ||
       settingsOpen ||
@@ -483,9 +483,10 @@ export function App({
       void api
         .warmThread?.({
           projectId: project.id,
+          threadId: thread?.id,
           executionProjectId: project.cloud ? executionProject.id : undefined,
           harness: selectedHarness,
-          settings: draft.settings,
+          settings: thread?.settings ?? draft.settings,
         })
         .catch(() => {});
     };
@@ -511,6 +512,12 @@ export function App({
     project?.id,
     executionProject?.id,
     selectedThreadId,
+    thread?.id,
+    thread?.status,
+    thread?.doneAt,
+    thread?.settings?.model,
+    thread?.settings?.effort,
+    thread?.settings?.permissionMode,
     harnessReady,
     selectedHarness,
     draft.settings?.model,

@@ -28,7 +28,7 @@ export class HarnessSessions {
   private retiring = new Set<Promise<void>>();
   private generation = 0;
   private changes: Promise<unknown> = Promise.resolve();
-  constructor(private options = { idleLimit: 2, idleMs: 120_000 }) {}
+  constructor(private options = { idleLimit: 2, idleMs: 30 * 60_000 }) {}
 
   private retire(id: string, entry: Entry) {
     if (this.entries.get(id) !== entry) return;
@@ -137,13 +137,23 @@ export class HarnessSessions {
     this.changes = operation;
     return operation;
   }
-  async warm(id: string, context: SessionContext) {
-    const entry = await this.acquire(`composer:${id}`, context, true);
-    this.release(`composer:${id}`, entry);
+  async prepare({
+    kind,
+    id,
+    context,
+  }: {
+    kind: "composer" | "thread";
+    id: string;
+    context: SessionContext;
+  }) {
+    const key = kind === "composer" ? `composer:${id}` : id;
+    const entry = await this.acquire(key, context, kind === "composer");
+    if (!entry.session.idle) return;
+    this.release(key, entry);
     try {
       await entry.session.ready;
     } catch (error) {
-      this.retire(`composer:${id}`, entry);
+      this.retire(key, entry);
       throw error;
     }
   }

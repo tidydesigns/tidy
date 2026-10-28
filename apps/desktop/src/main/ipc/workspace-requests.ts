@@ -232,6 +232,7 @@ export function createWorkspaceRequests<Context>(
     z
       .object({
         projectId,
+        threadId: uuid.optional(),
         executionProjectId: uuid.optional(),
         harness: harnessIdSchema,
         settings: harnessSettingsSchema.optional(),

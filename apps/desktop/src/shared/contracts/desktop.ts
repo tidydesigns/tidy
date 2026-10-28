@@ -217,7 +217,7 @@ export type DesktopAPI = {
   warmThread?(
     input: Pick<
       Parameters<DesktopAPI["startThread"]>[0],
-      "projectId" | "executionProjectId" | "harness" | "settings"
+      "projectId" | "executionProjectId" | "harness" | "settings" | "threadId"
     >,
   ): Promise<void>;
   sendMessage(input: {

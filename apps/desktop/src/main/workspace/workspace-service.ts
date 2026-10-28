@@ -167,14 +167,20 @@ export class WorkspaceService {
       return;
     const generation = ++this.sessionGeneration;
     await this.assertProjectAccess(input.projectId);
+    const thread = input.threadId
+      ? await this.store.readThread(input.projectId, input.threadId)
+      : undefined;
+    if (thread && (thread.doneAt || this.jobs.has(thread.id) || !thread.sessionId)) return;
+    const binding = thread ?? input;
+    if (this.updatingHarnesses.has(binding.harness)) return;
     const owner = this.store.project(input.projectId);
-    const project = this.executionProject(input);
+    const project = this.executionProject(binding);
     if ((await realpath(project.path)) !== project.path)
       throw new Error("The execution project directory moved. Open it again.");
-    const settings = harnessSettingsSchema.parse(input.settings ?? {});
-    validatePermissionMode(input.harness, settings.permissionMode);
+    const settings = harnessSettingsSchema.parse(binding.settings ?? {});
+    validatePermissionMode(binding.harness, settings.permissionMode);
     const [executable, designDirectory, assetDirectory] = await Promise.all([
-      this.locate(input.harness),
+      this.locate(binding.harness),
       this.store.storagePath(owner.id, "designs"),
       this.store.storagePath(owner.id, "assets"),
     ]);
@@ -184,16 +190,21 @@ export class WorkspaceService {
       generation !== this.sessionGeneration ||
       this.closing ||
       this.repositoryChanges.size ||
-      this.updatingHarnesses.has(input.harness)
+      this.updatingHarnesses.has(binding.harness)
     )
       return;
-    await this.sessions.warm(input.projectId, {
-      executable,
-      harness: input.harness,
-      cwd: project.path,
-      settings,
-      superviseParent: this.superviseHarnessParent,
-      additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+    await this.sessions.prepare({
+      kind: thread ? "thread" : "composer",
+      id: thread?.id ?? input.projectId,
+      context: {
+        executable,
+        harness: binding.harness,
+        sessionId: thread?.sessionId,
+        cwd: project.path,
+        settings,
+        superviseParent: this.superviseHarnessParent,
+        additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+      },
     });
   }
 
