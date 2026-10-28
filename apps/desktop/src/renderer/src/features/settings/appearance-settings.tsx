@@ -1,13 +1,18 @@
 import { useId, useSyncExternalStore } from "react";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import { showToast } from "@tidy/ui/toast";
-import { currentThemePreference, selectTheme, subscribeTheme } from "../../theme";
+import {
+  currentThemePreference,
+  selectTheme,
+  subscribeTheme,
+  type ThemePreference,
+} from "../../theme";
 
 const options = [
   { value: "system", label: "System default" },
   { value: "dark", label: "Dark" },
   { value: "light", label: "Light" },
-];
+] satisfies { value: ThemePreference; label: string }[];
 
 export function AppearanceSettings() {
   const theme = useSyncExternalStore(subscribeTheme, currentThemePreference);
@@ -24,8 +29,8 @@ export function AppearanceSettings() {
         className="w-44 shrink-0"
         size="sm"
         onChange={(value) => {
-          if (value !== "system" && value !== "dark" && value !== "light") return;
-          if (!selectTheme(value)) {
+          const option = options.find((option) => option.value === value);
+          if (option && !selectTheme(option.value)) {
             showToast("Theme changed for this session, but could not be remembered.");
           }
         }}

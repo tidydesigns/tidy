@@ -1,10 +1,8 @@
-export type Theme = "light" | "dark";
-export type ThemePreference = Theme | "system";
+export type ThemePreference = "system" | "light" | "dark";
 
 const storageKey = "tidy:theme";
 const listeners = new Set<() => void>();
 let preference: ThemePreference = "system";
-let systemTheme: MediaQueryList;
 
 function readPreference(): ThemePreference {
   try {
@@ -15,26 +13,19 @@ function readPreference(): ThemePreference {
   }
 }
 
-export function currentTheme(): Theme {
-  return preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
-}
-
 export function currentThemePreference(): ThemePreference {
   return preference;
 }
 
 function applyTheme() {
-  document.documentElement.dataset.theme = currentTheme();
+  if (preference === "system") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = preference;
   for (const listener of listeners) listener();
 }
 
 export function initializeTheme() {
-  systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
   preference = readPreference();
   applyTheme();
-  systemTheme.addEventListener("change", () => {
-    if (preference === "system") applyTheme();
-  });
   window.addEventListener("storage", (event) => {
     if (event.storageArea !== window.localStorage) return;
     if (event.key !== storageKey && event.key !== null) return;
