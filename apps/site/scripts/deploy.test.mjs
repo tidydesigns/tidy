@@ -291,3 +291,71 @@ process.exit(Number(process.env.TIDY_DEPLOY_TEST_EXIT));
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("site deployment cancels its child and removes secrets on SIGINT and SIGTERM", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "tidy-site-cancel-test-"));
+  const config = path.join(directory, "wrangler.deploy.jsonc");
+  const invocation = path.join(directory, "invocation.json");
+  const stopped = path.join(directory, "child-stopped");
+  let child;
+  try {
+    writeFileSync(
+      config,
+      JSON.stringify({ name: "fixture-site", workers_dev: false, preview_urls: false }),
+    );
+    writeFileSync(
+      path.join(directory, "bunx"),
+      `#!${process.execPath}
+import { writeFileSync } from "node:fs";
+const args = process.argv.slice(2);
+writeFileSync(process.env.TIDY_DEPLOY_TEST_ARGS, JSON.stringify(args));
+process.on("SIGTERM", () => {
+  writeFileSync(process.env.TIDY_DEPLOY_TEST_STOPPED, "stopped");
+  process.exit(0);
+});
+setInterval(() => {}, 1000);
+console.log("ready");
+`,
+      { mode: 0o700 },
+    );
+    for (const [signal, expectedExit] of [
+      ["SIGINT", 130],
+      ["SIGTERM", 143],
+    ]) {
+      rmSync(stopped, { force: true });
+      child = Bun.spawn(
+        [process.execPath, fileURLToPath(new URL("./deploy.mjs", import.meta.url))],
+        {
+          stdout: "pipe",
+          stderr: "pipe",
+          timeout: 4000,
+          killSignal: "SIGKILL",
+          env: {
+            ...process.env,
+            CLOUDFLARE_ENV: "",
+            GITHUB_RELEASES_TOKEN: "fixture-cancellation-token",
+            PATH: directory,
+            TIDY_SITE_DEPLOY_CONFIG: config,
+            TIDY_DEPLOY_TEST_ARGS: invocation,
+            TIDY_DEPLOY_TEST_STOPPED: stopped,
+          },
+        },
+      );
+      const reader = child.stdout.getReader();
+      const ready = await reader.read();
+      reader.releaseLock();
+      expect(new TextDecoder().decode(ready.value)).toContain("ready");
+      const args = JSON.parse(readFileSync(invocation, "utf8"));
+      const secrets = args[args.indexOf("--secrets-file") + 1];
+      expect(existsSync(secrets)).toBe(true);
+      child.kill(signal);
+      expect(await child.exited).toBe(expectedExit);
+      expect(existsSync(stopped)).toBe(true);
+      expect(existsSync(path.dirname(secrets))).toBe(false);
+      expect(await new Response(child.stderr).text()).not.toContain("fixture-cancellation-token");
+    }
+  } finally {
+    child?.kill("SIGKILL");
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

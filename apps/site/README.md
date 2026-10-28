@@ -63,7 +63,8 @@ Build variables and secrets**. An assets-only Worker cannot accept runtime
 secrets through **Variables and Secrets** yet. The deploy script reads the build
 secret, writes it to a temporary file accessible only by the current user, and
 passes it with `--secrets-file` so the Worker code and runtime secret are uploaded
-together. It removes the temporary file after deployment, including failures.
+together. It removes the temporary file after deployment, including failures and
+SIGINT/SIGTERM cancellation. Forced termination such as SIGKILL cannot run cleanup.
 The token is not included in command arguments or the public website build.
 
 For local deployment, supply `GITHUB_RELEASES_TOKEN` in the deploy process's
