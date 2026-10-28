@@ -2,14 +2,18 @@ import { effectivePermissionMode } from "../../shared/contracts/permissions";
 import type { HarnessId } from "../../shared/contracts/desktop";
 import type { RunningHarness } from "./harnesses";
 import { HarnessSession } from "./interactive-harness";
+import { HarnessNotSubmittedError } from "./harness-transport";
 import type { SessionContext, TurnInput } from "./session-types";
 
 type Entry = {
+  id: string;
   context: SessionContext;
   key: string;
   session: HarnessSession;
   timer?: ReturnType<typeof setTimeout>;
   invalidated: boolean;
+  background: boolean;
+  expiresAt: number;
 };
 const contextKey = (input: SessionContext) =>
   JSON.stringify([
@@ -28,7 +32,18 @@ export class HarnessSessions {
   private retiring = new Set<Promise<void>>();
   private generation = 0;
   private changes: Promise<unknown> = Promise.resolve();
-  constructor(private options = { idleLimit: 2, idleMs: 30 * 60_000 }) {}
+  constructor(
+    private options: { idleLimit: number; idleMs: number; backgroundSilentMs?: number } = {
+      idleLimit: 2,
+      idleMs: 30 * 60_000,
+    },
+  ) {}
+
+  private disposable() {
+    return [...this.entries].filter(
+      ([, entry]) => entry.session.idle && !entry.session.hasBackgroundWork,
+    );
+  }
 
   private retire(id: string, entry: Entry) {
     if (this.entries.get(id) !== entry) return;
@@ -38,18 +53,50 @@ export class HarnessSessions {
     this.retiring.add(entry.session.done);
     void entry.session.done.finally(() => this.retiring.delete(entry.session.done));
   }
+  private scheduleExpiry(entry: Entry) {
+    entry.timer = setTimeout(
+      () => {
+        entry.timer = undefined;
+        if (this.entries.get(entry.id) !== entry || !entry.session.idle) return;
+        if (entry.expiresAt > performance.now()) this.scheduleExpiry(entry);
+        else this.retire(entry.id, entry);
+      },
+      Math.max(1, entry.expiresAt - performance.now()),
+    );
+    entry.timer.unref();
+  }
+  private activity(entry: Entry) {
+    if (this.entries.get(entry.id) !== entry || !entry.session.idle) return;
+    if (
+      !entry.timer ||
+      entry.background !== entry.session.hasBackgroundWork ||
+      (entry.invalidated && !entry.background)
+    ) {
+      this.release(entry.id, entry);
+      return;
+    }
+    entry.expiresAt = this.expiry(entry);
+    this.entries.delete(entry.id);
+    this.entries.set(entry.id, entry);
+  }
+  private expiry(entry: Entry) {
+    return entry.session.hasBackgroundWork
+      ? entry.session.lastProviderActivity + (this.options.backgroundSilentMs ?? 4 * 60 * 60_000)
+      : performance.now() + this.options.idleMs;
+  }
   private release(id: string, entry: Entry) {
     if (this.entries.get(id) !== entry || !entry.session.idle) return;
-    if (!entry.session.available || entry.invalidated) {
+    if (!entry.session.available || (entry.invalidated && !entry.session.hasBackgroundWork)) {
       this.retire(id, entry);
       return;
     }
     clearTimeout(entry.timer);
     this.entries.delete(id);
     this.entries.set(id, entry);
-    entry.timer = setTimeout(() => this.retire(id, entry), this.options.idleMs);
-    entry.timer.unref();
-    const idle = [...this.entries].filter(([, item]) => item.session.idle);
+    entry.background = entry.session.hasBackgroundWork;
+    entry.expiresAt = this.expiry(entry);
+    this.scheduleExpiry(entry);
+    const idle = this.disposable();
     for (const [key, item] of idle.slice(0, Math.max(0, idle.length - this.options.idleLimit)))
       this.retire(key, item);
   }
@@ -64,12 +111,17 @@ export class HarnessSessions {
         let entry = this.entries.get(id);
         if (
           entry &&
-          (entry.key !== key ||
+          (entry.invalidated ||
+            entry.key !== key ||
             !entry.session.available ||
             (context.sessionId !== undefined
               ? entry.session.sessionId !== context.sessionId
               : entry.context.sessionId !== undefined))
         ) {
+          if (entry.session.available && entry.session.hasBackgroundWork)
+            throw new HarnessNotSubmittedError(
+              "Wait for background work to finish before changing this conversation's settings.",
+            );
           this.retire(id, entry);
           entry = undefined;
         }
@@ -84,6 +136,7 @@ export class HarnessSessions {
           if (warm) {
             this.entries.delete(warm[0]);
             entry = warm[1];
+            entry.id = id;
             this.entries.set(id, entry);
           }
         }
@@ -92,7 +145,7 @@ export class HarnessSessions {
             for (const [key, item] of this.entries)
               if (key.startsWith("composer:")) this.retire(key, item);
           }
-          const idle = [...this.entries].filter(([, item]) => item.session.idle);
+          const idle = this.disposable();
           for (const [key, item] of idle.slice(
             0,
             Math.max(0, idle.length - this.options.idleLimit + 1),
@@ -120,13 +173,17 @@ export class HarnessSessions {
             superviseParent,
           };
           entry = {
+            id,
             context: binding,
             key,
             session: new HarnessSession(binding),
             invalidated: false,
+            background: false,
+            expiresAt: 0,
           };
           this.entries.set(id, entry);
           const current = entry;
+          current.session.onActivity = () => this.activity(current);
           void current.session.done.then(() => {
             for (const [key, item] of this.entries) if (item === current) this.retire(key, item);
           });
@@ -170,7 +227,7 @@ export class HarnessSessions {
         run = entry.session.start(input);
         await run.done;
       } catch (error) {
-        this.retire(id, entry);
+        if (!entry.session.available || !entry.session.hasBackgroundWork) this.retire(id, entry);
         throw error;
       } finally {
         this.release(id, entry);
@@ -198,7 +255,8 @@ export class HarnessSessions {
     for (const [id, entry] of this.entries) {
       if (harness && entry.context.harness !== harness) continue;
       entry.invalidated = true;
-      if (!idleOnly || entry.session.idle) this.retire(id, entry);
+      if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
+        this.retire(id, entry);
     }
     return Promise.all([...this.retiring]).then(() => {});
   }

@@ -1,4 +1,5 @@
 import { version } from "../../../package.json";
+import { z } from "zod";
 import {
   codexPermissions,
   validatePermissionMode,
@@ -8,6 +9,42 @@ import { createCodexEvents } from "./codex-events";
 import { object, text } from "./harness-transport";
 import { plainToolText } from "./tool-events";
 import type { AdapterContext, HarnessAdapter } from "./session-types";
+
+const workId = z.string().min(1).max(512);
+const workItem = z.discriminatedUnion("type", [
+  z.object({
+    type: z.enum(["commandExecution", "mcpToolCall", "dynamicToolCall"]),
+    id: workId,
+    status: z.enum(["inProgress", "completed", "failed", "declined"]).optional(),
+  }),
+  z.object({
+    type: z.literal("collabAgentToolCall"),
+    agentsStates: z.record(
+      workId,
+      z.object({
+        status: z.enum([
+          "pendingInit",
+          "running",
+          "interrupted",
+          "completed",
+          "errored",
+          "shutdown",
+          "notFound",
+        ]),
+      }),
+    ),
+  }),
+  z.object({
+    type: z.literal("subAgentActivity"),
+    agentThreadId: workId,
+    kind: z.enum(["started", "interacted", "interrupted", "completed"]),
+  }),
+]);
+const workEvent = z.object({ threadId: workId, turnId: workId, item: workItem });
+const threadStatus = z.object({
+  threadId: workId,
+  status: z.object({ type: z.enum(["active", "idle", "notLoaded", "systemError"]) }),
+});
 
 export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
   const { input, emit, accepted, complete, ask, cancelApproval } = context;
@@ -19,7 +56,13 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
   let started = Promise.withResolvers<void>();
   let completedTurnId: string | undefined;
   const filePreviews = new Map<string, string>();
-  let codexEvent = createCodexEvents(emit);
+  const agents = new Set<string>();
+  const agentActivity = (id: string, state: "started" | "progress" | "finished") => {
+    if (state === "started" && agents.size < 1000) agents.add(id);
+    if (state === "finished") agents.delete(id);
+    context.activity({ id: `agent:${id}`, state });
+  };
+  let codexEvent: ReturnType<typeof createCodexEvents> | undefined;
   return {
     async initialize() {
       await request("initialize", {
@@ -92,10 +135,55 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
     consume(value) {
       const method = text(value.method),
         params = object(value.params);
+      if (value.id === undefined && method === "thread/status/changed") {
+        const parsed = threadStatus.safeParse(params);
+        if (parsed.success && agents.has(parsed.data.threadId)) {
+          agentActivity(
+            parsed.data.threadId,
+            parsed.data.status.type === "active" ? "progress" : "finished",
+          );
+          return;
+        }
+      }
       if (params.threadId && params.threadId !== threadId) {
         if (value.id !== undefined)
           rejectRequest(value.id, "This request belongs to another thread.");
         return;
+      }
+      if (value.id === undefined && threadId && params.threadId === threadId) {
+        context.activity();
+        if (method === "item/started" || method === "item/completed") {
+          const parsed = workEvent.safeParse(params);
+          if (parsed.success) {
+            const item = parsed.data.item;
+            if (item.type === "collabAgentToolCall") {
+              for (const [id, agent] of Object.entries(item.agentsStates))
+                agentActivity(
+                  id,
+                  agent.status === "running" || agent.status === "pendingInit"
+                    ? "started"
+                    : "finished",
+                );
+            } else if (item.type === "subAgentActivity") {
+              agentActivity(
+                item.agentThreadId,
+                item.kind === "started"
+                  ? "started"
+                  : item.kind === "interacted"
+                    ? "progress"
+                    : "finished",
+              );
+            } else {
+              context.activity({
+                id: `tool:${parsed.data.turnId}:${item.id}`,
+                state:
+                  method === "item/completed" || (item.status && item.status !== "inProgress")
+                    ? "finished"
+                    : "started",
+              });
+            }
+          }
+        }
       }
       const eventTurnId = text(params.turnId) || text(object(params.turn).id);
       if (eventTurnId && (eventTurnId === completedTurnId || (turnId && eventTurnId !== turnId))) {
@@ -190,7 +278,7 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
           text(item.id),
           plainToolText(JSON.stringify(item.changes) ?? "").slice(0, 16_001),
         );
-      codexEvent(method, params);
+      codexEvent?.(method, params);
       if (method === "item/completed") filePreviews.delete(text(item.id));
       if (method === "error" && !params.willRetry)
         failure = text(object(params.error).message) || "Codex could not complete this turn.";
@@ -201,6 +289,8 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
         if (turn.status === "failed")
           failure = text(object(turn.error).message) || "Codex could not complete this turn.";
         if (turn.status === "interrupted") failure = "The harness turn was interrupted.";
+        codexEvent = undefined;
+        filePreviews.clear();
         complete(failure ? new Error(failure) : undefined);
       }
     },

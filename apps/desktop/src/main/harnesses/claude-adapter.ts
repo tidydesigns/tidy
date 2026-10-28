@@ -1,7 +1,38 @@
 import { skillCommand } from "../../shared/contracts/skills";
+import { z } from "zod";
 import { createClaudeParser } from "./harnesses";
 import { HarnessNotSubmittedError, object, text } from "./harness-transport";
 import type { AdapterContext, HarnessAdapter } from "./session-types";
+
+const taskStatus = z.enum([
+  "pending",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "stopped",
+  "killed",
+]);
+const taskEvent = z
+  .object({
+    type: z.literal("system"),
+    session_id: z.string().optional(),
+    task_id: z.string().min(1).max(512),
+  })
+  .and(
+    z.discriminatedUnion("subtype", [
+      z.object({ subtype: z.enum(["task_started", "task_progress"]) }),
+      z.object({
+        subtype: z.literal("task_notification"),
+        status: z.enum(["completed", "failed", "stopped"]),
+      }),
+      z.object({
+        subtype: z.literal("task_updated"),
+        status: taskStatus.optional(),
+        patch: z.object({ status: taskStatus.optional() }),
+      }),
+    ]),
+  );
 
 export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
   const { input, ask, cancelApproval, complete } = context;
@@ -12,7 +43,7 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
     if (update.type === "session") sessionId = update.id;
     context.emit(update);
   };
-  let parse = createClaudeParser(emit);
+  let parse: ReturnType<typeof createClaudeParser> | undefined;
   return {
     async initialize() {
       await context.transport.request("initialize");
@@ -49,6 +80,34 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
       }
     },
     consume(value) {
+      const task = value.type === "system" ? taskEvent.safeParse(value) : undefined;
+      if (task?.success) {
+        const event = task.data;
+        if (event.session_id && sessionId && event.session_id !== sessionId) return;
+        const status =
+          event.subtype === "task_updated"
+            ? (event.patch.status ?? event.status)
+            : event.subtype === "task_notification"
+              ? event.status
+              : undefined;
+        context.activity({
+          id: event.task_id,
+          state:
+            event.subtype === "task_started" ||
+            status === "running" ||
+            status === "pending" ||
+            status === "paused"
+              ? "started"
+              : event.subtype === "task_notification" ||
+                  status === "completed" ||
+                  status === "failed" ||
+                  status === "stopped" ||
+                  status === "killed"
+                ? "finished"
+                : "progress",
+        });
+        return;
+      }
       if (value.type === "control_cancel_request") {
         cancelApproval(value.request_id);
         return;
@@ -92,9 +151,11 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
         return;
       }
       if (!context.isActive()) return;
+      context.activity();
       if (value.type === "system" && value.subtype === "init") context.accepted();
-      parse(value);
+      parse?.(value);
       if (value.type === "result") {
+        parse = undefined;
         complete();
       }
     },

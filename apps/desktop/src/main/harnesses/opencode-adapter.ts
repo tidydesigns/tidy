@@ -40,11 +40,11 @@ const permission = z.object({
 const visibleContent = z.object({ type: z.literal("text"), text: z.string() });
 const toolUpdate = z.object({
   sessionUpdate: z.enum(["tool_call", "tool_call_update"]),
-  toolCallId: z.string(),
+  toolCallId: z.string().min(1).max(512),
   content: z.unknown().optional(),
   title: z.string().optional(),
   kind: z.string().optional(),
-  status: z.string().optional(),
+  status: z.enum(["pending", "in_progress", "completed", "failed"]).optional(),
 });
 const updateSchema = z.object({
   sessionId: nativeSessionIdSchema,
@@ -76,7 +76,8 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
   let sessionId = input.sessionId;
   let messageId = "";
   let costUSD: number | undefined;
-  let tools = new Map<
+  let initialized = false;
+  const tools = new Map<
     string,
     { title: string; kind: "read" | "edit" | "search" | "command" | "tool" }
   >();
@@ -126,9 +127,9 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         session.configOptions.find((option) => option.id === "model")?.currentValue ??
         session.models?.currentModelId;
       if (model) emit({ type: "model", model });
+      initialized = true;
     },
     async submit(message) {
-      tools = new Map();
       messageId = crypto.randomUUID();
       const prompt =
         message.skill?.invocation.kind === "command"
@@ -165,6 +166,7 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
                 costUSD,
               },
             });
+          tools.clear();
           context.complete();
         })
         .catch((error: unknown) =>
@@ -212,12 +214,26 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         transport.reject(message.id, "This client capability is not available.");
         return;
       }
-      if (message.method !== "session/update" || !context.isActive()) return;
+      if (message.method !== "session/update" || !initialized) return;
       const notification = updateSchema.parse(message.params);
       if (notification.sessionId !== sessionId) return;
       const parsed = supportedUpdate.safeParse(notification.update);
       if (!parsed.success) return;
       const update = parsed.data;
+      if (update.sessionUpdate === "tool_call" || update.sessionUpdate === "tool_call_update") {
+        context.activity({
+          id: update.toolCallId,
+          state:
+            update.status === "completed" || update.status === "failed"
+              ? "finished"
+              : update.status === "in_progress" ||
+                  update.status === "pending" ||
+                  update.sessionUpdate === "tool_call"
+                ? "started"
+                : "progress",
+        });
+      } else context.activity();
+      if (!context.isActive()) return;
       if (
         [
           "agent_message_chunk",

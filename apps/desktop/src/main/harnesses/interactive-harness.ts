@@ -78,6 +78,10 @@ export class HarnessSession {
     string,
     { nativeId: unknown; choices: ApprovalDecision[]; result(decision: ApprovalDecision): unknown }
   >();
+  private backgroundTasks = new Set<string>();
+  private backgroundOverflow = false;
+  private activityAt = performance.now();
+  onActivity: () => void = () => {};
   sessionId?: string;
   readonly ready: Promise<void>;
   readonly done: Promise<void>;
@@ -120,6 +124,15 @@ export class HarnessSession {
     const context: AdapterContext = {
       input,
       transport: this.transport,
+      activity: (event) => {
+        if (event?.state === "started") {
+          if (this.backgroundTasks.has(event.id) || this.backgroundTasks.size < 1000)
+            this.backgroundTasks.add(event.id);
+          else this.backgroundOverflow = true;
+        } else if (event?.state === "finished") this.backgroundTasks.delete(event.id);
+        this.activityAt = performance.now();
+        if (this.idle) this.onActivity();
+      },
       isActive: () =>
         (this.state.kind === "running" || this.state.kind === "cancelling") &&
         this.state.turn.delivery !== "not-submitted",
@@ -170,6 +183,12 @@ export class HarnessSession {
   }
   get idle() {
     return this.state.kind === "idle";
+  }
+  get hasBackgroundWork() {
+    return this.backgroundOverflow || this.backgroundTasks.size > 0;
+  }
+  get lastProviderActivity() {
+    return this.activityAt;
   }
   private emit(update: HarnessUpdate) {
     if (update.type === "session") this.sessionId = update.id;

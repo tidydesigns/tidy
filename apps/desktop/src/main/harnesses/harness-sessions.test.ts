@@ -37,6 +37,91 @@ async function events(cwd: string) {
 }
 
 for (const harness of harnessIdSchema.options) {
+  test(`${harness} protects background work from idle pressure, refreshes on progress and releases after completion`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-background-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 150, backgroundSilentMs: 200 });
+    const context = { harness, executable, cwd };
+    const updates: HarnessUpdate[] = [];
+    try {
+      await sessions.start("background", {
+        ...context,
+        prompt: "background",
+        onUpdate: (update) => updates.push(update),
+      }).done;
+      const pid = (await events(cwd))[0].pid;
+      const previous = updates.length;
+      await sessions.start("other", { ...context, prompt: "other", onUpdate() {} }).done;
+      await new Promise((resolve) => setTimeout(resolve, 275));
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      expect(updates).toHaveLength(previous);
+      await sessions.start("background", { ...context, prompt: "continue", onUpdate() {} }).done;
+      expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+      await expect(
+        sessions.start("background", { ...context, prompt: "fail-turn", onUpdate() {} }).done,
+      ).rejects.toThrow("Turn failed");
+      expect(() => process.kill(pid, 0)).not.toThrow();
+      await new Promise((resolve) => setTimeout(resolve, 550));
+      expect(() => process.kill(pid, 0)).toThrow();
+    } finally {
+      await sessions.clear();
+    }
+  });
+
+  test(`${harness} releases silent background work and shutdown overrides retention`, async () => {
+    const cwd = await mkdtemp(join(directory, `${harness}-silent-`));
+    const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 20, backgroundSilentMs: 200 });
+    const context = { harness, executable, cwd };
+    try {
+      await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} })
+        .done;
+      const pid = (await events(cwd))[0].pid;
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(() => process.kill(pid, 0)).toThrow();
+      await sessions.start("foreign", {
+        ...context,
+        prompt: "foreign background silent",
+        onUpdate() {},
+      }).done;
+      const foreignPids = new Set((await events(cwd)).map((event) => event.pid));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      for (const foreign of foreignPids) expect(() => process.kill(foreign, 0)).toThrow();
+      await sessions.start("thread", { ...context, prompt: "background silent", onUpdate() {} })
+        .done;
+      const replacements = new Set((await events(cwd)).map((event) => event.pid));
+      expect(replacements.size).toBe(3);
+      await sessions.clear();
+      for (const replacement of replacements) expect(() => process.kill(replacement, 0)).toThrow();
+    } finally {
+      await sessions.clear();
+    }
+  });
+}
+
+test("background work survives idle invalidation and refuses incompatible settings until it finishes", async () => {
+  const cwd = await mkdtemp(join(directory, "background-invalidation-"));
+  const sessions = new HarnessSessions({ idleLimit: 1, idleMs: 100, backgroundSilentMs: 1000 });
+  const context = { harness: "codex" as const, executable, cwd };
+  try {
+    await sessions.start("thread", { ...context, prompt: "background agent", onUpdate() {} }).done;
+    const pid = (await events(cwd))[0].pid;
+    await expect(
+      sessions.start("thread", {
+        ...context,
+        settings: { model: "different" },
+        prompt: "continue",
+        onUpdate() {},
+      }).done,
+    ).rejects.toThrow("Wait for background work");
+    await sessions.clear({ idleOnly: true });
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await sessions.clear();
+  }
+});
+
+for (const harness of harnessIdSchema.options) {
   test(`${harness} retains one connection across turns and interrupt, with isolated turn callbacks`, async () => {
     const cwd = await mkdtemp(join(directory, `${harness}-`));
     const session = new HarnessSession({ harness, executable, cwd });

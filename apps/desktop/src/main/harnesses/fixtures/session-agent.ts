@@ -45,6 +45,80 @@ function finish(cancelled = false) {
       },
     });
 }
+function background(state: "started" | "progress" | "finished", id: string, ownerTurn = turnId) {
+  const ownerSession = id.startsWith("foreign-") ? "ses_other" : sessionId;
+  if (acp)
+    send({
+      method: "session/update",
+      params: {
+        sessionId: ownerSession,
+        update: {
+          sessionUpdate: state === "started" ? "tool_call" : "tool_call_update",
+          toolCallId: id,
+          status: state === "finished" ? "completed" : "in_progress",
+          kind: "execute",
+        },
+      },
+    });
+  else if (claude)
+    send({
+      type: "system",
+      subtype:
+        state === "started"
+          ? "task_started"
+          : state === "finished"
+            ? "task_updated"
+            : "task_progress",
+      session_id: ownerSession,
+      task_id: id,
+      ...(state === "finished" ? { patch: { status: "killed" } } : {}),
+    });
+  else if (id.startsWith("agent-"))
+    send(
+      state === "started"
+        ? {
+            method: "item/completed",
+            params: {
+              threadId: ownerSession,
+              turnId: ownerTurn,
+              item: {
+                type: "collabAgentToolCall",
+                id,
+                tool: "spawnAgent",
+                status: "completed",
+                senderThreadId: sessionId,
+                receiverThreadIds: [id],
+                agentsStates: { [id]: { status: "running" } },
+              },
+            },
+          }
+        : {
+            method: "thread/status/changed",
+            params: {
+              threadId: id,
+              status: { type: state === "finished" ? "idle" : "active", activeFlags: [] },
+            },
+          },
+    );
+  else
+    send({
+      method:
+        state === "progress"
+          ? "item/commandExecution/outputDelta"
+          : state === "started"
+            ? "item/started"
+            : "item/completed",
+      params: {
+        threadId: ownerSession,
+        turnId: ownerTurn,
+        item: {
+          type: "commandExecution",
+          id,
+          status: state === "finished" ? "completed" : "inProgress",
+        },
+      },
+    });
+}
 for await (const line of createInterface({ input: process.stdin })) {
   const value = object(JSON.parse(line));
   const method = claude ? object(value.request).subtype : value.method;
@@ -114,6 +188,43 @@ for await (const line of createInterface({ input: process.stdin })) {
       };
       if (prompt.includes("early-stop")) setTimeout(begin, 20);
       else begin();
+    }
+    if (prompt.includes("fail-turn")) {
+      if (acp) send({ id: promptId, error: { code: -32603, message: "Turn failed" } });
+      else if (claude)
+        send({ type: "result", session_id: sessionId, result: "Turn failed", is_error: true });
+      else
+        send({
+          method: "turn/completed",
+          params: {
+            threadId: sessionId,
+            turn: { id: turnId, status: "failed", error: { message: "Turn failed" } },
+          },
+        });
+      continue;
+    }
+    if (prompt.includes("background")) {
+      const id = `${prompt.includes("foreign") ? "foreign" : prompt.includes("agent") ? "agent" : "background"}-${sequence}`;
+      const ownerTurn = turnId;
+      background("started", id, ownerTurn);
+      if (claude) background("started", `${id}-secondary`, ownerTurn);
+      if (!prompt.includes("silent")) {
+        const progress = setInterval(() => background("progress", id, ownerTurn), 50);
+        setTimeout(() => {
+          clearInterval(progress);
+          background("finished", id, ownerTurn);
+          if (claude) {
+            send({
+              type: "system",
+              subtype: "task_notification",
+              session_id: sessionId,
+              task_id: `${id}-secondary`,
+              status: "completed",
+            });
+            background("progress", id, ownerTurn);
+          }
+        }, 500);
+      }
     }
     if (prompt.includes("approve")) {
       pendingApproval = true;

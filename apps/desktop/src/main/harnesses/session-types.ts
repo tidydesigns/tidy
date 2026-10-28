@@ -38,6 +38,11 @@ export type AdapterContext = {
   ): void;
   cancelApproval(nativeId: unknown): void;
   isActive(): boolean;
+  activity(event?: SessionActivity): void;
+};
+export type SessionActivity = {
+  id: string;
+  state: "started" | "progress" | "finished";
 };
 export type HarnessAdapter = {
   initialize(): Promise<void>;
