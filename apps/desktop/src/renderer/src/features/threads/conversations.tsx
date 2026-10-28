@@ -1,11 +1,16 @@
 import { Activity, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopAPI, Thread } from "../../../../shared/contracts/desktop";
-import { lazyView } from "../../components/lazy-view";
+import { lazyView, ViewLoading } from "../../components/lazy-view";
 import { loadConversation } from "./load-conversation";
 import { retainConversations } from "./conversation-cache";
 
 const Conversation = lazyView(async () => ({ default: (await loadConversation()).Conversation }), {
   label: "conversation",
+  fallback: () => (
+    <div className="conversation min-h-0 min-w-0 flex-1">
+      <ViewLoading label="conversation" />
+    </div>
+  ),
 });
 
 export function Conversations({

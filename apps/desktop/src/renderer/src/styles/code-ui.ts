@@ -32,7 +32,7 @@ export const codeContextClassName =
 export const codeContextTriggerClassName = `${codeContextClassName} context-trigger cursor-pointer rounded-md border-0 bg-transparent p-1.5 hover:enabled:bg-hover-surface hover:enabled:text-ink disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-control-border [&>span:first-of-type]:truncate`;
 
 export const codeFavoriteClassName =
-  "model-star mr-0.5 grid size-[25px] shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 leading-none text-muted-ink hover:bg-pressed-surface hover:text-ink active:transform-none [&_svg]:block [&_svg]:size-[15px] [&[aria-pressed=true]_svg]:fill-current";
+  "model-star grid size-[25px] shrink-0 cursor-pointer place-items-center rounded-md border-0 bg-transparent p-0 leading-none text-muted-ink hover:bg-pressed-surface hover:text-ink active:transform-none [&_svg]:block [&_svg]:size-[15px] [&[aria-pressed=true]_svg]:fill-current";
 
 export const codeSubmitClassName =
   "composer-submit inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 p-0 disabled:cursor-default disabled:opacity-40";

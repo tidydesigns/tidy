@@ -1315,7 +1315,7 @@ export function App() {
                     if (value.startsWith("cloud:")) selectCloudWorkspace(value.slice(6));
                     else void chooseProject(value === "open" ? undefined : value);
                   }}
-                  triggerClassName="project-trigger flex min-h-[34px] w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent py-1.5 pr-2 pl-[3px] text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:flex-initial [&>[data-ph-private]]:truncate"
+                  triggerClassName="project-trigger flex min-h-[34px] w-fit min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] leading-[1.5] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>[data-ph-private]]:min-w-0 [&>[data-ph-private]]:flex-initial [&>[data-ph-private]]:truncate"
                   menuClassName="workspace-menu flex flex-col gap-0.5 [&_[role=menuitemradio]]:px-2.5 [&_[role=menuitemradio]]:py-2"
                 />
               )}
@@ -1610,6 +1610,7 @@ export function App() {
               >
                 <div
                   className={`thread-workspace relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
+                  data-new-thread={!selectedThreadId || undefined}
                 >
                   <div
                     className={`thread-heading ${codeFontClassName} flex min-h-[42px] shrink-0 items-center gap-6 px-5 py-1 ${thread ? "thread-heading-active max-[700px]:flex-wrap max-[700px]:gap-1 max-[700px]:pb-2" : ""}`}

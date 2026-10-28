@@ -236,8 +236,9 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
         : previousFloating.current
           ? "1"
           : "0";
-    const previousClip = getComputedStyle(surface).clipPath;
-    const previousRadius = laidOut.current ? getComputedStyle(surface).borderRadius : "4px";
+    const [previousRadiusX = "4px", previousRadiusY = previousRadiusX] = laidOut.current
+      ? getComputedStyle(surface).borderTopLeftRadius.split(" ")
+      : ["4px"];
     dockMotion.current.forEach((motion) => motion.cancel());
     if (!Number.isFinite(offset.current.x)) {
       offset.current.x = area.clientWidth - width.current - 36 - (placement % 5) * 28;
@@ -258,15 +259,14 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const target = floating ? geometry : { ...slot, height: slot.width / previewRatio };
     const targetHeight = target.height;
     const transform = `translate(${target.x}px, ${target.y}px)`;
-    const clip = "inset(0% 0% 0% 0%)";
+    const frameRadius = floating ? "20px" : "4px";
     Object.assign(surface.style, {
       left: "0px",
       top: "0px",
       width: `${target.width}px`,
       height: `${targetHeight}px`,
       transform,
-      clipPath: clip,
-      borderRadius: floating ? "14px" : "4px",
+      borderRadius: frameRadius,
     });
     if (
       (laidOut.current || floating) &&
@@ -278,10 +278,9 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
         [
           {
             transform: `translate(${previous.left - bounds.left}px, ${previous.top - bounds.top}px) scale(${previous.width / target.width}, ${previous.height / targetHeight})`,
-            clipPath: previousClip === "none" ? "inset(0% 0% 0% 0%)" : previousClip,
-            borderRadius: `${(parseFloat(previousRadius) * target.width) / previous.width}px`,
+            borderRadius: `${(parseFloat(previousRadiusX) * target.width) / previous.width}px / ${(parseFloat(previousRadiusY) * targetHeight) / previous.height}px`,
           },
-          { transform, clipPath: clip, borderRadius: floating ? "14px" : "4px" },
+          { transform, borderRadius: frameRadius },
         ],
         { duration: 280, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "both" },
       );
@@ -469,11 +468,12 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     const button = trigger.current;
     const content = canvas.current;
     const edge = transitionEdge.current;
-    if (!surface || !button || !content || !edge) return;
+    const compactSurface = frame.current;
+    if (!surface || !button || !content || !edge || !compactSurface) return;
     flushSync(() => setVisited(true));
     const epoch = ++generation.current;
-    const rect = button.getBoundingClientRect();
-    const corners = getComputedStyle(button).borderTopLeftRadius.split(" ");
+    const rect = compactSurface.getBoundingClientRect();
+    const corners = getComputedStyle(compactSurface).borderTopLeftRadius.split(" ");
     const radius = (value: string, size: number) =>
       parseFloat(value) * (value.endsWith("%") ? size / 100 : 1);
     const cornerRadius = `${radius(corners[0], rect.width)}px / ${radius(corners[1] ?? corners[0], rect.height)}px`;
@@ -521,7 +521,7 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
     surface.style.clipPath = reduced ? fullClip : previousClip;
     content.style.transform = reduced ? "none" : previousTransform;
     Object.assign(edge.style, reduced ? fullEdge : previousEdge);
-    const previewRim = button
+    const previewRim = compactSurface
       .querySelector(".thread-design-rim")
       ?.getAnimations({ subtree: true })[0];
     const growingRim = edge.getAnimations({ subtree: true })[0];
@@ -596,102 +596,101 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
         aria-hidden={!floating || undefined}
         inert={!floating}
       >
-        <Button
-          ref={trigger}
-          onPointerEnter={preloadCanvasEditor}
-          onFocus={preloadCanvasEditor}
-          type="button"
-          className="thread-design-peek"
-          aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}
-          aria-busy={!ready || undefined}
-          aria-haspopup={floating ? "dialog" : undefined}
-          aria-controls={floating ? id : undefined}
-          aria-expanded={expanded}
-          aria-description={
-            floating
-              ? `Live view of ${summary.name}. Scroll to pan, pinch to zoom, Space and drag to pan, or click to expand.`
-              : `Restore the live view of ${summary.name}.`
-          }
-          data-expanded={expanded}
-          onClick={(event) => {
-            if (!suppressClick.current || event.detail === 0) {
-              if (!warm) flushSync(() => onActivate(summary.id));
-              if (ready) transition(true);
-              else {
-                const request = ++openRequest.current;
-                void readPreview(summary).then(
-                  (design) => {
-                    if (request !== openRequest.current) return;
-                    flushSync(() => setValue(design));
-                    transition(true);
-                  },
-                  () => {},
-                );
-              }
-            }
-            suppressClick.current = false;
-          }}
-        >
-          <span className="thread-design-lens" aria-hidden="true" inert>
-            <span className="thread-design-artwork">
-              {value && (
-                <PreviewCamera
-                  onError={onPreviewError}
-                  value={value}
-                  memory={previewMemory}
-                  surface={trigger}
-                  suppressClick={suppressClick}
-                  enabled={active && floating && !expanded}
-                />
-              )}
-            </span>
-          </span>
-          <span className="thread-design-rim" aria-hidden="true" />
-        </Button>
-        <div
-          className="thread-design-header"
-          onPointerDown={(event) => {
-            if (event.target instanceof Element && event.target.closest("button")) return;
-            beginDrag(event, "move");
-          }}
-          onPointerMove={continueDrag}
-          onPointerUp={(event) => finishDrag(event)}
-          onPointerCancel={(event) => finishDrag(event, true)}
-          onLostPointerCapture={(event) => finishDrag(event, true)}
-        >
-          <span className="thread-design-name" title={summary.name}>
-            {summary.name}
-          </span>
+        <div className="thread-design-surface">
           <Button
+            ref={trigger}
+            onPointerEnter={preloadCanvasEditor}
+            onFocus={preloadCanvasEditor}
             type="button"
-            className="thread-design-close"
-            aria-label="Dock preview"
-            onClick={() => {
-              remember();
-              onDock(summary.id);
+            className="thread-design-peek"
+            aria-label={floating ? "Expand canvas" : `Open ${summary.name} preview`}
+            aria-busy={!ready || undefined}
+            aria-haspopup={floating ? "dialog" : undefined}
+            aria-controls={floating ? id : undefined}
+            aria-expanded={expanded}
+            aria-description={
+              floating
+                ? `Live view of ${summary.name}. Scroll to pan, pinch to zoom, Space and drag to pan, or click to expand.`
+                : `Restore the live view of ${summary.name}.`
+            }
+            data-expanded={expanded}
+            onClick={(event) => {
+              if (!suppressClick.current || event.detail === 0) {
+                if (!warm) flushSync(() => onActivate(summary.id));
+                if (ready) transition(true);
+                else {
+                  const request = ++openRequest.current;
+                  void readPreview(summary).then(
+                    (design) => {
+                      if (request !== openRequest.current) return;
+                      flushSync(() => setValue(design));
+                      transition(true);
+                    },
+                    () => {},
+                  );
+                }
+              }
+              suppressClick.current = false;
             }}
           >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-              aria-hidden="true"
-            >
-              <path d="m3 4.5 3 3 3-3" />
-            </svg>
+            <span className="thread-design-lens" aria-hidden="true" inert>
+              <span className="thread-design-artwork">
+                {value && (
+                  <PreviewCamera
+                    onError={onPreviewError}
+                    value={value}
+                    memory={previewMemory}
+                    surface={trigger}
+                    suppressClick={suppressClick}
+                    enabled={active && floating && !expanded}
+                  />
+                )}
+              </span>
+            </span>
           </Button>
+          <div
+            className="thread-design-header"
+            onPointerDown={(event) => {
+              if (event.target instanceof Element && event.target.closest("button")) return;
+              beginDrag(event, "move");
+            }}
+            onPointerMove={continueDrag}
+            onPointerUp={(event) => finishDrag(event)}
+            onPointerCancel={(event) => finishDrag(event, true)}
+            onLostPointerCapture={(event) => finishDrag(event, true)}
+          >
+            <Button
+              type="button"
+              className="thread-design-close"
+              aria-label="Dock preview"
+              onClick={() => {
+                remember();
+                onDock(summary.id);
+              }}
+            >
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                aria-hidden="true"
+              >
+                <path d="m3 4.5 3 3 3-3" />
+              </svg>
+            </Button>
+          </div>
         </div>
+        <span className="thread-design-rim" aria-hidden="true" />
         {resizeEdges.map((edge) => (
           <Button
             key={edge}
             type="button"
             className="thread-design-resize"
             data-edge={edge}
-            aria-label={`Resize preview ${edge}`}
-            tabIndex={edge === "se" ? 0 : -1}
+            aria-label={edge === "sw" ? "Resize preview" : `Resize preview ${edge}`}
+            tabIndex={edge === "sw" ? 0 : -1}
             onPointerDown={(event) => beginDrag(event, edge)}
             onPointerMove={continueDrag}
             onPointerUp={(event) => finishDrag(event)}
@@ -721,7 +720,21 @@ export const ThreadDesignWindow = memo(function ThreadDesignWindow({
               );
               remember();
             }}
-          />
+          >
+            {edge === "sw" && (
+              <svg
+                aria-hidden="true"
+                width="12"
+                height="12"
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+              >
+                <path d="m9 9-6-6M5 9 3 7" />
+              </svg>
+            )}
+          </Button>
         ))}
       </div>
       <Dialog

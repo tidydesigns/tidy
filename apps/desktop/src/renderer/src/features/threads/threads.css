@@ -1,3 +1,10 @@
+.thread-workspace[data-new-thread]::after {
+  content: "";
+  flex: 1;
+}
+.thread-workspace[data-new-thread] > .conversation {
+  visibility: hidden;
+}
 .thread-done {
   opacity: 0;
   pointer-events: none;

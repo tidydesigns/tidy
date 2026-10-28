@@ -62,7 +62,6 @@ export function HarnessControls({
         >
           <SelectMenu
             label="Effort"
-            showSelectedIcon
             triggerContent={
               <>
                 <ComposerIcon name="effort" />
@@ -80,7 +79,6 @@ export function HarnessControls({
               ...model.efforts.map((value) => ({
                 value,
                 label: effortLabel(value),
-                icon: <ComposerIcon name="effort" />,
               })),
               ...(effort && !model.efforts.includes(effort)
                 ? [{ value: effort, label: effortLabel(effort), disabled: true }]
