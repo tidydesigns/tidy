@@ -65,7 +65,7 @@ export class RecoveryCache {
   private closed = false;
   private epoch = 0;
   private removedAt = -1;
-  private pendingRemovals = 0;
+  private pendingRemovals = new Set<string>();
   private designs = new Map<
     string,
     { event: Extract<DesktopEvent, { type: "designs" }>; epoch: number }
@@ -118,9 +118,17 @@ export class RecoveryCache {
     const projectId = snapshotInput.parse(input);
     await this.ready;
     if (this.closed) throw new Error("The machine connection is closed.");
-    this.pendingRemovals++;
+    if (this.pendingRemovals.has(projectId))
+      throw new Error("This project is already being removed.");
+    const previousDesign = this.designs.get(projectId);
+    const previous = [...this.values].filter(
+      ([, entry]) =>
+        entry.name === "bootstrap" ||
+        (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId,
+    );
+    this.pendingRemovals.add(projectId);
     const finish = () => {
-      this.pendingRemovals--;
+      this.pendingRemovals.delete(projectId);
       this.removedAt = ++this.epoch;
     };
     this.removedAt = ++this.epoch;
@@ -147,12 +155,39 @@ export class RecoveryCache {
       await this.flush({ durable: true });
       return finish;
     } catch (error) {
+      if (previousDesign && !this.designs.has(projectId))
+        this.designs.set(projectId, previousDesign);
+      for (const [id, entry] of previous) {
+        if (entry.name !== "bootstrap") {
+          this.put(entry);
+          continue;
+        }
+        const latest = this.values.get(id);
+        const current =
+          latest?.name === "bootstrap"
+            ? latest.data
+            : { ...entry.data, projects: [], activeProject: null };
+        const project = entry.data.projects.find((item) => item.id === projectId);
+        const activeProject =
+          entry.data.activeProject?.project.id === projectId ? entry.data.activeProject : null;
+        this.put({
+          ...entry,
+          data: {
+            ...current,
+            projects:
+              project && !current.projects.some((item) => item.id === projectId)
+                ? [...current.projects, project]
+                : current.projects,
+            activeProject: current.activeProject ?? activeProject,
+          },
+        });
+      }
       finish();
       throw error;
     }
   }
   capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
-    if (!this.path || this.closed || this.pendingRemovals) return;
+    if (!this.path || this.closed || this.pendingRemovals.size) return;
     // Responses already in flight must not restore a forgotten registration to offline storage.
     if (startedAt < this.removedAt) return;
     if (name === "bootstrap") {

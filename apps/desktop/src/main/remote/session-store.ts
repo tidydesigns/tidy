@@ -55,7 +55,7 @@ export async function writePrivateJSON(
   try {
     await writeFile(temporary, JSON.stringify(value), { flag: "wx", mode: 0o600, flush: durable });
     await rename(temporary, path);
-    if (durable) {
+    if (durable && process.platform !== "win32") {
       const directory = await open(dirname(path), "r");
       try {
         await directory.sync();

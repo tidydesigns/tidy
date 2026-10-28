@@ -870,8 +870,30 @@ test("a failed cache purge prevents the remote removal request", async () => {
     expect(removal).not.toHaveBeenCalled();
     expect(f.store.projects.map((project) => project.id)).toContain(f.project.id);
     expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
+    await client.flush();
+    expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
   } finally {
     failure.mockRestore();
     removal.mockRestore();
   }
+});
+
+test("a rejected removal preserves tracked thread recovery across reconnect", async () => {
+  const f = await fixture();
+  const { client, events, drops } = f.client(undefined, join(f.root, "tracked-cache.json"));
+  await until(() => client.status.kind === "connected");
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: "Keep running",
+    designIds: [],
+  });
+  await expect(client.operation("remove-project", f.project.id)).rejects.toThrow("active work");
+  events.length = 0;
+  drops[0]();
+  await until(() => client.status.kind === "reconnecting");
+  await until(() => client.status.kind === "connected");
+  expect(events.some((event) => event.type === "thread" && event.thread.id === thread.id)).toBe(
+    true,
+  );
 });

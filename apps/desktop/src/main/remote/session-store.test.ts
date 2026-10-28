@@ -1,9 +1,10 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { SessionStore } from "./session-store";
+import * as filesystem from "node:fs/promises";
+import { SessionStore, writePrivateJSON } from "./session-store";
 
 const roots: string[] = [];
 afterEach(async () => {
@@ -48,5 +49,23 @@ test("untrusted session IDs cannot read, replace or delete files outside the ses
     await expect(store.issue(clientId)).rejects.toThrow();
     await expect(store.revoke(clientId)).rejects.toThrow();
     expect(await readFile(sentinel, "utf8")).toBe(token);
+  }
+});
+
+test("durable cache writes flush files without opening directories on Windows", async () => {
+  const root = await mkdtemp(join(tmpdir(), "durable-windows-"));
+  roots.push(root);
+  const path = join(root, "cache.json");
+  const platform = Object.getOwnPropertyDescriptor(process, "platform");
+  if (!platform) throw new Error("Missing process platform descriptor");
+  const directoryOpen = spyOn(filesystem, "open");
+  try {
+    Object.defineProperty(process, "platform", { ...platform, value: "win32" });
+    await writePrivateJSON(path, { entries: [] }, { durable: true });
+    expect(directoryOpen).not.toHaveBeenCalled();
+    expect(JSON.parse(await readFile(path, "utf8"))).toEqual({ entries: [] });
+  } finally {
+    Object.defineProperty(process, "platform", platform);
+    directoryOpen.mockRestore();
   }
 });

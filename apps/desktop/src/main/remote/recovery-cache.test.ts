@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -222,4 +222,68 @@ test("removal clears only that project's offline data and ignores older response
   });
   expect(restored.read("project-snapshot", project.id)).toBeUndefined();
   await restored.close();
+});
+
+test("failed purge rollback preserves another project's completed removal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "rollback-cache-"));
+  roots.push(root);
+  const path = join(root, "machine.json");
+  const cache = new RecoveryCache(path, randomUUID());
+  await cache.ready;
+  const value = thread();
+  const project = {
+    id: value.projectId,
+    name: "First",
+    path: "/first",
+    openedAt: new Date().toISOString(),
+  };
+  const other = { ...project, id: randomUUID(), path: "/other" };
+  const activeProject = { project, threads: [], designs: [], folders: [] };
+  cache.capture("bootstrap", undefined, {
+    projects: [project, other],
+    activeProject,
+    harnesses: [],
+  });
+  const input = { projectId: project.id, threadId: value.id };
+  cache.capture("read-thread", input, value);
+  await cache.flush();
+  const gate = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const flush = cache.flush.bind(cache);
+  let first = true;
+  const failure = spyOn(cache, "flush").mockImplementation((options) => {
+    if (options?.durable && first) {
+      first = false;
+      entered.resolve();
+      return gate.promise;
+    }
+    return flush(options);
+  });
+  const pending = cache.prepareProjectRemoval(project.id).catch((error: unknown) => error);
+  try {
+    await entered.promise;
+    await expect(cache.prepareProjectRemoval(project.id)).rejects.toThrow("already being removed");
+    const finish = await cache.prepareProjectRemoval(other.id);
+    finish();
+    gate.reject(new Error("Purge failed"));
+    expect(await pending).toMatchObject({ message: "Purge failed" });
+    expect(cache.read("bootstrap", undefined)?.data).toMatchObject({
+      projects: [project],
+      activeProject,
+    });
+    expect(cache.read("read-thread", input)?.data).toMatchObject({ id: value.id });
+    await flush();
+    const restored = new RecoveryCache(path, null);
+    await restored.ready;
+    expect(restored.read("bootstrap", undefined)?.data).toMatchObject({
+      projects: [project],
+      activeProject,
+    });
+    await restored.close();
+  } finally {
+    gate.resolve();
+    failure.mockRestore();
+    await pending.catch(() => {});
+    await cache.close();
+  }
 });

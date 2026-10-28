@@ -196,9 +196,10 @@ export class RemoteClient {
   ) {
     if (name !== "remove-project") return this.operationNow(name, input, context);
     const finish = await this.cache.prepareProjectRemoval(input);
-    if (typeof input === "string") this.recovery.forget(input);
     try {
-      return await this.operationNow(name, input, context);
+      const result = await this.operationNow(name, input, context);
+      if (typeof input === "string") this.recovery.forget(input);
+      return result;
     } finally {
       finish();
     }
