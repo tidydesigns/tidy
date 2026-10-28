@@ -215,13 +215,15 @@ export async function runHarnessFailureNoticeTests(root: Root) {
       };
     },
   };
-  flushSync(() =>
-    root.render(
-      <StrictMode>
-        <HarnessFailureNotices api={api} />
-      </StrictMode>,
-    ),
-  );
+  const render = (accessKey: string) =>
+    flushSync(() =>
+      root.render(
+        <StrictMode>
+          <HarnessFailureNotices key={accessKey} api={api} />
+        </StrictMode>,
+      ),
+    );
+  render("initial-access");
   await settle();
   const thread = {
     ...makeThread(),
@@ -284,6 +286,19 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   );
   emit({ ...thread, id: "second-failure", revision: 2, status: "running", error: undefined });
   await until(() => !modal(), "Retry removes stale dialog");
+  emit({ ...thread, revision: 8, status: "running", error: undefined });
+  emit({ ...thread, revision: 9 });
+  emit({ ...thread, id: "second-failure", revision: 3, status: "running", error: undefined });
+  emit({ ...thread, id: "second-failure", revision: 4 });
+  await until(() => Boolean(modal()), "Open and queued failures before access change");
+  render("changed-access");
+  await settle();
+  check(!modal(), "Access change retained a previous account’s failure dialog");
+  emit({ ...thread, revision: 10 });
+  emit({ ...thread, id: "second-failure", revision: 5 });
+  await settle();
+  check(!modal(), "Access change retained queued failures or replayed historical errors");
+  check(listeners.size === 1, "Access change leaked an event subscription");
 }
 
 async function runThreadLoadingTests(): Promise<string[]> {

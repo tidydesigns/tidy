@@ -1400,11 +1400,25 @@ export function App({
     backToFiles,
   ]);
 
+  const failureNoticeAccessKey = useMemo(
+    () =>
+      JSON.stringify([
+        cloud.state?.signedIn,
+        cloud.state?.accountId,
+        cloud.account?.id,
+        cloud.account?.organizations
+          .filter((organization) => organization.canEdit)
+          .map((organization) => organization.id)
+          .sort(),
+      ]),
+    [cloud.state?.signedIn, cloud.state?.accountId, cloud.account],
+  );
+
   const canvasFocused = mode === "design" && (location === "cloud" ? cloudCanvas : Boolean(design));
 
   return (
     <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
-      <HarnessFailureNotices api={api} />
+      <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
       <aside
         id="desktop-navigation"
         className={`desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) ${desktopNavigationClassName}`}
