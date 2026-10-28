@@ -64,7 +64,7 @@ export class RecoveryCache {
   private hostId: string | null;
   private closed = false;
   private epoch = 0;
-  private removedAt = -1;
+  private removedAt = new Map<string, number>();
   private pendingRemovals = new Set<string>();
   private designs = new Map<
     string,
@@ -121,6 +121,8 @@ export class RecoveryCache {
     if (this.pendingRemovals.has(projectId))
       throw new Error("This project is already being removed.");
     const previousDesign = this.designs.get(projectId);
+    const previousCutoff = this.removedAt.get(projectId);
+    let restored = false;
     const previous = [...this.values].filter(
       ([, entry]) =>
         entry.name === "bootstrap" ||
@@ -129,32 +131,14 @@ export class RecoveryCache {
     this.pendingRemovals.add(projectId);
     const finish = () => {
       this.pendingRemovals.delete(projectId);
-      this.removedAt = ++this.epoch;
+      const epoch = ++this.epoch;
+      if (!restored) this.removedAt.set(projectId, epoch);
+      else if (previousCutoff !== undefined) this.removedAt.set(projectId, previousCutoff);
+      else this.removedAt.delete(projectId);
     };
-    this.removedAt = ++this.epoch;
-    try {
-      this.designs.delete(projectId);
-      for (const [id, entry] of [...this.values]) {
-        if (entry.name === "bootstrap") {
-          this.put({
-            ...entry,
-            data: {
-              ...entry.data,
-              projects: entry.data.projects.filter((project) => project.id !== projectId),
-              activeProject:
-                entry.data.activeProject?.project.id === projectId
-                  ? null
-                  : entry.data.activeProject,
-            },
-          });
-        } else if (
-          (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId
-        )
-          this.values.delete(id);
-      }
-      await this.flush({ durable: true });
-      return finish;
-    } catch (error) {
+    this.removedAt.set(projectId, ++this.epoch);
+    const restore = () => {
+      restored = true;
       if (previousDesign && !this.designs.has(projectId))
         this.designs.set(projectId, previousDesign);
       for (const [id, entry] of previous) {
@@ -182,16 +166,55 @@ export class RecoveryCache {
           },
         });
       }
+    };
+    try {
+      this.designs.delete(projectId);
+      for (const [id, entry] of [...this.values]) {
+        if (entry.name === "bootstrap") {
+          this.put({
+            ...entry,
+            data: {
+              ...entry.data,
+              projects: entry.data.projects.filter((project) => project.id !== projectId),
+              activeProject:
+                entry.data.activeProject?.project.id === projectId
+                  ? null
+                  : entry.data.activeProject,
+            },
+          });
+        } else if (
+          (entry.name === "project-snapshot" ? entry.input : entry.input.projectId) === projectId
+        )
+          this.values.delete(id);
+      }
+      await this.flush({ durable: true });
+      return {
+        finish,
+        rollback: async () => {
+          restore();
+          await this.flush({ durable: true });
+        },
+      };
+    } catch (error) {
+      restore();
       finish();
       throw error;
     }
   }
   capture(name: WorkspaceOperation, input: unknown, data: unknown, startedAt = this.epoch) {
-    if (!this.path || this.closed || this.pendingRemovals.size) return;
-    // Responses already in flight must not restore a forgotten registration to offline storage.
-    if (startedAt < this.removedAt) return;
+    if (!this.path || this.closed) return;
+    const blocked = (projectId: string) =>
+      this.pendingRemovals.has(projectId) || startedAt < (this.removedAt.get(projectId) ?? -1);
     if (name === "bootstrap") {
-      const bootstrap = parseWorkspaceResponse(name, { ok: true, data });
+      const response = parseWorkspaceResponse(name, { ok: true, data });
+      const bootstrap = {
+        ...response,
+        projects: response.projects.filter((project) => !blocked(project.id)),
+        activeProject:
+          response.activeProject && !blocked(response.activeProject.project.id)
+            ? response.activeProject
+            : null,
+      };
       const activeProject = bootstrap.activeProject
         ? this.mergeSnapshot(bootstrap.activeProject, startedAt)
         : null;
@@ -208,10 +231,9 @@ export class RecoveryCache {
       name === "open-project"
     ) {
       if (data) {
-        const snapshot = this.mergeSnapshot(
-          parseWorkspaceResponse("project-snapshot", { ok: true, data }),
-          startedAt,
-        );
+        const response = parseWorkspaceResponse("project-snapshot", { ok: true, data });
+        if (blocked(response.project.id)) return;
+        const snapshot = this.mergeSnapshot(response, startedAt);
         this.put({ name: "project-snapshot", input: snapshot.project.id, data: snapshot });
       }
     } else if (
@@ -225,6 +247,7 @@ export class RecoveryCache {
       ].includes(name)
     ) {
       const thread = parseWorkspaceResponse("read-thread", { ok: true, data });
+      if (blocked(thread.projectId)) return;
       const previous = this.read("read-thread", {
         projectId: thread.projectId,
         threadId: thread.id,

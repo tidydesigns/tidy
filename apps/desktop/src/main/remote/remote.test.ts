@@ -880,7 +880,8 @@ test("a failed cache purge prevents the remote removal request", async () => {
 
 test("a rejected removal preserves tracked thread recovery across reconnect", async () => {
   const f = await fixture();
-  const { client, events, drops } = f.client(undefined, join(f.root, "tracked-cache.json"));
+  const cachePath = join(f.root, "tracked-cache.json");
+  const { client, events, drops } = f.client(undefined, cachePath);
   await until(() => client.status.kind === "connected");
   const thread = await client.operation("start-thread", {
     projectId: f.project.id,
@@ -889,6 +890,8 @@ test("a rejected removal preserves tracked thread recovery across reconnect", as
     designIds: [],
   });
   await expect(client.operation("remove-project", f.project.id)).rejects.toThrow("active work");
+  expect(await readFile(cachePath, "utf8")).toContain(thread.id);
+  expect(await readFile(cachePath, "utf8")).toContain(f.project.id);
   events.length = 0;
   drops[0]();
   await until(() => client.status.kind === "reconnecting");
@@ -896,4 +899,29 @@ test("a rejected removal preserves tracked thread recovery across reconnect", as
   expect(events.some((event) => event.type === "thread" && event.thread.id === thread.id)).toBe(
     true,
   );
+});
+
+test("a lost removal acknowledgement does not restore purged offline data", async () => {
+  const f = await fixture();
+  const cachePath = join(f.root, "lost-removal-cache.json");
+  const { client } = f.client(undefined, cachePath);
+  await until(() => client.status.kind === "connected");
+  await client.operation("bootstrap");
+  await client.flush();
+  const request = client.request.bind(client);
+  const disconnect = spyOn(client, "request").mockImplementation(async (...args) => {
+    const result = await request(...args);
+    if (args[0] === "remove-project")
+      throw new RemoteFailure("unavailable", "Lost acknowledgement");
+    return result;
+  });
+  try {
+    await expect(client.operation("remove-project", f.project.id)).rejects.toThrow(
+      "Lost acknowledgement",
+    );
+    expect(f.store.projects).toHaveLength(0);
+    expect(await readFile(cachePath, "utf8")).not.toContain(f.project.id);
+  } finally {
+    disconnect.mockRestore();
+  }
 });

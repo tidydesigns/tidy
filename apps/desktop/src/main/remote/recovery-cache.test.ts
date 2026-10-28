@@ -191,7 +191,7 @@ test("removal clears only that project's offline data and ignores older response
   cache.capture("read-thread", input, value);
   await cache.flush();
   const earlier = cache.revision;
-  const finish = await cache.prepareProjectRemoval(project.id);
+  const { finish } = await cache.prepareProjectRemoval(project.id);
   const duringRemoval = cache.revision;
   cache.capture("bootstrap", undefined, bootstrap);
   cache.capture("read-thread", input, value);
@@ -263,10 +263,16 @@ test("failed purge rollback preserves another project's completed removal", asyn
   try {
     await entered.promise;
     await expect(cache.prepareProjectRemoval(project.id)).rejects.toThrow("already being removed");
-    const finish = await cache.prepareProjectRemoval(other.id);
+    const { finish } = await cache.prepareProjectRemoval(other.id);
     finish();
     gate.reject(new Error("Purge failed"));
     expect(await pending).toMatchObject({ message: "Purge failed" });
+    cache.capture(
+      "bootstrap",
+      undefined,
+      { projects: [project, other], activeProject, harnesses: [] },
+      0,
+    );
     expect(cache.read("bootstrap", undefined)?.data).toMatchObject({
       projects: [project],
       activeProject,
@@ -286,4 +292,54 @@ test("failed purge rollback preserves another project's completed removal", asyn
     await pending.catch(() => {});
     await cache.close();
   }
+});
+
+test("pending removal caches unrelated responses and filters only the removed project", async () => {
+  const root = await mkdtemp(join(tmpdir(), "unrelated-cache-"));
+  roots.push(root);
+  const path = join(root, "machine.json");
+  const cache = new RecoveryCache(path, randomUUID());
+  await cache.ready;
+  const value = thread();
+  const other = {
+    id: value.projectId,
+    name: "Other",
+    path: "/other",
+    openedAt: new Date().toISOString(),
+  };
+  const removed = { ...other, id: randomUUID(), name: "Removed", path: "/removed" };
+  const initial = { projects: [removed, other], activeProject: null, harnesses: [] };
+  cache.capture("bootstrap", undefined, initial);
+  const startedAt = cache.revision;
+  const { finish } = await cache.prepareProjectRemoval(removed.id);
+  const snapshot = {
+    project: { ...other, name: "Updated" },
+    threads: [],
+    designs: [],
+    folders: [],
+  };
+  cache.capture(
+    "bootstrap",
+    undefined,
+    { ...initial, projects: [removed, snapshot.project], activeProject: snapshot },
+    startedAt,
+  );
+  const input = { projectId: other.id, threadId: value.id };
+  cache.capture("read-thread", input, value, startedAt);
+  cache.capture("project-snapshot", removed.id, { ...snapshot, project: removed });
+  expect(cache.read("project-snapshot", removed.id)).toBeUndefined();
+  expect(cache.read("bootstrap", undefined)?.data).toMatchObject({
+    projects: [snapshot.project],
+    activeProject: snapshot,
+  });
+  expect(cache.read("read-thread", input)?.data).toMatchObject({ id: value.id });
+  finish();
+  cache.capture("read-thread", input, { ...value, revision: 2 }, startedAt);
+  expect(cache.read("read-thread", input)?.data).toMatchObject({ revision: 2 });
+  await cache.close();
+  const restored = new RecoveryCache(path, null);
+  await restored.ready;
+  expect(restored.read("read-thread", input)?.data).toMatchObject({ revision: 2 });
+  expect(restored.read("project-snapshot", removed.id)).toBeUndefined();
+  await restored.close();
 });

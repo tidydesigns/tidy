@@ -85,13 +85,15 @@ const envelopeSchema = z.discriminatedUnion("ok", [
   z.object({ ok: z.literal(true), data: z.unknown().optional() }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
+export class WorkspaceRequestError extends Error {}
+
 export function parseWorkspaceResponse<Name extends WorkspaceOperation>(
   name: Name,
   value: unknown,
 ): WorkspaceResponse<Name> {
   const envelope = envelopeSchema.safeParse(value);
   if (!envelope.success) throw new Error("Invalid desktop response.");
-  if (!envelope.data.ok) throw new Error(envelope.data.error);
+  if (!envelope.data.ok) throw new WorkspaceRequestError(envelope.data.error);
   const result = workspaceResponseSchemas[name].safeParse(envelope.data.data);
   if (!result.success) throw new Error("Invalid desktop response.");
   return result.data as WorkspaceResponse<Name>;
