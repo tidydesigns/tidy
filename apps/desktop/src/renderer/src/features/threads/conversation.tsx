@@ -1,6 +1,7 @@
 import { codeFontClassName } from "../../styles/code-ui";
 import {
   memo,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -54,6 +55,45 @@ const MessageBody = memo(function MessageBody({
     </div>
   );
 });
+
+const ConversationEntry = memo(function ConversationEntry({
+  message,
+  activities,
+  active,
+  api,
+  projectId,
+  nodes,
+}: {
+  message: Message;
+  activities: NonNullable<Thread["toolActivities"]>;
+  active: boolean;
+  api: DesktopAPI;
+  projectId: string;
+  nodes: Map<string, HTMLElement>;
+}) {
+  const register = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (node) nodes.set(message.id, node);
+      else nodes.delete(message.id);
+    },
+    [message.id, nodes],
+  );
+  return (
+    <div className="conversation-entry [&>.tool-activity-group]:mb-5" ref={register}>
+      <article
+        className={`message message-${message.role} mb-6 text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
+        aria-label={message.role === "user" ? "Your message" : "Assistant message"}
+      >
+        <MessageBody message={message} api={api} projectId={projectId} />
+        {message.attachments && message.attachments.length > 0 && (
+          <MessageAttachments api={api} projectId={projectId} files={message.attachments} />
+        )}
+      </article>
+      <ToolActivityGroup activities={activities} visible={active} />
+    </div>
+  );
+});
+const emptyActivities: NonNullable<Thread["toolActivities"]> = [];
 
 function TurnButton({
   prompt,
@@ -249,32 +289,15 @@ export const Conversation = memo(function Conversation({
             <p className="tool-log-notice">Earlier tool activity omitted</p>
           )}
           {thread?.messages.map((message) => (
-            <div
+            <ConversationEntry
               key={message.id}
-              className="conversation-entry [&>.tool-activity-group]:mb-5"
-              ref={(node) => {
-                if (node) nodes.current.set(message.id, node);
-                else nodes.current.delete(message.id);
-              }}
-            >
-              <article
-                className={`message message-${message.role} mb-6 text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "ml-auto w-fit max-w-[90%] rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
-                aria-label={message.role === "user" ? "Your message" : "Assistant message"}
-              >
-                <MessageBody message={message} api={api} projectId={thread.projectId} />
-                {message.attachments && message.attachments.length > 0 && (
-                  <MessageAttachments
-                    api={api}
-                    projectId={thread.projectId}
-                    files={message.attachments}
-                  />
-                )}
-              </article>
-              <ToolActivityGroup
-                activities={toolsByMessage.get(message.id) ?? []}
-                visible={active}
-              />
-            </div>
+              message={message}
+              activities={toolsByMessage.get(message.id) ?? emptyActivities}
+              active={active}
+              api={api}
+              projectId={thread.projectId}
+              nodes={nodes.current}
+            />
           ))}
           {running &&
             !thread.pendingApprovals?.length &&
