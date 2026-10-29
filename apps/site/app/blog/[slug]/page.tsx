@@ -93,7 +93,8 @@ export default async function BlogPostPage({ params }: Props) {
         <article>
           <header className={`${styles.intro} ${styles.articleIntro}`}>
             <Link className={styles.backLink} href="/blog">
-              ← All articles
+              <span aria-hidden="true">←</span>
+              <span>All articles</span>
             </Link>
             <p className={styles.eyebrow}>{post.category}</p>
             <h1>{post.title}</h1>

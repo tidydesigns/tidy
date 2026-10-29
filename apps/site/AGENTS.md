@@ -9,6 +9,8 @@
   Article categories and publication metadata may remain when they add context.
 - Founder cards show names and profile links, without role labels such as
   "Co-founder". Avoid repeating the same information in surrounding copy.
+- Underline link text only. Decorative arrows and icons must stay un-underlined,
+  including on hover.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
