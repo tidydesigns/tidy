@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasViewportMemory } from "@tidy/editor";
+import { equalJsonValues } from "@tidy/editor/design/json-value";
 import { lazyView } from "../../components/lazy-view";
 import { DocumentPreview } from "./preview-renderers";
 import { loadCanvasEditor } from "./load-canvas-editor";
@@ -85,7 +86,9 @@ export const LocalCanvas = memo(function LocalCanvas({
         apply(value) {
           if (!value || value.version === file.current.version) return;
           file.current = value;
-          setAssets(value.assets);
+          // Transport creates a new map on every edit. Preserve equal URLs so
+          // text/property edits do not invalidate every cached artwork element.
+          setAssets((current) => (equalJsonValues(current, value.assets) ? current : value.assets));
           setExternal({ revision: ++revision.current, content: value.document });
           notify.current(value);
         },
@@ -121,7 +124,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         ...changes,
       });
       file.current = value;
-      setAssets(value.assets);
+      setAssets((current) => (equalJsonValues(current, value.assets) ? current : value.assets));
       revision.current++;
       notify.current(value);
     });

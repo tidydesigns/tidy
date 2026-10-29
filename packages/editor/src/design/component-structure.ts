@@ -66,8 +66,8 @@ export function reconcileComponentStructure(
 ): DesignNode[] {
   if (!before.some((node) => node.instanceOf) && !input.some((node) => node.instanceOf))
     return [...input];
-  // Each immutable array gets one parent/order index. Property-only edits keep
-  // that array throughout refresh; structural replacements rebuild as needed.
+  // Parent/order indexes describe topology only. Private property updates keep
+  // that topology; structural replacements get a new array and index.
   const indexes = new WeakMap<
     readonly DesignNode[],
     {
@@ -323,12 +323,25 @@ export function reconcileComponentStructure(
     const position = index(nodes).positions.get(rootId)!;
     const rootCopy = newNodes.find((node) => node.id === rootId)!;
     const replacement = [rootCopy, ...newNodes.filter((node) => node.id !== rootId), ...local];
-    // Preserve exact canonical order. Avoid an O(n) array copy and map rebuild
-    // when refresh produced the same contiguous subtree by identity.
+    // Property updates preserve the topology recorded in the parent/order
+    // index. Update our private working array and lookup in place so each
+    // instance does not copy and re-index the entire document. Input arrays
+    // and node objects remain untouched; structural changes use the path below.
     if (
       subtree.size === replacement.length &&
-      replacement.every((node, i) => nodes[position + i] === node)
+      replacement.every((node, i) => {
+        const previous = nodes[position + i];
+        return (
+          previous?.id === node.id &&
+          previous.parentId === node.parentId &&
+          previous.componentSourceId === node.componentSourceId
+        );
+      })
     ) {
+      replacement.forEach((node, i) => {
+        nodes[position + i] = node;
+        byId.set(node.id, node);
+      });
       visiting.delete(rootId);
       complete.add(rootId);
       return;
