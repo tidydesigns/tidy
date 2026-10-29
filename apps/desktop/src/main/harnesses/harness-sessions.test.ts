@@ -3,6 +3,10 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
+import { basename, dirname } from "node:path";
+import { BrowserService } from "../browser/browser-service";
+import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { HarnessSession } from "./interactive-harness";
 import { HarnessSessions } from "./harness-sessions";
 import { harnessIdSchema, nativeSessionIdSchema } from "../../shared/contracts/desktop";
@@ -29,7 +33,7 @@ const eventsSchema = z.array(
     pid: z.number(),
     method: z.string().optional(),
     type: z.string().optional(),
-    value: z.object({ params: z.unknown().optional() }),
+    value: z.object({ params: z.unknown().optional(), message: z.unknown().optional() }),
   }),
 );
 async function events(cwd: string) {
@@ -778,6 +782,46 @@ for (const [harness, code, kind] of [
     } finally {
       session.close();
       await session.done;
+    }
+  });
+}
+
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} reused sessions receive fresh browser configuration without exposing the token`, async () => {
+    const cwd = await mkdtemp(join(directory, "browser-turns-"));
+    const browser = new BrowserService(async () => {});
+    const bridge = new BrowserAgentBridge(browser);
+    const sessions = new HarnessSessions();
+    const scope = { projectId: randomUUID(), threadId: randomUUID() };
+    const configurations: string[] = [];
+    try {
+      for (let turn = 0; turn < 2; turn++) {
+        const tool = await bridge.session(scope);
+        configurations.push(tool.configuration);
+        try {
+          await sessions.start(scope.threadId, {
+            projectId: scope.projectId,
+            harness,
+            executable,
+            cwd,
+            prompt: tool.instructions + "\n\nCheck this page.",
+            onUpdate() {},
+          }).done;
+        } finally {
+          tool.close();
+        }
+      }
+      const recorded = await events(cwd);
+      expect(new Set(recorded.map((event) => event.pid)).size).toBe(1);
+      expect(configurations[0]).not.toBe(configurations[1]);
+      const serialized = JSON.stringify(recorded);
+      for (const configuration of configurations)
+        expect(serialized).toContain(basename(dirname(configuration)));
+      expect(serialized).not.toMatch(/Bearer [a-f0-9]{64}/);
+    } finally {
+      await sessions.clear();
+      await bridge.close();
+      await browser.close();
     }
   });
 }

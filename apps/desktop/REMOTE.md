@@ -223,3 +223,30 @@ authenticated request boundary and project access checks.
 
 Physical sleep/wake, platform-specific behavior and actual tailnet policies still require
 cross-device testing.
+
+## Shared browser on a remote host
+
+The browser runs on the selected project's host, so `localhost:3000` reaches that
+host's development server. Frames and input use an authenticated WebSocket over the
+existing SSH forward; development-server ports need no additional forwarding.
+Credentials stay in Electron main, and pages run in sandboxed Chrome outside the
+Tidy renderer. Hosts advertise `browser-v2`; older backends show an update message.
+Finish active runs and close browser tabs before restarting a backend to update it.
+
+Disconnecting or switching machines leaves host tabs open. Reconnection restores a
+fresh frame and requires taking control again. Old input is never replayed, and input
+is bound to its tab and view. Hidden previews pause capture; bounded queues prevent
+slow viewers from accumulating frames. Revoking a host session closes its viewers.
+
+Uploads transfer only files selected on the client. Downloads stay in private host
+temporary storage until saved to a client-side destination. Neither flow accepts
+arbitrary host paths. Closing a tab removes its staged files. Threads have separate
+browser contexts and do not import the host's normal browser profile.
+
+Agent access uses a private, short-lived curl configuration referenced by the turn
+prompt. Each turn receives fresh access; ending it revokes access and removes the
+configuration. Dialog responses are bound to the pending dialog.
+
+Integration checks cover local and authenticated remote Electron workflows, delayed
+frames and reconnection over loopback. Physical macOS input, display scaling and
+cross-device sleep/wake still require hardware validation.

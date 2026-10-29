@@ -1,5 +1,11 @@
 import { HarnessFailureNotices } from "../features/threads/harness-failure-dialog";
 import {
+  BrowserNavigationContext,
+  type BrowserNavigationRequest,
+} from "../features/browser/browser-navigation";
+import { BrowserWorkspace } from "../features/browser/browser-workspace";
+import { BrowserGlyph } from "../features/browser/browser-controls";
+import {
   codeFontClassName,
   desktopNavigationClassName,
   codeStatusClassName,
@@ -135,6 +141,8 @@ export function App({
   });
   const [cloudCanvas, setCloudCanvas] = useState(false);
   const [threadQueries, setThreadQueries] = useState<Record<string, string>>({});
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [browserRequest, setBrowserRequest] = useState<BrowserNavigationRequest>();
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [opening, setOpening] = useState(false);
@@ -254,6 +262,46 @@ export function App({
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
+  const browserScope = useMemo(
+    () =>
+      executionProject && !executionProject.cloud
+        ? { projectId: executionProject.id, threadId: selectedThreadId ?? crypto.randomUUID() }
+        : null,
+    [executionProject?.id, selectedThreadId],
+  );
+  useEffect(() => {
+    setBrowserRequest((request) =>
+      request &&
+      (request.projectId !== browserScope?.projectId || request.threadId !== browserScope.threadId)
+        ? undefined
+        : request,
+    );
+  }, [browserScope?.projectId, browserScope?.threadId]);
+  const openBrowserLink = useCallback(
+    (url: string) => {
+      if (!browserScope) return;
+      setBrowserOpen(true);
+      setBrowserRequest({ ...browserScope, id: crypto.randomUUID(), url });
+    },
+    [browserScope],
+  );
+  useEffect(() => {
+    const shortcut = (event: globalThis.KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.shiftKey &&
+        event.code === "KeyB" &&
+        api?.browser &&
+        browserScope
+      ) {
+        event.preventDefault();
+        setBrowserOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [api, browserScope]);
+
   const {
     repository,
     switching: switchingBranch,
@@ -1052,7 +1100,7 @@ export function App({
     const projectId = project.id;
     const key = draftKey;
     const selection = threadSelection.current[projectId] ?? 0;
-    const id = selectedThreadId ?? crypto.randomUUID();
+    const id = selectedThreadId ?? browserScope?.threadId ?? crypto.randomUUID();
     const messageId = crypto.randomUUID();
     const pendingKey = `${projectId}:${id}`;
     const optimistic: Thread = {
@@ -1873,6 +1921,18 @@ export function App({
                         </Button>
                       )}
                     </div>
+                    {!browserOpen && api?.browser && browserScope && (
+                      <Button
+                        type="button"
+                        className="quiet-button browser-toggle-button"
+                        aria-label="Open browser"
+                        aria-expanded={browserOpen}
+                        title="Browser (⌘/Ctrl+Shift+B)"
+                        onClick={() => setBrowserOpen(true)}
+                      >
+                        <BrowserGlyph />
+                      </Button>
+                    )}
                     {thread && (
                       <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
@@ -1888,14 +1948,16 @@ export function App({
                       </div>
                     )}
                   </div>
-                  <Conversations
-                    key={failureNoticeAccessKey}
-                    projectId={project.id}
-                    selected={selectedThreadId ?? null}
-                    threads={threads}
-                    active={!settingsOpen && mode === "code"}
-                    api={api!}
-                  />
+                  <BrowserNavigationContext value={openBrowserLink}>
+                    <Conversations
+                      key={failureNoticeAccessKey}
+                      projectId={project.id}
+                      selected={selectedThreadId ?? null}
+                      threads={threads}
+                      active={!settingsOpen && mode === "code"}
+                      api={api!}
+                    />
+                  </BrowserNavigationContext>
                   {thread?.pendingApprovals?.length && api ? (
                     <ApprovalRequests
                       key={thread.id}
@@ -2270,6 +2332,22 @@ export function App({
                     />
                   )}
                 </div>
+                {api?.browser && browserScope && (
+                  <BrowserWorkspace
+                    key={`${browserScope.projectId}:${browserScope.threadId}`}
+                    api={api.browser}
+                    requestedURL={browserRequest}
+                    scope={browserScope}
+                    open={browserOpen}
+                    active={!settingsOpen && mode === "code"}
+                    connected={!machine || machine.connected}
+                    machineLabel={machine?.current.label ?? "This machine"}
+                    onClose={() => {
+                      setBrowserOpen(false);
+                      setBrowserRequest(undefined);
+                    }}
+                  />
+                )}
               </section>
             </>
           )}

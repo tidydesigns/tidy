@@ -925,3 +925,23 @@ test("a lost removal acknowledgement does not restore purged offline data", asyn
     disconnect.mockRestore();
   }
 });
+
+test("browser queries reject mutations and do not create durable command receipts", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const directory = join(f.root, "receipts");
+  await mkdir(directory, { recursive: true });
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  await expect(
+    client.operation("browser-query", {
+      ...scope,
+      action: { kind: "console", tabId: randomUUID() },
+    }),
+  ).rejects.toThrow("no longer open");
+  await expect(
+    client.operation("browser-query", { ...scope, action: { kind: "open", url: "about:blank" } }),
+  ).rejects.toThrow();
+  expect(f.service.browser.activeCount).toBe(0);
+  expect(await readdir(directory)).toEqual([]);
+});

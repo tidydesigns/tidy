@@ -15,6 +15,42 @@ Design selected initially. Both views stay mounted while switching, and each pro
 retains its selected thread, design and composer drafts during the app session.
 The tabs support arrow keys, Home and End.
 
+## Browser previews
+
+In Threads, choose **Open browser** or press **⌘⇧B** (**Ctrl⇧B** on Linux).
+Enter a URL such as `localhost:3000`; use **+** to open another tab. The browser
+runs on the selected project's machine, including localhost links opened from a thread.
+**Preview options** contains viewport sizes, find, copy, console and downloads.
+The pane can be resized or expanded; **Hide browser** returns to the conversation
+without closing tabs.
+
+Each thread has an isolated browser session shared with its agent. **Take control**
+stops queued agent input; **Release** lets the agent continue. F6 focuses the address
+bar. Standard browser shortcuts open and close tabs, reload and find. Shift-reload
+bypasses the cache; Enter and Shift-Enter move through find results.
+
+The first page installs a pinned Chrome Headless Shell into `~/.cache/tidy/browser`.
+Installation shows progress and can be retried after a failure. Set
+`TIDY_BROWSER_EXECUTABLE` to use a compatible installed Chrome/Chromium instead.
+The sandbox is enabled by default and is never disabled automatically. Hosts that
+cannot support it can explicitly set `TIDY_BROWSER_SANDBOX=0`.
+
+Tabs and signed-in sessions last until closed or the backend stops; they are not
+restored after restart. Audio is not streamed. Transfers are limited to 16 MB each,
+with upload staging limited to 64 MB and 32 selections per thread and up to 12 retained
+downloads per thread. Closing a tab removes its staged files. Downloads require a
+client-side destination. Streamed page content is drawn to a canvas and is unavailable
+to the client's screen reader; browser controls remain keyboard accessible.
+
+Run the dedicated browser and Electron integration checks:
+
+```sh
+bun run --cwd apps/desktop test:browser
+```
+
+Set `TIDY_BROWSER_EXECUTABLE=/path/to/chromium` to skip managed installation.
+The regular Bun suite skips the Node browser integration cases.
+
 ## Optional cloud sync
 
 Open the **Settings** gear at the bottom of the sidebar, then choose **Sign in**

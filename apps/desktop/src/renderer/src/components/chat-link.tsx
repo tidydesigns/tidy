@@ -1,4 +1,6 @@
-import type { ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
+import { BrowserNavigationContext } from "../features/browser/browser-navigation";
+import { isDevelopmentURL } from "../../../shared/contracts/browser";
 import {
   siGithub,
   siGitlab,
@@ -69,6 +71,7 @@ export function ChatLink({
   api: DesktopAPI;
   projectId: string;
 }) {
+  const openBrowser = useContext(BrowserNavigationContext);
   const link = parseChatLink(href);
   if (!link || !href) return <span>{children}</span>;
   const file = link.kind === "file";
@@ -85,6 +88,10 @@ export function ChatLink({
       title={file ? `Show in folder: ${link.path}${link.line ? `:${link.line}` : ""}` : link.url}
       onClick={(event) => {
         event.preventDefault();
+        if (link.kind === "external" && api.browser && openBrowser && isDevelopmentURL(link.url)) {
+          openBrowser(link.url);
+          return;
+        }
         void api.openChatLink(projectId, href).catch((error: unknown) => {
           showToast(error instanceof Error ? error.message : "Could not open this link.");
         });

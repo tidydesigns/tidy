@@ -114,6 +114,8 @@ export type RemoteBridge = {
 };
 
 const remoteReadOperations = new Set([
+  "browser-state",
+  "browser-query",
   "project-directories",
   "project-checkouts",
   "export-attachment",

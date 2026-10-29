@@ -34,7 +34,7 @@ export async function bundleLicenseBannerForInputs(inputs: Iterable<string>) {
     if (packages.has(id)) continue;
     if (!Object.hasOwn(reviewed, name))
       throw new Error(`Add reviewed licence notices for bundled dependency ${id}.`);
-    const entry: { source?: string; notice: string; versions?: string[] } =
+    const entry: { source?: string; notice: string; versions?: string[]; license?: string } =
       reviewed[name as keyof typeof reviewed];
     const notice = (
       await readFile(new URL(`../licenses/bundled/${entry.notice}`, import.meta.url), "utf8")
@@ -47,7 +47,7 @@ export async function bundleLicenseBannerForInputs(inputs: Iterable<string>) {
         .trim();
       if (upstream !== notice)
         throw new Error(`Bundled licence for ${id} changed; review and update ${entry.notice}.`);
-    } else if (!entry.versions?.includes(version) || license !== "MIT") {
+    } else if (!entry.versions?.includes(version) || license !== (entry.license ?? "MIT")) {
       // These packages omit their licence file from npm. Review the upstream
       // notice again for every new version rather than silently accepting it.
       throw new Error(`Review upstream licence notice for bundled dependency ${id}.`);
