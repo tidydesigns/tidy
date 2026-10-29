@@ -9,7 +9,8 @@ import { renameDesignFile } from "../actions";
 import posthog, { appErrorReporter } from "@/lib/posthog-client";
 import { EditorThumbnail } from "../editor-thumbnail";
 import { useEditorPerformance } from "./use-editor-performance";
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
+import { useFileCreation, type FileCreation } from "../new/use-file-creation";
 const host = {
   AgentConnection: EditorAgentConnection,
   Link: NavigationLink,
@@ -21,11 +22,29 @@ const host = {
   Thumbnail: EditorThumbnail,
   usePerformance: useEditorPerformance,
 };
-export function FileEditor(props: ComponentProps<typeof SharedFileEditor>) {
+export function FileEditor({
+  creation,
+  ...props
+}: ComponentProps<typeof SharedFileEditor> & { creation?: FileCreation }) {
+  const { persistenceReady, statusControl } = useFileCreation(creation);
+  const editorHost = useMemo(
+    () =>
+      persistenceReady
+        ? {
+            ...host,
+            persistenceReady,
+            renameFile: async (fileId: string, name: string) => {
+              await persistenceReady;
+              return renameDesignFile(fileId, name);
+            },
+          }
+        : host,
+    [persistenceReady],
+  );
   return (
-    <EditorHostProvider value={host}>
+    <EditorHostProvider value={editorHost}>
       <div className="h-dvh">
-        <SharedFileEditor {...props} />
+        <SharedFileEditor {...props} statusControl={statusControl ?? props.statusControl} />
       </div>
     </EditorHostProvider>
   );

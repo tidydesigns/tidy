@@ -1078,3 +1078,38 @@ integration(
     ).toBe(before);
   },
 );
+
+integration(
+  "draft creation retries keep edited content and recheck current authority",
+  async () => {
+    const id = crypto.randomUUID();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    await admin.query('update "designFile" set "name"=\'Edited draft\' where "id"=$1', [id]);
+    const document = blankDesignDocument();
+    document.nodes.push(
+      buildDrawnNode("edited", "container", null, { x: 10, y: 20, width: 100, height: 100 }),
+    );
+    await admin.query(
+      'update "designDocument" set "revision"=2,"content"=$2::jsonb where "fileId"=$1',
+      [id, JSON.stringify(document)],
+    );
+    const before = await state();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    expect(await state()).toEqual(before);
+    expect(await createBrowserFileForUser("outsider", "b", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(before);
+    await admin.query(`delete from "member" where "id"='edit'`);
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toHaveProperty("error");
+  },
+);
+
+integration(
+  "draft identifiers cannot replace existing files or select arbitrary keys",
+  async () => {
+    const before = await state();
+    for (const id of ["file", "", "../file", "x".repeat(121)]) {
+      expect(await createBrowserFileForUser("editor", "a", "folder", id)).toHaveProperty("error");
+    }
+    expect(await state()).toEqual(before);
+  },
+);

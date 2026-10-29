@@ -33,6 +33,8 @@ export type ThumbnailProps = {
 };
 export type EditorAgentSetup = { resourceUrl: string; organizationId: string };
 export type EditorHost = {
+  /** New files are editable immediately; network work waits for durable creation. */
+  persistenceReady?: Promise<void>;
   AgentConnection?: ComponentType<{ setup: EditorAgentSetup; open: boolean }>;
   Link: ComponentType<EditorLinkProps>;
   Image: ComponentType<EditorImageProps>;

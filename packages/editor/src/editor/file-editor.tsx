@@ -400,7 +400,21 @@ export function FileEditor({
   useLayoutEffect(() => {
     activeRef.current = active;
   }, [active]);
-  const { renameFile: renameDesignFile, reportError: createReporter } = useEditorHost();
+  const {
+    renameFile: renameDesignFile,
+    reportError: createReporter,
+    persistenceReady,
+  } = useEditorHost();
+  const [serverReady, setServerReady] = useState(!persistenceReady);
+  useEffect(() => {
+    let active = true;
+    void Promise.resolve(persistenceReady).then(() => {
+      if (active) setServerReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [persistenceReady]);
   // Archived snapshots use the static viewer: no live room, comments or writes.
   const preview = previewMode || archived;
   const mobileLayout = useMobileEditor();
@@ -1046,7 +1060,7 @@ export function FileEditor({
     }
   }
   function placeComment(clientX: number, clientY: number) {
-    if (preview || local || !viewport.current) return;
+    if (preview || local || !serverReady || !viewport.current) return;
     setViewPreferences((current) => ({ ...current, comments: true }));
     const rect = viewport.current.getBoundingClientRect();
     commentsRef.current?.place(
@@ -1272,7 +1286,7 @@ export function FileEditor({
 
   const assetRequests = useRef({ version: 0 });
   const loadAssets = useEditorEvent(async (cursor?: string | null) => {
-    if (local || preview) return;
+    if (local || preview || !serverReady) return;
     const version = ++assetRequests.current.version;
     setAssetLoading(true);
     try {
@@ -1309,7 +1323,7 @@ export function FileEditor({
     return () => {
       requests.version++;
     };
-  }, [fileId, local, preview, loadAssets]);
+  }, [fileId, local, preview, serverReady, loadAssets]);
 
   function worldPoint(event: { clientX: number; clientY: number }): Point {
     const bounds = viewport.current!.getBoundingClientRect();
@@ -1369,6 +1383,7 @@ export function FileEditor({
       setFigmaPreviewAssets((current) => ({ ...current, [asset.assetId]: asset.url }));
       return asset.assetId;
     }
+    await persistenceReady;
     const form = new FormData();
     form.set("image", file);
     const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/assets`, {
@@ -2419,6 +2434,7 @@ export function FileEditor({
         });
       const assetIds = clipboardAssetIds(payload);
       if (!local && payload.sourceFile !== fileId && assetIds.length) {
+        await persistenceReady;
         const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/clipboard-assets`, {
           method: "POST",
           signal,
@@ -3794,7 +3810,7 @@ export function FileEditor({
       >
         <Icon name="hand" />
       </CanvasToolButton>
-      {!preview && !local && (
+      {!preview && !local && serverReady && (
         <CanvasToolButton
           label="Comment tool"
           hint="Comment · C, then click"
@@ -4183,7 +4199,7 @@ export function FileEditor({
     />
   );
   const sidebarFileActions = panelsOpen && !prototypeMode;
-  const fileActions = !preview && !local && (
+  const fileActions = !preview && !local && serverReady && (
     <FileVersionControl
       fileId={fileId}
       revision={snapshot.revision}
@@ -4408,7 +4424,7 @@ export function FileEditor({
       data-mobile-panels-open={mobilePanelsOpen}
       className="tidy-editor editor-workspace relative flex h-full min-h-0 w-full overflow-hidden bg-surface text-primary-black"
     >
-      {!preview && !local && (
+      {!preview && !local && serverReady && (
         <EditorThumbnail
           fileId={fileId}
           revision={snapshot.revision}
@@ -4841,7 +4857,7 @@ export function FileEditor({
           </p>
         )}
         <div style={{ display: "contents", visibility: viewportReady ? "visible" : "hidden" }}>
-          {!preview && !local && (
+          {!preview && !local && serverReady && (
             <div hidden={!viewPreferences.comments}>
               <CanvasComments
                 ref={commentsRef}
@@ -5289,7 +5305,7 @@ export function FileEditor({
               )}
             </div>
           )}
-          {!preview && !local && (
+          {!preview && !local && serverReady && (
             <CollaboratorOverlay
               store={room.store}
               pageId={currentPageId}
@@ -5332,7 +5348,7 @@ export function FileEditor({
             />
           )}
           <CanvasAlignment guides={snapGuides} spacing={spacingCues} view={view} />
-          {!prototypeMode && (preview || local || !viewPreferences.comments) && (
+          {!prototypeMode && (!serverReady || preview || local || !viewPreferences.comments) && (
             <div data-canvas-control className="absolute right-4 top-20 z-30 md:top-4">
               {canvasControls}
             </div>
