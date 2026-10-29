@@ -1018,6 +1018,43 @@ export async function getDocument(userId: string, fileId: string) {
   return withAssetMimeTypes(userId, await readDocument(userId, fileId));
 }
 
+/** Read-only thumbnail/export snapshot. Metadata, document and legacy shapes
+ * share one authorized statement instead of a second metadata transaction. */
+export async function getFileSnapshot(userId: string, fileId: string) {
+  const documents = await documentSchemaReady();
+  const converted = documents ? `(d."content"->'legacyConverted' = 'true'::jsonb)` : "false";
+  const shapes = (
+    table: "designFrame" | "designRectangle",
+  ) => `case when ${converted} then '[]'::jsonb else (
+    select coalesce(jsonb_agg(jsonb_build_object('id',s."id",'x',s."x",'y',s."y",'width',s."width",'height',s."height") order by s."createdAt",s."id"),'[]'::jsonb)
+    from "${table}" s where s."fileId"=f."id") end`;
+  const { rows } = await db.query<{
+    name: string;
+    updatedAt: Date;
+    revision: number | null;
+    content: DesignDocument | null;
+    frames: DesignFrame[];
+    rectangles: DesignRectangle[];
+  }>(
+    `select f."name",f."updatedAt", ${documents ? 'd."revision",d."content"' : "null::int as revision,null::jsonb as content"},
+      ${shapes("designFrame")} as frames, ${shapes("designRectangle")} as rectangles
+     from "designFile" f
+     join "member" m on m."organizationId"=f."organizationId" and m."userId"=$2 and m."role" in ${VIEW_ROLES_SQL}
+     join "user" u on u."id"=m."userId" and u."emailVerified"=true
+     ${documents ? 'left join "designDocument" d on d."fileId"=f."id"' : ""}
+     where f."id"=$1 and f."archivedAt" is null`,
+    [fileId, userId],
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const { revision, content, ...file } = row;
+  const document = await withAssetMimeTypes(
+    userId,
+    content && revision !== null ? { revision, content } : null,
+  );
+  return { ...file, document };
+}
+
 /** Recheck live access and revision without decoding the full document again. */
 export async function getDocumentRevision(userId: string, fileId: string) {
   if (!(await documentSchemaReady())) return null;

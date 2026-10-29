@@ -19,6 +19,7 @@ import { Dialog } from "@/components/ui/dialog";
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { indexFolderFiles } from "./folder-file-index";
+import { projectFileMove, settleFileMove, type FileMove } from "./optimistic-file-move";
 import { Icon } from "@/components/ui/icon";
 import {
   deleteArchivedDesignFile,
@@ -172,7 +173,7 @@ export function FilesBrowser({
   const [renamedFiles, setRenamedFiles] = useState<Record<string, string>>({});
   const [renamedFolders, setRenamedFolders] = useState<Record<string, string>>({});
   const [hiddenFileIds, setHiddenFileIds] = useState<string[]>([]);
-  const [movedFromByFileId, setMovedFromByFileId] = useState<Record<string, string | null>>({});
+  const [fileMoves, setFileMoves] = useState<Record<string, FileMove>>({});
   const [hiddenFolderIds, setHiddenFolderIds] = useState<string[]>([]);
   const [addedFolders, setAddedFolders] = useState<Folder[]>([]);
   const [addedFiles, setAddedFiles] = useState<File[]>([]);
@@ -201,12 +202,15 @@ export function FilesBrowser({
     ]
       .filter((folder) => !hiddenFolders.has(folder.id))
       .sort((a, b) => (newestFirst ? -1 : 1) * (Date.parse(a.updatedAt) - Date.parse(b.updatedAt)));
-    const allFiles = [...addedFiles.filter((file) => !serverFileIds.has(file.id)), ...files].filter(
-      (file) =>
-        !hiddenFiles.has(file.id) &&
-        (!Object.hasOwn(movedFromByFileId, file.id) ||
-          movedFromByFileId[file.id] !== file.folderId),
-    );
+    const allFiles = [...addedFiles.filter((file) => !serverFileIds.has(file.id)), ...files]
+      .filter((file) => !hiddenFiles.has(file.id))
+      .map((file) => {
+        const moved = projectFileMove(file, fileMoves[file.id]);
+        // Folder deletion moves its active contents to the root immediately.
+        return moved.folderId && hiddenFolders.has(moved.folderId)
+          ? { ...moved, folderId: null }
+          : moved;
+      });
     const filesByFolder = indexFolderFiles(allFiles, newestFirst);
     return {
       sortedFolders,
@@ -224,7 +228,7 @@ export function FilesBrowser({
     addedFiles,
     hiddenFolderIds,
     hiddenFileIds,
-    movedFromByFileId,
+    fileMoves,
     newestFirst,
     archived,
   ]);
@@ -333,32 +337,19 @@ export function FilesBrowser({
 
   async function perform(
     action: () => Promise<{ error?: string }>,
-    options: { movedFile?: File; hideFolderId?: string; itemId?: string; refresh?: boolean } = {},
+    options: { hideFolderId?: string; itemId?: string } = {},
   ) {
     const notifyError = setError("");
     setMenu(null);
-    const itemId = options.itemId ?? options.movedFile?.id ?? options.hideFolderId;
+    const itemId = options.itemId ?? options.hideFolderId;
     markPending(itemId, true);
 
-    const movedFile = options.movedFile;
-    const hadPreviousMove = movedFile ? Object.hasOwn(movedFromByFileId, movedFile.id) : false;
-    const previousMove = movedFile ? movedFromByFileId[movedFile.id] : null;
-    if (movedFile)
-      setMovedFromByFileId((current) => ({ ...current, [movedFile.id]: movedFile.folderId }));
     if (options.hideFolderId) setHiddenFolderIds((current) => [...current, options.hideFolderId!]);
     try {
       const result = await action();
       if (result.error) throw new UserFacingError(result.error);
-      if (options.refresh) router.refresh();
       return true;
     } catch (cause) {
-      if (movedFile)
-        setMovedFromByFileId((current) => {
-          const restored = { ...current };
-          if (hadPreviousMove) restored[movedFile.id] = previousMove;
-          else delete restored[movedFile.id];
-          return restored;
-        });
       if (options.hideFolderId)
         setHiddenFolderIds((current) => current.filter((id) => id !== options.hideFolderId));
       notifyError(cause, "Could not update this item. Please try again.");
@@ -366,6 +357,20 @@ export function FilesBrowser({
     } finally {
       markPending(itemId, false);
     }
+  }
+
+  async function moveFile(file: File, folderId: string | null) {
+    if (file.folderId === folderId) {
+      setMenu(null);
+      return;
+    }
+    const operationId = crypto.randomUUID();
+    setFileMoves((current) => ({
+      ...current,
+      [file.id]: { operationId, folderId, updatedAt: file.updatedAt },
+    }));
+    const success = await perform(() => moveDesignFile(file.id, folderId), { itemId: file.id });
+    setFileMoves((current) => settleFileMove(current, file.id, operationId, success));
   }
 
   async function archiveFile(file: File) {
@@ -550,7 +555,7 @@ export function FilesBrowser({
             className="file-list-preview focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
           >
             <FileThumbnail
-              key={`${file.id}:${file.updatedAt}`}
+              key={file.id}
               fileId={file.id}
               initialVersion={fileVersion(file.updatedAt, file.documentRevision)}
               thumbnailVersion={file.thumbnailVersion}
@@ -952,7 +957,7 @@ export function FilesBrowser({
                   }
                   preview={
                     <FileThumbnail
-                      key={`${file.id}:${file.updatedAt}`}
+                      key={file.id}
                       fileId={file.id}
                       initialVersion={fileVersion(file.updatedAt, file.documentRevision)}
                       thumbnailVersion={file.thumbnailVersion}
@@ -1133,11 +1138,7 @@ export function FilesBrowser({
                 role="menuitem"
                 className={menuItem}
                 disabled={busy}
-                onClick={() =>
-                  void perform(() => moveDesignFile(menu.file.id, null), {
-                    movedFile: menu.file.folderId ? menu.file : undefined,
-                  })
-                }
+                onClick={() => void moveFile(menu.file, null)}
               >
                 Files
               </button>
@@ -1149,11 +1150,7 @@ export function FilesBrowser({
                   role="menuitem"
                   className={menuItem}
                   disabled={busy}
-                  onClick={() =>
-                    void perform(() => moveDesignFile(menu.file.id, folder.id), {
-                      movedFile: menu.file,
-                    })
-                  }
+                  onClick={() => void moveFile(menu.file, folder.id)}
                 >
                   {folder.name}
                 </button>
@@ -1322,7 +1319,6 @@ export function FilesBrowser({
                 deleteDialogRef.current?.close();
                 void perform(() => deleteDesignFolder(folder.id), {
                   hideFolderId: folder.id,
-                  refresh: true,
                 });
               }}
               className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"

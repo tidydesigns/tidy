@@ -11,7 +11,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { fileVersion } from "@/lib/design/file-version";
+import { fileVersion, fileVersionAtLeast } from "@/lib/design/file-version";
 import {
   thumbnailFileVersion,
   thumbnailFileVersionAtLeast,
@@ -163,7 +163,12 @@ export function FileThumbnail({
   const [job, setJob] = useState<RenderJob | null>(null);
   const [retry, setRetry] = useState(0);
   const [rendered, setRendered] = useState<CachedThumbnail | null>(null);
-  const checkedVersion = updates?.versions[fileId] || initialVersion;
+  const polledVersion = updates?.versions[fileId];
+  // A stale polling response must not mask a newer server-rendered revision.
+  const checkedVersion =
+    polledVersion && fileVersionAtLeast(polledVersion, initialVersion)
+      ? polledVersion
+      : initialVersion;
   const register = updates?.register;
   const persistedVersion = updates?.thumbnailVersions?.[fileId] ?? thumbnailVersion;
   const objectUrl = useRef("");

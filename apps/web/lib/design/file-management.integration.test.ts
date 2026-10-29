@@ -1113,3 +1113,80 @@ integration(
     expect(await state()).toEqual(before);
   },
 );
+
+integration(
+  "snapshot reads keep native, legacy and image payloads authorized and read-only",
+  async () => {
+    const { getFileSnapshot, getDocument } = await import("./document-service");
+    const { getDesignFile } = await import("./service");
+    async function previousSnapshot() {
+      const document = await getDocument("viewer", "file");
+      const file = await getDesignFile("viewer", "file", !document?.content.legacyConverted);
+      return {
+        name: file!.name,
+        updatedAt: file!.updatedAt,
+        frames: file!.frames,
+        rectangles: file!.rectangles,
+        document,
+      };
+    }
+    const assetId = "00000000-0000-4000-8000-000000000019";
+    const content = blankDesignDocument();
+    content.nodes.push({
+      ...buildDrawnNode("snapshot-image", "container", null, {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+      }),
+      style: {
+        paints: [
+          {
+            id: "paint",
+            type: "image",
+            assetId,
+            fit: "cover",
+            opacity: 1,
+            visible: true,
+            positionX: 0.5,
+            positionY: 0.5,
+          },
+        ],
+      },
+    });
+    await admin.query(
+      `insert into "designAsset" ("id","organizationId","mimeType","sha256","body") values ($1,'a','image/png',repeat('a',64),decode('01','hex'))`,
+      [assetId],
+    );
+    await admin.query(`update "designDocument" set "content"=$1 where "fileId"='file'`, [content]);
+    expect((await getFileSnapshot("viewer", "file"))!.document!.content.assetMimeTypes).toEqual({
+      [assetId]: "image/png",
+    });
+    await admin.query(`update "designAsset" set "organizationId"='b' where "id"=$1`, [assetId]);
+    expect((await getFileSnapshot("viewer", "file"))!.document!.content.assetMimeTypes).toEqual({});
+    let before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.frames).toEqual([]);
+    expect(await state()).toEqual(before);
+    await admin.query(
+      `update "designDocument" set "content"="content"-'legacyConverted' where "fileId"='file'`,
+    );
+    before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.frames).toHaveLength(1);
+    expect(await state()).toEqual(before);
+    await admin.query(`delete from "designDocument" where "fileId"='file'`);
+    before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.document).toBeNull();
+    expect(await state()).toEqual(before);
+    expect(await getFileSnapshot("outsider", "file")).toBeNull();
+    expect(await getFileSnapshot("viewer", "missing")).toBeNull();
+    await admin.query(`update "user" set "emailVerified"=false where "id"='viewer'`);
+    expect(await getFileSnapshot("viewer", "file")).toBeNull();
+    await admin.query(
+      `update "user" set "emailVerified"=true where "id"='viewer'; update "designFile" set "archivedAt"=now() where "id"='file'`,
+    );
+    expect(await getFileSnapshot("viewer", "file")).toBeNull();
+  },
+);
