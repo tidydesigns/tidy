@@ -183,6 +183,14 @@ export function FilesBrowser({
   const menuRef = useRef<HTMLDivElement>(null);
   const menuInvoker = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousFolderId = useRef(folderId);
+  useEffect(() => {
+    if (previousFolderId.current === folderId) return;
+    previousFolderId.current = folderId;
+    const active = document.activeElement;
+    if (active === document.body || !active?.isConnected)
+      headingRef.current?.focus({ preventScroll: true });
+  }, [folderId]);
   const menuOpen = menu !== null;
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const cancelFolderRef = useRef(false);

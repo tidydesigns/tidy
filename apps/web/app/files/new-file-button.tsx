@@ -2,7 +2,7 @@
 
 import { useErrorNotice } from "@/lib/use-error-notice";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type MouseEvent } from "react";
 import { NavigationLink } from "@/components/ui/navigation-link";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
@@ -47,6 +47,15 @@ export function NewFileButton({
   const [importOpen, setImportOpen] = useState(false);
   const [, setError] = useErrorNotice("", "file_create");
 
+  // Native new-tab/window navigation bypasses onNavigate. Give each activation
+  // a fresh destination without consuming the prefetched same-tab draft.
+  function prepareNavigation(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.button !== 0 && event.button !== 1) return;
+    const modified =
+      event.button === 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+    event.currentTarget.href = modified ? `/files/${crypto.randomUUID()}?${query}` : href;
+  }
+
   function create() {
     if (!onCreate) return;
     if (creating.current) return;
@@ -83,6 +92,12 @@ export function NewFileButton({
           <NavigationLink
             href={href}
             prefetch={true}
+            onClick={prepareNavigation}
+            onAuxClick={prepareNavigation}
+            onContextMenu={(event) => {
+              // A copied/context-menu link must allocate a draft on each visit.
+              event.currentTarget.href = `/files/new?${query}`;
+            }}
             onNavigate={() => setDraftId(crypto.randomUUID())}
             onMouseEnter={preloadEditor}
             onFocus={preloadEditor}

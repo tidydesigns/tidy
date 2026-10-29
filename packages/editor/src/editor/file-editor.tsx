@@ -1904,7 +1904,7 @@ export function FileEditor({
         event.preventDefault();
         setTool("text");
       }
-      if (shortcut === "c" && !preview && !local) {
+      if (shortcut === "c" && !preview && !local && serverReady) {
         event.preventDefault();
         setTool("comment");
       }
@@ -1965,6 +1965,7 @@ export function FileEditor({
   }, [
     preview,
     local,
+    serverReady,
     readOnly,
     prototypeMode,
     restoreSharedSnapshot,

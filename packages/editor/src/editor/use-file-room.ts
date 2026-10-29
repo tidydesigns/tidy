@@ -237,13 +237,16 @@ export function useFileRoom({
         Math.min(10_000, 500 * 2 ** Math.min(attempt++, 5)) * (0.75 + Math.random() * 0.5),
       );
     }
+    let connecting = false;
     async function connect() {
       if (
         controller.signal.aborted ||
+        connecting ||
         socket.current?.readyState === WebSocket.CONNECTING ||
         socket.current?.readyState === WebSocket.OPEN
       )
         return;
+      connecting = true;
       const reportConnectionError = appErrorReporter("file_sync");
       try {
         await persistenceReady;
@@ -365,6 +368,8 @@ export function useFileRoom({
           }
           reconnect();
         }
+      } finally {
+        connecting = false;
       }
     }
     void connect();
