@@ -101,3 +101,33 @@ test("thread scans yield to interactive design reads and return validated summar
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+test("closing settles pending thread encodings and a later checkpoint restarts the worker", async () => {
+  const compute = new CloudCompute();
+  const thread = {
+    revision: 0,
+    id: randomUUID(),
+    projectId: randomUUID(),
+    title: "Checkpoint",
+    harness: "codex",
+    designIds: [],
+    messages: [{ id: randomUUID(), role: "assistant", text: "Reply".repeat(60_000) }],
+    status: "running",
+    updatedAt: new Date().toISOString(),
+  } satisfies Parameters<CloudCompute["encodeThread"]>[0];
+  try {
+    const pending = Promise.allSettled([compute.encodeThread(thread)]);
+    await compute.close();
+    const [result] = await pending;
+    if (result.status === "fulfilled")
+      expect(new TextDecoder().decode(result.value)).toBe(JSON.stringify(thread, null, 2));
+    else
+      expect(result.reason).toMatchObject({
+        message: "Cloud comparison stopped. Sync will retry.",
+      });
+    const encoded = await compute.encodeThread(thread);
+    expect(new TextDecoder().decode(encoded)).toBe(JSON.stringify(thread, null, 2));
+  } finally {
+    await compute.close();
+  }
+});

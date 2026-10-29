@@ -1,5 +1,5 @@
 import { Worker } from "node:worker_threads";
-import type { ThreadSummary } from "../../shared/contracts/desktop";
+import type { Thread, ThreadSummary } from "../../shared/contracts/desktop";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DocumentPatch } from "@tidy/editor/design/document-patch";
 import type { ParsedDesignFile, DesignFileSummary } from "../workspace/design-file";
@@ -11,6 +11,7 @@ export type ComputeRequest = { id: number } & (
   | { kind: "remap"; document: DesignDocument; aliases: Record<string, string> }
   | { kind: "read-file"; path: string; summary: boolean; background?: boolean }
   | { kind: "read-thread-summary"; path: string }
+  | { kind: "encode-thread"; thread: Thread }
 );
 
 /** Diffing and asset translation must not occupy Electron's main event loop,
@@ -27,7 +28,8 @@ export class CloudCompute {
       | Omit<Extract<ComputeRequest, { kind: "equal" | "diff" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "remap" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "read-file" }>, "id">
-      | Omit<Extract<ComputeRequest, { kind: "read-thread-summary" }>, "id">,
+      | Omit<Extract<ComputeRequest, { kind: "read-thread-summary" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "encode-thread" }>, "id">,
   ): Promise<T> {
     if (!this.worker) {
       const worker = new Worker(
@@ -88,6 +90,9 @@ export class CloudCompute {
   }
   readThreadSummary(path: string) {
     return this.run<ThreadSummary>({ kind: "read-thread-summary", path });
+  }
+  encodeThread(thread: Thread) {
+    return this.run<Uint8Array>({ kind: "encode-thread", thread });
   }
   async close() {
     const worker = this.worker;

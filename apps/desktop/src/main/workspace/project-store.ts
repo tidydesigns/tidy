@@ -29,6 +29,7 @@ import type {
 } from "../../shared/contracts/desktop";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
+import { toolLogSize } from "../../shared/contracts/tool-activity";
 import { readLocalFile } from "../platform/local-files";
 import { CloudCompute } from "../cloud/cloud-compute";
 import {
@@ -38,8 +39,7 @@ import {
   type DesignFileSummary,
 } from "./design-file";
 
-// One lazy, unref'd reader per process, rather than a worker for each open project/store.
-const fileReader = new CloudCompute();
+const projectCompute = new CloudCompute();
 
 import { storedThreadSchema as threadSchema } from "../../shared/contracts/desktop";
 
@@ -468,7 +468,14 @@ export class ProjectStore {
       delete settings.permissionMode;
       portable.settings = Object.keys(settings).length ? settings : undefined;
     }
-    return this.atomicWrite(async () => {
+    const textLength =
+      value.messages.reduce((total, message) => total + message.text.length, 0) +
+      (value.toolActivities?.reduce((total, tool) => total + toolLogSize(tool), 0) ?? 0);
+    const encoded =
+      textLength >= 256 * 1024
+        ? () => projectCompute.encodeThread(portable)
+        : JSON.stringify(portable, null, 2);
+    return this.writeEncoded(async () => {
       const path = await this.storagePath(value.projectId, "threads", value.id);
       await this.authority.write(
         this.project(value.projectId).path,
@@ -476,7 +483,7 @@ export class ProjectStore {
         value.executionProjectId ? this.project(value.executionProjectId).path : undefined,
       );
       return path;
-    }, portable);
+    }, encoded);
   }
 
   async readDesign(
@@ -521,10 +528,10 @@ export class ProjectStore {
       const key = `${path}:${stamp}`;
       let read = this.designReads.get(key);
       if (!read) {
-        read = fileReader.readFile(path, background);
+        read = projectCompute.readFile(path, background);
         this.designReads.set(key, read);
         void read.finally(() => this.designReads.delete(key)).catch(() => {});
-      } else if (!background) fileReader.prioritizeFile(path);
+      } else if (!background) projectCompute.prioritizeFile(path);
       cached = await read;
       this.designCache.delete(path);
       this.designCache.set(path, cached);
@@ -572,7 +579,7 @@ export class ProjectStore {
     const stamp = designFileStamp(await stat(path, { bigint: true }));
     let cached = this.summaryCache.get(path);
     if (!cached || cached.stamp !== stamp) {
-      cached = await fileReader.readSummary(path);
+      cached = await projectCompute.readSummary(path);
       this.cacheSummary(path, cached);
     }
     return cached;
@@ -804,7 +811,7 @@ export class ProjectStore {
     const summary =
       info.size > 64n * 1024n
         ? await this.authorizeThread({
-            thread: await fileReader.readThreadSummary(path),
+            thread: await projectCompute.readThreadSummary(path),
             projectId,
             threadId,
           })
@@ -869,8 +876,8 @@ export class ProjectStore {
     return this.atomicWrite(join(this.directory, "projects.json"), this.registry);
   }
 
-  private async writeAtomicFile(path: string, json: string) {
-    if (Buffer.byteLength(json) > 16 * 1024 * 1024)
+  private async writeAtomicFile(path: string, json: string | Uint8Array) {
+    if ((typeof json === "string" ? Buffer.byteLength(json) : json.byteLength) > 16 * 1024 * 1024)
       throw new Error("The local project file reached its size limit.");
     const temporary = `${path}.${randomUUID()}.tmp`;
     try {
@@ -882,10 +889,17 @@ export class ProjectStore {
   }
 
   private atomicWrite(target: string | (() => Promise<string>), value: unknown) {
-    const json = JSON.stringify(value, null, 2);
-    if (Buffer.byteLength(json) > 16 * 1024 * 1024)
+    return this.writeEncoded(target, JSON.stringify(value, null, 2));
+  }
+
+  private writeEncoded(
+    target: string | (() => Promise<string>),
+    encoded: string | (() => Promise<Uint8Array>),
+  ) {
+    if (typeof encoded === "string" && Buffer.byteLength(encoded) > 16 * 1024 * 1024)
       return Promise.reject(new Error("The local project file reached its size limit."));
     const next = this.writes.then(async () => {
+      const json = typeof encoded === "string" ? encoded : await encoded();
       const path = typeof target === "string" ? target : await target();
       await this.writeAtomicFile(path, json);
     });
