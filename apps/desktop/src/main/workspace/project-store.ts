@@ -75,6 +75,7 @@ export class ProjectStore {
   private designCache = new Map<string, ParsedDesignFile>();
   private summaryCache = new Map<string, DesignFileSummary>();
   private designReads = new Map<string, Promise<ParsedDesignFile>>();
+  private summaryReads = new Map<string, Promise<DesignFileSummary>>();
   private threadSummaryCache = new Map<string, { stamp: string; summary: ThreadSummary }>();
 
   private storageClaims = new Map<
@@ -580,10 +581,23 @@ export class ProjectStore {
     const stamp = designFileStamp(await stat(path, { bigint: true }));
     let cached = this.summaryCache.get(path);
     if (!cached || cached.stamp !== stamp) {
-      cached = await projectCompute.readSummary(path);
+      const key = `${path}:${stamp}`;
+      let read = this.summaryReads.get(key);
+      if (!read) {
+        const full = this.designReads.get(key);
+        read = full ? full.then(summarizeDesignFile) : projectCompute.readSummary(path);
+        this.summaryReads.set(key, read);
+        void read.finally(() => this.summaryReads.delete(key)).catch(() => {});
+      }
+      cached = await read;
       this.cacheSummary(path, cached);
     }
     return cached;
+  }
+  /** Harness context needs validated names and paths, never a scene IPC transfer. */
+  async readDesignReference(projectId: string, designId: string) {
+    const { id, name, path } = await this.designSummary(projectId, designId);
+    return { id, name, path };
   }
   async designStamp(projectId: string, designId: string) {
     return designFileStamp(

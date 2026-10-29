@@ -5,7 +5,9 @@ import { parentPort } from "node:worker_threads";
 import { parseDesignDocument } from "@tidy/design/document";
 import { diffDocument } from "@tidy/editor/design/document-patch";
 import type { ComputeRequest } from "./cloud-compute";
-import { readDesignFile, summarizeDesignFile } from "../workspace/design-file";
+import { DesignFileCache, summarizeDesignFile } from "../workspace/design-file";
+
+const designFiles = new DesignFileCache();
 
 function remap(value: unknown, aliases: Record<string, string>): unknown {
   if (Array.isArray(value)) return value.map((entry) => remap(entry, aliases));
@@ -56,7 +58,7 @@ async function run(request: ComputeRequest) {
       return;
     }
     if (request.kind === "read-file") {
-      const file = await readDesignFile(request.path);
+      const file = await designFiles.read(request.path);
       if (request.summary) {
         parentPort!.postMessage({ id: request.id, value: summarizeDesignFile(file) });
       } else parentPort!.postMessage({ id: request.id, value: file });

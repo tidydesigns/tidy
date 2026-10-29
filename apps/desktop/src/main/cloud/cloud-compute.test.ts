@@ -8,6 +8,27 @@ import { storedThreadSchema } from "../../shared/contracts/desktop";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { CloudCompute } from "./cloud-compute";
 
+test("worker cache returns independent scene copies after a metadata scan", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tidy-worker-cache-"));
+  const id = randomUUID();
+  const path = join(directory, `${id}.json`);
+  const compute = new CloudCompute();
+  try {
+    await writeFile(path, JSON.stringify({ id, name: "Fixture", document: blankDesignDocument() }));
+    const summary = await compute.readSummary(path);
+    const first = await compute.readFile(path);
+    first.name = "Caller mutation";
+    first.document.pages[0].name = "Caller mutation";
+    const second = await compute.readFile(path);
+    expect(second.name).toBe("Fixture");
+    expect(second.document.pages[0].name).toBe("Page 1");
+    expect(second.version).toBe(summary.version);
+  } finally {
+    await compute.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test("opening a canvas takes priority over queued metadata decoding", async () => {
   const directory = await mkdtemp(join(tmpdir(), "tidy-file-worker-"));
   const id = randomUUID(),

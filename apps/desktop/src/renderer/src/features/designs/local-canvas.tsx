@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CanvasViewportMemory } from "@tidy/editor";
 import { lazyView } from "../../components/lazy-view";
 import { DocumentPreview } from "./preview-renderers";
@@ -6,6 +6,7 @@ import { loadCanvasEditor } from "./load-canvas-editor";
 import { EditorHostProvider, type EditorLinkProps } from "@tidy/editor/host";
 import type { DesignDocument } from "@tidy/design/document";
 import type { DesktopAPI, LocalDesign } from "../../../../shared/contracts/desktop";
+import { CanvasRefresh } from "./canvas-refresh";
 
 const FileEditor = lazyView(async () => ({ default: (await loadCanvasEditor()).FileEditor }), {
   label: "canvas editor",
@@ -62,7 +63,6 @@ export const LocalCanvas = memo(function LocalCanvas({
   const revision = useRef(0);
   const pending = useRef(0);
   const writes = useRef(Promise.resolve());
-  const refreshWanted = useRef(false);
   const refreshEpoch = useRef(0);
   const [assets, setAssets] = useState(initial.assets);
   const assetRetryKey = retryAssets?.join(",") ?? "";
@@ -76,22 +76,22 @@ export const LocalCanvas = memo(function LocalCanvas({
   const [external, setExternal] = useState<{ revision: number; content: DesignDocument }>();
   const notify = useRef(onUpdate);
   notify.current = onUpdate;
-  const refresh = useCallback(async () => {
-    refreshWanted.current = true;
-    if (pending.current) return;
-    refreshWanted.current = false;
-    const epoch = ++refreshEpoch.current;
-    const value = await api.refreshDesign(projectId, initial.id, file.current.version);
-    if (pending.current || epoch !== refreshEpoch.current) {
-      refreshWanted.current = true;
-      return;
-    }
-    if (!value || value.version === file.current.version) return;
-    file.current = value;
-    setAssets(value.assets);
-    setExternal({ revision: ++revision.current, content: value.document });
-    notify.current(value);
-  }, [api, projectId, initial.id]);
+  const refresh = useMemo(
+    () =>
+      new CanvasRefresh({
+        read: () => api.refreshDesign(projectId, initial.id, file.current.version),
+        blocked: () => pending.current > 0,
+        generation: () => refreshEpoch.current,
+        apply(value) {
+          if (!value || value.version === file.current.version) return;
+          file.current = value;
+          setAssets(value.assets);
+          setExternal({ revision: ++revision.current, content: value.document });
+          notify.current(value);
+        },
+      }),
+    [api, projectId, initial.id],
+  );
   useEffect(() => {
     const unsubscribe = api.onEvent((event) => {
       if (
@@ -101,13 +101,13 @@ export const LocalCanvas = memo(function LocalCanvas({
           (design) => design.id === initial.id && design.updatedAt !== file.current.updatedAt,
         )
       )
-        void refresh().catch(console.error);
+        void refresh.request().catch(console.error);
     });
     // Subscribe before checking the version to cover edits made since open.
     return unsubscribe;
   }, [api, projectId, initial.id, refresh]);
   useEffect(() => {
-    if (active) void refresh().catch(console.error);
+    if (active) void refresh.request().catch(console.error);
   }, [active, refresh]);
 
   async function update(changes: { document?: DesignDocument; name?: string }) {
@@ -129,11 +129,11 @@ export const LocalCanvas = memo(function LocalCanvas({
     try {
       await write;
     } catch (error) {
-      refreshWanted.current = true;
+      void refresh.request().catch(console.error);
       throw error;
     } finally {
       pending.current--;
-      if (refreshWanted.current) void refresh().catch(console.error);
+      void refresh.resume().catch(console.error);
     }
   }
 

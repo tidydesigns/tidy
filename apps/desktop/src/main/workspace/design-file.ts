@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { BigIntStats } from "node:fs";
-import { stat } from "node:fs/promises";
+import { lstat, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { z } from "zod";
 import { parseDesignDocument } from "@tidy/design/document";
@@ -21,6 +21,44 @@ export const summarizeDesignFile = (file: ParsedDesignFile): DesignFileSummary =
 });
 export const designFileStamp = (info: BigIntStats) =>
   [info.dev, info.ino, info.size, info.mtimeNs, info.ctimeNs].join(":");
+
+/** Worker-owned snapshots bridge metadata scans and canvas opens without a second
+ * decode. Only postMessage copies leave the worker; callers must not mutate these. */
+export class DesignFileCache {
+  private files = new Map<string, ParsedDesignFile>();
+
+  async read(path: string): Promise<ParsedDesignFile> {
+    try {
+      // Recheck file identity on every hit, including equal-length edits with
+      // restored mtimes. Never follow a replacement symlink into cached content.
+      const info = await lstat(path, { bigint: true });
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new Error("Local files must be regular files, not symbolic links.");
+      const cached = this.files.get(path);
+      const file = cached?.stamp === designFileStamp(info) ? cached : await readDesignFile(path);
+      this.files.delete(path);
+      this.files.set(path, file);
+      let bytes = 0;
+      let nodes = 0;
+      for (const value of this.files.values()) {
+        bytes += value.bytes;
+        nodes += value.document.nodes.length;
+      }
+      // Small shared cache, bounded independently of the main-process open files.
+      while (this.files.size > 4 || bytes > 16 * 1024 * 1024 || nodes > 20_000) {
+        const oldest = this.files.keys().next().value!;
+        const removed = this.files.get(oldest)!;
+        this.files.delete(oldest);
+        bytes -= removed.bytes;
+        nodes -= removed.document.nodes.length;
+      }
+      return file;
+    } catch (error) {
+      this.files.delete(path);
+      throw error;
+    }
+  }
+}
 
 /** Runs in the worker: parsing, schema validation and hashing never occupy the main loop. */
 export async function readDesignFile(path: string): Promise<ParsedDesignFile> {
