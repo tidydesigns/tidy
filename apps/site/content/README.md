@@ -101,3 +101,38 @@ starter article copy and publication dates before the first deployment.
 `public/founders/` are copies of each founder’s GitHub avatar, retrieved on
 2026-10-29 (`seandowdall` and `tadhgdowdall`). Refresh these local files when needed;
 site visitors do not make requests to GitHub for the portraits.
+
+## Changing blog images
+
+For the built-in brand illustrations, change `artwork` in a post to
+`cloud-spectrum` or `cloud-coral`.
+
+For a custom cover, run this from the repository root:
+
+```sh
+bun run blog:image -- "/path/to/your-image.png" design-to-code-workflow
+```
+
+The command crops to 16:9 and generates five sizes in AVIF and WebP, plus a JPEG
+for social previews. Check the crop before publishing, especially for screenshots
+with important details near an edge. Use a source at least 1600 × 900 pixels for
+best quality. Original source files do not need to be placed in `public/`.
+
+Add these fields to the post's YAML front matter:
+
+```yaml
+cover: "design-to-code-workflow"
+coverAlt: "The Tidy canvas beside a coding thread"
+```
+
+The same cover appears in the article, blog list, related articles and homepage.
+Its JPEG is used in Open Graph, Twitter and article structured data. Alt text is
+required for article covers; list thumbnails are decorative beside their titles.
+Remove `cover` and `coverAlt` to return to the built-in brand artwork.
+
+Commit the generated `apps/site/public/blog/<name>-*` images and
+`apps/site/content/blog/covers/<name>.json` alongside the Markdown change, then
+rebuild the site. Re-running the command with the same name updates the manifest;
+changed images get new hashed filenames, so browsers cannot show an old cover.
+Old variants may be removed once no content or older deployed version needs them.
+The image command does not modify your original file or publish anything.

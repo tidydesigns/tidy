@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
-import { SiteFooter } from "../../components/site-footer";
+import { CloudFooter } from "../../components/brand/cloud-footer";
+import { CloudArtwork } from "../../components/brand/cloud-artwork";
+import { appUrl, repositoryUrl } from "../../lib/site-links";
+import editorial from "../../components/editorial/editorial.module.css";
+import styles from "./changelog.module.css";
 import { changelog, type ChangelogItem } from "../../content/changelog";
 import { pageMetadata } from "../../lib/page-metadata";
 
@@ -45,31 +49,38 @@ export default function ChangelogPage() {
   const entries = [...changelog].sort((a, b) => b.date.localeCompare(a.date));
 
   return (
-    <div className="page">
-      <main id="main-content" tabIndex={-1} className="changelog-content">
-        <div className="changelog-intro">
-          <h1>Changelog</h1>
-          <p>What&#39;s new and what&#39;s fixed in Tidy.</p>
+    <>
+      <main id="main-content" tabIndex={-1} className={editorial.page}>
+        <header className={styles.intro}>
+          <div>
+            <h1>Changelog</h1>
+            <p>What&#39;s new and what&#39;s fixed in Tidy.</p>
+          </div>
+          <div className={styles.artwork} aria-hidden="true">
+            <CloudArtwork name="cloud-coral" sizes="(max-width: 640px) 90px, 220px" eager />
+          </div>
+        </header>
+        <div className={styles.entries}>
+          {entries.map((entry) => (
+            <section
+              className="changelog-entry"
+              key={entry.date}
+              aria-labelledby={`day-${entry.date}`}
+            >
+              <h2 id={`day-${entry.date}`}>
+                <time dateTime={entry.date}>
+                  {dateFormatter.format(new Date(`${entry.date}T00:00:00Z`))}
+                </time>
+              </h2>
+              <div className="changelog-changes">
+                <ChangeList title="Features" items={entry.features} />
+                <ChangeList title="Fixes" items={entry.fixes} />
+              </div>
+            </section>
+          ))}
         </div>
-        {entries.map((entry) => (
-          <section
-            className="changelog-entry"
-            key={entry.date}
-            aria-labelledby={`day-${entry.date}`}
-          >
-            <h2 id={`day-${entry.date}`}>
-              <time dateTime={entry.date}>
-                {dateFormatter.format(new Date(`${entry.date}T00:00:00Z`))}
-              </time>
-            </h2>
-            <div className="changelog-changes">
-              <ChangeList title="Features" items={entry.features} />
-              <ChangeList title="Fixes" items={entry.fixes} />
-            </div>
-          </section>
-        ))}
       </main>
-      <SiteFooter />
-    </div>
+      <CloudFooter appUrl={appUrl} repositoryUrl={repositoryUrl} />
+    </>
   );
 }

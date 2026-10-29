@@ -10,7 +10,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsrs --noEmit",
     "typecheck:tsc": "next typegen && tsc --noEmit",
-    "test": "bun test lib/blog.test.ts"
+    "test": "bun test lib/blog.test.ts scripts/build-blog-image.test.mjs"
   },
   "dependencies": {
     "@tidy/ui": "workspace:*",

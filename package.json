@@ -75,7 +75,8 @@
     "dev:desktop:browser": "bun run --cwd apps/desktop dev:browser",
     "release:desktop:mac": "bun run --cwd apps/desktop release:mac",
     "typecheck:tsc": "turbo run typecheck:tsc",
-    "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics"
+    "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics",
+    "blog:image": "node apps/site/scripts/build-blog-image.mjs"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",

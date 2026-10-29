@@ -60,6 +60,18 @@ describe("blog publication", () => {
     assert.throws(() => parsePost("../private", source()), /kebab-case/);
   });
 
+  test("custom covers require a safe identifier and descriptive alt text", () => {
+    assert.throws(
+      () => parsePost("example", source('cover: "../private"\ncoverAlt: "Description"\n')),
+      /cover must/,
+    );
+    assert.throws(() => parsePost("example", source('cover: "example"\n')), /coverAlt/);
+    assert.equal(
+      parsePost("example", source('cover: "example"\ncoverAlt: "Canvas and code"\n')).cover,
+      "example",
+    );
+  });
+
   test("requires content and one page-level heading", () => {
     assert.throws(() => parsePost("example", source("", "")), /empty article/);
     assert.throws(() => parsePost("example", source("", "# Another title")), /headings at ##/);

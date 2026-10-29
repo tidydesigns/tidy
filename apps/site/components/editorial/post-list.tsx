@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CloudArtwork } from "../brand/cloud-artwork";
+import { PostImage } from "./post-image";
 import { formatPostDate, type BlogPost } from "../../lib/blog";
 import styles from "./editorial.module.css";
 
@@ -9,9 +9,7 @@ export function PostList({ posts }: { posts: BlogPost[] }) {
       {posts.map((post) => (
         <article key={post.slug}>
           <Link className={styles.postLink} href={`/blog/${post.slug}`}>
-            <div className={styles.postArtwork} data-artwork={post.artwork} aria-hidden="true">
-              <CloudArtwork name={post.artwork} sizes="(max-width: 640px) 90vw, 280px" />
-            </div>
+            <PostImage post={post} />
             <div className={styles.postSummary}>
               <span className={styles.eyebrow}>{post.category}</span>
               <h2>{post.title}</h2>
