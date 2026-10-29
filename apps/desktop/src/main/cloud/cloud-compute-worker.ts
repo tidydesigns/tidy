@@ -36,6 +36,8 @@ async function drainReads() {
     reading = false;
   }
 }
+/** Encoding replies transfer ownership of UTF-8 buffers to the host.
+ * Request failures return bounded error text so the host can settle its pending operation. */
 async function run(request: ComputeRequest) {
   try {
     if (request.kind === "encode-thread") {
