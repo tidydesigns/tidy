@@ -1,6 +1,8 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { gunzipSync } from "node:zlib";
 import { createErrorReporter, safeServerError, serverErrorCategory } from "./posthog-server";
+import * as serverReporting from "./posthog-server";
+import { onRequestError } from "../instrumentation";
 import { posthogCollectionEnabled, posthogServerErrorsEnabled } from "./posthog-policy";
 import { consentCookie, ESSENTIAL_ONLY } from "./privacy/consent";
 import { observeRequest } from "./request-observability";
@@ -35,6 +37,29 @@ function collector() {
       }),
   };
 }
+
+test.each([
+  ["/api/auth/oauth2/token?code=private-code", "/api/auth/[...all]", "/api/auth/oauth2/token"],
+  ["/api/desktop/manifest", "/api/desktop/[...path]", "/api/desktop/manifest"],
+  ["/api/desktop/files/private-file", "/api/desktop/[...path]", "/api/desktop/files/:id"],
+])("Next errors identify the sanitized endpoint for %s", async (path, routePath, expected) => {
+  const c = collector();
+  const reporter = createErrorReporter(runtime);
+  const factory = spyOn(serverReporting, "createErrorReporter").mockReturnValue(reporter);
+  try {
+    await onRequestError(
+      new Error("private failure"),
+      { path, method: "POST", headers: { authorization: "Bearer private-token" } },
+      { routerKind: "App Router", routeType: "route", routePath, revalidateReason: undefined },
+    );
+    expect(c.events()).toHaveLength(1);
+    expect(c.events()[0].properties).toMatchObject({ route: expected, method: "POST" });
+    expect(c.bodies.join("")).not.toContain("private");
+  } finally {
+    factory.mockRestore();
+    c.transport.mockRestore();
+  }
+});
 
 test("independent server switch defaults off and explicit runtime off overrides environment", async () => {
   const c = collector();

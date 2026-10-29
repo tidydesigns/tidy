@@ -68,23 +68,30 @@ async function observeTracedRequest(
       elapsedMs: elapsed(),
     }).catch(() => {});
   };
-  const pending = setTimeout(() => {
-    console.warn(
-      JSON.stringify({
-        event: "request_stalled",
-        ...details,
-        phase,
-        operations: trace.operations(),
-        phases: requestPhases(),
-        trace_id: trace.traceId(),
-        status,
-        bytes,
-        elapsedMs: elapsed(),
-      }),
-    );
-    reportFailure("request_stalled");
-    trace.snapshot();
-  }, 10_000);
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  let reportedStall = false;
+  const watchForStall = () => {
+    if (finished || reportedStall) return;
+    pending = setTimeout(() => {
+      reportedStall = true;
+      console.warn(
+        JSON.stringify({
+          event: "request_stalled",
+          ...details,
+          phase,
+          operations: trace.operations(),
+          phases: requestPhases(),
+          trace_id: trace.traceId(),
+          status,
+          bytes,
+          elapsedMs: elapsed(),
+        }),
+      );
+      reportFailure("request_stalled");
+      trace.snapshot();
+    }, 10_000);
+  };
+  watchForStall();
   const finish = (event: string, error?: unknown) => {
     if (finished) return;
     finished = true;
@@ -113,6 +120,10 @@ async function observeTracedRequest(
     const response = await traceOperation("worker.routing", handle);
     status = response.status;
     const contentType = response.headers.get("content-type")?.split(";", 1)[0].trim();
+    const mcpStream =
+      request.method === "POST" &&
+      details.route === "/api/mcp" &&
+      contentType === "text/event-stream";
     // OpenNext pages and legacy MCP POSTs can return headers before their work
     // completes. Keep the request trace alive through those finite streams, so
     // MCP execution/database spans aren't marked unfinished at SSE headers.
@@ -122,9 +133,7 @@ async function observeTracedRequest(
       response.body !== null &&
       ((request.method === "GET" &&
         (contentType === "text/html" || contentType === "text/x-component")) ||
-        (request.method === "POST" &&
-          details.route === "/api/mcp" &&
-          contentType === "text/event-stream"));
+        mcpStream);
     if (!watchingBody) {
       const elapsedMs = elapsed();
       if (status >= 500 || elapsedMs >= 1000) {
@@ -133,6 +142,7 @@ async function observeTracedRequest(
       trace.finish("request_completed", status);
       return response;
     }
+    if (mcpStream) clearTimeout(pending);
     phase = "body";
     bodyOperation = startOperation("response.body");
     if (trace.sampled)
@@ -144,6 +154,7 @@ async function observeTracedRequest(
       {
         async pull(controller) {
           return trace.run(async () => {
+            if (mcpStream) watchForStall();
             try {
               const next = await reader.read();
               if (next.done) {
@@ -159,6 +170,8 @@ async function observeTracedRequest(
               finish("response_body_failed", error);
               controller.error(error);
               reader.releaseLock();
+            } finally {
+              if (mcpStream) clearTimeout(pending);
             }
           });
         },

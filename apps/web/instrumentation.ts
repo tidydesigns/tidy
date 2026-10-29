@@ -5,7 +5,7 @@ export const onRequestError: Instrumentation.onRequestError = async (error, requ
   await createErrorReporter()(error, {
     source: "next",
     event: "server_request_failed",
-    route: context.routePath,
+    route: request.path,
     method: request.method,
     phase: context.routeType,
   });

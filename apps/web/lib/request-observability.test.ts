@@ -5,7 +5,7 @@ beforeEach(() => {
   samplingOverride = spySampling(sampling, "sampleDiagnostics").mockReturnValue(true);
 });
 afterEach(() => samplingOverride.mockRestore());
-import { expect, test } from "bun:test";
+import { expect, jest, test } from "bun:test";
 import { normalizedRoute, observeRequest } from "./request-observability";
 import { startOperation, traceStorage } from "./trace-context";
 
@@ -81,6 +81,117 @@ test("request diagnostics exclude credentials and identifiers", () => {
   expect(normalizedRoute("https://example.test/api/auth/get-session")).toBe(
     "/api/auth/get-session",
   );
+});
+
+test("MCP SSE backpressure does not report a server stall after delivering a result", async () => {
+  jest.useFakeTimers();
+  const reports: unknown[] = [];
+  const info = spySampling(console, "info").mockImplementation(() => {});
+  const warn = spySampling(console, "warn").mockImplementation(() => {});
+  let pulls = 0;
+  const chunk = new TextEncoder().encode('data: {"jsonrpc":"2.0","id":1,"result":{}}\n\n');
+  let response: Response | undefined;
+  try {
+    response = await observeRequest(
+      new Request("https://example.test/api/mcp", { method: "POST" }),
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              pull(controller) {
+                pulls++;
+                controller.enqueue(chunk);
+                controller.close();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "Content-Type": "text/event-stream" } },
+        ),
+      async (_error, details) => {
+        reports.push(details);
+      },
+    );
+    jest.advanceTimersByTime(10_000);
+    expect(pulls).toBe(0);
+    expect(reports).toEqual([]);
+    const reader = response.body!.getReader();
+    expect((await reader.read()).value).toEqual(chunk);
+    jest.advanceTimersByTime(10_000);
+    expect(reports).toEqual([]);
+    expect((await reader.read()).done).toBe(true);
+    reader.releaseLock();
+  } finally {
+    await response?.body?.cancel();
+    jest.useRealTimers();
+    info.mockRestore();
+    warn.mockRestore();
+  }
+});
+
+test("MCP SSE waits measure upstream inactivity and still report a blocked read", async () => {
+  jest.useFakeTimers();
+  const reports: unknown[] = [];
+  const info = spySampling(console, "info").mockImplementation(() => {});
+  const warn = spySampling(console, "warn").mockImplementation(() => {});
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let readingStarted = () => {};
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  try {
+    const response = await observeRequest(
+      new Request("https://example.test/api/mcp", { method: "POST" }),
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>(
+            {
+              start(value) {
+                controller = value;
+              },
+              pull() {
+                readingStarted();
+              },
+            },
+            { highWaterMark: 0 },
+          ),
+          { headers: { "Content-Type": "text/event-stream" } },
+        ),
+      async (_error, details) => {
+        reports.push(details);
+      },
+    );
+    reader = response.body!.getReader();
+    for (let index = 0; index < 3; index++) {
+      const started = new Promise<void>((resolve) => {
+        readingStarted = resolve;
+      });
+      const reading = reader.read();
+      await started;
+      jest.advanceTimersByTime(9000);
+      const chunk = new TextEncoder().encode(": keepalive\n\n");
+      controller.enqueue(chunk);
+      expect((await reading).value).toEqual(chunk);
+      expect(reports).toEqual([]);
+    }
+    const started = new Promise<void>((resolve) => {
+      readingStarted = resolve;
+    });
+    const stalled = reader.read();
+    await started;
+    jest.advanceTimersByTime(10_000);
+    expect(reports).toEqual([
+      expect.objectContaining({ event: "request_stalled", route: "/api/mcp", phase: "body" }),
+    ]);
+    jest.advanceTimersByTime(10_000);
+    expect(reports).toHaveLength(1);
+    controller.close();
+    expect((await stalled).done).toBe(true);
+  } finally {
+    await reader?.cancel();
+    reader?.releaseLock();
+    jest.useRealTimers();
+    info.mockRestore();
+    warn.mockRestore();
+  }
 });
 
 test("request observation preserves response bodies and headers", async () => {
@@ -166,33 +277,46 @@ test("RSC diagnostics distinguish headers, a stalled partial body, and completio
   }
 }, 15_000);
 
-test("page stream errors propagate and are logged without the error's private message", async () => {
-  const { spyOn } = await import("bun:test");
-  const records: string[] = [];
-  const info = spyOn(console, "info").mockImplementation(() => {});
-  const errorLog = spyOn(console, "error").mockImplementation((message) => {
-    records.push(String(message));
-  });
-  const failure = new Error("private database details");
-  try {
-    const source = new ReadableStream({
-      pull(controller) {
-        controller.error(failure);
-      },
+test.each([
+  ["page", "https://example.test/files", "GET", "text/html; charset=utf-8"],
+  ["MCP", "https://example.test/api/mcp", "POST", "text/event-stream"],
+])(
+  "%s stream errors propagate and are reported without logging private messages",
+  async (_kind, url, method, contentType) => {
+    const { spyOn } = await import("bun:test");
+    const records: string[] = [];
+    const info = spyOn(console, "info").mockImplementation(() => {});
+    const errorLog = spyOn(console, "error").mockImplementation((message) => {
+      records.push(String(message));
     });
-    const response = await observeRequest(
-      new Request("https://example.test/files"),
-      async () => new Response(source, { headers: { "Content-Type": "text/html; charset=utf-8" } }),
-    );
-    await expect(response.text()).rejects.toBe(failure);
-    expect(records).toHaveLength(1);
-    expect(JSON.parse(records[0]).event).toBe("response_body_failed");
-    expect(records[0]).not.toContain("private");
-  } finally {
-    info.mockRestore();
-    errorLog.mockRestore();
-  }
-});
+    const failure = new Error("private database details");
+    const reports: unknown[] = [];
+    try {
+      const source = new ReadableStream({
+        pull(controller) {
+          controller.error(failure);
+        },
+      });
+      const response = await observeRequest(
+        new Request(url, { method }),
+        async () => new Response(source, { headers: { "Content-Type": contentType } }),
+        async (error, details) => {
+          reports.push({ error, details });
+        },
+      );
+      await expect(response.text()).rejects.toBe(failure);
+      expect(reports).toEqual([
+        { error: failure, details: expect.objectContaining({ event: "response_body_failed" }) },
+      ]);
+      expect(records).toHaveLength(1);
+      expect(JSON.parse(records[0]).event).toBe("response_body_failed");
+      expect(records[0]).not.toContain("private");
+    } finally {
+      info.mockRestore();
+      errorLog.mockRestore();
+    }
+  },
+);
 
 test("canceling a page cancels the source without reading ahead", async () => {
   const { spyOn } = await import("bun:test");
