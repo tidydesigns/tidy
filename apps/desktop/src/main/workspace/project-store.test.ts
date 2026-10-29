@@ -76,6 +76,24 @@ test("unchanged canvas refreshes return no document and changed files still load
   expect(changed?.version).not.toBe(original.version);
 });
 
+test("concurrent thread references share validated metadata without transferring full scenes", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const original = await f.store.createDesign(project.id);
+  const text = await readFile(original.path, "utf8");
+  await writeFile(original.path, text.replace('"Frame"', '"Other"'));
+  const summaries = spyOn(CloudCompute.prototype, "readSummary");
+  const scenes = spyOn(CloudCompute.prototype, "readFile");
+  const references = await Promise.all(
+    Array.from({ length: 12 }, () => f.store.readDesignReference(project.id, original.id)),
+  );
+  expect(summaries).toHaveBeenCalledTimes(1);
+  expect(scenes).not.toHaveBeenCalled();
+  expect(references[0]).toEqual({ id: original.id, name: original.name, path: original.path });
+  await writeFile(original.path, "invalid JSON");
+  await expect(f.store.readDesignReference(project.id, original.id)).rejects.toThrow();
+});
+
 test("concurrent card and canvas reads decode one shared disk state", async () => {
   const f = await fixture();
   const { project } = await f.store.open(f.root);

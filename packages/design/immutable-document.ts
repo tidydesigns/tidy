@@ -125,8 +125,10 @@ export function createImmutableDocumentParser(
               recentImmutableNodes.get(node.id)?.deref())),
       );
     const document = reusable ? immutableDocumentSchema.parse(input) : schema.parse(input);
+    const previous = recentImmutableDocument?.deref();
     // Parsing still validates all metadata. Reuse equal, parser-owned immutable
-    // values afterward so token/image contexts and page indexes stay stable.
+    // values afterward so token/image contexts and page indexes stay stable,
+    // including snapshots cloned across worker/IPC/network boundaries.
     if (input && typeof input === "object") {
       const source = input as Record<string, unknown>;
       const target = document as unknown as Record<string, unknown>;
@@ -140,9 +142,13 @@ export function createImmutableDocumentParser(
           sameParsedValue(target[key], prior)
         )
           target[key] = prior;
+        else if (previous) {
+          const saved = (previous as unknown as Record<string, unknown>)[key];
+          if (saved && typeof saved === "object" && sameParsedValue(target[key], saved))
+            target[key] = saved;
+        }
       }
     }
-    const previous = recentImmutableDocument?.deref();
     if (previous && sameParsedValue(document, previous)) return previous;
     validateGraph(document);
     for (const node of document.nodes) rememberImmutableNode(node);

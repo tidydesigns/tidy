@@ -1212,15 +1212,11 @@ test("client IDs reconcile one durable message and cannot overwrite a thread or 
   expect(runs).toHaveLength(1);
 });
 
-test("sending does not wait for catalog or account usage, and references skip image asset loading", async () => {
+test("sending does not wait for catalog or account usage, and references use validated metadata without loading scenes", async () => {
   const { store, project } = await fixture();
   const design = await store.createDesign(project.id);
-  const readDesign = store.readDesign.bind(store),
-    reads: Array<boolean | undefined> = [];
-  store.readDesign = async (projectId, id, includeAssets) => {
-    reads.push(includeAssets);
-    return readDesign(projectId, id, includeAssets);
-  };
+  const readDesign = spyOn(store, "readDesign");
+  const references = spyOn(store, "readDesignReference");
   let configured = false,
     prompt = "";
   const service = new WorkspaceService(
@@ -1244,7 +1240,10 @@ test("sending does not wait for catalog or account usage, and references skip im
   });
   expect(configured).toBe(false);
   expect(prompt).toContain(design.path);
-  expect(reads).toEqual([false]);
+  expect(references).toHaveBeenCalledWith(project.id, design.id);
+  expect(readDesign).not.toHaveBeenCalled();
+  readDesign.mockRestore();
+  references.mockRestore();
   expect(thread.messages[0].text).toBe("Send without waiting for usage");
   await service.close();
 });

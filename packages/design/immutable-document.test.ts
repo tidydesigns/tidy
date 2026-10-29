@@ -84,6 +84,35 @@ test("cached nodes still undergo graph checks when dependencies or metadata chan
   expect(() => parseImmutableDesignDocument({ ...typed, designTokens: {} })).toThrow();
 });
 
+test("transported layer edits retain equal metadata without hiding metadata edits or invalid bindings", () => {
+  const source = {
+    ...fixture(),
+    designTokens: { size: { type: "dimension", value: 12 } },
+  };
+  const first = parseImmutableDesignDocument(JSON.parse(JSON.stringify(source)));
+  const incoming = JSON.parse(JSON.stringify(first));
+  incoming.nodes[1].name = "Agent edit";
+  const edited = parseImmutableDesignDocument(incoming);
+  expect(edited.nodes[1].name).toBe("Agent edit");
+  expect(edited.nodes[0]).toBe(first.nodes[0]);
+  for (const key of ["pages", "tokens", "designTokens", "warnings", "editedNodeIds"] as const)
+    expect(edited[key]).toBe(first[key]);
+  incoming.pages[0].name = "Agent page";
+  incoming.designTokens.size.value = 24;
+  const metadata = parseImmutableDesignDocument(incoming);
+  expect(metadata.pages).not.toBe(first.pages);
+  expect(metadata.pages[0].name).toBe("Agent page");
+  expect(metadata.designTokens.size.value).toBe(24);
+  expect(first.designTokens.size.value).toBe(12);
+  expect(first.pages[0].name).toBe("Page 1");
+  // Reuse happens only after schema validation, and all graph checks still run.
+  incoming.nodes[0].tokenBindings = { width: "size" };
+  const bound = parseImmutableDesignDocument(incoming);
+  expect(() => parseImmutableDesignDocument({ ...bound, designTokens: {} })).toThrow();
+  incoming.pages[0].id = "missing-page";
+  expect(() => parseImmutableDesignDocument(incoming)).toThrow();
+});
+
 test("immutable editor snapshots use the shared layer ceiling", () => {
   const source = {
     ...blankDesignDocument(),

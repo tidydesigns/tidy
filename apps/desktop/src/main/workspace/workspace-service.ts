@@ -18,6 +18,7 @@ import {
 import { realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { watch, type FSWatcher } from "node:fs";
+import { DesignRefresh } from "./design-refresh";
 import { z } from "zod";
 import type {
   DesktopAPI,
@@ -132,6 +133,7 @@ export class WorkspaceService {
   private requests = new Set<Promise<unknown>>();
   private cancelledStarts = new Set<string>();
   private designGenerations = new Map<string, number>();
+  private designRefreshes = new Map<string, DesignRefresh>();
   private closing: symbol | "quit" | undefined;
   private updatingHarnesses = new Set<UpdatableHarnessId>();
   private executionProjects = new Map<string, string>();
@@ -169,6 +171,8 @@ export class WorkspaceService {
       this.watchers.get(key)?.close();
       this.watchers.delete(key);
     }
+    this.designRefreshes.get(projectId)?.close();
+    this.designRefreshes.delete(projectId);
   }
 
   async warmThread(input: Parameters<NonNullable<DesktopAPI["warmThread"]>>[0]) {
@@ -318,15 +322,17 @@ export class WorkspaceService {
       this.store.projects.find((item) => item.id === projectId) !== project
     )
       return;
-    let refresh: ReturnType<typeof setTimeout> | undefined;
-    const watchers = directories.map((directory) =>
-      watch(directory, () => {
-        clearTimeout(refresh);
-        refresh = setTimeout(() => {
-          void this.refreshDesigns(projectId).catch(() => {});
-        }, 150);
-      }),
-    );
+    this.designRefreshes.get(projectId)?.close();
+    const refresh = new DesignRefresh(async () => {
+      if (
+        !this.closing &&
+        this.designRefreshes.get(projectId) === refresh &&
+        this.store.projects.some((item) => item.id === projectId)
+      )
+        await this.refreshDesigns(projectId);
+    });
+    this.designRefreshes.set(projectId, refresh);
+    const watchers = directories.map((directory) => watch(directory, refresh.request));
     watchers.forEach((watcher, index) => {
       const key = index === 0 ? projectId : `${projectId}:folders`;
       watcher.on("error", () => {
@@ -338,13 +344,18 @@ export class WorkspaceService {
   }
 
   async refreshDesigns(projectId: string) {
+    const project = this.store.project(projectId);
     const generation = (this.designGenerations.get(projectId) ?? 0) + 1;
     this.designGenerations.set(projectId, generation);
     const [designs, folders] = await Promise.all([
       this.store.designs(projectId),
       this.store.folders(projectId),
     ]);
-    if (this.designGenerations.get(projectId) === generation)
+    if (
+      !this.closing &&
+      this.store.projects.includes(project) &&
+      this.designGenerations.get(projectId) === generation
+    )
       this.emit({ type: "designs", projectId, designs, folders });
   }
 
@@ -732,7 +743,7 @@ export class WorkspaceService {
     const [executable, references, images] = await Promise.all([
       this.locate(thread.harness),
       Promise.all(
-        thread.designIds.map((designId) => this.store.readDesign(owner.id, designId, false)),
+        thread.designIds.map((designId) => this.store.readDesignReference(owner.id, designId)),
       ),
       imagesPromise,
     ]);
@@ -1293,6 +1304,8 @@ export class WorkspaceService {
     this.closing = "quit";
     await this.drainRequests(requestDrainTimeoutMs);
     for (const watcher of this.watchers.values()) watcher.close();
+    for (const refresh of this.designRefreshes.values()) refresh.close();
+    this.designRefreshes.clear();
     await this.stopAndFlush();
   }
 }

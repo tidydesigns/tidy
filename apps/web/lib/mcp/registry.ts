@@ -55,6 +55,8 @@ function failure(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
+/** Register public tool schemas and handlers for the authenticated user.
+ * Property edits default to compact acknowledgments; full documents are opt-in. */
 export function registerTidyTools(server: McpServer, userId: string, activity: McpActivity) {
   registerContextTools(server, userId);
   registerCommentTools(server, userId);
@@ -471,7 +473,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
     {
       ...mcpToolPolicy("patch_document"),
       description:
-        "Edit UI nodes at the current expected_revision. Supply design_tokens to add or update named definitions without removing unrelated tokens. The same transaction applies the layer bindings. Use existing names to update tokens; use an empty changes object for a token-only edit of an existing node. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Set include_document=false for compact acknowledgments; re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
+        "Edit UI nodes at the current expected_revision. Supply design_tokens to add or update named definitions without removing unrelated tokens. The same transaction applies the layer bindings. Use existing names to update tokens; use an empty changes object for a token-only edit of an existing node. For multi-layer changes, add up to 249 additional_edits: the first edit and additional edits apply in order, atomically, with one validation, commit and revision. Repeated IDs apply in order; an invalid final document rolls back the batch. Returns a compact acknowledgment by default. Set include_document=true only when the complete document is needed; otherwise re-read affected pages for propagated component changes. On a revision conflict, refresh before retrying.",
       inputSchema: mcpSchema("patch_document", () =>
         z.object({
           file_id: z.string().min(1),
@@ -483,7 +485,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
             .array(z.object({ node_id: z.string().min(1), changes: designNodeChangesSchema }))
             .max(249)
             .optional(),
-          include_document: z.boolean().default(true),
+          include_document: z.boolean().default(false),
         }),
       ),
     },

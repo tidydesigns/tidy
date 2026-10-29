@@ -23,7 +23,7 @@ The public MCP exposes file, page, layer, comment and history operations through
 
 ## Author and reorganize pages
 
-Use the revision from `get_document` or `get_file_context` as `expected_revision` for structural changes. Refresh after a conflict. Operations validate the final document atomically, preserve comment mappings and reconcile component references and imported-layer ownership. Responses contain affected IDs and the new revision rather than the whole document.
+Use the revision from `get_document` or `get_file_context` as `expected_revision` for structural changes. Refresh after a conflict. `patch_document` returns the new revision and edited nodes by default; pass `include_document: true` only when the complete document is needed. Batch related property changes using `additional_edits` (up to 250 edits total), then read the affected node slice using `get_document` with `offset` and `limit`. Operations validate the final document atomically, preserve comment mappings and reconcile component references and imported-layer ownership. Responses contain affected IDs and the new revision rather than the whole document.
 
 `compose_component` prepares a layout-first tree. Pass its nodes to `insert_nodes` with the destination `page_id`, or stage a larger import with `create_import`, `put_import_chunk`, `validate_import` and `commit_import`. Import chunks accept `pages`; supply the complete destination page metadata in one chunk and use matching node page IDs. Imports retain their existing merge/conflict behavior.
 

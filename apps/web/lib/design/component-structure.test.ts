@@ -358,6 +358,41 @@ test("indexed refresh canonicalizes interleaved children without losing unrelate
   expect(new Set(normalized.map((node) => node.id)).size).toBe(scattered.length);
 });
 
+test("property propagation leaves input snapshots intact across multiple and nested instances", () => {
+  let document = fixture();
+  let id = 0;
+  document = createComponentInstance(document, "master", () => `second-${id++}`).document;
+  document = makeComponent({ ...document, nodes: [...document.nodes, layer("outer")] }, "outer");
+  document = commit(document, reparentLayer(document, "copy-0", "outer"));
+  document = createComponentInstance(document, "outer", () => `nested-${id++}`).document;
+  const before = parseDesignDocument(document);
+  const input = {
+    ...before,
+    nodes: before.nodes.map((node) =>
+      node.id === "label" ? { ...node, text: "Updated master" } : node,
+    ),
+  };
+  const savedBefore = structuredClone(before);
+  const savedInput = structuredClone(input);
+  // Freeze caller-owned arrays and values to catch accidental writes during the
+  // in-place optimization of the reconciler's private working array.
+  for (const snapshot of [before, input]) {
+    Object.freeze(snapshot.nodes);
+    for (const node of snapshot.nodes) Object.freeze(node);
+  }
+  const result = reconcileComponentStructure(before.nodes, input.nodes);
+  expect(before).toEqual(savedBefore);
+  expect(input).toEqual(savedInput);
+  expect(result).not.toBe(input.nodes);
+  expect(result.filter((node) => node.type === "text").map((node) => node.text)).toEqual([
+    "Updated master",
+    "Updated master",
+    "Updated master",
+    "Updated master",
+  ]);
+  expect(parseDesignDocument({ ...before, nodes: result }).nodes).toHaveLength(result.length);
+});
+
 test("master structure edits remain usable in imported documents over 5000 layers", () => {
   const base = fixture();
   const before = parseDesignDocument({
