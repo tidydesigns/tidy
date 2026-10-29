@@ -1,0 +1,40 @@
+/** Native equivalents of Tidy's desktop theme.css semantic colors. No DOM dependency. */
+export const nativeColors = {
+  light: {
+    ink: "#292929",
+    muted: "#656565",
+    surface: "#ffffff",
+    panel: "#fafafa",
+    navigation: "#f7f7f7",
+    border: "#dedede",
+    hover: "#f0f0f0",
+    action: "#424242",
+    onAction: "#ffffff",
+    active: "#1d4ed8",
+    success: "#15803d",
+    warning: "#854d0e",
+    danger: "#b91c1c",
+  },
+  dark: {
+    ink: "#ededed",
+    muted: "#aaaaaa",
+    surface: "#171717",
+    panel: "#171717",
+    navigation: "#0f0f0f",
+    border: "#353535",
+    hover: "#252525",
+    action: "#ededed",
+    onAction: "#171717",
+    active: "#60a5fa",
+    success: "#4ade80",
+    warning: "#fbbf24",
+    danger: "#f87171",
+  },
+};
+export const nativeMetrics = {
+  radius: 12,
+  controlRadius: 8,
+  touchTarget: 44,
+  gutter: 20,
+  contentWidth: 720,
+};

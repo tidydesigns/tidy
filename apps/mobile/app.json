@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "Tidy",
+    "slug": "tidy-mobile",
+    "version": "0.1.0",
+    "orientation": "default",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "design.tidy.mobile",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "design.tidy.mobile"
+    },
+    "plugins": ["expo-secure-store", "expo-font", "expo-web-browser", "expo-sqlite"],
+    "web": {
+      "bundler": "metro"
+    },
+    "experiments": {
+      "autolinkingModuleResolution": true
+    },
+    "scheme": "design.tidy.mobile"
+  }
+}

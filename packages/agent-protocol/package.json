@@ -1,0 +1,25 @@
+{
+  "name": "@tidy/agent-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts/*": "./contracts/*.ts",
+    "./remote": "./remote.ts",
+    "./models/thread-updates": "./models/thread-updates.ts",
+    "./mobile": "./mobile.ts"
+  },
+  "scripts": {
+    "typecheck": "tsrs --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@tidy/design": "workspace:*",
+    "zod": "^4.6.6"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "eslint": "^9",
+    "typescript-eslint": "^8.0.0"
+  }
+}

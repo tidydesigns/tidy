@@ -75,7 +75,11 @@
     "dev:desktop:browser": "bun run --cwd apps/desktop dev:browser",
     "release:desktop:mac": "bun run --cwd apps/desktop release:mac",
     "typecheck:tsc": "turbo run typecheck:tsc",
-    "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics"
+    "test:analytics:db": "node apps/web/scripts/test-account-controls.mjs --analytics",
+    "dev:mobile": "turbo run dev --filter=@tidy/mobile",
+    "mobile:ios": "bun run --cwd apps/mobile ios",
+    "mobile:android": "bun run --cwd apps/mobile android",
+    "mobile:host": "bun apps/desktop/scripts/mobile-host.ts"
   },
   "devDependencies": {
     "oxfmt": "0.72.0",
@@ -102,7 +106,8 @@
     "paper@0.12.18": "patches/paper@0.12.18.patch",
     "@better-auth/core@1.7.7": "patches/@better-auth%2Fcore@1.7.7.patch",
     "pg@8.23.0": "patches/pg@8.23.0.patch",
-    "zod@4.6.7": "patches/zod@4.6.7.patch"
+    "zod@4.6.7": "patches/zod@4.6.7.patch",
+    "deepmerge@4.3.1": "patches/deepmerge@4.3.1.patch"
   },
   "version": "0.1.0"
 }

@@ -99,6 +99,19 @@
         "out/**",
         "public/desktop-demo/**"
       ]
+    },
+    "@tidy/mobile#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "@tidy/mobile#dev": {
+      "cache": false,
+      "persistent": true,
+      "passThroughEnv": ["EXPO_*", "REACT_NATIVE_PACKAGER_HOSTNAME"]
+    },
+    "@tidy/desktop#test": {
+      "dependsOn": ["^test"],
+      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/mobile/src/connection.ts"]
     }
   }
 }

@@ -31,13 +31,16 @@
     "typecheck:tsc": "tsc --noEmit"
   },
   "dependencies": {
-    "@tidy/design": "workspace:*",
-    "react": "19.2.8"
+    "@tidy/design": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19",
     "typescript": "^5",
     "eslint": "^9",
-    "typescript-eslint": "^8.0.0"
+    "typescript-eslint": "^8.0.0",
+    "react": "19.2.8"
+  },
+  "peerDependencies": {
+    "react": "^19.2.8"
   }
 }

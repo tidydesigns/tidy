@@ -28,7 +28,15 @@
     "./figma": "./figma.ts",
     "./figma-input": "./figma-input.ts",
     "./document-limits": "./document-limits.ts",
-    "./analytics": "./analytics.ts"
+    "./analytics": "./analytics.ts",
+    "./native-theme": "./native-theme.ts",
+    "./document-patch": "./document-patch.ts",
+    "./component-structure": "./component-structure.ts",
+    "./component-structure-error": "./component-structure-error.ts",
+    "./import-notes": "./import-notes.ts",
+    "./json-value": "./json-value.ts",
+    "./sync-protocol": "./sync-protocol.ts",
+    "./document-changes": "./document-changes.ts"
   },
   "scripts": {
     "typecheck": "tsrs --noEmit",
