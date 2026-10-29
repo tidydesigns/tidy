@@ -123,6 +123,37 @@ test("thread scans yield to interactive design reads and return validated summar
   }
 });
 
+test.each(["ASCII", "Café 🦊 漢字 \ud800"])(
+  "thread encoding transfers exact UTF-8 bytes across repeated checkpoints (%s)",
+  async (text: string) => {
+    const compute = new CloudCompute();
+    const thread = {
+      revision: 0,
+      id: randomUUID(),
+      projectId: randomUUID(),
+      title: "Checkpoint",
+      harness: "codex",
+      designIds: [],
+      messages: [{ id: randomUUID(), role: "assistant", text }],
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    } satisfies Parameters<CloudCompute["encodeThread"]>[0];
+    try {
+      // Cover small allocations and the large ASCII encoding from the CI crash.
+      for (const repeats of [1, 60_000, 1]) {
+        thread.messages[0].text = text.repeat(repeats);
+        const expected = Buffer.from(JSON.stringify(thread, null, 2), "utf8");
+        const encoded = await compute.encodeThread(thread);
+        expect(Buffer.from(encoded)).toEqual(expected);
+        expect(encoded.byteOffset).toBe(0);
+        expect(encoded.buffer.byteLength).toBe(expected.byteLength);
+      }
+    } finally {
+      await compute.close();
+    }
+  },
+);
+
 test("closing settles pending thread encodings and a later checkpoint restarts the worker", async () => {
   const compute = new CloudCompute();
   const thread = {
