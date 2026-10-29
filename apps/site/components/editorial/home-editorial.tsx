@@ -11,7 +11,8 @@ export async function HomeEditorial() {
       <div className={styles.homeHeading}>
         <h2 id="home-blog-title">From the blog.</h2>
         <Link className={styles.textLink} href="/blog">
-          All articles <span aria-hidden="true">→</span>
+          <span>All articles</span>
+          <span aria-hidden="true">→</span>
         </Link>
       </div>
       <PostList posts={posts} headingLevel={3} />

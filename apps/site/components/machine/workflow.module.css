@@ -150,7 +150,7 @@
 .sourceLinks a > span:last-child {
   margin-left: auto;
 }
-.sourceLinks a:hover {
+.sourceLinks a:hover > span:not([aria-hidden]) {
   text-decoration: underline;
   text-underline-offset: 3px;
 }

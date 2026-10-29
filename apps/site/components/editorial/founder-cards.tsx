@@ -21,10 +21,11 @@ export function FounderCards() {
             <div className={styles.socials}>
               <a href={founder.github} aria-label={`${founder.name} on GitHub`}>
                 <BrandIcon name="github" />
-                GitHub
+                <span>GitHub</span>
               </a>
               <a href={founder.linkedin} aria-label={`${founder.name} on LinkedIn`}>
-                LinkedIn <span aria-hidden="true">↗</span>
+                <span>LinkedIn</span>
+                <span aria-hidden="true">↗</span>
               </a>
             </div>
           </div>

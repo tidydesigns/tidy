@@ -66,7 +66,8 @@ export default function AboutPage() {
               GitHub.
             </p>
             <a className={styles.textLink} href={repositoryUrl}>
-              View the source on GitHub <span aria-hidden="true">↗</span>
+              <span>View the source on GitHub</span>
+              <span aria-hidden="true">↗</span>
             </a>
           </div>
         </section>
@@ -79,7 +80,8 @@ export default function AboutPage() {
         <aside className={styles.nextRead}>
           <p>How we use Tidy for design and development.</p>
           <Link className={styles.textLink} href="/blog">
-            Read the blog <span aria-hidden="true">→</span>
+            <span>Read the blog</span>
+            <span aria-hidden="true">→</span>
           </Link>
         </aside>
       </main>

@@ -143,9 +143,12 @@
   align-items: center;
   gap: 20px;
   min-height: 44px;
-  text-decoration: underline;
+  text-decoration: none;
   text-underline-offset: 5px;
   font-size: 15px;
+}
+.textLink > span:not([aria-hidden]) {
+  text-decoration: underline;
 }
 .team {
   padding: 48px 0 64px;
@@ -236,6 +239,7 @@
 .backLink {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 44px;
   margin-bottom: 38px;
   font-size: 14px;
@@ -354,8 +358,8 @@
 }
 @media (hover: hover) and (pointer: fine) {
   .postLink:hover .postTitle,
-  .socials a:hover,
-  .backLink:hover {
+  .socials a:hover > span:not([aria-hidden]),
+  .backLink:hover > span:not([aria-hidden]) {
     text-decoration: underline;
     text-underline-offset: 5px;
   }
