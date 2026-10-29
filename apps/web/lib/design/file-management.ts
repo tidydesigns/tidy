@@ -207,17 +207,17 @@ export async function createBrowserFileForUser(
       documentSchemaReady(),
     ]);
     return await withOrganizationEditAuthority(userId, bound, async (client) => {
-      if (folderId !== null) await folderAuthority(client, bound, folderId);
       const id = draftId ?? randomUUID();
       // Retrying an acknowledged-late creation must not create a second file or
       // overwrite a document. Authority is rechecked under the organization lock.
       if (draftId) {
         const existing = await client.query(
-          `select "id" from "designFile" where "id"=$1 and "organizationId"=$2 and "createdBy"=$3`,
+          `select "id" from "designFile" where "id"=$1 and "organizationId"=$2 and "createdBy"=$3 and "archivedAt" is null for share`,
           [id, bound, userId],
         );
         if (existing.rows.length) return { id };
       }
+      if (folderId !== null) await folderAuthority(client, bound, folderId);
       const values = [id, bound, designFileName(id), userId, folderId];
       if (documents) {
         // The document depends on the inserted file, keeping both writes atomic

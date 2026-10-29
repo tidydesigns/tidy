@@ -19,6 +19,12 @@ import { Dialog } from "@/components/ui/dialog";
 import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { indexFolderFiles } from "./folder-file-index";
+import {
+  retireAddedItems,
+  retireNames,
+  rollbackName,
+  type OptimisticName,
+} from "./optimistic-list-state";
 import { projectFileMove, settleFileMove, type FileMove } from "./optimistic-file-move";
 import { Icon } from "@/components/ui/icon";
 import {
@@ -123,10 +129,6 @@ export function FilesBrowser({
   const router = useRouter();
   const query = useSearchParams();
   const folderId = archived ? null : query ? query.get("folder") : (initialFolder?.id ?? null);
-  const currentFolder = folderId
-    ? (folders.find((folder) => folder.id === folderId) ??
-      (initialFolder?.id === folderId ? initialFolder : null))
-    : null;
   function openFolder(href: string) {
     setMenu(null);
     window.history.pushState(null, "", href);
@@ -170,8 +172,8 @@ export function FilesBrowser({
   const [deletingFile, setDeletingFile] = useState<File | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [renamedFiles, setRenamedFiles] = useState<Record<string, string>>({});
-  const [renamedFolders, setRenamedFolders] = useState<Record<string, string>>({});
+  const [renamedFiles, setRenamedFiles] = useState<Record<string, OptimisticName>>({});
+  const [renamedFolders, setRenamedFolders] = useState<Record<string, OptimisticName>>({});
   const [hiddenFileIds, setHiddenFileIds] = useState<string[]>([]);
   const [fileMoves, setFileMoves] = useState<Record<string, FileMove>>({});
   const [hiddenFolderIds, setHiddenFolderIds] = useState<string[]>([]);
@@ -232,6 +234,19 @@ export function FilesBrowser({
     newestFirst,
     archived,
   ]);
+  // Reconcile before committing children so a retired overlay never flashes
+  // back into the DOM, even when revalidation precedes the action response.
+  const remainingFiles = retireAddedItems(addedFiles, files);
+  const remainingFolders = retireAddedItems(addedFolders, folders);
+  const remainingFileNames = retireNames(renamedFiles, files);
+  const remainingFolderNames = retireNames(renamedFolders, folders);
+  if (remainingFiles !== addedFiles) setAddedFiles(remainingFiles);
+  if (remainingFolders !== addedFolders) setAddedFolders(remainingFolders);
+  if (remainingFileNames !== renamedFiles) setRenamedFiles(remainingFileNames);
+  if (remainingFolderNames !== renamedFolders) setRenamedFolders(remainingFolderNames);
+  const currentFolder = folderId
+    ? (sortedFolders.find((folder) => folder.id === folderId) ?? null)
+    : null;
   const sortedFiles = archived
     ? archivedFiles
     : (filesByFolder.get(currentFolder?.id ?? null) ?? []);
@@ -412,8 +427,8 @@ export function FilesBrowser({
     setMenu(null);
     setRenameDraft(
       target.kind === "file"
-        ? (renamedFiles[target.file.id] ?? target.file.name)
-        : (renamedFolders[target.folder.id] ?? target.folder.name),
+        ? (renamedFiles[target.file.id]?.name ?? target.file.name)
+        : (renamedFolders[target.folder.id]?.name ?? target.folder.name),
     );
     setRenaming(target);
   }
@@ -512,20 +527,21 @@ export function FilesBrowser({
     }
     const name = renameDraft.trim();
     if (!target || !name) return;
+    const operationId = crypto.randomUUID();
     if (target.kind === "file") {
       const file = target.file;
       if (name === file.name) return;
-      setRenamedFiles((current) => ({ ...current, [file.id]: name }));
+      setRenamedFiles((current) => ({ ...current, [file.id]: { name, operationId } }));
       const success = await perform(() => renameDesignFile(file.id, name), { itemId: file.id });
-      if (!success) setRenamedFiles((current) => ({ ...current, [file.id]: file.name }));
+      if (!success) setRenamedFiles((current) => rollbackName(current, file.id, operationId));
     } else {
       const folder = target.folder;
       if (name === folder.name) return;
-      setRenamedFolders((current) => ({ ...current, [folder.id]: name }));
+      setRenamedFolders((current) => ({ ...current, [folder.id]: { name, operationId } }));
       const success = await perform(() => renameDesignFolder(folder.id, name), {
         itemId: folder.id,
       });
-      if (!success) setRenamedFolders((current) => ({ ...current, [folder.id]: folder.name }));
+      if (!success) setRenamedFolders((current) => rollbackName(current, folder.id, operationId));
     }
   }
 
@@ -584,7 +600,7 @@ export function FilesBrowser({
               href={`/files/${encodeURIComponent(file.id)}`}
               className="truncate text-sm font-medium hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-primary-orange"
             >
-              {renamedFiles[file.id] ?? file.name}
+              {renamedFiles[file.id]?.name ?? file.name}
             </Link>
           )}
         </div>
@@ -642,7 +658,9 @@ export function FilesBrowser({
           {archived ? (
             "Archive"
           ) : currentFolder ? (
-            <span data-ph-private>{currentFolder.name}</span>
+            <span data-ph-private>
+              {renamedFolders[currentFolder.id]?.name ?? currentFolder.name}
+            </span>
           ) : (
             "Files"
           )}
@@ -654,7 +672,11 @@ export function FilesBrowser({
                 initialFileId={newFileId}
                 organizationId={organizationId}
                 folderId={currentFolder?.id ?? null}
-                folderName={currentFolder?.name ?? "Files"}
+                folderName={
+                  currentFolder
+                    ? (renamedFolders[currentFolder.id]?.name ?? currentFolder.name)
+                    : "Files"
+                }
               />
               {!currentFolder && (
                 <button
@@ -737,7 +759,7 @@ export function FilesBrowser({
                   >
                     <Icon name="folder" size={28} className="opacity-65" />
                     <span className="truncate text-sm font-medium">
-                      {renamedFolders[folder.id] ?? folder.name}
+                      {renamedFolders[folder.id]?.name ?? folder.name}
                     </span>
                   </Link>
                 )}
@@ -821,7 +843,7 @@ export function FilesBrowser({
                     <div className="flex min-w-0 items-center gap-4">
                       <button
                         type="button"
-                        aria-label={`${expandedFolderIds.includes(folder.id) ? "Collapse" : "Expand"} folder ${renamedFolders[folder.id] ?? folder.name}`}
+                        aria-label={`${expandedFolderIds.includes(folder.id) ? "Collapse" : "Expand"} folder ${renamedFolders[folder.id]?.name ?? folder.name}`}
                         aria-expanded={expandedFolderIds.includes(folder.id)}
                         onClick={() => toggleFolder(folder)}
                         className="flex size-5 shrink-0 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/25 focus-visible:outline-2 focus-visible:outline-primary-orange"
@@ -870,7 +892,7 @@ export function FilesBrowser({
                           }}
                           className="truncate text-sm font-medium hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-primary-orange"
                         >
-                          {renamedFolders[folder.id] ?? folder.name}
+                          {renamedFolders[folder.id]?.name ?? folder.name}
                         </Link>
                       )}
                     </div>
@@ -950,7 +972,7 @@ export function FilesBrowser({
                         prefetchOnIntent
                         prefetch={eagerFileIds.has(file.id) ? true : undefined}
                         href={`/files/${encodeURIComponent(file.id)}`}
-                        aria-label={`Open ${renamedFiles[file.id] ?? file.name}`}
+                        aria-label={`Open ${renamedFiles[file.id]?.name ?? file.name}`}
                         className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-orange"
                       />
                     )
@@ -982,7 +1004,7 @@ export function FilesBrowser({
                     />
                   ) : (
                     <span className="block truncate text-sm font-medium group-hover:text-accent-ink">
-                      {renamedFiles[file.id] ?? file.name}
+                      {renamedFiles[file.id]?.name ?? file.name}
                     </span>
                   )}
                   <p className="mt-1 text-xs text-secondary-ink">

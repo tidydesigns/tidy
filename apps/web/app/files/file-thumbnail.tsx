@@ -8,6 +8,7 @@ import {
   useEffect,
   useEffectEvent,
   useRef,
+  useMemo,
   useState,
   type ReactNode,
 } from "react";
@@ -31,11 +32,13 @@ const ThumbnailRenderer = dynamic(
   () => import("./thumbnail-renderer").then((module) => module.ThumbnailRenderer),
   { ssr: false },
 );
-type VersionResponse = {
-  versions: Record<string, string>;
-  thumbnailVersions?: Record<string, string | null>;
-};
-type ThumbnailVersions = VersionResponse & { register: (fileId: string) => () => void };
+import {
+  reconcileThumbnailVersions,
+  newestThumbnailVersion,
+  type VersionResponse,
+  type ThumbnailVersionState,
+} from "./thumbnail-versions";
+type ThumbnailVersions = ThumbnailVersionState & { register: (fileId: string) => () => void };
 
 const ThumbnailVersionsContext = createContext<ThumbnailVersions | null>(null);
 
@@ -43,7 +46,10 @@ export function FileThumbnailUpdates({ children }: { children: ReactNode }) {
   const visibleIds = useRef(new Map<string, number>());
   const checking = useRef(false);
   const [hasVisible, setHasVisible] = useState(false);
-  const [state, setState] = useState<VersionResponse>({ versions: {}, thumbnailVersions: {} });
+  const [state, setState] = useState<ThumbnailVersionState>({
+    versions: {},
+    thumbnailVersions: {},
+  });
 
   const register = useCallback((fileId: string) => {
     visibleIds.current.set(fileId, (visibleIds.current.get(fileId) ?? 0) + 1);
@@ -70,26 +76,17 @@ export function FileThumbnailUpdates({ children }: { children: ReactNode }) {
           cache: "no-store",
           signal,
         });
+        if (signal.aborted) return;
+        if (response.status === 401 || response.status === 403) {
+          setState((current) => reconcileThumbnailVersions(current, ids, { versions: {} }));
+          return;
+        }
         if (!response.ok) throw new Error("Could not check file versions.");
         const result = (await response.json()) as VersionResponse;
         if (signal.aborted) return;
-        setState((current) => {
-          const versions = Object.entries(result.versions).filter(
-            ([id, version]) => current.versions[id] !== version,
-          );
-          const thumbnails = Object.entries(result.thumbnailVersions ?? {}).filter(
-            ([id, version]) => current.thumbnailVersions?.[id] !== version,
-          );
-          return versions.length || thumbnails.length
-            ? {
-                versions: { ...current.versions, ...Object.fromEntries(versions) },
-                thumbnailVersions: {
-                  ...current.thumbnailVersions,
-                  ...Object.fromEntries(thumbnails),
-                },
-              }
-            : current;
-        });
+        setState((current) =>
+          reconcileThumbnailVersions(current, ids.slice(index, index + 100), result),
+        );
       }
     } catch {
       // Keep the current thumbnails; the next check will retry.
@@ -116,10 +113,9 @@ export function FileThumbnailUpdates({ children }: { children: ReactNode }) {
     };
   }, [hasVisible, checkVersions]);
 
+  const value = useMemo(() => ({ ...state, register }), [state, register]);
   return (
-    <ThumbnailVersionsContext.Provider value={{ ...state, register }}>
-      {children}
-    </ThumbnailVersionsContext.Provider>
+    <ThumbnailVersionsContext.Provider value={value}>{children}</ThumbnailVersionsContext.Provider>
   );
 }
 
@@ -164,16 +160,31 @@ export function FileThumbnail({
   const [retry, setRetry] = useState(0);
   const [rendered, setRendered] = useState<CachedThumbnail | null>(null);
   const polledVersion = updates?.versions[fileId];
+  const accessDenied = polledVersion === null;
   // A stale polling response must not mask a newer server-rendered revision.
   const checkedVersion =
     polledVersion && fileVersionAtLeast(polledVersion, initialVersion)
       ? polledVersion
       : initialVersion;
   const register = updates?.register;
-  const persistedVersion = updates?.thumbnailVersions?.[fileId] ?? thumbnailVersion;
+  const persistedVersion = newestThumbnailVersion(
+    thumbnailVersion,
+    updates?.thumbnailVersions[fileId],
+  );
   const objectUrl = useRef("");
   const failedVersion = useRef<string | null>(null);
   const appliedCache = useRef<CachedThumbnail | null>(null);
+  const [wasDenied, setWasDenied] = useState(false);
+  if (wasDenied !== accessDenied) {
+    setWasDenied(accessDenied);
+    if (accessDenied) {
+      // Reset before rendering children; the effect below releases external resources.
+      setRendered(null);
+      setSource("");
+      setVersion("");
+      setJob(null);
+    }
+  }
   const visibilityChanged = useEffectEvent((isVisible: boolean, isInViewport: boolean) => {
     inViewport.current = isInViewport;
     setObserved(true);
@@ -205,7 +216,14 @@ export function FileThumbnail({
     [],
   );
   useEffect(() => {
-    if (!observed || !visible || fileId.startsWith("pending-")) return;
+    if (!accessDenied) return;
+    removeCachedThumbnail(cacheScope, fileId);
+    if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
+    objectUrl.current = "";
+    appliedCache.current = null;
+  }, [accessDenied, cacheScope, fileId]);
+  useEffect(() => {
+    if (accessDenied || !observed || !visible || fileId.startsWith("pending-")) return;
     const publish = (value: CachedThumbnail) => {
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
       objectUrl.current = URL.createObjectURL(value.blob);
@@ -298,6 +316,7 @@ export function FileThumbnail({
       setJob((current) => (current?.signal === signal ? null : current));
     };
   }, [
+    accessDenied,
     visible,
     observed,
     fileId,
@@ -311,7 +330,7 @@ export function FileThumbnail({
     priority,
   ]);
   useEffect(() => {
-    if (!visible || !canGenerate || !rendered || rendered.persisted) return;
+    if (accessDenied || !visible || !canGenerate || !rendered || rendered.persisted) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout> | undefined;
     const persist = async () => {
@@ -346,13 +365,13 @@ export function FileThumbnail({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [visible, canGenerate, rendered, fileId, cacheScope]);
+  }, [accessDenied, visible, canGenerate, rendered, fileId, cacheScope]);
   return (
     <div
       ref={container}
       className="ph-no-capture relative h-full w-full overflow-hidden bg-primary-white"
     >
-      {source && visible && !prewarm ? (
+      {source && visible && !prewarm && !accessDenied ? (
         <Image
           src={source}
           alt=""
@@ -374,7 +393,7 @@ export function FileThumbnail({
       ) : (
         <div className="absolute left-1/2 top-1/2 h-24 w-36 -translate-x-1/2 -translate-y-1/2 border border-dashed border-primary-black/20" />
       )}
-      {job && visible && <ThumbnailRenderer {...job} />}
+      {job && visible && !accessDenied && <ThumbnailRenderer {...job} />}
     </div>
   );
 }

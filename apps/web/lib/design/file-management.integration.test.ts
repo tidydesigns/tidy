@@ -1190,3 +1190,29 @@ integration(
     expect(await getFileSnapshot("viewer", "file")).toBeNull();
   },
 );
+
+integration(
+  "creation retries survive folder deletion but cannot resume archived or foreign drafts",
+  async () => {
+    const id = crypto.randomUUID();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    await deleteDesignFolderForUser("editor", "folder");
+    const before = await state();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    expect(await state()).toEqual(before);
+    expect(
+      await createBrowserFileForUser("editor", "a", "folder", crypto.randomUUID()),
+    ).toHaveProperty("error");
+    await admin.query('update "designFile" set "archivedAt"=now() where "id"=$1', [id]);
+    const archived = await state();
+    expect(await createBrowserFileForUser("editor", "a", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(archived);
+    await admin.query(
+      'update "designFile" set "archivedAt"=null,"createdBy"=\'viewer\' where "id"=$1',
+      [id],
+    );
+    const foreign = await state();
+    expect(await createBrowserFileForUser("editor", "a", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(foreign);
+  },
+);
