@@ -955,6 +955,7 @@ test("turn timing survives storage, status follows events and resumed turns get 
   });
   const startedAt = thread.messages[0].turn?.startedAt;
   expect(startedAt).toBeDefined();
+  expect(thread.messages[0].sentAt).toBe(startedAt);
   if (!startedAt) throw new Error("The turn did not record its start time.");
   expect(thread.activity).toBe("Starting");
   const update = runs[0].input.onUpdate;
@@ -971,6 +972,7 @@ test("turn timing survives storage, status follows events and resumed turns get 
   expect((await store.readThread(project.id, thread.id)).messages[0].turn).toEqual(
     result.messages[0].turn,
   );
+  expect((await store.readThread(project.id, thread.id)).messages[0].sentAt).toBe(startedAt);
   await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Continue" });
   const resumed = await service.readThread(project.id, thread.id);
   expect(resumed.messages[0].turn).toEqual(result.messages[0].turn);

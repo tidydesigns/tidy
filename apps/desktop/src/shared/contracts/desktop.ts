@@ -59,6 +59,7 @@ const messageSchema = z.object({
   id,
   role: z.enum(["user", "assistant"]),
   text: z.string().max(1_000_000),
+  sentAt: z.string().datetime().optional(),
   turn: z
     .object({ startedAt: z.string().datetime(), endedAt: z.string().datetime().optional() })
     .optional(),

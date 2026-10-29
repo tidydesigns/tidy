@@ -478,7 +478,7 @@ app
     session.defaultSession.setPermissionRequestHandler(
       (contents, permission, callback, details) => {
         callback(
-          permission === "local-fonts" &&
+          (permission === "local-fonts" || permission === "clipboard-sanitized-write") &&
             details.isMainFrame &&
             trustedRendererURL(contents.mainFrame.url, entryURL) &&
             Boolean(BrowserWindow.fromWebContents(contents)),
@@ -487,7 +487,7 @@ app
     );
     session.defaultSession.setPermissionCheckHandler(
       (contents, permission, _origin, details) =>
-        permission === "local-fonts" &&
+        (permission === "local-fonts" || permission === "clipboard-sanitized-write") &&
         details.isMainFrame &&
         Boolean(contents && trustedRendererURL(contents.mainFrame.url, entryURL)) &&
         Boolean(contents && BrowserWindow.fromWebContents(contents)),
