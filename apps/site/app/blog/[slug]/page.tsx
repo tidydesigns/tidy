@@ -131,6 +131,11 @@ export default async function BlogPostPage({ params }: Props) {
                     <table>{children}</table>
                   </div>
                 ),
+                pre: ({ children }) => (
+                  <pre tabIndex={0} role="region" aria-label="Code example">
+                    {children}
+                  </pre>
+                ),
               }}
             >
               {post.body}
@@ -140,7 +145,7 @@ export default async function BlogPostPage({ params }: Props) {
         {related.length > 0 && (
           <section className={styles.related} aria-labelledby="related-title">
             <h2 id="related-title">Keep exploring.</h2>
-            <PostList posts={related} />
+            <PostList posts={related} headingLevel={3} />
           </section>
         )}
       </main>

@@ -1,9 +1,13 @@
 .intro {
-  display: grid;
-  grid-template-columns: 1fr 220px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 48px;
   padding-bottom: 64px;
+}
+.intro > div:first-child {
+  flex: 1 1 320px;
+  min-width: 0;
 }
 .intro h1 {
   margin: 0;
@@ -20,6 +24,7 @@
   line-height: 1.6;
 }
 .artwork {
+  flex-shrink: 0;
   width: 220px;
   clip-path: polygon(
     0 24%,
@@ -62,9 +67,11 @@
 }
 @media (max-width: 640px) {
   .intro {
-    grid-template-columns: 1fr 90px;
     gap: 16px;
     padding-bottom: 40px;
+  }
+  .intro > div:first-child {
+    flex-basis: 220px;
   }
   .intro h1 {
     font-size: clamp(48px, 12vw, 64px);

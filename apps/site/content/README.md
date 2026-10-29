@@ -136,3 +136,31 @@ rebuild the site. Re-running the command with the same name updates the manifest
 changed images get new hashed filenames, so browsers cannot show an old cover.
 Old variants may be removed once no content or older deployed version needs them.
 The image command does not modify your original file or publish anything.
+
+## Accessibility before publishing
+
+Preview the production build, including any custom cover, table or code example.
+Check the blog index, article and homepage where the post appears.
+
+- Use a descriptive title and link text. Begin article sections at `##`, use `###`
+  for subsections, and avoid skipping heading levels. The page supplies the `h1`.
+- Describe meaningful images in Markdown (`![description](/path/to/image.webp)`)
+  and in `coverAlt`. Explain the useful details of screenshots in nearby text;
+  readers should not need to read text embedded in an image. Use empty alt text
+  only for images that are purely decorative.
+- Give tables meaningful column headers. Keep code examples readable and check
+  that wide tables and code can be scrolled with the keyboard.
+- Test light and dark themes, a 320px-wide viewport, enlarged text, and increased
+  text spacing. Check that headings, founder links and footer links still fit.
+- Use Tab, Shift+Tab, Enter, Space and Escape to check navigation and disclosures.
+  Check the skip link, visible focus, mobile menu dismissal and focus return.
+- Run an axe WCAG 2.2 A/AA scan on the rendered pages, including the open mobile
+  menu and expanded changelog entries. Review items marked incomplete manually;
+  a zero-violation scan is not a complete accessibility assessment.
+- Before release, make a VoiceOver/Safari or NVDA/Firefox pass through headings,
+  landmarks, links and images, and check reduced-motion behavior.
+
+Keep `bun typecheck --filter=@tidy/site`, `bun run lint --filter=@tidy/site`,
+`bun run test --filter=@tidy/site` and `bun run build:site` in the review process.
+The existing lint configuration includes JSX accessibility rules. Browser scans
+and assistive-technology checks cover issues that static lint cannot detect.

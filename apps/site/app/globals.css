@@ -213,7 +213,7 @@ a {
   text-decoration: none;
   text-underline-offset: 4px;
 }
-.header-link[aria-current="page"] {
+.header-link[aria-current] {
   text-decoration: underline;
 }
 .button {
