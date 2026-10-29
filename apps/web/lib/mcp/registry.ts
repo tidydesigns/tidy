@@ -55,6 +55,8 @@ function failure(message: string) {
   return { content: [{ type: "text" as const, text: message }], isError: true as const };
 }
 
+/** Register public tool schemas and handlers for the authenticated user.
+ * Property edits default to compact acknowledgments; full documents are opt-in. */
 export function registerTidyTools(server: McpServer, userId: string, activity: McpActivity) {
   registerContextTools(server, userId);
   registerCommentTools(server, userId);

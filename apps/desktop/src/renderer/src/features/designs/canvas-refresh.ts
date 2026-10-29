@@ -18,12 +18,23 @@ export class CanvasRefresh<T> {
     return this.resume();
   };
 
+  /** Share active reads and hand queued work across the drain's cleanup window. */
   resume = (): Promise<void> => {
     if (this.running) return this.running;
     if (!this.wanted || this.options.blocked()) return Promise.resolve();
-    this.running = this.drain().finally(() => {
-      this.running = undefined;
-    });
+    this.running = this.drain().then(
+      () => {
+        this.running = undefined;
+        // A write can unblock after drain exits but before this callback runs.
+        // Chain the resumed work so existing callers also observe its failure.
+        return this.resume();
+      },
+      (error: unknown) => {
+        this.running = undefined;
+        // Invalid files wait for another event; cleanup must not spin on them.
+        throw error;
+      },
+    );
     return this.running;
   };
 

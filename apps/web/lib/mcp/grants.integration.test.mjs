@@ -2526,7 +2526,7 @@ integration(
   },
 );
 
-integration("MCP compact edits preserve revision checks and default full responses", async () => {
+integration("MCP edits default to compact responses and preserve revision checks", async () => {
   const { designNodeSchema } = await import("../design/document");
   const document = blankDesignDocument();
   document.nodes = [

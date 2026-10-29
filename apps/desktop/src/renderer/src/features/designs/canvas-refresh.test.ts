@@ -68,6 +68,45 @@ test("a write completed during a read still invalidates it and resumes immediate
   expect(applied).toEqual([2]);
 });
 
+test("a write finishing between drain exit and cleanup resumes the queued read", async () => {
+  const { refresh, reads, applied, state } = fixture();
+  const pending = refresh.request();
+  state.writes++;
+  state.generation++;
+  reads[0].resolve(1);
+  // Let drain observe the write and exit, but resume before its cleanup runs.
+  await Promise.resolve();
+  expect(applied).toEqual([]);
+  state.writes--;
+  expect(refresh.resume()).toBe(pending);
+  await Promise.resolve();
+  expect(reads).toHaveLength(2);
+  reads[1].resolve(2);
+  await pending;
+  expect(applied).toEqual([2]);
+});
+
+test("a read restarted during cleanup propagates failure without retrying in a loop", async () => {
+  const { refresh, reads, applied, state } = fixture();
+  const pending = refresh.request();
+  state.writes++;
+  state.generation++;
+  reads[0].resolve(1);
+  await Promise.resolve();
+  state.writes--;
+  refresh.resume();
+  await Promise.resolve();
+  expect(reads).toHaveLength(2);
+  reads[1].reject(new Error("Invalid JSON"));
+  await expect(pending).rejects.toThrow("Invalid JSON");
+  expect(reads).toHaveLength(2);
+  expect(applied).toEqual([]);
+  const repaired = refresh.request();
+  reads[2].resolve(3);
+  await repaired;
+  expect(applied).toEqual([3]);
+});
+
 test("partial file failures wait for another event and then recover", async () => {
   const { refresh, reads, applied } = fixture();
   const pending = refresh.request();
