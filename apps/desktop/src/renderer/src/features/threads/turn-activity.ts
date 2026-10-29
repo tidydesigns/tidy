@@ -1,6 +1,9 @@
 import type { Thread } from "../../../../shared/contracts/desktop";
 
-export function groupTurnActivity(thread: Pick<Thread, "messages" | "toolActivities">) {
+export function groupTurnActivity(
+  thread: Pick<Thread, "messages" | "toolActivities">,
+  previous?: ReadonlyMap<string, NonNullable<Thread["toolActivities"]>>,
+) {
   const owners = new Map<string, string>();
   let owner: string | undefined;
   let timed = false;
@@ -18,6 +21,11 @@ export function groupTurnActivity(thread: Pick<Thread, "messages" | "toolActivit
     const group = groups.get(id) ?? [];
     group.push(tool);
     groups.set(id, group);
+  }
+  for (const [id, group] of groups) {
+    const retained = previous?.get(id);
+    if (retained?.length === group.length && group.every((tool, index) => tool === retained[index]))
+      groups.set(id, retained);
   }
   return groups;
 }

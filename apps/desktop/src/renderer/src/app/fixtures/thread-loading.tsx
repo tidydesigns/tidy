@@ -712,6 +712,97 @@ async function runThreadLoadingTests(): Promise<string[]> {
     selection.removeAllRanges();
   });
 
+  await run(
+    "turn navigation stays current through streamed replies and added turns",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      render({ selected: a.id });
+      await settle();
+      const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
+      const first = required(buttons()[0], "First turn");
+      first.focus();
+      first.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      await settle();
+      check(document.activeElement === buttons()[1], "ArrowDown did not focus the next turn");
+      const last = required(a.messages.at(-1), "Last reply");
+      threads[a.id] = {
+        ...a,
+        revision: 2,
+        messages: [...a.messages.slice(0, -1), { ...last, text: "Latest streamed response" }],
+      };
+      render({ selected: a.id });
+      const latest = required(buttons().at(-1), "Last turn");
+      latest.focus();
+      latest.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      await until(
+        () =>
+          Boolean(
+            host
+              .querySelector(".conversation-turn-preview")
+              ?.textContent?.includes("Latest streamed response"),
+          ),
+        "Current response preview",
+      );
+      const userId = crypto.randomUUID();
+      threads[a.id] = {
+        ...threads[a.id],
+        revision: 3,
+        messages: [
+          ...threads[a.id].messages,
+          { id: userId, role: "user", text: "A newly added turn", turn: { startedAt: timestamp } },
+          { id: crypto.randomUUID(), role: "assistant", text: "The newest answer" },
+        ],
+      };
+      render({ selected: a.id });
+      await settle();
+      const added = required(buttons().at(-1), "Added turn");
+      check(buttons().length === 5, "Added turn did not get a navigation target");
+      check(
+        added.getAttribute("aria-label")?.includes("A newly added turn"),
+        "Added turn label is stale",
+      );
+      check(added.style.top === "100%", "Added turn did not update navigation positions");
+      added.focus();
+      added.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      await settle();
+      check(document.activeElement === buttons()[3], "ArrowUp used a stale turn index");
+      added.focus();
+      added.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      await settle();
+      check(
+        host
+          .querySelector(".conversation-turn-preview")
+          ?.textContent?.includes("The newest answer"),
+        "Added turn preview is stale",
+      );
+      added.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      await settle();
+      check(
+        !host.querySelector(".conversation-turn-preview"),
+        "Escape did not dismiss the preview",
+      );
+      const viewport = visibleTranscript();
+      first.click();
+      await settle();
+      const previousTop = viewport.scrollTop;
+      const target = required(
+        viewport.querySelectorAll<HTMLElement>(".conversation-entry")[8],
+        "Added prompt",
+      );
+      const expectedTop = Math.min(
+        viewport.scrollHeight - viewport.clientHeight,
+        viewport.scrollTop +
+          target.getBoundingClientRect().top -
+          viewport.getBoundingClientRect().top -
+          Number.parseFloat(getComputedStyle(viewport).paddingTop),
+      );
+      added.click();
+      await settle();
+      check(Math.abs(viewport.scrollTop - previousTop) > 2, "Added turn did not scroll");
+      check(Math.abs(viewport.scrollTop - expectedTop) < 2, "Added turn jumped to a stale message");
+    },
+  );
+
   await run("a cold thread fills its existing selected view when data arrives", async (root) => {
     const { a, threads, render } = conversationFixture(root);
     delete threads[a.id];
