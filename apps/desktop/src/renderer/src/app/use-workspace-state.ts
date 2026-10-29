@@ -87,16 +87,33 @@ export function useWorkspaceState({
 
   function applySnapshot(value: ProjectSnapshot, activate = true, expected?: ProjectSnapshot) {
     setSnapshots((current) => {
-      // A background refresh must not erase edits or events received since it began.
-      if (expected && current[value.project.id] !== expected) return current;
+      const previous = current[value.project.id];
+      if (expected && !previous) return current;
+      const changed = expected && previous !== expected;
+      const expectedThreads = changed
+        ? new Map(expected.threads.map((item) => [item.id, item]))
+        : undefined;
       const summaries = new Map(value.threads.map((item) => [item.id, item]));
-      for (const item of current[value.project.id]?.threads ?? []) {
-        if ((summaries.get(item.id)?.revision ?? -1) < item.revision) summaries.set(item.id, item);
+      for (const item of previous?.threads ?? []) {
+        const revision = summaries.get(item.id)?.revision ?? -1;
+        if (
+          revision < item.revision ||
+          (revision === item.revision && expectedThreads && expectedThreads.get(item.id) !== item)
+        )
+          summaries.set(item.id, item);
       }
       return {
         ...current,
         [value.project.id]: {
           ...value,
+          // Preserve intervening edits without discarding unrelated refreshed fields.
+          ...(changed && previous
+            ? {
+                project: previous.project !== expected.project ? previous.project : value.project,
+                designs: previous.designs !== expected.designs ? previous.designs : value.designs,
+                folders: previous.folders !== expected.folders ? previous.folders : value.folders,
+              }
+            : {}),
           threads: [...summaries.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
         },
       };

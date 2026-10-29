@@ -1797,3 +1797,57 @@ test("bootstrap returns the project while harness discovery is still pending", a
     probe.mockRestore();
   }
 });
+
+test("project selections stay ordered across handlers and release after failure", async () => {
+  const { service, store, project, directory } = await fixture();
+  const secondPath = join(directory, "second-project");
+  await mkdir(secondPath);
+  const second = await store.open(secondPath);
+  const platform = {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  };
+  const local = createWorkspaceRequests(service, platform);
+  const remote = createWorkspaceRequests(service, platform);
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<void>();
+  const access = service.assertProjectAccess.bind(service);
+  let first = true;
+  const checkAccess = spyOn(service, "assertProjectAccess").mockImplementation(async (id) => {
+    if (first) {
+      first = false;
+      entered.resolve();
+      await gate.promise;
+    }
+    return access(id);
+  });
+  const selected = spyOn(store, "select");
+  try {
+    const earlier = local.invoke("select-project", project.id, undefined);
+    await entered.promise;
+    const later = remote.invoke("select-project", second.project.id, undefined);
+    // Unrelated requests remain responsive while the first access check is held.
+    await remote.invoke("project-snapshot", second.project.id, undefined);
+    expect(selected).not.toHaveBeenCalled();
+    gate.resolve();
+    await Promise.all([earlier, later]);
+    expect(selected.mock.calls.map(([id]) => id)).toEqual([project.id, second.project.id]);
+    expect(store.activeProjectId).toBe(second.project.id);
+
+    selected.mockRejectedValueOnce(new Error("Selection failed"));
+    const rejected = local.invoke("select-project", project.id, undefined);
+    const recovered = remote.invoke("select-project", second.project.id, undefined);
+    await expect(rejected).rejects.toThrow("Selection failed");
+    await recovered;
+    expect(store.activeProjectId).toBe(second.project.id);
+    const reopened = new ProjectStore(join(directory, "app"));
+    await reopened.initialize();
+    expect(reopened.activeProjectId).toBe(second.project.id);
+  } finally {
+    gate.resolve();
+    selected.mockRestore();
+    checkAccess.mockRestore();
+  }
+});

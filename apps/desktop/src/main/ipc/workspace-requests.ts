@@ -32,6 +32,9 @@ export type WorkspacePlatform<Context> = {
   showItemInFolder(path: string): void;
 };
 
+// Local IPC and remote handlers share the same persisted project selection.
+const projectSelections = new WeakMap<WorkspaceService, Promise<unknown>>();
+
 export function createWorkspaceRequests<Context>(
   service: WorkspaceService,
   platform: WorkspacePlatform<Context>,
@@ -406,6 +409,16 @@ export function createWorkspaceRequests<Context>(
     async invoke(name: string, input: unknown, context: Context) {
       const action = handlers.get(name);
       if (!action) throw new Error("Unknown desktop request.");
+      if (name === "select-project") {
+        const previous = projectSelections.get(service) ?? Promise.resolve();
+        const request = service.dispatch(() => previous.then(() => action(input, context)));
+        // A failed selection must release the next one, including its access checks.
+        projectSelections.set(
+          service,
+          request.catch(() => {}),
+        );
+        return request;
+      }
       return service.dispatch(() => action(input, context));
     },
   };

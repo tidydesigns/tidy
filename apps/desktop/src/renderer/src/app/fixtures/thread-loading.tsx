@@ -1508,7 +1508,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
   );
 
   await run("cached project refreshes cannot erase newer design events", async (root) => {
-    const { state, emit } = await workspaceFixture(root);
+    const { initial, state, emit } = await workspaceFixture(root);
     const before = required(state().snapshots[projectId], "Initial project snapshot");
     const design = {
       id: crypto.randomUUID(),
@@ -1517,8 +1517,13 @@ async function runThreadLoadingTests(): Promise<string[]> {
       updatedAt: timestamp,
     };
     emit({ type: "designs", projectId, designs: [design], folders: [] });
-    flushSync(() => state().applySnapshot(before, true, before));
+    const refreshed = { ...before, threads: [summarizeThread({ ...initial, revision: 2 })] };
+    flushSync(() => state().applySnapshot(refreshed, true, before));
     check(state().snapshots[projectId].designs[0] === design, "Late refresh erased the newer file");
+    check(
+      state().snapshots[projectId].threads[0]?.revision === 2,
+      "Design event discarded refreshed threads",
+    );
     const current = state().snapshots[projectId];
     flushSync(() => state().applySnapshot({ ...current, designs: [] }, true, current));
     check(
@@ -1526,6 +1531,48 @@ async function runThreadLoadingTests(): Promise<string[]> {
       "Unchanged cached snapshot did not refresh",
     );
   });
+
+  await run(
+    "thread events preserve concurrent edits while other snapshot fields refresh",
+    async (root) => {
+      const { initial, state, emit } = await workspaceFixture(root);
+      const before = required(state().snapshots[projectId], "Initial project snapshot");
+      const live = { ...initial, title: "Live title", revision: 3 };
+      emit({ type: "thread", thread: live });
+      const design = {
+        id: crypto.randomUUID(),
+        name: "Refreshed design",
+        path: "/fixture/design",
+        updatedAt: timestamp,
+      };
+      flushSync(() =>
+        state().applySnapshot(
+          { ...before, designs: [design], threads: [summarizeThread({ ...initial, revision: 3 })] },
+          false,
+          before,
+        ),
+      );
+      check(
+        state().snapshots[projectId].designs[0] === design,
+        "Thread event discarded refreshed designs",
+      );
+      check(
+        state().snapshots[projectId].threads[0]?.title === live.title,
+        "Equal-revision refresh erased an intervening edit",
+      );
+      flushSync(() =>
+        state().applySnapshot(
+          { ...before, designs: [design], threads: [summarizeThread({ ...initial, revision: 4 })] },
+          false,
+          before,
+        ),
+      );
+      check(
+        state().snapshots[projectId].threads[0]?.revision === 4,
+        "Newer refresh revision was discarded",
+      );
+    },
+  );
 
   await run(
     "stale events preserve state identity and equal-revision snapshots still reconcile",
