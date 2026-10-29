@@ -44,9 +44,13 @@ async function run(request: ComputeRequest) {
   try {
     if (request.kind === "encode-thread") {
       const json = JSON.stringify(request.thread, null, 2);
-      if (Buffer.byteLength(json) > 16 * 1024 * 1024)
+      const byteLength = Buffer.byteLength(json);
+      if (byteLength > 16 * 1024 * 1024)
         throw new Error("The local project file reached its size limit.");
-      const value = new TextEncoder().encode(json);
+      // Avoid Bun's worker TextEncoder crash. A dedicated allocation also keeps
+      // the transfer independent of Node's shared small-buffer pool.
+      const value = Buffer.allocUnsafeSlow(byteLength);
+      value.write(json, "utf8");
       parentPort!.postMessage({ id: request.id, value }, [value.buffer]);
       return;
     }
