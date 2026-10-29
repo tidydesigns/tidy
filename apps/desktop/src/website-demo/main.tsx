@@ -132,8 +132,9 @@ async function start() {
   const [bootstrap, thread] = await Promise.all([
     api.bootstrap(),
     api.readThread(project.id, demoId(10)),
-    prepareConversation(),
-    PreviewArtwork.preload(),
+    // Failed optional chunks retain their view-level fallback/retry controls.
+    // Canvas-only captures do not need either of these thread views.
+    canvasView ? undefined : Promise.allSettled([prepareConversation(), PreviewArtwork.preload()]),
   ]);
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
