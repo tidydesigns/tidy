@@ -19,12 +19,14 @@ export function useWorkspaceState({
   navigation,
   onError,
   initial,
+  initialThreads,
   connection,
 }: {
   api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
   initial?: Bootstrap;
+  initialThreads?: Thread[];
   connection?: string;
 }) {
   const initialBootstrap = useRef(initial);
@@ -41,7 +43,9 @@ export function useWorkspaceState({
     initial?.activeProject ? { [initial.activeProject.project.id]: initial.activeProject } : {},
   );
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>(initial?.harnesses ?? []);
-  const [threads, setThreads] = useState<Record<string, Thread>>({});
+  const [threads, setThreads] = useState<Record<string, Thread>>(() =>
+    Object.fromEntries((initialThreads ?? []).map((thread) => [thread.id, thread])),
+  );
   const currentThreads = useRef(threads);
   useLayoutEffect(() => {
     currentThreads.current = threads;

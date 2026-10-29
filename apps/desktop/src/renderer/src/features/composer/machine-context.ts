@@ -6,6 +6,7 @@ import { remapAttachmentReferences } from "../../../../shared/models/attachment-
 import { UserFacingError } from "@tidy/ui/errors";
 import type {
   Bootstrap,
+  Thread,
   DesktopAPI,
   Project,
   ProjectSnapshot,
@@ -40,6 +41,7 @@ export type MachineContext = {
 };
 export type PreparedWorkspace = {
   bootstrap: Bootstrap;
+  threads?: Thread[];
   draft?: Draft;
   relation: "matching" | "separate";
 };

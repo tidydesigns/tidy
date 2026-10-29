@@ -108,9 +108,22 @@ export function lazyView<Props extends object>(
     onError?: (props: NoInfer<Props>, error: unknown) => void;
   },
 ) {
-  let current = lazy(load);
-  return function LazyView(props: Props) {
-    const [attempt, setAttempt] = useState(() => ({ View: current, revision: 0 }));
+  let resolved: ComponentType<Props> | undefined;
+  let pending: Promise<{ default: ComponentType<Props> }> | undefined;
+  const preload = () =>
+    (pending ??= load().then(
+      (module) => {
+        resolved = module.default;
+        return module;
+      },
+      (error: unknown) => {
+        pending = undefined;
+        throw error;
+      },
+    ));
+  let current = lazy(preload);
+  function LazyView(props: Props) {
+    const [attempt, setAttempt] = useState(() => ({ View: resolved ?? current, revision: 0 }));
     const { View, revision } = attempt;
     return (
       <ViewBoundary
@@ -119,7 +132,9 @@ export function lazyView<Props extends object>(
         errorFallback={options.errorFallback}
         onError={(error) => options.onError?.(props, error)}
         retry={() => {
-          current = lazy(load);
+          pending = undefined;
+          resolved = undefined;
+          current = lazy(preload);
           setAttempt({ View: current, revision: revision + 1 });
         }}
       >
@@ -132,5 +147,6 @@ export function lazyView<Props extends object>(
         </Suspense>
       </ViewBoundary>
     );
-  };
+  }
+  return Object.assign(LazyView, { preload });
 }
