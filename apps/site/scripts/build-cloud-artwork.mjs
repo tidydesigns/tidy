@@ -19,8 +19,8 @@ for (const name of ["cloud-atmosphere", "cloud-spectrum", "cloud-coral"]) {
   const { width, height } = metadata;
   if (!width || !height) throw new Error(`Missing image dimensions: ${name}`);
   const outputs = [];
-  // Keep native detail. Exporting a larger file never creates a larger master.
-  const sizes = [...new Set([480, 768, 1024, width].filter((size) => size <= width))];
+  // Decorative textures use delivery-quality exports; design masters stay untouched.
+  const sizes = [...new Set([320, 480, 768, 1024, width].filter((size) => size <= width))];
   for (const size of sizes) {
     for (const format of ["avif", "webp"]) {
       let image = sharp(bytes).rotate();
@@ -28,8 +28,8 @@ for (const name of ["cloud-atmosphere", "cloud-spectrum", "cloud-coral"]) {
       image = image.resize({ width: size, withoutEnlargement: true });
       const result = await (
         format === "avif"
-          ? image.avif({ quality: 75, effort: 6, chromaSubsampling: "4:4:4" })
-          : image.webp({ quality: 94, effort: 6 })
+          ? image.avif({ quality: name === "cloud-atmosphere" ? 40 : 50, effort: 6 })
+          : image.webp({ quality: name === "cloud-atmosphere" ? 72 : 80, effort: 6 })
       ).toBuffer({ resolveWithObject: true });
       const filename = `${name}-${size}.${format}`;
       await writeFile(path.join(destination, filename), result.data);

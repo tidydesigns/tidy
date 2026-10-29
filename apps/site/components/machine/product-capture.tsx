@@ -37,28 +37,48 @@ export function ProductCaptureImage({
   const selected = !enabled || theme === "system" ? undefined : theme === "dark" ? dark : light;
   return (
     <>
-      <picture>
-        {eager && enabled && (
-          <source
-            media={theme === "system" ? "(prefers-color-scheme: dark)" : undefined}
-            srcSet={sourceSet(theme === "light" ? light : dark)}
-            sizes={sizes}
-          />
-        )}
+      <picture className="product-capture-scripted">
+        <source
+          data-capture-theme="dark"
+          data-fallback={dark.files.at(-1)!.src}
+          media={selected === dark ? "all" : "not all"}
+          srcSet={sourceSet(dark)}
+          sizes={sizes}
+          suppressHydrationWarning
+        />
+        <source
+          data-capture-theme="light"
+          data-fallback={light.files.at(-1)!.src}
+          media={selected === light ? "all" : "not all"}
+          srcSet={sourceSet(light)}
+          sizes={sizes}
+          suppressHydrationWarning
+        />
         {/* Prebuilt exports support static hosting without a runtime image service. */}
         <img
-          src={(selected ?? (eager && enabled ? light : undefined))?.files.at(-1)!.src}
-          srcSet={selected ? sourceSet(selected) : eager && enabled ? sourceSet(light) : undefined}
+          src={selected?.files.at(-1)!.src}
+          srcSet={selected ? sourceSet(selected) : undefined}
           sizes={sizes}
           width={light.width}
           height={light.height}
           alt={alt}
           loading={eager ? "eager" : "lazy"}
           decoding="async"
-          style={{ visibility: selected || (eager && enabled) ? undefined : "hidden" }}
+          suppressHydrationWarning
         />
       </picture>
+      {enabled && (
+        <script
+          dangerouslySetInnerHTML={{
+            // Resolve the already-initialized site theme while HTML is parsed,
+            // before hydration. Inactive sources prevent the preload scanner
+            // from downloading the system theme when a saved preference differs.
+            __html: `(function(){var p=document.currentScript.previousElementSibling,t=document.documentElement.dataset.theme==='dark'?'dark':'light',s=p.querySelector('[data-capture-theme="'+t+'"]');if(s){s.media='all';p.querySelector('img').src=s.dataset.fallback}})()`,
+          }}
+        />
+      )}
       <noscript>
+        <style>{".product-capture-scripted { display: none; }"}</style>
         <picture>
           <source media="(prefers-color-scheme: dark)" srcSet={sourceSet(dark)} sizes={sizes} />
           <img

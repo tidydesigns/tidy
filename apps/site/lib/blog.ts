@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { cache } from "react";
 import matter from "gray-matter";
+import { readBlogCover, type BlogCover } from "./blog-cover";
 
 export type BlogPost = {
   slug: string;
@@ -12,6 +13,9 @@ export type BlogPost = {
   updated?: string;
   category: string;
   artwork: "cloud-coral" | "cloud-spectrum";
+  cover?: string;
+  coverAlt?: string;
+  coverImage?: BlogCover;
   draft: boolean;
   body: string;
   readingMinutes: number;
@@ -42,6 +46,11 @@ export function parsePost(slug: string, source: string): BlogPost {
   }
   if (data.draft !== undefined && typeof data.draft !== "boolean") fail("draft must be a boolean");
   if (data.artwork !== "cloud-coral" && data.artwork !== "cloud-spectrum") fail("unknown artwork");
+  if (
+    data.cover !== undefined &&
+    (typeof data.cover !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(data.cover))
+  )
+    fail("cover must be a kebab-case image name");
   if (!content.trim()) fail("empty article");
   if (/^#\s/m.test(content)) fail("start article headings at ##; the page provides the title");
   return {
@@ -53,6 +62,8 @@ export function parsePost(slug: string, source: string): BlogPost {
     updated: data.updated,
     category: string("category"),
     artwork: data.artwork,
+    cover: data.cover,
+    coverAlt: data.cover === undefined ? undefined : string("coverAlt"),
     draft: data.draft === true,
     body: content.trim(),
     readingMinutes: Math.max(1, Math.ceil(content.trim().split(/\s+/).length / 220)),
@@ -63,9 +74,11 @@ export function parsePost(slug: string, source: string): BlogPost {
 export const getPosts = cache(async (directory = path.join(process.cwd(), "content/blog")) => {
   const files = (await readdir(directory)).filter((file) => file.endsWith(".md"));
   const posts = await Promise.all(
-    files.map(async (file) =>
-      parsePost(file.slice(0, -3), await readFile(path.join(directory, file), "utf8")),
-    ),
+    files.map(async (file) => {
+      const post = parsePost(file.slice(0, -3), await readFile(path.join(directory, file), "utf8"));
+      if (post.cover && !post.draft) post.coverImage = await readBlogCover(directory, post.cover);
+      return post;
+    }),
   );
   return posts
     .filter((post) => !post.draft)

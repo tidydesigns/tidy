@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { CloudArtwork } from "../../../components/brand/cloud-artwork";
+import { PostImage } from "../../../components/editorial/post-image";
 import { CloudFooter } from "../../../components/brand/cloud-footer";
 import { PostList } from "../../../components/editorial/post-list";
 import { StructuredData } from "../../../components/structured-data";
@@ -28,11 +28,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     `${post.seoTitle ?? post.title} | Tidy`,
     post.description,
   );
+  const image = post.coverImage
+    ? { url: post.coverImage.share, width: 1200, height: 675, alt: post.coverAlt }
+    : undefined;
   return {
     ...metadata,
+    twitter: { ...metadata.twitter, ...(image ? { images: [image] } : {}) },
     authors: [{ name: "Tidy", url: new URL("/about", siteUrl).href }],
     openGraph: {
       ...metadata.openGraph,
+      ...(image ? { images: [image] } : {}),
       type: "article",
       publishedTime: post.date,
       modifiedTime: post.updated ?? post.date,
@@ -61,7 +66,7 @@ export default async function BlogPostPage({ params }: Props) {
               mainEntityOfPage: url,
               datePublished: post.date,
               dateModified: post.updated ?? post.date,
-              image: new URL("/share-card-hero-v3.png", siteUrl).href,
+              image: new URL(post.coverImage?.share ?? "/share-card-hero-v3.png", siteUrl).href,
               author: {
                 "@type": "Organization",
                 name: "Tidy",
@@ -104,9 +109,7 @@ export default async function BlogPostPage({ params }: Props) {
               </p>
             )}
           </header>
-          <div className={styles.articleArtwork} data-artwork={post.artwork} aria-hidden="true">
-            <CloudArtwork name={post.artwork} sizes="(max-width: 640px) 90vw, 520px" eager />
-          </div>
+          <PostImage post={post} hero />
           <div className={styles.prose}>
             <Markdown
               remarkPlugins={[remarkGfm]}

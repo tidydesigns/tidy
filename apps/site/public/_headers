@@ -1,0 +1,7 @@
+# Next's content-hashed chunks and fonts are immutable across releases.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Vite also fingerprints the demo's built assets.
+/desktop-demo/assets/*
+  Cache-Control: public, max-age=31536000, immutable
