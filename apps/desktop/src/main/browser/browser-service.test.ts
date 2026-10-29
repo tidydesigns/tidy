@@ -1134,3 +1134,37 @@ browserTest(
     viewer.close();
   },
 );
+
+browserTest("blank drafts stay idle and capture starts when a page is loaded", async () => {
+  const { browser, scope, url } = await fixture();
+  const frames: string[] = [];
+  const errors: string[] = [];
+  const viewer = await watchBrowser({
+    browser,
+    scope,
+    id: randomUUID(),
+    receive(event) {
+      if (event.kind === "frame") frames.push(event.tabId);
+      if (event.kind === "error") errors.push(event.message);
+    },
+  });
+  try {
+    for (let i = 0; i < 5; i++) {
+      const result = await browser.command(scope, { kind: "open", url: "about:blank" });
+      const tabId = result.state.activeTabId;
+      assert.ok(tabId);
+      await browser.command(scope, { kind: "close", tabId });
+    }
+    const result = await browser.command(scope, { kind: "open", url: "about:blank" });
+    const tabId = result.state.activeTabId;
+    assert.ok(tabId);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(frames.length, 0);
+    assert.equal(errors.length, 0);
+    await browser.command(scope, { kind: "navigate", tabId, url });
+    await until(() => frames.includes(tabId));
+    assert.equal(errors.length, 0);
+  } finally {
+    viewer.close();
+  }
+});

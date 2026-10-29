@@ -134,7 +134,8 @@ export class BrowserScreencast {
   }
 
   private async stream() {
-    const tab = this.options.currentTab();
+    const selected = this.options.currentTab();
+    const tab = selected?.state.url === "about:blank" ? undefined : selected;
     const viewers = this.pauses
       ? []
       : [...this.viewers].filter((viewer) => viewer.visible && !viewer.closed);
@@ -216,7 +217,20 @@ export class BrowserScreencast {
       capture.acknowledgements.push(frame.sessionId);
       this.acknowledgeCapture();
     });
-    await this.startCapture(capture);
+    try {
+      await this.startCapture(capture);
+    } catch (error) {
+      if (this.capture === capture) this.capture = undefined;
+      await session.detach().catch(ignored);
+      if (
+        generation !== this.generation ||
+        this.dirty ||
+        this.options.closed() ||
+        this.options.currentTab()?.state.loading
+      )
+        return;
+      throw error;
+    }
   }
 
   private startCapture(capture: Capture) {
