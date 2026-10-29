@@ -5,19 +5,32 @@ import { App } from "../renderer/src/app/app";
 import { useCloud } from "../renderer/src/features/cloud/use-cloud";
 import { prepareDemo } from "./host";
 import { LocalCanvas } from "../renderer/src/features/designs/local-canvas";
-import { project, sampleDesign } from "./fixture";
+import { demoId, project, sampleDesign } from "./fixture";
+import { prepareConversation } from "../renderer/src/features/threads/conversations";
+import { PreviewArtwork } from "../renderer/src/features/designs/preview-renderers";
+import type { PreparedWorkspace } from "../renderer/src/features/composer/machine-context";
 import "@tidy/ui/fonts.css";
 import "@tidy/ui/toast.css";
 import "./demo.css";
 
-prepareDemo();
+const api = prepareDemo();
+let ready = false;
 const canvasView = new URLSearchParams(location.search).get("view") === "canvas";
 if (!canvasView) document.documentElement.dataset.titlebar = "hidden";
 const applyTheme = (theme: string | null) => {
   document.documentElement.style.colorScheme = theme === "dark" ? "dark" : "light";
 };
-applyTheme(new URLSearchParams(location.search).get("theme"));
+applyTheme(
+  new URLSearchParams(location.search).get("theme") ?? document.documentElement.style.colorScheme,
+);
 window.addEventListener("message", (event) => {
+  if (
+    event.source === parent &&
+    event.origin === location.origin &&
+    event.data?.type === "tidy-demo-status" &&
+    ready
+  )
+    parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
   if (
     event.source === parent &&
     event.origin === location.origin &&
@@ -80,10 +93,11 @@ function CanvasView() {
     </main>
   );
 }
-function Demo() {
+function Demo({ initial }: { initial: PreparedWorkspace }) {
   // No cloud API is supplied: the public example stays entirely in memory.
   const cloud = useCloud();
   useEffect(() => {
+    ready = true;
     parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
     if (canvasView || innerWidth >= 700) return;
     const collapse = () => {
@@ -100,7 +114,7 @@ function Demo() {
   }, []);
   return (
     <>
-      {canvasView ? <CanvasView /> : <App cloud={cloud} />}
+      {canvasView ? <CanvasView /> : <App cloud={cloud} initial={initial} />}
       {new URLSearchParams(location.search).get("view") === "desktop" && (
         <div className="capture-window-controls" aria-hidden="true">
           <i />
@@ -112,8 +126,24 @@ function Demo() {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <Demo />
-  </StrictMode>,
-);
+// Prepare the in-memory project and initial views together, before React's first
+// commit, so visitors never step through workspace/conversation loading screens.
+async function start() {
+  const [bootstrap, thread] = await Promise.all([
+    api.bootstrap(),
+    api.readThread(project.id, demoId(10)),
+    prepareConversation(),
+    PreviewArtwork.preload(),
+  ]);
+  createRoot(document.getElementById("root")!).render(
+    <StrictMode>
+      <Demo initial={{ bootstrap, threads: [thread], relation: "matching" }} />
+    </StrictMode>,
+  );
+}
+void start().catch(() => {
+  const root = document.getElementById("root")!;
+  root.textContent = "Could not open the sample project. Reload the page to try again.";
+  ready = true;
+  parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
+});

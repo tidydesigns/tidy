@@ -215,6 +215,7 @@ export function App({
     navigation,
     onError: setError,
     initial: initial?.bootstrap,
+    initialThreads: initial?.threads,
     connection: machine ? (machine.connected ? "connected" : "offline") : undefined,
   });
   const threadSelection = useRef<Record<string, number>>({});
@@ -1830,17 +1831,6 @@ export function App({
                     active={!settingsOpen && mode === "code"}
                     api={api!}
                   />
-                  {thread && api && (
-                    <ThreadDesignDock
-                      key={`canvases:${project.id}:${thread.id}`}
-                      api={api}
-                      thread={thread}
-                      designs={snapshot.designs}
-                      active={!settingsOpen && mode === "code"}
-                      home={canvasDockHome}
-                      onUpdate={updateLocalDesign}
-                    />
-                  )}
                   {thread?.pendingApprovals?.length && api ? (
                     <ApprovalRequests
                       key={thread.id}
@@ -2199,6 +2189,18 @@ export function App({
                       )}
                     </div>
                   </form>
+                  {/* Mount after the composer so its dock target ref is attached first. */}
+                  {thread && api && (
+                    <ThreadDesignDock
+                      key={`canvases:${project.id}:${thread.id}`}
+                      api={api}
+                      thread={thread}
+                      designs={snapshot.designs}
+                      active={!settingsOpen && mode === "code"}
+                      home={canvasDockHome}
+                      onUpdate={updateLocalDesign}
+                    />
+                  )}
                 </div>
               </section>
             </>

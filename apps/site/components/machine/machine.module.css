@@ -125,6 +125,13 @@
     0 8px 24px -12px #0006;
 }
 .desktopStill {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  background: var(--surface);
+}
+.desktopStill[data-ready="true"] {
   display: none;
 }
 .desktopStill noscript picture {
@@ -167,15 +174,6 @@
 }
 .windowControls i:nth-child(3) {
   background: #28c840;
-}
-.desktopLoading {
-  position: absolute;
-  inset: 40px 0 0;
-  display: grid;
-  place-content: center;
-  color: var(--muted);
-  font-size: 14px;
-  pointer-events: none;
 }
 @keyframes cloud-arrive {
   from {
@@ -239,7 +237,8 @@
   .cloudSmallRight {
     display: none;
   }
-  .desktopStill {
+  .desktopStill,
+  .desktopStill[data-ready="true"] {
     display: block;
   }
   .desktopLive {

@@ -13,6 +13,8 @@ const Conversation = lazyView(async () => ({ default: (await loadConversation())
   ),
 });
 
+export const prepareConversation = Conversation.preload;
+
 export function Conversations({
   projectId,
   selected,

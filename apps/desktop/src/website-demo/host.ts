@@ -279,7 +279,8 @@ export function createDemoAPI(): DesktopAPI {
 }
 
 export function prepareDemo() {
-  Object.assign(window, { tidy: createDemoAPI() });
+  const api = createDemoAPI();
+  Object.assign(window, { tidy: api });
   // Embedded browsers may disable storage; retain the app’s default navigation in that case.
   try {
     const first = demoId(10);
@@ -318,4 +319,5 @@ export function prepareDemo() {
   } catch {
     /* Storage unavailable. */
   }
+  return api;
 }

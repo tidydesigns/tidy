@@ -13,7 +13,12 @@ the desktop app; the initial sample uses bundled Instrument Sans.
 
 From the repository root, `bun run dev:site` builds and copies the renderer before
 starting Next. `bun run build:site` builds it through the explicit Turbo dependency.
-The iframe loads near the viewport and receives same-origin theme messages.
+The iframe starts from the initial website HTML, without waiting for hydration or
+scrolling. A lightweight entry defers the app on mobile until the viewport widens;
+after starting, the iframe stays mounted to preserve edits across resizing. The
+sample workspace, first conversation and preview renderer are prepared before
+React mounts. The website shows its product capture until that first commit, and
+the iframe receives same-origin theme messages.
 With the website’s `scroll=website` option, ordinary vertical wheel gestures over
 the thread preview scroll the website. Opening a canvas or app overlay restores
 all native desktop scrolling, pan, zoom and panel behavior. Minimising the canvas

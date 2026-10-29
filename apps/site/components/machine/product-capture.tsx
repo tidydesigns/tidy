@@ -20,11 +20,13 @@ export function ProductCaptureImage({
   product,
   alt,
   enabled = true,
+  eager = false,
   sizes = "(max-width: 760px) calc(100vw - 48px), (max-width: 1264px) calc(100vw - 64px), 1200px",
 }: {
   product: "canvas" | "desktop" | "desktop-initial";
   alt: string;
   enabled?: boolean;
+  eager?: boolean;
   sizes?: string;
 }) {
   const theme = useSyncExternalStore(subscribe, snapshot, serverSnapshot);
@@ -35,19 +37,27 @@ export function ProductCaptureImage({
   const selected = !enabled || theme === "system" ? undefined : theme === "dark" ? dark : light;
   return (
     <>
-      {/* Prebuilt exports support static hosting without a runtime image service. */}
-      {/* eslint-disable-next-line @next/next/no-img-element -- Responsive lossless exports are optimized at build time for static hosting. */}
-      <img
-        src={selected?.files.at(-1)!.src}
-        srcSet={selected && sourceSet(selected)}
-        sizes={sizes}
-        width={light.width}
-        height={light.height}
-        alt={alt}
-        loading="lazy"
-        decoding="async"
-        style={{ visibility: selected ? undefined : "hidden" }}
-      />
+      <picture>
+        {eager && enabled && (
+          <source
+            media={theme === "system" ? "(prefers-color-scheme: dark)" : undefined}
+            srcSet={sourceSet(theme === "light" ? light : dark)}
+            sizes={sizes}
+          />
+        )}
+        {/* Prebuilt exports support static hosting without a runtime image service. */}
+        <img
+          src={(selected ?? (eager && enabled ? light : undefined))?.files.at(-1)!.src}
+          srcSet={selected ? sourceSet(selected) : eager && enabled ? sourceSet(light) : undefined}
+          sizes={sizes}
+          width={light.width}
+          height={light.height}
+          alt={alt}
+          loading={eager ? "eager" : "lazy"}
+          decoding="async"
+          style={{ visibility: selected || (eager && enabled) ? undefined : "hidden" }}
+        />
+      </picture>
       <noscript>
         <picture>
           <source media="(prefers-color-scheme: dark)" srcSet={sourceSet(dark)} sizes={sizes} />
@@ -58,7 +68,7 @@ export function ProductCaptureImage({
             width={light.width}
             height={light.height}
             alt={alt}
-            loading="lazy"
+            loading={eager ? "eager" : "lazy"}
             decoding="async"
           />
         </picture>
