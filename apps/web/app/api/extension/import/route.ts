@@ -7,7 +7,8 @@ import {
   readCaptureBody,
   extensionError,
 } from "@/lib/extension/http";
-import { importWebCapture } from "@/lib/extension/import";
+import { submitCapture } from "@/lib/extension/submit";
+import { CaptureInProgressError } from "@/lib/extension/receipts";
 
 export const runtime = "nodejs";
 export const OPTIONS = extensionPreflight;
@@ -16,19 +17,21 @@ export async function POST(request: Request) {
   const headers = extensionHeaders(request);
   if (!extensionRequestAllowed(request))
     return Response.json({ error: "Extension origin is not allowed." }, { status: 403, headers });
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session)
-    return Response.json({ error: "Sign in to Tidy to continue." }, { status: 401, headers });
-  const denied = await operationBudgetResponse("import-request", session.user.id);
-  if (denied) {
-    for (const [name, value] of headers) denied.headers.set(name, value);
-    return denied;
-  }
   try {
-    return Response.json(await importWebCapture(session.user.id, await readCaptureBody(request)), {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session)
+      return Response.json({ error: "Sign in to Tidy to continue." }, { status: 401, headers });
+    const denied = await operationBudgetResponse("import-request", session.user.id);
+    if (denied) {
+      for (const [name, value] of headers) denied.headers.set(name, value);
+      return denied;
+    }
+    return Response.json(await submitCapture(session.user.id, await readCaptureBody(request)), {
       headers,
     });
   } catch (error) {
+    if (error instanceof CaptureInProgressError)
+      return Response.json({ state: "pending" }, { status: 202, headers });
     const denied = operationFailure(error);
     if (denied) {
       for (const [name, value] of headers) denied.headers.set(name, value);

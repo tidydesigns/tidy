@@ -12,7 +12,7 @@ let account = {
   ],
 };
 let gate: Promise<void> | undefined;
-const sendMessage = mock(async () => {
+const sendMessage = mock(async (): Promise<unknown> => {
   await gate;
   return { data: account };
 });
@@ -112,4 +112,25 @@ test("overlapping focus events share one request and account changes discard the
   await tick();
   expect(menu(0).textContent?.trim()).toBe("One");
   expect(menu(1).textContent?.trim()).toBe("New design file");
+});
+
+test("transient connection failures keep the current destination visible", async () => {
+  choose(0, "Two");
+  choose(1, "Second");
+  sendMessage.mockImplementationOnce(async () => ({
+    error: "Temporarily unavailable",
+    status: 503,
+  }));
+  window.dispatchEvent(new win.Event("focus") as unknown as Event);
+  await tick();
+  expect(menu(0).textContent?.trim()).toBe("Two");
+  expect(menu(1).textContent?.trim()).toBe("Second");
+  expect(document.body.textContent).not.toContain("Sign in to import designs.");
+});
+test("an expired session removes stale destinations and exposes sign-in", async () => {
+  sendMessage.mockImplementationOnce(async () => ({ error: "Sign in", status: 401 }));
+  window.dispatchEvent(new win.Event("focus") as unknown as Event);
+  await tick();
+  expect(document.querySelector('button[aria-haspopup="menu"]')).toBeNull();
+  expect(document.body.textContent).toContain("Sign in to import designs.");
 });

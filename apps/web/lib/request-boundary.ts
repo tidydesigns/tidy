@@ -16,6 +16,8 @@ export function requestDeadline(request: Request) {
   if (
     (request.method === "GET" &&
       (path === "/api/auth/get-session" ||
+        path === "/api/extension/account" ||
+        /^\/api\/extension\/import\/[^/]+$/.test(path) ||
         /^\/api\/files\/[^/]+\/(changes|snapshot)$/.test(path))) ||
     (request.method === "POST" && /^\/api\/files\/[^/]+\/presence-ticket$/.test(path))
   )

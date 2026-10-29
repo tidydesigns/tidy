@@ -227,3 +227,15 @@ test("canceling a page cancels the source without reading ahead", async () => {
     info.mockRestore();
   }
 });
+
+test("extension diagnostics distinguish imports and receipts without exposing identities", () => {
+  expect(normalizedRoute("https://app.test/api/extension/import")).toBe("/api/extension/import");
+  expect(
+    normalizedRoute(
+      "https://app.test/api/extension/import/00000000-0000-4000-8000-000000000001?private=secret",
+    ),
+  ).toBe("/api/extension/import/:id");
+  expect(
+    normalizedRoute("https://app.test/api/extension/account?userId=private&organizationId=secret"),
+  ).toBe("/api/extension/account");
+});

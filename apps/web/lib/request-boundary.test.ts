@@ -134,3 +134,11 @@ test("ordinary failures propagate and read deadlines do not apply to edit mutati
     requestDeadline(new Request("https://test/api/files/id/changes", { method: "POST" })),
   ).toBe(20_000);
 });
+
+test("extension reads finish before the client deadline without shortening import writes", () => {
+  for (const path of ["account", "import/00000000-0000-4000-8000-000000000001"])
+    expect(requestDeadline(new Request(`https://test/api/extension/${path}`))).toBe(8000);
+  expect(
+    requestDeadline(new Request("https://test/api/extension/import", { method: "POST" })),
+  ).toBe(20_000);
+});

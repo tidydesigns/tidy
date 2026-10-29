@@ -8,9 +8,17 @@ import {
   readImportJob,
   readExtensionReply,
   captureViewportSchema,
+  captureReceiptSchema,
+  type Destination,
   parseExtensionResponse,
   type ImportJob,
 } from "@tidy/design/web-capture";
+import {
+  PlatformError,
+  readPlatformResponse,
+  serializeCaptureRequest,
+  platformRetryAfter,
+} from "../lib/platform-api";
 import { pageRequest } from "../lib/page-request";
 import { TIDY_URL } from "../lib/config";
 
@@ -18,12 +26,21 @@ export default defineBackground(() => {
   const setJob = (job: ImportJob) => browser.storage.session.set({ job });
   const getJob = async () => readImportJob((await browser.storage.session.get("job")).job);
   const ready = getJob().then(async (job) => {
-    if (job?.state === "importing")
+    if (job?.state !== "importing") return;
+    if (job.submittedAt) {
       await setJob({
         state: "error",
         userId: job.userId,
         tabId: job.tabId,
-        error: "The import was interrupted. Check the destination file before copying again.",
+        recovery: { id: job.captureId, createdAt: job.submittedAt },
+        error: "Check the previous import status before copying again.",
+      });
+    } else
+      await setJob({
+        state: "error",
+        userId: job.userId,
+        tabId: job.tabId,
+        error: "The capture was interrupted before upload. Copy the page again.",
       });
   });
   // Serialize job transitions, while capture and network work run outside the lock.
@@ -38,29 +55,88 @@ export default defineBackground(() => {
     activationVersion++;
   });
   let starting = false;
-  const api = async (path: string, body?: unknown): Promise<unknown> => {
+  let retryAt = 0;
+  const api = async (path: string, body?: string): Promise<unknown> => {
+    if (Date.now() < retryAt)
+      throw new PlatformError(
+        "Tidy asked us to wait before trying again.",
+        429,
+        Math.ceil((retryAt - Date.now()) / 1000),
+      );
     const response = await fetch(`${TIDY_URL}/api/extension/${path}`, {
       method: body ? "POST" : "GET",
       credentials: "include",
       redirect: "error",
       cache: "no-store",
       headers: { "X-Tidy-Extension": "1", ...(body ? { "Content-Type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
+      body,
       signal: AbortSignal.timeout(body ? 25000 : 10000),
     });
     const theme = response.headers.get("X-Tidy-Theme");
     if (theme === "light" || theme === "dark" || theme === "system")
       await browser.storage.local.set({ theme }).catch(() => undefined);
-    const data: unknown = await response.json().catch(() => {
-      throw new Error("Tidy is unavailable. Try again.");
-    });
+    const retryAfter = platformRetryAfter(response.headers.get("Retry-After"));
+    if (response.status === 429 || response.status === 503)
+      retryAt = Date.now() + Math.max(1, retryAfter) * 1000;
+    const data = await readPlatformResponse(response);
     if (!response.ok)
-      throw new Error(
+      throw new PlatformError(
         data && typeof data === "object" && "error" in data && typeof data.error === "string"
-          ? data.error
+          ? data.error.slice(0, 500)
           : "Tidy is unavailable. Try again.",
+        response.status,
+        retryAfter,
       );
     return data;
+  };
+  const checkDestination = async (destination: Destination) => {
+    const query = new URLSearchParams({
+      userId: destination.userId,
+      organizationId: destination.organizationId,
+    });
+    if (destination.fileId) query.set("fileId", destination.fileId);
+    return parseExtensionResponse(
+      extensionAccountSchema.pick({ user: true }),
+      await api(`account?${query}`),
+    );
+  };
+  const completedJob = (
+    userId: string,
+    tabId: number,
+    result: { fileId: string; nodeIds?: string[]; warnings?: { message: string }[] },
+  ): ImportJob => {
+    const url = new URL(`/files/${result.fileId}`, TIDY_URL);
+    if (result.nodeIds?.[0]) url.searchParams.set("node", result.nodeIds[0]);
+    return { state: "done", userId, tabId, url: url.href, warnings: result.warnings };
+  };
+  const recoverImport = async (
+    userId: string,
+    tabId: number,
+    recovery: { id: string; createdAt: number },
+  ): Promise<ImportJob> => {
+    try {
+      const receipt = parseExtensionResponse(
+        captureReceiptSchema,
+        await api(`import/${encodeURIComponent(recovery.id)}`),
+      );
+      if (receipt.state === "done") return completedJob(userId, tabId, receipt.result);
+      if (receipt.state === "failed")
+        return {
+          state: "error",
+          userId,
+          tabId,
+          error: "The import failed without publishing. Copy the page again.",
+        };
+    } catch {
+      /* Keep the receipt identity; a failed lookup is not evidence of a failed commit. */
+    }
+    return {
+      state: "error",
+      userId,
+      tabId,
+      recovery,
+      error: "The import result is not confirmed. Check its status before copying again.",
+    };
   };
   const getCapture = async (
     job: Extract<ImportJob, { state: "selecting" | "importing" }>,
@@ -119,32 +195,47 @@ export default defineBackground(() => {
     job: Extract<ImportJob, { state: "selecting" | "importing" }>,
     mode: "page" | "element",
   ) => {
+    let submittedAt: number | undefined;
     try {
       if (mode === "element") {
-        const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+        const account = await checkDestination(job.destination);
         if (account.user.id !== job.userId)
           throw new Error("Your Tidy account changed. Choose the destination again.");
       }
       const capture = await getCapture(job, mode);
+      const createdAt = Date.now();
+      // Validate the byte limit before persisting an uncertain-submission state.
+      const body = serializeCaptureRequest({
+        request: { id: job.captureId, createdAt },
+        userId: job.userId,
+        organizationId: job.destination.organizationId,
+        fileId: job.destination.fileId,
+        capture,
+      });
+      await setJob({ ...job, state: "importing", submittedAt: createdAt });
+      submittedAt = createdAt;
       const result = parseExtensionResponse(
         importResultSchema.pick({ fileId: true, nodeIds: true, warnings: true }),
-        await api("import", {
-          userId: job.userId,
-          organizationId: job.destination.organizationId,
-          fileId: job.destination.fileId,
-          capture,
+        await api("import", body),
+      );
+      await setJob(
+        completedJob(job.userId, job.tabId, {
+          ...result,
+          warnings: result.warnings ?? capture.document.warnings,
         }),
       );
-      const importedUrl = new URL(`/files/${result.fileId}`, TIDY_URL);
-      if (result.nodeIds?.[0]) importedUrl.searchParams.set("node", result.nodeIds[0]);
-      await setJob({
-        state: "done",
-        tabId: job.tabId,
-        userId: job.userId,
-        url: importedUrl.href,
-        warnings: result.warnings ?? capture.document.warnings,
-      });
     } catch (error) {
+      const rejected =
+        error instanceof PlatformError &&
+        error.status !== undefined &&
+        error.status >= 400 &&
+        error.status < 500;
+      if (submittedAt && !rejected) {
+        await setJob(
+          await recoverImport(job.userId, job.tabId, { id: job.captureId, createdAt: submittedAt }),
+        );
+        return;
+      }
       await setJob({
         state: "error",
         tabId: job.tabId,
@@ -176,8 +267,24 @@ export default defineBackground(() => {
     }
     const handle = async () => {
       await ready;
-      if (message.type === "bella:account")
-        return parseExtensionResponse(extensionAccountSchema, await api("account"));
+      if (message.type === "bella:account") {
+        const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+        // Account/focus refresh can recover an acknowledged commit after a worker restart.
+        void withJobLock(async () => {
+          const job = await getJob();
+          if (job?.state === "error" && job.recovery && job.userId === account.user.id)
+            await setJob(await recoverImport(job.userId, job.tabId, job.recovery));
+        }).catch(() => undefined);
+        return account;
+      }
+      if (message.type === "bella:recover") {
+        await withJobLock(async () => {
+          const job = await getJob();
+          if (job?.state === "error" && job.recovery)
+            await setJob(await recoverImport(job.userId, job.tabId, job.recovery));
+        });
+        return true;
+      }
       if (message.type === "bella:login") {
         await browser.tabs.create({ url: `${TIDY_URL}/login` });
         return true;
@@ -261,18 +368,10 @@ export default defineBackground(() => {
         } catch {
           throw new Error("Chrome does not allow capture on this page.");
         }
-        const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
         const destination = message.destination;
+        const account = await checkDestination(destination);
         if (account.user.id !== destination.userId)
           throw new Error("Your Tidy account changed. Reopen the extension.");
-        const organization = account.organizations.find(
-          (item) => item.id === destination.organizationId,
-        );
-        if (
-          !organization ||
-          (destination.fileId && !organization.files.some((file) => file.id === destination.fileId))
-        )
-          throw new Error("Choose an accessible design file.");
         const job: Extract<ImportJob, { state: "selecting" | "importing" }> = {
           state: message.mode === "element" ? "selecting" : "importing",
           tabId: tab.id,
@@ -309,6 +408,7 @@ export default defineBackground(() => {
         (error) =>
           respond({
             error: error instanceof Error ? error.message : "Could not complete this action.",
+            status: error instanceof PlatformError ? error.status : undefined,
           }),
       )
       .finally(() => {

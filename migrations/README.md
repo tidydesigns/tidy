@@ -170,3 +170,16 @@ MCP consent. Both local setup scripts include the migration. No new table or
 runtime privilege is introduced. Production migration and deployment require
 separate approval. Browser notice version 6 and MCP notice version 4 require fresh choices and do not
 upgrade previous browser-only acceptances.
+
+## Extension import receipts
+
+`20261029-extension-import-receipts.sql` follows `schema-design-document.sql` and
+adds nullable request hash/result columns to `designImport`. Apply it before the
+extension platform code; no new runtime grants are needed. It retains failed
+capture receipts within the existing import quotas until expiry, and commits
+successful result metadata atomically with the design. Both local setup scripts
+include it. The ALTER TABLE and check validation require a table lock; use the
+approved operator connection and normal migration lock/time limits. Production
+migration and deployment require separate approval. Run `bun run test:extension:db`
+in a disposable local cluster and see [the integration contract](../docs/extension-platform.md)
+for protocol compatibility, recovery limits, and release order.

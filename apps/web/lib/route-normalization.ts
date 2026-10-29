@@ -1,5 +1,7 @@
 const staticSegments = new Set([
   "api",
+  "extension",
+  "import",
   "auth",
   "get-session",
   "login",

@@ -62,6 +62,8 @@ type ImportRow = {
   >;
   status: string;
   committedRevision: number | null;
+  requestHash?: string | null;
+  requestResult?: ImportCommitResult | null;
 };
 
 export async function documentSchemaReady() {
@@ -407,7 +409,9 @@ export async function createImport(
   organizationId: string,
   name: string,
   fileId?: string,
+  request?: { id: string; hash: string; createdAt: number },
 ): Promise<{
+  alreadyCreated?: boolean;
   importId: string;
   fileId?: string | null;
   expectedRevision: number | null;
@@ -415,6 +419,17 @@ export async function createImport(
   maxNodes: number;
   maxChunkNodes: number;
 }> {
+  if (
+    request &&
+    (!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(
+      request.id,
+    ) ||
+      !/^[a-f0-9]{64}$/.test(request.hash) ||
+      !Number.isSafeInteger(request.createdAt) ||
+      Date.now() - request.createdAt >= 24 * 60 * 60_000 ||
+      request.createdAt - Date.now() > 5 * 60_000)
+  )
+    throw new PublicActionError("Invalid capture request identity.");
   await reserveOperation("import", userId);
   await requireDocumentSchema();
   const cleanName = cleanDesignName(name);
@@ -443,9 +458,9 @@ export async function createImport(
     if (!file.rows[0]) throw new PublicActionError("File not found or access denied.");
     if (file.rows[0].frameCount || file.rows[0].rectangleCount)
       await ensureEditorDocument(userId, fileId);
-    expectedRevision = (await getDocument(userId, fileId))?.revision ?? 0;
+    expectedRevision = (await getDocumentRevision(userId, fileId))?.revision ?? 0;
   }
-  const id = randomUUID();
+  const id = request?.id ?? randomUUID();
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -462,6 +477,34 @@ export async function createImport(
     );
     if (!authority.rowCount)
       throw new PublicActionError("Organization not found or access denied.");
+    if (request) {
+      const prior = await client.query<ImportRow & { userId: string; expired: boolean }>(
+        `select "id","userId","organizationId","requestHash","expectedRevision", "expiresAt"<=now() as expired
+         from "designImport" where "id"=$1 for update`,
+        [id],
+      );
+      const existing = prior.rows[0];
+      if (existing) {
+        if (
+          existing.userId !== userId ||
+          existing.organizationId !== organizationId ||
+          existing.requestHash !== request.hash ||
+          existing.expired
+        )
+          throw new PublicActionError(
+            "Capture request conflicts with an earlier or expired import.",
+          );
+        await client.query("commit");
+        return {
+          importId: id,
+          alreadyCreated: true,
+          expectedRevision: existing.expectedRevision,
+          expiresInHours: 24,
+          maxNodes: IMPORT_LIMITS.nodesPerImport,
+          maxChunkNodes: 250,
+        };
+      }
+    }
     if (fileId) {
       const parent = await client.query(
         `select "id" from "designFile" where "id"=$1 and "organizationId"=$2 and "archivedAt" is null for share`,
@@ -470,7 +513,7 @@ export async function createImport(
       if (!parent.rowCount) throw new PublicActionError("File not found or access denied.");
     }
     await client.query(
-      `delete from "designImport" where "organizationId"=$1 and ("expiresAt"<=now() or "status"='aborted')`,
+      `delete from "designImport" where "organizationId"=$1 and ("expiresAt"<=now() or ("status"='aborted' and "requestHash" is null))`,
       [organizationId],
     );
     const count = (
@@ -489,11 +532,20 @@ export async function createImport(
       );
     }
     const inserted = await client.query(
-      `insert into "designImport" ("id","userId","organizationId","fileId","name","expectedRevision")
-      select $1,$2,$3,$4,$5,$6 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
+      `insert into "designImport" ("id","userId","organizationId","fileId","name","expectedRevision","requestHash","expiresAt")
+      select $1,$2,$3,$4,$5,$6,$7,coalesce(to_timestamp($8::double precision / 1000),now())+interval '24 hours' from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
       where m."userId"=$2 and m."organizationId"=$3 and m."role" in ${EDIT_ROLES_SQL}
-        and ($4::text is null or exists (select 1 from "designFile" f where f."id"=$4 and f."organizationId"=$3 and f."archivedAt" is null))`,
-      [id, userId, organizationId, fileId ?? null, cleanName, expectedRevision],
+        and ($4::text is null or exists (select 1 from "designFile" f where f."id"=$4 and f."organizationId"=$3 and f."archivedAt" is null)) on conflict ("id") do nothing`,
+      [
+        id,
+        userId,
+        organizationId,
+        fileId ?? null,
+        cleanName,
+        expectedRevision,
+        request?.hash ?? null,
+        request?.createdAt ?? null,
+      ],
     );
     if (!inserted.rowCount) throw new PublicActionError("Organization or file access denied.");
     await client.query("commit");
@@ -570,7 +622,12 @@ export async function putImportChunk(
 
 /** Browser file uploads arrive as one validated document. Stage it once rather
  * than repeatedly rewriting an ever-growing JSONB row for each 250-node chunk. */
-export async function putImportDocument(userId: string, importId: string, input: DesignDocument) {
+export async function putImportDocument(
+  userId: string,
+  importId: string,
+  input: DesignDocument,
+  options: { preservePages?: boolean } = {},
+) {
   await requireDocumentSchema();
   const document = parseDesignDocument(input);
   const chunk = {
@@ -579,17 +636,19 @@ export async function putImportDocument(userId: string, importId: string, input:
     warnings: document.warnings,
     tokens: document.tokens,
     designTokens: document.designTokens,
-    pages: document.pages,
+    pages: options.preservePages === false ? undefined : document.pages,
   };
   const json = JSON.stringify(chunk);
   if (Buffer.byteLength(json) > IMPORT_LIMITS.bytesPerImport)
-    throw new PublicActionError("Figma document is too large. Select fewer pages.");
+    throw new PublicActionError("Import document is too large. Select less content.");
   const stored = await db.query(
     `update "designImport" i set "chunks"=jsonb_build_object('0000',$3::jsonb)
     where i."id"=$1 and i."userId"=$2 and i."status"='staging' and i."expiresAt">now()
       and (i."chunks"='{}'::jsonb or i."chunks"=jsonb_build_object('0000',$3::jsonb))
       and exists(select 1 from "member" m join "user" u on u."id"=m."userId" and u."emailVerified"=true
-        where m."organizationId"=i."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL})
+        where m."organizationId"=i."organizationId" and m."userId"=$2 and m."role" in ${EDIT_ROLES_SQL} for share of m,u)
+      and (i."fileId" is null or exists(select 1 from "designFile" f where f."id"=i."fileId"
+        and f."organizationId"=i."organizationId" and f."archivedAt" is null for share of f))
     returning i."id"`,
     [importId, userId, json],
   );
@@ -701,7 +760,7 @@ export async function commitImport(
       owned.rows[0].organizationId,
     ]);
     const result = await client.query<ImportRow>(
-      `select "id", "organizationId", "fileId", "name", "expectedRevision", "chunks", "status", "committedRevision"
+      `select "id", "organizationId", "fileId", "name", "expectedRevision", "chunks", "status", "committedRevision", "requestHash", "requestResult"
       from "designImport" where "id" = $1 and "userId" = $2 and "expiresAt" > now() for update`,
       [importId, userId],
     );
@@ -720,6 +779,7 @@ export async function commitImport(
       );
       if (!parent.rowCount) throw new PublicActionError("File not found or access denied.");
       await client.query("commit");
+      if (staging.requestResult) return { ...staging.requestResult, alreadyCommitted: true };
       return {
         fileId: staging.fileId!,
         revision: staging.committedRevision!,
@@ -779,17 +839,11 @@ export async function commitImport(
       [fileId, revision, JSON.stringify(document)],
     );
     await client.query(`update "designFile" set "updatedAt" = now() where "id" = $1`, [fileId]);
-    await client.query(
-      `update "designImport" set "fileId" = $2, "status" = 'committed', "committedRevision" = $3, "chunks"='{}'::jsonb where "id" = $1`,
-      [importId, fileId, revision],
-    );
-    await client.query("commit");
-    await publishFileChangesInBackground(fileId);
     const key = incoming.source
       ? `${incoming.source.project}:${incoming.source.route}`
       : incoming.nodes[0]?.importKey;
     const publishedKey = resolution === "duplicate" && currentDocument ? `${key}#${importId}` : key;
-    return {
+    const committed: ImportCommitResult = {
       fileId,
       revision,
       url: `/files/${fileId}`,
@@ -802,6 +856,19 @@ export async function commitImport(
         .map((node) => node.id),
       warnings: document.warnings,
     };
+    await client.query(
+      `update "designImport" set "fileId"=$2,"status"='committed',"committedRevision"=$3,
+       "chunks"='{}'::jsonb,"requestResult"=$4::jsonb where "id"=$1`,
+      [
+        importId,
+        fileId,
+        revision,
+        staging.requestHash ? JSON.stringify({ ...committed, warnings: incoming.warnings }) : null,
+      ],
+    );
+    await client.query("commit");
+    await publishFileChangesInBackground(fileId);
+    return committed;
   } catch (error) {
     await client.query("rollback");
     throw error;

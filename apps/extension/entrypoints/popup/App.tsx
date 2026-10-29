@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { browser } from "wxt/browser";
 import {
   extensionAccountSchema,
+  ExtensionReplyError,
   destinationSchema,
   readImportJob,
   type ExtensionAccount,
@@ -29,8 +30,10 @@ export function App() {
   const { organizationId, fileId } = selection;
   const [job, setJob] = useState<ImportJob>();
   const [, setError] = useErrorNotice();
+  const [signInRequired, setSignInRequired] = useState(false);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [checking, setChecking] = useState(false);
   useEffect(() => {
     let live = true;
     let refreshing = false;
@@ -69,7 +72,14 @@ export function App() {
         });
       } catch (error) {
         if (live) {
-          setAccount(undefined);
+          const signedOut = error instanceof ExtensionReplyError && error.status === 401;
+          setSignInRequired(signedOut);
+          // Keep usable content visible during transient platform outages.
+          if (
+            signedOut ||
+            (error instanceof ExtensionReplyError && [403, 409].includes(error.status ?? 0))
+          )
+            setAccount(undefined);
           notifyError(error, "Could not connect to Tidy.");
         }
       } finally {
@@ -101,7 +111,8 @@ export function App() {
   }, []);
   const organization = account?.organizations.find((item) => item.id === organizationId);
   const activeJob = job?.userId === account?.user.id ? job : undefined;
-  const busy = starting || activeJob?.state === "importing" || activeJob?.state === "selecting";
+  const busy =
+    checking || starting || activeJob?.state === "importing" || activeJob?.state === "selecting";
   const status =
     starting || activeJob?.state === "importing"
       ? "Importing into Tidy…"
@@ -149,18 +160,23 @@ export function App() {
         <p role="status">Connecting to Tidy…</p>
       ) : !account ? (
         <>
-          <p>Sign in to import designs.</p>
+          <p>{signInRequired ? "Sign in to import designs." : "Could not connect to Tidy."}</p>
           <Button
             className="primary"
-            onClick={() =>
+            onClick={() => {
+              if (!signInRequired) {
+                setLoading(true);
+                window.dispatchEvent(new Event("focus"));
+                return;
+              }
               void send({ type: "bella:login" })
                 .then(() => window.close())
                 .catch((error) =>
                   setError(error, "Could not complete the action. Please try again."),
-                )
-            }
+                );
+            }}
           >
-            Sign in to Tidy
+            {signInRequired ? "Sign in to Tidy" : "Reconnect to Tidy"}
           </Button>
         </>
       ) : (
@@ -265,7 +281,24 @@ export function App() {
               )}
             </div>
           )}
-          {activeJob?.state === "error" && <p role="alert">{activeJob.error}</p>}
+          {activeJob?.state === "error" && (
+            <>
+              <p role="alert">{activeJob.error}</p>
+              {activeJob.recovery && (
+                <Button
+                  disabled={checking}
+                  onClick={() => {
+                    setChecking(true);
+                    void send({ type: "bella:recover" })
+                      .catch((error) => setError(error, "Could not check the import."))
+                      .finally(() => setChecking(false));
+                  }}
+                >
+                  {checking ? "Checking import…" : "Check import status"}
+                </Button>
+              )}
+            </>
+          )}
         </>
       )}
     </main>

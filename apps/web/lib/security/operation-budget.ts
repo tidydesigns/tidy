@@ -19,6 +19,7 @@ export const OPERATION_LIMITS = {
   "avatar-request": [10, 50, 30, 200],
   import: [5, 30, 20, 100],
   "import-request": [5, 30, 20, 100],
+  "extension-read": [60, 1200, 300, 6000],
   billing: [5, 20, 10, 40],
   "billing-request": [5, 20, 10, 40],
   "billing-reconcile": [2, 24, 2, 24],

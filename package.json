@@ -51,6 +51,7 @@
     "test:mcp:db": "node apps/web/scripts/test-account-controls.mjs --mcp",
     "bench:mcp": "node apps/web/scripts/test-account-controls.mjs --mcp-benchmark",
     "test:linear:db": "node apps/web/scripts/test-account-controls.mjs --linear",
+    "test:extension:db": "node apps/web/scripts/test-account-controls.mjs --extension",
     "test:files:db": "node apps/web/scripts/test-account-controls.mjs --files",
     "test:versions:db": "node apps/web/scripts/test-account-controls.mjs --versions",
     "test:images:db": "node apps/web/scripts/test-account-controls.mjs --images",
