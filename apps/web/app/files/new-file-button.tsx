@@ -2,7 +2,9 @@
 
 import { useErrorNotice } from "@/lib/use-error-notice";
 
-import { useEffect, useRef, useState, useTransition, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
 import { NavigationLink } from "@/components/ui/navigation-link";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
@@ -32,6 +34,7 @@ export function NewFileButton({
   onImported?: (result: FigmaImport) => Promise<void>;
   onCreate?: () => Promise<void>;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [draftId, setDraftId] = useState<string | null>(initialFileId ?? null);
   const query = new URLSearchParams();
@@ -42,19 +45,11 @@ export function NewFileButton({
   useEffect(() => {
     if (onCreate) return;
     preloadEditor();
-  }, [onCreate]);
+    router.prefetch(href, { kind: PrefetchKind.FULL });
+  }, [onCreate, href, router]);
   const creating = useRef(false);
   const [importOpen, setImportOpen] = useState(false);
   const [, setError] = useErrorNotice("", "file_create");
-
-  // Native new-tab/window navigation bypasses onNavigate. Give each activation
-  // a fresh destination without consuming the prefetched same-tab draft.
-  function prepareNavigation(event: MouseEvent<HTMLAnchorElement>) {
-    if (event.button !== 0 && event.button !== 1) return;
-    const modified =
-      event.button === 1 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
-    event.currentTarget.href = modified ? `/files/${crypto.randomUUID()}?${query}` : href;
-  }
 
   function create() {
     if (!onCreate) return;
@@ -90,15 +85,15 @@ export function NewFileButton({
           </button>
         ) : (
           <NavigationLink
-            href={href}
-            prefetch={true}
-            onClick={prepareNavigation}
-            onAuxClick={prepareNavigation}
-            onContextMenu={(event) => {
-              // A copied/context-menu link must allocate a draft on each visit.
-              event.currentTarget.href = `/files/new?${query}`;
+            href={`/files/new?${query}`}
+            prefetch={false}
+            onNavigate={(event) => {
+              // Native clicks, copied links and drags always allocate a fresh ID.
+              // Only in-app navigation consumes the prefetched editor address.
+              event.preventDefault();
+              setDraftId(crypto.randomUUID());
+              router.push(href);
             }}
-            onNavigate={() => setDraftId(crypto.randomUUID())}
             onMouseEnter={preloadEditor}
             onFocus={preloadEditor}
             onTouchStart={preloadEditor}
