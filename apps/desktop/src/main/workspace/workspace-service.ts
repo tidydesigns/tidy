@@ -1,3 +1,4 @@
+import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -458,6 +459,20 @@ export class WorkspaceService {
       this.starting.delete(threadId);
       this.cancelledStarts.delete(threadId);
     }
+  }
+
+  discardBrowserDraft(input: BrowserDiscardDraft) {
+    return this.serialize(input.threadId, async () => {
+      await this.assertProjectAccess(input.ownerProjectId);
+      await this.assertProjectAccess(input.projectId);
+      if (
+        this.starting.has(input.threadId) ||
+        this.jobs.has(input.threadId) ||
+        (await this.store.threadExists(input.ownerProjectId, input.threadId))
+      )
+        return;
+      await this.browser.discardDraft(input);
+    });
   }
 
   startThread(input: Parameters<DesktopAPI["startThread"]>[0]) {

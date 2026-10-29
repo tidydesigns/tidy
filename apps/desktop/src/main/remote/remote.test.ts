@@ -20,6 +20,7 @@ import { type ConnectionStatus } from "../../shared/remote";
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
+import type { BrowserOutput } from "../../shared/contracts/browser";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -947,6 +948,44 @@ test("browser queries reject mutations and do not create durable command receipt
     client.operation("browser-command", { ...scope, action: { kind: "open", url: "about:blank" } }),
   ).rejects.toThrow("Open the browser preview");
   expect(f.service.browser.activeCount).toBe(0);
+});
+
+test("hosts without draft cleanup support disable previews without blocking project work", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const fetch = globalThis.fetch;
+  const health = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(
+      (...args: Parameters<typeof fetch>) => {
+        if (String(args[0]) === `${f.origin()}/health`)
+          return Promise.resolve(Response.json({ capabilities: ["browser-v2"] }));
+        return fetch(...args);
+      },
+      { preconnect: fetch.preconnect },
+    ),
+  );
+  const events: BrowserOutput[] = [];
+  const watch = client.watchBrowser(
+    { projectId: f.project.id, threadId: randomUUID() },
+    randomUUID(),
+    (event) => events.push(event),
+  );
+  try {
+    await until(() => events.some((event) => event.kind === "disconnected"));
+    expect(events).toContainEqual({
+      kind: "disconnected",
+      message: "Browser previews need a host update.",
+    });
+    expect(
+      events.some((event) => event.kind === "error" && event.message.includes("backend update")),
+    ).toBe(true);
+    expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+    expect(f.service.browser.activeCount).toBe(0);
+  } finally {
+    watch.close();
+    health.mockRestore();
+  }
 });
 
 test("browser paste tolerates bounded socket pressure while other input remains bounded", async () => {

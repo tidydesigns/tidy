@@ -930,9 +930,56 @@ async function run() {
               ),
             "failed start retains a working preview",
           );
+          await evaluate(
+            `${mountedApi}.discardDraft(${JSON.stringify({ ...draftScope, ownerProjectId: value.scope.projectId })})`,
+          );
+          assert.equal((await value.service.browser.state(draftScope)).tabs.length, 1);
+          await assert.rejects(
+            evaluate(
+              `${mountedApi}.discardDraft(${JSON.stringify({ ...nextDraft, ownerProjectId: randomUUID() })})`,
+            ),
+          );
+          assert.equal((await value.service.browser.state(nextDraft)).tabs.length, 1);
+          const previousStart = pending.get(nextDraft.threadId);
+          await submitDraft("Abandoned draft task");
+          await until(
+            () => pending.get(nextDraft.threadId) !== previousStart,
+            "abandoned draft start pending",
+          );
+          await evaluate('document.querySelector(".sidebar-new-thread").click()');
+          await until(
+            () => viewerScopes.get(value.service)?.threadId !== nextDraft.threadId,
+            "replacement draft attached",
+          );
+          const replacementDraft = viewerScopes.get(value.service);
+          assert.ok(replacementDraft);
+          await until(
+            () => evaluate('Boolean(document.querySelector(".browser-new-tab"))'),
+            "replacement draft ready",
+          );
+          await evaluate('document.querySelector(".browser-new-tab").click()');
+          await until(
+            async () => (await value.service.browser.state(replacementDraft)).tabs.length === 1,
+            "replacement draft tab opened",
+          );
+          pending.get(nextDraft.threadId)?.reject(new Error("Fixture abandoned start rejected"));
+          await until(
+            async () => (await value.service.browser.state(nextDraft)).tabs.length === 0,
+            "abandoned failed preview cleaned up",
+          );
+          assert.equal((await value.service.browser.state(replacementDraft)).tabs.length, 1);
         } finally {
           value.service.startThread = startThread;
         }
+      }
+      if (label === "remote") {
+        const abandoned = { projectId: value.scope.projectId, threadId: randomUUID() };
+        await value.service.browser.command(abandoned, { kind: "open", url: "about:blank" });
+        await evaluate(
+          `${mountedApi}.discardDraft(${JSON.stringify({ ...abandoned, ownerProjectId: value.scope.projectId })})`,
+        );
+        assert.equal((await value.service.browser.state(abandoned)).tabs.length, 0);
+        assert.equal((await value.service.browser.state(draftScope)).tabs.length, 1);
       }
       await evaluate('document.querySelector(".browser-tab-close").click()');
       await until(

@@ -1,4 +1,5 @@
 import {
+  browserDiscardDraftSchema,
   browserOutputEnvelopeSchema,
   isBrowserQuery,
   browserCommandSchema,
@@ -58,6 +59,8 @@ function browserApi(machineId?: string): BrowserAPI {
   const keyFor = (scope: { projectId: string; threadId: string }) =>
     `${scope.projectId}:${scope.threadId}`;
   return {
+    discardDraft: (input) =>
+      request("browser-discard-draft", browserDiscardDraftSchema.parse(input), machineId),
     download: async (name, data) => {
       await ipcRenderer.invoke("tidy:browser-download", { name, data });
     },

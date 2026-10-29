@@ -158,12 +158,16 @@ export class RemoteClient {
           .object({ capabilities: z.array(z.string()).optional() })
           .parse(await health.json()).capabilities;
         if (closed || version !== generation) return;
-        if (!capabilities?.includes("browser-v2")) {
+        if (
+          !capabilities?.includes("browser-v2") ||
+          !capabilities.includes("browser-draft-discard")
+        ) {
           receive({
             kind: "error",
             message:
               "This host needs a backend update for browser previews. Finish active work and reconnect the machine.",
           });
+          receive({ kind: "disconnected", message: "Browser previews need a host update." });
           return;
         }
         const response = await fetch(`${active.origin}/auth/ticket`, {

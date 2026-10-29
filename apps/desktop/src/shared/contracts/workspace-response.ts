@@ -36,6 +36,7 @@ export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
   "browser-state": browserStateSchema,
+  "browser-discard-draft": z.void(),
   "browser-command": browserResultSchema,
   "browser-query": browserResultSchema,
   "project-directories": directorySchema,

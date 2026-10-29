@@ -411,14 +411,13 @@ export class BrowserService {
     page.on("framenavigated", (frame) => {
       if (frame === page.mainFrame()) void update();
     });
-    page.on("domcontentloaded", () => {
+    const loaded = () => {
       tab.state.loading = false;
+      workspace.stream.refresh();
       void update();
-    });
-    page.on("load", () => {
-      tab.state.loading = false;
-      void update();
-    });
+    };
+    page.on("domcontentloaded", loaded);
+    page.on("load", loaded);
     page.on("console", (message) => {
       tab.console.push(`${message.type()}: ${message.text().slice(0, 2000)}`);
       if (tab.console.length > 200) tab.console.shift();
@@ -1034,12 +1033,28 @@ export class BrowserService {
     }
   }
 
+  async discardDraft(scope: BrowserScope) {
+    await this.authorize(scope);
+    const workspace = this.workspaces.get(scopeKey(scope));
+    if (workspace)
+      await this.removeWorkspaces(
+        [workspace],
+        "This preview was closed because its draft could not start.",
+      );
+  }
+
   async removeProject(projectId: string) {
     const workspaces = [...this.workspaces.values()].filter(
       (workspace) => workspace.scope.projectId === projectId,
     );
+    await this.removeWorkspaces(
+      workspaces,
+      "This project's browser was closed because the project was removed.",
+    );
+  }
+
+  private async removeWorkspaces(workspaces: Workspace[], message: string) {
     for (const workspace of workspaces) {
-      const message = "This project's browser was closed because the project was removed.";
       workspace.lifetime.abort(new Error(message));
       workspace.stream.invalidate();
       this.workspaces.delete(scopeKey(workspace.scope));

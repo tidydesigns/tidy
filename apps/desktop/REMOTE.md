@@ -230,7 +230,8 @@ The browser runs on the selected project's host, so `localhost:3000` reaches tha
 host's development server. Frames and input use an authenticated WebSocket over the
 existing SSH forward; development-server ports need no additional forwarding.
 Credentials stay in Electron main, and pages run in sandboxed Chrome outside the
-Tidy renderer. Hosts advertise `browser-v2`; older backends show an update message.
+Tidy renderer. Hosts advertise `browser-v2` and `browser-draft-discard`; older backends
+show an update message.
 Finish active runs and close browser tabs before restarting a backend to update it.
 
 Disconnecting or switching machines leaves host tabs open. Reconnection restores a

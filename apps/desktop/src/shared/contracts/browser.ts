@@ -3,6 +3,10 @@ export const BROWSER_CLIPBOARD_LIMIT = 512000;
 
 export const browserScopeSchema = z.object({ projectId: z.uuid(), threadId: z.uuid() }).strict();
 export type BrowserScope = z.infer<typeof browserScopeSchema>;
+export const browserDiscardDraftSchema = browserScopeSchema
+  .extend({ ownerProjectId: z.uuid() })
+  .strict();
+export type BrowserDiscardDraft = z.infer<typeof browserDiscardDraftSchema>;
 export const browserTabSchema = z.object({
   id: z.uuid(),
   viewId: z.uuid(),
@@ -245,6 +249,7 @@ export const browserOutputEnvelopeSchema = z.object({
 export type BrowserOutput = z.infer<typeof browserOutputSchema>;
 export type BrowserWatch = { input(input: BrowserInputEnvelope): void; close(): void };
 export type BrowserAPI = {
+  discardDraft(input: z.infer<typeof browserDiscardDraftSchema>): Promise<void>;
   copy(text: string): Promise<void>;
   download(name: string, base64: string): Promise<void>;
   command(input: z.infer<typeof browserCommandSchema>): Promise<BrowserResult>;

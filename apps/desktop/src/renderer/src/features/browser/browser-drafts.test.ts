@@ -28,14 +28,14 @@ test("failed starts restore only their own current draft reservation", () => {
   const first = getBrowserDraft(cache, key);
   const restoreFirst = reserveBrowserDraft(cache, key, first);
   expect(restoreFirst).toBeDefined();
-  restoreFirst?.();
+  expect(restoreFirst?.()).toBe(true);
   expect(getBrowserDraft(cache, key)).toBe(first);
   const staleRestore = reserveBrowserDraft(cache, key, first);
   const second = getBrowserDraft(cache, key);
   expect(second).not.toBe(first);
   const restoreSecond = reserveBrowserDraft(cache, key, second);
-  staleRestore?.();
-  restoreSecond?.();
+  expect(staleRestore?.()).toBe(false);
+  expect(restoreSecond?.()).toBe(true);
   expect(getBrowserDraft(cache, key)).toBe(second);
   reserveBrowserDraft(cache, key, second);
   expect(getBrowserDraft(cache, key)).not.toBe(second);

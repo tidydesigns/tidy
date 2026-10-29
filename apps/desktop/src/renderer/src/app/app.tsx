@@ -1214,7 +1214,12 @@ export function App({
           [projectId]: value.id,
         }));
     } catch (value) {
-      restoreBrowserDraft?.();
+      if (restoreBrowserDraft?.() === false && browserScope)
+        void api.browser
+          ?.discardDraft({ ...browserScope, ownerProjectId: projectId })
+          .catch((cause: unknown) => {
+            setError({ projectId, text: errorText(cause), original: cause });
+          });
       // Remove only this pending turn. Preserve navigation, newer drafts and native events.
       if (!thread) failedStarts.current.add(id);
       setThreads((current) => {

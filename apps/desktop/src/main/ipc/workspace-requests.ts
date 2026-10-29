@@ -1,5 +1,6 @@
 import {
   browserScopeSchema,
+  browserDiscardDraftSchema,
   browserCommandSchema,
   browserQuerySchema,
 } from "../../shared/contracts/browser";
@@ -72,6 +73,9 @@ export function createWorkspaceRequests<Context>(
     });
   }
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
+  handle("browser-discard-draft", browserDiscardDraftSchema, (input) =>
+    service.discardBrowserDraft(input),
+  );
   handle("browser-query", browserQuerySchema, ({ action, viewerId, ...scope }) =>
     service.browser.command(scope, action, { actor: viewerId }),
   );

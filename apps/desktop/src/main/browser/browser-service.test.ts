@@ -1,7 +1,8 @@
 import { afterEach, mock, test } from "node:test";
 import { z } from "zod";
 import assert from "node:assert/strict";
-import { createServer, Server } from "node:http";
+import { createServer, Server, type ServerResponse } from "node:http";
+import { CdpCDPSession } from "puppeteer-core/internal/cdp/CdpSession.js";
 import { readFile, stat, access, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -29,10 +30,12 @@ const browserTest = (name: string, run: () => Promise<void>, timeout = 30000) =>
   test(name, { skip: Boolean(process.versions.bun), timeout }, run);
 
 async function fixture(authorize = async () => {}) {
+  const slow = Promise.withResolvers<ServerResponse>();
   const server = createServer((request, response) => {
     if (request.url === "/slow") {
       response.writeHead(200, { "Content-Type": "text/html" });
       response.write("<!doctype html><title>Loading</title>");
+      slow.resolve(response);
       return;
     }
     if (request.url === "/download") {
@@ -59,7 +62,7 @@ async function fixture(authorize = async () => {}) {
     if (input.projectId !== projectId) throw new Error("Project access denied.");
   });
   cleanups.push(() => browser.close());
-  return { browser, scope, url: `http://127.0.0.1:${address.port}` };
+  return { browser, scope, url: `http://127.0.0.1:${address.port}`, slow: slow.promise };
 }
 
 async function watchBrowser({
@@ -1165,6 +1168,44 @@ browserTest("blank drafts stay idle and capture starts when a page is loaded", a
     await until(() => frames.includes(tabId));
     assert.equal(errors.length, 0);
   } finally {
+    viewer.close();
+  }
+});
+
+browserTest("capture retries a failed CDP start when page loading completes", async () => {
+  const { browser, scope, url, slow } = await fixture();
+  let failures = 0;
+  let loaded = false;
+  let frames = 0;
+  const send = CdpCDPSession.prototype.send;
+  const failure = mock.method(
+    CdpCDPSession.prototype,
+    "send",
+    function (this: CdpCDPSession, ...args: Parameters<CdpCDPSession["send"]>) {
+      if (args[0] === "Page.startScreencast" && !loaded) {
+        failures++;
+        return Promise.reject(new Error("Capture cannot start while loading."));
+      }
+      return Reflect.apply(send, this, args);
+    },
+  );
+  const viewer = await watchBrowser({
+    browser,
+    scope,
+    id: randomUUID(),
+    receive(event) {
+      if (event.kind === "frame") frames++;
+    },
+  });
+  try {
+    const navigation = browser.command(scope, { kind: "open", url: url + "/slow" });
+    await until(() => failures > 0);
+    loaded = true;
+    (await slow).end("<p>Ready</p>");
+    await navigation;
+    await until(() => frames > 0);
+  } finally {
+    failure.mock.restore();
     viewer.close();
   }
 });

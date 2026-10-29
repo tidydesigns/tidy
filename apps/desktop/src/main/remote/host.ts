@@ -120,7 +120,7 @@ export function createRemoteHost({
       if (request.method === "GET" && request.url === "/health")
         return send(200, {
           ...identity,
-          capabilities: ["browser-v2"],
+          capabilities: ["browser-v2", "browser-draft-discard"],
           protocol: 3,
           activeRuns: service.activeRunCount,
         });

@@ -22,6 +22,8 @@ export function reserveBrowserDraft(cache: BrowserDraftCache, key: string, id: s
   if (current?.id !== id || current.status !== "available") return;
   current.status = "reserved";
   return () => {
-    if (cache.get(key) === current) current.status = "available";
+    if (cache.get(key) !== current) return false;
+    current.status = "available";
+    return true;
   };
 }
