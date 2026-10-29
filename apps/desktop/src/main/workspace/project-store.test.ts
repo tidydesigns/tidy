@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
 import { CloudCompute } from "../cloud/cloud-compute";
-import type { Thread } from "../../shared/contracts/desktop";
+import { storedThreadSchema, type Thread } from "../../shared/contracts/desktop";
 
 const cleanups: string[] = [];
 afterEach(async () => {
@@ -800,4 +800,126 @@ test("removal rejects unknown IDs and cloud registrations", async () => {
   const project = await f.store.register(f.root, "Cloud workspace");
   await expect(f.store.remove(project.id)).rejects.toThrow("Cloud workspaces");
   expect(f.store.projects).toHaveLength(1);
+});
+
+test("thread checkpoints capture call-time data and keep authority out of worker-encoded files", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const value = thread(project.id);
+  value.settings = { model: "fixture-codex", permissionMode: "read-only" };
+  value.messages[0].text = 'Unicode 🦊, quotes " and newlines\n'.repeat(10_000);
+  const expected = structuredClone(value);
+  const pending = store.writeThread(value);
+  value.messages[0].text = "Later update";
+  value.settings.permissionMode = "auto";
+  await pending;
+  const path = await store.storagePath(project.id, "threads", value.id);
+  const portable = storedThreadSchema.parse(expected);
+  delete portable.sessionId;
+  portable.settings = { model: "fixture-codex" };
+  expect(await readFile(path, "utf8")).toBe(JSON.stringify(portable, null, 2));
+  expect((await stat(path)).mode & 0o777).toBe(0o600);
+  expect((await store.readThread(project.id, value.id)).settings?.permissionMode).toBe("read-only");
+});
+
+test("oversized thread encoding preserves the stored checkpoint and later writes still flush", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const value = thread(project.id);
+  await store.writeThread(value);
+  const oversized = {
+    ...value,
+    messages: Array.from({ length: 9 }, () => ({
+      id: randomUUID(),
+      role: "assistant" as const,
+      text: "🦊".repeat(500_000),
+    })),
+  };
+  await expect(store.writeThread(oversized)).rejects.toThrow("size limit");
+  expect((await store.readThread(project.id, value.id)).messages).toEqual(value.messages);
+  value.messages[0].text = "Recovered".repeat(40_000);
+  const pending = store.writeThread(value);
+  await store.flush();
+  await pending;
+  expect((await store.readThread(project.id, value.id)).messages[0].text).toBe(
+    "Recovered".repeat(40_000),
+  );
+});
+
+test("failed encodings cannot release the write queue ahead of an earlier checkpoint", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const value = thread(project.id);
+  value.messages[0].text = "First".repeat(60_000);
+  const original = CloudCompute.prototype.encodeThread;
+  let release: (() => void) | undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  let encodedFirst: (() => void) | undefined;
+  const firstReady = new Promise<void>((resolve) => {
+    encodedFirst = resolve;
+  });
+  let calls = 0;
+  const encoder = spyOn(CloudCompute.prototype, "encodeThread").mockImplementation(function (
+    this: CloudCompute,
+    thread,
+  ) {
+    const encoded = original.call(this, thread);
+    if (++calls === 1)
+      return encoded.then(async (bytes) => {
+        encodedFirst?.();
+        await gate;
+        return bytes;
+      });
+    if (calls === 2) return Promise.reject(new Error("Encoding failed"));
+    return encoded;
+  });
+  try {
+    const first = store.writeThread(value);
+    const failed = store.writeThread(value).catch((error: unknown) => error);
+    value.messages[0].text = "Latest".repeat(60_000);
+    let writtenLast = false;
+    const last = store.writeThread(value).then(() => {
+      writtenLast = true;
+    });
+    await firstReady;
+    expect(calls).toBe(1);
+    expect(writtenLast).toBe(false);
+    release?.();
+    await first;
+    expect(await failed).toEqual(new Error("Encoding failed"));
+    await last;
+    expect((await store.readThread(project.id, value.id)).messages[0].text).toBe(
+      "Latest".repeat(60_000),
+    );
+  } finally {
+    release?.();
+    encoder.mockRestore();
+  }
+});
+
+test("large queued message text uses worker encoding while absent and small queues stay local", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const value = thread(project.id);
+  const encoder = spyOn(CloudCompute.prototype, "encodeThread");
+  try {
+    await store.writeThread(value);
+    value.queuedMessages = [{ id: randomUUID(), text: "Next message" }];
+    await store.writeThread(value);
+    expect(encoder).not.toHaveBeenCalled();
+    value.queuedMessages = Array.from({ length: 20 }, () => ({
+      id: randomUUID(),
+      text: "Queued text ".repeat(2_500),
+    }));
+    const expected = structuredClone(value.queuedMessages);
+    const pending = store.writeThread(value);
+    value.queuedMessages[0].text = "Later edit";
+    await pending;
+    expect(encoder).toHaveBeenCalledTimes(1);
+    expect((await store.readThread(project.id, value.id)).queuedMessages).toEqual(expected);
+  } finally {
+    encoder.mockRestore();
+  }
 });

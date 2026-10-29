@@ -36,8 +36,18 @@ async function drainReads() {
     reading = false;
   }
 }
+/** Encoding replies transfer ownership of UTF-8 buffers to the host.
+ * Request failures return bounded error text so the host can settle its pending operation. */
 async function run(request: ComputeRequest) {
   try {
+    if (request.kind === "encode-thread") {
+      const json = JSON.stringify(request.thread, null, 2);
+      if (Buffer.byteLength(json) > 16 * 1024 * 1024)
+        throw new Error("The local project file reached its size limit.");
+      const value = new TextEncoder().encode(json);
+      parentPort!.postMessage({ id: request.id, value }, [value.buffer]);
+      return;
+    }
     if (request.kind === "read-thread-summary") {
       const thread = storedThreadSchema.parse(
         JSON.parse((await readLocalFile(request.path)).toString("utf8")),
@@ -63,7 +73,9 @@ async function run(request: ComputeRequest) {
     parentPort!.postMessage({
       id: request.id,
       error:
-        (request.kind === "read-file" || request.kind === "read-thread-summary") &&
+        (request.kind === "read-file" ||
+          request.kind === "read-thread-summary" ||
+          request.kind === "encode-thread") &&
         error instanceof Error
           ? error.message.slice(0, 300)
           : "This design could not be compared for sync.",
