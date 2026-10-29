@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, net, protocol } from "electron";
 import { z } from "zod";
+import type { Thread } from "../src/shared/contracts/desktop";
 import { ProjectStore } from "../src/main/workspace/project-store";
 import { WorkspaceService } from "../src/main/workspace/workspace-service";
 import { registerWorkspaceIPC } from "../src/main/ipc/ipc";
@@ -797,6 +798,13 @@ async function run() {
         `${label} draft preview restored`,
       );
       assert.equal((await value.service.browser.state(draftScope)).activeTabId, draftTabId);
+      await until(
+        () => evaluate('Boolean(document.querySelector(".browser-tab-close"))'),
+        `${label} restored draft rendered`,
+      );
+      await evaluate(
+        "new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))",
+      );
       if (label === "local") {
         for (let visit = 0; visit < 2; visit++) {
           await evaluate(`document.querySelector('[aria-label="Switch project"]').click()`);
@@ -834,10 +842,105 @@ async function run() {
         () => evaluate('Boolean(document.querySelector(".browser-tab-close"))'),
         `${label} restored draft tab closable`,
       );
+      if (label === "local") {
+        const startThread = value.service.startThread.bind(value.service);
+        const pending = new Map<string, ReturnType<typeof Promise.withResolvers<Thread>>>();
+        value.service.startThread = (input) => {
+          assert.ok(input.threadId);
+          const result = Promise.withResolvers<Thread>();
+          pending.set(input.threadId, result);
+          return result.promise;
+        };
+        const submitDraft = async (text: string) => {
+          await callRenderer(
+            "function(text) { const prompt = document.getElementById('thread-prompt'); prompt.focus(); prompt.replaceChildren(document.createTextNode(text)); prompt.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: text })); }",
+            [text],
+          );
+          await until(
+            () =>
+              evaluate(
+                '!document.getElementById("thread-prompt").closest("form").querySelector("button[type=submit]").disabled',
+              ),
+            "draft can be submitted",
+          );
+          await evaluate(
+            'document.getElementById("thread-prompt").closest("form").requestSubmit()',
+          );
+        };
+        try {
+          await submitDraft("First draft task");
+          await until(() => pending.has(draftScope.threadId), "first draft start pending");
+          await evaluate('document.querySelector(".sidebar-new-thread").click()');
+          await until(
+            () => viewerScopes.get(value.service)?.threadId !== draftScope.threadId,
+            "pending start reserves its browser ID",
+          );
+          const nextDraft = viewerScopes.get(value.service);
+          assert.ok(nextDraft);
+          await until(
+            () => evaluate('Boolean(document.querySelector(".browser-new-tab"))'),
+            "next draft browser ready",
+          );
+          await evaluate('document.querySelector(".browser-new-tab").click()');
+          await until(
+            async () => (await value.service.browser.state(nextDraft)).tabs.length === 1,
+            "next draft tab opened",
+          );
+          await callRenderer(
+            "function(url) { const input = document.querySelector('.browser-navigation input'); input.focus(); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, url); input.dispatchEvent(new Event('input', { bubbles: true })); }",
+            [url],
+          );
+          window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Enter" });
+          window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Enter" });
+          await until(
+            () => evaluate('Boolean(document.querySelector(".browser-canvas:not([hidden])"))'),
+            "next draft application preview loaded",
+          );
+          const completed = {
+            ...(await value.service.readThread(value.scope.projectId, value.scope.threadId)),
+            id: draftScope.threadId,
+            title: "First draft task",
+          };
+          await value.service.store.writeThread(completed);
+          pending.get(draftScope.threadId)?.resolve(completed);
+          await until(
+            () => evaluate('document.getElementById("thread-prompt").isContentEditable'),
+            "new draft editable after earlier start succeeds",
+          );
+          await submitDraft("Second draft task");
+          await until(
+            () => pending.has(nextDraft.threadId),
+            "second draft uses a fresh browser ID",
+          );
+          assert.equal(pending.size, 2);
+          pending.get(nextDraft.threadId)?.reject(new Error("Fixture start rejected"));
+          await until(
+            () =>
+              evaluate(
+                'document.getElementById("thread-prompt").textContent.includes("Second draft task") && !document.querySelector(".thread-item.selected")',
+              ),
+            "failed start returns to its draft",
+          );
+          assert.equal(viewerScopes.get(value.service)?.threadId, nextDraft.threadId);
+          assert.equal((await value.service.browser.state(nextDraft)).tabs.length, 1);
+          await until(
+            () =>
+              evaluate(
+                'Boolean(document.querySelector(".browser-canvas:not([hidden])")) && !document.querySelector(".browser-error")',
+              ),
+            "failed start retains a working preview",
+          );
+        } finally {
+          value.service.startThread = startThread;
+        }
+      }
       await evaluate('document.querySelector(".browser-tab-close").click()');
-      await until(() => value.service.browser.activeCount === 1, `${label} draft tab cleaned up`);
+      await until(
+        () => value.service.browser.activeCount === (label === "local" ? 2 : 1),
+        `${label} draft tab cleaned up`,
+      );
       await evaluate('document.querySelector(".browser-window-actions button:last-child").click()');
-      assert.equal(value.service.browser.activeCount, 1);
+      assert.equal(value.service.browser.activeCount, label === "local" ? 2 : 1);
       console.log(
         `PASS: ${label} Electron browser panel, real input, Unicode paste, find, prompts, tab shortcuts, mobile viewport, compact layout, authenticated stream, hide without closing${label === "remote" ? ", reconnect retains tab" : ""}.`,
       );

@@ -1,3 +1,9 @@
+import {
+  browserDraftKey as draftKeyForBrowser,
+  getBrowserDraft,
+  reserveBrowserDraft,
+  type BrowserDraftCache,
+} from "../features/browser/browser-drafts";
 import { HarnessFailureNotices } from "../features/threads/harness-failure-dialog";
 import {
   BrowserNavigationContext,
@@ -112,7 +118,7 @@ export function App({
   machine?: MachineContext;
   initial?: PreparedWorkspace;
   draftCache?: Map<string, Record<string, Draft>>;
-  browserDraftCache?: Map<string, string>;
+  browserDraftCache?: BrowserDraftCache;
   cloud: CloudConnection;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
@@ -264,16 +270,16 @@ export function App({
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
-  const localBrowserDrafts = useRef(new Map<string, string>());
+  const localBrowserDrafts = useRef<BrowserDraftCache>(new Map());
   const draftBrowserIds = browserDraftCache ?? localBrowserDrafts.current;
-  const browserDraftKey = `${machine?.current.id ?? "local"}:${executionProject?.id ?? ""}`;
+  const browserDraftKey = draftKeyForBrowser({
+    machineId: machine?.current.id ?? "local",
+    projectId: project?.id ?? "",
+    executionProjectId: executionProject?.id ?? "",
+  });
   const browserScope = useMemo(() => {
     if (!executionProject || executionProject.cloud) return null;
-    let threadId = selectedThreadId;
-    if (!threadId) {
-      threadId = draftBrowserIds.get(browserDraftKey) ?? crypto.randomUUID();
-      draftBrowserIds.set(browserDraftKey, threadId);
-    }
+    const threadId = selectedThreadId ?? getBrowserDraft(draftBrowserIds, browserDraftKey);
     return { projectId: executionProject.id, threadId };
   }, [draftBrowserIds, browserDraftKey, selectedThreadId]);
   useEffect(() => {
@@ -1143,6 +1149,10 @@ export function App({
       error: undefined,
       updatedAt: new Date().toISOString(),
     };
+    const restoreBrowserDraft =
+      !selectedThreadId && browserScope
+        ? reserveBrowserDraft(draftBrowserIds, browserDraftKey, id)
+        : undefined;
     sendingKeys.current.add(key);
     setSending((current) => ({ ...current, [key]: true }));
     setThreads((current) => ({ ...current, [id]: optimistic }));
@@ -1193,8 +1203,6 @@ export function App({
           });
       pendingStarts.current.set(id, request);
       const value = await request;
-      if (!selectedThreadId && browserScope && draftBrowserIds.get(browserDraftKey) === id)
-        draftBrowserIds.delete(browserDraftKey);
       setThreads((current) => ({
         ...current,
         [value.id]:
@@ -1206,6 +1214,7 @@ export function App({
           [projectId]: value.id,
         }));
     } catch (value) {
+      restoreBrowserDraft?.();
       // Remove only this pending turn. Preserve navigation, newer drafts and native events.
       if (!thread) failedStarts.current.add(id);
       setThreads((current) => {
