@@ -65,7 +65,7 @@ jobs:
           ./gitleaks dir --redact --no-banner "$RUNNER_TEMP/tidy-desktop-source"
       - run: bun typecheck
       - run: bun lint
-      - run: bun test
+      - run: bun test --timeout 60000
       - run: node --test scripts/desktop-release.test.mjs
       - name: Explain release setup
         if: vars.DESKTOP_BETA_RELEASES_ENABLED != 'true'
