@@ -1,7 +1,10 @@
 import { DraftImports } from "../workspace/draft-imports";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
-import { branchNameSchema } from "../../shared/contracts/repository-context";
+import {
+  branchNameSchema,
+  type BranchSwitchResult,
+} from "../../shared/contracts/repository-context";
 import { readLocalFile } from "../platform/local-files";
 import {
   projectDirectories,
@@ -10,7 +13,7 @@ import {
   setupProject,
 } from "../repository/project-setup";
 import { projectSetupSchema } from "../../shared/contracts/project-setup";
-import { readRepositoryContext } from "../repository/repository-context";
+import { BranchSwitchError, readRepositoryContext } from "../repository/repository-context";
 import { skillIdSchema } from "../../shared/contracts/skills";
 import { z } from "zod";
 import { approvalDecisionSchema } from "../../shared/contracts/permissions";
@@ -220,8 +223,20 @@ export function createWorkspaceRequests<Context>(
   handle("repository-context", z.object({ projectId }).strict(), (value) =>
     readRepositoryContext(store.project(value.projectId).path),
   );
-  handle("switch-branch", z.object({ projectId, branch: branchNameSchema }).strict(), (value) =>
-    service.switchBranch(value.projectId, value.branch),
+  handle(
+    "switch-branch",
+    z.object({ projectId, branch: branchNameSchema }).strict(),
+    async (value): Promise<BranchSwitchResult> => {
+      try {
+        return {
+          kind: "switched",
+          context: await service.switchBranch(value.projectId, value.branch),
+        };
+      } catch (error) {
+        if (error instanceof BranchSwitchError) return { kind: "blocked", reason: error.reason };
+        throw error;
+      }
+    },
   );
   handle("harnesses", z.undefined(), () => checkHarnesses());
   handle("read-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>

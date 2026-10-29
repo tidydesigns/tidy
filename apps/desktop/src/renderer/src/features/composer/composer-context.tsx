@@ -16,7 +16,6 @@ export function ComposerContext({
   onReferencesChange,
   onBranchChange,
   disabled,
-  branchDisabled = false,
   pending,
   execution,
   machine,
@@ -27,7 +26,6 @@ export function ComposerContext({
   onReferencesChange?: (ids: string[]) => void;
   onBranchChange(branch: string): void;
   disabled: boolean;
-  branchDisabled?: boolean;
   pending: boolean;
   machine?: {
     label: string;
@@ -152,9 +150,9 @@ export function ComposerContext({
         </span>
       ) : (
         <SelectMenu
-          label="Branch"
+          label="Project branch"
           value={repository?.branch ?? ""}
-          disabled={disabled || branchDisabled || pending || !repository?.repository}
+          disabled={disabled || pending || !repository?.repository}
           placement="top"
           align="end"
           triggerClassName={`${codeContextTriggerClassName} branch-trigger max-w-[175px] max-[700px]:max-w-[115px]`}

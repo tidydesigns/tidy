@@ -1,3 +1,6 @@
+import { branchSwitchContext } from "../../app/workspace-error";
+import { UserFacingError } from "@tidy/ui/errors";
+import { branchSwitchMessages } from "../../../../shared/contracts/repository-context";
 import { useEffect, useRef, useState } from "react";
 import type { DesktopAPI } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
@@ -62,14 +65,20 @@ export function useRepositoryContext({
       [projectId]: { kind: "switching", context: { ...previous, branch } },
     }));
     try {
-      const context = await api.switchBranch(projectId, branch);
+      const context = branchSwitchContext(await api.switchBranch(projectId, branch));
       setEntries((current) => ({ ...current, [projectId]: { kind: "ready", context } }));
     } catch (cause) {
       setEntries((current) => ({
         ...current,
         [projectId]: { kind: "ready", context: previous },
       }));
-      onError({ projectId, cause });
+      onError({
+        projectId,
+        cause:
+          cause instanceof UserFacingError
+            ? cause
+            : new UserFacingError(branchSwitchMessages.failed, { cause }),
+      });
     } finally {
       switches.current.delete(projectId);
     }

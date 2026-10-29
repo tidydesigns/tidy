@@ -2,7 +2,11 @@ import { attachmentReference, attachmentText } from "../../shared/models/attachm
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import { harnessNames } from "../../shared/contracts/harness-updates";
-import { repositoryRoot, switchRepositoryBranch } from "../repository/repository-context";
+import {
+  BranchSwitchError,
+  repositoryRoot,
+  switchRepositoryBranch,
+} from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import {
@@ -214,10 +218,9 @@ export class WorkspaceService {
   }
 
   async switchBranch(projectId: string, branch: string) {
-    if (this.closing) throw new Error("Tidy is closing.");
+    if (this.closing) throw new BranchSwitchError("closing");
     const project = this.store.project(projectId);
-    if (this.repositoryChanges.size)
-      throw new Error("Wait for the active branch switch to finish.");
+    if (this.repositoryChanges.size) throw new BranchSwitchError("switch-in-progress");
     const operation = (async () => {
       const activeProjects = new Set([
         ...[...this.jobs.values()].map(
@@ -227,7 +230,7 @@ export class WorkspaceService {
         ...this.executionProjects.values(),
       ]);
       const root = await repositoryRoot(project.path);
-      if (!root) throw new Error("Could not verify the repository root. Try switching again.");
+      if (!root) throw new BranchSwitchError("root-unavailable");
       const activeRoots = await Promise.all(
         [
           ...new Set([
@@ -239,13 +242,8 @@ export class WorkspaceService {
         ].map((path) => repositoryRoot(path)),
       );
       if (activeRoots.some((activeRoot) => !activeRoot))
-        throw new Error(
-          "Could not verify an active project's repository root. Wait for its work to finish.",
-        );
-      if (activeRoots.includes(root))
-        throw new Error(
-          "Wait for this repository's active work to finish before switching branches.",
-        );
+        throw new BranchSwitchError("active-root-unavailable");
+      if (activeRoots.includes(root)) throw new BranchSwitchError("active-work");
       this.sessionGeneration++;
       await this.sessions.clear({ directory: root, idleOnly: true });
       return await switchRepositoryBranch(project.path, branch);

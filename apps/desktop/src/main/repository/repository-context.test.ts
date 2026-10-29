@@ -6,6 +6,9 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { repositoryContextSchema } from "../../shared/contracts/repository-context";
 import { readRepositoryContext, switchRepositoryBranch } from "./repository-context";
+import { createWorkspaceRequests } from "../ipc/workspace-requests";
+import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
+import { branchSwitchContext, errorText } from "../../renderer/src/app/workspace-error";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
 
@@ -99,7 +102,7 @@ console.log(JSON.stringify({root: await repositoryRoot(cwd), before: await readR
 test("preserves conflicting uncommitted work and does not run checkout hooks", async () => {
   const { cwd } = await fixture();
   await writeFile(join(cwd, "file.txt"), "unsaved work\n");
-  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toThrow("local changes");
+  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toThrow("Local changes");
   expect(await readFile(join(cwd, "file.txt"), "utf8")).toBe("unsaved work\n");
   await writeFile(join(cwd, "file.txt"), "main\n");
   const marker = join(cwd, "hook-ran");
@@ -114,6 +117,9 @@ test("reports detached HEAD and folders outside a repository", async () => {
   const { cwd, git } = await fixture();
   await git(["switch", "--detach"]);
   expect((await readRepositoryContext(cwd)).branch).toBeNull();
+  await writeFile(join(cwd, "notes.txt"), "keep\n");
+  expect((await switchRepositoryBranch(cwd, "feature")).branch).toBe("feature");
+  expect(await readFile(join(cwd, "notes.txt"), "utf8")).toBe("keep\n");
   const plain = await mkdtemp(join(tmpdir(), "tidy-plain-"));
   directories.push(plain);
   expect((await readRepositoryContext(plain)).repository).toBe(false);
@@ -132,7 +138,7 @@ test("preserves ignored application data when the target branch tracks the same 
   await mkdir(join(cwd, ".tidy"), { recursive: true });
   await writeFile(metadata, "local application data\n");
 
-  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toThrow("local changes");
+  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toThrow("Local changes");
   expect(await readFile(metadata, "utf8")).toBe("local application data\n");
   expect((await readRepositoryContext(cwd)).branch).toBe("main");
 });
@@ -386,4 +392,193 @@ test("cloud workspace threads guard their execution repository during preparatio
     completion.resolve();
     await service.close();
   }
+});
+
+async function requestFixture() {
+  const repository = await fixture();
+  const state = await mkdtemp(join(tmpdir(), "tidy-branch-state-"));
+  directories.push(state);
+  const store = new ProjectStore(state);
+  await store.initialize();
+  const { project } = await store.open(repository.cwd);
+  const service = new WorkspaceService(store);
+  const requests = createWorkspaceRequests(service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder: () => {},
+  });
+  const switchBranch = async (branch: string) => {
+    const data = await requests.invoke(
+      "switch-branch",
+      { projectId: project.id, branch },
+      undefined,
+    );
+    return parseWorkspaceResponse("switch-branch", JSON.parse(JSON.stringify({ ok: true, data })));
+  };
+  return { ...repository, store, project, service, switchBranch };
+}
+
+test("branch blockers survive the workspace bridge and reach the toast without exposing Git output", async () => {
+  const { cwd, service, switchBranch } = await requestFixture();
+  try {
+    await writeFile(join(cwd, "file.txt"), "private local work\n");
+    const result = await switchBranch("feature");
+    expect(result).toEqual({ kind: "blocked", reason: "local-changes" });
+    let displayed = "";
+    try {
+      branchSwitchContext(result);
+    } catch (error) {
+      displayed = errorText(error);
+    }
+    expect(displayed).toContain("Commit or stash");
+    expect(displayed).not.toContain(cwd);
+    expect(displayed).not.toContain("private local work");
+    expect((await readRepositoryContext(cwd)).branch).toBe("main");
+    await writeFile(join(cwd, "file.txt"), "main\n");
+    expect(branchSwitchContext(await switchBranch("feature")).branch).toBe("feature");
+  } finally {
+    await service.close();
+  }
+});
+
+test("an existing completed thread does not prevent switching branches or lose its history", async () => {
+  const { cwd, store, project, service, switchBranch } = await requestFixture();
+  const thread = {
+    id: crypto.randomUUID(),
+    projectId: project.id,
+    harness: "codex" as const,
+    title: "Completed work",
+    status: "completed" as const,
+    updatedAt: new Date().toISOString(),
+    revision: 1,
+    doneAt: new Date().toISOString(),
+    designIds: [],
+    messages: [{ id: crypto.randomUUID(), role: "user" as const, text: "Keep my history" }],
+  };
+  try {
+    await store.writeThread(thread);
+    expect(branchSwitchContext(await switchBranch("feature")).branch).toBe("feature");
+    expect((await readRepositoryContext(cwd)).branch).toBe("feature");
+    expect(await store.readThread(project.id, thread.id)).toMatchObject(thread);
+  } finally {
+    await service.close();
+  }
+});
+
+test("reports a branch held by a linked worktree without changing either checkout", async () => {
+  const { cwd, git } = await fixture();
+  const linked = join(cwd, "linked");
+  await git(["worktree", "add", linked, "feature"]);
+  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toMatchObject({
+    reason: "branch-in-use",
+  });
+  expect((await readRepositoryContext(cwd)).branch).toBe("main");
+  expect((await readRepositoryContext(linked)).branch).toBe("feature");
+});
+
+test.each(["untracked", "staged"])(
+  "preserves %s files that conflict with the target",
+  async (kind) => {
+    const { cwd, git } = await fixture();
+    await git(["switch", "feature"]);
+    await writeFile(join(cwd, "extra.txt"), "branch content\n");
+    await git(["add", "extra.txt"]);
+    await git(["commit", "-m", "Add extra file"]);
+    await git(["switch", "main"]);
+    await writeFile(join(cwd, "extra.txt"), "local content\n");
+    if (kind === "staged") await git(["add", "extra.txt"]);
+    await expect(switchRepositoryBranch(cwd, "feature")).rejects.toMatchObject({
+      reason: "local-changes",
+    });
+    expect(await readFile(join(cwd, "extra.txt"), "utf8")).toBe("local content\n");
+    expect((await readRepositoryContext(cwd)).branch).toBe("main");
+  },
+);
+
+test("reports an index lock without removing it and allows retry after it is released", async () => {
+  const { cwd } = await fixture();
+  const lock = join(cwd, ".git/index.lock");
+  await writeFile(lock, "another Git operation");
+  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toMatchObject({
+    reason: "index-locked",
+  });
+  expect(await readFile(lock, "utf8")).toBe("another Git operation");
+  await rm(lock);
+  expect((await switchRepositoryBranch(cwd, "feature")).branch).toBe("feature");
+});
+
+test("reports an unfinished merge without resolving or discarding it", async () => {
+  const { cwd, git } = await fixture();
+  await writeFile(join(cwd, "file.txt"), "conflicting main\n");
+  await git(["commit", "-am", "Conflicting change"]);
+  await expect(git(["merge", "feature"])).rejects.toThrow();
+  await expect(switchRepositoryBranch(cwd, "feature")).rejects.toMatchObject({
+    reason: "operation-in-progress",
+  });
+  expect(await readFile(join(cwd, ".git/MERGE_HEAD"), "utf8")).not.toBeEmpty();
+});
+
+test("a stale branch selection returns an actionable failure through the bridge", async () => {
+  const { git, service, switchBranch } = await requestFixture();
+  try {
+    await git(["branch", "-D", "feature"]);
+    expect(await switchBranch("feature")).toEqual({ kind: "blocked", reason: "missing-branch" });
+    expect(branchSwitchContext(await switchBranch("main")).branch).toBe("main");
+  } finally {
+    await service.close();
+  }
+});
+
+test("active work in an independent linked worktree does not block this checkout", async () => {
+  const { cwd, git } = await fixture();
+  const linked = join(cwd, "linked");
+  await git(["worktree", "add", "-b", "parallel", linked]);
+  const state = await mkdtemp(join(tmpdir(), "tidy-linked-state-"));
+  directories.push(state);
+  const store = new ProjectStore(state);
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const other = await store.open(linked);
+  const completion = Promise.withResolvers<void>();
+  const service = new WorkspaceService(
+    store,
+    () => ({ done: completion.promise, stop: () => completion.resolve() }),
+    async () => "/fixture/agent",
+    async () => {},
+  );
+  try {
+    await service.startThread({
+      projectId: other.project.id,
+      harness: "codex",
+      prompt: "Work",
+      designIds: [],
+    });
+    expect((await service.switchBranch(project.id, "feature")).branch).toBe("feature");
+    expect((await readRepositoryContext(linked)).branch).toBe("parallel");
+  } finally {
+    completion.resolve();
+    await service.close();
+  }
+});
+
+test("rejects unrecognized branch failure reasons", () => {
+  expect(() =>
+    parseWorkspaceResponse("switch-branch", {
+      ok: true,
+      data: { kind: "blocked", reason: "private diagnostic" },
+    }),
+  ).toThrow("Invalid desktop response");
+});
+
+test.each([
+  { machine: "test", repository: false, branch: null, branches: [] },
+  { machine: "test", repository: true, branch: null, branches: ["main"] },
+])("rejects a switch success without a checked-out branch: %j", (context) => {
+  expect(() =>
+    parseWorkspaceResponse("switch-branch", {
+      ok: true,
+      data: { kind: "switched", context },
+    }),
+  ).toThrow("Invalid desktop response");
 });
