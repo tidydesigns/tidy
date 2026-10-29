@@ -1,0 +1,68 @@
+<!doctype html>
+<html
+  lang="en"
+  data-composition-variables='[{"id":"ground","type":"color","label":"Background","default":"#fafafa"},{"id":"ink","type":"color","label":"Text","default":"#424242"},{"id":"headline","type":"string","label":"Headline","default":"Design and build in the same place"}]'
+>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tidy desktop</title>
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      @font-face {
+        font-family: "Instrument Sans";
+        src: url("assets/instrument-sans-latin.woff2");
+        font-weight: 400 700;
+      }
+      @font-face {
+        font-family: "Instrument Serif";
+        src: url("assets/InstrumentSerif-Regular.woff2");
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #fafafa;
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--ground);
+        color: var(--ink);
+        font-family: "Instrument Sans", sans-serif;
+      }
+      .scene {
+        position: absolute;
+        inset: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="root"
+      data-composition-id="main"
+      data-width="1920"
+      data-height="1080"
+      data-duration="12"
+    >
+      <div
+        id="desktop"
+        class="clip scene"
+        data-composition-id="desktop"
+        data-composition-src="compositions/desktop.html"
+        data-start="0"
+        data-duration="12"
+        data-width="1920"
+        data-height="1080"
+        data-track-index="0"
+        data-track-kind="graphics"
+      ></div>
+    </div>
+    <script>
+      const tl = gsap.timeline({ paused: true });
+      window.__timelines.main = tl;
+    </script>
+  </body>
+</html>
