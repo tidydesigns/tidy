@@ -5,11 +5,16 @@ import {
 } from "./analytics-state";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
-import type { AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
+import type { AnalyticsAPI, AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
 
 /** Local choices render immediately; stale reads/actions cannot undo the user's next choice. */
-export function PrivacySettings() {
-  const api = window.tidy?.analytics;
+export function PrivacySettings({
+  active = true,
+  api = window.tidy?.analytics,
+}: {
+  active?: boolean;
+  api?: AnalyticsAPI;
+}) {
   const [state, setState] = useState<AnalyticsState | undefined>(() => cachedAnalyticsState(api));
   const current = useRef(state);
   const [error, setError] = useState("");
@@ -29,6 +34,7 @@ export function PrivacySettings() {
       receive(value);
     });
     const read = () => {
+      if (!active) return;
       const generation = mutation.current;
       const revision = pushed.current;
       void readAnalyticsState(api)
@@ -46,7 +52,7 @@ export function PrivacySettings() {
       unsubscribe();
       window.removeEventListener("focus", read);
     };
-  }, [api]);
+  }, [api, active]);
   if (!api)
     return (
       <p className="settings-privacy-unavailable">
@@ -58,6 +64,7 @@ export function PrivacySettings() {
     if (!current.current) return;
     if (
       current.current.expiresAt &&
+      Date.parse(current.current.expiresAt) > Date.now() &&
       choices.usage === current.current.usage &&
       choices.diagnostics === current.current.diagnostics
     )

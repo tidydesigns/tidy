@@ -58,6 +58,7 @@ import {
 import { ProjectSwitcher } from "../features/workspace/project-switcher";
 import { ProjectFiles } from "../features/workspace/project-files";
 import { HarnessControls } from "../features/harnesses/harness-controls";
+import { ThreadReadingContext } from "../features/threads/thread-reading";
 import { ThreadCard } from "../features/threads/thread-card";
 import { MessageQueue } from "../features/threads/message-queue";
 import { MessageActionIcon } from "../features/threads/message-action-icon";
@@ -1674,13 +1675,15 @@ export function App({
               className="sidebar-mode-content flex min-h-0 flex-1 [&[hidden]]:hidden"
               hidden={mode !== "code"}
             >
-              <ThreadSidebar
-                key={project.id}
-                projectId={project.id}
-                threads={snapshot.threads}
-                search={deferredThreadQueries[project.id] ?? ""}
-                renderThread={renderThread}
-              />
+              <ThreadReadingContext value={!settingsOpen && mode === "code"}>
+                <ThreadSidebar
+                  key={project.id}
+                  projectId={project.id}
+                  threads={snapshot.threads}
+                  search={deferredThreadQueries[project.id] ?? ""}
+                  renderThread={renderThread}
+                />
+              </ThreadReadingContext>
             </div>
           </>
         )}

@@ -145,7 +145,7 @@ export function Settings({
             <AppearanceSettings />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
-            <PrivacySettings />
+            <PrivacySettings active={active} />
           </div>
         </div>
       </main>

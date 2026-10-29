@@ -15,6 +15,10 @@ import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { ThreadSidebar } from "../../features/threads/thread-sidebar";
+import { ThreadReadingContext } from "../../features/threads/thread-reading";
+import { PrivacySettings } from "../../features/settings/privacy-settings";
+import { readAnalyticsState } from "../../features/settings/analytics-state";
+import { ANALYTICS_NOTICE, type AnalyticsAPI, type AnalyticsState } from "@tidy/design/analytics";
 import { ThreadCard } from "../../features/threads/thread-card";
 import { RemoteMachines } from "../../features/settings/remote-machines";
 import { Settings } from "../../features/settings/settings";
@@ -334,6 +338,75 @@ async function runThreadLoadingTests(): Promise<string[]> {
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
   await run(
+    "reopening privacy refreshes retained consent and allows expired choices to renew",
+    async (root) => {
+      const expired: AnalyticsState = {
+        notice: ANALYTICS_NOTICE,
+        available: true,
+        usage: true,
+        diagnostics: true,
+        expiresAt: new Date(0).toISOString(),
+        linked: false,
+        pendingDeletion: false,
+        reference: null,
+      };
+      const off = { ...expired, usage: false, diagnostics: false, expiresAt: null };
+      let reads = 0;
+      let choices = 0;
+      let pending = deferred<AnalyticsState>();
+      const api: AnalyticsAPI = {
+        ...required(nativeAPI.analytics, "Analytics preload API"),
+        state: () => (++reads === 1 ? Promise.resolve(expired) : pending.promise),
+        subscribe: () => () => {},
+        choose: async (choice) => {
+          choices++;
+          return {
+            ...expired,
+            ...choice,
+            expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          };
+        },
+      };
+      await readAnalyticsState(api);
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<PrivacySettings api={api} active={active} />));
+      render(false);
+      check(reads === 1, "Hidden privacy settings refetched consent");
+      const panel = required(host.querySelector(".settings-privacy"), "Privacy panel");
+      render(true);
+      await until(() => reads === 2, "Activation refresh without window focus");
+      check(
+        host.querySelector(".settings-privacy") === panel,
+        "Refreshing replaced the cached controls",
+      );
+      check(!panel.textContent?.includes("Loading your choices"), "Refreshing hid cached choices");
+      required(
+        [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "Accept",
+        ),
+        "Accept choice",
+      ).click();
+      await until(() => choices === 1, "Expired same choice can renew before refresh finishes");
+      await settle();
+      pending.resolve(off);
+      await settle();
+      check(
+        panel.textContent?.includes("Both enabled"),
+        "Late refresh undid a newer consent choice",
+      );
+      render(false);
+      pending = deferred<AnalyticsState>();
+      render(true);
+      await until(() => reads === 3, "Next activation refresh");
+      pending.resolve(off);
+      await until(
+        () => Boolean(panel.textContent?.includes("Both off")),
+        "Native expiration updates retained controls",
+      );
+    },
+  );
+
+  await run(
     "settings retain loaded panels without occupying hidden layout or stealing focus",
     async (root) => {
       const cloud = {
@@ -446,48 +519,56 @@ async function runThreadLoadingTests(): Promise<string[]> {
     },
   );
 
-  await run("selected threads are marked read only when their card is visible", async (root) => {
-    const thread = { ...summarizeThread(makeThread()), status: "completed" as const };
-    const key = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
-    const focus = Object.getOwnPropertyDescriptor(document, "hasFocus");
-    const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
-    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
-    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-    const render = (hidden: boolean) =>
-      flushSync(() =>
-        root.render(
-          <div style={{ display: hidden ? "none" : "block" }}>
-            <ThreadCard
-              thread={thread}
-              selected
-              loaded
-              now={Date.now()}
-              pending={false}
-              onSelect={() => {}}
-              onDone={() => {}}
-            />
-          </div>,
-        ),
-      );
-    try {
-      localStorage.removeItem(key);
-      render(true);
-      await settle();
-      window.dispatchEvent(new Event("focus"));
-      check(
-        localStorage.getItem(key) === null,
-        "A response hidden behind settings was marked read",
-      );
-      render(false);
-      await until(() => localStorage.getItem(key) !== null, "Visible response marked read");
-    } finally {
-      if (focus) Object.defineProperty(document, "hasFocus", focus);
-      else Reflect.deleteProperty(document, "hasFocus");
-      if (visibility) Object.defineProperty(document, "visibilityState", visibility);
-      else Reflect.deleteProperty(document, "visibilityState");
-      localStorage.removeItem(key);
-    }
-  });
+  await run(
+    "read markers follow transcript activity even with the sidebar hidden",
+    async (root) => {
+      const thread = { ...summarizeThread(makeThread()), status: "completed" as const };
+      const key = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
+      const focus = Object.getOwnPropertyDescriptor(document, "hasFocus");
+      const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      const render = (active: boolean) =>
+        flushSync(() =>
+          root.render(
+            <ThreadReadingContext value={active}>
+              <div style={{ display: "none" }}>
+                <ThreadCard
+                  thread={thread}
+                  selected
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                />
+              </div>
+            </ThreadReadingContext>,
+          ),
+        );
+      try {
+        localStorage.removeItem(key);
+        render(false);
+        await settle();
+        window.dispatchEvent(new Event("focus"));
+        check(
+          localStorage.getItem(key) === null,
+          "A response hidden behind settings was marked read",
+        );
+        render(true);
+        await until(
+          () => localStorage.getItem(key) !== null,
+          "Active transcript marked read despite hidden sidebar",
+        );
+      } finally {
+        if (focus) Object.defineProperty(document, "hasFocus", focus);
+        else Reflect.deleteProperty(document, "hasFocus");
+        if (visibility) Object.defineProperty(document, "visibilityState", visibility);
+        else Reflect.deleteProperty(document, "visibilityState");
+        localStorage.removeItem(key);
+      }
+    },
+  );
 
   await run(
     "offline transitions retain loaded projects and refresh once on reconnect",
@@ -953,23 +1034,27 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       const viewport = visibleTranscript();
       first.click();
-      await settle();
+      await until(() => viewport.scrollTop < 2, "First turn scroll settles");
       const previousTop = viewport.scrollTop;
       const target = required(
         viewport.querySelectorAll<HTMLElement>(".conversation-entry")[8],
         "Added prompt",
       );
-      const expectedTop = Math.min(
-        viewport.scrollHeight - viewport.clientHeight,
-        viewport.scrollTop +
-          target.getBoundingClientRect().top -
-          viewport.getBoundingClientRect().top -
-          Number.parseFloat(getComputedStyle(viewport).paddingTop),
-      );
+      const expectedTop = () =>
+        Math.min(
+          viewport.scrollHeight - viewport.clientHeight,
+          viewport.scrollTop +
+            target.getBoundingClientRect().top -
+            viewport.getBoundingClientRect().top -
+            Number.parseFloat(getComputedStyle(viewport).paddingTop),
+        );
       added.click();
       await settle();
       check(Math.abs(viewport.scrollTop - previousTop) > 2, "Added turn did not scroll");
-      check(Math.abs(viewport.scrollTop - expectedTop) < 2, "Added turn jumped to a stale message");
+      await until(
+        () => Math.abs(viewport.scrollTop - expectedTop()) < 2,
+        "Added turn reaches its current layout position",
+      );
     },
   );
 
