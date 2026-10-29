@@ -22,7 +22,10 @@ export function useWorkspaceState({
   initialThreads,
   connection,
 }: {
-  api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
+  api:
+    | (Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> &
+        Partial<Pick<DesktopAPI, "checkHarnesses">>)
+    | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
   initial?: Bootstrap;
@@ -43,6 +46,7 @@ export function useWorkspaceState({
     initial?.activeProject ? { [initial.activeProject.project.id]: initial.activeProject } : {},
   );
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>(initial?.harnesses ?? []);
+  const [harnessDiscoveryFailed, setHarnessDiscoveryFailed] = useState(false);
   const [threads, setThreads] = useState<Record<string, Thread>>(() =>
     Object.fromEntries((initialThreads ?? []).map((thread) => [thread.id, thread])),
   );
@@ -81,16 +85,35 @@ export function useWorkspaceState({
     [api],
   );
 
-  function applySnapshot(value: ProjectSnapshot, activate = true) {
+  function applySnapshot(value: ProjectSnapshot, activate = true, expected?: ProjectSnapshot) {
     setSnapshots((current) => {
+      const previous = current[value.project.id];
+      if (expected && !previous) return current;
+      const changed = expected && previous !== expected;
+      const expectedThreads = changed
+        ? new Map(expected.threads.map((item) => [item.id, item]))
+        : undefined;
       const summaries = new Map(value.threads.map((item) => [item.id, item]));
-      for (const item of current[value.project.id]?.threads ?? []) {
-        if ((summaries.get(item.id)?.revision ?? -1) < item.revision) summaries.set(item.id, item);
+      for (const item of previous?.threads ?? []) {
+        const revision = summaries.get(item.id)?.revision ?? -1;
+        if (
+          revision < item.revision ||
+          (revision === item.revision && expectedThreads && expectedThreads.get(item.id) !== item)
+        )
+          summaries.set(item.id, item);
       }
       return {
         ...current,
         [value.project.id]: {
           ...value,
+          // Preserve intervening edits without discarding unrelated refreshed fields.
+          ...(changed && previous
+            ? {
+                project: previous.project !== expected.project ? previous.project : value.project,
+                designs: previous.designs !== expected.designs ? previous.designs : value.designs,
+                folders: previous.folders !== expected.folders ? previous.folders : value.folders,
+              }
+            : {}),
           threads: [...summaries.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
         },
       };
@@ -154,6 +177,22 @@ export function useWorkspaceState({
         unsubscribe();
       };
     }
+    let harnessesRefreshed = false;
+    setHarnessDiscoveryFailed(false);
+    void api
+      .checkHarnesses?.()
+      .then((value) => {
+        if (!mounted) return;
+        harnessesRefreshed = true;
+        setHarnesses(value);
+        setHarnessDiscoveryFailed(false);
+      })
+      .catch((cause: unknown) => {
+        if (mounted) {
+          setHarnessDiscoveryFailed(true);
+          onError({ text: errorText(cause), original: cause });
+        }
+      });
     const initialNavigation = navigation.current;
     const prepared = initialBootstrap.current;
     initialBootstrap.current = undefined;
@@ -162,7 +201,7 @@ export function useWorkspaceState({
         if (!mounted) return;
         loaded.current = true;
         setProjects(value.projects.filter((p) => !p.cloud));
-        setHarnesses(value.harnesses);
+        if (!harnessesRefreshed) setHarnesses(value.harnesses);
         let activeProject = value.activeProject;
         if (
           navigation.current === initialNavigation &&
@@ -214,6 +253,8 @@ export function useWorkspaceState({
     setSnapshots,
     harnesses,
     setHarnesses,
+    harnessDiscoveryFailed,
+    setHarnessDiscoveryFailed,
     threads,
     readThread,
     setThreads,

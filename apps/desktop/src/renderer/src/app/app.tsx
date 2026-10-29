@@ -38,8 +38,7 @@ import { preloadCanvasEditor } from "../features/designs/load-canvas-editor";
 import { LocalCanvas } from "../features/designs/local-canvas";
 import { DesktopShell, SidebarToggle } from "./desktop-shell";
 import { Settings } from "../features/settings/settings";
-import { preloadConversation } from "../features/threads/load-conversation";
-import { Conversations } from "../features/threads/conversations";
+import { Conversations, prepareConversation } from "../features/threads/conversations";
 import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
 import { ApprovalRequests } from "../features/threads/approval-requests";
@@ -59,6 +58,7 @@ import {
 import { ProjectSwitcher } from "../features/workspace/project-switcher";
 import { ProjectFiles } from "../features/workspace/project-files";
 import { HarnessControls } from "../features/harnesses/harness-controls";
+import { ThreadReadingContext } from "../features/threads/thread-reading";
 import { ThreadCard } from "../features/threads/thread-card";
 import { MessageQueue } from "../features/threads/message-queue";
 import { MessageActionIcon } from "../features/threads/message-action-icon";
@@ -85,6 +85,9 @@ const modes = [
   { id: "code", label: "Threads" },
 ] as const;
 type Mode = (typeof modes)[number]["id"];
+const preloadConversation = () => {
+  void prepareConversation().catch(() => {});
+};
 const modePreloaders = {
   design: preloadCanvasEditor,
   code: preloadConversation,
@@ -111,6 +114,8 @@ export function App({
   );
   const [settingsPage, setSettingsPage] = useState<"account" | "remote">("account");
   const [settingsOpen, setSettingsOpen] = useSessionState("settings", z.boolean(), false);
+  const [settingsVisited, setSettingsVisited] = useState(settingsOpen);
+  if (settingsOpen && !settingsVisited) setSettingsVisited(true);
   const settingsTrigger = useRef<HTMLButtonElement>(null);
   const settingsWasOpen = useRef(false);
   useEffect(() => {
@@ -205,6 +210,8 @@ export function App({
     setSnapshots,
     harnesses,
     setHarnesses,
+    harnessDiscoveryFailed,
+    setHarnessDiscoveryFailed,
     threads,
     readThread,
     setThreads,
@@ -296,6 +303,32 @@ export function App({
     );
     return () => window.cancelIdleCallback(task);
   }, [Boolean(snapshot), mode, hasSavedConversations, Boolean(snapshot?.designs.length)]);
+
+  const recentThreadIds =
+    snapshot?.threads
+      .filter((item) => !item.doneAt)
+      .slice(0, 3)
+      .map((item) => item.id)
+      .join(":") ?? "";
+  useEffect(() => {
+    if (!project || settingsOpen || document.hidden || !recentThreadIds) return;
+    let cancelled = false;
+    const task = window.requestIdleCallback(
+      () => {
+        void (async () => {
+          for (const threadId of recentThreadIds.split(":")) {
+            if (cancelled || document.hidden) return;
+            await readThread({ projectId: project.id, threadId }).catch(() => {});
+          }
+        })();
+      },
+      { timeout: 1500 },
+    );
+    return () => {
+      cancelled = true;
+      window.cancelIdleCallback(task);
+    };
+  }, [project?.id, recentThreadIds, readThread, settingsOpen]);
 
   const selectedDesignId = project ? selectedDesigns[project.id] : null;
   const backToFiles = useCallback(() => {
@@ -706,19 +739,30 @@ export function App({
     projectFocus.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const generation = ++navigation.current;
-    setOpening(true);
+    const cached = projectId ? snapshots[projectId] : undefined;
+    setOpening(!cached);
     setError(null);
-    try {
-      const value = projectId ? await api.selectProject(projectId) : await api.openProject();
-      if (value && navigation.current === generation) {
-        applySnapshot(value);
-        selectLocalWorkspace();
-      }
-    } catch (value) {
-      if (navigation.current === generation) setError({ text: errorText(value), original: value });
-    } finally {
-      if (navigation.current === generation) setOpening(false);
+    if (cached) {
+      setActiveProjectId(cached.project.id);
+      selectLocalWorkspace();
     }
+    const refresh = async () => {
+      try {
+        const value = projectId ? await api.selectProject(projectId) : await api.openProject();
+        if (value && navigation.current === generation) {
+          applySnapshot(value, true, cached);
+          selectLocalWorkspace();
+        }
+      } catch (value) {
+        if (navigation.current === generation)
+          setError({ text: errorText(value), original: value });
+      } finally {
+        if (navigation.current === generation) setOpening(false);
+      }
+    };
+    // Close the picker immediately for a cached destination; refresh only that destination.
+    if (cached) void refresh();
+    else await refresh();
   }
 
   async function chooseExecutionProject(value: string) {
@@ -1254,7 +1298,9 @@ export function App({
     if (!api) return;
     try {
       setHarnesses(await api.checkHarnesses());
+      setHarnessDiscoveryFailed(false);
     } catch (value) {
+      setHarnessDiscoveryFailed(true);
       setError({ text: errorText(value), original: value });
     }
   }
@@ -1285,10 +1331,14 @@ export function App({
       <ThreadCard
         thread={item}
         orderControls={orderControls}
-        selected={mode === "code" && !settingsOpen && selectedThreadId === item.id}
+        selected={mode === "code" && selectedThreadId === item.id}
         loaded={selectedThreadId === item.id && selectedThreadLoaded}
         now={now}
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
+        onPreload={() => {
+          preloadConversation();
+          void readThread({ projectId: item.projectId, threadId: item.id }).catch(() => {});
+        }}
         onSelect={() => selectThread(project!.id, item.id)}
         onDone={() => void toggleThreadDone(item)}
         projectName={project?.name}
@@ -1304,11 +1354,11 @@ export function App({
       selectedThreadId,
       selectedThreadLoaded,
       mode,
-      settingsOpen,
       now,
       updatingDone,
       settingsPending,
       selectThread,
+      readThread,
       project,
       toggleThreadDone,
       harnessDetails,
@@ -1629,13 +1679,15 @@ export function App({
               className="sidebar-mode-content flex min-h-0 flex-1 [&[hidden]]:hidden"
               hidden={mode !== "code"}
             >
-              <ThreadSidebar
-                key={project.id}
-                projectId={project.id}
-                threads={snapshot.threads}
-                search={deferredThreadQueries[project.id] ?? ""}
-                renderThread={renderThread}
-              />
+              <ThreadReadingContext value={!settingsOpen && mode === "code"}>
+                <ThreadSidebar
+                  key={project.id}
+                  projectId={project.id}
+                  threads={snapshot.threads}
+                  search={deferredThreadQueries[project.id] ?? ""}
+                  renderThread={renderThread}
+                />
+              </ThreadReadingContext>
             </div>
           </>
         )}
@@ -1837,7 +1889,7 @@ export function App({
                     )}
                   </div>
                   <Conversations
-                    key={project.id}
+                    key={failureNoticeAccessKey}
                     projectId={project.id}
                     selected={selectedThreadId ?? null}
                     threads={threads}
@@ -2174,22 +2226,26 @@ export function App({
                           </div>
                         </div>
                       </div>
-                      {!harnessReady && (
+                      {!harnessReady && (harnesses.length > 0 || harnessDiscoveryFailed) && (
                         <div className="connection-help">
-                          <span>
-                            {harnesses.find((item) => item.id === selectedHarness)?.name ??
-                              "Your harness"}{" "}
-                            needs to be installed and signed in on{" "}
-                            {machine?.current.label ?? "this machine"}. Run{" "}
-                            <code>
-                              {selectedHarness === "codex"
-                                ? "codex login"
-                                : selectedHarness === "claude"
-                                  ? "claude auth login"
-                                  : "opencode auth login"}
-                            </code>{" "}
-                            in your terminal.
-                          </span>
+                          {harnesses.length > 0 ? (
+                            <span>
+                              {harnesses.find((item) => item.id === selectedHarness)?.name ??
+                                "Your harness"}{" "}
+                              needs to be installed and signed in on{" "}
+                              {machine?.current.label ?? "this machine"}. Run{" "}
+                              <code>
+                                {selectedHarness === "codex"
+                                  ? "codex login"
+                                  : selectedHarness === "claude"
+                                    ? "claude auth login"
+                                    : "opencode auth login"}
+                              </code>{" "}
+                              in your terminal.
+                            </span>
+                          ) : (
+                            <span>Could not check agent connections.</span>
+                          )}
                           <Button
                             type="button"
                             className="quiet-button"
@@ -2219,8 +2275,13 @@ export function App({
           )}
         </div>
       </main>
-      {settingsOpen && (
-        <Settings initialPage={settingsPage} cloud={cloud} onBack={() => setSettingsOpen(false)} />
+      {settingsVisited && (
+        <Settings
+          active={settingsOpen}
+          initialPage={settingsPage}
+          cloud={cloud}
+          onBack={() => setSettingsOpen(false)}
+        />
       )}
     </DesktopShell>
   );

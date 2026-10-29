@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import type { CloudConnection } from "../cloud/use-cloud";
@@ -17,8 +17,10 @@ export function Settings({
   cloud,
   onBack,
   initialPage = "account",
+  active = true,
 }: {
   cloud: CloudConnection;
+  active?: boolean;
   onBack(): void;
   initialPage?: "account" | "remote";
 }) {
@@ -26,15 +28,22 @@ export function Settings({
   const machines = window.tidyMachines;
   const remote = window.tidyRemote;
   const back = useRef<HTMLButtonElement>(null);
-  useEffect(() => back.current?.focus(), []);
+  useLayoutEffect(() => {
+    if (!active) return;
+    setPage(initialPage);
+    back.current?.focus();
+  }, [active, initialPage]);
+  const [remoteVisited, setRemoteVisited] = useState(false);
+  if (page === "remote" && !remoteVisited) setRemoteVisited(true);
   const available = cloud.state?.available;
   const signedIn = cloud.state?.signedIn;
 
   return (
     <>
       <aside
+        hidden={!active}
         id="desktop-settings-navigation"
-        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) settings-navigation"
+        className="desktop-navigation col-start-1 row-span-full flex min-h-0 min-w-0 flex-col border-r border-border bg-(--desktop-navigation-surface) settings-navigation [&[hidden]]:hidden"
         aria-label="Settings"
       >
         <div className="workspace-header flex shrink-0 flex-col gap-1.5 px-1 pt-1 pb-2">
@@ -68,7 +77,11 @@ export function Settings({
           )}
         </nav>
       </aside>
-      <main className="workspace settings-workspace" aria-labelledby="settings-title">
+      <main
+        hidden={!active}
+        className="workspace settings-workspace [&[hidden]]:hidden"
+        aria-labelledby="settings-title"
+      >
         <div className="settings-content">
           <h1 id="settings-title">{sectionLabels[page]}</h1>
           <section
@@ -119,16 +132,20 @@ export function Settings({
               Local projects stay on this computer unless you add them to a workspace.
             </p>
           </section>
-          {page === "remote" && machines && remote && (
-            <div id="settings-remote-panel">
-              <RemoteMachines machines={machines} remote={remote} />
+          {remoteVisited && machines && remote && (
+            <div id="settings-remote-panel" hidden={page !== "remote"}>
+              <RemoteMachines
+                machines={machines}
+                remote={remote}
+                active={active && page === "remote"}
+              />
             </div>
           )}
           <div id="settings-appearance-panel" hidden={page !== "appearance"}>
             <AppearanceSettings />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
-            <PrivacySettings />
+            <PrivacySettings active={active} />
           </div>
         </div>
       </main>

@@ -40,10 +40,12 @@ function RemoteMachineRow({
   machine,
   remote,
   onRemove,
+  active,
 }: {
   machine: WorkspaceMachine;
   remote: RemoteBridge;
   onRemove(): Promise<void>;
+  active: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -114,7 +116,7 @@ function RemoteMachineRow({
           </div>
         </div>
       )}
-      {status?.kind === "authentication" && (
+      {active && status?.kind === "authentication" && (
         <form
           key={status.promptId}
           className="remote-machine-prompt"
@@ -165,9 +167,11 @@ function RemoteMachineRow({
 export function RemoteMachines({
   machines,
   remote,
+  active = true,
 }: {
   machines: MachineBridge;
   remote: RemoteBridge;
+  active?: boolean;
 }) {
   const [items, setItems] = useState<WorkspaceMachine[]>([]);
   const [target, setTarget] = useState("");
@@ -279,6 +283,7 @@ export function RemoteMachines({
           {items.map((machine) => (
             <RemoteMachineRow
               key={machine.id}
+              active={active}
               machine={machine}
               remote={machines.workspace(machine.id).remote}
               onRemove={async () => {

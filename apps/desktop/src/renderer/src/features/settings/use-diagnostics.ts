@@ -1,3 +1,4 @@
+import { readAnalyticsState, subscribeAnalyticsState } from "./analytics-state";
 import { useEffect } from "react";
 import type { AnalyticsAPI, AnalyticsState } from "@tidy/design/analytics";
 /** Observe interaction timings only during current diagnostic consent, including its expiry. */
@@ -63,8 +64,7 @@ export function useDesktopDiagnostics(api: AnalyticsAPI | undefined) {
     };
     const refresh = () => {
       const current = revision;
-      void api
-        .state()
+      void readAnalyticsState(api)
         .then((state) => {
           if (current === revision) apply(state);
         })
@@ -73,7 +73,7 @@ export function useDesktopDiagnostics(api: AnalyticsAPI | undefined) {
           observer = undefined;
         });
     };
-    const unsubscribe = api.subscribe((state) => {
+    const unsubscribe = subscribeAnalyticsState(api, (state) => {
       revision++;
       apply(state);
     });

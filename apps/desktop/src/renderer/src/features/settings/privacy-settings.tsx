@@ -1,38 +1,79 @@
+import {
+  cachedAnalyticsState,
+  readAnalyticsState,
+  subscribeAnalyticsState,
+  unexpiredAnalyticsState,
+} from "./analytics-state";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
-import type { AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
+import type { AnalyticsAPI, AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
+
+const readError = "Could not refresh privacy choices. Please try again.";
 
 /** Local choices render immediately; stale reads/actions cannot undo the user's next choice. */
-export function PrivacySettings() {
-  const api = window.tidy?.analytics;
-  const [state, setState] = useState<AnalyticsState>();
+export function PrivacySettings({
+  active = true,
+  api = window.tidy?.analytics,
+}: {
+  active?: boolean;
+  api?: AnalyticsAPI;
+}) {
+  const [storedState, setState] = useState<AnalyticsState | undefined>(() =>
+    unexpiredAnalyticsState(cachedAnalyticsState(api)),
+  );
+  const state = unexpiredAnalyticsState(storedState);
   const current = useRef(state);
   const [error, setError] = useState("");
   const [separate, setSeparate] = useState(false);
   const mutation = useRef(0);
   const pushed = useRef(0);
   useEffect(() => {
+    const expiresAt = storedState?.expiresAt;
+    if (!expiresAt) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const expire = () => {
+      const next = unexpiredAnalyticsState(current.current);
+      if (next !== current.current) {
+        current.current = next;
+        setState(next);
+      } else {
+        timer = setTimeout(
+          expire,
+          Math.min(2_147_483_647, Math.max(1, Date.parse(expiresAt) - Date.now())),
+        );
+      }
+    };
+    timer = setTimeout(
+      expire,
+      Math.min(2_147_483_647, Math.max(1, Date.parse(expiresAt) - Date.now())),
+    );
+    return () => clearTimeout(timer);
+  }, [storedState?.expiresAt]);
+  useEffect(() => {
     if (!api) return;
     let mounted = true;
     const receive = (value: AnalyticsState) => {
       if (!mounted) return;
-      current.current = value;
-      setState(value);
+      const next = unexpiredAnalyticsState(value);
+      current.current = next;
+      setState(next);
+      setError((previous) => (previous === readError ? "" : previous));
     };
-    const unsubscribe = api.subscribe((value) => {
+    const unsubscribe = subscribeAnalyticsState(api, (value) => {
       pushed.current++;
       receive(value);
     });
     const read = () => {
+      if (!active) return;
       const generation = mutation.current;
       const revision = pushed.current;
-      void api
-        .state()
+      void readAnalyticsState(api)
         .then((value) => {
           if (generation === mutation.current && revision === pushed.current) receive(value);
         })
         .catch(() => {
-          if (mounted) setError("Privacy choices are unavailable. Sharing stays off.");
+          if (mounted && generation === mutation.current && revision === pushed.current)
+            setError(readError);
         });
     };
     read();
@@ -42,7 +83,7 @@ export function PrivacySettings() {
       unsubscribe();
       window.removeEventListener("focus", read);
     };
-  }, [api]);
+  }, [api, active]);
   if (!api)
     return (
       <p className="settings-privacy-unavailable">
@@ -54,12 +95,13 @@ export function PrivacySettings() {
     if (!current.current) return;
     if (
       current.current.expiresAt &&
+      Date.parse(current.current.expiresAt) > Date.now() &&
       choices.usage === current.current.usage &&
       choices.diagnostics === current.current.diagnostics
     )
       return;
     const generation = ++mutation.current;
-    const next = { ...current.current, ...choices, linked: false };
+    const next = { ...unexpiredAnalyticsState(current.current)!, ...choices, linked: false };
     current.current = next;
     setState(next);
     setError("");
@@ -81,11 +123,12 @@ export function PrivacySettings() {
       });
   }
   function toggle(purpose: keyof AnalyticsChoices) {
-    if (current.current)
+    const choices = unexpiredAnalyticsState(current.current);
+    if (choices)
       choose({
-        usage: current.current.usage,
-        diagnostics: current.current.diagnostics,
-        [purpose]: !current.current[purpose],
+        usage: choices.usage,
+        diagnostics: choices.diagnostics,
+        [purpose]: !choices[purpose],
       });
   }
   async function action(kind: "link" | "unlink") {
@@ -101,7 +144,7 @@ export function PrivacySettings() {
     }
     try {
       await api![kind]();
-      const value = await api!.state();
+      const value = await readAnalyticsState(api!);
       if (generation === mutation.current) {
         current.current = value;
         setState(value);

@@ -15,6 +15,14 @@ import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { ThreadSidebar } from "../../features/threads/thread-sidebar";
+import { ThreadReadingContext } from "../../features/threads/thread-reading";
+import { PrivacySettings } from "../../features/settings/privacy-settings";
+import { readAnalyticsState } from "../../features/settings/analytics-state";
+import { ANALYTICS_NOTICE, type AnalyticsAPI, type AnalyticsState } from "@tidy/design/analytics";
+import { ThreadCard } from "../../features/threads/thread-card";
+import { RemoteMachines } from "../../features/settings/remote-machines";
+import { Settings } from "../../features/settings/settings";
+import type { MachineBridge } from "../../../../shared/remote";
 import { UserFacingError } from "@tidy/ui/errors";
 import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
@@ -33,6 +41,14 @@ function check(value: unknown, message: string): asserts value {
 function required<T>(value: T | null | undefined, label: string): T {
   check(value !== null && value !== undefined, `${label} is missing`);
   return value;
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
 }
 
 function frame(): Promise<void> {
@@ -102,18 +118,20 @@ function conversationFixture(root: Root) {
     selected,
     active = true,
     project = projectId,
+    scope = "local",
   }: {
     selected: string | null;
     active?: boolean;
     project?: string;
+    scope?: string;
   }) {
     flushSync(() =>
       root.render(
         <Conversations
-          key={project}
+          key={scope}
           projectId={project}
           selected={selected}
-          threads={threads}
+          threads={{ ...threads }}
           api={nativeAPI}
           active={active}
         />,
@@ -318,6 +336,422 @@ async function runThreadLoadingTests(): Promise<string[]> {
   }
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
+
+  await run(
+    "thread preloads wait for hover intent and keyboard focus remains immediate",
+    async (root) => {
+      let preloads = 0;
+      flushSync(() =>
+        root.render(
+          <ThreadCard
+            thread={summarizeThread(makeThread())}
+            selected={false}
+            loaded={false}
+            now={Date.now()}
+            pending={false}
+            onSelect={() => {}}
+            onDone={() => {}}
+            onPreload={() => {
+              preloads++;
+            }}
+          />,
+        ),
+      );
+      const row = required(host.querySelector(".thread-item"), "Thread row");
+      const enter = () =>
+        row.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+      const leave = () =>
+        row.dispatchEvent(
+          new PointerEvent("pointerout", {
+            bubbles: true,
+            pointerType: "mouse",
+            relatedTarget: document.body,
+          }),
+        );
+      enter();
+      check(preloads === 0, "Crossing a row started a full transcript read");
+      leave();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      check(preloads === 0, "Leaving a row did not cancel the pending read");
+      enter();
+      await until(() => Number(preloads) === 1, "Sustained hover preloads");
+      leave();
+      required(
+        host.querySelector<HTMLButtonElement>(".thread-select"),
+        "Thread selection",
+      ).dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      check(Number(preloads) === 2, "Keyboard focus did not preload immediately");
+    },
+  );
+
+  await run(
+    "failed initial discovery is retryable without inventing installation guidance",
+    async (root) => {
+      let fail = true;
+      let current: ReturnType<typeof useWorkspaceState> | undefined;
+      const api = {
+        ...nativeAPI,
+        bootstrap: async (): Promise<Bootstrap> => ({
+          projects: [],
+          activeProject: null,
+          harnesses: [],
+        }),
+        checkHarnesses: async (): Promise<Bootstrap["harnesses"]> => {
+          if (fail) throw new Error("Synthetic discovery failure");
+          return [{ id: "codex", name: "Codex", status: "ready" }];
+        },
+        onEvent: () => () => {},
+      };
+      function Probe({ connection }: { connection: string }) {
+        const navigation = useRef(0);
+        current = useWorkspaceState({ api, navigation, connection, onError: () => {} });
+        return null;
+      }
+      flushSync(() => root.render(<Probe connection="initial" />));
+      check(current?.harnessDiscoveryFailed === false, "Pending discovery was reported as failed");
+      await until(
+        () => current?.harnessDiscoveryFailed === true,
+        "Discovery failure exposed for retry",
+      );
+      check(current?.harnesses.length === 0, "Failure invented an installed agent status");
+      fail = false;
+      flushSync(() => root.render(<Probe connection="reconnected" />));
+      await until(() => current?.harnesses[0]?.status === "ready", "Discovery recovery");
+      check(
+        current?.harnessDiscoveryFailed === false,
+        "Successful discovery retained the retry error",
+      );
+    },
+  );
+
+  await run("expired purpose toggles never renew the other purpose", async (root) => {
+    const expired: AnalyticsState = {
+      notice: ANALYTICS_NOTICE,
+      available: true,
+      usage: true,
+      diagnostics: true,
+      expiresAt: new Date(0).toISOString(),
+      linked: true,
+      pendingDeletion: false,
+      reference: null,
+    };
+    const submitted: { usage: boolean; diagnostics: boolean }[] = [];
+    const read = deferred<AnalyticsState>();
+    let reads = 0;
+    const api: AnalyticsAPI = {
+      ...required(nativeAPI.analytics, "Analytics preload API"),
+      state: () => (++reads === 1 ? Promise.resolve(expired) : read.promise),
+      subscribe: () => () => {},
+      choose: async (choice) => {
+        submitted.push(choice);
+        return {
+          ...expired,
+          ...choice,
+          linked: false,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        };
+      },
+    };
+    await readAnalyticsState(api);
+    flushSync(() => root.render(<PrivacySettings api={api} active />));
+    check(host.textContent?.includes("Both off"), "Expired choices were displayed as enabled");
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLButtonElement>(".settings-privacy-disclosure"),
+        "Purpose disclosure",
+      ).click(),
+    );
+    const switches = [...host.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
+    check(
+      switches.every((button) => button.getAttribute("aria-checked") === "false"),
+      "Expired purpose switches were enabled",
+    );
+    required(switches[0], "Usage switch").click();
+    await until(() => submitted.length === 1, "Submit explicit usage choice");
+    check(
+      submitted[0].usage && !submitted[0].diagnostics,
+      "Usage toggle silently renewed expired diagnostics",
+    );
+    read.resolve({ ...expired, usage: false, diagnostics: false, linked: false, expiresAt: null });
+    await settle();
+    check(
+      switches[0].getAttribute("aria-checked") === "true",
+      "Late expiration read undid the explicit choice",
+    );
+  });
+
+  await run(
+    "privacy refresh recovery clears read errors and expires displayed choices",
+    async (root) => {
+      let fail = true;
+      const api: AnalyticsAPI = {
+        ...required(nativeAPI.analytics, "Analytics preload API"),
+        state: async () => {
+          if (fail) throw new Error("Synthetic offline read");
+          return {
+            notice: ANALYTICS_NOTICE,
+            available: true,
+            usage: true,
+            diagnostics: true,
+            expiresAt: new Date(Date.now() + 150).toISOString(),
+            linked: false,
+            pendingDeletion: false,
+            reference: null,
+          };
+        },
+        subscribe: () => () => {},
+      };
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<PrivacySettings api={api} active={active} />));
+      render(true);
+      await until(() => Boolean(host.querySelector('[role="alert"]')), "Read error displayed");
+      render(false);
+      fail = false;
+      render(true);
+      await until(
+        () => Boolean(host.textContent?.includes("Both enabled")),
+        "Activation read recovered",
+      );
+      check(!host.querySelector('[role="alert"]'), "Successful read retained the old read error");
+      await until(
+        () => Boolean(host.textContent?.includes("Both off")),
+        "Visible consent expires without focus or navigation",
+      );
+    },
+  );
+
+  await run(
+    "reopening privacy refreshes retained consent and allows expired choices to renew",
+    async (root) => {
+      const expired: AnalyticsState = {
+        notice: ANALYTICS_NOTICE,
+        available: true,
+        usage: true,
+        diagnostics: true,
+        expiresAt: new Date(0).toISOString(),
+        linked: false,
+        pendingDeletion: false,
+        reference: null,
+      };
+      const off = { ...expired, usage: false, diagnostics: false, expiresAt: null };
+      let reads = 0;
+      let choices = 0;
+      let pending = deferred<AnalyticsState>();
+      const api: AnalyticsAPI = {
+        ...required(nativeAPI.analytics, "Analytics preload API"),
+        state: () => (++reads === 1 ? Promise.resolve(expired) : pending.promise),
+        subscribe: () => () => {},
+        choose: async (choice) => {
+          choices++;
+          return {
+            ...expired,
+            ...choice,
+            expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          };
+        },
+      };
+      await readAnalyticsState(api);
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<PrivacySettings api={api} active={active} />));
+      render(false);
+      check(reads === 1, "Hidden privacy settings refetched consent");
+      const panel = required(host.querySelector(".settings-privacy"), "Privacy panel");
+      render(true);
+      await until(() => reads === 2, "Activation refresh without window focus");
+      check(
+        host.querySelector(".settings-privacy") === panel,
+        "Refreshing replaced the cached controls",
+      );
+      check(!panel.textContent?.includes("Loading your choices"), "Refreshing hid cached choices");
+      required(
+        [...host.querySelectorAll<HTMLButtonElement>("button")].find(
+          (button) => button.textContent === "Accept",
+        ),
+        "Accept choice",
+      ).click();
+      await until(() => choices === 1, "Expired same choice can renew before refresh finishes");
+      await settle();
+      pending.resolve(off);
+      await settle();
+      check(
+        panel.textContent?.includes("Both enabled"),
+        "Late refresh undid a newer consent choice",
+      );
+      render(false);
+      pending = deferred<AnalyticsState>();
+      render(true);
+      await until(() => reads === 3, "Next activation refresh");
+      pending.resolve(off);
+      await until(
+        () => Boolean(panel.textContent?.includes("Both off")),
+        "Native expiration updates retained controls",
+      );
+    },
+  );
+
+  await run(
+    "settings retain loaded panels without occupying hidden layout or stealing focus",
+    async (root) => {
+      const cloud = {
+        state: undefined,
+        account: undefined,
+        busy: false,
+        error: "",
+        signIn: async () => {},
+        signOut: async () => {},
+        retry() {},
+      };
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<Settings cloud={cloud} active={active} onBack={() => {}} />));
+      render(false);
+      const navigation = required(
+        host.querySelector<HTMLElement>("#desktop-settings-navigation"),
+        "Settings navigation",
+      );
+      const panel = required(
+        host.querySelector<HTMLElement>(".settings-workspace"),
+        "Settings panel",
+      );
+      check(
+        navigation.getClientRects().length === 0 && panel.getClientRects().length === 0,
+        "Hidden settings occupied workspace layout",
+      );
+      render(true);
+      check(
+        document.activeElement === host.querySelector(".settings-back"),
+        "Opening settings did not focus its back button",
+      );
+      const appearance = required(
+        host.querySelector(".settings-appearance-row"),
+        "Appearance controls",
+      );
+      render(false);
+      check(
+        navigation.getClientRects().length === 0 && panel.getClientRects().length === 0,
+        "Closing settings left visible panels",
+      );
+      render(true);
+      check(
+        host.querySelector(".settings-appearance-row") === appearance,
+        "Reopening settings remounted its controls",
+      );
+      await settle();
+    },
+  );
+
+  await run(
+    "retained remote settings refresh on changes and discard hidden authentication inputs",
+    async (root) => {
+      const remote = required(window.tidyRemote, "Remote preload API");
+      let reads = 0;
+      let changed = () => {};
+      const machines: MachineBridge = {
+        list: async () => {
+          reads++;
+          return [
+            {
+              id: projectId,
+              label: "Fixture machine",
+              status: {
+                kind: "authentication",
+                target: "fixture",
+                promptId: projectId,
+                question: "Password",
+                secret: true,
+              },
+            },
+          ];
+        },
+        onChanged: (listener) => {
+          changed = listener;
+          return () => {
+            changed = () => {};
+          };
+        },
+        workspace: () => ({ api: nativeAPI, remote }),
+      };
+      const render = (active: boolean) =>
+        flushSync(() =>
+          root.render(<RemoteMachines machines={machines} remote={remote} active={active} />),
+        );
+      render(true);
+      await until(
+        () => Boolean(host.querySelector('input[type="password"]')),
+        "Remote machine metadata",
+      );
+      required(
+        host.querySelector<HTMLInputElement>('input[type="password"]'),
+        "Authentication input",
+      ).value = "synthetic-secret";
+      render(false);
+      check(
+        !host.querySelector('input[type="password"]'),
+        "Hidden settings retained an authentication answer",
+      );
+      render(true);
+      check(reads === 1, "Reopening settings refetched available machines");
+      check(
+        required(
+          host.querySelector<HTMLInputElement>('input[type="password"]'),
+          "New authentication input",
+        ).value === "",
+        "Reopening restored a secret",
+      );
+      changed();
+      await until(() => reads === 2, "Machine change refresh");
+    },
+  );
+
+  await run(
+    "read markers follow transcript activity even with the sidebar hidden",
+    async (root) => {
+      const thread = { ...summarizeThread(makeThread()), status: "completed" as const };
+      const key = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
+      const focus = Object.getOwnPropertyDescriptor(document, "hasFocus");
+      const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+      const render = (active: boolean) =>
+        flushSync(() =>
+          root.render(
+            <ThreadReadingContext value={active}>
+              <div style={{ display: "none" }}>
+                <ThreadCard
+                  thread={thread}
+                  selected
+                  loaded
+                  now={Date.now()}
+                  pending={false}
+                  onSelect={() => {}}
+                  onDone={() => {}}
+                />
+              </div>
+            </ThreadReadingContext>,
+          ),
+        );
+      try {
+        localStorage.removeItem(key);
+        render(false);
+        await settle();
+        window.dispatchEvent(new Event("focus"));
+        check(
+          localStorage.getItem(key) === null,
+          "A response hidden behind settings was marked read",
+        );
+        render(true);
+        await until(
+          () => localStorage.getItem(key) !== null,
+          "Active transcript marked read despite hidden sidebar",
+        );
+      } finally {
+        if (focus) Object.defineProperty(document, "hasFocus", focus);
+        else Reflect.deleteProperty(document, "hasFocus");
+        if (visibility) Object.defineProperty(document, "visibilityState", visibility);
+        else Reflect.deleteProperty(document, "visibilityState");
+        localStorage.removeItem(key);
+      }
+    },
+  );
 
   await run(
     "offline transitions retain loaded projects and refresh once on reconnect",
@@ -783,23 +1217,27 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       const viewport = visibleTranscript();
       first.click();
-      await settle();
+      await until(() => viewport.scrollTop < 2, "First turn scroll settles");
       const previousTop = viewport.scrollTop;
       const target = required(
         viewport.querySelectorAll<HTMLElement>(".conversation-entry")[8],
         "Added prompt",
       );
-      const expectedTop = Math.min(
-        viewport.scrollHeight - viewport.clientHeight,
-        viewport.scrollTop +
-          target.getBoundingClientRect().top -
-          viewport.getBoundingClientRect().top -
-          Number.parseFloat(getComputedStyle(viewport).paddingTop),
-      );
+      const expectedTop = () =>
+        Math.min(
+          viewport.scrollHeight - viewport.clientHeight,
+          viewport.scrollTop +
+            target.getBoundingClientRect().top -
+            viewport.getBoundingClientRect().top -
+            Number.parseFloat(getComputedStyle(viewport).paddingTop),
+        );
       added.click();
       await settle();
       check(Math.abs(viewport.scrollTop - previousTop) > 2, "Added turn did not scroll");
-      check(Math.abs(viewport.scrollTop - expectedTop) < 2, "Added turn jumped to a stale message");
+      await until(
+        () => Math.abs(viewport.scrollTop - expectedTop()) < 2,
+        "Added turn reaches its current layout position",
+      );
     },
   );
 
@@ -896,7 +1334,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
     },
   );
 
-  await run("view retention evicts old DOM and isolates drafts and projects", async (root) => {
+  await run("view retention evicts old DOM and isolates drafts and access scopes", async (root) => {
     const { a, b, c, d, threads, render } = conversationFixture(root);
     render({ selected: a.id });
     await settle();
@@ -921,10 +1359,40 @@ async function runThreadLoadingTests(): Promise<string[]> {
     render({ selected: other.id, project: other.projectId });
     await settle();
     check(
+      visibleTranscript().querySelectorAll("article").length === 2,
+      "Project navigation displayed another project's messages",
+    );
+    render({ selected: other.id, project: other.projectId, scope: "new-account" });
+    await settle();
+    check(
       host.querySelectorAll(".conversation").length === 1,
-      "Project navigation retained the previous project's views",
+      "Access changes retained the previous scope's views",
     );
   });
+
+  await run(
+    "project navigation retains bounded transcripts and their scroll position",
+    async (root) => {
+      const { a, b, threads, render } = conversationFixture(root);
+      a.messages = makeThread({ count: 40 }).messages;
+      b.projectId = crypto.randomUUID();
+      render({ selected: a.id });
+      await settle();
+      const viewport = visibleTranscript();
+      const message = required(viewport.querySelector("article"), "Retained message");
+      viewport.scrollTop = 180;
+      viewport.dispatchEvent(new Event("scroll"));
+      render({ selected: b.id, project: b.projectId });
+      await settle();
+      check(visibleTranscript() !== viewport, "Other project displayed the previous transcript");
+      threads[a.id] = { ...a, revision: 2 };
+      render({ selected: a.id });
+      check(visibleTranscript() === viewport, "Returning to a project remounted its transcript");
+      check(viewport.querySelector("article") === message, "Returning reparsed existing messages");
+      await settle();
+      check(Math.abs(viewport.scrollTop - 180) < 2, "Returning lost the reader's position");
+    },
+  );
 
   await run("collapsed tool logs defer rows and retain expanded output on reopen", async (root) => {
     const output = "one\ntwo\nthree\nfour\nFinal output";
@@ -973,6 +1441,42 @@ async function runThreadLoadingTests(): Promise<string[]> {
   });
 
   await run(
+    "workspace renders before agent discovery and keeps the freshest discovery result",
+    async (root) => {
+      const bootstrap = deferred<Bootstrap>();
+      const discovery = deferred<Bootstrap["harnesses"]>();
+      const ready: Bootstrap["harnesses"] = [{ id: "codex", name: "Codex", status: "ready" }];
+      let current: ReturnType<typeof useWorkspaceState> | undefined;
+      const api = {
+        ...nativeAPI,
+        bootstrap: () => bootstrap.promise,
+        checkHarnesses: () => discovery.promise,
+        onEvent: () => () => {},
+      };
+      function Probe() {
+        const navigation = useRef(0);
+        current = useWorkspaceState({ api, navigation, onError: () => {} });
+        return null;
+      }
+      flushSync(() => root.render(<Probe />));
+      bootstrap.resolve({ projects: [], activeProject: null, harnesses: [] });
+      await until(() => current?.loading === false, "Workspace before slow discovery");
+      check(current?.harnesses.length === 0, "Invented a harness status before discovery");
+      discovery.resolve(ready);
+      await until(() => current?.harnesses === ready, "Background discovery");
+
+      // Discovery may also beat a slow project snapshot on the next mount.
+      const slowBootstrap = deferred<Bootstrap>();
+      api.bootstrap = () => slowBootstrap.promise;
+      flushSync(() => root.render(<Probe key="fresh" />));
+      await until(() => current?.harnesses === ready, "Discovery before slow workspace");
+      slowBootstrap.resolve({ projects: [], activeProject: null, harnesses: [] });
+      await until(() => current?.loading === false, "Slow workspace");
+      check(current?.harnesses === ready, "Older bootstrap erased completed discovery");
+    },
+  );
+
+  await run(
     "pending thread reads are shared and newer events survive late disk responses",
     async (root) => {
       const { initial, state, calls, pending, emit, errors } = await workspaceFixture(root);
@@ -1000,6 +1504,73 @@ async function runThreadLoadingTests(): Promise<string[]> {
       await state().readThread(request);
       check(calls.length === 1, "Cached thread triggered another disk read");
       check(errors.length === 0, "Successful reads reported an error");
+    },
+  );
+
+  await run("cached project refreshes cannot erase newer design events", async (root) => {
+    const { initial, state, emit } = await workspaceFixture(root);
+    const before = required(state().snapshots[projectId], "Initial project snapshot");
+    const design = {
+      id: crypto.randomUUID(),
+      name: "New design",
+      path: "/fixture/design",
+      updatedAt: timestamp,
+    };
+    emit({ type: "designs", projectId, designs: [design], folders: [] });
+    const refreshed = { ...before, threads: [summarizeThread({ ...initial, revision: 2 })] };
+    flushSync(() => state().applySnapshot(refreshed, true, before));
+    check(state().snapshots[projectId].designs[0] === design, "Late refresh erased the newer file");
+    check(
+      state().snapshots[projectId].threads[0]?.revision === 2,
+      "Design event discarded refreshed threads",
+    );
+    const current = state().snapshots[projectId];
+    flushSync(() => state().applySnapshot({ ...current, designs: [] }, true, current));
+    check(
+      state().snapshots[projectId].designs.length === 0,
+      "Unchanged cached snapshot did not refresh",
+    );
+  });
+
+  await run(
+    "thread events preserve concurrent edits while other snapshot fields refresh",
+    async (root) => {
+      const { initial, state, emit } = await workspaceFixture(root);
+      const before = required(state().snapshots[projectId], "Initial project snapshot");
+      const live = { ...initial, title: "Live title", revision: 3 };
+      emit({ type: "thread", thread: live });
+      const design = {
+        id: crypto.randomUUID(),
+        name: "Refreshed design",
+        path: "/fixture/design",
+        updatedAt: timestamp,
+      };
+      flushSync(() =>
+        state().applySnapshot(
+          { ...before, designs: [design], threads: [summarizeThread({ ...initial, revision: 3 })] },
+          false,
+          before,
+        ),
+      );
+      check(
+        state().snapshots[projectId].designs[0] === design,
+        "Thread event discarded refreshed designs",
+      );
+      check(
+        state().snapshots[projectId].threads[0]?.title === live.title,
+        "Equal-revision refresh erased an intervening edit",
+      );
+      flushSync(() =>
+        state().applySnapshot(
+          { ...before, designs: [design], threads: [summarizeThread({ ...initial, revision: 4 })] },
+          false,
+          before,
+        ),
+      );
+      check(
+        state().snapshots[projectId].threads[0]?.revision === 4,
+        "Newer refresh revision was discarded",
+      );
     },
   );
 
@@ -1437,6 +2008,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       let loads = 0;
       const choices: { machine: string; project?: string }[] = [];
       let added = 0;
+      let cancelled = 0;
       const renderPicker = (disabled = false) =>
         flushSync(() =>
           root.render(
@@ -1454,6 +2026,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
               }}
               onChoose={async (machine, project) => {
                 choices.push({ machine, project });
+              }}
+              onCancelNavigation={() => {
+                cancelled++;
               }}
               onAddMachine={() => {
                 added++;
@@ -1528,8 +2103,13 @@ async function runThreadLoadingTests(): Promise<string[]> {
         "Remote project",
       );
       check(project.title === "/remote/tidy", "Project metadata was not preloaded");
+      const cancelledBeforeSelection = cancelled;
       project.click();
       await until(() => !dialog.matches(":popover-open"), "Project opens and closes switcher");
+      check(
+        cancelled === cancelledBeforeSelection,
+        "Completed selection cancelled its background refresh",
+      );
       check(
         choices[0]?.machine === remoteId && choices[0]?.project === remoteProject.id,
         "Project opened on the wrong machine",

@@ -7,6 +7,7 @@ import { relativeThreadTime } from "./thread-time";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 import type { ThreadOrderControls } from "./thread-sidebar";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
+import { ThreadReadMarker } from "./thread-reading";
 import { ThreadPreview } from "./thread-preview";
 
 export function ThreadCard({
@@ -16,6 +17,7 @@ export function ThreadCard({
   now,
   pending,
   onSelect,
+  onPreload,
   onDone,
   modelName,
   projectName,
@@ -28,6 +30,7 @@ export function ThreadCard({
   now: number;
   pending: boolean;
   onSelect(): void;
+  onPreload?(): void;
   onDone(): void;
   modelName?: string;
   projectName?: string;
@@ -48,23 +51,6 @@ export function ThreadCard({
       return null;
     }
   });
-  useEffect(() => {
-    if (!selected || !loaded || thread.status !== "completed") return;
-    function markSeen() {
-      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
-      setSeenCompletion(completionKey);
-      try {
-        localStorage.setItem(visitKey, completionKey);
-      } catch {}
-    }
-    markSeen();
-    document.addEventListener("visibilitychange", markSeen);
-    window.addEventListener("focus", markSeen);
-    return () => {
-      document.removeEventListener("visibilitychange", markSeen);
-      window.removeEventListener("focus", markSeen);
-    };
-  }, [selected, loaded, thread.status, completionKey, visitKey]);
   const status = thread.doneAt
     ? "idle"
     : thread.pendingApprovalCount
@@ -95,7 +81,10 @@ export function ThreadCard({
   }
   function show() {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(true), 150);
+    timer.current = setTimeout(() => {
+      onPreload?.();
+      setOpen(true);
+    }, 150);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
@@ -132,7 +121,9 @@ export function ThreadCard({
         orderControls?.onPointerDown(event);
       }}
       onPointerEnter={(event) => {
-        if (event.pointerType === "mouse" && !orderControls?.dragging) show();
+        if (event.pointerType === "mouse" && !orderControls?.dragging) {
+          show();
+        }
       }}
       onPointerLeave={close}
       onBlur={(event) => {
@@ -144,6 +135,13 @@ export function ThreadCard({
           close();
       }}
     >
+      {selected && loaded && thread.status === "completed" && (
+        <ThreadReadMarker
+          visitKey={visitKey}
+          completionKey={completionKey}
+          onSeen={setSeenCompletion}
+        />
+      )}
       <Button
         className="thread-select flex w-full cursor-pointer flex-col gap-0.5 rounded-[inherit] border-0 bg-transparent px-2 py-2.5 text-left text-[13px] leading-5 text-inherit"
         aria-keyshortcuts={orderControls ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
@@ -160,6 +158,7 @@ export function ThreadCard({
         aria-current={selected ? "true" : undefined}
         aria-describedby={open ? id : undefined}
         onFocus={(event) => {
+          onPreload?.();
           if (event.currentTarget.matches(":focus-visible")) {
             clearTimeout(timer.current);
             setOpen(true);
