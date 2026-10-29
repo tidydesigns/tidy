@@ -37,7 +37,8 @@
     "remark-gfm": "4.0.1",
     "simple-icons": "16.35.0",
     "zod": "^4.6.6",
-    "ws": "8.21.0"
+    "ws": "8.21.0",
+    "@tidy/agent-protocol": "workspace:*"
   },
   "devDependencies": {
     "@electron/fuses": "2.1.3",

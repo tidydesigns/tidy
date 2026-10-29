@@ -14,6 +14,12 @@ for (const [name, advisories] of Object.entries(report)) {
     // Reviewed ESLint-only exposure; all other packages/advisories fail closed.
     // The reviewed dependency path and mitigation are documented in SECURITY.md.
     let toolingOnly = name === "braces" && advisory.url.endsWith("GHSA-vfj7-8cjw-p6xm");
+    let patched = false;
+    if (name === "deepmerge" && advisory.url.endsWith("GHSA-gcqx-w48m-w2h4")) {
+      const check = spawnSync("node", ["scripts/check-deepmerge-patch.mjs"], { encoding: "utf8" });
+      patched = check.status === 0;
+      if (!patched) console.error(check.stderr);
+    }
     if (toolingOnly) {
       const why = spawnSync("bun", ["pm", "why", "braces"], { encoding: "utf8" });
       const consumers = [...why.stdout.matchAll(/((?:@[\w-]+\/)?[\w.-]+)@(?:\d|workspace)/g)].map(
@@ -36,9 +42,9 @@ for (const [name, advisories] of Object.entries(report)) {
         why.stdout.includes("dev @tidy/site@workspace");
     }
     console.info(
-      `${toolingOnly ? "DOCUMENTED TOOLING ADVISORY" : "BLOCKING ADVISORY"}: ${name}: ${advisory.title} (${advisory.url})`,
+      `${patched ? "VERIFIED PATCHED ADVISORY" : toolingOnly ? "DOCUMENTED TOOLING ADVISORY" : "BLOCKING ADVISORY"}: ${name}: ${advisory.title} (${advisory.url})`,
     );
-    if (!toolingOnly) failed = true;
+    if (!toolingOnly && !patched) failed = true;
   }
 }
 if (result.status !== 0 && Object.keys(report).length === 0)

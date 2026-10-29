@@ -28,7 +28,8 @@
     "./figma": "./figma.ts",
     "./figma-input": "./figma-input.ts",
     "./document-limits": "./document-limits.ts",
-    "./analytics": "./analytics.ts"
+    "./analytics": "./analytics.ts",
+    "./native-theme": "./native-theme.ts"
   },
   "scripts": {
     "typecheck": "tsrs --noEmit",

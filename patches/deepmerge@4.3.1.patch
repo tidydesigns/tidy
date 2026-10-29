@@ -1,0 +1,51 @@
+diff --git a/dist/cjs.js b/dist/cjs.js
+index 7c36cbdd06cc22c92d590be3f87a08a91ca06b40..964865e514a20cc2a38425512122fc7eb120f209 100644
+--- a/dist/cjs.js
++++ b/dist/cjs.js
+@@ -80,10 +80,12 @@ function mergeObject(target, source, options) {
+ 	var destination = {};
+ 	if (options.isMergeableObject(target)) {
+ 		getKeys(target).forEach(function(key) {
++			if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 			destination[key] = cloneUnlessOtherwiseSpecified(target[key], options);
+ 		});
+ 	}
+ 	getKeys(source).forEach(function(key) {
++		if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 		if (propertyIsUnsafe(target, key)) {
+ 			return
+ 		}
+diff --git a/dist/umd.js b/dist/umd.js
+index 4071e7c56ec8e5273fe166f6e723ac460fab8b72..c2535b669aed320bf835a4177359956cb116c8ae 100644
+--- a/dist/umd.js
++++ b/dist/umd.js
+@@ -84,10 +84,12 @@
+ 		var destination = {};
+ 		if (options.isMergeableObject(target)) {
+ 			getKeys(target).forEach(function(key) {
++			if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 				destination[key] = cloneUnlessOtherwiseSpecified(target[key], options);
+ 			});
+ 		}
+ 		getKeys(source).forEach(function(key) {
++		if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 			if (propertyIsUnsafe(target, key)) {
+ 				return
+ 			}
+diff --git a/index.js b/index.js
+index 77968aed5d456cccc294f60912ef381fa1e52a7b..f2194e50f987962021663748127e52e7e5c3494a 100644
+--- a/index.js
++++ b/index.js
+@@ -55,10 +55,12 @@ function mergeObject(target, source, options) {
+ 	var destination = {}
+ 	if (options.isMergeableObject(target)) {
+ 		getKeys(target).forEach(function(key) {
++			if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 			destination[key] = cloneUnlessOtherwiseSpecified(target[key], options)
+ 		})
+ 	}
+ 	getKeys(source).forEach(function(key) {
++		if (key === '__proto__' || key === 'constructor' || key === 'prototype') return;
+ 		if (propertyIsUnsafe(target, key)) {
+ 			return
+ 		}

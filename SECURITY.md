@@ -36,3 +36,10 @@ in the web and site workspaces. This tooling exposure concerns malicious glob
 configuration; keep untrusted repository configuration out of privileged CI.
 The audit blocks other advisories and changes to that consumer chain. Reassess
 the exception when updating dependencies.
+
+Expo configuration uses `deepmerge@4.3.1`, which has no upstream release fixing
+GHSA-gcqx-w48m-w2h4. The pinned Bun patch rejects prototype-related keys from both
+merge operands in its source, CommonJS and UMD entry points. The dependency audit
+allows only this advisory after executing regression checks against the actual
+copy resolved by Expo configuration (`scripts/check-deepmerge-patch.mjs`). Other
+advisories still fail. Remove this patch and exception when an upstream fix ships.
