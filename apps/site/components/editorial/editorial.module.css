@@ -191,11 +191,6 @@
   font-weight: 500;
   letter-spacing: -0.03em;
 }
-.founderInfo p {
-  margin: 8px 0 0;
-  color: var(--muted);
-  font-size: 14px;
-}
 .socials {
   display: flex;
   gap: 20px;

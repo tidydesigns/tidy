@@ -11,8 +11,8 @@ import styles from "../../components/editorial/editorial.module.css";
 
 export const metadata = pageMetadata(
   "/about",
-  "About Tidy | Meet the founders",
-  "Meet Sean and Tadhg Dowdall, the founders of Tidy. We’re building an open-source workspace that brings design, code and coding agents together.",
+  "About Tidy",
+  "Sean and Tadhg Dowdall are building Tidy, an open-source design canvas and Mac app for working with designs, code and coding agents.",
 );
 
 export default function AboutPage() {
@@ -43,14 +43,10 @@ export default function AboutPage() {
       <main id="main-content" tabIndex={-1} className={styles.page}>
         <header className={`${styles.intro} ${styles.aboutIntro}`}>
           <div>
-            <p className={styles.eyebrow}>About us</p>
-            <h1>
-              A little space.
-              <br />A lot of possibility.
-            </h1>
+            <h1>An open-source design tool.</h1>
             <p className={styles.lead}>
-              We’re building a place where design and code belong together. Open source, and open to
-              the way you work.
+              Tidy has a design canvas in the browser and a Mac app that connects your designs,
+              local code and coding agents.
             </p>
           </div>
           <div className={styles.aboutArtwork} aria-hidden="true">
@@ -58,41 +54,32 @@ export default function AboutPage() {
           </div>
         </header>
         <section className={styles.story} aria-labelledby="why-tidy">
-          <h2 id="why-tidy">
-            Good ideas deserve
-            <br />
-            room to become real.
-          </h2>
+          <h2 id="why-tidy">Where we’re going.</h2>
           <div>
             <p>
-              Designing an interface and building it are parts of the same process. The details you
-              work out on the canvas should stay close when you move into code.
+              We want to make it easier to use an editable design as the reference while writing
+              code. We’re working on how agents read and change the canvas, and how you review their
+              work.
             </p>
             <p>
-              Tidy brings an editable design canvas, your local project and coding agents into one
-              workspace. Use the canvas in your browser, or bring design and development together in
-              the Mac app.
-            </p>
-            <p>
-              We’re building Tidy in the open under the Apache 2.0 license. You can explore the
-              source, follow the work and help shape what comes next.
+              Tidy’s source code is available under the Apache 2.0 license. Development is public on
+              GitHub.
             </p>
             <a className={styles.textLink} href={repositoryUrl}>
-              Explore Tidy on GitHub <span aria-hidden="true">↗</span>
+              View the source on GitHub <span aria-hidden="true">↗</span>
             </a>
           </div>
         </section>
         <section className={styles.team} aria-labelledby="team-title">
           <div className={styles.sectionHeading}>
-            <h2 id="team-title">The people behind Tidy.</h2>
-            <p>Sean and Tadhg Dowdall. Building it together.</p>
+            <h2 id="team-title">Who we are.</h2>
           </div>
           <FounderCards />
         </section>
         <aside className={styles.nextRead}>
-          <p>Notes on what we’re building, and how.</p>
+          <p>How we use Tidy for design and development.</p>
           <Link className={styles.textLink} href="/blog">
-            Read the Tidy blog <span aria-hidden="true">→</span>
+            Read the blog <span aria-hidden="true">→</span>
           </Link>
         </aside>
       </main>

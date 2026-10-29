@@ -10,7 +10,7 @@ import styles from "../../components/editorial/editorial.module.css";
 export const metadata = pageMetadata(
   "/blog",
   "Tidy blog | Design, code and AI workflows",
-  "Practical notes on design-to-code workflows, open-source design tools and working with coding agents. Ideas for making better products with Tidy.",
+  "Guides to using Tidy’s design canvas, coding agents and local projects, including design-to-code workflows and MCP tools.",
 );
 
 export default async function BlogPage() {
@@ -33,13 +33,8 @@ export default async function BlogPage() {
       />
       <main id="main-content" tabIndex={-1} className={styles.page}>
         <header className={styles.intro}>
-          <p className={styles.eyebrow}>The Tidy blog</p>
-          <h1>
-            Ideas for making
-            <br />
-            better products.
-          </h1>
-          <p className={styles.lead}>Design, engineering, and the space between.</p>
+          <h1>Tidy blog.</h1>
+          <p className={styles.lead}>How to use Tidy’s canvas, coding agents and local projects.</p>
         </header>
         <PostList posts={posts} />
       </main>

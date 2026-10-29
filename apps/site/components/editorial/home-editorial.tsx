@@ -12,10 +12,7 @@ export async function HomeEditorial() {
       {posts.length > 0 && (
         <section className={styles.homeSection} aria-labelledby="home-blog-title">
           <div className={styles.homeHeading}>
-            <div>
-              <p className={styles.eyebrow}>From the blog</p>
-              <h2 id="home-blog-title">A few things we’re thinking about.</h2>
-            </div>
+            <h2 id="home-blog-title">From the blog.</h2>
             <Link className={styles.textLink} href="/blog">
               All articles <span aria-hidden="true">→</span>
             </Link>
@@ -28,14 +25,13 @@ export async function HomeEditorial() {
         aria-labelledby="home-about-title"
       >
         <div>
-          <p className={styles.eyebrow}>The people behind Tidy</p>
           <h2 id="home-about-title">Built by Sean and Tadhg.</h2>
           <p>
-            We’re making an open-source workspace for the whole journey from an idea to a working
-            product.
+            We’re building Tidy: a browser design canvas and a Mac app for working with designs,
+            code and coding agents.
           </p>
           <Link className={styles.textLink} href="/about">
-            Meet the founders <span aria-hidden="true">→</span>
+            About Tidy <span aria-hidden="true">→</span>
           </Link>
         </div>
         <div className={styles.homePortraits}>
