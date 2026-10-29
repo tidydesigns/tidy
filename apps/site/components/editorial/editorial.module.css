@@ -352,27 +352,6 @@
   gap: 24px;
   margin-bottom: 36px;
 }
-.homeAbout {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  gap: 64px;
-}
-.homeAbout p:not(.eyebrow) {
-  color: var(--muted);
-  font-size: 19px;
-  line-height: 1.7;
-}
-.homePortraits {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.homePortraits img {
-  width: 100%;
-  height: auto;
-  display: block;
-}
 @media (hover: hover) and (pointer: fine) {
   .postLink:hover .postTitle,
   .socials a:hover,
@@ -392,9 +371,6 @@
   }
   .story {
     gap: 40px;
-  }
-  .homeAbout {
-    gap: 32px;
   }
 }
 @media (max-width: 640px) {
@@ -421,8 +397,7 @@
     margin: 12px 0 16px;
   }
   .aboutIntro,
-  .story,
-  .homeAbout {
+  .story {
     grid-template-columns: minmax(0, 1fr);
   }
   .aboutArtwork {
