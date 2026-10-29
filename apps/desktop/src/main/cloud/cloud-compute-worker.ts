@@ -88,11 +88,7 @@ parentPort?.on("message", (request: ComputeRequest | { kind: "prioritize"; path:
       if (queued.kind === "read-file" && queued.path === request.path) queued.background = false;
     return;
   }
-  if (
-    request.kind === "read-file" ||
-    request.kind === "read-thread-summary" ||
-    request.kind === "encode-thread"
-  ) {
+  if (request.kind === "read-file" || request.kind === "read-thread-summary") {
     reads.push(request);
     void drainReads();
   } else void run(request);
