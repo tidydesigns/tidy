@@ -1,11 +1,15 @@
 import { setTimeout } from "node:timers/promises";
 
+// Ticket delivery can remain unavailable beyond the first three attempts.
+// Allow 230 seconds of backoff without exhausting the release job's time budget.
+const retryDelays = [5_000, 15_000, 30_000, 60_000, 120_000];
+
 /** Retry only stapler's transient network failures; never bypass ticket verification. */
 export async function retryStapler<T>(
   operation: () => Promise<T>,
   wait: (milliseconds: number) => Promise<unknown> = setTimeout,
 ): Promise<T> {
-  for (let attempt = 1; ; attempt++) {
+  for (let attempt = 0; ; attempt++) {
     try {
       return await operation();
     } catch (error) {
@@ -15,15 +19,15 @@ export async function retryStapler<T>(
         .join("\n");
       // Exit 68 alone also covers permanent CloudKit failures. Require a known
       // URL-loading error: timeout, connection refused/lost, or offline.
+      const delay = retryDelays[attempt];
       if (
-        attempt >= 3 ||
+        delay === undefined ||
         failure?.code !== 68 ||
         !/NSURLErrorDomain Code=-(?:1001|1004|1005|1009)\b/.test(output)
       )
         throw error;
-      const delay = attempt * 5_000;
       console.warn(
-        `Apple stapler connection failed; retrying in ${delay / 1_000}s (${attempt + 1}/3).`,
+        `Apple stapler connection failed; retrying in ${delay / 1_000}s (${attempt + 2}/${retryDelays.length + 1}).`,
       );
       await wait(delay);
     }

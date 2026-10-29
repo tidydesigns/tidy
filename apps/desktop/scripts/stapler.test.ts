@@ -19,25 +19,25 @@ test("stapler returns a successful verification without waiting", async () => {
   expect(waits).toEqual([]);
 });
 
-test("stapler retries the observed Apple connection loss and preserves success", async () => {
+test("stapler recovers from Apple connection loss beyond the former three-attempt limit", async () => {
   let attempts = 0;
   const waits: number[] = [];
   const result = await retryStapler(
     async () => {
-      if (++attempts < 3) throw connectionLost();
+      if (++attempts < 6) throw connectionLost();
       return "validated";
     },
     async (ms) => waits.push(ms),
   );
   expect(result).toBe("validated");
-  expect(attempts).toBe(3);
-  expect(waits).toEqual([5_000, 10_000]);
+  expect(attempts).toBe(6);
+  expect(waits).toEqual([5_000, 15_000, 30_000, 60_000, 120_000]);
 });
 
 test("stapler propagates the last failure after the bounded retry budget", async () => {
   let attempts = 0;
   const waits: number[] = [];
-  const errors = [connectionLost(), connectionLost(), connectionLost()];
+  const errors = Array.from({ length: 6 }, connectionLost);
   await expect(
     retryStapler(
       async () => {
@@ -45,9 +45,26 @@ test("stapler propagates the last failure after the bounded retry budget", async
       },
       async (ms) => waits.push(ms),
     ),
-  ).rejects.toBe(errors[2]);
-  expect(attempts).toBe(3);
-  expect(waits).toEqual([5_000, 10_000]);
+  ).rejects.toBe(errors[5]);
+  expect(attempts).toBe(6);
+  expect(waits).toEqual([5_000, 15_000, 30_000, 60_000, 120_000]);
+});
+
+test("stapler stops retrying when a connection failure becomes a permanent failure", async () => {
+  const failure = Object.assign(new Error("No valid ticket"), { code: 65 });
+  let attempts = 0;
+  const waits: number[] = [];
+  await expect(
+    retryStapler(
+      async () => {
+        if (++attempts === 1) throw connectionLost();
+        throw failure;
+      },
+      async (ms) => waits.push(ms),
+    ),
+  ).rejects.toBe(failure);
+  expect(attempts).toBe(2);
+  expect(waits).toEqual([5_000]);
 });
 
 test.each([
