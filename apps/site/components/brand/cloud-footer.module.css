@@ -237,6 +237,7 @@
     padding-block: 16px;
   }
   .bottom nav {
+    flex-wrap: wrap;
     margin-left: auto;
     gap: 14px;
   }
