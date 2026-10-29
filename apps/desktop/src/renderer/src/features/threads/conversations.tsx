@@ -46,7 +46,7 @@ export const Conversations = memo(function Conversations({
   return retained.map((id) => (
     <Activity key={id ?? "draft"} mode={active && id === selected ? "visible" : "hidden"}>
       <Conversation
-        identity={`${projectId}:${id ?? "draft"}`}
+        identity={`${(id && threads[id]?.projectId) || projectId}:${id ?? "draft"}`}
         thread={
           id ? (active && id === selected ? threads[id] : rendered.current.get(id)) : undefined
         }

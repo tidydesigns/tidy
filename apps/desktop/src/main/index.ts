@@ -233,48 +233,53 @@ app
     const ownsInitialService = Boolean(initial.service);
     service =
       initial.service ?? new WorkspaceService(new ProjectStore(join(directory, "unused-local")));
-    let first = true;
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error("The local workspace backend did not become ready.")),
-        75_000,
-      );
-      localClient = new RemoteClient({
-        machine: {
-          id: initial.host.clientId,
-          target: "This machine",
-          hostId: initial.host.hostId,
-          lastConnectedAt: null,
-        },
-        bundlePath,
-        temporaryDirectory: join(app.getPath("userData"), "ssh"),
-        cachePath: join(app.getPath("userData"), "remote-cache", "local.json"),
-        event: (event) => {
-          if (!ownsInitialService) broadcast("tidy:event", event);
-        },
-        statusChanged: (status) => {
-          if (status.kind === "connected") {
-            clearTimeout(timer);
-            resolve();
-          } else if (status.kind === "blocked") {
-            clearTimeout(timer);
-            reject(new Error(status.message));
-          }
-        },
-        connected: async () => {},
-        connector: async () => {
-          const backend = first ? initial : await acquire();
-          first = false;
-          return {
-            host: backend.host,
-            origin: `http://127.0.0.1:${backend.host.port}`,
-            close() {},
-            onClose() {},
-          };
-        },
+    // An owned service is already ready and is reached through direct IPC. A loopback
+    // client would repeat bootstrap/recovery and agent discovery before first paint.
+    // Only attach through the transport when another process owns the backend.
+    if (!ownsInitialService) {
+      let first = true;
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error("The local workspace backend did not become ready.")),
+          75_000,
+        );
+        localClient = new RemoteClient({
+          machine: {
+            id: initial.host.clientId,
+            target: "This machine",
+            hostId: initial.host.hostId,
+            lastConnectedAt: null,
+          },
+          bundlePath,
+          temporaryDirectory: join(app.getPath("userData"), "ssh"),
+          cachePath: join(app.getPath("userData"), "remote-cache", "local.json"),
+          event: (event) => {
+            broadcast("tidy:event", event);
+          },
+          statusChanged: (status) => {
+            if (status.kind === "connected") {
+              clearTimeout(timer);
+              resolve();
+            } else if (status.kind === "blocked") {
+              clearTimeout(timer);
+              reject(new Error(status.message));
+            }
+          },
+          connected: async () => {},
+          connector: async () => {
+            const backend = first ? initial : await acquire();
+            first = false;
+            return {
+              host: backend.host,
+              origin: `http://127.0.0.1:${backend.host.port}`,
+              close() {},
+              onClose() {},
+            };
+          },
+        });
+        localClient.start();
       });
-      localClient.start();
-    });
+    }
     registerWorkspaceIPC(service, entryURL, {
       get: () => (ownsInitialService ? undefined : localClient),
       getMachine: (id) => remoteClients.get(id),

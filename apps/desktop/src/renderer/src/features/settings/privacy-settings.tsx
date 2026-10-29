@@ -1,3 +1,8 @@
+import {
+  cachedAnalyticsState,
+  readAnalyticsState,
+  subscribeAnalyticsState,
+} from "./analytics-state";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
@@ -5,7 +10,7 @@ import type { AnalyticsChoices, AnalyticsState } from "@tidy/design/analytics";
 /** Local choices render immediately; stale reads/actions cannot undo the user's next choice. */
 export function PrivacySettings() {
   const api = window.tidy?.analytics;
-  const [state, setState] = useState<AnalyticsState>();
+  const [state, setState] = useState<AnalyticsState | undefined>(() => cachedAnalyticsState(api));
   const current = useRef(state);
   const [error, setError] = useState("");
   const [separate, setSeparate] = useState(false);
@@ -19,15 +24,14 @@ export function PrivacySettings() {
       current.current = value;
       setState(value);
     };
-    const unsubscribe = api.subscribe((value) => {
+    const unsubscribe = subscribeAnalyticsState(api, (value) => {
       pushed.current++;
       receive(value);
     });
     const read = () => {
       const generation = mutation.current;
       const revision = pushed.current;
-      void api
-        .state()
+      void readAnalyticsState(api)
         .then((value) => {
           if (generation === mutation.current && revision === pushed.current) receive(value);
         })
@@ -101,7 +105,7 @@ export function PrivacySettings() {
     }
     try {
       await api![kind]();
-      const value = await api!.state();
+      const value = await readAnalyticsState(api!);
       if (generation === mutation.current) {
         current.current = value;
         setState(value);

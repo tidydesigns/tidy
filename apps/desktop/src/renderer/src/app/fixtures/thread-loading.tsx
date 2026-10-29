@@ -15,6 +15,10 @@ import { lazyView } from "../../components/lazy-view";
 import { Conversations } from "../../features/threads/conversations";
 import { ToolActivityGroup } from "../../features/threads/tool-activity";
 import { ThreadSidebar } from "../../features/threads/thread-sidebar";
+import { ThreadCard } from "../../features/threads/thread-card";
+import { RemoteMachines } from "../../features/settings/remote-machines";
+import { Settings } from "../../features/settings/settings";
+import type { MachineBridge } from "../../../../shared/remote";
 import { UserFacingError } from "@tidy/ui/errors";
 import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
@@ -110,15 +114,17 @@ function conversationFixture(root: Root) {
     selected,
     active = true,
     project = projectId,
+    scope = "local",
   }: {
     selected: string | null;
     active?: boolean;
     project?: string;
+    scope?: string;
   }) {
     flushSync(() =>
       root.render(
         <Conversations
-          key={project}
+          key={scope}
           projectId={project}
           selected={selected}
           threads={{ ...threads }}
@@ -326,6 +332,162 @@ async function runThreadLoadingTests(): Promise<string[]> {
   }
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
+
+  await run(
+    "settings retain loaded panels without occupying hidden layout or stealing focus",
+    async (root) => {
+      const cloud = {
+        state: undefined,
+        account: undefined,
+        busy: false,
+        error: "",
+        signIn: async () => {},
+        signOut: async () => {},
+        retry() {},
+      };
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<Settings cloud={cloud} active={active} onBack={() => {}} />));
+      render(false);
+      const navigation = required(
+        host.querySelector<HTMLElement>("#desktop-settings-navigation"),
+        "Settings navigation",
+      );
+      const panel = required(
+        host.querySelector<HTMLElement>(".settings-workspace"),
+        "Settings panel",
+      );
+      check(
+        navigation.getClientRects().length === 0 && panel.getClientRects().length === 0,
+        "Hidden settings occupied workspace layout",
+      );
+      render(true);
+      check(
+        document.activeElement === host.querySelector(".settings-back"),
+        "Opening settings did not focus its back button",
+      );
+      const appearance = required(
+        host.querySelector(".settings-appearance-row"),
+        "Appearance controls",
+      );
+      render(false);
+      check(
+        navigation.getClientRects().length === 0 && panel.getClientRects().length === 0,
+        "Closing settings left visible panels",
+      );
+      render(true);
+      check(
+        host.querySelector(".settings-appearance-row") === appearance,
+        "Reopening settings remounted its controls",
+      );
+      await settle();
+    },
+  );
+
+  await run(
+    "retained remote settings refresh on changes and discard hidden authentication inputs",
+    async (root) => {
+      const remote = required(window.tidyRemote, "Remote preload API");
+      let reads = 0;
+      let changed = () => {};
+      const machines: MachineBridge = {
+        list: async () => {
+          reads++;
+          return [
+            {
+              id: projectId,
+              label: "Fixture machine",
+              status: {
+                kind: "authentication",
+                target: "fixture",
+                promptId: projectId,
+                question: "Password",
+                secret: true,
+              },
+            },
+          ];
+        },
+        onChanged: (listener) => {
+          changed = listener;
+          return () => {
+            changed = () => {};
+          };
+        },
+        workspace: () => ({ api: nativeAPI, remote }),
+      };
+      const render = (active: boolean) =>
+        flushSync(() =>
+          root.render(<RemoteMachines machines={machines} remote={remote} active={active} />),
+        );
+      render(true);
+      await until(
+        () => Boolean(host.querySelector('input[type="password"]')),
+        "Remote machine metadata",
+      );
+      required(
+        host.querySelector<HTMLInputElement>('input[type="password"]'),
+        "Authentication input",
+      ).value = "synthetic-secret";
+      render(false);
+      check(
+        !host.querySelector('input[type="password"]'),
+        "Hidden settings retained an authentication answer",
+      );
+      render(true);
+      check(reads === 1, "Reopening settings refetched available machines");
+      check(
+        required(
+          host.querySelector<HTMLInputElement>('input[type="password"]'),
+          "New authentication input",
+        ).value === "",
+        "Reopening restored a secret",
+      );
+      changed();
+      await until(() => reads === 2, "Machine change refresh");
+    },
+  );
+
+  await run("selected threads are marked read only when their card is visible", async (root) => {
+    const thread = { ...summarizeThread(makeThread()), status: "completed" as const };
+    const key = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
+    const focus = Object.getOwnPropertyDescriptor(document, "hasFocus");
+    const visibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
+    Object.defineProperty(document, "hasFocus", { configurable: true, value: () => true });
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    const render = (hidden: boolean) =>
+      flushSync(() =>
+        root.render(
+          <div style={{ display: hidden ? "none" : "block" }}>
+            <ThreadCard
+              thread={thread}
+              selected
+              loaded
+              now={Date.now()}
+              pending={false}
+              onSelect={() => {}}
+              onDone={() => {}}
+            />
+          </div>,
+        ),
+      );
+    try {
+      localStorage.removeItem(key);
+      render(true);
+      await settle();
+      window.dispatchEvent(new Event("focus"));
+      check(
+        localStorage.getItem(key) === null,
+        "A response hidden behind settings was marked read",
+      );
+      render(false);
+      await until(() => localStorage.getItem(key) !== null, "Visible response marked read");
+    } finally {
+      if (focus) Object.defineProperty(document, "hasFocus", focus);
+      else Reflect.deleteProperty(document, "hasFocus");
+      if (visibility) Object.defineProperty(document, "visibilityState", visibility);
+      else Reflect.deleteProperty(document, "visibilityState");
+      localStorage.removeItem(key);
+    }
+  });
 
   await run(
     "offline transitions retain loaded projects and refresh once on reconnect",
@@ -904,7 +1066,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
     },
   );
 
-  await run("view retention evicts old DOM and isolates drafts and projects", async (root) => {
+  await run("view retention evicts old DOM and isolates drafts and access scopes", async (root) => {
     const { a, b, c, d, threads, render } = conversationFixture(root);
     render({ selected: a.id });
     await settle();
@@ -929,10 +1091,40 @@ async function runThreadLoadingTests(): Promise<string[]> {
     render({ selected: other.id, project: other.projectId });
     await settle();
     check(
+      visibleTranscript().querySelectorAll("article").length === 2,
+      "Project navigation displayed another project's messages",
+    );
+    render({ selected: other.id, project: other.projectId, scope: "new-account" });
+    await settle();
+    check(
       host.querySelectorAll(".conversation").length === 1,
-      "Project navigation retained the previous project's views",
+      "Access changes retained the previous scope's views",
     );
   });
+
+  await run(
+    "project navigation retains bounded transcripts and their scroll position",
+    async (root) => {
+      const { a, b, threads, render } = conversationFixture(root);
+      a.messages = makeThread({ count: 40 }).messages;
+      b.projectId = crypto.randomUUID();
+      render({ selected: a.id });
+      await settle();
+      const viewport = visibleTranscript();
+      const message = required(viewport.querySelector("article"), "Retained message");
+      viewport.scrollTop = 180;
+      viewport.dispatchEvent(new Event("scroll"));
+      render({ selected: b.id, project: b.projectId });
+      await settle();
+      check(visibleTranscript() !== viewport, "Other project displayed the previous transcript");
+      threads[a.id] = { ...a, revision: 2 };
+      render({ selected: a.id });
+      check(visibleTranscript() === viewport, "Returning to a project remounted its transcript");
+      check(viewport.querySelector("article") === message, "Returning reparsed existing messages");
+      await settle();
+      check(Math.abs(viewport.scrollTop - 180) < 2, "Returning lost the reader's position");
+    },
+  );
 
   await run("collapsed tool logs defer rows and retain expanded output on reopen", async (root) => {
     const output = "one\ntwo\nthree\nfour\nFinal output";

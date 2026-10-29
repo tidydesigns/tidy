@@ -113,6 +113,8 @@ export function App({
   );
   const [settingsPage, setSettingsPage] = useState<"account" | "remote">("account");
   const [settingsOpen, setSettingsOpen] = useSessionState("settings", z.boolean(), false);
+  const [settingsVisited, setSettingsVisited] = useState(settingsOpen);
+  if (settingsOpen && !settingsVisited) setSettingsVisited(true);
   const settingsTrigger = useRef<HTMLButtonElement>(null);
   const settingsWasOpen = useRef(false);
   useEffect(() => {
@@ -1324,7 +1326,7 @@ export function App({
       <ThreadCard
         thread={item}
         orderControls={orderControls}
-        selected={mode === "code" && !settingsOpen && selectedThreadId === item.id}
+        selected={mode === "code" && selectedThreadId === item.id}
         loaded={selectedThreadId === item.id && selectedThreadLoaded}
         now={now}
         pending={Boolean(updatingDone[item.id] || settingsPending[item.id])}
@@ -1347,7 +1349,6 @@ export function App({
       selectedThreadId,
       selectedThreadLoaded,
       mode,
-      settingsOpen,
       now,
       updatingDone,
       settingsPending,
@@ -1881,7 +1882,7 @@ export function App({
                     )}
                   </div>
                   <Conversations
-                    key={project.id}
+                    key={failureNoticeAccessKey}
                     projectId={project.id}
                     selected={selectedThreadId ?? null}
                     threads={threads}
@@ -2263,8 +2264,13 @@ export function App({
           )}
         </div>
       </main>
-      {settingsOpen && (
-        <Settings initialPage={settingsPage} cloud={cloud} onBack={() => setSettingsOpen(false)} />
+      {settingsVisited && (
+        <Settings
+          active={settingsOpen}
+          initialPage={settingsPage}
+          cloud={cloud}
+          onBack={() => setSettingsOpen(false)}
+        />
       )}
     </DesktopShell>
   );
