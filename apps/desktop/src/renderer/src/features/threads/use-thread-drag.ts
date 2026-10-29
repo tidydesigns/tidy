@@ -63,8 +63,18 @@ export function useThreadDrag({ ids, setOrder }: { ids: string[]; setOrder(ids: 
   });
 
   function position(active: Drag) {
-    const top = (list.current?.getBoundingClientRect().top ?? 0) + active.row.offsetTop;
-    active.row.style.transform = `translateY(${active.clientY - active.grabOffset - top}px)`;
+    const container = list.current;
+    if (!container) return active.clientY - active.grabOffset;
+    const bounds = container.getBoundingClientRect();
+    const viewport = container.parentElement?.getBoundingClientRect() ?? bounds;
+    const minimum = Math.max(bounds.top, viewport.top);
+    const maximum = Math.max(
+      minimum,
+      Math.min(bounds.bottom, viewport.bottom) - active.row.offsetHeight,
+    );
+    const top = Math.min(maximum, Math.max(minimum, active.clientY - active.grabOffset));
+    active.row.style.transform = `translateY(${top - bounds.top - active.row.offsetTop}px)`;
+    return top;
   }
 
   useLayoutEffect(() => {
@@ -87,10 +97,9 @@ export function useThreadDrag({ ids, setOrder }: { ids: string[]; setOrder(ids: 
         scroll.scrollTop += speed * Math.min(time - (previousTime || time), 32) * 0.6;
       }
       previousTime = time;
-      position(active);
-      const contentY = active.clientY + (scroll?.scrollTop ?? 0);
+      const top = position(active);
+      const contentY = top + active.grabOffset + (scroll?.scrollTop ?? 0);
       const travel = contentY - active.lastSwapY;
-      const top = active.clientY - active.grabOffset;
       const bottom = top + active.row.offsetHeight;
       const listTop = container.getBoundingClientRect().top;
       const rows = Array.from(container.querySelectorAll<HTMLElement>("[data-thread-id]"));
