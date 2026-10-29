@@ -17,10 +17,7 @@ export function FounderCards() {
             className={styles.portrait}
           />
           <div className={styles.founderInfo}>
-            <div>
-              <h3>{founder.name}</h3>
-              <p>Co-founder</p>
-            </div>
+            <h3>{founder.name}</h3>
             <div className={styles.socials}>
               <a href={founder.github} aria-label={`${founder.name} on GitHub`}>
                 <BrandIcon name="github" />
