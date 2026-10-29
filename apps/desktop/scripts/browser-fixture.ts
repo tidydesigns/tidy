@@ -33,6 +33,7 @@ async function run() {
   const projectId = randomUUID(),
     threadId = randomUUID();
   const viewerIds = new Map<WorkspaceService, string>();
+  const viewerScopes = new Map<WorkspaceService, { projectId: string; threadId: string }>();
   const makeService = async (label: string) => {
     const store = new ProjectStore(join(root, label, "state"));
     await store.initialize();
@@ -64,6 +65,7 @@ async function run() {
     const watch = service.browser.watch.bind(service.browser);
     service.browser.watch = async (scope, id, send) => {
       viewerIds.set(service, id);
+      viewerScopes.set(service, scope);
       return watch(scope, id, send);
     };
     return { service, scope: { projectId: project.id, threadId } };
@@ -164,6 +166,26 @@ async function run() {
     window.webContents.executeJavaScript(expression).catch((error: unknown) => {
       throw new Error("Renderer evaluation failed: " + expression, { cause: error });
     });
+  const callRenderer = async (functionDeclaration: string, args: unknown[]) => {
+    const debuggerAPI = window.webContents.debugger;
+    if (!debuggerAPI.isAttached()) debuggerAPI.attach("1.3");
+    const { result } = z
+      .object({ result: z.object({ objectId: z.string() }) })
+      .parse(await debuggerAPI.sendCommand("Runtime.evaluate", { expression: "globalThis" }));
+    try {
+      const resultValue: unknown = await debuggerAPI.sendCommand("Runtime.callFunctionOn", {
+        objectId: result.objectId,
+        functionDeclaration,
+        arguments: args.map((value) => ({ value })),
+        returnByValue: true,
+      });
+      assert.ok(
+        !z.object({ exceptionDetails: z.unknown().optional() }).parse(resultValue).exceptionDetails,
+      );
+    } finally {
+      await debuggerAPI.sendCommand("Runtime.releaseObject", { objectId: result.objectId });
+    }
+  };
   const shortcut = (keyCode: string) => {
     const modifiers = [process.platform === "darwin" ? "meta" : "control"] satisfies NonNullable<
       Electron.KeyboardInputEvent["modifiers"]
@@ -175,7 +197,9 @@ async function run() {
     const end = Date.now() + 15000;
     while (!(await check())) {
       if (Date.now() > end)
-        throw new Error(`Timed out: ${name}. Renderer errors: ${errors.join("\n")}`);
+        throw new Error(
+          `Timed out: ${name}. Renderer errors: ${errors.join("\n")}. UI: ${await evaluate("document.body.innerText.slice(0,1600)")}`,
+        );
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
   }
@@ -320,9 +344,17 @@ async function run() {
           ),
         `${label} release control`,
       );
-      const coordinates = await evaluate(
-        `${mountedApi}.command(${JSON.stringify({ ...value.scope, action: { kind: "evaluate", tabId, expression: "(() => { const input=document.querySelector('#name').getBoundingClientRect(), button=document.querySelector('main button').getBoundingClientRect(), rename=document.querySelector('#rename').getBoundingClientRect(); return {input:{x:input.x+15,y:input.y+15},button:{x:button.x+15,y:button.y+15},rename:{x:rename.x+15,y:rename.y+15}}; })()" } })})`,
+      await assert.rejects(
+        evaluate(
+          `${mountedApi}.command(${JSON.stringify({ ...value.scope, action: { kind: "open", url: "about:blank" } })})`,
+        ),
       );
+      const coordinates = await value.service.browser.command(value.scope, {
+        kind: "evaluate",
+        tabId,
+        expression:
+          "(() => { const input=document.querySelector('#name').getBoundingClientRect(), button=document.querySelector('main button').getBoundingClientRect(), rename=document.querySelector('#rename').getBoundingClientRect(); return {input:{x:input.x+15,y:input.y+15},button:{x:button.x+15,y:button.y+15},rename:{x:rename.x+15,y:rename.y+15}}; })()",
+      });
       const coordinateOutput = z.object({ output: z.string() }).parse(coordinates).output;
       const pointSchema = z.object({ x: z.number(), y: z.number() });
       const points = z
@@ -360,8 +392,9 @@ async function run() {
       );
       window.webContents.focus();
       const pasted = "a".repeat(15999) + "😀" + "b".repeat(33000);
-      await evaluate(
-        `(()=>{const data=new DataTransfer();data.setData('text/plain',${JSON.stringify(pasted)});document.activeElement.dispatchEvent(new ClipboardEvent('paste',{bubbles:true,cancelable:true,clipboardData:data}));return true;})()`,
+      await callRenderer(
+        "function(text) { const data = new DataTransfer(); data.setData('text/plain', text); document.activeElement.dispatchEvent(new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: data })); }",
+        [pasted],
       );
       await until(async () => {
         const result = await value.service.browser.command(value.scope, {
@@ -418,8 +451,9 @@ async function run() {
         keyCode: number,
         modifiers: { altKey?: boolean; metaKey?: boolean; shiftKey?: boolean },
       ) => {
-        await evaluate(
-          `(()=>{const target=document.querySelector('.browser-keyboard');for(const type of ['keydown','keyup'])target.dispatchEvent(new KeyboardEvent(type,{key:${JSON.stringify(key)},code:${JSON.stringify(key)},keyCode:${keyCode},bubbles:true,cancelable:true,...${JSON.stringify(modifiers)}}));return true})()`,
+        await callRenderer(
+          "function(key, keyCode, modifiers) { const target = document.querySelector('.browser-keyboard'); for (const type of ['keydown', 'keyup']) target.dispatchEvent(new KeyboardEvent(type, { key, code: key, keyCode, bubbles: true, cancelable: true, ...modifiers })); }",
+          [key, keyCode, modifiers],
         );
       };
       try {
@@ -735,6 +769,73 @@ async function run() {
         );
         assert.equal((await remote.service.browser.state(remote.scope)).activeTabId, tabId);
       }
+      await evaluate('document.querySelector(".sidebar-new-thread").click()');
+      await until(
+        () => viewerScopes.get(value.service)?.threadId !== value.scope.threadId,
+        `${label} draft preview attached`,
+      );
+      const draftScope = viewerScopes.get(value.service);
+      assert.ok(draftScope);
+      await until(
+        () => evaluate('Boolean(document.querySelector(".browser-new-tab"))'),
+        `${label} draft preview ready`,
+      );
+      await evaluate('document.querySelector(".browser-new-tab").click()');
+      await until(
+        async () => (await value.service.browser.state(draftScope)).tabs.length === 1,
+        `${label} draft tab opened`,
+      );
+      const draftTabId = (await value.service.browser.state(draftScope)).activeTabId;
+      await evaluate('document.querySelector(".thread-select").click()');
+      await until(
+        () => viewerScopes.get(value.service)?.threadId === value.scope.threadId,
+        `${label} existing thread selected`,
+      );
+      await evaluate('document.querySelector(".sidebar-new-thread").click()');
+      await until(
+        () => viewerScopes.get(value.service)?.threadId === draftScope.threadId,
+        `${label} draft preview restored`,
+      );
+      assert.equal((await value.service.browser.state(draftScope)).activeTabId, draftTabId);
+      if (label === "local") {
+        for (let visit = 0; visit < 2; visit++) {
+          await evaluate(`document.querySelector('[aria-label="Switch project"]').click()`);
+          await until(
+            () =>
+              evaluate(
+                'Array.from(document.querySelectorAll(".machine-project-group")).filter(group => group.querySelector(".machine-project-row")).length === 2',
+              ),
+            "machine projects ready",
+          );
+          await callRenderer(
+            "function(label) { const group = Array.from(document.querySelectorAll('.machine-project-group')).find(group => group.querySelector('summary').textContent.includes(label)); group.open = true; group.querySelector('.machine-project-row').click(); }",
+            [visit === 0 ? machine.target : "This machine"],
+          );
+          const expectedMachine = visit === 0 ? machine.id : "local";
+          await until(
+            async () =>
+              (await evaluate("sessionStorage.getItem('tidy:navigation:machine')")) ===
+              JSON.stringify(expectedMachine),
+            "machine selection persisted",
+          );
+          await until(
+            () => evaluate('!document.querySelector(".machine-project-panel")'),
+            "machine menu closed",
+          );
+        }
+        await evaluate('document.querySelector(".browser-toggle-button").click()');
+        await until(
+          () => viewerScopes.get(value.service)?.threadId === draftScope.threadId,
+          "draft preview survives machine switch",
+        );
+        assert.equal((await value.service.browser.state(draftScope)).activeTabId, draftTabId);
+      }
+      await until(
+        () => evaluate('Boolean(document.querySelector(".browser-tab-close"))'),
+        `${label} restored draft tab closable`,
+      );
+      await evaluate('document.querySelector(".browser-tab-close").click()');
+      await until(() => value.service.browser.activeCount === 1, `${label} draft tab cleaned up`);
       await evaluate('document.querySelector(".browser-window-actions button:last-child").click()');
       assert.equal(value.service.browser.activeCount, 1);
       console.log(

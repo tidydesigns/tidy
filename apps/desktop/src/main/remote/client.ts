@@ -261,7 +261,8 @@ export class RemoteClient {
       input: (input) => {
         if (input.input.kind === "visibility") visible = input.input.visible;
         if (socket?.readyState !== WebSocket.OPEN) return;
-        if (socket.bufferedAmount > 128 * 1024) {
+        const bufferLimit = input.input.kind === "text" ? 4 * 1024 * 1024 : 128 * 1024;
+        if (socket.bufferedAmount > bufferLimit) {
           socket.terminate();
           return;
         }

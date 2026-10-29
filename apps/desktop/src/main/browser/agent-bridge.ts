@@ -78,16 +78,25 @@ export class BrowserAgentBridge {
   private start() {
     this.pending ??= (async () => {
       await new Promise<void>((resolve, reject) => {
-        this.server.once("error", reject);
-        this.server.listen(0, "127.0.0.1", () => {
-          this.server.removeListener("error", reject);
+        const failed = (error: Error) => {
+          this.server.removeListener("listening", listening);
+          reject(error);
+        };
+        const listening = () => {
+          this.server.removeListener("error", failed);
           resolve();
-        });
+        };
+        this.server.once("error", failed);
+        this.server.once("listening", listening);
+        this.server.listen(0, "127.0.0.1");
       });
       const address = this.server.address();
       if (!address || typeof address === "string") throw new Error("Browser tool could not start.");
       return { origin: `http://127.0.0.1:${address.port}/browser` };
-    })();
+    })().catch((error: unknown) => {
+      this.pending = undefined;
+      throw error;
+    });
     return this.pending;
   }
 

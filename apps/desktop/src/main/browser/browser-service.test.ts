@@ -1,7 +1,7 @@
-import { afterEach, test } from "node:test";
+import { afterEach, mock, test } from "node:test";
 import { z } from "zod";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, Server } from "node:http";
 import { readFile, stat, access, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -234,6 +234,24 @@ browserTest(
   },
   30000,
 );
+
+browserTest("agent bridge retries after a failed loopback bind", async () => {
+  const { browser, scope, url } = await fixture();
+  const bridge = new BrowserAgentBridge(browser);
+  cleanups.push(() => bridge.close());
+  const listen = Server.prototype.listen;
+  const bind = mock.method(Server.prototype, "listen", function (this: Server) {
+    return Reflect.apply(listen, this, [Number(new URL(url).port), "127.0.0.1"]);
+  });
+  try {
+    await assert.rejects(bridge.session(scope), { code: "EADDRINUSE" });
+  } finally {
+    bind.mock.restore();
+  }
+  const session = await bridge.session(scope);
+  assert.ok((await readFile(session.configuration, "utf8")).includes("127.0.0.1:"));
+  session.close();
+});
 
 browserTest(
   "agent bridge is scoped, rejects origins and revokes access at the end of a run",

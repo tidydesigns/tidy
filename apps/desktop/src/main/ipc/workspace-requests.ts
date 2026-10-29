@@ -75,9 +75,10 @@ export function createWorkspaceRequests<Context>(
   handle("browser-query", browserQuerySchema, ({ action, viewerId, ...scope }) =>
     service.browser.command(scope, action, { actor: viewerId }),
   );
-  handle("browser-command", browserCommandSchema, ({ action, viewerId, ...scope }) =>
-    service.browser.command(scope, action, { actor: viewerId }),
-  );
+  handle("browser-command", browserCommandSchema, ({ action, viewerId, ...scope }) => {
+    if (!viewerId) throw new Error("Open the browser preview before controlling it.");
+    return service.browser.command(scope, action, { actor: viewerId });
+  });
 
   function liveSnapshot(snapshot: Awaited<ReturnType<typeof store.snapshot>>) {
     return {

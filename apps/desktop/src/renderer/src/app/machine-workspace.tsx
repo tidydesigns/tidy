@@ -44,6 +44,7 @@ export function MachineWorkspace() {
     source: MachineSelection | null;
   } | null>(null);
   const drafts = useRef(new Map<string, Record<string, Draft>>());
+  const browserDrafts = useRef(new Map<string, string>());
   const machineLabels = useRef(machines);
   machineLabels.current = machines;
   const apis = useRef(new Map<string, DesktopAPI>());
@@ -168,6 +169,7 @@ export function MachineWorkspace() {
           workspaceAPI={api}
           initial={prepared}
           draftCache={drafts.current}
+          browserDraftCache={browserDrafts.current}
           cloud={cloud}
           machine={{
             current,

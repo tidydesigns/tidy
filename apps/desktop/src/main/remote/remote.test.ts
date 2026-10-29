@@ -942,6 +942,55 @@ test("browser queries reject mutations and do not create durable command receipt
   await expect(
     client.operation("browser-query", { ...scope, action: { kind: "open", url: "about:blank" } }),
   ).rejects.toThrow();
-  expect(f.service.browser.activeCount).toBe(0);
   expect(await readdir(directory)).toEqual([]);
+  await expect(
+    client.operation("browser-command", { ...scope, action: { kind: "open", url: "about:blank" } }),
+  ).rejects.toThrow("Open the browser preview");
+  expect(f.service.browser.activeCount).toBe(0);
+});
+
+test("browser paste tolerates bounded socket pressure while other input remains bounded", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  const received: string[] = [];
+  const attach = f.service.browser.watch.bind(f.service.browser);
+  const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+    const watch = await attach(...args);
+    return {
+      ...watch,
+      input(value) {
+        if (value.input.kind === "text") received.push(value.input.text);
+        watch.input(value);
+      },
+    };
+  });
+  let ready = false;
+  let disconnected = false;
+  const watch = client.watchBrowser(scope, randomUUID(), (event) => {
+    if (event.kind === "state") ready = true;
+    if (event.kind === "disconnected") disconnected = true;
+  });
+  const pressure = Object.getOwnPropertyDescriptor(WebSocket.prototype, "bufferedAmount");
+  if (!pressure) throw new Error("Socket buffer accessor is unavailable.");
+  try {
+    await until(() => ready);
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", {
+      ...pressure,
+      get: () => 256 * 1024,
+    });
+    const chunk = "界".repeat(15998) + "😀";
+    for (let i = 0; i < 32; i++)
+      watch.input({ tabId: null, viewId: null, input: { kind: "text", text: chunk } });
+    await until(() => received.length === 32);
+    expect(received.join("")).toBe(chunk.repeat(32));
+    expect(disconnected).toBe(false);
+    watch.input({ tabId: null, viewId: null, input: { kind: "release-control" } });
+    await until(() => disconnected);
+  } finally {
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", pressure);
+    watch.close();
+    observe.mockRestore();
+  }
 });

@@ -105,12 +105,14 @@ export function App({
   machine,
   initial,
   draftCache,
+  browserDraftCache,
   cloud,
 }: {
   workspaceAPI?: DesktopAPI;
   machine?: MachineContext;
   initial?: PreparedWorkspace;
   draftCache?: Map<string, Record<string, Draft>>;
+  browserDraftCache?: Map<string, string>;
   cloud: CloudConnection;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
@@ -262,13 +264,18 @@ export function App({
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
-  const browserScope = useMemo(
-    () =>
-      executionProject && !executionProject.cloud
-        ? { projectId: executionProject.id, threadId: selectedThreadId ?? crypto.randomUUID() }
-        : null,
-    [executionProject?.id, selectedThreadId],
-  );
+  const localBrowserDrafts = useRef(new Map<string, string>());
+  const draftBrowserIds = browserDraftCache ?? localBrowserDrafts.current;
+  const browserDraftKey = `${machine?.current.id ?? "local"}:${executionProject?.id ?? ""}`;
+  const browserScope = useMemo(() => {
+    if (!executionProject || executionProject.cloud) return null;
+    let threadId = selectedThreadId;
+    if (!threadId) {
+      threadId = draftBrowserIds.get(browserDraftKey) ?? crypto.randomUUID();
+      draftBrowserIds.set(browserDraftKey, threadId);
+    }
+    return { projectId: executionProject.id, threadId };
+  }, [draftBrowserIds, browserDraftKey, selectedThreadId]);
   useEffect(() => {
     setBrowserRequest((request) =>
       request &&
@@ -1186,6 +1193,8 @@ export function App({
           });
       pendingStarts.current.set(id, request);
       const value = await request;
+      if (!selectedThreadId && browserScope && draftBrowserIds.get(browserDraftKey) === id)
+        draftBrowserIds.delete(browserDraftKey);
       setThreads((current) => ({
         ...current,
         [value.id]:
