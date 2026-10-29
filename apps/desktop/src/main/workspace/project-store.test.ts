@@ -837,11 +837,13 @@ test("oversized thread encoding preserves the stored checkpoint and later writes
   };
   await expect(store.writeThread(oversized)).rejects.toThrow("size limit");
   expect((await store.readThread(project.id, value.id)).messages).toEqual(value.messages);
-  value.messages[0].text = "Recovered";
+  value.messages[0].text = "Recovered".repeat(40_000);
   const pending = store.writeThread(value);
   await store.flush();
   await pending;
-  expect((await store.readThread(project.id, value.id)).messages[0].text).toBe("Recovered");
+  expect((await store.readThread(project.id, value.id)).messages[0].text).toBe(
+    "Recovered".repeat(40_000),
+  );
 });
 
 test("failed encodings cannot release the write queue ahead of an earlier checkpoint", async () => {
