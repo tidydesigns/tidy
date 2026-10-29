@@ -37,6 +37,24 @@ function HeaderLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: 
       >
         Changelog
       </Link>
+      <Link
+        className="header-link"
+        href="/blog"
+        aria-current={
+          pathname === "/blog" ? "page" : pathname.startsWith("/blog/") ? "location" : undefined
+        }
+        onClick={onNavigate}
+      >
+        Blog
+      </Link>
+      <Link
+        className="header-link"
+        href="/about"
+        aria-current={pathname === "/about" ? "page" : undefined}
+        onClick={onNavigate}
+      >
+        About
+      </Link>
       <a className="header-link github-link" href={repositoryUrl} onClick={onNavigate}>
         <BrandIcon name="github" />
         GitHub

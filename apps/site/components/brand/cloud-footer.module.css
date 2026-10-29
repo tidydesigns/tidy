@@ -145,12 +145,15 @@
   background: var(--footer-surface);
   font-size: 14px;
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 .bottom nav {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 24px;
+  min-width: 0;
+  max-width: 100%;
 }
 .bottom a {
   display: inline-flex;
@@ -162,6 +165,8 @@
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
+  min-width: 0;
+  max-width: 100%;
 }
 .themeSwitch {
   display: inline-flex;
@@ -237,6 +242,7 @@
     padding-block: 16px;
   }
   .bottom nav {
+    flex-wrap: wrap;
     margin-left: auto;
     gap: 14px;
   }

@@ -1,3 +1,17 @@
+## Website copy
+
+- Use clear, concise language about what Tidy does, what has shipped, and what we
+  are working towards. Distinguish current capabilities from future intentions.
+- Avoid marketing jargon, vague promises, slogans and aspirational filler. Use
+  concrete features and actions instead.
+- Do not add decorative eyebrow labels above page or section headings, such as
+  "About us" or "The Tidy blog". Put the useful information in the heading itself.
+  Article categories and publication metadata may remain when they add context.
+- Founder cards show names and profile links, without role labels such as
+  "Co-founder". Avoid repeating the same information in surrounding copy.
+- Underline link text only. Decorative arrows and icons must stay un-underlined,
+  including on hover.
+
 <!-- BEGIN:nextjs-agent-rules -->
 
 ## This is NOT the Next.js you know
