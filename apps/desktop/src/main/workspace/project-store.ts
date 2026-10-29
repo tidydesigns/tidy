@@ -470,6 +470,7 @@ export class ProjectStore {
     }
     const textLength =
       value.messages.reduce((total, message) => total + message.text.length, 0) +
+      (value.queuedMessages?.reduce((total, message) => total + message.text.length, 0) ?? 0) +
       (value.toolActivities?.reduce((total, tool) => total + toolLogSize(tool), 0) ?? 0);
     const encoded =
       textLength >= 256 * 1024

@@ -898,3 +898,28 @@ test("failed encodings cannot release the write queue ahead of an earlier checkp
     encoder.mockRestore();
   }
 });
+
+test("large queued message text uses worker encoding while absent and small queues stay local", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const value = thread(project.id);
+  const encoder = spyOn(CloudCompute.prototype, "encodeThread");
+  try {
+    await store.writeThread(value);
+    value.queuedMessages = [{ id: randomUUID(), text: "Next message" }];
+    await store.writeThread(value);
+    expect(encoder).not.toHaveBeenCalled();
+    value.queuedMessages = Array.from({ length: 20 }, () => ({
+      id: randomUUID(),
+      text: "Queued text ".repeat(2_500),
+    }));
+    const expected = structuredClone(value.queuedMessages);
+    const pending = store.writeThread(value);
+    value.queuedMessages[0].text = "Later edit";
+    await pending;
+    expect(encoder).toHaveBeenCalledTimes(1);
+    expect((await store.readThread(project.id, value.id)).queuedMessages).toEqual(expected);
+  } finally {
+    encoder.mockRestore();
+  }
+});
