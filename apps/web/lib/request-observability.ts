@@ -127,14 +127,15 @@ async function observeTracedRequest(
     // OpenNext pages and legacy MCP POSTs can return headers before their work
     // completes. Keep the request trace alive through those finite streams, so
     // MCP execution/database spans aren't marked unfinished at SSE headers.
-    // Other API streams and WebSocket upgrades retain their existing lifecycle.
-    watchingBody =
-      status !== 101 &&
-      response.body !== null &&
-      ((request.method === "GET" &&
-        (contentType === "text/html" || contentType === "text/x-component")) ||
-        mcpStream);
-    if (!watchingBody) {
+    if (
+      status === 101 ||
+      response.body === null ||
+      !(
+        (request.method === "GET" &&
+          (contentType === "text/html" || contentType === "text/x-component")) ||
+        mcpStream
+      )
+    ) {
       const elapsedMs = elapsed();
       if (status >= 500 || elapsedMs >= 1000) {
         console.warn(JSON.stringify({ event: "request_completed", ...details, status, elapsedMs }));
@@ -142,6 +143,7 @@ async function observeTracedRequest(
       trace.finish("request_completed", status);
       return response;
     }
+    watchingBody = true;
     if (mcpStream) clearTimeout(pending);
     phase = "body";
     bodyOperation = startOperation("response.body");
@@ -149,7 +151,7 @@ async function observeTracedRequest(
       console.info(
         JSON.stringify({ event: "response_headers", ...details, status, elapsedMs: elapsed() }),
       );
-    const reader = response.body!.getReader();
+    const reader = response.body.getReader();
     const body = new ReadableStream<Uint8Array>(
       {
         async pull(controller) {

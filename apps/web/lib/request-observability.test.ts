@@ -90,9 +90,9 @@ test("MCP SSE backpressure does not report a server stall after delivering a res
   const warn = spySampling(console, "warn").mockImplementation(() => {});
   let pulls = 0;
   const chunk = new TextEncoder().encode('data: {"jsonrpc":"2.0","id":1,"result":{}}\n\n');
-  let response: Response | undefined;
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
   try {
-    response = await observeRequest(
+    const response = await observeRequest(
       new Request("https://example.test/api/mcp", { method: "POST" }),
       async () =>
         new Response(
@@ -112,17 +112,17 @@ test("MCP SSE backpressure does not report a server stall after delivering a res
         reports.push(details);
       },
     );
+    reader = response.body!.getReader();
     jest.advanceTimersByTime(10_000);
     expect(pulls).toBe(0);
     expect(reports).toEqual([]);
-    const reader = response.body!.getReader();
     expect((await reader.read()).value).toEqual(chunk);
     jest.advanceTimersByTime(10_000);
     expect(reports).toEqual([]);
     expect((await reader.read()).done).toBe(true);
-    reader.releaseLock();
   } finally {
-    await response?.body?.cancel();
+    await reader?.cancel();
+    reader?.releaseLock();
     jest.useRealTimers();
     info.mockRestore();
     warn.mockRestore();
