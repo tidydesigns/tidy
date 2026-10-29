@@ -11,6 +11,7 @@ import {
   parseExtensionResponse,
   type ImportJob,
 } from "@tidy/design/web-capture";
+import { pageRequest } from "../lib/page-request";
 import { TIDY_URL } from "../lib/config";
 
 export default defineBackground(() => {
@@ -25,8 +26,18 @@ export default defineBackground(() => {
         error: "The import was interrupted. Check the destination file before copying again.",
       });
   });
+  // Serialize job transitions, while capture and network work run outside the lock.
+  let jobQueue: Promise<unknown> = Promise.resolve();
+  const withJobLock = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = jobQueue.then(operation);
+    jobQueue = result.catch(() => undefined);
+    return result;
+  };
+  let activationVersion = 0;
+  browser.tabs.onActivated.addListener(() => {
+    activationVersion++;
+  });
   let starting = false;
-  let finishingSelection = false;
   const api = async (path: string, body?: unknown): Promise<unknown> => {
     const response = await fetch(`${TIDY_URL}/api/extension/${path}`, {
       method: body ? "POST" : "GET",
@@ -60,20 +71,25 @@ export default defineBackground(() => {
     const prepared = parseExtensionResponse(
       captureViewportSchema,
       readExtensionReply(
-        await browser.tabs.sendMessage(
-          tabId,
-          {
-            type: "bella:prepare-capture",
-          },
-          target,
+        await pageRequest(
+          browser.tabs.sendMessage(
+            tabId,
+            {
+              type: "bella:prepare-capture",
+              captureId: job.captureId,
+            },
+            target,
+          ),
+          5000,
         ),
       ),
     );
     let screenshot: string | undefined;
+    const activation = activationVersion;
     const tab = await browser.tabs.get(tabId);
     // captureVisibleTab always captures the active tab. Do not accidentally capture another page.
     const active = (await browser.tabs.query({ active: true, windowId: tab.windowId }))[0];
-    if (active?.id === tabId) {
+    if (active?.id === tabId && prepared.screenshotSafe === true) {
       try {
         screenshot = await browser.tabs.captureVisibleTab(tab.windowId, { format: "png" });
       } catch {
@@ -81,17 +97,20 @@ export default defineBackground(() => {
       }
     }
     const stillActive = (await browser.tabs.query({ active: true, windowId: tab.windowId }))[0];
-    if (stillActive?.id !== tabId) screenshot = undefined;
+    if (stillActive?.id !== tabId || activation !== activationVersion) screenshot = undefined;
     const reply = readExtensionReply(
-      await browser.tabs.sendMessage(
-        tabId,
-        {
-          type: "bella:capture",
-          mode,
-          screenshot,
-          screenshotViewport: prepared,
-        },
-        target,
+      await pageRequest(
+        browser.tabs.sendMessage(
+          tabId,
+          {
+            type: "bella:capture",
+            captureId: job.captureId,
+            mode,
+            screenshot,
+            screenshotViewport: prepared,
+          },
+          target,
+        ),
       ),
     );
     return webCaptureSchema.parse(reply);
@@ -101,10 +120,11 @@ export default defineBackground(() => {
     mode: "page" | "element",
   ) => {
     try {
-      await setJob({ ...job, state: "importing" });
-      const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
-      if (account.user.id !== job.userId)
-        throw new Error("Your Tidy account changed. Choose the destination again.");
+      if (mode === "element") {
+        const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+        if (account.user.id !== job.userId)
+          throw new Error("Your Tidy account changed. Choose the destination again.");
+      }
       const capture = await getCapture(job, mode);
       const result = parseExtensionResponse(
         importResultSchema.pick({ fileId: true, nodeIds: true, warnings: true }),
@@ -163,104 +183,124 @@ export default defineBackground(() => {
         return true;
       }
       if (message.type === "bella:cancel") {
-        const job = await getJob();
-        if (job?.state === "selecting") {
-          await browser.tabs.sendMessage(job.tabId, { type: "bella:stop" }).catch(() => undefined);
+        await withJobLock(async () => {
+          const job = await getJob();
+          if (job?.state !== "selecting") return;
+          // Release selection immediately; cleanup targets only its source document.
           await browser.storage.session.remove("job");
-        }
+          void browser.tabs
+            .sendMessage(
+              job.tabId,
+              { type: "bella:stop", captureId: job.captureId },
+              {
+                documentId: job.documentId,
+                frameId: 0,
+              },
+            )
+            .catch(() => undefined);
+        });
         return true;
       }
       if (message.type === "bella:picked" || message.type === "bella:cancelled") {
-        const job = await getJob();
-        if (
-          !job ||
-          job.state !== "selecting" ||
-          sender.tab?.id !== job.tabId ||
-          sender.frameId !== 0 ||
-          sender.documentId !== job.documentId
-        )
-          return;
-        if (message.type === "bella:cancelled") {
-          await browser.storage.session.remove("job");
-          return true;
-        }
-        if (finishingSelection) return;
-        finishingSelection = true;
-        try {
-          await runImport(job, "element");
-          // Capture must finish before opening the popup, which obscures the source page.
-          try {
-            const tab = await browser.tabs.get(job.tabId);
-            const [active] = await browser.tabs.query({ active: true, windowId: tab.windowId });
-            if (active?.id === job.tabId)
-              await browser.action.openPopup({ windowId: tab.windowId });
-          } catch {
-            // Older browsers or an unfocused window may refuse. The result remains in the popup.
+        const job = await withJobLock(async () => {
+          const current = await getJob();
+          if (
+            !current ||
+            current.state !== "selecting" ||
+            sender.tab?.id !== current.tabId ||
+            sender.frameId !== 0 ||
+            sender.documentId !== current.documentId ||
+            message.captureId !== current.captureId
+          )
+            return;
+          if (message.type === "bella:cancelled") {
+            await browser.storage.session.remove("job");
+            return;
           }
-        } finally {
-          finishingSelection = false;
+          const importing = { ...current, state: "importing" as const };
+          await setJob(importing);
+          return importing;
+        });
+        if (!job) return;
+        await runImport(job, "element");
+        // Capture must finish before opening the popup, which obscures the source page.
+        try {
+          const tab = await browser.tabs.get(job.tabId);
+          const [active] = await browser.tabs.query({ active: true, windowId: tab.windowId });
+          if (active?.id === job.tabId) await browser.action.openPopup({ windowId: tab.windowId });
+        } catch {
+          // Older browsers or an unfocused window may refuse. The result remains in the popup.
         }
         return true;
       }
       if (message.type !== "bella:start") return;
-      const existing = await getJob();
-      if (existing && ["selecting", "importing"].includes(existing.state))
-        throw new Error("Finish or cancel the current capture first.");
-      const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
-      const destination = message.destination;
-      if (account.user.id !== destination.userId)
-        throw new Error("Your Tidy account changed. Reopen the extension.");
-      const organization = account.organizations.find(
-        (item) => item.id === destination.organizationId,
-      );
-      if (
-        !organization ||
-        (destination.fileId && !organization.files.some((file) => file.id === destination.fileId))
-      )
-        throw new Error("Choose an accessible design file.");
+      // Pin the source before waiting on the account endpoint.
       const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
-      if (
-        !tab?.id ||
-        !tab.url ||
-        !/^https?:\/\//.test(tab.url) ||
-        /^https?:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/.test(tab.url)
-      ) {
-        throw new Error(
-          "Open a website to copy. Chrome's internal pages and Web Store cannot be captured.",
-        );
-      }
-      let documentId: string | undefined;
-      try {
-        const [injection] = await browser.scripting.executeScript({
-          target: { tabId: tab.id },
-          files: ["/content-scripts/capture.js"],
-        });
-        documentId = injection?.documentId;
-        if (!documentId) throw new Error("Could not identify the source document.");
-      } catch {
-        throw new Error("Chrome does not allow capture on this page.");
-      }
-      const job: Extract<ImportJob, { state: "selecting" | "importing" }> = {
-        state: message.mode === "element" ? "selecting" : "importing",
-        tabId: tab.id,
-        documentId,
-        userId: account.user.id,
-        destination,
-      };
-      if (message.mode === "element") {
-        await setJob(job);
-        try {
-          const { theme } = await browser.storage.local.get("theme");
-          await browser.tabs.sendMessage(
-            tab.id,
-            { type: "bella:pick", theme },
-            { documentId, frameId: 0 },
+      const job = await withJobLock(async () => {
+        const existing = await getJob();
+        if (existing && ["selecting", "importing"].includes(existing.state))
+          throw new Error("Finish or cancel the current capture first.");
+        if (
+          !tab?.id ||
+          !tab.url ||
+          !/^https?:\/\//.test(tab.url) ||
+          /^https?:\/\/(chromewebstore\.google\.com|chrome\.google\.com\/webstore)/.test(tab.url)
+        ) {
+          throw new Error(
+            "Open a website to copy. Chrome's internal pages and Web Store cannot be captured.",
           );
-        } catch (error) {
-          await browser.storage.session.remove("job");
-          throw error;
         }
-      } else await runImport(job, "page");
+        let documentId: string | undefined;
+        try {
+          const [injection] = await browser.scripting.executeScript({
+            target: { tabId: tab.id },
+            files: ["/content-scripts/capture.js"],
+          });
+          documentId = injection?.documentId;
+          if (!documentId) throw new Error("Could not identify the source document.");
+        } catch {
+          throw new Error("Chrome does not allow capture on this page.");
+        }
+        const account = parseExtensionResponse(extensionAccountSchema, await api("account"));
+        const destination = message.destination;
+        if (account.user.id !== destination.userId)
+          throw new Error("Your Tidy account changed. Reopen the extension.");
+        const organization = account.organizations.find(
+          (item) => item.id === destination.organizationId,
+        );
+        if (
+          !organization ||
+          (destination.fileId && !organization.files.some((file) => file.id === destination.fileId))
+        )
+          throw new Error("Choose an accessible design file.");
+        const job: Extract<ImportJob, { state: "selecting" | "importing" }> = {
+          state: message.mode === "element" ? "selecting" : "importing",
+          tabId: tab.id,
+          documentId,
+          captureId: crypto.randomUUID(),
+          userId: account.user.id,
+          destination,
+        };
+        if (message.mode === "element") {
+          await setJob(job);
+          try {
+            const { theme } = await browser.storage.local.get("theme");
+            await pageRequest(
+              browser.tabs.sendMessage(
+                tab.id,
+                { type: "bella:pick", theme, captureId: job.captureId },
+                { documentId, frameId: 0 },
+              ),
+              5000,
+            );
+          } catch (error) {
+            await browser.storage.session.remove("job");
+            throw error;
+          }
+        } else await setJob(job);
+        return job;
+      });
+      if (message.mode === "page") await runImport(job, "page");
       return true;
     };
     handle()
@@ -277,17 +317,19 @@ export default defineBackground(() => {
     return true;
   });
 
-  browser.tabs.onRemoved.addListener((tabId) => {
-    void getJob().then(async (job) => {
-      if (job?.tabId === tabId && job.state === "selecting")
-        await browser.storage.session.remove("job");
-    });
-  });
+  const clearSelection = (tabId: number) => {
+    void ready
+      .then(() =>
+        withJobLock(async () => {
+          const job = await getJob();
+          if (job?.tabId === tabId && job.state === "selecting")
+            await browser.storage.session.remove("job");
+        }),
+      )
+      .catch(() => undefined);
+  };
+  browser.tabs.onRemoved.addListener(clearSelection);
   browser.tabs.onUpdated.addListener((tabId, change) => {
-    if (change.status !== "loading") return;
-    void getJob().then(async (job) => {
-      if (job?.tabId === tabId && job.state === "selecting")
-        await browser.storage.session.remove("job");
-    });
+    if (change.status === "loading") clearSelection(tabId);
   });
 });

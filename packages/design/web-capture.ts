@@ -95,6 +95,7 @@ const jobIdentity = { userId: z.string().min(1), tabId: z.number().int().nonnega
 const captureJob = {
   ...jobIdentity,
   documentId: z.string().min(1),
+  captureId: z.string().min(1),
   destination: destinationSchema,
 };
 export const importJobSchema = z.discriminatedUnion("state", [
@@ -127,6 +128,7 @@ export function readImportJob(value: unknown): ImportJob | undefined {
 export { captureSourceUrl } from "./capture-source";
 
 export const captureViewportSchema = z.object({
+  screenshotSafe: z.boolean().optional(),
   width: z.number().positive(),
   height: z.number().positive(),
   scrollX: z.number(),
@@ -153,8 +155,8 @@ export const extensionMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bella:account") }),
   z.object({ type: z.literal("bella:login") }),
   z.object({ type: z.literal("bella:cancel") }),
-  z.object({ type: z.literal("bella:picked") }),
-  z.object({ type: z.literal("bella:cancelled") }),
+  z.object({ type: z.literal("bella:picked"), captureId: z.string().min(1) }),
+  z.object({ type: z.literal("bella:cancelled"), captureId: z.string().min(1) }),
   z.object({
     type: z.literal("bella:start"),
     mode: z.enum(["page", "element"]),
