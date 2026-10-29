@@ -2,12 +2,10 @@
 
 import { useErrorNotice } from "@/lib/use-error-notice";
 
-import { useRef, useState, useTransition } from "react";
-import { isRedirectError } from "next/dist/client/components/redirect-error";
-import { Dialog } from "@/components/ui/dialog";
-import { EditorSkeleton } from "@/components/files/editor-skeleton";
-import posthog from "@/lib/posthog-client";
-import { createDesignFile } from "./actions";
+import { useEffect, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { PrefetchKind } from "next/dist/client/components/router-reducer/router-reducer-types";
+import { NavigationLink } from "@/components/ui/navigation-link";
 import { SelectMenu } from "@/components/ui/select-menu";
 import { Icon } from "@/components/ui/icon";
 import { FigmaFileImport } from "./figma-file-import";
@@ -22,46 +20,54 @@ function preloadEditor() {
 }
 
 export function NewFileButton({
+  initialFileId,
   folderId = null,
   folderName = "Files",
   organizationId,
   onImported,
   onCreate,
 }: {
+  initialFileId?: string;
   folderId?: string | null;
   folderName?: string;
   organizationId?: string;
   onImported?: (result: FigmaImport) => Promise<void>;
   onCreate?: () => Promise<void>;
 }) {
+  const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [draftId, setDraftId] = useState<string | null>(initialFileId ?? null);
+  const query = new URLSearchParams();
+  query.set("new", "1");
+  if (folderId) query.set("folder", folderId);
+  if (organizationId) query.set("organization", organizationId);
+  const href = `/files/${draftId ?? "new"}?${query}`;
+  useEffect(() => {
+    if (onCreate) return;
+    preloadEditor();
+    let active = true;
+    const warmDraft = () => {
+      if (active) router.prefetch(href, { kind: PrefetchKind.FULL, onInvalidate: warmDraft });
+    };
+    warmDraft();
+    return () => {
+      active = false;
+    };
+  }, [onCreate, href, router]);
   const creating = useRef(false);
   const [importOpen, setImportOpen] = useState(false);
   const [, setError] = useErrorNotice("", "file_create");
 
   function create() {
+    if (!onCreate) return;
     if (creating.current) return;
     creating.current = true;
     const notifyError = setError("");
     preloadEditor();
     startTransition(async () => {
       try {
-        if (onCreate) {
-          await onCreate();
-          return;
-        }
-        const result = await createDesignFile(folderId, organizationId);
-        notifyError(result.error);
+        await onCreate();
       } catch (error) {
-        if (isRedirectError(error)) {
-          // Next delivers successful action redirects as control-flow errors.
-          // Preserve navigation and count only committed file creations.
-          try {
-            posthog.capture("design_file_created", { in_folder: Boolean(folderId) });
-          } finally {
-            throw error;
-          }
-        }
         notifyError(error, "Could not create the file. Please try again.");
       } finally {
         creating.current = false;
@@ -72,17 +78,37 @@ export function NewFileButton({
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-stretch rounded-lg bg-strong-action text-on-strong-action">
-        <button
-          type="button"
-          onClick={create}
-          onPointerEnter={preloadEditor}
-          onFocus={preloadEditor}
-          onTouchStart={preloadEditor}
-          disabled={pending}
-          className="rounded-l-lg px-4 py-2.5 text-sm font-medium hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 active:scale-[0.98]"
-        >
-          <span data-ph-public>+ New file</span>
-        </button>
+        {onCreate ? (
+          <button
+            type="button"
+            onClick={create}
+            onPointerEnter={preloadEditor}
+            onFocus={preloadEditor}
+            onTouchStart={preloadEditor}
+            disabled={pending}
+            className="rounded-l-lg px-4 py-2.5 text-sm font-medium hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50 active:scale-[0.98]"
+          >
+            <span data-ph-public>+ New file</span>
+          </button>
+        ) : (
+          <NavigationLink
+            href={`/files/new?${query}`}
+            prefetch={false}
+            onNavigate={(event) => {
+              // Native clicks, copied links and drags always allocate a fresh ID.
+              // Only in-app navigation consumes the prefetched editor address.
+              event.preventDefault();
+              setDraftId(crypto.randomUUID());
+              router.push(href);
+            }}
+            onMouseEnter={preloadEditor}
+            onFocus={preloadEditor}
+            onTouchStart={preloadEditor}
+            className="rounded-l-lg px-4 py-2.5 text-sm font-medium hover:bg-strong-action-hover focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange active:scale-[0.98]"
+          >
+            <span data-ph-public>+ New file</span>
+          </NavigationLink>
+        )}
         <SelectMenu
           replayOptions
           replayLabel
@@ -116,26 +142,6 @@ export function NewFileButton({
           }
         />
       </div>
-      {pending && (
-        <Dialog
-          ref={(dialog) => {
-            if (dialog && !dialog.open) dialog.showModal();
-          }}
-          padded={false}
-          aria-label="Creating file"
-          onCancel={(event) => event.preventDefault()}
-          style={{
-            width: "100%",
-            height: "100dvh",
-            maxWidth: "none",
-            maxHeight: "none",
-            border: 0,
-            borderRadius: 0,
-          }}
-        >
-          <EditorSkeleton />
-        </Dialog>
-      )}
 
       <FigmaFileImport
         disabled={pending}

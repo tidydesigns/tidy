@@ -1078,3 +1078,141 @@ integration(
     ).toBe(before);
   },
 );
+
+integration(
+  "draft creation retries keep edited content and recheck current authority",
+  async () => {
+    const id = crypto.randomUUID();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    await admin.query('update "designFile" set "name"=\'Edited draft\' where "id"=$1', [id]);
+    const document = blankDesignDocument();
+    document.nodes.push(
+      buildDrawnNode("edited", "container", null, { x: 10, y: 20, width: 100, height: 100 }),
+    );
+    await admin.query(
+      'update "designDocument" set "revision"=2,"content"=$2::jsonb where "fileId"=$1',
+      [id, JSON.stringify(document)],
+    );
+    const before = await state();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    expect(await state()).toEqual(before);
+    expect(await createBrowserFileForUser("outsider", "b", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(before);
+    await admin.query(`delete from "member" where "id"='edit'`);
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toHaveProperty("error");
+  },
+);
+
+integration(
+  "draft identifiers cannot replace existing files or select arbitrary keys",
+  async () => {
+    const before = await state();
+    for (const id of ["file", "", "../file", "x".repeat(121)]) {
+      expect(await createBrowserFileForUser("editor", "a", "folder", id)).toHaveProperty("error");
+    }
+    expect(await state()).toEqual(before);
+  },
+);
+
+integration(
+  "snapshot reads keep native, legacy and image payloads authorized and read-only",
+  async () => {
+    const { getFileSnapshot, getDocument } = await import("./document-service");
+    const { getDesignFile } = await import("./service");
+    async function previousSnapshot() {
+      const document = await getDocument("viewer", "file");
+      const file = await getDesignFile("viewer", "file", !document?.content.legacyConverted);
+      return {
+        name: file!.name,
+        updatedAt: file!.updatedAt,
+        frames: file!.frames,
+        rectangles: file!.rectangles,
+        document,
+      };
+    }
+    const assetId = "00000000-0000-4000-8000-000000000019";
+    const content = blankDesignDocument();
+    content.nodes.push({
+      ...buildDrawnNode("snapshot-image", "container", null, {
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+      }),
+      style: {
+        paints: [
+          {
+            id: "paint",
+            type: "image",
+            assetId,
+            fit: "cover",
+            opacity: 1,
+            visible: true,
+            positionX: 0.5,
+            positionY: 0.5,
+          },
+        ],
+      },
+    });
+    await admin.query(
+      `insert into "designAsset" ("id","organizationId","mimeType","sha256","body") values ($1,'a','image/png',repeat('a',64),decode('01','hex'))`,
+      [assetId],
+    );
+    await admin.query(`update "designDocument" set "content"=$1 where "fileId"='file'`, [content]);
+    expect((await getFileSnapshot("viewer", "file"))!.document!.content.assetMimeTypes).toEqual({
+      [assetId]: "image/png",
+    });
+    await admin.query(`update "designAsset" set "organizationId"='b' where "id"=$1`, [assetId]);
+    expect((await getFileSnapshot("viewer", "file"))!.document!.content.assetMimeTypes).toEqual({});
+    let before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.frames).toEqual([]);
+    expect(await state()).toEqual(before);
+    await admin.query(
+      `update "designDocument" set "content"="content"-'legacyConverted' where "fileId"='file'`,
+    );
+    before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.frames).toHaveLength(1);
+    expect(await state()).toEqual(before);
+    await admin.query(`delete from "designDocument" where "fileId"='file'`);
+    before = await state();
+    expect(await getFileSnapshot("viewer", "file")).toEqual(await previousSnapshot());
+    expect((await getFileSnapshot("viewer", "file"))!.document).toBeNull();
+    expect(await state()).toEqual(before);
+    expect(await getFileSnapshot("outsider", "file")).toBeNull();
+    expect(await getFileSnapshot("viewer", "missing")).toBeNull();
+    await admin.query(`update "user" set "emailVerified"=false where "id"='viewer'`);
+    expect(await getFileSnapshot("viewer", "file")).toBeNull();
+    await admin.query(
+      `update "user" set "emailVerified"=true where "id"='viewer'; update "designFile" set "archivedAt"=now() where "id"='file'`,
+    );
+    expect(await getFileSnapshot("viewer", "file")).toBeNull();
+  },
+);
+
+integration(
+  "creation retries survive folder deletion but cannot resume archived or foreign drafts",
+  async () => {
+    const id = crypto.randomUUID();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    await deleteDesignFolderForUser("editor", "folder");
+    const before = await state();
+    expect(await createBrowserFileForUser("editor", "a", "folder", id)).toEqual({ id });
+    expect(await state()).toEqual(before);
+    expect(
+      await createBrowserFileForUser("editor", "a", "folder", crypto.randomUUID()),
+    ).toHaveProperty("error");
+    await admin.query('update "designFile" set "archivedAt"=now() where "id"=$1', [id]);
+    const archived = await state();
+    expect(await createBrowserFileForUser("editor", "a", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(archived);
+    await admin.query(
+      'update "designFile" set "archivedAt"=null,"createdBy"=\'viewer\' where "id"=$1',
+      [id],
+    );
+    const foreign = await state();
+    expect(await createBrowserFileForUser("editor", "a", null, id)).toHaveProperty("error");
+    expect(await state()).toEqual(foreign);
+  },
+);

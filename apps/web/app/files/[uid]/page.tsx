@@ -1,3 +1,5 @@
+import { designFileName } from "@/lib/design/file-name";
+import { prepareDraft } from "../new/prepare-draft";
 import { FeedbackProvider } from "@/components/workspace/send-feedback";
 import { can } from "@/lib/organizations/roles";
 import { cookies, headers } from "next/headers";
@@ -29,14 +31,23 @@ const editorData = cache(async (uid: string) => {
   return { session, ...loaded };
 });
 
-export async function generateMetadata({ params }: PageProps<"/files/[uid]">): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+  searchParams,
+}: PageProps<"/files/[uid]">): Promise<Metadata> {
   const { uid } = await params;
+  if ((await searchParams).new === "1") return { title: `${designFileName(uid)} · Tidy` };
   const { file } = await editorData(uid);
   return { title: `${file.name} · Tidy`, description: "Edit your Tidy design." };
 }
 
 export default async function DesignFilePage({ params, searchParams }: PageProps<"/files/[uid]">) {
   const { uid } = await params;
+  const query = await searchParams;
+  if (query.new === "1") {
+    const draft = await prepareDraft(uid, query);
+    if (draft) return draft;
+  }
   const { session, file, document } = await editorData(uid);
   const flagsPromise = functionalFeatureFlags();
   const archived = file.archivedAt !== null;
@@ -72,7 +83,7 @@ export default async function DesignFilePage({ params, searchParams }: PageProps
     return undefined;
   });
   // Optional rollout and integration requests must not hold up the canvas.
-  const [query, cookieStore] = await Promise.all([searchParams, cookies()]);
+  const cookieStore = await cookies();
   const requestedReview = query.review;
   const initialPanelsOpen = cookieStore.get(EDITOR_PANELS_COOKIE)?.value === "open";
   return (

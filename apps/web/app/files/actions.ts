@@ -44,6 +44,25 @@ export async function createDesignFile(
   redirect(`/files/${encodeURIComponent(result.id)}`);
 }
 
+/** Returns without redirecting so the mounted editor keeps its optimistic edits. */
+export async function createDraftFile(
+  id: string,
+  folderId: string | null,
+  organizationId: string,
+): Promise<{ error?: string }> {
+  if (
+    typeof id !== "string" ||
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)
+  )
+    return { error: "Invalid file identifier." };
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) return { error: "Sign in to create a file." };
+  const result = await createBrowserFileForUser(session.user.id, organizationId, folderId, id);
+  if (result.error !== undefined) return { error: result.error };
+  revalidatePath("/files");
+  return {};
+}
+
 function validName(name: string) {
   const trimmed = name.trim();
   return trimmed.length > 0 && trimmed.length <= 120 && !/[\u0000-\u001f\u007f]/.test(trimmed)

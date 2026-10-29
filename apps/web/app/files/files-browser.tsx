@@ -16,8 +16,16 @@ import {
 import { NavigationLink as Link } from "@/components/ui/navigation-link";
 import { filesHeader, filesGrid } from "@/components/workspace/page-layout";
 import { Dialog } from "@/components/ui/dialog";
-import { Fragment, useEffect, useRef, useState, type MouseEvent } from "react";
-import { useRouter } from "next/navigation";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { indexFolderFiles } from "./folder-file-index";
+import {
+  retireAddedItems,
+  retireNames,
+  rollbackName,
+  type OptimisticName,
+} from "./optimistic-list-state";
+import { projectFileMove, settleFileMove, type FileMove } from "./optimistic-file-move";
 import { Icon } from "@/components/ui/icon";
 import {
   deleteArchivedDesignFile,
@@ -98,15 +106,17 @@ function CreatorCell({ name, image }: { name: string; image: string | null }) {
 }
 
 export function FilesBrowser({
+  newFileId,
   files,
   folders,
-  currentFolder,
+  currentFolder: initialFolder,
   archived,
   asOf: initialAsOf,
   canEdit = true,
   thumbnailScope,
   organizationId,
 }: {
+  newFileId?: string;
   files: File[];
   folders: Folder[];
   currentFolder: Folder | null;
@@ -117,6 +127,12 @@ export function FilesBrowser({
   organizationId?: string;
 }) {
   const router = useRouter();
+  const query = useSearchParams();
+  const folderId = archived ? null : query ? query.get("folder") : (initialFolder?.id ?? null);
+  function openFolder(href: string) {
+    setMenu(null);
+    window.history.pushState(null, "", href);
+  }
   const [view, setView] = useState<"grid" | "list">("grid");
   const [asOf, setAsOf] = useState(initialAsOf);
   useEffect(() => {
@@ -136,7 +152,19 @@ export function FilesBrowser({
   }, [view]);
   const [newestFirst, setNewestFirst] = useState(true);
   const [menu, setMenu] = useState<Menu | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [pendingItemIds, setPendingItemIds] = useState<Set<string>>(() => new Set());
+  const busy = menu
+    ? pendingItemIds.has(menu.kind === "file" ? menu.file.id : menu.folder.id)
+    : false;
+  function markPending(id: string | undefined, pending: boolean) {
+    if (!id) return;
+    setPendingItemIds((current) => {
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
   const [, setError] = useErrorNotice("", "file_manage");
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [folderDraft, setFolderDraft] = useState("");
@@ -144,10 +172,10 @@ export function FilesBrowser({
   const [deletingFile, setDeletingFile] = useState<File | null>(null);
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
-  const [renamedFiles, setRenamedFiles] = useState<Record<string, string>>({});
-  const [renamedFolders, setRenamedFolders] = useState<Record<string, string>>({});
+  const [renamedFiles, setRenamedFiles] = useState<Record<string, OptimisticName>>({});
+  const [renamedFolders, setRenamedFolders] = useState<Record<string, OptimisticName>>({});
   const [hiddenFileIds, setHiddenFileIds] = useState<string[]>([]);
-  const [movedFromByFileId, setMovedFromByFileId] = useState<Record<string, string | null>>({});
+  const [fileMoves, setFileMoves] = useState<Record<string, FileMove>>({});
   const [hiddenFolderIds, setHiddenFolderIds] = useState<string[]>([]);
   const [addedFolders, setAddedFolders] = useState<Folder[]>([]);
   const [addedFiles, setAddedFiles] = useState<File[]>([]);
@@ -155,6 +183,14 @@ export function FilesBrowser({
   const menuRef = useRef<HTMLDivElement>(null);
   const menuInvoker = useRef<HTMLElement | null>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousFolderId = useRef(folderId);
+  useEffect(() => {
+    if (previousFolderId.current === folderId) return;
+    previousFolderId.current = folderId;
+    const active = document.activeElement;
+    if (active === document.body || !active?.isConnected)
+      headingRef.current?.focus({ preventScroll: true });
+  }, [folderId]);
   const menuOpen = menu !== null;
   const deleteDialogRef = useRef<HTMLDialogElement>(null);
   const cancelFolderRef = useRef(false);
@@ -165,39 +201,71 @@ export function FilesBrowser({
     setView(next);
   }
 
-  const serverFolderIds = new Set(folders.map((folder) => folder.id));
-  const serverFileIds = new Set(files.map((file) => file.id));
-  const visibleFolders = [
-    ...addedFolders.filter((folder) => !serverFolderIds.has(folder.id)),
-    ...folders,
-  ].filter((folder) => !hiddenFolderIds.includes(folder.id));
-  const isVisibleFile = (file: File) =>
-    !hiddenFileIds.includes(file.id) &&
-    (!Object.hasOwn(movedFromByFileId, file.id) || movedFromByFileId[file.id] !== file.folderId);
-  const allVisibleFiles = [
-    ...addedFiles.filter((file) => !serverFileIds.has(file.id)),
-    ...files,
-  ].filter(isVisibleFile);
-  const visibleFiles = allVisibleFiles.filter(
-    (file) => archived || file.folderId === (currentFolder?.id ?? null),
+  const { sortedFolders, filesByFolder, archivedFiles } = useMemo(() => {
+    const serverFolderIds = new Set(folders.map((folder) => folder.id));
+    const serverFileIds = new Set(files.map((file) => file.id));
+    const hiddenFolders = new Set(hiddenFolderIds);
+    const hiddenFiles = new Set(hiddenFileIds);
+    const sortedFolders = [
+      ...addedFolders.filter((folder) => !serverFolderIds.has(folder.id)),
+      ...folders,
+    ]
+      .filter((folder) => !hiddenFolders.has(folder.id))
+      .sort((a, b) => (newestFirst ? -1 : 1) * (Date.parse(a.updatedAt) - Date.parse(b.updatedAt)));
+    const allFiles = [...addedFiles.filter((file) => !serverFileIds.has(file.id)), ...files]
+      .filter((file) => !hiddenFiles.has(file.id))
+      .map((file) => {
+        const moved = projectFileMove(file, fileMoves[file.id]);
+        // Folder deletion moves its active contents to the root immediately.
+        return moved.folderId && hiddenFolders.has(moved.folderId)
+          ? { ...moved, folderId: null }
+          : moved;
+      });
+    const filesByFolder = indexFolderFiles(allFiles, newestFirst);
+    return {
+      sortedFolders,
+      filesByFolder,
+      archivedFiles: archived
+        ? [...allFiles].sort(
+            (a, b) => (newestFirst ? -1 : 1) * (Date.parse(a.updatedAt) - Date.parse(b.updatedAt)),
+          )
+        : [],
+    };
+  }, [
+    folders,
+    files,
+    addedFolders,
+    addedFiles,
+    hiddenFolderIds,
+    hiddenFileIds,
+    fileMoves,
+    newestFirst,
+    archived,
+  ]);
+  // Reconcile before committing children so a retired overlay never flashes
+  // back into the DOM, even when revalidation precedes the action response.
+  const remainingFiles = retireAddedItems(addedFiles, files);
+  const remainingFolders = retireAddedItems(addedFolders, folders);
+  const remainingFileNames = retireNames(renamedFiles, files);
+  const remainingFolderNames = retireNames(renamedFolders, folders);
+  if (remainingFiles !== addedFiles) setAddedFiles(remainingFiles);
+  if (remainingFolders !== addedFolders) setAddedFolders(remainingFolders);
+  if (remainingFileNames !== renamedFiles) setRenamedFiles(remainingFileNames);
+  if (remainingFolderNames !== renamedFolders) setRenamedFolders(remainingFolderNames);
+  const currentFolder = folderId
+    ? (sortedFolders.find((folder) => folder.id === folderId) ?? null)
+    : null;
+  const sortedFiles = archived
+    ? archivedFiles
+    : (filesByFolder.get(currentFolder?.id ?? null) ?? []);
+  const eagerFileIds = new Set(
+    [
+      ...sortedFiles.slice(0, 3),
+      ...(filesByFolder.get(expandedFolderIds.at(-1) ?? "") ?? []).slice(0, 3),
+    ].map((file) => file.id),
   );
-  const sortedFolders = [...visibleFolders].sort(
-    (a, b) =>
-      (newestFirst ? -1 : 1) * (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()),
-  );
-  const sortedFiles = [...visibleFiles].sort(
-    (a, b) =>
-      (newestFirst ? -1 : 1) * (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()),
-  );
-
   function visibleFilesInFolder(folderId: string) {
-    return allVisibleFiles
-      .filter((file) => file.folderId === folderId)
-      .sort(
-        (a, b) =>
-          (newestFirst ? -1 : 1) *
-          (new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime()),
-      );
+    return filesByFolder.get(folderId) ?? [];
   }
 
   function toggleFolder(folder: Folder) {
@@ -292,38 +360,40 @@ export function FilesBrowser({
 
   async function perform(
     action: () => Promise<{ error?: string }>,
-    options: { movedFile?: File; hideFolderId?: string; refresh?: boolean } = {},
+    options: { hideFolderId?: string; itemId?: string } = {},
   ) {
     const notifyError = setError("");
     setMenu(null);
-    setBusy(true);
+    const itemId = options.itemId ?? options.hideFolderId;
+    markPending(itemId, true);
 
-    const movedFile = options.movedFile;
-    const hadPreviousMove = movedFile ? Object.hasOwn(movedFromByFileId, movedFile.id) : false;
-    const previousMove = movedFile ? movedFromByFileId[movedFile.id] : null;
-    if (movedFile)
-      setMovedFromByFileId((current) => ({ ...current, [movedFile.id]: movedFile.folderId }));
     if (options.hideFolderId) setHiddenFolderIds((current) => [...current, options.hideFolderId!]);
     try {
       const result = await action();
       if (result.error) throw new UserFacingError(result.error);
-      if (options.refresh) router.refresh();
       return true;
     } catch (cause) {
-      if (movedFile)
-        setMovedFromByFileId((current) => {
-          const restored = { ...current };
-          if (hadPreviousMove) restored[movedFile.id] = previousMove;
-          else delete restored[movedFile.id];
-          return restored;
-        });
       if (options.hideFolderId)
         setHiddenFolderIds((current) => current.filter((id) => id !== options.hideFolderId));
       notifyError(cause, "Could not update this item. Please try again.");
       return false;
     } finally {
-      setBusy(false);
+      markPending(itemId, false);
     }
+  }
+
+  async function moveFile(file: File, folderId: string | null) {
+    if (file.folderId === folderId) {
+      setMenu(null);
+      return;
+    }
+    const operationId = crypto.randomUUID();
+    setFileMoves((current) => ({
+      ...current,
+      [file.id]: { operationId, folderId, updatedAt: file.updatedAt },
+    }));
+    const success = await perform(() => moveDesignFile(file.id, folderId), { itemId: file.id });
+    setFileMoves((current) => settleFileMove(current, file.id, operationId, success));
   }
 
   async function archiveFile(file: File) {
@@ -342,7 +412,7 @@ export function FilesBrowser({
 
   async function deleteFile(file: File) {
     const notifyError = setError("");
-    setBusy(true);
+    markPending(file.id, true);
 
     setHiddenFileIds((current) => [...current, file.id]);
     try {
@@ -352,7 +422,7 @@ export function FilesBrowser({
       setHiddenFileIds((current) => current.filter((id) => id !== file.id));
       notifyError(cause, "Could not delete this file.");
     } finally {
-      setBusy(false);
+      markPending(file.id, false);
     }
   }
 
@@ -365,8 +435,8 @@ export function FilesBrowser({
     setMenu(null);
     setRenameDraft(
       target.kind === "file"
-        ? (renamedFiles[target.file.id] ?? target.file.name)
-        : (renamedFolders[target.folder.id] ?? target.folder.name),
+        ? (renamedFiles[target.file.id]?.name ?? target.file.name)
+        : (renamedFolders[target.folder.id]?.name ?? target.folder.name),
     );
     setRenaming(target);
   }
@@ -393,7 +463,6 @@ export function FilesBrowser({
       },
       ...current,
     ]);
-    setBusy(true);
 
     try {
       const result = await createDesignFolder(name);
@@ -406,8 +475,6 @@ export function FilesBrowser({
     } catch (cause) {
       setAddedFolders((current) => current.filter((folder) => folder.id !== temporaryId));
       notifyError(cause, "Could not create the folder.");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -468,18 +535,21 @@ export function FilesBrowser({
     }
     const name = renameDraft.trim();
     if (!target || !name) return;
+    const operationId = crypto.randomUUID();
     if (target.kind === "file") {
       const file = target.file;
       if (name === file.name) return;
-      setRenamedFiles((current) => ({ ...current, [file.id]: name }));
-      const success = await perform(() => renameDesignFile(file.id, name));
-      if (!success) setRenamedFiles((current) => ({ ...current, [file.id]: file.name }));
+      setRenamedFiles((current) => ({ ...current, [file.id]: { name, operationId } }));
+      const success = await perform(() => renameDesignFile(file.id, name), { itemId: file.id });
+      if (!success) setRenamedFiles((current) => rollbackName(current, file.id, operationId));
     } else {
       const folder = target.folder;
       if (name === folder.name) return;
-      setRenamedFolders((current) => ({ ...current, [folder.id]: name }));
-      const success = await perform(() => renameDesignFolder(folder.id, name));
-      if (!success) setRenamedFolders((current) => ({ ...current, [folder.id]: folder.name }));
+      setRenamedFolders((current) => ({ ...current, [folder.id]: { name, operationId } }));
+      const success = await perform(() => renameDesignFolder(folder.id, name), {
+        itemId: folder.id,
+      });
+      if (!success) setRenamedFolders((current) => rollbackName(current, folder.id, operationId));
     }
   }
 
@@ -503,18 +573,19 @@ export function FilesBrowser({
         <div className={`file-list-name ${nested ? "pl-8" : ""}`}>
           <Link
             prefetchOnIntent
+            prefetch={eagerFileIds.has(file.id) ? true : undefined}
             href={`/files/${encodeURIComponent(file.id)}`}
             aria-label={`Open ${file.name}`}
             className="file-list-preview focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange"
           >
             <FileThumbnail
-              key={`${file.id}:${file.updatedAt}`}
+              key={file.id}
               fileId={file.id}
               initialVersion={fileVersion(file.updatedAt, file.documentRevision)}
               thumbnailVersion={file.thumbnailVersion}
               canGenerate={canEdit}
               cacheScope={thumbnailScope}
-              eager={sortedFiles.slice(0, 3).includes(file)}
+              eager={eagerFileIds.has(file.id)}
             />
           </Link>
           {renaming?.kind === "file" && renaming.file.id === file.id ? (
@@ -533,10 +604,11 @@ export function FilesBrowser({
           ) : (
             <Link
               prefetchOnIntent
+              prefetch={eagerFileIds.has(file.id) ? true : undefined}
               href={`/files/${encodeURIComponent(file.id)}`}
               className="truncate text-sm font-medium hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-primary-orange"
             >
-              {renamedFiles[file.id] ?? file.name}
+              {renamedFiles[file.id]?.name ?? file.name}
             </Link>
           )}
         </div>
@@ -572,6 +644,10 @@ export function FilesBrowser({
         <Link
           prefetchOnIntent
           href="/files"
+          onNavigate={(event) => {
+            event.preventDefault();
+            openFolder("/files");
+          }}
           className="mb-5 inline-flex items-center gap-2 text-sm text-secondary-ink hover:text-primary-black"
         >
           <Icon name="back" size={16} />{" "}
@@ -590,7 +666,9 @@ export function FilesBrowser({
           {archived ? (
             "Archive"
           ) : currentFolder ? (
-            <span data-ph-private>{currentFolder.name}</span>
+            <span data-ph-private>
+              {renamedFolders[currentFolder.id]?.name ?? currentFolder.name}
+            </span>
           ) : (
             "Files"
           )}
@@ -599,15 +677,20 @@ export function FilesBrowser({
           {canEdit && !archived && (
             <>
               <NewFileButton
+                initialFileId={newFileId}
                 organizationId={organizationId}
                 folderId={currentFolder?.id ?? null}
-                folderName={currentFolder?.name ?? "Files"}
+                folderName={
+                  currentFolder
+                    ? (renamedFolders[currentFolder.id]?.name ?? currentFolder.name)
+                    : "Files"
+                }
               />
               {!currentFolder && (
                 <button
                   type="button"
                   onClick={createFolder}
-                  disabled={busy || creatingFolder}
+                  disabled={creatingFolder}
                   className="rounded-lg border border-primary-grey px-4 py-2.5 text-sm font-medium hover:bg-surface/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"
                 >
                   <span data-ph-public>+ New folder</span>
@@ -622,7 +705,7 @@ export function FilesBrowser({
       {view === "grid" &&
         !archived &&
         !currentFolder &&
-        (visibleFolders.length > 0 || creatingFolder) && (
+        (sortedFolders.length > 0 || creatingFolder) && (
           <ul className={filesGrid}>
             {creatingFolder && (
               <li>
@@ -649,7 +732,7 @@ export function FilesBrowser({
                 </div>
               </li>
             )}
-            {visibleFolders.map((folder) => (
+            {sortedFolders.map((folder) => (
               <li
                 key={folder.id}
                 aria-busy={folder.id.startsWith("pending-")}
@@ -674,13 +757,17 @@ export function FilesBrowser({
                   </div>
                 ) : (
                   <Link
-                    prefetchOnIntent
                     href={`/files?folder=${encodeURIComponent(folder.id)}`}
+                    prefetch={false}
+                    onNavigate={(event) => {
+                      event.preventDefault();
+                      openFolder(`/files?folder=${encodeURIComponent(folder.id)}`);
+                    }}
                     className={`${folderCard} focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange`}
                   >
                     <Icon name="folder" size={28} className="opacity-65" />
                     <span className="truncate text-sm font-medium">
-                      {renamedFolders[folder.id] ?? folder.name}
+                      {renamedFolders[folder.id]?.name ?? folder.name}
                     </span>
                   </Link>
                 )}
@@ -764,7 +851,7 @@ export function FilesBrowser({
                     <div className="flex min-w-0 items-center gap-4">
                       <button
                         type="button"
-                        aria-label={`${expandedFolderIds.includes(folder.id) ? "Collapse" : "Expand"} folder ${renamedFolders[folder.id] ?? folder.name}`}
+                        aria-label={`${expandedFolderIds.includes(folder.id) ? "Collapse" : "Expand"} folder ${renamedFolders[folder.id]?.name ?? folder.name}`}
                         aria-expanded={expandedFolderIds.includes(folder.id)}
                         onClick={() => toggleFolder(folder)}
                         className="flex size-5 shrink-0 items-center justify-center rounded text-secondary-ink hover:bg-primary-grey/25 focus-visible:outline-2 focus-visible:outline-primary-orange"
@@ -805,11 +892,15 @@ export function FilesBrowser({
                         />
                       ) : (
                         <Link
-                          prefetchOnIntent
                           href={`/files?folder=${encodeURIComponent(folder.id)}`}
+                          prefetch={false}
+                          onNavigate={(event) => {
+                            event.preventDefault();
+                            openFolder(`/files?folder=${encodeURIComponent(folder.id)}`);
+                          }}
                           className="truncate text-sm font-medium hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-primary-orange"
                         >
-                          {renamedFolders[folder.id] ?? folder.name}
+                          {renamedFolders[folder.id]?.name ?? folder.name}
                         </Link>
                       )}
                     </div>
@@ -858,8 +949,8 @@ export function FilesBrowser({
               ))}
             {sortedFiles.map((file) => fileListRow(file))}
           </ul>
-          {visibleFiles.length === 0 &&
-            (visibleFolders.length === 0 || archived || currentFolder) &&
+          {sortedFiles.length === 0 &&
+            (sortedFolders.length === 0 || archived || currentFolder) &&
             !creatingFolder && (
               <p data-ph-public className="py-7 text-sm text-secondary-ink">
                 {archived
@@ -873,9 +964,9 @@ export function FilesBrowser({
       )}
 
       {view === "grid" &&
-        (visibleFiles.length > 0 ? (
+        (sortedFiles.length > 0 ? (
           <ul className={filesGrid}>
-            {visibleFiles.map((file, index) => (
+            {sortedFiles.map((file, index) => (
               <li
                 key={file.id}
                 aria-busy={file.id.startsWith("pending-")}
@@ -887,15 +978,16 @@ export function FilesBrowser({
                     !(renaming?.kind === "file" && renaming.file.id === file.id) && (
                       <Link
                         prefetchOnIntent
+                        prefetch={eagerFileIds.has(file.id) ? true : undefined}
                         href={`/files/${encodeURIComponent(file.id)}`}
-                        aria-label={`Open ${renamedFiles[file.id] ?? file.name}`}
+                        aria-label={`Open ${renamedFiles[file.id]?.name ?? file.name}`}
                         className="absolute inset-0 z-10 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-orange"
                       />
                     )
                   }
                   preview={
                     <FileThumbnail
-                      key={`${file.id}:${file.updatedAt}`}
+                      key={file.id}
                       fileId={file.id}
                       initialVersion={fileVersion(file.updatedAt, file.documentRevision)}
                       thumbnailVersion={file.thumbnailVersion}
@@ -920,7 +1012,7 @@ export function FilesBrowser({
                     />
                   ) : (
                     <span className="block truncate text-sm font-medium group-hover:text-accent-ink">
-                      {renamedFiles[file.id] ?? file.name}
+                      {renamedFiles[file.id]?.name ?? file.name}
                     </span>
                   )}
                   <p className="mt-1 text-xs text-secondary-ink">
@@ -959,7 +1051,7 @@ export function FilesBrowser({
               </li>
             ))}
           </ul>
-        ) : (visibleFolders.length === 0 && !creatingFolder) || archived || currentFolder ? (
+        ) : (sortedFolders.length === 0 && !creatingFolder) || archived || currentFolder ? (
           <p data-ph-public className="pt-9 text-sm text-secondary-ink">
             {archived
               ? "No archived files."
@@ -987,7 +1079,7 @@ export function FilesBrowser({
                 role="menuitem"
                 autoFocus
                 className={menuItem}
-                onClick={() => router.push(`/files?folder=${encodeURIComponent(menu.folder.id)}`)}
+                onClick={() => openFolder(`/files?folder=${encodeURIComponent(menu.folder.id)}`)}
               >
                 Open
               </button>
@@ -1076,15 +1168,11 @@ export function FilesBrowser({
                 role="menuitem"
                 className={menuItem}
                 disabled={busy}
-                onClick={() =>
-                  void perform(() => moveDesignFile(menu.file.id, null), {
-                    movedFile: menu.file.folderId ? menu.file : undefined,
-                  })
-                }
+                onClick={() => void moveFile(menu.file, null)}
               >
                 Files
               </button>
-              {visibleFolders.map((folder) => (
+              {sortedFolders.map((folder) => (
                 <button
                   key={folder.id}
                   data-ph-private
@@ -1092,11 +1180,7 @@ export function FilesBrowser({
                   role="menuitem"
                   className={menuItem}
                   disabled={busy}
-                  onClick={() =>
-                    void perform(() => moveDesignFile(menu.file.id, folder.id), {
-                      movedFile: menu.file,
-                    })
-                  }
+                  onClick={() => void moveFile(menu.file, folder.id)}
                 >
                   {folder.name}
                 </button>
@@ -1249,7 +1333,10 @@ export function FilesBrowser({
             <button
               data-ph-public
               type="button"
-              disabled={busy || (!deletingFolder && !deletingFile)}
+              disabled={
+                (!deletingFolder && !deletingFile) ||
+                pendingItemIds.has(deletingFile?.id ?? deletingFolder?.id ?? "")
+              }
               onClick={() => {
                 if (deletingFile) {
                   const file = deletingFile;
@@ -1262,7 +1349,6 @@ export function FilesBrowser({
                 deleteDialogRef.current?.close();
                 void perform(() => deleteDesignFolder(folder.id), {
                   hideFolderId: folder.id,
-                  refresh: true,
                 });
               }}
               className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-orange disabled:opacity-50"

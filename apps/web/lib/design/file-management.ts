@@ -1,6 +1,7 @@
 import "server-only";
 import { reportHandledError } from "@/lib/handled-error";
 import { randomUUID } from "node:crypto";
+import { designFileName } from "./file-name";
 import type { PoolClient } from "pg";
 import { planLimitMessage } from "@/lib/billing/plans";
 import { MutationBudgetError } from "@/lib/security/mutation-budget";
@@ -18,21 +19,6 @@ import { fileVersion } from "./file-version";
 import { thumbnailIsCurrent, thumbnailVersion } from "./thumbnail-version";
 import { documentSchemaReady } from "./document-service";
 import { blankDesignDocument, parseDesignDocument, documentAssetIds } from "./document";
-
-const fileAdjectives = ["Bright", "Quiet", "Fresh", "Golden", "Little", "Open", "Soft", "Sunny"];
-const fileNouns = [
-  "canvas",
-  "dolphin",
-  "garden",
-  "horizon",
-  "studio",
-  "sparrow",
-  "meadow",
-  "orbit",
-];
-function randomDesignFileName() {
-  return `${fileAdjectives[Math.floor(Math.random() * fileAdjectives.length)]} ${fileNouns[Math.floor(Math.random() * fileNouns.length)]}`;
-}
 
 function publicError(error: unknown, fallback: string) {
   reportHandledError(error, "files.manage");
@@ -206,8 +192,14 @@ export async function createBrowserFileForUser(
   userId: string,
   organizationId: string,
   folderId: string | null,
+  draftId?: string,
 ): Promise<FileManagementResult> {
   try {
+    if (
+      draftId !== undefined &&
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(draftId)
+    )
+      throw new FileManagementError("Invalid file identifier.");
     if (folderId !== null && !validId(folderId))
       throw new FileManagementError("File or folder not found or access denied.");
     const [bound, documents] = await Promise.all([
@@ -215,9 +207,18 @@ export async function createBrowserFileForUser(
       documentSchemaReady(),
     ]);
     return await withOrganizationEditAuthority(userId, bound, async (client) => {
+      const id = draftId ?? randomUUID();
+      // Retrying an acknowledged-late creation must not create a second file or
+      // overwrite a document. Authority is rechecked under the organization lock.
+      if (draftId) {
+        const existing = await client.query(
+          `select "id" from "designFile" where "id"=$1 and "organizationId"=$2 and "createdBy"=$3 and "archivedAt" is null for share`,
+          [id, bound, userId],
+        );
+        if (existing.rows.length) return { id };
+      }
       if (folderId !== null) await folderAuthority(client, bound, folderId);
-      const id = randomUUID();
-      const values = [id, bound, randomDesignFileName(), userId, folderId];
+      const values = [id, bound, designFileName(id), userId, folderId];
       if (documents) {
         // The document depends on the inserted file, keeping both writes atomic
         // in one round trip while retaining all database admission triggers.

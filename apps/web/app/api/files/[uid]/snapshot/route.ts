@@ -1,7 +1,6 @@
 import { operationBudgetResponse } from "@/lib/security/operation-budget";
 import { auth } from "@/lib/auth";
-import { getDesignFile } from "@/lib/design/service";
-import { getDocument } from "@/lib/design/document-service";
+import { getFileSnapshot } from "@/lib/design/document-service";
 
 export const runtime = "nodejs";
 
@@ -11,19 +10,7 @@ export async function GET(request: Request, { params }: RouteContext<"/api/files
   const denied = await operationBudgetResponse("document-read", session.user.id);
   if (denied) return denied;
   const { uid } = await params;
-  const document = await getDocument(session.user.id, uid);
-  const file = await getDesignFile(session.user.id, uid, !document?.content.legacyConverted);
-  if (!file) return new Response(null, { status: 404 });
-  return Response.json(
-    {
-      name: file.name,
-      updatedAt: file.updatedAt,
-      frames: file.frames,
-      rectangles: file.rectangles,
-      document,
-    },
-    {
-      headers: { "Cache-Control": "private, no-store" },
-    },
-  );
+  const snapshot = await getFileSnapshot(session.user.id, uid);
+  if (!snapshot) return new Response(null, { status: 404 });
+  return Response.json(snapshot, { headers: { "Cache-Control": "private, no-store" } });
 }

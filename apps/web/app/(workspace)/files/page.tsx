@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Suspense } from "react";
 import { FilesSkeleton } from "@/components/workspace/page-skeletons";
 import { filesPage } from "@/components/workspace/page-layout";
@@ -16,13 +17,9 @@ export async function generateMetadata({ searchParams }: PageProps<"/files">): P
 
 export default async function FilesPage({ searchParams }: PageProps<"/files">) {
   const query = await searchParams;
-  // Search-param transitions reuse the page segment. Key its data boundary so
-  // Files/Archive/folders stream a new fallback instead of retaining old content.
+  // Keep available content visible while an uncached destination resolves.
   return (
-    <Suspense
-      key={`${query.view ?? "files"}:${query.folder ?? "root"}`}
-      fallback={<FilesSkeleton />}
-    >
+    <Suspense fallback={<FilesSkeleton />}>
       <FilesContent query={query} />
     </Suspense>
   );
@@ -38,7 +35,7 @@ async function FilesContent({ query }: { query: Awaited<PageProps<"/files">["sea
       listBrowserFolders(session.user.id, organization.id),
     ),
     observeOperation(requestHeaders, "files.list", () =>
-      listBrowserFiles(session.user.id, organization.id, archived, folderId),
+      listBrowserFiles(session.user.id, organization.id, archived, null),
     ),
   ]);
   const currentFolder = folderId ? folders.find((folder) => folder.id === folderId) : null;
@@ -47,10 +44,11 @@ async function FilesContent({ query }: { query: Awaited<PageProps<"/files">["sea
   return (
     <main className={filesPage} data-page-content="files">
       <FilesBrowser
+        newFileId={randomUUID()}
         organizationId={organization.id}
         thumbnailScope={session.user.id}
         canEdit={can(role, "edit")}
-        key={archived ? "archive" : (folderId ?? "files")}
+        key={`${organization.id}:${archived ? "archive" : "files"}`}
         files={files.map((file) => ({
           ...file,
           updatedAt: file.updatedAt.toISOString(),

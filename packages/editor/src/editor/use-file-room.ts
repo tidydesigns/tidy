@@ -52,7 +52,7 @@ export function useFileRoom({
   local?: boolean;
   onLocalCommit?: (document: DesignDocument) => Promise<void>;
 }) {
-  const { reportError: appErrorReporter } = useEditorHost();
+  const { reportError: appErrorReporter, persistenceReady } = useEditorHost();
   const localCommit = useRef(onLocalCommit);
   useLayoutEffect(() => {
     localCommit.current = onLocalCommit;
@@ -178,6 +178,8 @@ export function useFileRoom({
       const reportSyncError = appErrorReporter("file_sync");
       reading = true;
       try {
+        await persistenceReady;
+        if (controller.signal.aborted) return;
         do {
           const response = await fetch(
             `/api/files/${encodeURIComponent(fileId)}/changes${requireSnapshot ? "" : `?revision=${edits.saved.revision}`}`,
@@ -235,15 +237,20 @@ export function useFileRoom({
         Math.min(10_000, 500 * 2 ** Math.min(attempt++, 5)) * (0.75 + Math.random() * 0.5),
       );
     }
+    let connecting = false;
     async function connect() {
       if (
         controller.signal.aborted ||
+        connecting ||
         socket.current?.readyState === WebSocket.CONNECTING ||
         socket.current?.readyState === WebSocket.OPEN
       )
         return;
+      connecting = true;
       const reportConnectionError = appErrorReporter("file_sync");
       try {
+        await persistenceReady;
+        if (controller.signal.aborted) return;
         const response = await fetch(`/api/files/${encodeURIComponent(fileId)}/presence-ticket`, {
           method: "POST",
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10_000)]),
@@ -361,6 +368,8 @@ export function useFileRoom({
           }
           reconnect();
         }
+      } finally {
+        connecting = false;
       }
     }
     void connect();
@@ -411,6 +420,7 @@ export function useFileRoom({
     flushViewport,
     publishPresence,
     appErrorReporter,
+    persistenceReady,
   ]);
   const commit = useCallback(
     (
@@ -435,6 +445,7 @@ export function useFileRoom({
             if (accepted.length) await localCommit.current?.(content);
             return { patch: accepted, snapshot, sequence: snapshot.revision };
           }
+          await persistenceReady;
           const controller = lifecycle.current;
           if (!controller || controller.signal.aborted)
             throw new Error("File connection is unavailable.");
@@ -550,7 +561,7 @@ export function useFileRoom({
         dependency,
       );
     },
-    [fileId, edits, local, appErrorReporter],
+    [fileId, edits, local, appErrorReporter, persistenceReady],
   );
   const getPreview = useCallback(() => presence.current.preview, []);
   const clearPreview = useCallback(
