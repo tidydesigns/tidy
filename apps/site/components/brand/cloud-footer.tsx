@@ -44,6 +44,8 @@ export function CloudFooter({
           </a>
           <a href={documentationUrl}>Documentation</a>
           <Link href="/changelog">Changelog</Link>
+          <Link href="/blog">Blog</Link>
+          <Link href="/about">About</Link>
           <Link href="/privacy">Privacy</Link>
         </nav>
       </div>

@@ -9,13 +9,17 @@
     "preview": "wrangler preview",
     "lint": "eslint",
     "typecheck": "next typegen && tsrs --noEmit",
-    "typecheck:tsc": "next typegen && tsc --noEmit"
+    "typecheck:tsc": "next typegen && tsc --noEmit",
+    "test": "bun test lib/blog.test.ts"
   },
   "dependencies": {
     "@tidy/ui": "workspace:*",
+    "gray-matter": "4.0.3",
     "next": "16.4.2",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
   },
   "devDependencies": {
     "@types/node": "^20",

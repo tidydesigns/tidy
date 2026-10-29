@@ -5,6 +5,7 @@ import { CloudAtmosphere } from "../components/brand/cloud-atmosphere";
 import { BrandIcon } from "../components/brand/brand-icon";
 import { ProductPreview } from "../components/machine/product-preview";
 import { Workflow } from "../components/machine/workflow";
+import { HomeEditorial } from "../components/editorial/home-editorial";
 import { appUrl, downloadUrl, repositoryUrl } from "../lib/site-links";
 import { pageMetadata } from "../lib/page-metadata";
 import styles from "../components/machine/machine.module.css";
@@ -63,6 +64,7 @@ export default function HomePage() {
           <ProductPreview />
         </section>
         <Workflow />
+        <HomeEditorial />
       </main>
       <CloudFooter appUrl={appUrl} repositoryUrl={repositoryUrl} />
     </div>

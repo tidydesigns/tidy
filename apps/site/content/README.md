@@ -50,3 +50,54 @@ Run `bun run build:site` from the repository root and inspect
 deployment, check the served files as well: CDN crawler controls may add rules
 or restrict access independently of the exported files. Submit the sitemap in
 Search Console to monitor discovery and indexing.
+
+## Writing a blog post
+
+Add a Markdown file to `content/blog/`. Its kebab-case filename becomes the URL:
+`design-to-code-workflow.md` is `/blog/design-to-code-workflow`.
+
+```md
+---
+title: "Your article title"
+description: "A specific summary of what the reader will learn."
+date: "2026-10-29"
+category: "Design to code"
+artwork: "cloud-spectrum"
+draft: true
+---
+
+Start with the question or problem your article answers.
+
+## Your first section
+
+Write the article in Markdown.
+```
+
+Required fields are `title`, `description`, `date`, `category` and `artwork`.
+Use optional `seoTitle` for a descriptive search and sharing title while keeping
+the editorial headline on the page.
+Quote dates as `YYYY-MM-DD`. Artwork is `cloud-spectrum` or `cloud-coral`.
+An optional `updated` date must be on or after `date`; change it only for an actual
+content update. The shared byline is Tidy and links to the founders on `/about`.
+
+Set `draft: true` to exclude a post from pages, navigation and the sitemap. Remove
+it or set it to `false` when ready for the next site build. Dates do not schedule
+publication: every non-draft post is included at build time. Posts are sorted by
+date, then filename for ties. The homepage features the two newest posts.
+
+Use `##` and `###` for headings; the page supplies the single `h1`. Standard
+Markdown and GitHub-flavored tables, lists, links, quotes and fenced code blocks
+are supported. Raw HTML is ignored and JavaScript/MDX is not executed. Use
+root-relative links for other site pages and full HTTPS URLs for external sources.
+
+The index, individual article HTML, metadata, related links and sitemap entries
+are generated automatically. A rebuild is required after edits. Run
+`bun run build:site` and inspect `apps/site/out/blog/` before publishing. Review
+starter article copy and publication dates before the first deployment.
+
+## Founder profiles
+
+`founders.ts` holds the verified GitHub and LinkedIn links. The WebP portraits in
+`public/founders/` are copies of each founder’s GitHub avatar, retrieved on
+2026-10-29 (`seandowdall` and `tadhgdowdall`). Refresh these local files when needed;
+site visitors do not make requests to GitHub for the portraits.

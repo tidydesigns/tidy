@@ -7,6 +7,8 @@ export function SiteFooter() {
     <footer className="footer">
       <span>© 2026 Tidy</span>
       <div className="footer-links">
+        <Link href="/blog">Blog</Link>
+        <Link href="/about">About</Link>
         <Link href="/privacy">Privacy</Link>
         <span>{siteHost}</span>
       </div>
