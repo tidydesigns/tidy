@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import {
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -98,7 +99,11 @@ export function Sheet({
 }) {
   const { colors } = useTheme();
   return (
-    <Modal animationType="slide" transparent onRequestClose={close}>
+    <Modal
+      animationType={Platform.OS === "web" ? "none" : "slide"}
+      transparent
+      onRequestClose={close}
+    >
       <View style={styles.modalBackdrop}>
         <Pressable
           accessibilityLabel="Close panel"

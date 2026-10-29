@@ -9,6 +9,8 @@ import {
 } from "./contracts/desktop";
 import { directorySchema } from "./contracts/browser-directory";
 import { harnessDetailsSchema } from "./contracts/harness-settings";
+import { draftImportResultSchema } from "./contracts/draft-import";
+import { localDesignSchema } from "./contracts/workspace-response";
 import { sessionTokenSchema } from "./remote";
 
 // A phone only sends credentials to a private, TLS-protected tailnet endpoint.
@@ -61,6 +63,8 @@ export const mobileResponses = {
     activeProject: snapshot.nullable(),
     harnesses: z.array(harnessConnectionSchema),
   }),
+  "import-draft": draftImportResultSchema,
+  "export-design": localDesignSchema,
   "select-project": snapshot,
   "project-snapshot": snapshot,
   "open-project": snapshot.nullable(),

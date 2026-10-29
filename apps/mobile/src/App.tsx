@@ -1,3 +1,5 @@
+import { DesignWorkspace } from "./design/Workspace";
+import { documentAssetIds } from "@tidy/design/document";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -40,6 +42,7 @@ import { ThreadCache } from "./thread-cache";
 import { Button, SelectMenu, Sheet, Text, ThemeContext, styles, useTheme } from "./ui";
 
 type Send = {
+  designIds?: string[];
   id: string;
   threadId: string;
   projectId: string;
@@ -76,6 +79,8 @@ export default function App() {
 
 function Workspace() {
   const { colors, font } = useTheme();
+  const [surface, setSurface] = useState<"files" | "threads">("files");
+  const [designIds, setDesignIds] = useState<string[]>([]);
   const [pairing, setPairing] = useState<MobilePairing | null>(null);
   const [restoring, setRestoring] = useState(true);
   const [connection, setConnection] = useState<ConnectionState>("paused");
@@ -215,11 +220,15 @@ function Workspace() {
   const effectiveHarness = thread?.harness ?? send?.harness ?? harness;
   const effectiveSettings =
     (thread && settingOverrides[thread.id]) ?? thread?.settings ?? send?.settings ?? settings;
+  useEffect(() => {
+    setDesignIds([]);
+  }, [projectId]);
   const draftKey = `${projectId}:${route ?? "new"}`;
   const draft = drafts[draftKey] ?? "";
   const connected = connection === "connected";
 
   useEffect(() => {
+    if (Platform.OS === "web") return;
     const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       if (panel) {
         setPanel(null);
@@ -304,7 +313,7 @@ function Workspace() {
               prompt: value.text,
               harness: value.harness,
               settings: value.settings,
-              designIds: [],
+              designIds: value.designIds ?? [],
             },
             { id: value.id },
           )
@@ -338,10 +347,12 @@ function Workspace() {
       harness: effectiveHarness,
       settings: effectiveSettings,
       fresh: route === "new",
+      designIds: route === "new" ? designIds : undefined,
       state: "sending",
     };
     setDrafts((previous) => ({ ...previous, [draftKey]: "" }));
     setRoute(id);
+    setDesignIds([]);
     setLoadingThread(false);
     void deliver(value);
   }
@@ -432,332 +443,399 @@ function Workspace() {
 
   return (
     <SafeAreaView style={[styles.fill, { backgroundColor: colors.surface }]}>
-      {!pairing ? (
-        <PairScreen
-          restoring={restoring}
-          connect={async (value) => {
-            await writePairing(value);
-            setPairing(value);
-          }}
-          report={setNotice}
-        />
-      ) : (
-        <KeyboardAvoidingView
-          style={styles.fill}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-        >
-          <View style={styles.page}>
-            <View style={[styles.header, styles.row, { borderColor: colors.border }]}>
-              {route ? (
-                <Button label="‹ Threads" compact onPress={() => setRoute(null)} />
-              ) : (
-                <Button
-                  label={`${snapshot?.project.name ?? projects.find((item) => item.id === projectId)?.name ?? "Projects"} ⌄`}
-                  onPress={() => setPanel("projects")}
-                />
-              )}
-              <View style={{ flex: 1 }} />
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Connection settings"
-                onPress={() => setPanel("connection")}
-                style={{ minHeight: 44, minWidth: 44, padding: 12, justifyContent: "center" }}
-              >
-                <View
+      <View
+        style={[
+          styles.row,
+          { paddingHorizontal: 12, borderBottomWidth: 1, borderColor: colors.border },
+        ]}
+      >
+        <Text strong>Tidy</Text>
+        <View style={styles.row}>
+          <Button
+            label="Files"
+            primary={surface === "files"}
+            compact
+            onPress={() => setSurface("files")}
+          />
+          <Button
+            label="Threads"
+            primary={surface === "threads"}
+            compact
+            onPress={() => setSurface("threads")}
+          />
+        </View>
+      </View>
+      <DesignWorkspace
+        active={surface === "files"}
+        report={setNotice}
+        run={async (file) => {
+          const remote = client.current;
+          if (!remote || !connected || !projectId) {
+            setSurface("threads");
+            throw new Error(
+              "Connect your machine and choose a project, then run the agent from your file.",
+            );
+          }
+          for (const id of documentAssetIds(file.document))
+            if (!file.assets[id])
+              throw new Error("Wait for this file’s images to download before running an agent.");
+          const imported = await remote.request("import-draft", {
+            projectId,
+            attachments: [],
+            designs: [{ name: file.name, document: file.document, assets: file.assets }],
+          });
+          if (remote !== client.current || selection.current.projectId !== projectId)
+            throw new Error(
+              "The remote project changed. Select the intended project and run again.",
+            );
+          setDesignIds(imported.designIds);
+          setDrafts((previous) => ({
+            ...previous,
+            [`${projectId}:new`]: `Work with the attached design reference “${file.name}”. `,
+          }));
+          setRoute("new");
+          setSurface("threads");
+          setLoadingThread(false);
+        }}
+      />
+      <View style={{ flex: 1, display: surface === "threads" ? "flex" : "none" }}>
+        {!pairing ? (
+          <PairScreen
+            restoring={restoring}
+            connect={async (value) => {
+              await writePairing(value);
+              setPairing(value);
+            }}
+            report={setNotice}
+          />
+        ) : (
+          <KeyboardAvoidingView
+            style={styles.fill}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+          >
+            <View style={styles.page}>
+              <View style={[styles.header, styles.row, { borderColor: colors.border }]}>
+                {route ? (
+                  <Button label="‹ Threads" compact onPress={() => setRoute(null)} />
+                ) : (
+                  <Button
+                    label={`${snapshot?.project.name ?? projects.find((item) => item.id === projectId)?.name ?? "Projects"} ⌄`}
+                    onPress={() => setPanel("projects")}
+                  />
+                )}
+                <View style={{ flex: 1 }} />
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Connection settings"
+                  onPress={() => setPanel("connection")}
+                  style={{ minHeight: 44, minWidth: 44, padding: 12, justifyContent: "center" }}
+                >
+                  <View
+                    style={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: connected ? colors.success : colors.warning,
+                    }}
+                  />
+                </Pressable>
+                {!route && (
+                  <Button
+                    label="+ Thread"
+                    disabled={!projectId}
+                    onPress={() => {
+                      setRoute("new");
+                      setLoadingThread(false);
+                      setSettings({ permissionMode: "default" });
+                    }}
+                  />
+                )}
+              </View>
+              {!connected && (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => client.current?.start()}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: connected ? colors.success : colors.warning,
+                    backgroundColor: colors.navigation,
+                    paddingHorizontal: 20,
+                    paddingVertical: 9,
                   }}
+                >
+                  <Text muted style={{ fontSize: 13 }}>
+                    {connectionMessage ??
+                      (connection === "paused"
+                        ? "Connection paused"
+                        : "Connecting to your machine…")}{" "}
+                    Tap to retry.
+                  </Text>
+                </Pressable>
+              )}
+              {!route ? (
+                <ThreadList
+                  threads={snapshot?.threads ?? []}
+                  pending={Object.values(sends).filter((value) => value.projectId === projectId)}
+                  open={openThread}
+                  chooseProject={() => setPanel("projects")}
+                  hasProject={!!projectId}
+                  loading={!!projectId && !snapshot}
                 />
-              </Pressable>
-              {!route && (
-                <Button
-                  label="+ Thread"
-                  disabled={!projectId}
-                  onPress={() => {
-                    setRoute("new");
-                    setLoadingThread(false);
+              ) : (
+                <>
+                  <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
+                    <Text strong style={styles.heading}>
+                      {thread?.title ??
+                        send?.text.slice(0, 80) ??
+                        (route === "new" ? "New thread" : "Thread")}
+                    </Text>
+                    <View style={styles.row}>
+                      <Text muted style={{ fontSize: 13 }}>
+                        {snapshot?.project.name} · {names[effectiveHarness]}
+                      </Text>
+                      <Button label="Options" compact onPress={() => setPanel("settings")} />
+                    </View>
+                  </View>
+                  <Conversation
+                    thread={thread}
+                    send={send}
+                    loading={loadingThread && !thread}
+                    retry={() => send && void deliver(send)}
+                    connected={connected}
+                    busy={busy}
+                    approve={approval}
+                    removeQueued={(id) => {
+                      if (thread)
+                        void threadAction(id, (remote) =>
+                          remote.request("message-queue", {
+                            projectId: thread.projectId,
+                            threadId: thread.id,
+                            action: { kind: "remove", messageId: id },
+                          }),
+                        );
+                    }}
+                  />
+                  <View
+                    style={{
+                      padding: 16,
+                      gap: 8,
+                      borderTopWidth: StyleSheet.hairlineWidth,
+                      borderColor: colors.border,
+                    }}
+                  >
+                    {thread?.error && <Text style={{ color: colors.danger }}>{thread.error}</Text>}
+                    {thread?.status === "running" && (
+                      <View style={styles.row}>
+                        <Text muted style={{ flex: 1, fontSize: 13 }} numberOfLines={2}>
+                          {thread.activity ?? "Working…"}
+                        </Text>
+                        <Button
+                          label={busy.stop ? "Stopping…" : "Stop"}
+                          disabled={busy.stop || !connected}
+                          compact
+                          onPress={() =>
+                            void threadAction("stop", (remote) =>
+                              remote.request("stop-thread", { projectId, threadId: thread.id }),
+                            )
+                          }
+                        />
+                      </View>
+                    )}
+                    {route === "new" && !!designIds.length && (
+                      <View style={styles.row}>
+                        <Text muted>Design reference attached · a copy on your machine</Text>
+                        <Button label="Remove" compact onPress={() => setDesignIds([])} />
+                      </View>
+                    )}
+                    <TextInput
+                      accessibilityLabel="Message"
+                      placeholder={
+                        thread?.status === "running"
+                          ? "Queue a follow-up…"
+                          : "What would you like to work on?"
+                      }
+                      placeholderTextColor={colors.muted}
+                      multiline
+                      maxLength={32_000}
+                      value={draft}
+                      onChangeText={(value) =>
+                        setDrafts((previous) => ({ ...previous, [draftKey]: value }))
+                      }
+                      style={[
+                        styles.input,
+                        {
+                          backgroundColor: colors.panel,
+                          color: colors.ink,
+                          fontFamily: font,
+                          borderColor: colors.border,
+                          maxHeight: 160,
+                          minHeight: 82,
+                          textAlignVertical: "top",
+                        },
+                      ]}
+                    />
+                    <View style={styles.row}>
+                      <Text muted style={{ fontSize: 12, flex: 1 }}>
+                        {thread?.status === "running"
+                          ? "Runs continue when you leave."
+                          : connection === "connected"
+                            ? "Connected through Tailscale"
+                            : "Your draft stays here while reconnecting."}
+                      </Text>
+                      <Button
+                        primary
+                        label={thread?.status === "running" ? "Queue ↑" : "Send ↑"}
+                        disabled={
+                          !connected ||
+                          !draft.trim() ||
+                          !!send ||
+                          (!thread && route !== "new") ||
+                          (route === "new" &&
+                            !harnesses.some(
+                              (item) => item.id === harness && item.status === "ready",
+                            ))
+                        }
+                        onPress={submit}
+                      />
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          </KeyboardAvoidingView>
+        )}
+        {panel === "connection" && pairing && (
+          <Sheet title="Connection" close={() => setPanel(null)}>
+            <Text strong>{new URL(pairing.origin).hostname}</Text>
+            <Text muted>
+              {connection === "connected"
+                ? "Connected privately through Tailscale. Agents run on this machine, even when your phone is locked."
+                : (connectionMessage ?? "Connecting…")}
+            </Text>
+            <Button
+              label="Reconnect"
+              onPress={() => {
+                client.current?.start();
+                setPanel(null);
+              }}
+            />
+            <Button label="Disconnect this phone" danger onPress={() => void disconnect()} />
+            <Text muted style={{ fontSize: 12 }}>
+              Disconnect removes the key from this phone. Revoke its client ID on the host to
+              invalidate copied keys.
+            </Text>
+          </Sheet>
+        )}
+        {panel === "projects" && (
+          <ProjectsPanel
+            projects={projects}
+            remote={client.current}
+            close={() => setPanel(null)}
+            select={chooseProject}
+            opened={(value) => {
+              cache.current.putProject(value);
+              setProjects((previous) => [
+                value.project,
+                ...previous.filter((item) => item.id !== value.project.id),
+              ]);
+              setProjectId(value.project.id);
+              setRoute(null);
+              setPanel(null);
+              publish();
+            }}
+            report={setNotice}
+          />
+        )}
+        {panel === "settings" && (
+          <Sheet title="Thread options" close={() => setPanel(null)}>
+            <ScrollView>
+              {!thread && !send && (
+                <SelectMenu
+                  label="Agent"
+                  value={harness}
+                  options={harnesses.map((item) => ({
+                    value: item.id,
+                    label: item.name,
+                    description:
+                      item.status === "ready"
+                        ? undefined
+                        : item.status === "signed-out"
+                          ? "Sign in on your machine"
+                          : "Install on your machine",
+                    disabled: item.status !== "ready",
+                  }))}
+                  onChange={(value) => {
+                    setHarness(value);
                     setSettings({ permissionMode: "default" });
                   }}
                 />
               )}
-            </View>
-            {!connected && (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => client.current?.start()}
-                style={{
-                  backgroundColor: colors.navigation,
-                  paddingHorizontal: 20,
-                  paddingVertical: 9,
-                }}
-              >
-                <Text muted style={{ fontSize: 13 }}>
-                  {connectionMessage ??
-                    (connection === "paused"
-                      ? "Connection paused"
-                      : "Connecting to your machine…")}{" "}
-                  Tap to retry.
-                </Text>
-              </Pressable>
-            )}
-            {!route ? (
-              <ThreadList
-                threads={snapshot?.threads ?? []}
-                pending={Object.values(sends).filter((value) => value.projectId === projectId)}
-                open={openThread}
-                chooseProject={() => setPanel("projects")}
-                hasProject={!!projectId}
-                loading={!!projectId && !snapshot}
-              />
-            ) : (
-              <>
-                <View style={{ paddingHorizontal: 20, paddingTop: 18, paddingBottom: 8 }}>
-                  <Text strong style={styles.heading}>
-                    {thread?.title ??
-                      send?.text.slice(0, 80) ??
-                      (route === "new" ? "New thread" : "Thread")}
-                  </Text>
-                  <View style={styles.row}>
-                    <Text muted style={{ fontSize: 13 }}>
-                      {snapshot?.project.name} · {names[effectiveHarness]}
-                    </Text>
-                    <Button label="Options" compact onPress={() => setPanel("settings")} />
-                  </View>
-                </View>
-                <Conversation
-                  thread={thread}
-                  send={send}
-                  loading={loadingThread && !thread}
-                  retry={() => send && void deliver(send)}
-                  connected={connected}
-                  busy={busy}
-                  approve={approval}
-                  removeQueued={(id) => {
-                    if (thread)
-                      void threadAction(id, (remote) =>
-                        remote.request("message-queue", {
-                          projectId: thread.projectId,
-                          threadId: thread.id,
-                          action: { kind: "remove", messageId: id },
-                        }),
-                      );
-                  }}
-                />
-                <View
-                  style={{
-                    padding: 16,
-                    gap: 8,
-                    borderTopWidth: StyleSheet.hairlineWidth,
-                    borderColor: colors.border,
-                  }}
-                >
-                  {thread?.error && <Text style={{ color: colors.danger }}>{thread.error}</Text>}
-                  {thread?.status === "running" && (
-                    <View style={styles.row}>
-                      <Text muted style={{ flex: 1, fontSize: 13 }} numberOfLines={2}>
-                        {thread.activity ?? "Working…"}
-                      </Text>
-                      <Button
-                        label={busy.stop ? "Stopping…" : "Stop"}
-                        disabled={busy.stop || !connected}
-                        compact
-                        onPress={() =>
-                          void threadAction("stop", (remote) =>
-                            remote.request("stop-thread", { projectId, threadId: thread.id }),
-                          )
-                        }
-                      />
-                    </View>
-                  )}
-                  <TextInput
-                    accessibilityLabel="Message"
-                    placeholder={
-                      thread?.status === "running"
-                        ? "Queue a follow-up…"
-                        : "What would you like to work on?"
-                    }
-                    placeholderTextColor={colors.muted}
-                    multiline
-                    maxLength={32_000}
-                    value={draft}
-                    onChangeText={(value) =>
-                      setDrafts((previous) => ({ ...previous, [draftKey]: value }))
-                    }
-                    style={[
-                      styles.input,
-                      {
-                        backgroundColor: colors.panel,
-                        color: colors.ink,
-                        fontFamily: font,
-                        borderColor: colors.border,
-                        maxHeight: 160,
-                        minHeight: 82,
-                        textAlignVertical: "top",
-                      },
-                    ]}
-                  />
-                  <View style={styles.row}>
-                    <Text muted style={{ fontSize: 12, flex: 1 }}>
-                      {thread?.status === "running"
-                        ? "Runs continue when you leave."
-                        : connection === "connected"
-                          ? "Connected through Tailscale"
-                          : "Your draft stays here while reconnecting."}
-                    </Text>
-                    <Button
-                      primary
-                      label={thread?.status === "running" ? "Queue ↑" : "Send ↑"}
-                      disabled={
-                        !connected ||
-                        !draft.trim() ||
-                        !!send ||
-                        (!thread && route !== "new") ||
-                        (route === "new" &&
-                          !harnesses.some((item) => item.id === harness && item.status === "ready"))
-                      }
-                      onPress={submit}
-                    />
-                  </View>
-                </View>
-              </>
-            )}
-          </View>
-        </KeyboardAvoidingView>
-      )}
-      {panel === "connection" && pairing && (
-        <Sheet title="Connection" close={() => setPanel(null)}>
-          <Text strong>{new URL(pairing.origin).hostname}</Text>
-          <Text muted>
-            {connection === "connected"
-              ? "Connected privately through Tailscale. Agents run on this machine, even when your phone is locked."
-              : (connectionMessage ?? "Connecting…")}
-          </Text>
-          <Button
-            label="Reconnect"
-            onPress={() => {
-              client.current?.start();
-              setPanel(null);
-            }}
-          />
-          <Button label="Disconnect this phone" danger onPress={() => void disconnect()} />
-          <Text muted style={{ fontSize: 12 }}>
-            Disconnect removes the key from this phone. Revoke its client ID on the host to
-            invalidate copied keys.
-          </Text>
-        </Sheet>
-      )}
-      {panel === "projects" && (
-        <ProjectsPanel
-          projects={projects}
-          remote={client.current}
-          close={() => setPanel(null)}
-          select={chooseProject}
-          opened={(value) => {
-            cache.current.putProject(value);
-            setProjects((previous) => [
-              value.project,
-              ...previous.filter((item) => item.id !== value.project.id),
-            ]);
-            setProjectId(value.project.id);
-            setRoute(null);
-            setPanel(null);
-            publish();
-          }}
-          report={setNotice}
-        />
-      )}
-      {panel === "settings" && (
-        <Sheet title="Thread options" close={() => setPanel(null)}>
-          <ScrollView>
-            {!thread && !send && (
               <SelectMenu
-                label="Agent"
-                value={harness}
-                options={harnesses.map((item) => ({
-                  value: item.id,
-                  label: item.name,
-                  description:
-                    item.status === "ready"
-                      ? undefined
-                      : item.status === "signed-out"
-                        ? "Sign in on your machine"
-                        : "Install on your machine",
-                  disabled: item.status !== "ready",
+                label="Access"
+                value={effectiveSettings.permissionMode ?? "default"}
+                options={permissionModes[effectiveHarness].map((item) => ({
+                  ...item,
+                  disabled: busy.settings || !connected,
                 }))}
-                onChange={(value) => {
-                  setHarness(value);
-                  setSettings({ permissionMode: "default" });
-                }}
-              />
-            )}
-            <SelectMenu
-              label="Access"
-              value={effectiveSettings.permissionMode ?? "default"}
-              options={permissionModes[effectiveHarness].map((item) => ({
-                ...item,
-                disabled: busy.settings || !connected,
-              }))}
-              onChange={(value) => changeSettings({ ...effectiveSettings, permissionMode: value })}
-            />
-            {details && details.models.length > 0 && (
-              <SelectMenu
-                label="Model"
-                value={effectiveSettings.model ?? "__default"}
-                options={[
-                  { value: "__default", label: "Default" },
-                  ...details.models.map((item) => ({
-                    value: item.id,
-                    label: item.name,
-                    description: item.description,
-                    disabled: busy.settings || !connected,
-                  })),
-                ]}
-                onChange={(model) =>
-                  changeSettings({
-                    ...effectiveSettings,
-                    model: model === "__default" ? undefined : model,
-                    effort: undefined,
-                  })
+                onChange={(value) =>
+                  changeSettings({ ...effectiveSettings, permissionMode: value })
                 }
               />
-            )}
-            {(() => {
-              const efforts =
-                details?.models.find(
-                  (item) => item.id === (effectiveSettings.model ?? details.defaultModel),
-                )?.efforts ?? [];
-              return efforts.length ? (
+              {details && details.models.length > 0 && (
                 <SelectMenu
-                  label="Reasoning"
-                  value={effectiveSettings.effort ?? "__default"}
+                  label="Model"
+                  value={effectiveSettings.model ?? "__default"}
                   options={[
                     { value: "__default", label: "Default" },
-                    ...efforts.map((value) => ({
-                      value,
-                      label: value,
+                    ...details.models.map((item) => ({
+                      value: item.id,
+                      label: item.name,
+                      description: item.description,
                       disabled: busy.settings || !connected,
                     })),
                   ]}
-                  onChange={(effort) =>
+                  onChange={(model) =>
                     changeSettings({
                       ...effectiveSettings,
-                      effort: effort === "__default" ? undefined : effort,
+                      model: model === "__default" ? undefined : model,
+                      effort: undefined,
                     })
                   }
                 />
-              ) : null;
-            })()}
-            {!details && (
-              <Text muted style={{ padding: 16 }}>
-                Model options load from your machine.
-              </Text>
-            )}
-          </ScrollView>
-        </Sheet>
-      )}
+              )}
+              {(() => {
+                const efforts =
+                  details?.models.find(
+                    (item) => item.id === (effectiveSettings.model ?? details.defaultModel),
+                  )?.efforts ?? [];
+                return efforts.length ? (
+                  <SelectMenu
+                    label="Reasoning"
+                    value={effectiveSettings.effort ?? "__default"}
+                    options={[
+                      { value: "__default", label: "Default" },
+                      ...efforts.map((value) => ({
+                        value,
+                        label: value,
+                        disabled: busy.settings || !connected,
+                      })),
+                    ]}
+                    onChange={(effort) =>
+                      changeSettings({
+                        ...effectiveSettings,
+                        effort: effort === "__default" ? undefined : effort,
+                      })
+                    }
+                  />
+                ) : null;
+              })()}
+              {!details && (
+                <Text muted style={{ padding: 16 }}>
+                  Model options load from your machine.
+                </Text>
+              )}
+            </ScrollView>
+          </Sheet>
+        )}
+      </View>
       {notice && (
         <Pressable
           accessibilityRole="button"

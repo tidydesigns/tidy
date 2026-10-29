@@ -7,6 +7,46 @@ workspace host and durable mutation receipts as Tidy desktop. Agent processes ru
 on the connected computer; the phone is the native client. Runs survive phone
 sleep, app termination, and network loss.
 
+The Files tab is a compact design workspace. Create frames, rectangles, and text;
+pan, pinch to zoom, select and move layers; change bounds, fills and text; browse
+pages/layers; and undo/redo. The bundled Expo DOM canvas uses the same
+`@tidy/design-renderer` as desktop and web. Existing advanced document properties
+remain intact; the phone inspector exposes a smaller set of editing controls.
+
+## Cloud design files
+
+Build the installed iOS or Android app with `bun mobile:ios` or
+`bun mobile:android`, then choose **Files → Connect cloud → Sign in**. Use the
+same Tidy account and workspace as desktop/web. Cloud OAuth requires this native
+build because Expo Go cannot register the app's private callback scheme. The
+browser preview supports local files through IndexedDB, but does not store cloud
+tokens or offer cross-origin cloud sign-in.
+
+- Cloud workspace files use the existing `/api/desktop` API, OAuth PKCE, and
+  audience-bound `desktop:sync` scope. No new server deployment or database
+  migration is required when running against the cloud implementation in main.
+- Files created in a selected editable cloud workspace sync automatically.
+  Device-only files can be connected with **Sync to workspace**.
+- Opened files and downloaded images are durable in SQLite on native devices.
+  They remain editable offline. Sync resumes while the app is active; the OS
+  does not need to keep the app alive in the background.
+- Local persistence precedes cloud mutations. The journal retains operation IDs
+  across restarts and lost acknowledgements. Revision deltas merge independent
+  changes; overlapping edits preserve the phone document for review. **Keep
+  phone copy** creates a separately synced file, including its downloaded images.
+- Cloud files and conflict copies stay bound to their cloud origin and account.
+  Sign-out clears credentials and hides those cached files. Device-only files
+  remain available. Credentials stay in SecureStore and never enter the canvas.
+- Pull the file list to refresh it. The active file refreshes incrementally every
+  five seconds; dirty files upload in the background. Closed clean documents
+  are not polled.
+
+**Run agent** attaches the current design and its images as a snapshot in the
+selected remote machine project, then opens a new thread composer. This is an
+explicit reference copy: agent changes to that remote copy are not automatically
+written back into the original cloud file. Existing cloud editing sync remains
+independent of Tailscale and the remote machine being awake.
+
 ## Run locally
 
 From the repository root:
@@ -105,8 +145,8 @@ refuses a different host identity.
 - Drafts and unconfirmed messages survive navigation and ordinary backgrounding
   in memory. Force-quitting discards those local drafts; accepted messages remain
   on the host. Reopen a thread before resending after a force quit.
-- One machine connection is stored per phone. Notifications while the app is
-  backgrounded, file uploads, and the design canvas are outside this app's scope.
+- One machine connection is stored per phone. Background push notifications and
+  arbitrary local filesystem access are not implemented.
 - This checkout includes JavaScript exports for native builds; device signing,
   distribution, and Tailscale configuration remain operator setup steps.
 

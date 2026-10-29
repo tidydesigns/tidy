@@ -15,12 +15,13 @@
     "android": {
       "package": "design.tidy.mobile"
     },
-    "plugins": ["expo-secure-store", "expo-font"],
+    "plugins": ["expo-secure-store", "expo-font", "expo-web-browser", "expo-sqlite"],
     "web": {
       "bundler": "metro"
     },
     "experiments": {
       "autolinkingModuleResolution": true
-    }
+    },
+    "scheme": "design.tidy.mobile"
   }
 }

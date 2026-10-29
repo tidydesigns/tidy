@@ -4,5 +4,6 @@
     "strict": true,
     "types": ["bun"]
   },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules", "ios", "android", "dist"]
 }
