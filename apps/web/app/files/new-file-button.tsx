@@ -45,7 +45,14 @@ export function NewFileButton({
   useEffect(() => {
     if (onCreate) return;
     preloadEditor();
-    router.prefetch(href, { kind: PrefetchKind.FULL });
+    let active = true;
+    const warmDraft = () => {
+      if (active) router.prefetch(href, { kind: PrefetchKind.FULL, onInvalidate: warmDraft });
+    };
+    warmDraft();
+    return () => {
+      active = false;
+    };
   }, [onCreate, href, router]);
   const creating = useRef(false);
   const [importOpen, setImportOpen] = useState(false);
