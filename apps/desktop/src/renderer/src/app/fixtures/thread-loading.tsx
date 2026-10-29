@@ -782,6 +782,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
         "Escape did not dismiss the preview",
       );
       const viewport = visibleTranscript();
+      first.click();
+      await settle();
+      const previousTop = viewport.scrollTop;
       const target = required(
         viewport.querySelectorAll<HTMLElement>(".conversation-entry")[8],
         "Added prompt",
@@ -795,6 +798,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       added.click();
       await settle();
+      check(Math.abs(viewport.scrollTop - previousTop) > 2, "Added turn did not scroll");
       check(Math.abs(viewport.scrollTop - expectedTop) < 2, "Added turn jumped to a stale message");
     },
   );
