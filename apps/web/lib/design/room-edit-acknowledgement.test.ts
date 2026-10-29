@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { blankDesignDocument, buildDrawnNode } from "./document";
+import { blankDesignDocument, buildDrawnNode, parseDesignDocument } from "./document";
 import { applyDocumentPatch, diffDocument, type DocumentPatch } from "./document-patch";
 import { RoomEditQueue, type RoomSnapshot, type RoomCommit } from "./room-edit-queue";
 
@@ -65,6 +65,121 @@ test("an identical server acknowledgement reuses the validated optimistic docume
   call.resolve({ patch: call.patch, snapshot, sequence: 1 });
   await committed;
   expect(f.queue.saved.content).toBe(preview.content);
+});
+
+test("appended previews replay a mutated pending patch before later edits", async () => {
+  const f = fixture();
+  const first = f.edit({ x: 40 });
+  await flush();
+  f.calls[0].patch[0].after.value = 60;
+  const second = f.edit({ height: 120 });
+  expect(f.queue.getSnapshot().content.nodes[0].box).toMatchObject({ x: 60, height: 120 });
+  f.accept(0);
+  await first;
+  await flush();
+  f.accept(1);
+  await second;
+  expect(f.queue.saved.content.nodes[0].box).toMatchObject({ x: 60, height: 120 });
+});
+
+test("invalid scalar mutations cannot reuse a prefix with the same JSON encoding", async () => {
+  const frame = buildDrawnNode("frame", "artboard", null, {
+    x: 0,
+    y: 0,
+    width: 400,
+    height: 300,
+  });
+  const child = buildDrawnNode("child", "container", frame.id, {
+    x: 0,
+    y: 0,
+    width: 100,
+    height: 80,
+  });
+  const initial = { revision: 1, content: { ...blankDesignDocument(), nodes: [frame, child] } };
+  const queue = new RoomEditQueue(initial, () => {});
+  const gate = Promise.withResolvers<RoomCommit>();
+  const patch: DocumentPatch = [
+    {
+      collection: "nodes",
+      id: child.id,
+      path: ["parentId"],
+      before: { exists: true, value: frame.id },
+      after: { exists: true, value: null },
+    },
+  ];
+  const first = queue.commit(patch, () => gate.promise);
+  const rejected = first.catch((error: unknown) => error);
+  expect(queue.getSnapshot().content.nodes[1].parentId).toBeNull();
+  patch[0].after.value = NaN;
+  const changed = {
+    ...initial.content,
+    nodes: [frame, { ...child, box: { ...child.box, height: 120 } }],
+  };
+  const second = queue.commit(diffDocument(initial.content, changed), async (_id, patch) => ({
+    patch,
+    sequence: 1,
+    snapshot: { revision: 2, content: applyDocumentPatch(initial.content, patch) },
+  }));
+  expect(queue.getSnapshot().content.nodes[1]).toMatchObject({
+    parentId: frame.id,
+    box: { height: 120 },
+  });
+  gate.reject(new Error("Rejected"));
+  expect(await rejected).toEqual(new Error("Rejected"));
+  await second;
+  expect(queue.saved.content.nodes[1]).toMatchObject({
+    parentId: frame.id,
+    box: { height: 120 },
+  });
+});
+
+test("large Unicode prefixes fall back to replay while preserving every edit", async () => {
+  const initial = {
+    revision: 1,
+    content: {
+      ...blankDesignDocument(),
+      nodes: Array.from({ length: 4 }, (_, index) =>
+        buildDrawnNode(`text-${index}`, "text", null, { x: 0, y: 0, width: 100, height: 80 }),
+      ),
+    },
+  };
+  let parses = 0;
+  const queue = new RoomEditQueue(
+    initial,
+    () => {},
+    (input) => {
+      parses++;
+      return parseDesignDocument(input);
+    },
+  );
+  const textContent = {
+    ...initial.content,
+    nodes: initial.content.nodes.map((node) => ({ ...node, text: "\u0100".repeat(9000) })),
+  };
+  const firstPatch = diffDocument(initial.content, textContent);
+  const firstResult = Promise.withResolvers<RoomCommit>();
+  const first = queue.commit(firstPatch, () => firstResult.promise);
+  const before = queue.getSnapshot().content;
+  const after = {
+    ...before,
+    nodes: before.nodes.map((node) => ({ ...node, box: { ...node.box, x: 40 } })),
+  };
+  const secondPatch = diffDocument(before, after);
+  const secondResult = Promise.withResolvers<RoomCommit>();
+  const beforeAppend = parses;
+  const second = queue.commit(secondPatch, () => secondResult.promise);
+  expect(parses - beforeAppend).toBe(2);
+  expect(queue.getSnapshot().content).toEqual(parseDesignDocument(after));
+  const saved = { revision: 2, content: applyDocumentPatch(initial.content, firstPatch) };
+  firstResult.resolve({ patch: firstPatch, snapshot: saved, sequence: 1 });
+  await first;
+  secondResult.resolve({
+    patch: secondPatch,
+    snapshot: { revision: 3, content: applyDocumentPatch(saved.content, secondPatch) },
+    sequence: 2,
+  });
+  await second;
+  expect(queue.saved.content).toEqual(parseDesignDocument(after));
 });
 
 test("server-derived changes and pending later edits cannot reuse an earlier optimistic document", async () => {

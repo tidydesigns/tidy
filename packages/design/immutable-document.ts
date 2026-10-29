@@ -17,9 +17,9 @@ export function createImmutableDocumentParser(
   // Bounded weak candidates bridge preparation and optimistic patch application.
   // Source objects are never cached, and value equality is required before reuse.
   const recentImmutableNodes = new Map<string, WeakRef<DesignNode>>();
-  // Reuse one iterator: recreating it for each eviction repeatedly walks the
-  // Map's deleted prefix when opening another large file with different IDs.
-  let oldestNode = recentImmutableNodes.keys();
+  // Reuse the iterator during eviction to avoid rescanning deleted prefixes;
+  // release it between runs so obsolete Map tables can be collected.
+  let oldestNode: MapIterator<string> | undefined;
   let recentImmutableDocument: WeakRef<DesignDocument> | undefined;
   const frozenValues = new WeakSet<object>();
   function freezeValue<T>(value: T): T {
@@ -56,13 +56,13 @@ export function createImmutableDocumentParser(
       recentImmutableNodes.delete(node.id);
       recentImmutableNodes.set(node.id, new WeakRef(node));
       if (recentImmutableNodes.size > DESIGN_DOCUMENT_LIMITS.nodes) {
-        let oldest = oldestNode.next();
+        let oldest = (oldestNode ??= recentImmutableNodes.keys()).next();
         if (oldest.done) {
           oldestNode = recentImmutableNodes.keys();
           oldest = oldestNode.next();
         }
         if (!oldest.done) recentImmutableNodes.delete(oldest.value);
-      }
+      } else oldestNode = undefined;
     }
     return node;
   }

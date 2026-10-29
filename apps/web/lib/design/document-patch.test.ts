@@ -30,6 +30,26 @@ const change = (doc: DesignDocument, id: string, transform: (node: DesignNode) =
   nodes: doc.nodes.map((n) => (n.id === id ? transform(n) : n)),
 });
 describe("multiplayer document patches", () => {
+  test("property edits retain node and page patch order and remain reversible", () => {
+    const before = fixture();
+    const after = {
+      ...before,
+      nodes: [
+        { ...before.nodes[0], name: "Renamed" },
+        { ...before.nodes[1], box: { ...before.nodes[1].box, x: 220 } },
+      ],
+      pages: before.pages.map((page) => ({ ...page, name: "Renamed page" })),
+    };
+    const patch = diffDocument(before, after);
+    expect(patch.map(({ collection, id, path }) => ({ collection, id, path }))).toEqual([
+      { collection: "nodes", id: "a", path: ["name"] },
+      { collection: "nodes", id: "b", path: ["box", "x"] },
+      { collection: "pages", id: before.pages[0].id, path: ["name"] },
+    ]);
+    expect(applyDocumentPatch(before, patch)).toEqual(after);
+    expect(applyDocumentPatch(after, invertPatch(patch), true)).toEqual(before);
+  });
+
   test("independent concurrent node edits survive in either order", () => {
     const base = fixture();
     const a = diffDocument(
