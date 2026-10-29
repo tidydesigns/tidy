@@ -4,6 +4,14 @@ import { Icon } from "@tidy/editor/components/ui/icon";
 import type { CloudConnection } from "../cloud/use-cloud";
 import { RemoteMachines } from "./remote-machines";
 import { PrivacySettings } from "./privacy-settings";
+import { AppearanceSettings } from "./appearance-settings";
+
+const sectionLabels = {
+  account: "Account",
+  appearance: "Appearance",
+  privacy: "Privacy",
+  remote: "Remote machines",
+};
 
 export function Settings({
   cloud,
@@ -14,7 +22,7 @@ export function Settings({
   onBack(): void;
   initialPage?: "account" | "remote";
 }) {
-  const [page, setPage] = useState<"account" | "privacy" | "remote">(initialPage);
+  const [page, setPage] = useState<keyof typeof sectionLabels>(initialPage);
   const machines = window.tidyMachines;
   const remote = window.tidyRemote;
   const back = useRef<HTMLButtonElement>(null);
@@ -37,7 +45,7 @@ export function Settings({
         </div>
         <nav className="settings-sections" aria-label="Settings sections">
           <span className="settings-label">Settings</span>
-          {(["account", "privacy"] as const).map((item) => (
+          {(["account", "appearance", "privacy"] as const).map((item) => (
             <Button
               key={item}
               className="settings-section"
@@ -45,7 +53,7 @@ export function Settings({
               aria-controls={`settings-${item}-panel`}
               onClick={() => setPage(item)}
             >
-              {item === "account" ? "Account" : "Privacy"}
+              {sectionLabels[item]}
             </Button>
           ))}
           {machines && remote && (
@@ -55,16 +63,14 @@ export function Settings({
               aria-controls="settings-remote-panel"
               onClick={() => setPage("remote")}
             >
-              Remote machines
+              {sectionLabels.remote}
             </Button>
           )}
         </nav>
       </aside>
       <main className="workspace settings-workspace" aria-labelledby="settings-title">
         <div className="settings-content">
-          <h1 id="settings-title">
-            {page === "account" ? "Account" : page === "privacy" ? "Privacy" : "Remote machines"}
-          </h1>
+          <h1 id="settings-title">{sectionLabels[page]}</h1>
           <section
             id="settings-account-panel"
             hidden={page !== "account"}
@@ -118,6 +124,9 @@ export function Settings({
               <RemoteMachines machines={machines} remote={remote} />
             </div>
           )}
+          <div id="settings-appearance-panel" hidden={page !== "appearance"}>
+            <AppearanceSettings />
+          </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings />
           </div>
