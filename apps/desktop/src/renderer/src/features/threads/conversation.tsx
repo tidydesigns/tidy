@@ -1,3 +1,4 @@
+import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
 import { codeFontClassName } from "../../styles/code-ui";
 import {
   memo,
@@ -176,6 +177,10 @@ export const Conversation = memo(function Conversation({
   api: DesktopAPI;
   active: boolean;
 }) {
+  const [showFailure, setShowFailure] = useState(false);
+  useEffect(() => {
+    if (!thread?.error || !active) setShowFailure(false);
+  }, [thread?.error, active]);
   const previewId = useId();
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -376,18 +381,20 @@ export const Conversation = memo(function Conversation({
             />
           ))}
           {thread?.error && (
-            <p
-              className="thread-error text-xs wrap-anywhere text-(--desktop-status-danger)"
-              role="alert"
-            >
-              {thread.error}
-            </p>
+            <HarnessFailureSummary
+              error={thread.error}
+              kind={thread.errorKind}
+              onDetails={() => setShowFailure(true)}
+            />
           )}
           {thread?.status === "stopped" && !thread.messages.some((message) => message.turn) && (
             <p className="thread-activity text-xs wrap-anywhere">Stopped</p>
           )}
         </div>
       </div>
+      {showFailure && thread?.error && active && (
+        <HarnessFailureDialog thread={thread} api={api} onClose={() => setShowFailure(false)} />
+      )}
       {turns.length > 1 && (
         <nav
           className="conversation-rail"

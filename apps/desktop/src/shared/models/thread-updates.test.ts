@@ -19,6 +19,8 @@ test("stream patches preserve old message identities, append once and ignore sta
     harness: "codex",
     messages: [first, response],
     status: "running",
+    error: "Earlier provider failure",
+    errorKind: "unavailable",
     designIds: [],
     updatedAt: new Date().toISOString(),
   };
@@ -43,6 +45,8 @@ test("stream patches preserve old message identities, append once and ignore sta
   const result = applyThreadPatch(previous, patch);
   expect(result.messages).toEqual([first, nextResponse]);
   expect(result.messages[0]).toBe(first);
+  expect(result.error).toBeUndefined();
+  expect(result.errorKind).toBeUndefined();
   expect(applyThreadPatch(result, patch)).toBe(result);
   expect(
     applyThreadPatch(previous, { ...patch, thread: { ...patch.thread, projectId: randomUUID() } }),

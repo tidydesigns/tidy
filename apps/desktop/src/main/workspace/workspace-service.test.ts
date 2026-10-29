@@ -1678,3 +1678,86 @@ test("an observation paused before removal cannot watch a reopened registration"
     await observing;
   }
 });
+
+test("failure categories survive storage and summaries, then clear on a new turn", async () => {
+  const { service, project, runs, store } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First",
+    designIds: [],
+  });
+  runs[0].input.onUpdate({ type: "error", text: "A generic provider failure", kind: "sandbox" });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  const result = await completion;
+  expect(result).toMatchObject({ status: "failed", errorKind: "sandbox" });
+  expect((await store.readThread(project.id, thread.id)).errorKind).toBe("sandbox");
+  expect(
+    (await store.select(project.id)).threads.find((value) => value.id === thread.id)?.errorKind,
+  ).toBe("sandbox");
+  const next = await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Continue",
+  });
+  expect(next.error).toBeUndefined();
+  expect(next.errorKind).toBeUndefined();
+});
+
+test("a recovered provider error does not erase an unrelated local storage failure", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "First",
+    designIds: [],
+  });
+  runs[0].input.onUpdate({ type: "error", text: "Provider overloaded", kind: "unavailable" });
+  runs[0].input.onUpdate({ type: "error", text: "Disk is full", kind: "storage" });
+  runs[0].input.onUpdate({ type: "error-cleared", text: "Provider overloaded" });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  expect(await completion).toMatchObject({
+    status: "failed",
+    errorKind: "storage",
+    error: "Disk is full",
+  });
+});
+
+test("a provider retry that recovers leaves no failed status or stale error category", async () => {
+  const { service, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "claude",
+    prompt: "First",
+    designIds: [],
+  });
+  runs[0].input.onUpdate({ type: "error", text: "Provider overloaded", kind: "unavailable" });
+  runs[0].input.onUpdate({ type: "error-cleared", text: "Provider overloaded" });
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  expect(await completion).toMatchObject({
+    status: "completed",
+    errorKind: undefined,
+    error: undefined,
+  });
+});
+
+test("a failed final disk write marks the thread failed with storage guidance", async () => {
+  const { service, project, runs, store } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First",
+    designIds: [],
+  });
+  const writer = spyOn(store, "writeThread").mockRejectedValueOnce(new Error("ENOSPC"));
+  try {
+    const completion = finished(service, thread.id);
+    runs[0].complete();
+    expect(await completion).toMatchObject({ status: "failed", errorKind: "storage" });
+  } finally {
+    writer.mockRestore();
+  }
+});

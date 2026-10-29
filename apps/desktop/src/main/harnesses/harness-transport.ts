@@ -1,3 +1,4 @@
+import { HarnessFailureError } from "./provider-failure";
 import { spawn } from "node:child_process";
 import { z } from "zod";
 import { agentSupervisor } from "../remote/agent-supervisor";
@@ -6,7 +7,7 @@ import { harnessEnvironment } from "./harnesses";
 export const protocolObject = z.record(z.string(), z.unknown());
 export const object = (value: unknown) => protocolObject.parse(value ?? {});
 export const text = (value: unknown) => (typeof value === "string" ? value : "");
-export class HarnessRequestError extends Error {}
+export class HarnessRequestError extends HarnessFailureError {}
 export class HarnessNotSubmittedError extends Error {}
 const envelope = z
   .object({

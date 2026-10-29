@@ -1,4 +1,5 @@
-import { useDeferredValue, useRef, useState } from "react";
+import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
+import { StrictMode, useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { flushSync } from "react-dom";
 import type {
@@ -203,6 +204,103 @@ async function workspaceFixture(root: Root) {
   };
 }
 
+export async function runHarnessFailureNoticeTests(root: Root) {
+  const listeners = new Set<(event: DesktopEvent) => void>();
+  const api: DesktopAPI = {
+    ...nativeAPI,
+    onEvent(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
+  const render = (accessKey: string) =>
+    flushSync(() =>
+      root.render(
+        <StrictMode>
+          <HarnessFailureNotices key={accessKey} api={api} />
+        </StrictMode>,
+      ),
+    );
+  render("initial-access");
+  await settle();
+  const thread = {
+    ...makeThread(),
+    status: "failed" as const,
+    error: "The provider could not complete this request.",
+    errorKind: "policy" as const,
+  };
+  const emit = (value: Thread) => {
+    for (const listener of listeners) listener({ type: "thread", thread: value });
+  };
+  const modal = () => host.querySelector<HTMLDialogElement>("dialog[open]");
+  emit({ ...thread, id: "historical-failure" });
+  emit({ ...thread, id: "historical-failure", revision: 2, doneAt: timestamp });
+  await settle();
+  check(!modal(), "Historical failure opened a new dialog after a metadata update");
+  emit({ ...thread, status: "running", error: undefined });
+  emit(thread);
+  await until(() => Boolean(modal()), "Failure dialog");
+  await settle();
+  check(modal()?.querySelector("h2")?.textContent === "Request blocked", "Policy guidance missing");
+  check(
+    document.activeElement?.getAttribute("aria-label") === "Dismiss error",
+    "Dismiss did not receive initial focus",
+  );
+  check(!modal()?.querySelector("details")?.open, "Technical details expanded by default");
+  emit({ ...thread, revision: 2 });
+  modal()?.close();
+  await until(() => !modal(), "Dismiss failure");
+  emit({ ...thread, revision: 3 });
+  await settle();
+  check(!modal(), "Duplicate failure reopened a dismissed dialog");
+  emit({ ...thread, revision: 4, status: "running", error: undefined });
+  emit({ ...thread, revision: 3 });
+  await settle();
+  check(!modal(), "Stale failure interrupted a retry");
+  emit({ ...thread, revision: 5 });
+  await until(() => Boolean(modal()), "New failure after retry");
+  const previousDialog = required(modal(), "Previous failure dialog");
+  previousDialog.close();
+  emit({ ...thread, revision: 6, status: "running", error: undefined });
+  emit({ ...thread, revision: 7, errorKind: "account", error: "Verification required" });
+  await until(
+    () => modal()?.querySelector("h2")?.textContent === "Account needs attention",
+    "Replacement failure after immediate retry",
+  );
+  await settle();
+  check(Boolean(modal()), "Old close event dismissed the replacement failure");
+  emit({ ...thread, id: "second-failure", status: "running", error: undefined });
+  emit({
+    ...thread,
+    id: "second-failure",
+    errorKind: undefined,
+    error: "401 authentication failed",
+  });
+  await settle();
+  modal()?.close();
+  await until(
+    () => modal()?.querySelector("h2")?.textContent === "Sign in again",
+    "Queued background failure",
+  );
+  emit({ ...thread, id: "second-failure", revision: 2, status: "running", error: undefined });
+  await until(() => !modal(), "Retry removes stale dialog");
+  emit({ ...thread, revision: 8, status: "running", error: undefined });
+  emit({ ...thread, revision: 9 });
+  emit({ ...thread, id: "second-failure", revision: 3, status: "running", error: undefined });
+  emit({ ...thread, id: "second-failure", revision: 4 });
+  await until(() => Boolean(modal()), "Open and queued failures before access change");
+  render("changed-access");
+  await settle();
+  check(!modal(), "Access change retained a previous account’s failure dialog");
+  emit({ ...thread, revision: 10 });
+  emit({ ...thread, id: "second-failure", revision: 5 });
+  await settle();
+  check(!modal(), "Access change retained queued failures or replayed historical errors");
+  check(listeners.size === 1, "Access change leaked an event subscription");
+}
+
 async function runThreadLoadingTests(): Promise<string[]> {
   const passed: string[] = [];
   async function run(name: string, test: (root: Root) => Promise<void>) {
@@ -218,6 +316,8 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
   await run(
     "offline transitions retain loaded projects and refresh once on reconnect",
@@ -529,9 +629,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
     );
     await settle();
     const viewport = visibleTranscript();
-    check(
-      viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
-      "Initial view did not follow the latest message",
+    await until(
+      () => viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 41,
+      "Initial view follows the latest message",
     );
     const original = required(viewport.querySelector("article"), "Original message");
     viewport.scrollTop = Math.floor((viewport.scrollHeight - viewport.clientHeight) / 2);

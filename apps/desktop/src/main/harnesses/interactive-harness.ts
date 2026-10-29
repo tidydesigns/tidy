@@ -1,3 +1,4 @@
+import { HarnessFailureError } from "./provider-failure";
 import { randomUUID } from "node:crypto";
 import {
   validatePermissionMode,
@@ -26,7 +27,7 @@ type Turn = {
   input: TurnInput;
   delivery: NonNullable<RunningHarness["deliveryState"]>;
   completion: ReturnType<typeof Promise.withResolvers<void>>;
-  error?: string;
+  error?: HarnessFailureError;
   started: boolean;
   cancellation?: ReturnType<typeof setTimeout>;
 };
@@ -195,7 +196,10 @@ export class HarnessSession {
     if (update.type === "session" || update.type === "model")
       this.metadata.set(update.type, update);
     if (this.state.kind !== "running") return;
-    if (update.type === "error") this.state.turn.error = update.text;
+    if (update.type === "error")
+      this.state.turn.error = new HarnessFailureError(update.text, update.kind);
+    else if (update.type === "error-cleared" && this.state.turn.error?.message === update.text)
+      this.state.turn.error = undefined;
     if (update.type === "message" || update.type === "tool" || update.type === "approval")
       this.state.turn.delivery = "accepted";
     this.state.turn.input.onUpdate(update);
@@ -256,7 +260,7 @@ export class HarnessSession {
     clearTimeout(turn.cancellation);
     this.clearApprovals();
     this.state = { kind: "idle" };
-    if (!cancelled && (error || turn.error)) turn.completion.reject(error ?? new Error(turn.error));
+    if (!cancelled && (error || turn.error)) turn.completion.reject(error ?? turn.error);
     else turn.completion.resolve();
   }
   start(input: TurnInput): RunningHarness {

@@ -221,6 +221,65 @@ for await (const line of createInterface({ input: process.stdin })) {
       if (prompt.includes("early-stop")) setTimeout(begin, 20);
       else begin();
     }
+    const failureCode = prompt.match(/structured-failure-fixture ([A-Za-z_]+)/)?.[1];
+    if (failureCode || prompt.includes("provider-failure-fixture")) {
+      const message = failureCode
+        ? "This turn could not finish."
+        : "This content was flagged for possible cybersecurity risk.";
+      if (claude) {
+        if (!failureCode)
+          send({
+            type: "assistant",
+            error: "content_policy",
+            message: { content: [{ type: "text", text: message }] },
+          });
+        send({
+          type: "result",
+          subtype: failureCode,
+          is_error: !failureCode,
+          errors: failureCode ? [message] : undefined,
+        });
+      } else {
+        if (!failureCode)
+          send({
+            method: "error",
+            params: { threadId: sessionId, turnId, willRetry: false, error: { message } },
+          });
+        send({
+          method: "turn/completed",
+          params: {
+            threadId: sessionId,
+            turn: {
+              id: turnId,
+              status: "failed",
+              error: failureCode ? { message, codexErrorInfo: failureCode } : undefined,
+            },
+          },
+        });
+      }
+      continue;
+    }
+    if (prompt.includes("provider-retry-fixture")) {
+      if (claude) {
+        send({
+          type: "assistant",
+          error: "rate_limit",
+          message: { content: [{ type: "text", text: "Too many requests" }] },
+        });
+        send({ type: "system", subtype: "api_retry", error: "rate_limit" });
+      } else
+        send({
+          method: "error",
+          params: {
+            threadId: sessionId,
+            turnId,
+            willRetry: true,
+            error: { message: "Transient failure", codexErrorInfo: "serverOverloaded" },
+          },
+        });
+      finish();
+      continue;
+    }
     if (prompt.includes("fail-turn")) {
       if (acp) send({ id: promptId, error: { code: -32603, message: "Turn failed" } });
       else if (claude)

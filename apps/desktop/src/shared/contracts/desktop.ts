@@ -1,3 +1,4 @@
+import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
 import type { SkillCatalog } from "./skills";
 import { z } from "zod";
@@ -85,6 +86,7 @@ export const storedThreadSchema = z.object({
   toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
   toolActivityTruncated: z.boolean().optional(),
   error: z.string().max(4000).optional(),
+  errorKind: harnessFailureKindSchema.optional(),
   updatedAt: z.string().datetime(),
 });
 
