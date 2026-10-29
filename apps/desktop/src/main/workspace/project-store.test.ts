@@ -600,6 +600,18 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
   expect((await f.store.snapshot(owner.id)).threads).toHaveLength(0);
 });
 
+test("small snapshot summaries reuse unchanged thread data", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  await f.store.writeThread(thread(project.id));
+  const reads = spyOn(f.store, "readThread");
+
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(1);
+  expect(reads).toHaveBeenCalledTimes(1);
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(1);
+  expect(reads).toHaveBeenCalledTimes(1);
+});
+
 test("snapshot summaries reread only changed threads and do not share mutable data", async () => {
   const f = await fixture();
   const { project } = await f.store.open(f.root);
