@@ -25,15 +25,19 @@ export function App() {
   const workspaceLabel = useId();
   const fileLabel = useId();
   const [account, setAccount] = useState<ExtensionAccount>();
-  const [organizationId, setOrganizationId] = useState("");
-  const [fileId, setFileId] = useState("");
+  const [selection, setSelection] = useState({ userId: "", organizationId: "", fileId: "" });
+  const { organizationId, fileId } = selection;
   const [job, setJob] = useState<ImportJob>();
   const [, setError] = useErrorNotice();
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
   useEffect(() => {
     let live = true;
+    let refreshing = false;
+    let jobChanged = false;
     const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
       const notifyError = setError("");
       try {
         const data = parseExtensionResponse(
@@ -45,36 +49,47 @@ export function App() {
         setAccount(data);
 
         const last = destinationSchema.safeParse(stored.destination).data;
-        const organization =
-          data.organizations.find(
-            (item) => last?.userId === data.user.id && item.id === last.organizationId,
-          ) ?? data.organizations[0];
-        setOrganizationId((id) =>
-          data.organizations.some((item) => item.id === id) ? id : (organization?.id ?? ""),
-        );
-        setFileId((id) =>
-          organization?.files.some((file) => file.id === id)
-            ? id
-            : organization?.files.some((file) => file.id === last?.fileId)
-              ? (last?.fileId ?? "")
+        setSelection((current) => {
+          const preferred =
+            current.userId === data.user.id
+              ? current
+              : last?.userId === data.user.id
+                ? last
+                : undefined;
+          const organization =
+            data.organizations.find((item) => item.id === preferred?.organizationId) ??
+            data.organizations[0];
+          return {
+            userId: data.user.id,
+            organizationId: organization?.id ?? "",
+            fileId: organization?.files.some((file) => file.id === preferred?.fileId)
+              ? preferred!.fileId!
               : "",
-        );
+          };
+        });
       } catch (error) {
         if (live) {
           setAccount(undefined);
           notifyError(error, "Could not connect to Tidy.");
         }
       } finally {
+        refreshing = false;
         if (live) setLoading(false);
       }
     };
     void refresh();
-    void browser.storage.session.get("job").then((value) => {
-      if (live) setJob(readImportJob(value.job));
-    });
+    void browser.storage.session
+      .get("job")
+      .then((value) => {
+        if (live && !jobChanged) setJob(readImportJob(value.job));
+      })
+      .catch(() => undefined);
     const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
       if (area === "local" && changes.theme) applyTheme(changes.theme.newValue);
-      if (area === "session" && changes.job) setJob(readImportJob(changes.job.newValue));
+      if (area === "session" && changes.job) {
+        jobChanged = true;
+        setJob(readImportJob(changes.job.newValue));
+      }
     };
     browser.storage.onChanged.addListener(changed);
     window.addEventListener("focus", refresh);
@@ -165,8 +180,11 @@ export function App() {
                     value={organizationId}
                     disabled={busy}
                     onChange={(value) => {
-                      setOrganizationId(value);
-                      setFileId("");
+                      setSelection((current) => ({
+                        ...current,
+                        organizationId: value,
+                        fileId: "",
+                      }));
                     }}
                     options={account.organizations.map((item) => ({
                       value: item.id,
@@ -184,7 +202,7 @@ export function App() {
                   triggerClassName="select-trigger"
                   value={fileId}
                   disabled={busy}
-                  onChange={setFileId}
+                  onChange={(fileId) => setSelection((current) => ({ ...current, fileId }))}
                   options={[
                     { value: "", label: "New design file" },
                     ...(organization?.files.map((file) => ({ value: file.id, label: file.name })) ??

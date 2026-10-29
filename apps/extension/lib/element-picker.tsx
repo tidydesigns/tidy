@@ -76,6 +76,8 @@ export function startElementPicker({
   let selected: Element[] = [];
   let stopped = false;
   let notice = "";
+  let paintFrame = 0;
+  let pendingTarget: Element | undefined;
   const setTheme = (value: unknown) => {
     host.style.setProperty(
       "color-scheme",
@@ -89,7 +91,14 @@ export function startElementPicker({
     return element.parentElement ?? (tree instanceof ShadowRoot ? tree.host : undefined);
   }
   function children(element: Element) {
-    return [...element.children, ...(element.shadowRoot?.children ?? [])];
+    const result: Element[] = [];
+    for (const parent of [element, element.shadowRoot]) {
+      for (let child = parent?.firstElementChild; child; child = child.nextElementSibling) {
+        if (result.length >= 15000) return result;
+        result.push(child);
+      }
+    }
+    return result;
   }
   function selectable(element: Element) {
     if (
@@ -108,26 +117,39 @@ export function startElementPicker({
     );
   }
   function findTarget(elements: Element[], reverse = false): Element | undefined {
-    for (const element of reverse ? elements.toReversed() : elements) {
+    const pending = reverse ? [...elements] : elements.toReversed();
+    const deadline = performance.now() + 8;
+    let visited = 0;
+    while (pending.length) {
+      if (++visited > 15000 || performance.now() > deadline) return;
+      const element = pending.pop()!;
       if (element === host) continue;
       if (selectable(element)) return element;
-      const descendant = findTarget(children(element), reverse);
-      if (descendant) return descendant;
+      const descendants = children(element);
+      // Bound both traversal and queued work even on very broad/deep pages.
+      const remaining = Math.max(0, 15000 - visited - pending.length);
+      const next = (reverse ? descendants : descendants.toReversed()).slice(0, remaining);
+      pending.push(...next);
     }
   }
+
   function description(element: Element) {
-    const label =
-      element.getAttribute("aria-label") ||
-      element.getAttribute("alt") ||
-      element.textContent ||
-      "";
-    const text = label.replace(/\s+/g, " ").trim().slice(0, 80);
+    const label = element.getAttribute("aria-label") || element.getAttribute("alt") || "";
+    const walker = document.createTreeWalker(element);
+    let snippet = label.slice(0, 256);
+    for (let count = 0; !label && snippet.length < 80 && count < 128; count++) {
+      const node = walker.nextNode();
+      if (!node) break;
+      if (node.nodeType === Node.TEXT_NODE)
+        snippet += (node.textContent ?? "").slice(0, 80 - snippet.length);
+    }
+    const text = snippet.replace(/\s+/g, " ").trim().slice(0, 80);
     return `${element.localName}${text ? `: ${text}` : ""}`;
   }
   target =
     previousFocus && previousFocus !== document.body && selectable(previousFocus)
       ? previousFocus
-      : findTarget([...document.body.children]);
+      : findTarget(children(document.body));
   function toggleTarget() {
     if (!target?.isConnected) return;
     notice = "";
@@ -162,19 +184,39 @@ export function startElementPicker({
       height: `${box.height}px`,
     });
   }
+  const selectionBoxes = new Map<Element, HTMLDivElement>();
   function highlight() {
     outline.hidden = !target?.isConnected;
     if (target?.isConnected) position(outline, target);
-    selections.replaceChildren(
-      ...selected
-        .filter((element) => element.isConnected)
-        .map((element) => {
-          const box = document.createElement("div");
-          box.className = "outline selected";
-          position(box, element);
-          return box;
-        }),
-    );
+    for (const [element, box] of selectionBoxes) {
+      if (!element.isConnected || !selected.includes(element)) {
+        box.remove();
+        selectionBoxes.delete(element);
+      }
+    }
+    for (const element of selected) {
+      if (!element.isConnected) continue;
+      let box = selectionBoxes.get(element);
+      if (!box) {
+        box = document.createElement("div");
+        box.className = "outline selected";
+        selectionBoxes.set(element, box);
+        selections.append(box);
+      }
+      position(box, element);
+    }
+  }
+  function schedulePaint() {
+    if (paintFrame) return;
+    paintFrame = window.requestAnimationFrame(() => {
+      paintFrame = 0;
+      if (stopped) return;
+      if (pendingTarget && pendingTarget !== target) {
+        target = pendingTarget;
+        pendingTarget = undefined;
+        render();
+      } else highlight();
+    });
   }
   function render() {
     highlight();
@@ -258,21 +300,23 @@ export function startElementPicker({
   const move = (event: PointerEvent) => {
     if (inToolbar(event)) return;
     const next = pageTarget(event);
-    if (!next || next === target) return;
-    target = next;
-    render();
+    if (!next) return;
+    pendingTarget = next;
+    schedulePaint();
   };
   const click = (event: MouseEvent) => {
     if (inToolbar(event)) return;
     suppress(event);
     const next = pageTarget(event);
     if (!next) return;
+    pendingTarget = undefined;
     target = next;
     toggleTarget();
     (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();
   };
   function browse(direction: string) {
-    if (!target?.isConnected) target = findTarget([...document.body.children]);
+    pendingTarget = undefined;
+    if (!target?.isConnected) target = findTarget(children(document.body));
     else if (direction === "ArrowDown") target = findTarget(children(target)) ?? target;
     else if (direction === "ArrowUp") {
       let parent = parentElement(target);
@@ -316,13 +360,15 @@ export function startElementPicker({
   function stop() {
     if (stopped) return;
     stopped = true;
+    window.cancelAnimationFrame(paintFrame);
+    pendingTarget = undefined;
     window.removeEventListener("pointermove", move, true);
     window.removeEventListener("pointerdown", suppress, true);
     window.removeEventListener("pointerup", suppress, true);
     window.removeEventListener("click", click, true);
     window.removeEventListener("keydown", key, true);
-    window.removeEventListener("scroll", highlight, true);
-    window.removeEventListener("resize", highlight);
+    window.removeEventListener("scroll", schedulePaint, true);
+    window.removeEventListener("resize", schedulePaint);
     root.unmount();
     host.remove();
     if (previousFocus?.isConnected) previousFocus.focus?.({ preventScroll: true });
@@ -333,8 +379,8 @@ export function startElementPicker({
   window.addEventListener("pointerup", suppress, true);
   window.addEventListener("click", click, true);
   window.addEventListener("keydown", key, true);
-  window.addEventListener("scroll", highlight, true);
-  window.addEventListener("resize", highlight);
+  window.addEventListener("scroll", schedulePaint, true);
+  window.addEventListener("resize", schedulePaint);
   render();
   (shadow.querySelector("[data-picker-target]") as HTMLElement | null)?.focus();
   return { stop, setTheme };
