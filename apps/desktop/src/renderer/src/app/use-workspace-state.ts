@@ -46,6 +46,7 @@ export function useWorkspaceState({
     initial?.activeProject ? { [initial.activeProject.project.id]: initial.activeProject } : {},
   );
   const [harnesses, setHarnesses] = useState<HarnessConnection[]>(initial?.harnesses ?? []);
+  const [harnessDiscoveryFailed, setHarnessDiscoveryFailed] = useState(false);
   const [threads, setThreads] = useState<Record<string, Thread>>(() =>
     Object.fromEntries((initialThreads ?? []).map((thread) => [thread.id, thread])),
   );
@@ -160,15 +161,20 @@ export function useWorkspaceState({
       };
     }
     let harnessesRefreshed = false;
+    setHarnessDiscoveryFailed(false);
     void api
       .checkHarnesses?.()
       .then((value) => {
         if (!mounted) return;
         harnessesRefreshed = true;
         setHarnesses(value);
+        setHarnessDiscoveryFailed(false);
       })
       .catch((cause: unknown) => {
-        if (mounted) onError({ text: errorText(cause), original: cause });
+        if (mounted) {
+          setHarnessDiscoveryFailed(true);
+          onError({ text: errorText(cause), original: cause });
+        }
       });
     const initialNavigation = navigation.current;
     const prepared = initialBootstrap.current;
@@ -230,6 +236,8 @@ export function useWorkspaceState({
     setSnapshots,
     harnesses,
     setHarnesses,
+    harnessDiscoveryFailed,
+    setHarnessDiscoveryFailed,
     threads,
     readThread,
     setThreads,

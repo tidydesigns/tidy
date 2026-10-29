@@ -81,7 +81,10 @@ export function ThreadCard({
   }
   function show() {
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setOpen(true), 150);
+    timer.current = setTimeout(() => {
+      onPreload?.();
+      setOpen(true);
+    }, 150);
   }
   useEffect(() => () => clearTimeout(timer.current), []);
   useLayoutEffect(() => {
@@ -119,7 +122,6 @@ export function ThreadCard({
       }}
       onPointerEnter={(event) => {
         if (event.pointerType === "mouse" && !orderControls?.dragging) {
-          onPreload?.();
           show();
         }
       }}

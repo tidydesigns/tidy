@@ -337,6 +337,93 @@ async function runThreadLoadingTests(): Promise<string[]> {
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
+  await run(
+    "thread preloads wait for hover intent and keyboard focus remains immediate",
+    async (root) => {
+      let preloads = 0;
+      flushSync(() =>
+        root.render(
+          <ThreadCard
+            thread={summarizeThread(makeThread())}
+            selected={false}
+            loaded={false}
+            now={Date.now()}
+            pending={false}
+            onSelect={() => {}}
+            onDone={() => {}}
+            onPreload={() => {
+              preloads++;
+            }}
+          />,
+        ),
+      );
+      const row = required(host.querySelector(".thread-item"), "Thread row");
+      const enter = () =>
+        row.dispatchEvent(new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }));
+      const leave = () =>
+        row.dispatchEvent(
+          new PointerEvent("pointerout", {
+            bubbles: true,
+            pointerType: "mouse",
+            relatedTarget: document.body,
+          }),
+        );
+      enter();
+      check(preloads === 0, "Crossing a row started a full transcript read");
+      leave();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      check(preloads === 0, "Leaving a row did not cancel the pending read");
+      enter();
+      await until(() => Number(preloads) === 1, "Sustained hover preloads");
+      leave();
+      required(
+        host.querySelector<HTMLButtonElement>(".thread-select"),
+        "Thread selection",
+      ).dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+      check(Number(preloads) === 2, "Keyboard focus did not preload immediately");
+    },
+  );
+
+  await run(
+    "failed initial discovery is retryable without inventing installation guidance",
+    async (root) => {
+      let fail = true;
+      let current: ReturnType<typeof useWorkspaceState> | undefined;
+      const api = {
+        ...nativeAPI,
+        bootstrap: async (): Promise<Bootstrap> => ({
+          projects: [],
+          activeProject: null,
+          harnesses: [],
+        }),
+        checkHarnesses: async (): Promise<Bootstrap["harnesses"]> => {
+          if (fail) throw new Error("Synthetic discovery failure");
+          return [{ id: "codex", name: "Codex", status: "ready" }];
+        },
+        onEvent: () => () => {},
+      };
+      function Probe({ connection }: { connection: string }) {
+        const navigation = useRef(0);
+        current = useWorkspaceState({ api, navigation, connection, onError: () => {} });
+        return null;
+      }
+      flushSync(() => root.render(<Probe connection="initial" />));
+      check(current?.harnessDiscoveryFailed === false, "Pending discovery was reported as failed");
+      await until(
+        () => current?.harnessDiscoveryFailed === true,
+        "Discovery failure exposed for retry",
+      );
+      check(current?.harnesses.length === 0, "Failure invented an installed agent status");
+      fail = false;
+      flushSync(() => root.render(<Probe connection="reconnected" />));
+      await until(() => current?.harnesses[0]?.status === "ready", "Discovery recovery");
+      check(
+        current?.harnessDiscoveryFailed === false,
+        "Successful discovery retained the retry error",
+      );
+    },
+  );
+
   await run("expired purpose toggles never renew the other purpose", async (root) => {
     const expired: AnalyticsState = {
       notice: ANALYTICS_NOTICE,

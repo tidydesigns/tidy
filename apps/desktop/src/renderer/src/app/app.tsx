@@ -210,6 +210,8 @@ export function App({
     setSnapshots,
     harnesses,
     setHarnesses,
+    harnessDiscoveryFailed,
+    setHarnessDiscoveryFailed,
     threads,
     readThread,
     setThreads,
@@ -1296,7 +1298,9 @@ export function App({
     if (!api) return;
     try {
       setHarnesses(await api.checkHarnesses());
+      setHarnessDiscoveryFailed(false);
     } catch (value) {
+      setHarnessDiscoveryFailed(true);
       setError({ text: errorText(value), original: value });
     }
   }
@@ -2222,22 +2226,26 @@ export function App({
                           </div>
                         </div>
                       </div>
-                      {!harnessReady && harnesses.length > 0 && (
+                      {!harnessReady && (harnesses.length > 0 || harnessDiscoveryFailed) && (
                         <div className="connection-help">
-                          <span>
-                            {harnesses.find((item) => item.id === selectedHarness)?.name ??
-                              "Your harness"}{" "}
-                            needs to be installed and signed in on{" "}
-                            {machine?.current.label ?? "this machine"}. Run{" "}
-                            <code>
-                              {selectedHarness === "codex"
-                                ? "codex login"
-                                : selectedHarness === "claude"
-                                  ? "claude auth login"
-                                  : "opencode auth login"}
-                            </code>{" "}
-                            in your terminal.
-                          </span>
+                          {harnesses.length > 0 ? (
+                            <span>
+                              {harnesses.find((item) => item.id === selectedHarness)?.name ??
+                                "Your harness"}{" "}
+                              needs to be installed and signed in on{" "}
+                              {machine?.current.label ?? "this machine"}. Run{" "}
+                              <code>
+                                {selectedHarness === "codex"
+                                  ? "codex login"
+                                  : selectedHarness === "claude"
+                                    ? "claude auth login"
+                                    : "opencode auth login"}
+                              </code>{" "}
+                              in your terminal.
+                            </span>
+                          ) : (
+                            <span>Could not check agent connections.</span>
+                          )}
                           <Button
                             type="button"
                             className="quiet-button"
