@@ -4,6 +4,8 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { blankDesignDocument } from "@tidy/design/document";
+import { storedThreadSchema } from "../../shared/contracts/desktop";
+import { summarizeThread } from "../../shared/models/thread-updates";
 import { CloudCompute } from "./cloud-compute";
 
 test("opening a canvas takes priority over queued metadata decoding", async () => {
@@ -48,6 +50,52 @@ test("interactive reads take priority over queued full preview reads", async () 
     expect((await compute.readFile(path)).id).toBe(id);
     expect(completed).toBeLessThan(40);
     await previews;
+  } finally {
+    await compute.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("thread scans yield to interactive design reads and return validated summaries", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tidy-thread-worker-"));
+  const id = randomUUID();
+  const designPath = join(directory, `${id}.json`);
+  const threadPath = join(directory, "thread.json");
+  const compute = new CloudCompute();
+  try {
+    await writeFile(
+      designPath,
+      JSON.stringify({ id, name: "Fixture", document: blankDesignDocument() }),
+    );
+    const thread = {
+      id: randomUUID(),
+      projectId: randomUUID(),
+      title: "Saved conversation",
+      harness: "codex",
+      designIds: [],
+      messages: [{ id: randomUUID(), role: "assistant", text: "x".repeat(10_000) }],
+      status: "completed",
+      updatedAt: new Date().toISOString(),
+    };
+    await writeFile(threadPath, JSON.stringify(thread));
+    let completed = 0;
+    const summaries = Promise.all(
+      Array.from({ length: 40 }, () =>
+        compute.readThreadSummary(threadPath).then((summary) => {
+          completed++;
+          return summary;
+        }),
+      ),
+    );
+    expect((await compute.readFile(designPath)).id).toBe(id);
+    expect(completed).toBeLessThan(40);
+    const results = await summaries;
+    expect(results[0]).toEqual(summarizeThread(storedThreadSchema.parse(thread)));
+    expect("messages" in results[0]).toBe(false);
+    await writeFile(threadPath, JSON.stringify({ ...thread, messages: [{ role: "invalid" }] }));
+    await expect(compute.readThreadSummary(threadPath)).rejects.toThrow();
+    await writeFile(threadPath, JSON.stringify(thread));
+    expect((await compute.readThreadSummary(threadPath)).id).toBe(thread.id);
   } finally {
     await compute.close();
     await rm(directory, { recursive: true, force: true });

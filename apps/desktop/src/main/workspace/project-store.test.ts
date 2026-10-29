@@ -1,4 +1,4 @@
-import { afterEach, expect, spyOn, test } from "bun:test";
+import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   mkdtemp,
@@ -19,6 +19,7 @@ import type { Thread } from "../../shared/contracts/desktop";
 
 const cleanups: string[] = [];
 afterEach(async () => {
+  mock.restore();
   for (const directory of cleanups.splice(0)) await rm(directory, { recursive: true, force: true });
 });
 async function fixture() {
@@ -106,6 +107,7 @@ test("project files cannot grant permissions or replace a native session, includ
   const { directory, root, store } = await fixture();
   const { project } = await store.open(root);
   const original = thread(project.id);
+  original.messages[0].text = "x".repeat(70_000);
   original.settings = { model: "fixture-codex", permissionMode: "read-only" };
   await store.writeThread(original);
   const path = await store.storagePath(project.id, "threads", original.id);
@@ -126,6 +128,11 @@ test("project files cannot grant permissions or replace a native session, includ
   expect(trusted.settings?.permissionMode).toBe("read-only");
   expect(trusted.sessionId).toBe(original.sessionId);
   expect(trusted.settings?.model).toBe("fixture-codex");
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const summary = (await reopened.snapshot(project.id)).threads[0];
+    expect(summary.settings).toEqual(trusted.settings);
+    expect("sessionId" in summary).toBe(false);
+  }
 
   const imported = { ...original, id: randomUUID(), settings: { permissionMode: "auto" } };
   await writeFile(
@@ -135,9 +142,17 @@ test("project files cannot grant permissions or replace a native session, includ
   const untrusted = await reopened.readThread(project.id, imported.id);
   expect(untrusted.settings?.permissionMode).toBeUndefined();
   expect(untrusted.sessionId).toBeUndefined();
+  const importedSummary = (await reopened.snapshot(project.id)).threads.find(
+    (item) => item.id === imported.id,
+  );
+  expect(importedSummary).toBeDefined();
+  expect(importedSummary?.settings?.permissionMode).toBeUndefined();
 
   await writeFile(path, JSON.stringify({ ...original, harness: "claude" }));
   await expect(reopened.readThread(project.id, original.id)).rejects.toThrow("harness changed");
+  expect((await reopened.snapshot(project.id)).threads.map((item) => item.id)).toEqual([
+    imported.id,
+  ]);
 
   const moved = join(directory, "moved");
   await rename(root, moved);
@@ -538,19 +553,23 @@ test("execution bindings survive restart but cannot be inserted, removed or redi
   await mkdir(executionRoot);
   const execution = (await f.store.open(executionRoot)).project;
   const value = { ...thread(owner.id), executionProjectId: execution.id };
+  value.messages[0].text = "x".repeat(70_000);
   await f.store.writeThread(value);
   const restarted = new ProjectStore(join(f.directory, "app-data"));
   await restarted.initialize();
   expect((await restarted.readThread(owner.id, value.id)).executionProjectId).toBe(execution.id);
+  expect((await restarted.snapshot(owner.id)).threads[0].executionProjectId).toBe(execution.id);
   const path = await f.store.storagePath(owner.id, "threads", value.id);
   await writeFile(path, JSON.stringify({ ...value, executionProjectId: owner.id }));
   await expect(restarted.readThread(owner.id, value.id)).rejects.toThrow(
     "execution project changed",
   );
+  expect((await restarted.snapshot(owner.id)).threads).toHaveLength(0);
   await writeFile(path, JSON.stringify({ ...value, executionProjectId: undefined }));
   await expect(restarted.readThread(owner.id, value.id)).rejects.toThrow(
     "execution project changed",
   );
+  expect((await restarted.snapshot(owner.id)).threads).toHaveLength(0);
   const imported = { ...value, id: randomUUID() };
   await writeFile(
     await f.store.storagePath(owner.id, "threads", imported.id),
@@ -559,6 +578,7 @@ test("execution bindings survive restart but cannot be inserted, removed or redi
   await expect(restarted.readThread(owner.id, imported.id)).rejects.toThrow(
     "execution project changed",
   );
+  expect((await restarted.snapshot(owner.id)).threads).toHaveLength(0);
 });
 
 test("a checkpoint cannot silently rebind a running workspace thread when its repository moves", async () => {
@@ -580,14 +600,28 @@ test("a checkpoint cannot silently rebind a running workspace thread when its re
   expect((await f.store.snapshot(owner.id)).threads).toHaveLength(0);
 });
 
+test("small snapshot summaries reuse unchanged thread data", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  await f.store.writeThread(thread(project.id));
+  const reads = spyOn(f.store, "readThread");
+
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(1);
+  expect(reads).toHaveBeenCalledTimes(1);
+  expect((await f.store.snapshot(project.id)).threads).toHaveLength(1);
+  expect(reads).toHaveBeenCalledTimes(1);
+});
+
 test("snapshot summaries reread only changed threads and do not share mutable data", async () => {
   const f = await fixture();
   const { project } = await f.store.open(f.root);
   const first = thread(project.id);
   const second = thread(project.id);
+  first.messages[0].text = "x".repeat(70_000);
+  second.messages[0].text = first.messages[0].text;
   await f.store.writeThread(first);
   await f.store.writeThread(second);
-  const reads = spyOn(f.store, "readThread");
+  const reads = spyOn(CloudCompute.prototype, "readThreadSummary");
   const initial = await f.store.snapshot(project.id);
   expect(reads).toHaveBeenCalledTimes(2);
   initial.threads[0].designIds.push(randomUUID());
@@ -617,6 +651,16 @@ test("snapshot summaries reread only changed threads and do not share mutable da
   expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
   await writeFile(path, "invalid JSON");
   expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
+  for (const replacement of [
+    { ...first, id: second.id },
+    { ...first, projectId: randomUUID() },
+    { ...first, messages: [{ role: "invalid" }] },
+  ]) {
+    await writeFile(path, JSON.stringify(replacement));
+    expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([
+      second.id,
+    ]);
+  }
   await rm(path);
   await symlink(join(f.root, ".tidy/threads", `${second.id}.json`), path);
   expect((await f.store.snapshot(project.id)).threads.map((item) => item.id)).toEqual([second.id]);
@@ -626,11 +670,15 @@ test("a thread changed during a snapshot cannot seed a stale summary cache", asy
   const f = await fixture();
   const { project } = await f.store.open(f.root);
   const original = thread(project.id);
+  original.messages[0].text = "x".repeat(70_000);
   await f.store.writeThread(original);
-  const read = f.store.readThread.bind(f.store);
+  const read = CloudCompute.prototype.readThreadSummary;
   let changed = false;
-  spyOn(f.store, "readThread").mockImplementation(async (...args) => {
-    const result = await read(...args);
+  spyOn(CloudCompute.prototype, "readThreadSummary").mockImplementation(async function (
+    this: CloudCompute,
+    path,
+  ) {
+    const result = await read.call(this, path);
     if (!changed) {
       changed = true;
       await f.store.writeThread({ ...original, title: "Newer title" });

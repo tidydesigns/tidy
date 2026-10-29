@@ -39,7 +39,7 @@ import {
 } from "./design-file";
 
 // One lazy, unref'd reader per process, rather than a worker for each open project/store.
-const designReader = new CloudCompute();
+const fileReader = new CloudCompute();
 
 import { storedThreadSchema as threadSchema } from "../../shared/contracts/desktop";
 
@@ -417,13 +417,25 @@ export class ProjectStore {
     const thread = threadSchema.parse(
       await this.read(await this.storagePath(projectId, "threads", threadId)),
     );
+    return this.authorizeThread({ thread, projectId, threadId });
+  }
+
+  private async authorizeThread<T extends Thread | ThreadSummary>({
+    thread,
+    projectId,
+    threadId,
+  }: {
+    thread: T;
+    projectId: string;
+    threadId: string;
+  }): Promise<T> {
     if (thread.projectId !== projectId || thread.id !== threadId)
       throw new Error("This thread belongs to another project.");
     const authority = await this.authority.read(this.project(projectId).path, thread);
     if (authority && authority.harness !== thread.harness)
       throw new Error("This thread's harness changed on disk. Start a new thread.");
     await this.assertThreadExecution(thread);
-    thread.sessionId = authority?.sessionId;
+    if ("messages" in thread) thread.sessionId = authority?.sessionId;
     const settings = { ...thread.settings };
     delete settings.permissionMode;
     thread.settings =
@@ -509,10 +521,10 @@ export class ProjectStore {
       const key = `${path}:${stamp}`;
       let read = this.designReads.get(key);
       if (!read) {
-        read = designReader.readFile(path, background);
+        read = fileReader.readFile(path, background);
         this.designReads.set(key, read);
         void read.finally(() => this.designReads.delete(key)).catch(() => {});
-      } else if (!background) designReader.prioritizeFile(path);
+      } else if (!background) fileReader.prioritizeFile(path);
       cached = await read;
       this.designCache.delete(path);
       this.designCache.set(path, cached);
@@ -560,7 +572,7 @@ export class ProjectStore {
     const stamp = designFileStamp(await stat(path, { bigint: true }));
     let cached = this.summaryCache.get(path);
     if (!cached || cached.stamp !== stamp) {
-      cached = await designReader.readSummary(path);
+      cached = await fileReader.readSummary(path);
       this.cacheSummary(path, cached);
     }
     return cached;
@@ -783,22 +795,20 @@ export class ProjectStore {
     const cached = this.threadSummaryCache.get(path);
     if (cached?.stamp === stamp) {
       const summary = structuredClone(cached.summary);
-      const authority = await this.authority.read(this.project(projectId).path, summary);
-      if (authority && authority.harness !== summary.harness)
-        throw new Error("This thread's harness changed on disk. Start a new thread.");
-      await this.assertThreadExecution(summary);
-      const settings = { ...summary.settings };
-      delete settings.permissionMode;
-      summary.settings =
-        authority?.permissionMode || Object.keys(settings).length
-          ? { ...settings, permissionMode: authority?.permissionMode }
-          : undefined;
+      await this.authorizeThread({ thread: summary, projectId, threadId });
       this.threadSummaryCache.delete(path);
       this.threadSummaryCache.set(path, cached);
       return summary;
     }
     this.threadSummaryCache.delete(path);
-    const summary = summarizeThread(await this.readThread(projectId, threadId));
+    const summary =
+      info.size > 64n * 1024n
+        ? await this.authorizeThread({
+            thread: await fileReader.readThreadSummary(path),
+            projectId,
+            threadId,
+          })
+        : summarizeThread(await this.readThread(projectId, threadId));
     if (designFileStamp(await lstat(path, { bigint: true })) === stamp) {
       this.threadSummaryCache.set(path, { stamp, summary: structuredClone(summary) });
       while (this.threadSummaryCache.size > 1000) {
