@@ -20,7 +20,7 @@ export async function HomeEditorial() {
               All articles <span aria-hidden="true">→</span>
             </Link>
           </div>
-          <PostList posts={posts} />
+          <PostList posts={posts} headingLevel={3} />
         </section>
       )}
       <section

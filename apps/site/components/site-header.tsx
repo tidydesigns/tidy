@@ -40,7 +40,9 @@ function HeaderLinks({ pathname, onNavigate }: { pathname: string; onNavigate?: 
       <Link
         className="header-link"
         href="/blog"
-        aria-current={pathname === "/blog" || pathname.startsWith("/blog/") ? "page" : undefined}
+        aria-current={
+          pathname === "/blog" ? "page" : pathname.startsWith("/blog/") ? "location" : undefined
+        }
         onClick={onNavigate}
       >
         Blog
