@@ -1,3 +1,6 @@
+import { storedThreadSchema } from "../../shared/contracts/desktop";
+import { summarizeThread } from "../../shared/models/thread-updates";
+import { readLocalFile } from "../platform/local-files";
 import { parentPort } from "node:worker_threads";
 import { parseDesignDocument } from "@tidy/design/document";
 import { diffDocument } from "@tidy/editor/design/document-patch";
@@ -16,7 +19,7 @@ function remap(value: unknown, aliases: Record<string, string>): unknown {
     ]),
   );
 }
-const reads: Extract<ComputeRequest, { kind: "read-file" }>[] = [];
+const reads: Extract<ComputeRequest, { kind: "read-file" | "read-thread-summary" }>[] = [];
 let reading = false;
 async function drainReads() {
   if (reading) return;
@@ -24,7 +27,9 @@ async function drainReads() {
   try {
     while (reads.length) {
       // A canvas open must not wait behind a cold folder's metadata scan.
-      const full = reads.findIndex((request) => !request.summary && !request.background);
+      const full = reads.findIndex(
+        (request) => request.kind === "read-file" && !request.summary && !request.background,
+      );
       await run(reads.splice(full < 0 ? 0 : full, 1)[0]);
     }
   } finally {
@@ -33,6 +38,13 @@ async function drainReads() {
 }
 async function run(request: ComputeRequest) {
   try {
+    if (request.kind === "read-thread-summary") {
+      const thread = storedThreadSchema.parse(
+        JSON.parse((await readLocalFile(request.path)).toString("utf8")),
+      );
+      parentPort!.postMessage({ id: request.id, value: summarizeThread(thread) });
+      return;
+    }
     if (request.kind === "read-file") {
       const file = await readDesignFile(request.path);
       if (request.summary) {
@@ -51,7 +63,8 @@ async function run(request: ComputeRequest) {
     parentPort!.postMessage({
       id: request.id,
       error:
-        request.kind === "read-file" && error instanceof Error
+        (request.kind === "read-file" || request.kind === "read-thread-summary") &&
+        error instanceof Error
           ? error.message.slice(0, 300)
           : "This design could not be compared for sync.",
     });
@@ -59,10 +72,11 @@ async function run(request: ComputeRequest) {
 }
 parentPort?.on("message", (request: ComputeRequest | { kind: "prioritize"; path: string }) => {
   if (request.kind === "prioritize") {
-    for (const queued of reads) if (queued.path === request.path) queued.background = false;
+    for (const queued of reads)
+      if (queued.kind === "read-file" && queued.path === request.path) queued.background = false;
     return;
   }
-  if (request.kind === "read-file") {
+  if (request.kind === "read-file" || request.kind === "read-thread-summary") {
     reads.push(request);
     void drainReads();
   } else void run(request);
