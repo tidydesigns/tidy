@@ -8,6 +8,13 @@ type Snapshot = {
 // Share local consent metadata between diagnostics and settings, never persist it
 // in renderer storage or reuse it for a different native API/session.
 const snapshots = new WeakMap<AnalyticsAPI, Snapshot>();
+
+/** Expired renderer metadata cannot carry another purpose into a new consent choice. */
+export function unexpiredAnalyticsState(value: AnalyticsState | undefined) {
+  if (!value?.expiresAt || Date.parse(value.expiresAt) > Date.now()) return value;
+  return { ...value, usage: false, diagnostics: false, linked: false, expiresAt: null };
+}
+
 function snapshot(api: AnalyticsAPI) {
   let entry = snapshots.get(api);
   if (!entry) {

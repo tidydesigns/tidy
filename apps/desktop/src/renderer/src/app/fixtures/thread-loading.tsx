@@ -337,6 +337,102 @@ async function runThreadLoadingTests(): Promise<string[]> {
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
+  await run("expired purpose toggles never renew the other purpose", async (root) => {
+    const expired: AnalyticsState = {
+      notice: ANALYTICS_NOTICE,
+      available: true,
+      usage: true,
+      diagnostics: true,
+      expiresAt: new Date(0).toISOString(),
+      linked: true,
+      pendingDeletion: false,
+      reference: null,
+    };
+    const submitted: { usage: boolean; diagnostics: boolean }[] = [];
+    const read = deferred<AnalyticsState>();
+    let reads = 0;
+    const api: AnalyticsAPI = {
+      ...required(nativeAPI.analytics, "Analytics preload API"),
+      state: () => (++reads === 1 ? Promise.resolve(expired) : read.promise),
+      subscribe: () => () => {},
+      choose: async (choice) => {
+        submitted.push(choice);
+        return {
+          ...expired,
+          ...choice,
+          linked: false,
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        };
+      },
+    };
+    await readAnalyticsState(api);
+    flushSync(() => root.render(<PrivacySettings api={api} active />));
+    check(host.textContent?.includes("Both off"), "Expired choices were displayed as enabled");
+    flushSync(() =>
+      required(
+        host.querySelector<HTMLButtonElement>(".settings-privacy-disclosure"),
+        "Purpose disclosure",
+      ).click(),
+    );
+    const switches = [...host.querySelectorAll<HTMLButtonElement>('[role="switch"]')];
+    check(
+      switches.every((button) => button.getAttribute("aria-checked") === "false"),
+      "Expired purpose switches were enabled",
+    );
+    required(switches[0], "Usage switch").click();
+    await until(() => submitted.length === 1, "Submit explicit usage choice");
+    check(
+      submitted[0].usage && !submitted[0].diagnostics,
+      "Usage toggle silently renewed expired diagnostics",
+    );
+    read.resolve({ ...expired, usage: false, diagnostics: false, linked: false, expiresAt: null });
+    await settle();
+    check(
+      switches[0].getAttribute("aria-checked") === "true",
+      "Late expiration read undid the explicit choice",
+    );
+  });
+
+  await run(
+    "privacy refresh recovery clears read errors and expires displayed choices",
+    async (root) => {
+      let fail = true;
+      const api: AnalyticsAPI = {
+        ...required(nativeAPI.analytics, "Analytics preload API"),
+        state: async () => {
+          if (fail) throw new Error("Synthetic offline read");
+          return {
+            notice: ANALYTICS_NOTICE,
+            available: true,
+            usage: true,
+            diagnostics: true,
+            expiresAt: new Date(Date.now() + 150).toISOString(),
+            linked: false,
+            pendingDeletion: false,
+            reference: null,
+          };
+        },
+        subscribe: () => () => {},
+      };
+      const render = (active: boolean) =>
+        flushSync(() => root.render(<PrivacySettings api={api} active={active} />));
+      render(true);
+      await until(() => Boolean(host.querySelector('[role="alert"]')), "Read error displayed");
+      render(false);
+      fail = false;
+      render(true);
+      await until(
+        () => Boolean(host.textContent?.includes("Both enabled")),
+        "Activation read recovered",
+      );
+      check(!host.querySelector('[role="alert"]'), "Successful read retained the old read error");
+      await until(
+        () => Boolean(host.textContent?.includes("Both off")),
+        "Visible consent expires without focus or navigation",
+      );
+    },
+  );
+
   await run(
     "reopening privacy refreshes retained consent and allows expired choices to renew",
     async (root) => {

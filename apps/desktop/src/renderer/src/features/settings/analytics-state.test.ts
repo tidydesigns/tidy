@@ -4,6 +4,7 @@ import {
   cachedAnalyticsState,
   readAnalyticsState,
   subscribeAnalyticsState,
+  unexpiredAnalyticsState,
 } from "./analytics-state";
 
 const off: AnalyticsState = {
@@ -16,6 +17,28 @@ const off: AnalyticsState = {
   pendingDeletion: false,
   reference: null,
 };
+
+test("expired cached consent drops both purposes and account linking without changing its source", () => {
+  const expired = {
+    ...off,
+    usage: true,
+    diagnostics: true,
+    linked: true,
+    expiresAt: new Date(0).toISOString(),
+  };
+  expect(unexpiredAnalyticsState(expired)).toEqual({
+    ...expired,
+    usage: false,
+    diagnostics: false,
+    linked: false,
+    expiresAt: null,
+  });
+  expect(expired.usage).toBe(true);
+  const valid = { ...expired, expiresAt: new Date(Date.now() + 60_000).toISOString() };
+  expect(unexpiredAnalyticsState(valid)).toBe(valid);
+  expect(unexpiredAnalyticsState(off)).toBe(off);
+  expect(unexpiredAnalyticsState(undefined)).toBeUndefined();
+});
 
 function fixture() {
   const listeners = new Set<(state: AnalyticsState) => void>();
