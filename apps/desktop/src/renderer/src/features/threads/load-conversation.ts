@@ -6,7 +6,3 @@ export function loadConversation() {
     throw error;
   }));
 }
-
-export function preloadConversation() {
-  void loadConversation().catch(() => {});
-}

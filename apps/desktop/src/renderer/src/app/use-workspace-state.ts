@@ -22,7 +22,10 @@ export function useWorkspaceState({
   initialThreads,
   connection,
 }: {
-  api: Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> | undefined;
+  api:
+    | (Pick<DesktopAPI, "bootstrap" | "selectProject" | "readThread" | "onEvent"> &
+        Partial<Pick<DesktopAPI, "checkHarnesses">>)
+    | undefined;
   navigation: RefObject<number>;
   onError: (error: WorkspaceError) => void;
   initial?: Bootstrap;
@@ -81,8 +84,10 @@ export function useWorkspaceState({
     [api],
   );
 
-  function applySnapshot(value: ProjectSnapshot, activate = true) {
+  function applySnapshot(value: ProjectSnapshot, activate = true, expected?: ProjectSnapshot) {
     setSnapshots((current) => {
+      // A background refresh must not erase edits or events received since it began.
+      if (expected && current[value.project.id] !== expected) return current;
       const summaries = new Map(value.threads.map((item) => [item.id, item]));
       for (const item of current[value.project.id]?.threads ?? []) {
         if ((summaries.get(item.id)?.revision ?? -1) < item.revision) summaries.set(item.id, item);
@@ -154,6 +159,17 @@ export function useWorkspaceState({
         unsubscribe();
       };
     }
+    let harnessesRefreshed = false;
+    void api
+      .checkHarnesses?.()
+      .then((value) => {
+        if (!mounted) return;
+        harnessesRefreshed = true;
+        setHarnesses(value);
+      })
+      .catch((cause: unknown) => {
+        if (mounted) onError({ text: errorText(cause), original: cause });
+      });
     const initialNavigation = navigation.current;
     const prepared = initialBootstrap.current;
     initialBootstrap.current = undefined;
@@ -162,7 +178,7 @@ export function useWorkspaceState({
         if (!mounted) return;
         loaded.current = true;
         setProjects(value.projects.filter((p) => !p.cloud));
-        setHarnesses(value.harnesses);
+        if (!harnessesRefreshed) setHarnesses(value.harnesses);
         let activeProject = value.activeProject;
         if (
           navigation.current === initialNavigation &&

@@ -65,6 +65,7 @@ export function ProjectSwitcher({
   const removing = useRef(new Set<string>());
   const catalogVersions = useRef(new Map<string, number>());
   const request = useRef(0);
+  const committed = useRef(false);
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
@@ -142,7 +143,10 @@ export function ProjectSwitcher({
     setSelection({ kind: "opening", machineId, projectId });
     try {
       await onChoose(machineId, projectId);
-      if (live.current && request.current === version) close();
+      if (live.current && request.current === version) {
+        committed.current = true;
+        close();
+      }
     } catch (cause) {
       if (live.current && request.current === version)
         setSelection({ kind: "error", machineId, text: errorText(cause) });
@@ -165,9 +169,10 @@ export function ProjectSwitcher({
       onOpenChange={(open) => {
         setSelection({ kind: "idle" });
         if (open) {
+          committed.current = false;
           setVisit((value) => value + 1);
         } else {
-          onCancelNavigation?.();
+          if (!committed.current) onCancelNavigation?.();
           request.current++;
         }
       }}

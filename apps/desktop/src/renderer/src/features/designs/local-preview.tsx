@@ -35,7 +35,7 @@ export function LocalPreview({
   const [url, setURL] = useState<string>();
   const [prepared, setPrepared] = useState<Prepared>();
   useLayoutEffect(() => {
-    if (!visible || !enabled) {
+    if (!visible) {
       setBlob(undefined);
       setURL(undefined);
       return;
@@ -45,15 +45,17 @@ export function LocalPreview({
     const url = URL.createObjectURL(source);
     setURL(url);
     return () => URL.revokeObjectURL(url);
-  }, [blob, visible, enabled, projectId, file.id]);
-  useEffect(() => {
-    if (!container.current) return;
+  }, [blob, visible, projectId, file.id]);
+  // Freeze visibility while the gallery is hidden so returning keeps the raster.
+  // Visible galleries still release offscreen previews to bound image memory.
+  useLayoutEffect(() => {
+    if (!container.current || !enabled) return;
     const observer = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), {
       rootMargin: "160px",
     });
     observer.observe(container.current);
     return () => observer.disconnect();
-  }, []);
+  }, [enabled]);
   useEffect(() => {
     if (!visible || !enabled) return;
     const version = `png-v1:2:${file.updatedAt}`;

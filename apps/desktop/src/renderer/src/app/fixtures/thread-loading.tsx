@@ -35,6 +35,14 @@ function required<T>(value: T | null | undefined, label: string): T {
   return value;
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
 function frame(): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(finish, 50);
@@ -113,7 +121,7 @@ function conversationFixture(root: Root) {
           key={project}
           projectId={project}
           selected={selected}
-          threads={threads}
+          threads={{ ...threads }}
           api={nativeAPI}
           active={active}
         />,
@@ -973,6 +981,42 @@ async function runThreadLoadingTests(): Promise<string[]> {
   });
 
   await run(
+    "workspace renders before agent discovery and keeps the freshest discovery result",
+    async (root) => {
+      const bootstrap = deferred<Bootstrap>();
+      const discovery = deferred<Bootstrap["harnesses"]>();
+      const ready: Bootstrap["harnesses"] = [{ id: "codex", name: "Codex", status: "ready" }];
+      let current: ReturnType<typeof useWorkspaceState> | undefined;
+      const api = {
+        ...nativeAPI,
+        bootstrap: () => bootstrap.promise,
+        checkHarnesses: () => discovery.promise,
+        onEvent: () => () => {},
+      };
+      function Probe() {
+        const navigation = useRef(0);
+        current = useWorkspaceState({ api, navigation, onError: () => {} });
+        return null;
+      }
+      flushSync(() => root.render(<Probe />));
+      bootstrap.resolve({ projects: [], activeProject: null, harnesses: [] });
+      await until(() => current?.loading === false, "Workspace before slow discovery");
+      check(current?.harnesses.length === 0, "Invented a harness status before discovery");
+      discovery.resolve(ready);
+      await until(() => current?.harnesses === ready, "Background discovery");
+
+      // Discovery may also beat a slow project snapshot on the next mount.
+      const slowBootstrap = deferred<Bootstrap>();
+      api.bootstrap = () => slowBootstrap.promise;
+      flushSync(() => root.render(<Probe key="fresh" />));
+      await until(() => current?.harnesses === ready, "Discovery before slow workspace");
+      slowBootstrap.resolve({ projects: [], activeProject: null, harnesses: [] });
+      await until(() => current?.loading === false, "Slow workspace");
+      check(current?.harnesses === ready, "Older bootstrap erased completed discovery");
+    },
+  );
+
+  await run(
     "pending thread reads are shared and newer events survive late disk responses",
     async (root) => {
       const { initial, state, calls, pending, emit, errors } = await workspaceFixture(root);
@@ -1002,6 +1046,26 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(errors.length === 0, "Successful reads reported an error");
     },
   );
+
+  await run("cached project refreshes cannot erase newer design events", async (root) => {
+    const { state, emit } = await workspaceFixture(root);
+    const before = required(state().snapshots[projectId], "Initial project snapshot");
+    const design = {
+      id: crypto.randomUUID(),
+      name: "New design",
+      path: "/fixture/design",
+      updatedAt: timestamp,
+    };
+    emit({ type: "designs", projectId, designs: [design], folders: [] });
+    flushSync(() => state().applySnapshot(before, true, before));
+    check(state().snapshots[projectId].designs[0] === design, "Late refresh erased the newer file");
+    const current = state().snapshots[projectId];
+    flushSync(() => state().applySnapshot({ ...current, designs: [] }, true, current));
+    check(
+      state().snapshots[projectId].designs.length === 0,
+      "Unchanged cached snapshot did not refresh",
+    );
+  });
 
   await run(
     "stale events preserve state identity and equal-revision snapshots still reconcile",
@@ -1437,6 +1501,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       let loads = 0;
       const choices: { machine: string; project?: string }[] = [];
       let added = 0;
+      let cancelled = 0;
       const renderPicker = (disabled = false) =>
         flushSync(() =>
           root.render(
@@ -1454,6 +1519,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
               }}
               onChoose={async (machine, project) => {
                 choices.push({ machine, project });
+              }}
+              onCancelNavigation={() => {
+                cancelled++;
               }}
               onAddMachine={() => {
                 added++;
@@ -1528,8 +1596,13 @@ async function runThreadLoadingTests(): Promise<string[]> {
         "Remote project",
       );
       check(project.title === "/remote/tidy", "Project metadata was not preloaded");
+      const cancelledBeforeSelection = cancelled;
       project.click();
       await until(() => !dialog.matches(":popover-open"), "Project opens and closes switcher");
+      check(
+        cancelled === cancelledBeforeSelection,
+        "Completed selection cancelled its background refresh",
+      );
       check(
         choices[0]?.machine === remoteId && choices[0]?.project === remoteProject.id,
         "Project opened on the wrong machine",

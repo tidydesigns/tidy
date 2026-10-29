@@ -16,6 +16,7 @@ export function ThreadCard({
   now,
   pending,
   onSelect,
+  onPreload,
   onDone,
   modelName,
   projectName,
@@ -28,6 +29,7 @@ export function ThreadCard({
   now: number;
   pending: boolean;
   onSelect(): void;
+  onPreload?(): void;
   onDone(): void;
   modelName?: string;
   projectName?: string;
@@ -132,7 +134,10 @@ export function ThreadCard({
         orderControls?.onPointerDown(event);
       }}
       onPointerEnter={(event) => {
-        if (event.pointerType === "mouse" && !orderControls?.dragging) show();
+        if (event.pointerType === "mouse" && !orderControls?.dragging) {
+          onPreload?.();
+          show();
+        }
       }}
       onPointerLeave={close}
       onBlur={(event) => {
@@ -160,6 +165,7 @@ export function ThreadCard({
         aria-current={selected ? "true" : undefined}
         aria-describedby={open ? id : undefined}
         onFocus={(event) => {
+          onPreload?.();
           if (event.currentTarget.matches(":focus-visible")) {
             clearTimeout(timer.current);
             setOpen(true);

@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 import { createWorkspaceRequests } from "../ipc/workspace-requests";
+import * as harnessDiscovery from "../harnesses/harnesses";
 import type { startHarness, HarnessUpdate } from "../harnesses/harnesses";
 import type { DesktopEvent, Thread } from "../../shared/contracts/desktop";
 import {
@@ -1761,5 +1762,38 @@ test("a failed final disk write marks the thread failed with storage guidance", 
     expect(await completion).toMatchObject({ status: "failed", errorKind: "storage" });
   } finally {
     writer.mockRestore();
+  }
+});
+
+test("bootstrap returns the project while harness discovery is still pending", async () => {
+  const { service, project } = await fixture();
+  const gate = Promise.withResolvers<Awaited<ReturnType<typeof harnessDiscovery.checkHarnesses>>>();
+  const probe = spyOn(harnessDiscovery, "checkHarnesses").mockImplementation(() => gate.promise);
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const requests = createWorkspaceRequests(service, {
+      chooseProject: async () => null,
+      chooseDesign: async () => null,
+      openExternal: async () => {},
+      showItemInFolder() {},
+    });
+    const result = await Promise.race([
+      requests.invoke("bootstrap", undefined, undefined),
+      new Promise((_, reject) => {
+        deadline = setTimeout(
+          () => reject(new Error("Workspace waited for harness discovery")),
+          1000,
+        );
+      }),
+    ]);
+    expect(result).toMatchObject({ activeProject: { project: { id: project.id } }, harnesses: [] });
+    const refresh = requests.invoke("harnesses", undefined, undefined);
+    gate.resolve([{ id: "codex", name: "Codex", status: "ready" }]);
+    expect(await refresh).toEqual([{ id: "codex", name: "Codex", status: "ready" }]);
+    expect(probe).toHaveBeenCalledTimes(1);
+  } finally {
+    clearTimeout(deadline);
+    gate.resolve([]);
+    probe.mockRestore();
   }
 });

@@ -20,7 +20,7 @@ import { approvalDecisionSchema } from "../../shared/contracts/permissions";
 import { readHarnessDetails } from "../harnesses/harness-details";
 import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../../shared/contracts/attachments";
 import { harnessSettingsSchema } from "../../shared/contracts/harness-settings";
-import { checkHarnesses } from "../harnesses/harnesses";
+import { HarnessDiscovery } from "../harnesses/harness-discovery";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { messageDeliverySchema, queueRequestSchema } from "../../shared/contracts/message-queue";
 import { chatLinkRequestSchema, openChatLink } from "../workspace/chat-links";
@@ -37,6 +37,7 @@ export function createWorkspaceRequests<Context>(
   platform: WorkspacePlatform<Context>,
 ) {
   const store = service.store;
+  const harnessDiscovery = new HarnessDiscovery();
   const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
   const projectId = uuid;
@@ -145,7 +146,7 @@ export function createWorkspaceRequests<Context>(
   });
   handle("import-draft", draftImportSchema, (input) => imports.import(input));
   handle("bootstrap", z.undefined(), async () => {
-    const harnesses = checkHarnesses();
+    const harnesses = harnessDiscovery.snapshot();
     let activeProject = null;
     if (
       store.activeProjectId &&
@@ -162,7 +163,7 @@ export function createWorkspaceRequests<Context>(
     return {
       projects: store.projects.filter((project) => !project.cloud),
       activeProject,
-      harnesses: await harnesses,
+      harnesses,
     };
   });
   handle("open-project", z.undefined(), async (_value, event) => {
@@ -238,7 +239,7 @@ export function createWorkspaceRequests<Context>(
       }
     },
   );
-  handle("harnesses", z.undefined(), () => checkHarnesses());
+  handle("harnesses", z.undefined(), () => harnessDiscovery.refresh());
   handle("read-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.readThread(value.projectId, value.threadId),
   );
