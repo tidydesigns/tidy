@@ -70,6 +70,35 @@
   letter-spacing: -0.065em;
   overflow-wrap: anywhere;
 }
+.launchBanner {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 9px 16px 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: linear-gradient(110deg, #ee897a14, #a894e81a), var(--background);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
+  text-decoration: none;
+}
+.launchBanner svg {
+  flex-shrink: 0;
+}
+.launchBannerArrow {
+  margin-left: 4px;
+  font-size: 18px;
+  line-height: 1;
+}
+@media (hover: hover) and (pointer: fine) {
+  .launchBanner:hover {
+    border-color: var(--muted);
+  }
+}
 .heroDescription {
   margin: 28px 0 24px;
   font-size: 20px;
