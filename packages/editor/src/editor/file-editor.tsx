@@ -175,6 +175,7 @@ import {
 import { CanvasColorPicker } from "./canvas-color-picker";
 import { TokenPanel } from "./token-panel";
 import { resolvedColorTokens, resolvedDocumentNodes } from "../design/design-tokens";
+import { nodeIndex } from "../design/node-index";
 import { useEditorEvent } from "./use-editor-event";
 import { useFrameEvent } from "./use-frame-event";
 import { useEditorPerformance } from "../host-performance";
@@ -2904,13 +2905,17 @@ export function FileEditor({
       ) {
         event.preventDefault();
         const step = nudgeStep * (event.shiftKey ? 10 : 1);
-        // Nudges need selected parent sizes, not the drag gesture's full scene snap index.
-        const parents = new Map(
-          selectedElements(viewport.current, selectedIds).map((element) => [
-            element.dataset.nodeId!,
-            renderedParentSize(element),
-          ]),
-        );
+        const byId = nodeIndex(room.getSnapshot().content.nodes);
+        const parents = new Map<string, { width: number; height: number }>();
+        for (const element of selectedElements(viewport.current, selectedIds)) {
+          const id = element.dataset.nodeId;
+          const node = byId.get(id ?? "");
+          if (
+            id &&
+            (node?.horizontalConstraint === "scale" || node?.verticalConstraint === "scale")
+          )
+            parents.set(id, renderedParentSize(element));
+        }
         void changeDocument((content) => ({
           ...content,
           nodes: movedLayers(

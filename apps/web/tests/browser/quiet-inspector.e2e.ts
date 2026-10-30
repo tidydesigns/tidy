@@ -56,6 +56,7 @@ test("quiet text inspector preserves measured size, editing, sizing modes and un
   await page.getByLabel("Design canvas", { exact: true }).focus();
   await page.keyboard.press("ControlOrMeta+z");
   await expect(rotation).toHaveValue("0");
+  await expect(page.locator('[data-node-id="desktop-heading"]')).toHaveCSS("transform", "none");
 });
 
 test("layout disclosure edits real container flow and preserves its open state across selection", async ({

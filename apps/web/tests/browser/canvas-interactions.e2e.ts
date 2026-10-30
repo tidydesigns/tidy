@@ -1,4 +1,5 @@
 import { test, expect, required } from "./fixtures";
+import { chooseSelectMenu } from "../../scripts/select-menu-controls.mjs";
 
 test.beforeEach(async ({ page }) => {
   await page.removeLocatorHandler(
@@ -14,7 +15,34 @@ declare global {
   }
 }
 
-test("selection clicks in a dense artboard do not measure snapping candidates", async ({
+for (const [axis, dimension, coordinate, key] of [
+  ["Horizontal", "width", "left", "ArrowRight"],
+  ["Vertical", "height", "top", "ArrowDown"],
+] as const) {
+  test(`${axis.toLowerCase()} scale nudges use the rendered parent size`, async ({ page }) => {
+    await page.goto("/dev/hover-preview");
+    await page.getByRole("button", { name: "Select Header", exact: true }).click();
+    await page.locator("summary").filter({ hasText: "Transform & constraints" }).click();
+    await chooseSelectMenu(page, `${axis} constraint`, "Scale");
+    const parent = page.locator('[data-node-id="hover-board"]');
+    await parent.evaluate((element, dimension) => {
+      if (!(element instanceof HTMLElement)) throw new Error("Expected an artboard.");
+      element.style[dimension] = `${parseFloat(getComputedStyle(element)[dimension]) * 2}px`;
+    }, dimension);
+    const node = page.locator('[data-node-id="hover-header"]');
+    const before = await node.evaluate(
+      (element, coordinate) => parseFloat(getComputedStyle(element)[coordinate]),
+      coordinate,
+    );
+    await page.getByLabel("Design canvas", { exact: true }).focus();
+    await page.keyboard.press(key);
+    await expect(node).toHaveCSS(coordinate, `${before + 1}px`);
+    await page.keyboard.press("ControlOrMeta+z");
+    await expect(node).toHaveCSS(coordinate, `${before}px`);
+  });
+}
+
+test("dense selection clicks and keyboard nudges avoid unrelated layout reads", async ({
   page,
 }) => {
   await page.goto("/dev/hover-preview?nodes=5000");
@@ -48,6 +76,30 @@ test("selection clicks in a dense artboard do not measure snapping candidates", 
       delete window.selectionReads;
     });
   }
+  const node = page.locator('[data-node-id="dense-25"]');
+  const before = await node.evaluate((element) => parseFloat(getComputedStyle(element).left));
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  const reads = await page.evaluate(() => {
+    const parent = document.querySelector('[data-node-id="hover-board"]');
+    const original = window.getComputedStyle;
+    let reads = 0;
+    window.getComputedStyle = (element, pseudo) => {
+      if (element === parent) reads++;
+      return original.call(window, element, pseudo);
+    };
+    try {
+      document
+        .querySelector('[aria-label="Design canvas"]')
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      return reads;
+    } finally {
+      window.getComputedStyle = original;
+    }
+  });
+  expect(reads).toBe(0);
+  await expect(node).toHaveCSS("left", `${before + 1}px`);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(node).toHaveCSS("left", `${before}px`);
 });
 
 test("selection outlines keep screen-pixel widths through zoom and restore layer outlines", async ({

@@ -87,12 +87,15 @@ function CommentPin({
   const card = useRef<HTMLDivElement>(null);
   const [position, setPosition] = useState({ left: 9, top: -17, maxWidth: 336 });
   const first = thread.preview ?? thread.messages[0];
-  const onCanvas =
+  const open = Boolean(
+    first &&
+    !selected &&
+    previewId === thread.id &&
     x >= -17 &&
     y >= -17 &&
     x <= (viewport.current?.clientWidth ?? 0) + 17 &&
-    y <= (viewport.current?.clientHeight ?? 0) + 17;
-  const open = Boolean(first && onCanvas && !selected && previewId === thread.id);
+    y <= (viewport.current?.clientHeight ?? 0) + 17,
+  );
   const dismiss = useCallback(() => {
     setPreviewId((current) => (current === thread.id ? null : current));
   }, [setPreviewId, thread.id]);
@@ -800,8 +803,8 @@ export const CanvasComments = forwardRef<
     ),
   );
   const point = draft ?? active ?? null;
-  const width = viewport.current?.clientWidth ?? 0;
-  const height = viewport.current?.clientHeight ?? 0;
+  const width = point ? (viewport.current?.clientWidth ?? 0) : 0;
+  const height = point ? (viewport.current?.clientHeight ?? 0) : 0;
   const popupX = point ? Math.max(12, Math.min(width - 332, point.x * view.zoom + view.x + 22)) : 0;
   const popupY = point
     ? Math.max(12, Math.min(height - 340, point.y * view.zoom + view.y + 22))

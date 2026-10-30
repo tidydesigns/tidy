@@ -48,6 +48,21 @@ function difference(
 export function diffDocument(before: DesignDocument, after: DesignDocument): DocumentPatch {
   const patch: DocumentPatch = [];
   for (const collection of ["nodes", "pages"] as const) {
+    const beforeItems = before[collection];
+    const afterItems = after[collection];
+    if (beforeItems === afterItems) continue;
+    if (
+      beforeItems.length === afterItems.length &&
+      beforeItems.every((item, index) => item.id === afterItems[index].id)
+    ) {
+      for (let index = 0; index < beforeItems.length; index++) {
+        const item = beforeItems[index];
+        difference(item, afterItems[index], [], (path, a, b) =>
+          patch.push({ collection, id: item.id, path, before: a, after: b }),
+        );
+      }
+      continue;
+    }
     const old = new Map(before[collection].map((item) => [item.id, item]));
     const next = new Map(after[collection].map((item) => [item.id, item]));
     for (const id of new Set([...old.keys(), ...next.keys()]))

@@ -1,5 +1,10 @@
 import { parseDesignDocument, type DocumentParser, type DesignDocument } from "./document";
-import { applyDocumentPatch, invertPatch, type DocumentPatch } from "./document-patch";
+import {
+  applyDocumentPatch,
+  documentPatchSchema,
+  invertPatch,
+  type DocumentPatch,
+} from "./document-patch";
 import { equalJsonValues } from "./json-value";
 import { applyRevisionChanges, type RevisionChanges } from "./revision-sync";
 
@@ -15,7 +20,9 @@ type Pending = { operationId: string; patch: DocumentPatch };
 export class RoomEditQueue {
   private authoritative: RoomSnapshot;
   private pending: Pending[] = [];
-  private optimistic: { snapshot: RoomSnapshot; operation?: Pending } | undefined;
+  private optimistic:
+    | { snapshot: RoomSnapshot; operation?: Pending; pendingKey?: string }
+    | undefined;
   private queue: Promise<unknown> = Promise.resolve();
   constructor(
     initial: RoomSnapshot,
@@ -38,6 +45,38 @@ export class RoomEditQueue {
     return this.authoritative;
   }
 
+  private pendingKey() {
+    if (this.pending.length > 128) return;
+    const maxKeyCodeUnits = 32_768;
+    try {
+      const operations: string[] = [];
+      let codeUnits = 2;
+      for (const operation of this.pending) {
+        if (
+          operation.patch.length > 32 ||
+          operation.patch.some((change) =>
+            [change.before.value, change.after.value].some(
+              (value) =>
+                (value !== null && typeof value === "object") ||
+                (typeof value === "string" && value.length > maxKeyCodeUnits),
+            ),
+          )
+        )
+          return;
+        const key = JSON.stringify({
+          operationId: operation.operationId,
+          patch: documentPatchSchema.parse(operation.patch),
+        });
+        codeUnits += key.length + 1;
+        if (codeUnits > maxKeyCodeUnits) return;
+        operations.push(key);
+      }
+      return `[${operations.join(",")}]`;
+    } catch {
+      return;
+    }
+  }
+
   getSnapshot(): RoomSnapshot {
     if (this.optimistic) return this.optimistic.snapshot;
     if (!this.pending.length) return this.authoritative;
@@ -53,7 +92,7 @@ export class RoomEditQueue {
       }
     }
     const snapshot = { revision: this.authoritative.revision, content };
-    this.optimistic = { snapshot, operation: applied };
+    this.optimistic = { snapshot, operation: applied, pendingKey: this.pendingKey() };
     return snapshot;
   }
   /** Reuse a fully validated optimistic result only for the exact single edit the server accepted. */
@@ -101,9 +140,23 @@ export class RoomEditQueue {
     ) => Promise<RoomCommit>,
     dependency?: CommitDependency,
   ): Promise<RoomCommit> {
+    const cached = this.optimistic;
+    const reuse = cached?.pendingKey !== undefined && cached.pendingKey === this.pendingKey();
     const operation = { operationId: crypto.randomUUID(), patch };
     this.pending.push(operation);
     this.optimistic = undefined;
+    if (cached && reuse && this.pending.length > 1) {
+      let content = cached.snapshot.content;
+      try {
+        content = applyDocumentPatch(content, patch, false, this.parse);
+      } catch {
+        /* A rejected target must not hide other pending edits. */
+      }
+      this.optimistic = {
+        snapshot: { revision: this.authoritative.revision, content },
+        pendingKey: this.pendingKey(),
+      };
+    }
     this.restore();
     const run = async () => {
       try {
