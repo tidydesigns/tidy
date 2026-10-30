@@ -25,9 +25,11 @@ The pane can be resized or expanded; **Hide browser** returns to the conversatio
 without closing tabs.
 
 Each thread has an isolated browser session shared with its agent. **Take control**
-stops queued agent input; **Release** lets the agent continue. F6 focuses the address
-bar. Standard browser shortcuts open and close tabs, reload and find. Shift-reload
-bypasses the cache; Enter and Shift-Enter move through find results.
+stops queued agent input; **Release** lets the agent continue. JavaScript already
+submitted to a page can continue running after control changes; taking control does
+not undo page effects. F6 focuses the address bar. Standard browser shortcuts open
+and close tabs, reload and find. Shift-reload bypasses the cache; Enter and
+Shift-Enter move through find results.
 
 The first page installs a pinned Chrome Headless Shell into `~/.cache/tidy/browser`.
 Installation shows progress and can be retried after a failure. Set

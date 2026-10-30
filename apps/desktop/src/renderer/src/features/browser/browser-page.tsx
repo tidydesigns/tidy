@@ -216,13 +216,13 @@ export function BrowserPage({
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") return;
-    if (
-      event.key.length === 1 &&
+    const text =
+      [...event.key].length === 1 &&
       !event.metaKey &&
       !event.ctrlKey &&
       (!event.altKey || navigator.platform.startsWith("Mac"))
-    )
-      return;
+        ? event.key
+        : "";
     event.preventDefault();
     forwardedKeys.current.add(event.code);
     const command =
@@ -235,7 +235,7 @@ export function BrowserPage({
       key: event.key,
       code: event.code,
       keyCode: event.keyCode,
-      text: "",
+      text,
       ...(command ? { command } : {}),
       modifiers: modifierBits(event),
     });

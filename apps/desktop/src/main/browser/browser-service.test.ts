@@ -31,11 +31,33 @@ const browserTest = (name: string, run: () => Promise<void>, timeout = 30000) =>
 
 async function fixture(authorize = async () => {}) {
   const slow = Promise.withResolvers<ServerResponse>();
+  const oversizedDownloadClosed = Promise.withResolvers<void>();
+  const pendingDownloadClosed = Promise.withResolvers<void>();
   const server = createServer((request, response) => {
     if (request.url === "/slow") {
       response.writeHead(200, { "Content-Type": "text/html" });
       response.write("<!doctype html><title>Loading</title>");
       slow.resolve(response);
+      return;
+    }
+    if (request.url === "/pending-download") {
+      response.once("close", () => pendingDownloadClosed.resolve());
+      response.writeHead(200, {
+        "Content-Disposition": 'attachment; filename="pending.bin"',
+        "Content-Type": "application/octet-stream",
+        "Content-Length": 1024 * 1024,
+      });
+      response.write(Buffer.alloc(4096));
+      return;
+    }
+    if (request.url === "/oversized-download") {
+      response.once("close", () => oversizedDownloadClosed.resolve());
+      response.writeHead(200, {
+        "Content-Disposition": 'attachment; filename="large.bin"',
+        "Content-Type": "application/octet-stream",
+        "Content-Length": 16 * 1024 * 1024 + 1,
+      });
+      response.write(Buffer.alloc(4096));
       return;
     }
     if (request.url === "/download") {
@@ -62,7 +84,14 @@ async function fixture(authorize = async () => {}) {
     if (input.projectId !== projectId) throw new Error("Project access denied.");
   });
   cleanups.push(() => browser.close());
-  return { browser, scope, url: `http://127.0.0.1:${address.port}`, slow: slow.promise };
+  return {
+    browser,
+    scope,
+    url: `http://127.0.0.1:${address.port}`,
+    slow: slow.promise,
+    oversizedDownloadClosed: oversizedDownloadClosed.promise,
+    pendingDownloadClosed: pendingDownloadClosed.promise,
+  };
 }
 
 async function watchBrowser({
@@ -1209,3 +1238,140 @@ browserTest("capture retries a failed CDP start when page loading completes", as
     viewer.close();
   }
 });
+
+browserTest(
+  "iframe downloads are visible, bounded and isolated between thread contexts",
+  async () => {
+    const { browser, scope, url, oversizedDownloadClosed } = await fixture();
+    const first = await browser.command(scope, { kind: "open", url });
+    const tabId = first.state.activeTabId;
+    assert.ok(tabId);
+    const otherScope = { ...scope, threadId: randomUUID() };
+    await browser.command(otherScope, { kind: "open", url });
+    await browser.command(scope, {
+      kind: "evaluate",
+      tabId,
+      expression: `new Promise(resolve => {
+      const frame = document.createElement('iframe');
+      frame.src = ${JSON.stringify(url)};
+      frame.onload = resolve;
+      document.body.append(frame);
+    }).then(() => true)`,
+    });
+    await browser.command(scope, {
+      kind: "evaluate",
+      tabId,
+      expression:
+        "document.querySelector('iframe').contentDocument.querySelector('#download').click()",
+    });
+    await until(async () =>
+      (await browser.state(scope)).downloads.some((item) => item.status === "ready"),
+    );
+    const download = (await browser.state(scope)).downloads.find((item) => item.status === "ready");
+    assert.ok(download);
+    const result = await browser.command(scope, {
+      kind: "download",
+      tabId,
+      downloadId: download.id,
+    });
+    assert.equal(Buffer.from(result.output ?? "", "base64").toString(), "Downloaded on host");
+    assert.equal((await browser.state(otherScope)).downloads.length, 0);
+    await browser.command(scope, {
+      kind: "evaluate",
+      tabId,
+      expression:
+        "document.querySelector('iframe').contentDocument.querySelector('#download').href='/oversized-download';document.querySelector('iframe').contentDocument.querySelector('#download').click()",
+    });
+    await until(async () =>
+      (await browser.state(scope)).downloads.some((item) => item.status === "failed"),
+    );
+    await oversizedDownloadClosed;
+    assert.equal((await browser.state(otherScope)).downloads.length, 0);
+  },
+);
+
+browserTest(
+  "a resize waiting behind a screenshot expires when another viewer takes control",
+  async () => {
+    const { browser, scope, url } = await fixture();
+    const opened = await browser.command(scope, { kind: "open", url });
+    const tabId = opened.state.activeTabId;
+    assert.ok(tabId);
+    const first = await watchBrowser({ browser, scope, id: randomUUID(), receive() {} });
+    const second = await watchBrowser({ browser, scope, id: randomUUID(), receive() {} });
+    const started = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    const widths: number[] = [];
+    const send = CdpCDPSession.prototype.send;
+    const interception = mock.method(
+      CdpCDPSession.prototype,
+      "send",
+      async function (this: CdpCDPSession, ...args: Parameters<CdpCDPSession["send"]>) {
+        if (args[0] === "Page.captureScreenshot") {
+          started.resolve();
+          await resume.promise;
+        }
+        if (args[0] === "Emulation.setDeviceMetricsOverride") {
+          const metrics = z.object({ width: z.number() }).parse(args[1]);
+          widths.push(metrics.width);
+        }
+        return Reflect.apply(send, this, args);
+      },
+    );
+    try {
+      const screenshot = browser.command(scope, { kind: "screenshot", tabId });
+      await started.promise;
+      first.input({ tabId, input: { kind: "take-control" } });
+      first.input({ tabId, input: { kind: "resize", width: 390, height: 844 } });
+      await new Promise((resolve) => setImmediate(resolve));
+      second.input({ tabId, input: { kind: "take-control" } });
+      second.input({ tabId, input: { kind: "resize", width: 768, height: 1024 } });
+      resume.resolve();
+      await screenshot;
+      await until(async () => (await browser.state(scope)).tabs[0]?.width === 768);
+      assert.equal(widths.includes(390), false);
+    } finally {
+      resume.resolve();
+      interception.mock.restore();
+      first.close();
+      second.close();
+    }
+  },
+);
+
+browserTest("an evaluation cancelled by takeover cannot report success", async () => {
+  const { browser, scope, url } = await fixture();
+  const opened = await browser.command(scope, { kind: "open", url });
+  const tabId = opened.state.activeTabId;
+  assert.ok(tabId);
+  const viewer = await watchBrowser({ browser, scope, id: randomUUID(), receive() {} });
+  const evaluating = browser.command(scope, {
+    kind: "evaluate",
+    tabId,
+    expression: "new Promise(resolve => setTimeout(() => resolve('finished'), 150))",
+  });
+  const cancelled = assert.rejects(evaluating, /took control/);
+  await until(async () => (await browser.state(scope)).control === "agent");
+  viewer.input({ tabId, input: { kind: "take-control" } });
+  await cancelled;
+  viewer.close();
+});
+
+browserTest(
+  "closing a tab cancels its pending downloads while another tab keeps the context open",
+  async () => {
+    const { browser, scope, url, pendingDownloadClosed } = await fixture();
+    const first = await browser.command(scope, { kind: "open", url });
+    const tabId = first.state.activeTabId;
+    assert.ok(tabId);
+    await browser.command(scope, { kind: "open", url });
+    await browser.command(scope, { kind: "navigate", tabId, url: url + "/pending-download" });
+    await until(async () =>
+      (await browser.state(scope)).downloads.some((item) => item.status === "pending"),
+    );
+    await browser.command(scope, { kind: "close", tabId });
+    await pendingDownloadClosed;
+    assert.equal((await browser.state(scope)).tabs.length, 1);
+    assert.equal((await browser.state(scope)).downloads.length, 0);
+  },
+);

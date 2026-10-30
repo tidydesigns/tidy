@@ -439,6 +439,33 @@ async function run() {
         );
       };
       await clearPageInput();
+      await inspectPage(
+        "window.printableKeys=[];document.onkeydown=e=>{if(e.code==='KeyA')printableKeys.push('down')};document.onkeyup=e=>{if(e.code==='KeyA')printableKeys.push('up')}",
+      );
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "A" });
+      window.webContents.sendInputEvent({ type: "char", keyCode: "a" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "A" });
+      await until(
+        async () => (await inspectPage("window.printableKeys")) === '["down","up"]',
+        `${label} printable keyboard events`,
+      );
+      await until(
+        async () => (await editingSelection()) === '["a",1,1]',
+        `${label} printable text inserted once`,
+      );
+      await inspectPage(
+        "window.preventedKey=false;document.onkeydown=e=>{if(e.code==='KeyB'){e.preventDefault();window.preventedKey=true}}",
+      );
+      window.webContents.sendInputEvent({ type: "keyDown", keyCode: "B" });
+      window.webContents.sendInputEvent({ type: "char", keyCode: "b" });
+      window.webContents.sendInputEvent({ type: "keyUp", keyCode: "B" });
+      await until(
+        async () => (await inspectPage("window.preventedKey")) === "true",
+        `${label} printable key prevention`,
+      );
+      assert.equal(await editingSelection(), '["a",1,1]');
+      await inspectPage("document.onkeydown=null;document.onkeyup=null");
+      await clearPageInput();
       await window.webContents.insertText("alpha beta");
       await until(
         async () => (await editingSelection()) === '["alpha beta",10,10]',

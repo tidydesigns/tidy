@@ -26,6 +26,7 @@ type Tab = {
   navigation: number;
   navigationController?: AbortController;
   frameId: string;
+  frameIds: Set<string>;
   chooser: { id: string; backendNodeId: number; multiple: boolean } | null;
   uploads: string[];
   uploadBytes: number;
@@ -242,8 +243,21 @@ export class BrowserService {
         eventsEnabled: true,
       });
       downloads.on("Browser.downloadWillBegin", (event) => {
-        const tab = [...workspace.tabs.values()].find((tab) => tab.frameId === event.frameId);
-        if (!tab || !workspace.downloadsDirectory) return;
+        const tab = [...workspace.tabs.values()].find((tab) => tab.frameIds.has(event.frameId));
+        if (!tab || !workspace.downloadsDirectory) {
+          if (
+            [...this.workspaces.values()].some(
+              (other) =>
+                other !== workspace &&
+                [...other.tabs.values()].some((tab) => tab.frameIds.has(event.frameId)),
+            )
+          )
+            return;
+          void downloads
+            .send("Browser.cancelDownload", { guid: event.guid, browserContextId: context.id })
+            .catch(ignored);
+          return;
+        }
         if (
           [...workspace.tabs.values()].reduce((total, tab) => total + tab.downloads.size, 0) >= 12
         ) {
@@ -353,13 +367,21 @@ export class BrowserService {
       throw new Error("The browser is closing.");
     }
     const cdp = await page.createCDPSession();
+    const { frameTree } = await cdp.send("Page.getFrameTree");
+    const frameIds = new Set<string>();
+    const collectFrames = (tree: typeof frameTree) => {
+      frameIds.add(tree.frame.id);
+      for (const child of tree.childFrames ?? []) collectFrames(child);
+    };
+    collectFrames(frameTree);
     const tab: Tab = {
       page,
       cdp,
       console: [],
       dialog: null,
       navigation: 0,
-      frameId: (await cdp.send("Page.getFrameTree")).frameTree.frame.id,
+      frameId: frameTree.frame.id,
+      frameIds,
       chooser: null,
       uploads: [],
       uploadBytes: 0,
@@ -426,7 +448,12 @@ export class BrowserService {
       tab.console.push(`error: ${String(error).slice(0, 2000)}`);
       if (tab.console.length > 200) tab.console.shift();
     });
+    cdp.on("Page.frameAttached", ({ frameId }) => tab.frameIds.add(frameId));
+    cdp.on("Page.frameDetached", ({ frameId, reason }) => {
+      if (reason !== "swap") tab.frameIds.delete(frameId);
+    });
     cdp.on("Page.frameNavigated", ({ frame }) => {
+      tab.frameIds.add(frame.id);
       if (frame.parentId) return;
       tab.frameId = frame.id;
       tab.state = {
@@ -466,7 +493,25 @@ export class BrowserService {
     page.once("close", () => {
       for (const directory of tab.uploads)
         this.cleanup(rm(directory, { recursive: true, force: true }));
-      for (const entry of tab.downloads.values()) this.cleanup(rm(entry.path, { force: true }));
+      for (const [guid, entry] of tab.downloads) {
+        const cancelled =
+          entry.status === "pending"
+            ? workspace.downloadSession
+                ?.send("Browser.cancelDownload", {
+                  guid,
+                  browserContextId: page.browserContext().id,
+                })
+                .catch(ignored)
+            : undefined;
+        this.cleanup(
+          Promise.resolve(cancelled).then(() =>
+            Promise.all([
+              rm(entry.path, { force: true }),
+              rm(`${entry.path}.crdownload`, { force: true }),
+            ]),
+          ),
+        );
+      }
       this.pressedKeys.delete(id);
       this.pressedButtons.delete(id);
       tab.navigationController?.abort();
@@ -699,6 +744,7 @@ export class BrowserService {
               awaitPromise: true,
               timeout: 8000,
             });
+            signal.throwIfAborted();
             if (result.exceptionDetails) throw new Error(result.exceptionDetails.text);
             output = JSON.stringify(result.result.value) ?? "null";
             break;
@@ -842,7 +888,16 @@ export class BrowserService {
             workspace.tabs.get(tabId ?? "")?.state.viewId !== viewId
           )
             return;
-          await this.dispatch(workspace, input, tabId);
+          await this.dispatch(
+            workspace,
+            input,
+            tabId,
+            () =>
+              !viewer.closed &&
+              !workspace.lifetime.signal.aborted &&
+              workspace.controller === id &&
+              controlGeneration === workspace.controlGeneration,
+          );
         };
         const failed = (error: unknown) => {
           if (!viewer.closed) send({ kind: "error", message: errorMessage(error) });
@@ -917,7 +972,12 @@ export class BrowserService {
     }
   }
 
-  private async dispatch(workspace: Workspace, input: BrowserInput, tabId: string | null) {
+  private async dispatch(
+    workspace: Workspace,
+    input: BrowserInput,
+    tabId: string | null,
+    stillControls: () => boolean,
+  ) {
     if (input.kind === "release-keys") {
       await this.releaseKeys(workspace, tabId ?? undefined);
       return;
@@ -994,8 +1054,14 @@ export class BrowserService {
         await this.withRenderLock({
           workspace,
           run: async () => {
-            if (tab.state.width === input.width && tab.state.height === input.height) return;
+            if (
+              !stillControls() ||
+              workspace.activeTabId !== tabId ||
+              (tab.state.width === input.width && tab.state.height === input.height)
+            )
+              return;
             await this.releaseKeys(workspace);
+            if (!stillControls() || workspace.activeTabId !== tabId) return;
             this.invalidateView(workspace, tab);
             try {
               await tab.page.setViewport({
