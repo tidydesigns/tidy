@@ -10,9 +10,9 @@ import styles from "./setup-prompt.module.css";
 
 const steps = [
   ["Copy the setup prompt", "Everything your agent needs to connect."],
-  ["Paste it into your agent", "Start a new message and run the prompt."],
-  ["Sign in to Tidy", "Follow the link your agent gives you."],
-];
+  ["Paste and send it in your agent", "Open a chat in Codex, Claude Code or OpenCode."],
+  ["Approve the connection", "Follow your agent’s sign-in link and approve access to Tidy."],
+] as const;
 
 export type SetupPromptProps = {
   resourceUrl: string;
@@ -53,8 +53,9 @@ export function McpPromptButton({
         data-ph-public
         className={styles.copyButton}
         onClick={() => void copyPrompt()}
-        disabled={copying}
+        aria-disabled={copying}
         aria-busy={copying}
+        aria-label={copied ? "Copy setup prompt again" : undefined}
       >
         <span aria-hidden="true" className={styles.agents}>
           <span className={`${styles.agent} ${styles.codex}`} />
@@ -63,10 +64,10 @@ export function McpPromptButton({
         </span>
         <span aria-hidden="true" className={styles.divider} />
         <span className={styles.buttonLabel}>{copied ? "Prompt copied" : "Copy setup prompt"}</span>
-        <Icon name={copied ? "check" : "copy"} size={19} />
+        <Icon name={copied ? "checkBold" : "copy"} size={19} />
       </Button>
       <span role="status" className="sr-only">
-        {copied ? "Prompt copied" : ""}
+        {copied ? "Prompt copied. Paste it into your coding agent and send it." : ""}
       </span>
     </div>
   );
@@ -78,47 +79,74 @@ export function McpSetupGuide({
 }: SetupPromptProps & { variant?: "onboarding" | "workspace" }) {
   const titleId = useId();
   const Heading = variant === "onboarding" ? "h1" : "h2";
+  const nextStep = variant === "onboarding" && props.copied;
   return (
-    <div className={`${styles.guide} ${variant === "workspace" ? styles.workspace : ""}`}>
-      <section aria-labelledby={titleId} className={styles.introduction}>
+    <div
+      className={`${styles.guide} ${variant === "workspace" ? styles.workspace : styles.onboarding}`}
+    >
+      <section aria-labelledby={titleId} className="flex min-w-0 flex-col items-start gap-5">
         <Heading id={titleId} data-ph-public className={styles.title}>
-          Bring your agent
-          <br />
-          to Tidy.
+          {nextStep ? (
+            <>
+              Paste the prompt
+              <br />
+              into your agent.
+            </>
+          ) : (
+            <>
+              Bring your agent
+              <br />
+              to Tidy.
+            </>
+          )}
         </Heading>
         <p data-ph-public className={styles.description}>
-          Connect Tidy to your coding agent.
-          <br />
-          Keep your designs and code in the same conversation.
+          {nextStep ? (
+            "Open a chat in Codex, Claude Code or OpenCode. Paste the prompt and send it. Your agent will guide you through signing in."
+          ) : variant === "onboarding" ? (
+            "Let your coding agent work with your designs. Copy one prompt, then finish connecting in your agent."
+          ) : (
+            <>
+              Connect Tidy to your coding agent. Keep your designs and code in the same
+              conversation.
+            </>
+          )}
         </p>
         <McpPromptButton {...props} />
       </section>
-      <ol aria-label="Connect your agent" data-ph-public className={styles.steps}>
-        {steps.map(([title, description], index) => (
-          <li
-            key={title}
-            aria-current={index === (props.copied ? 1 : 0) ? "step" : undefined}
-            data-active={props.copied && index === 1 ? "" : undefined}
-            data-complete={props.copied && index === 0 ? "" : undefined}
-            className={styles.step}
-          >
-            <span aria-hidden="true" className={styles.stepNumber}>
-              {index + 1}
-            </span>
-            <div>
-              <p className={styles.stepTitle}>{title}</p>
-              <p
-                role={variant === "onboarding" && index === 2 ? "status" : undefined}
-                className={styles.stepDescription}
-              >
-                {variant === "onboarding" && props.copied && index === 2
-                  ? "Waiting for your agent to connect…"
-                  : description}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
+      <div className={`${styles.instructions} min-w-0`}>
+        <ol aria-label="Connect your agent" data-ph-public className={styles.steps}>
+          {steps.map(([title, description], index) => (
+            <li
+              key={title}
+              aria-current={index === (props.copied ? 1 : 0) ? "step" : undefined}
+              data-active={index === (props.copied ? 1 : 0) ? "" : undefined}
+              data-complete={props.copied && index === 0 ? "" : undefined}
+              className={styles.step}
+            >
+              <span aria-hidden="true" className={styles.stepNumber}>
+                {props.copied && index === 0 ? <Icon name="checkBold" size={18} /> : index + 1}
+              </span>
+              <div>
+                <p className={styles.stepTitle}>{title}</p>
+                <p className={styles.stepDescription}>{description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+        {variant === "onboarding" && (
+          <p role="status" data-ph-public className={styles.connectionStatus}>
+            <span
+              aria-hidden="true"
+              className={styles.statusDot}
+              data-waiting={props.copied || undefined}
+            />
+            {props.copied
+              ? "Waiting for your agent to connect…"
+              : "Keep this page open while you connect."}
+          </p>
+        )}
+      </div>
     </div>
   );
 }

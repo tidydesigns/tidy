@@ -1,74 +1,9 @@
-.page {
-  --onboarding-ink: light-dark(#1e1e1e, #f2f2f0);
-  --onboarding-muted: light-dark(#6d6d68, #b7b7b0);
-  --onboarding-border: light-dark(#d7d7d2, #454541);
-  min-height: 100svh;
-  background: light-dark(#f2f2f0, #262626);
-  color: var(--onboarding-ink);
-}
-
-.shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100svh;
-  max-width: 1200px;
-  margin-inline: auto;
-  padding: 32px 48px 28px;
-}
-
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  min-height: 44px;
-}
-
-.logo {
-  color: var(--onboarding-ink);
-  font-size: 38px;
-}
-
-.footer {
-  display: flex;
-  justify-content: center;
-}
-
-.success {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  padding-block: 72px;
-}
-
-.successContent {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 20px;
-  width: 100%;
-  max-width: 460px;
-  min-width: 0;
-}
-
-.successIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: light-dark(#e1e9df, #303c30);
-  color: light-dark(#42643c, #aac49e);
-}
-
 .successTitle {
-  font-size: clamp(36px, 4vw, 48px);
-  font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: -0.035em;
+  font-family: var(--font-instrument-serif), serif;
+  font-size: var(--onboarding-title-size);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
   outline: none;
 }
 
@@ -76,8 +11,8 @@
   max-width: 100%;
   overflow-wrap: anywhere;
   color: var(--onboarding-muted);
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: var(--onboarding-body-size);
+  line-height: 1.6;
 }
 
 .continueButton {
@@ -103,9 +38,9 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .continueButton {
-    transition: transform 120ms ease-out;
+    transition: transform 120ms var(--onboarding-ease-out);
   }
-  .continueButton:active {
+  .continueButton:active:not(:focus-visible) {
     transform: scale(0.98);
   }
 }
@@ -126,10 +61,5 @@
 @media (hover: hover) and (pointer: fine) {
   .skipButton:hover {
     background: light-dark(#e7e7e3, #333330);
-  }
-}
-@media (max-width: 767px) {
-  .shell {
-    padding: 24px;
   }
 }

@@ -19,12 +19,77 @@
   padding-block: 72px;
 }
 
-.introduction {
+.onboarding .title {
+  font-family: var(--font-instrument-serif), serif;
+  font-size: var(--onboarding-title-size);
+  font-weight: 400;
+  letter-spacing: -0.025em;
+  line-height: 1.08;
+}
+
+.onboarding .description {
+  max-width: 340px;
+  min-block-size: 4.8em;
+  font-size: var(--onboarding-body-size);
+  line-height: 1.6;
+}
+
+.onboarding .instructions {
+  padding: 28px;
+  border: 1px solid light-dark(#e2e2e2, #404040);
+  border-radius: 12px;
+  background: light-dark(#f5f5f5, #292929);
+}
+
+.onboarding .steps {
+  gap: 28px;
+  padding: 0;
+  border: 0;
+}
+
+.onboarding .stepNumber {
+  border-radius: 8px;
+}
+
+.onboarding .step[data-active] .stepNumber {
+  border-color: light-dark(#ababab, #777777);
+  background: light-dark(#e7e7e7, #3a3a3a);
+  color: var(--setup-ink);
+}
+
+.onboarding .step[data-active] .stepTitle {
+  color: var(--setup-ink);
+}
+
+.onboarding .step[data-complete] .stepNumber {
+  border-color: transparent;
+  background: #46a758;
+  color: #ffffff;
+}
+
+.connectionStatus {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 20px;
-  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--setup-border);
+  color: var(--setup-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: light-dark(#96938e, #a5a197);
+}
+
+.statusDot[data-waiting] {
+  background: light-dark(#737373, #b7b7b7);
 }
 
 .title {
@@ -60,7 +125,7 @@
   background: light-dark(#deded8, #42423c);
 }
 
-.copyButton:disabled {
+.copyButton[aria-disabled="true"] {
   cursor: wait;
 }
 
@@ -103,7 +168,8 @@
 
 .buttonLabel {
   flex: 1;
-  white-space: nowrap;
+  min-width: 0;
+  white-space: normal;
   text-align: left;
   font-size: 15px;
   font-weight: 500;
@@ -165,9 +231,9 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .copyButton {
-    transition: transform 120ms ease-out;
+    transition: transform 120ms var(--onboarding-ease-out, cubic-bezier(0.23, 1, 0.32, 1));
   }
-  .copyButton:active:not(:disabled) {
+  .copyButton:active:not([aria-disabled="true"]):not(:focus-visible) {
     transform: scale(0.98);
   }
 }
@@ -184,9 +250,29 @@
     border-left: 0;
     border-top: 1px solid var(--setup-border);
   }
+  .onboarding .instructions {
+    padding: 24px 20px;
+  }
+}
+
+@media (max-width: 959px) {
+  .onboarding {
+    grid-template-columns: minmax(0, 460px);
+    gap: 32px;
+    padding-block: 40px;
+  }
+}
+
+@media (max-height: 700px) {
+  .onboarding {
+    padding-block: 32px;
+  }
 }
 
 @media (max-width: 380px) {
+  .onboarding .description {
+    min-block-size: 6.4em;
+  }
   .copyButton {
     gap: 10px;
     padding-inline: 12px;

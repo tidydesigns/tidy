@@ -41,6 +41,8 @@ export function TeamInvites({
   const [error, setError] = useErrorNotice("", "user_action", "inline");
   const [copiedId, setCopiedId] = useState("");
   const [cancellingId, setCancellingId] = useState("");
+  const InviteList = onboarding ? "details" : "div";
+  const InviteListTitle = onboarding ? "summary" : "h2";
 
   async function cancelInvite(invite: Invite) {
     const notifyError = setError("");
@@ -147,7 +149,7 @@ export function TeamInvites({
             className="w-full resize-y rounded-lg border border-primary-grey bg-transparent px-4 py-3 text-sm outline-none placeholder:text-secondary-ink focus-visible:border-primary-black focus-visible:ring-2 focus-visible:ring-primary-orange"
           />
           <p data-ph-public className="text-xs text-secondary-ink">
-            Add one or several, separated by commas or new lines.
+            Separate addresses with commas or new lines. You’ll get links to share.
           </p>
         </div>
         <div className="space-y-2">
@@ -158,7 +160,10 @@ export function TeamInvites({
             value={role}
             disabled={pending}
             options={inviteRoleOptions.filter((option) => canAssignRole(actorRole, option.value))}
-            onChange={(value) => setRole(value as OrganizationRole)}
+            onChange={(value) => {
+              const option = inviteRoleOptions.find((option) => option.value === value);
+              if (option) setRole(option.value);
+            }}
           />
           <p data-ph-public className="text-xs text-secondary-ink">
             Access applies to every file in this workspace.
@@ -172,85 +177,6 @@ export function TeamInvites({
         </Button>
       </form>
 
-      {invites.length > 0 && (
-        <div className="mt-10">
-          <h2 data-ph-public className="text-sm font-semibold">
-            Invite links
-          </h2>
-          <p data-ph-public className="mt-1 text-xs text-secondary-ink">
-            Share each link with its matching email address. Links expire after 48 hours.
-          </p>
-          <ul className="mt-4 divide-y divide-primary-grey/60 border-y border-primary-grey/60">
-            {invites.map((invite) => (
-              <li
-                key={invite.id}
-                className="flex flex-wrap items-center justify-between gap-4 py-3 text-sm"
-              >
-                <span className="min-w-0 truncate">{invite.email}</span>
-                <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto">
-                  {canAssignRole(actorRole, invite.role ?? "") ? (
-                    <SelectMenu
-                      replayOptions
-                      className="max-w-full"
-                      label={`Invite role for ${invite.email}`}
-                      value={invite.role === "member" ? "editor" : (invite.role ?? "")}
-                      disabled={Boolean(cancellingId)}
-                      options={inviteRoleOptions.filter((option) =>
-                        canAssignRole(actorRole, option.value),
-                      )}
-                      onChange={(value) => {
-                        setCancellingId(invite.id);
-                        setError("");
-                        void updateInvitationRole(
-                          organizationId,
-                          invite.id,
-                          value as OrganizationRole,
-                        )
-                          .then((result) => {
-                            if (result.error) setError(result.error);
-                            else
-                              setInvites((current) =>
-                                current.map((item) =>
-                                  item.id === invite.id ? { ...item, role: value } : item,
-                                ),
-                              );
-                          })
-                          .catch((cause) =>
-                            setError(cause, "Could not change this invitation's role."),
-                          )
-                          .finally(() => setCancellingId(""));
-                      }}
-                    />
-                  ) : (
-                    <span className="text-secondary-ink">{roleLabel(invite.role)}</span>
-                  )}
-                  <button
-                    type="button"
-                    disabled={cancellingId === invite.id}
-                    onClick={() => copyLink(invite)}
-                    className="inline-flex shrink-0 items-center gap-2 font-medium text-primary-black underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
-                  >
-                    <Icon name={copiedId === invite.id ? "check" : "copy"} size={18} />
-                    <span data-ph-public style={{ display: "contents" }}>
-                      {copiedId === invite.id ? "Copied" : "Copy link"}
-                    </span>
-                  </button>
-                  <button
-                    data-ph-public
-                    type="button"
-                    disabled={Boolean(cancellingId) || !canAssignRole(actorRole, invite.role ?? "")}
-                    onClick={() => void cancelInvite(invite)}
-                    className="rounded-lg px-2 py-1 text-sm text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
-                  >
-                    Cancel invite
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
       {onboarding && (
         <NavigationLink
           href={`/onboarding/mcp?organizationId=${encodeURIComponent(organizationId)}`}
@@ -262,10 +188,99 @@ export function TeamInvites({
           className="mt-8 inline-flex items-center gap-2 text-sm font-medium underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
         >
           <span data-ph-public style={{ display: "contents" }}>
-            {invites.length ? "Continue" : "Continue on my own"}
+            {invites.length ? "Continue to connect your agent" : "Continue on my own"}
           </span>
           <Icon name="arrowRight" size={18} />
         </NavigationLink>
+      )}
+
+      {invites.length > 0 && (
+        <InviteList className={onboarding ? "mt-6" : "mt-10"}>
+          <InviteListTitle
+            data-ph-public
+            className={
+              onboarding
+                ? "min-h-11 cursor-pointer rounded-md py-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
+                : "text-sm font-semibold"
+            }
+          >
+            Invite links
+            {onboarding && ` (${invites.length})`}
+          </InviteListTitle>
+          <div className={onboarding ? "max-h-56 overflow-y-auto pr-1" : undefined}>
+            <p data-ph-public className="mt-1 text-xs text-secondary-ink">
+              Share each link with its matching email address. Links expire after 48 hours.
+            </p>
+            <ul className="mt-4 divide-y divide-primary-grey/60 border-y border-primary-grey/60">
+              {invites.map((invite) => (
+                <li
+                  key={invite.id}
+                  className="flex flex-wrap items-center justify-between gap-4 py-3 text-sm"
+                >
+                  <span className="min-w-0 truncate">{invite.email}</span>
+                  <div className="flex w-full min-w-0 flex-wrap items-center gap-3 sm:w-auto">
+                    {canAssignRole(actorRole, invite.role ?? "") ? (
+                      <SelectMenu
+                        replayOptions
+                        className="max-w-full"
+                        label={`Invite role for ${invite.email}`}
+                        value={invite.role === "member" ? "editor" : (invite.role ?? "")}
+                        disabled={Boolean(cancellingId)}
+                        options={inviteRoleOptions.filter((option) =>
+                          canAssignRole(actorRole, option.value),
+                        )}
+                        onChange={(value) => {
+                          const option = inviteRoleOptions.find((option) => option.value === value);
+                          if (!option) return;
+                          setCancellingId(invite.id);
+                          setError("");
+                          void updateInvitationRole(organizationId, invite.id, option.value)
+                            .then((result) => {
+                              if (result.error) setError(result.error);
+                              else
+                                setInvites((current) =>
+                                  current.map((item) =>
+                                    item.id === invite.id ? { ...item, role: value } : item,
+                                  ),
+                                );
+                            })
+                            .catch((cause) =>
+                              setError(cause, "Could not change this invitation's role."),
+                            )
+                            .finally(() => setCancellingId(""));
+                        }}
+                      />
+                    ) : (
+                      <span className="text-secondary-ink">{roleLabel(invite.role)}</span>
+                    )}
+                    <button
+                      type="button"
+                      disabled={cancellingId === invite.id}
+                      onClick={() => copyLink(invite)}
+                      className="inline-flex shrink-0 items-center gap-2 font-medium text-primary-black underline decoration-primary-orange underline-offset-4 hover:text-accent-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-black"
+                    >
+                      <Icon name={copiedId === invite.id ? "check" : "copy"} size={18} />
+                      <span data-ph-public style={{ display: "contents" }}>
+                        {copiedId === invite.id ? "Copied" : "Copy link"}
+                      </span>
+                    </button>
+                    <button
+                      data-ph-public
+                      type="button"
+                      disabled={
+                        Boolean(cancellingId) || !canAssignRole(actorRole, invite.role ?? "")
+                      }
+                      onClick={() => void cancelInvite(invite)}
+                      className="rounded-lg px-2 py-1 text-sm text-danger hover:bg-danger/5 focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
+                    >
+                      Cancel invite
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </InviteList>
       )}
     </div>
   );

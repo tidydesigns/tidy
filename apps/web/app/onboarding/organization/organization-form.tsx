@@ -67,8 +67,8 @@ export function OrganizationForm({
         replayLabel
         id="name"
         name="name"
-        label="Organisation name"
-        placeholder="Your company or team"
+        label="Workspace name"
+        placeholder="Your name, team or studio"
         maxLength={100}
         autoFocus
         required
@@ -76,7 +76,7 @@ export function OrganizationForm({
       {error && <FormMessage>{error}</FormMessage>}
       <Button type="submit" disabled={pending}>
         <span data-ph-public style={{ display: "contents" }}>
-          {pending ? "Creating organisation…" : inviteTeam ? "Continue" : "Create organization"}
+          {pending ? "Creating workspace…" : "Create workspace"}
         </span>
       </Button>
     </form>

@@ -28,6 +28,7 @@ export const iconSources = {
   xmark: new URL("../../assets/icons/xmark.svg", import.meta.url).href,
   eye: new URL("../../assets/icons/eye.svg", import.meta.url).href,
   check: new URL("../../assets/icons/check.svg", import.meta.url).href,
+  checkBold: new URL("../../assets/icons/check-bold.svg", import.meta.url).href,
   copy: new URL("../../assets/icons/copy.svg", import.meta.url).href,
   arrowRight: new URL("../../assets/icons/arrow-right.svg", import.meta.url).href,
 } as const;

@@ -33,7 +33,7 @@ export const inviteRoleOptions = [
   { value: "viewer", label: "Viewer: can view and comment" },
   { value: "editor", label: "Editor: can edit designs" },
   { value: "admin", label: "Admin: can manage the workspace" },
-];
+] satisfies { value: OrganizationRole; label: string }[];
 // Static SQL literals derived from the same policy, never from request input.
 export const EDIT_ROLES_SQL = `(${grants.edit.map((role) => `'${role}'`).join(", ")})`;
 

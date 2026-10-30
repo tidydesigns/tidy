@@ -4,8 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import posthog, { appErrorReporter } from "@/lib/posthog-client";
 import { Button } from "@/components/ui/button";
-import { TidyLogo } from "@/components/ui/tidy-logo";
-import { OnboardingProgress } from "@/components/onboarding/onboarding-progress";
+import { OnboardingFrame } from "@/components/onboarding/onboarding-frame";
 import { McpSetupGuide } from "@/components/mcp/setup-prompt";
 import { Icon } from "@/components/ui/icon";
 import { checkAuthorizedAgents } from "@/app/mcp/actions";
@@ -113,62 +112,56 @@ export function McpOnboarding({
   }
 
   return (
-    <main className={styles.page}>
-      <div className={styles.shell}>
-        <header className={styles.header}>
-          <TidyLogo className={styles.logo} />
-          <OnboardingProgress step={3} completed={connected} />
-        </header>
-
-        {connected ? (
-          <section className={styles.success} aria-labelledby="mcp-ready-title">
-            <div className={styles.successContent}>
-              <span aria-hidden="true" className={styles.successIcon}>
-                <Icon name="check" size={26} />
-              </span>
-              <h1
-                id="mcp-ready-title"
-                ref={successHeading}
-                tabIndex={-1}
-                data-ph-public
-                className={styles.successTitle}
-              >
-                You’re all set.
-              </h1>
-              <p className={styles.successDescription}>
-                {clients.length === 1
-                  ? `${clients[0].name} is connected to Tidy.`
-                  : "Your agents are connected to Tidy."}
-              </p>
-              <Button
-                type="button"
-                data-ph-public
-                className={styles.continueButton}
-                onClick={finish}
-              >
-                Open Tidy
-                <Icon name="arrowRight" size={18} />
-              </Button>
-            </div>
-          </section>
-        ) : (
-          <McpSetupGuide
-            variant="onboarding"
-            resourceUrl={resourceUrl}
-            organizationId={organizationId}
-            copied={copied}
-            onCopied={promptCopied}
-          />
-        )}
-
-        {!connected && (
-          <footer className={styles.footer}>
-            <Button type="button" data-ph-public className={styles.skipButton} onClick={finish}>
-              Set up later
+    <OnboardingFrame step={3} completed={connected}>
+      {connected ? (
+        <section
+          className="flex flex-1 items-center justify-center py-18"
+          aria-labelledby="mcp-ready-title"
+        >
+          <div className="flex w-full min-w-0 max-w-[460px] flex-col items-start gap-5">
+            <span
+              aria-hidden="true"
+              className="flex size-12 items-center justify-center rounded-full bg-[#46a758] text-white"
+            >
+              <Icon name="checkBold" size={26} />
+            </span>
+            <h1
+              id="mcp-ready-title"
+              ref={successHeading}
+              tabIndex={-1}
+              data-ph-public
+              className={styles.successTitle}
+            >
+              You’re all set.
+            </h1>
+            <p className={styles.successDescription}>
+              {clients.length === 1
+                ? `${clients[0].name} is connected to Tidy.`
+                : "Your agents are connected to Tidy."}
+            </p>
+            <Button type="button" data-ph-public className={styles.continueButton} onClick={finish}>
+              Open Tidy
+              <Icon name="arrowRight" size={18} />
             </Button>
-          </footer>
-        )}
-      </div>
-    </main>
+          </div>
+        </section>
+      ) : (
+        <McpSetupGuide
+          variant="onboarding"
+          resourceUrl={resourceUrl}
+          organizationId={organizationId}
+          copied={copied}
+          onCopied={promptCopied}
+        />
+      )}
+
+      {!connected && (
+        <footer className="flex justify-center">
+          <Button type="button" data-ph-public className={styles.skipButton} onClick={finish}>
+            Set up later
+          </Button>
+        </footer>
+      )}
+    </OnboardingFrame>
   );
 }
