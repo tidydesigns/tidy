@@ -201,7 +201,7 @@ export function createRemoteHost({
               browser: service.browser,
               scope: scope.data,
               viewerId: viewerId.data,
-              authorized: () => sessions.validate(ticket.clientId, ticket.token),
+              authorized: () => sessions.validate(ticket.clientId, ticket.token, { cached: true }),
             });
             return;
           }

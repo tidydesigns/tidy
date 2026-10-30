@@ -251,3 +251,9 @@ configuration. Dialog responses are bound to the pending dialog.
 Integration checks cover local and authenticated remote Electron workflows, delayed
 frames and reconnection over loopback. Physical macOS input, display scaling and
 cross-device sleep/wake still require hardware validation.
+
+Browser streams reuse successful credential checks for up to one second to avoid
+reading the session file for every frame and input acknowledgement. Revoking a
+session through the host invalidates that cache immediately, including checks
+already in flight. External session-file changes are rechecked within one second
+of subsequent stream traffic.
