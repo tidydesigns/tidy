@@ -1,3 +1,4 @@
+import { ChatLink } from "../../components/chat-link";
 import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
 import { StrictMode, useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -336,6 +337,46 @@ async function runThreadLoadingTests(): Promise<string[]> {
   }
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
+
+  await run("video previews survive strict effect cleanup and restore link focus", async (root) => {
+    const api: DesktopAPI = {
+      ...nativeAPI,
+      readVideoChunk: async () => {
+        throw new Error("Recording unavailable");
+      },
+    };
+    flushSync(() =>
+      root.render(
+        <StrictMode>
+          <ChatLink
+            api={api}
+            projectId={projectId}
+            threadId={crypto.randomUUID()}
+            href="recordings/demo.mp4"
+          >
+            Watch recording
+          </ChatLink>
+        </StrictMode>,
+      ),
+    );
+    const link = required(host.querySelector<HTMLAnchorElement>("a"), "Recording link");
+    link.focus();
+    link.click();
+    await until(
+      () => Boolean(document.querySelector(".video-preview-dialog [role=alert]")),
+      "Video load error",
+    );
+    await settle();
+    const dialog = required(
+      document.querySelector<HTMLDialogElement>(".video-preview-dialog"),
+      "Video preview dialog",
+    );
+    check(dialog.open, "Strict effect cleanup dismissed the preview");
+    check(dialog.textContent?.includes("Recording unavailable"), "Preview lost its load error");
+    dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+    await until(() => !document.querySelector(".video-preview-dialog"), "Dismiss video preview");
+    check(document.activeElement === link, "Video dismissal lost link focus");
+  });
 
   await run(
     "thread preloads wait for hover intent and keyboard focus remains immediate",

@@ -98,7 +98,6 @@ export function VideoPreview({
         event.preventDefault();
         onClose();
       }}
-      onClose={onClose}
       className="video-preview-dialog"
     >
       <header className="video-preview-header">
