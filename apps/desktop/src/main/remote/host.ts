@@ -1,4 +1,6 @@
 import { browserScopeSchema } from "../../shared/contracts/browser";
+import { terminalScopeSchema } from "../../shared/contracts/terminal";
+import { serveTerminalStream } from "../terminal/stream-socket";
 import { serveBrowserStream } from "../browser/stream-socket";
 import { z } from "zod";
 import { RequestReceipts, unavailableReceiptResponse } from "./receipts";
@@ -22,6 +24,7 @@ const hostCapabilities = [
   "browser-draft-discard",
   "thread-naming",
   "repository-files",
+  "terminal-v1",
 ];
 export function createRemoteHost({
   service,
@@ -155,8 +158,15 @@ export function createRemoteHost({
               error: "This backend already runs the same or a newer source revision.",
             });
         }
-        if (service.activeRunCount > 0 || service.browser.activeCount > 0 || inflight > 0)
-          return send(409, { error: "Finish active runs and close browser tabs before updating." });
+        if (
+          service.activeRunCount > 0 ||
+          service.browser.activeCount > 0 ||
+          service.terminal.activeCount > 0 ||
+          inflight > 0
+        )
+          return send(409, {
+            error: "Finish active runs and close browser tabs and terminals before updating.",
+          });
         if (!draining) {
           draining = true;
           setTimeout(shutdown, 100);
@@ -193,7 +203,7 @@ export function createRemoteHost({
     if (
       draining ||
       !trusted(request) ||
-      !["/events", "/browser-stream"].includes(url.pathname) ||
+      !["/events", "/browser-stream", "/terminal-stream"].includes(url.pathname) ||
       !ticket ||
       ticket.expires < Date.now()
     ) {
@@ -208,6 +218,22 @@ export function createRemoteHost({
           return;
         }
         sockets.handleUpgrade(request, socket, head, (client) => {
+          if (url.pathname === "/terminal-stream") {
+            let scope;
+            try {
+              scope = terminalScopeSchema.parse(JSON.parse(url.searchParams.get("scope") ?? ""));
+            } catch {
+              client.close(1008, "Invalid terminal scope");
+              return;
+            }
+            void serveTerminalStream({
+              socket: client,
+              terminal: service.terminal,
+              scope,
+              authorized: () => sessions.validate(ticket.clientId, ticket.token, { cached: true }),
+            });
+            return;
+          }
           if (url.pathname === "/browser-stream") {
             const scope = browserScopeSchema.safeParse({
               projectId: url.searchParams.get("projectId"),

@@ -13,6 +13,7 @@ import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";
 import { RepositoryObservers } from "../repository/repository-files";
 import { closeGitSnapshots } from "../repository/repository-git";
+import { TerminalService } from "../terminal/terminal-service";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -112,6 +113,14 @@ type FinishJobRequest = { job: Job } & (
 );
 
 export class WorkspaceService {
+  readonly terminal = new TerminalService(async (projectId) => {
+    if (this.closing) throw new Error("Tidy is closing.");
+    await this.assertProjectAccess(projectId);
+    if (this.closing) throw new Error("Tidy is closing.");
+    const project = this.store.project(projectId);
+    if (project.cloud) throw new Error("Choose a local code project for the terminal.");
+    return project.path;
+  });
   readonly browser = new BrowserService(async ({ projectId }) => {
     await this.assertProjectAccess(projectId);
     if (this.store.project(projectId).cloud)
@@ -360,6 +369,7 @@ export class WorkspaceService {
       if (job.projectId === projectId) job.controller.abort();
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
+    this.terminal.removeProject(projectId);
     await this.browser.removeProject(projectId);
     this.repositoryObservers.forget(projectId);
     this.sessionGeneration++;
@@ -2039,6 +2049,7 @@ export class WorkspaceService {
           stopVersion: this.stopVersions.get(thread.id) ?? 0,
         });
       }
+      await this.terminal.stopAll();
       await this.stopAndFlush();
       const entries: (UpdateResume & { stopVersion: number })[] = [];
       for (let index = 0; index < continuing.length; index += 4) {
@@ -2175,6 +2186,7 @@ export class WorkspaceService {
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
+    await this.terminal.close();
     await this.drainRequests(requestDrainTimeoutMs);
     this.repositoryObservers.close();
     for (const watcher of this.watchers.values()) watcher.close();

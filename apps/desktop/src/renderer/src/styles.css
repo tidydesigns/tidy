@@ -7,6 +7,7 @@
 
 @import "./features/harnesses/harness-updates.css";
 @import "./features/harnesses/harness-usage.css";
+@import "./features/terminal/terminal.css";
 @import "./styles/theme.css";
 @import "./app/desktop-shell.css";
 @import "./features/updates/app-update.css";

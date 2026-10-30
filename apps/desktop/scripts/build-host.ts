@@ -32,6 +32,7 @@ if (releaseTimestamp !== undefined) {
 const result = await Bun.build({
   entrypoints: [resolve(import.meta.dirname, "host.ts")],
   target: "node",
+  external: ["@lydell/node-pty"],
   define: {
     TIDY_COMPUTE_WORKER_SOURCE: JSON.stringify(await bundledComputeWorker()),
     TIDY_HOST_SOURCE_TIMESTAMP: String(sourceTimestamp),

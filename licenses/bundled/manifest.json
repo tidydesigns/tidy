@@ -478,5 +478,13 @@
   "highlight.js": {
     "source": "LICENSE",
     "notice": "highlight.js.txt"
+  },
+  "ghostty-web": {
+    "source": "LICENSE",
+    "notice": "ghostty-web.txt"
+  },
+  "@lydell/node-pty": {
+    "source": "LICENSE",
+    "notice": "node-pty.txt"
   }
 }
