@@ -123,8 +123,16 @@ function browserApi(machineId?: string): BrowserAPI {
 }
 
 function terminalApi(machineId?: string): TerminalAPI {
+  const endings = new Map<string, Promise<void>>();
   return {
-    end: (session) => request("terminal-close", terminalSessionSchema.parse(session), machineId),
+    end(raw) {
+      const session = terminalSessionSchema.parse(raw);
+      const ending = request("terminal-close", session, machineId).finally(() => {
+        if (endings.get(session.projectId) === ending) endings.delete(session.projectId);
+      });
+      endings.set(session.projectId, ending);
+      return ending;
+    },
     watch(raw, receive) {
       const scope = terminalScopeSchema.parse(raw);
       const watchId = crypto.randomUUID();
@@ -135,13 +143,20 @@ function terminalApi(machineId?: string): TerminalAPI {
         if (parsed.success && parsed.data.watchId === watchId) receive(parsed.data.output);
       };
       ipcRenderer.on("tidy:terminal-output", listener);
-      void ipcRenderer.invoke("tidy:terminal-watch", { ...scope, watchId, machineId }).catch(() => {
-        if (!closed)
-          receive({
-            kind: "error",
-            message: "Could not open the terminal. Check the project and machine connection.",
-          });
-      });
+      // A quick reopen must wait for the old end request, so it cannot kill the new interaction.
+      void (endings.get(scope.projectId) ?? Promise.resolve())
+        .catch(() => {})
+        .then(() => {
+          if (!closed)
+            return ipcRenderer.invoke("tidy:terminal-watch", { ...scope, watchId, machineId });
+        })
+        .catch(() => {
+          if (!closed)
+            receive({
+              kind: "error",
+              message: "Could not open the terminal. Check the project and machine connection.",
+            });
+        });
       return {
         input(input) {
           if (!closed)
