@@ -154,7 +154,10 @@ export function useThreadDrag({ ids, setOrder }: { ids: string[]; setOrder(ids: 
         active = {
           ...session,
           kind: "dragging",
-          lastSwapY: startY + (container.parentElement?.scrollTop ?? 0),
+          lastSwapY:
+            position({ ...active, clientY: startY }) +
+            active.grabOffset +
+            (container.parentElement?.scrollTop ?? 0),
         };
         drag.current = active;
         suppressClick.current = true;

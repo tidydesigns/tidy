@@ -1055,6 +1055,73 @@ async function runThreadLoadingTests(): Promise<string[]> {
     check(listeners.size === 0, "Unmount leaked an event listener");
   });
   await run(
+    "dragging clipped threads preserves order until they move within the list",
+    async (root) => {
+      const summaries = Array.from({ length: 8 }, () => summarizeThread(makeThread({ count: 1 })));
+      flushSync(() =>
+        root.render(
+          <div style={{ display: "flex", height: 240 }}>
+            <ThreadSidebar
+              projectId={projectId}
+              threads={summaries}
+              search=""
+              renderThread={(thread, controls) => (
+                <button
+                  className="thread-select"
+                  style={{ display: "block", height: 64, width: 200 }}
+                  onPointerDown={controls?.onPointerDown}
+                >
+                  {thread.title}
+                </button>
+              )}
+            />
+          </div>,
+        ),
+      );
+      const list = required(host.querySelector<HTMLElement>(".sidebar-list"), "Thread list");
+      const scroll = required(list.parentElement, "Thread viewport");
+      list.setPointerCapture = () => {};
+      const rows = () => [...list.querySelectorAll<HTMLElement>("[data-thread-id]")];
+      const order = () =>
+        rows()
+          .map((row) => row.dataset.threadId)
+          .join();
+      const initial = order();
+      function moveAndRelease(row: HTMLElement, startY: number, delta: number) {
+        const button = required(row.querySelector("button"), "Thread button");
+        const pointer = { bubbles: true, pointerId: 1, isPrimary: true, button: 0 };
+        flushSync(() => {
+          button.dispatchEvent(new PointerEvent("pointerdown", { ...pointer, clientY: startY }));
+          window.dispatchEvent(
+            new PointerEvent("pointermove", { ...pointer, clientY: startY + delta }),
+          );
+          window.dispatchEvent(new PointerEvent("pointerup", pointer));
+        });
+      }
+      scroll.scrollTop = 32;
+      const top = scroll.getBoundingClientRect().top;
+      check(rows()[0].getBoundingClientRect().top < top, "First row must start clipped");
+      moveAndRelease(rows()[0], top + 20, -6);
+      check(order() === initial, "Picking up the clipped top row swapped it downward");
+      scroll.scrollTop = 0;
+      const bottom = scroll.getBoundingClientRect().bottom;
+      check(rows()[3].getBoundingClientRect().bottom > bottom, "Fourth row must start clipped");
+      moveAndRelease(rows()[3], bottom - 10, 6);
+      check(order() === initial, "Picking up the clipped bottom row swapped it upward");
+      check(
+        localStorage.getItem(`tidy:thread-order:${projectId}`) ===
+          JSON.stringify(summaries.map((thread) => thread.id)),
+        "Releasing a clipped row persisted an unintended order",
+      );
+      moveAndRelease(rows()[0], rows()[0].getBoundingClientRect().top + 20, 64);
+      check(
+        rows()[1].dataset.threadId === summaries[0].id,
+        "A single move must still reorder rows",
+      );
+    },
+  );
+
+  await run(
     "rapid deferred searches retain order and finish with the latest query",
     async (root) => {
       const first = { ...makeThread({ count: 1 }), title: "Alpha search" };
