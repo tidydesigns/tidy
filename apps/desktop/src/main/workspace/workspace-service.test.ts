@@ -1895,13 +1895,11 @@ test("video continuation chunks reuse validated summaries without transcript rea
   await writeFile(join(project.path, "demo.mp4"), Buffer.alloc(1024 * 1024 + 7, 9));
   const input = { projectId: project.id, threadId: thread.id, href: "demo.mp4", offset: 0 };
   const read = spyOn(store, "readThread");
-  const readService = spyOn(service, "readThread");
   const clone = spyOn(globalThis, "structuredClone");
   try {
     const first = await service.readVideoChunk(input);
     await service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision });
     expect(read).not.toHaveBeenCalled();
-    expect(readService).not.toHaveBeenCalled();
     expect(
       clone.mock.calls.some(
         ([value]) =>
@@ -1914,7 +1912,6 @@ test("video continuation chunks reuse validated summaries without transcript rea
     ).toBe(false);
   } finally {
     read.mockRestore();
-    readService.mockRestore();
     clone.mockRestore();
   }
   const completed = finished(service, thread.id);

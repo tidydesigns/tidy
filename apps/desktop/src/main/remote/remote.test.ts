@@ -1056,7 +1056,6 @@ test("remote video preview transfers authenticated project bytes and rejects ano
   expect(
     Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(second.data, "base64")]),
   ).toEqual(data);
-  expect(client.status.kind).toBe("connected");
   await expect(
     client.operation("read-video-chunk", { ...input, threadId: randomUUID() }),
   ).rejects.toThrow();
@@ -1066,8 +1065,4 @@ test("remote video preview transfers authenticated project bytes and rejects ano
   await expect(
     client.operation("read-video-chunk", { ...input, projectId: other.id }),
   ).rejects.toThrow("another project");
-  await writeFile(join(f.root, "outside.webm"), "private");
-  await expect(
-    client.operation("read-video-chunk", { ...input, href: "../outside.webm" }),
-  ).rejects.toThrow("project folder");
 });

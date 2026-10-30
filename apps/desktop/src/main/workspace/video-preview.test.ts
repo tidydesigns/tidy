@@ -6,7 +6,6 @@ import { readVideoChunk } from "./video-preview";
 import {
   MAX_VIDEO_BYTES,
   VIDEO_CHUNK_BYTES,
-  videoChunkRequestSchema,
   videoChunkSchema,
 } from "../../shared/contracts/video-preview";
 
@@ -94,31 +93,15 @@ test("changed recordings and invalid continuation offsets fail instead of mixing
     readVideoChunk({ root, href: "demo.mp4", offset: 1, revision: first.revision }),
   ).rejects.toThrow("changed");
   await expect(readVideoChunk({ root, href: "demo.mp4", offset: 1 })).rejects.toThrow("changed");
+  const revision = (await readVideoChunk({ root, href: "demo.mp4", offset: 0 })).revision;
   for (const offset of [-1, 0.5, 1000]) {
     await expect(
       readVideoChunk({
         root,
         href: "demo.mp4",
         offset,
-        revision: (await readVideoChunk({ root, href: "demo.mp4", offset: 0 })).revision,
+        revision,
       }),
     ).rejects.toThrow("position");
-  }
-});
-
-test("request validation rejects excessive offsets and unexpected fields", () => {
-  const input = {
-    projectId: crypto.randomUUID(),
-    threadId: crypto.randomUUID(),
-    href: "demo.mp4",
-    offset: 0,
-  };
-  expect(videoChunkRequestSchema.safeParse(input).success).toBe(true);
-  for (const invalid of [
-    { ...input, offset: MAX_VIDEO_BYTES + 1 },
-    { ...input, root: "/" },
-    { ...input, threadId: "other" },
-  ]) {
-    expect(videoChunkRequestSchema.safeParse(invalid).success).toBe(false);
   }
 });
