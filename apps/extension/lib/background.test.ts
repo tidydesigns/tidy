@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { ImportJob } from "./messages";
+import type { ImportJob } from "@tidy/design/web-capture";
 import { blankDesignDocument } from "@tidy/design/document";
 
 type Sender = {
@@ -18,6 +18,11 @@ let listener: Listener;
 let job: ImportJob | undefined;
 let currentDocument = "source-document";
 let activeTab = 7;
+let activated: () => void;
+let removed: (id: number) => void;
+let updated: (id: number, change: { status: string }) => void;
+let screenshotSafe = true;
+let duringScreenshot: (() => void) | undefined;
 let accountId = "fixture-user";
 let finishPost: (() => void) | undefined;
 let postGate: Promise<void> | undefined;
@@ -75,6 +80,7 @@ const browser = {
     create: async () => {},
     captureVisibleTab: async () => {
       events.push("screenshot");
+      duringScreenshot?.();
       return "data:image/png;base64,fixture";
     },
     sendMessage: mock(
@@ -83,14 +89,27 @@ const browser = {
           throw new Error("Source document is no longer available.");
         events.push(message.type);
         if (message.type === "bella:prepare-capture")
-          return { data: { width: 100, height: 100, scrollX: 0, scrollY: 0 } };
+          return { data: { width: 100, height: 100, scrollX: 0, scrollY: 0, screenshotSafe } };
         return { data: capture };
       },
     ),
-    onRemoved: { addListener: () => {} },
-    onUpdated: { addListener: () => {} },
+    onActivated: {
+      addListener: (fn: () => void) => {
+        activated = fn;
+      },
+    },
+    onRemoved: {
+      addListener: (fn: typeof removed) => {
+        removed = fn;
+      },
+    },
+    onUpdated: {
+      addListener: (fn: typeof updated) => {
+        updated = fn;
+      },
+    },
   },
-  scripting: { executeScript: async () => [{ documentId: currentDocument }] },
+  scripting: { executeScript: mock(async () => [{ documentId: currentDocument }]) },
   action: {
     openPopup: mock(async () => {
       events.push("popup");
@@ -104,11 +123,13 @@ mock.module("wxt/utils/define-background", () => ({
 const { default: initialize } = await import("../entrypoints/background");
 const originalFetch = globalThis.fetch;
 const fetchMock = mock(async (url: string | URL | Request, options?: RequestInit) => {
-  if (String(url).endsWith("/account"))
+  if (new URL(String(url)).pathname.endsWith("/account"))
     return Response.json({
       user: { id: accountId, name: "Fixture" },
       organizations: [{ id: "fixture-org", name: "Fixture", files: [] }],
     });
+  if (new URL(String(url)).pathname.includes("/import/"))
+    return Response.json({ state: "pending" });
   events.push("post");
   expect(options?.signal).toBeInstanceOf(AbortSignal);
   await postGate;
@@ -121,7 +142,16 @@ const fetchMock = mock(async (url: string | URL | Request, options?: RequestInit
 const popup = { id, url: `chrome-extension://${id}/popup.html` };
 const content = { id, tab: { id: source.id }, frameId: 0, documentId: "source-document" };
 const send = (message: Record<string, unknown>, sender: Sender = popup) =>
-  new Promise<unknown>((resolve) => listener(message, sender, resolve));
+  new Promise<unknown>((resolve) =>
+    listener(
+      ["bella:picked", "bella:cancelled"].includes(String(message.type)) &&
+        !("captureId" in message)
+        ? { ...message, captureId: job && "captureId" in job ? job.captureId : "stale" }
+        : message,
+      sender,
+      resolve,
+    ),
+  );
 const start = () =>
   send({
     type: "bella:start",
@@ -133,6 +163,9 @@ beforeEach(() => {
   job = undefined;
   currentDocument = "source-document";
   activeTab = source.id;
+  screenshotSafe = true;
+  duringScreenshot = undefined;
+  browser.scripting.executeScript.mockClear();
   accountId = "fixture-user";
   events.length = 0;
   postGate = undefined;
@@ -172,6 +205,7 @@ describe("extension import authority and lifecycle", () => {
       tabId: 7,
       userId: accountId,
       documentId: currentDocument,
+      captureId: "restart-fixture",
       destination: { userId: accountId, organizationId: "fixture-org" },
     };
     (initialize as unknown as () => void)();
@@ -184,6 +218,7 @@ describe("extension import authority and lifecycle", () => {
     fetchMock.mockImplementationOnce(async () => new Response("Unavailable", { status: 502 }));
     expect(await send({ type: "bella:account" })).toEqual({
       error: "Tidy is unavailable. Try again.",
+      status: 502,
     });
   });
   test("rejects unrelated senders before doing account or capture work", () => {
@@ -237,4 +272,176 @@ describe("extension import authority and lifecycle", () => {
     expect(events).not.toContain("popup");
     expect(events).not.toContain("screenshot");
   });
+});
+
+test("private pages never request a screenshot", async () => {
+  screenshotSafe = false;
+  await start();
+  await send({ type: "bella:picked" }, content);
+  expect(job?.state).toBe("done");
+  expect(events).not.toContain("screenshot");
+});
+
+test("switching away and back during screenshot discards unrelated pixels", async () => {
+  duringScreenshot = () => {
+    activated();
+    activated();
+  };
+  await start();
+  await send({ type: "bella:picked" }, content);
+  const request = browser.tabs.sendMessage.mock.calls.find(
+    ([, message]) => message.type === "bella:capture",
+  );
+  expect(request?.[1]).not.toHaveProperty("screenshot", "data:image/png;base64,fixture");
+  expect(request?.[1]).toHaveProperty("screenshot", undefined);
+  expect(job?.state).toBe("done");
+});
+
+test("pins source tab and document before account fetch, and fetches page account only once", async () => {
+  fetchMock.mockImplementationOnce(async () => {
+    activeTab = 8;
+    return Response.json({
+      user: { id: accountId, name: "Fixture" },
+      organizations: [{ id: "fixture-org", name: "Fixture", files: [] }],
+    });
+  });
+  await send({
+    type: "bella:start",
+    mode: "page",
+    destination: { userId: accountId, organizationId: "fixture-org" },
+  });
+  expect(browser.scripting.executeScript.mock.calls[0]?.[0]).toMatchObject({
+    target: { tabId: 7 },
+  });
+  expect(job).toMatchObject({ state: "done", tabId: 7 });
+  expect(
+    fetchMock.mock.calls.filter(([url]) => new URL(String(url)).pathname.endsWith("/account")),
+  ).toHaveLength(1);
+});
+
+test("cancel and navigation racing with confirmation cannot erase an importing job", async () => {
+  await start();
+  postGate = new Promise<void>((resolve) => {
+    finishPost = resolve;
+  });
+  const importing = send({ type: "bella:picked" }, content);
+  const cancelling = send({ type: "bella:cancel" });
+  updated(7, { status: "loading" });
+  removed(7);
+  await cancelling;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(job?.state).toBe("importing");
+  expect(await start()).toMatchObject({ error: expect.stringContaining("Finish or cancel") });
+  finishPost!();
+  await importing;
+  expect(job?.state).toBe("done");
+  expect(events.filter((event) => event === "post")).toHaveLength(1);
+});
+
+test("cancel winning the race prevents capture and scopes cleanup to the original document", async () => {
+  await start();
+  await Promise.all([send({ type: "bella:cancel" }), send({ type: "bella:picked" }, content)]);
+  expect(job).toBeUndefined();
+  expect(events).not.toContain("post");
+  expect(
+    browser.tabs.sendMessage.mock.calls.find(([, message]) => message.type === "bella:stop")?.[2],
+  ).toEqual({ documentId: "source-document", frameId: 0 });
+});
+
+test("late confirmation from a cancelled selection cannot claim a new selection in the same document", async () => {
+  await start();
+  const oldCaptureId = job && "captureId" in job ? job.captureId : "";
+  await send({ type: "bella:cancel" });
+  await start();
+  await send({ type: "bella:picked", captureId: oldCaptureId }, content);
+  expect(job?.state).toBe("selecting");
+  expect(events).not.toContain("post");
+  await send({ type: "bella:picked" }, content);
+  expect(job?.state).toBe("done");
+});
+
+test("a lost POST response recovers its committed receipt without uploading again", async () => {
+  await start();
+  let posts = 0;
+  let submitted: { request: { id: string; createdAt: number } } | undefined;
+  globalThis.fetch = (async (url, options) => {
+    if (new URL(String(url)).pathname.endsWith("/account"))
+      return Response.json({ user: { id: accountId, name: "Fixture" } });
+    if (options?.method === "POST") {
+      posts++;
+      submitted = JSON.parse(String(options.body));
+      expect(job).toMatchObject({ state: "importing", submittedAt: submitted!.request.createdAt });
+      throw new TypeError("Connection closed after commit");
+    }
+    expect(String(url)).toContain(`/import/${submitted!.request.id}`);
+    return Response.json({
+      state: "done",
+      result: {
+        fileId: "00000000-0000-4000-8000-000000000001",
+        revision: 1,
+        url: "https://untrusted.test",
+        nodeIds: ["frame"],
+        warnings: [],
+      },
+    });
+  }) as typeof fetch;
+  await send({ type: "bella:picked" }, content);
+  expect(posts).toBe(1);
+  expect(job?.state).toBe("done");
+  expect(job && "url" in job ? job.url : "").not.toContain("untrusted.test");
+});
+test("worker restart checks a persisted submission using GET only", async () => {
+  const captureId = crypto.randomUUID();
+  job = {
+    state: "importing",
+    tabId: 7,
+    userId: accountId,
+    documentId: currentDocument,
+    captureId,
+    submittedAt: Date.now(),
+    destination: { userId: accountId, organizationId: "fixture-org" },
+  };
+  (initialize as unknown as () => void)();
+  globalThis.fetch = (async (url, options) => {
+    expect(options?.method).toBe("GET");
+    if (new URL(String(url)).pathname.endsWith("/account"))
+      return Response.json({ user: { id: accountId, name: "Fixture" }, organizations: [] });
+    expect(String(url)).toContain(captureId);
+    return Response.json({
+      state: "done",
+      result: {
+        fileId: "00000000-0000-4000-8000-000000000001",
+        revision: 1,
+        url: "/files/fixture",
+      },
+    });
+  }) as typeof fetch;
+  await send({ type: "bella:account" });
+  await send({ type: "bella:recover" });
+  expect(job?.state).toBe("done");
+  expect(events).not.toContain("post");
+});
+test("an unavailable receipt retains its identity and explicit recovery never uploads", async () => {
+  const recovery = { id: crypto.randomUUID(), createdAt: Date.now() };
+  job = { state: "error", userId: accountId, tabId: 7, error: "Unknown", recovery };
+  globalThis.fetch = (async (_url, options) => {
+    expect(options?.method).toBe("GET");
+    throw new TypeError("Offline");
+  }) as typeof fetch;
+  await send({ type: "bella:recover" });
+  expect(job).toMatchObject({ state: "error", recovery });
+  expect(events).not.toContain("post");
+});
+test("Retry-After prevents focus-driven requests from hammering the platform", async () => {
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests++;
+    return Response.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": "60" } },
+    );
+  }) as typeof fetch;
+  expect(await send({ type: "bella:account" })).toHaveProperty("error");
+  expect(await send({ type: "bella:account" })).toHaveProperty("error");
+  expect(requests).toBe(1);
 });

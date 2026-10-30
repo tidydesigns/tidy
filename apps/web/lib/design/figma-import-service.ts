@@ -17,7 +17,9 @@ export async function publishFigmaImport(
   const document = parseDesignDocument(input);
   const staging = await createImport(userId, organizationId, name);
   try {
-    await putImportDocument(userId, staging.importId, document);
+    await putImportDocument(userId, staging.importId, document, {
+      tooLargeMessage: "Figma document is too large. Select fewer pages.",
+    });
     await validateImport(userId, staging.importId);
     return await commitImport(userId, staging.importId, "duplicate", folderId);
   } catch (cause) {

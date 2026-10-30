@@ -7,6 +7,11 @@ import { fileURLToPath } from "node:url";
 
 // Own the entire cluster so the destructive fixtures never share a real database.
 const suites = {
+  extension: [
+    "tidy_extension_test",
+    "EXTENSION_TEST_DATABASE_URL",
+    "extension/platform.integration.test.ts",
+  ],
   analytics: [
     "tidy_analytics_test",
     "ANALYTICS_TEST_DATABASE_URL",
@@ -74,7 +79,7 @@ const benchmark = args[0] === "--mcp-benchmark";
 const suite = benchmark ? "mcp" : args.length ? args[0].replace(/^--/, "") : "accounts";
 if (args.length > 1 || !Object.hasOwn(suites, suite))
   throw new Error(
-    "Choose --accounts, --auth, --plans, --agents, --github, --linear, --runtime, --storage, --multiplayer, --clipboard, --images, --files, --versions, --personal, --mcp or --mcp-benchmark.",
+    "Choose --extension, --accounts, --auth, --plans, --agents, --github, --linear, --runtime, --storage, --multiplayer, --clipboard, --images, --files, --versions, --personal, --mcp or --mcp-benchmark.",
   );
 const [databaseName, databaseVariable, testFile] = suites[suite];
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -143,6 +148,7 @@ try {
       "github",
       "mcp",
       "versions",
+      "extension",
     ].includes(suite)
   ) {
     run("sh", ["apps/web/scripts/init-local-postgres.sh"], {
@@ -171,6 +177,7 @@ try {
       "github",
       "mcp",
       "versions",
+      "extension",
     ].includes(suite)
   ) {
     const grants = readFileSync(join(root, "migrations/operations/runtime-grants.sql"), "utf8");
@@ -192,6 +199,7 @@ try {
       [databaseVariable]: applicationUrl,
       ...(suite === "clipboard" ? { CLIPBOARD_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "images" ? { IMAGES_SETUP_DATABASE_URL: url } : {}),
+      ...(suite === "extension" ? { EXTENSION_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "files" ? { FILES_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "linear" ? { LINEAR_SETUP_DATABASE_URL: url } : {}),
       ...(suite === "agents" ? { AGENTS_SETUP_DATABASE_URL: url } : {}),

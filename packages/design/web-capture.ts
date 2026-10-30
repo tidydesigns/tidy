@@ -67,6 +67,14 @@ export const webImportSchema = z
   })
   .strict();
 
+// A stable submission identity survives transport failure and worker restart.
+export const captureRequestSchema = z
+  .object({ id: z.uuid(), createdAt: z.number().int().positive() })
+  .strict();
+export const extensionImportSchema = webImportSchema
+  .extend({ request: captureRequestSchema })
+  .strict();
+
 export const extensionAccountSchema = z.object({
   user: z.object({ id: z.string().min(1), name: z.string(), image: z.string().nullish() }),
   organizations: z.array(
@@ -86,6 +94,13 @@ export const importResultSchema = z.object({
   warnings: z.array(z.object({ message: z.string() })).optional(),
 });
 
+export const captureReceiptSchema = z.discriminatedUnion("state", [
+  z.object({ state: z.literal("pending") }),
+  z.object({ state: z.literal("failed") }),
+  z.object({ state: z.literal("done"), result: importResultSchema }),
+]);
+export type CaptureReceipt = z.infer<typeof captureReceiptSchema>;
+
 export const destinationSchema = z.object({
   organizationId: z.string().min(1),
   fileId: z.string().optional(),
@@ -95,6 +110,8 @@ const jobIdentity = { userId: z.string().min(1), tabId: z.number().int().nonnega
 const captureJob = {
   ...jobIdentity,
   documentId: z.string().min(1),
+  captureId: z.string().min(1),
+  submittedAt: z.number().int().positive().optional(),
   destination: destinationSchema,
 };
 export const importJobSchema = z.discriminatedUnion("state", [
@@ -106,7 +123,12 @@ export const importJobSchema = z.discriminatedUnion("state", [
     url: z.string().url(),
     warnings: z.array(z.object({ message: z.string() })).optional(),
   }),
-  z.object({ state: z.literal("error"), ...jobIdentity, error: z.string() }),
+  z.object({
+    state: z.literal("error"),
+    ...jobIdentity,
+    error: z.string(),
+    recovery: captureRequestSchema.optional(),
+  }),
 ]);
 export type ImportJob = z.infer<typeof importJobSchema>;
 export type Destination = z.infer<typeof destinationSchema>;
@@ -127,14 +149,25 @@ export function readImportJob(value: unknown): ImportJob | undefined {
 export { captureSourceUrl } from "./capture-source";
 
 export const captureViewportSchema = z.object({
+  screenshotSafe: z.boolean().optional(),
   width: z.number().positive(),
   height: z.number().positive(),
   scrollX: z.number(),
   scrollY: z.number(),
 });
+export class ExtensionReplyError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 export function readExtensionReply(value: unknown): unknown {
-  const error = z.object({ error: z.string() }).safeParse(value);
-  if (error.success) throw new Error(error.data.error);
+  const error = z
+    .object({ error: z.string(), status: z.number().int().optional() })
+    .safeParse(value);
+  if (error.success) throw new ExtensionReplyError(error.data.error, error.data.status);
   const input = z.object({ data: z.unknown() }).safeParse(value);
   if (!input.success || !("data" in input.data))
     throw new Error("The page could not complete the capture. Reopen the extension and try again.");
@@ -151,10 +184,11 @@ export function parseExtensionResponse<T>(schema: z.ZodType<T>, value: unknown):
 
 export const extensionMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("bella:account") }),
+  z.object({ type: z.literal("bella:recover") }),
   z.object({ type: z.literal("bella:login") }),
   z.object({ type: z.literal("bella:cancel") }),
-  z.object({ type: z.literal("bella:picked") }),
-  z.object({ type: z.literal("bella:cancelled") }),
+  z.object({ type: z.literal("bella:picked"), captureId: z.string().min(1) }),
+  z.object({ type: z.literal("bella:cancelled"), captureId: z.string().min(1) }),
   z.object({
     type: z.literal("bella:start"),
     mode: z.enum(["page", "element"]),

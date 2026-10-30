@@ -119,6 +119,7 @@ beforeAll(async () => {
     "20261007-file-version-history.sql",
     "20261017-file-history-capacity.sql",
     "20261019-service-synchronization.sql",
+    "20261029-extension-import-receipts.sql",
   ]) {
     await db.query(
       await readFile(resolve(import.meta.dir, "../../../..", "migrations", migration), "utf8"),

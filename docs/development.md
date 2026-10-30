@@ -62,7 +62,9 @@ Open `chrome://extensions`, enable **Developer mode**, then choose
 The extension connects to localhost by default. To build it for your own
 deployment, set `WXT_BELLA_URL` to your app's HTTPS address.
 
-Use `bun dev:extension` when developing the extension.
+Use `bun dev:extension` when developing the extension. See the
+[extension platform contract](extension-platform.md) for database prerequisites,
+recovery behavior, and `bun run test:extension:db`.
 
 ## Connect an agent
 

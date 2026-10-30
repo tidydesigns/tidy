@@ -3,6 +3,7 @@ import { useEffect, useId, useState } from "react";
 import { browser } from "wxt/browser";
 import {
   extensionAccountSchema,
+  ExtensionReplyError,
   destinationSchema,
   readImportJob,
   type ExtensionAccount,
@@ -25,15 +26,21 @@ export function App() {
   const workspaceLabel = useId();
   const fileLabel = useId();
   const [account, setAccount] = useState<ExtensionAccount>();
-  const [organizationId, setOrganizationId] = useState("");
-  const [fileId, setFileId] = useState("");
+  const [selection, setSelection] = useState({ userId: "", organizationId: "", fileId: "" });
+  const { organizationId, fileId } = selection;
   const [job, setJob] = useState<ImportJob>();
   const [, setError] = useErrorNotice();
+  const [signInRequired, setSignInRequired] = useState(false);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
+  const [checking, setChecking] = useState(false);
   useEffect(() => {
     let live = true;
+    let refreshing = false;
+    let jobChanged = false;
     const refresh = async () => {
+      if (refreshing) return;
+      refreshing = true;
       const notifyError = setError("");
       try {
         const data = parseExtensionResponse(
@@ -45,36 +52,54 @@ export function App() {
         setAccount(data);
 
         const last = destinationSchema.safeParse(stored.destination).data;
-        const organization =
-          data.organizations.find(
-            (item) => last?.userId === data.user.id && item.id === last.organizationId,
-          ) ?? data.organizations[0];
-        setOrganizationId((id) =>
-          data.organizations.some((item) => item.id === id) ? id : (organization?.id ?? ""),
-        );
-        setFileId((id) =>
-          organization?.files.some((file) => file.id === id)
-            ? id
-            : organization?.files.some((file) => file.id === last?.fileId)
-              ? (last?.fileId ?? "")
+        setSelection((current) => {
+          const preferred =
+            current.userId === data.user.id
+              ? current
+              : last?.userId === data.user.id
+                ? last
+                : undefined;
+          const organization =
+            data.organizations.find((item) => item.id === preferred?.organizationId) ??
+            data.organizations[0];
+          return {
+            userId: data.user.id,
+            organizationId: organization?.id ?? "",
+            fileId: organization?.files.some((file) => file.id === preferred?.fileId)
+              ? preferred!.fileId!
               : "",
-        );
+          };
+        });
       } catch (error) {
         if (live) {
-          setAccount(undefined);
+          const signedOut = error instanceof ExtensionReplyError && error.status === 401;
+          setSignInRequired(signedOut);
+          // Keep usable content visible during transient platform outages.
+          if (
+            signedOut ||
+            (error instanceof ExtensionReplyError && [403, 409].includes(error.status ?? 0))
+          )
+            setAccount(undefined);
           notifyError(error, "Could not connect to Tidy.");
         }
       } finally {
+        refreshing = false;
         if (live) setLoading(false);
       }
     };
     void refresh();
-    void browser.storage.session.get("job").then((value) => {
-      if (live) setJob(readImportJob(value.job));
-    });
+    void browser.storage.session
+      .get("job")
+      .then((value) => {
+        if (live && !jobChanged) setJob(readImportJob(value.job));
+      })
+      .catch(() => undefined);
     const changed = (changes: Record<string, { newValue?: unknown }>, area: string) => {
       if (area === "local" && changes.theme) applyTheme(changes.theme.newValue);
-      if (area === "session" && changes.job) setJob(readImportJob(changes.job.newValue));
+      if (area === "session" && changes.job) {
+        jobChanged = true;
+        setJob(readImportJob(changes.job.newValue));
+      }
     };
     browser.storage.onChanged.addListener(changed);
     window.addEventListener("focus", refresh);
@@ -86,7 +111,8 @@ export function App() {
   }, []);
   const organization = account?.organizations.find((item) => item.id === organizationId);
   const activeJob = job?.userId === account?.user.id ? job : undefined;
-  const busy = starting || activeJob?.state === "importing" || activeJob?.state === "selecting";
+  const busy =
+    checking || starting || activeJob?.state === "importing" || activeJob?.state === "selecting";
   const status =
     starting || activeJob?.state === "importing"
       ? "Importing into Tidy…"
@@ -134,18 +160,23 @@ export function App() {
         <p role="status">Connecting to Tidy…</p>
       ) : !account ? (
         <>
-          <p>Sign in to import designs.</p>
+          <p>{signInRequired ? "Sign in to import designs." : "Could not connect to Tidy."}</p>
           <Button
             className="primary"
-            onClick={() =>
+            onClick={() => {
+              if (!signInRequired) {
+                setLoading(true);
+                window.dispatchEvent(new Event("focus"));
+                return;
+              }
               void send({ type: "bella:login" })
                 .then(() => window.close())
                 .catch((error) =>
                   setError(error, "Could not complete the action. Please try again."),
-                )
-            }
+                );
+            }}
           >
-            Sign in to Tidy
+            {signInRequired ? "Sign in to Tidy" : "Reconnect to Tidy"}
           </Button>
         </>
       ) : (
@@ -165,8 +196,11 @@ export function App() {
                     value={organizationId}
                     disabled={busy}
                     onChange={(value) => {
-                      setOrganizationId(value);
-                      setFileId("");
+                      setSelection((current) => ({
+                        ...current,
+                        organizationId: value,
+                        fileId: "",
+                      }));
                     }}
                     options={account.organizations.map((item) => ({
                       value: item.id,
@@ -184,7 +218,7 @@ export function App() {
                   triggerClassName="select-trigger"
                   value={fileId}
                   disabled={busy}
-                  onChange={setFileId}
+                  onChange={(fileId) => setSelection((current) => ({ ...current, fileId }))}
                   options={[
                     { value: "", label: "New design file" },
                     ...(organization?.files.map((file) => ({ value: file.id, label: file.name })) ??
@@ -247,7 +281,24 @@ export function App() {
               )}
             </div>
           )}
-          {activeJob?.state === "error" && <p role="alert">{activeJob.error}</p>}
+          {activeJob?.state === "error" && (
+            <>
+              <p role="alert">{activeJob.error}</p>
+              {activeJob.recovery && (
+                <Button
+                  disabled={checking}
+                  onClick={() => {
+                    setChecking(true);
+                    void send({ type: "bella:recover" })
+                      .catch((error) => setError(error, "Could not check the import."))
+                      .finally(() => setChecking(false));
+                  }}
+                >
+                  {checking ? "Checking import…" : "Check import status"}
+                </Button>
+              )}
+            </>
+          )}
         </>
       )}
     </main>

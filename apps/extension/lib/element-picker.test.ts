@@ -144,3 +144,30 @@ test("picker skips invisible targets and browses open shadow trees", () => {
   key("ArrowUp");
   expect(targetButton().textContent).toContain("article");
 });
+
+test("pointer bursts paint the latest target once and scroll reuses selection outlines", () => {
+  win.document.body.innerHTML = "<section>First</section><footer>Last</footer>";
+  let frame: FrameRequestCallback | undefined;
+  const request = mock((callback: FrameRequestCallback) => {
+    frame = callback;
+    return 1;
+  });
+  win.requestAnimationFrame = request;
+  picker = startElementPicker({ onConfirm: () => {}, onCancel: () => {} });
+  const first = win.document.querySelector("section")!;
+  const last = win.document.querySelector("footer")!;
+  for (let i = 0; i < 20; i++) {
+    (i % 2 ? first : last).dispatchEvent(
+      new win.PointerEvent("pointermove", { bubbles: true, composed: true }),
+    );
+  }
+  expect(request).toHaveBeenCalledTimes(1);
+  frame!(0);
+  expect(targetButton().textContent).toContain("First");
+  targetButton().click();
+  const outline = pickerShadow.querySelector(".outline.selected");
+  for (let i = 0; i < 20; i++) win.dispatchEvent(new win.Event("scroll"));
+  expect(request).toHaveBeenCalledTimes(2);
+  frame!(0);
+  expect(pickerShadow.querySelector(".outline.selected")).toBe(outline);
+});

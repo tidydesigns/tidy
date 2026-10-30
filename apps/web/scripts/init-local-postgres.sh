@@ -43,7 +43,8 @@ for migration in \
   20261019-service-synchronization.sql \
   20261021-combined-privacy-consent.sql \
   20261024-desktop-analytics.sql \
-  20261026-desktop-service-metrics.sql
+  20261026-desktop-service-metrics.sql \
+  20261029-extension-import-receipts.sql
 do
   set -- "$@" -f "$migrations_dir/$migration"
 done

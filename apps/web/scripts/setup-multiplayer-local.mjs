@@ -46,6 +46,7 @@ try {
     "20261021-combined-privacy-consent.sql",
     "20261024-desktop-analytics.sql",
     "20261026-desktop-service-metrics.sql",
+    "20261029-extension-import-receipts.sql",
   ])
     await client.query(
       await readFile(new URL(`../../../migrations/${name}`, import.meta.url), "utf8"),

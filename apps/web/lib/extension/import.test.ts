@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import { blankDesignDocument, parseDesignDocument, type DesignNode } from "@tidy/design/document";
 import { mergeImport } from "@/lib/design/merge-import";
-import { importWebCapture } from "./import";
+mock.module("server-only", () => ({}));
+const { importWebCapture } = await import("./import");
 
 const fileId: `${string}-${string}-${string}-${string}-${string}` =
   "00000000-0000-4000-8000-000000000001";
@@ -42,18 +43,7 @@ function services() {
   const chunks: { nodes: unknown[]; source: unknown }[] = [];
   return {
     chunks,
-    getDesignFile: mock(async () => ({
-      id: fileId,
-      name: "File",
-      organizationId: "org",
-      role: "editor",
-      organizationName: "Org",
-      folderId: null,
-      archivedAt: null,
-      updatedAt: new Date(),
-      frames: [],
-      rectangles: [],
-    })),
+    captureReceipt: mock(async () => null),
     createImport: mock(async () => ({
       importId: fileId,
       expectedRevision: 1,
@@ -62,24 +52,15 @@ function services() {
       maxChunkNodes: 250,
     })),
     putAsset: mock(async () => ({ assetId: uploadedId, sha256: "hash" })),
-    putImportChunk: mock(
+    putImportDocument: mock(
       async (
         _user: string,
         _import: string,
-        _chunk: string,
-        nodes: unknown[],
-        source?: unknown,
+        document: import("@tidy/design/document").DesignDocument,
       ) => {
-        chunks.push({ nodes, source });
-        return { chunkId: _chunk, chunkCount: chunks.length };
+        chunks.push({ nodes: document.nodes, source: document.source });
       },
     ),
-    validateImport: mock(async () => ({
-      nodeCount: 2,
-      artboardCount: 1,
-      warnings: [],
-      layout: { valid: true, issues: [], visualVerification: "required" as const },
-    })),
     commitImport: mock(
       async (
         _user: string,
@@ -110,6 +91,9 @@ describe("web import service", () => {
     );
     expect(deps.createImport).not.toHaveBeenCalled();
     const mismatched = { ...input(), organizationId: "other-org" };
+    deps.createImport.mockImplementation(async () => {
+      throw new Error("Organization access denied.");
+    });
     await expect(importWebCapture("user", mismatched, deps)).rejects.toThrow("access denied");
     expect(deps.putAsset).not.toHaveBeenCalled();
   });
@@ -117,7 +101,7 @@ describe("web import service", () => {
     const deps = services();
     const result = await importWebCapture("user", input(), deps);
     expect(result.fileId).toBe(fileId);
-    expect(deps.validateImport).toHaveBeenCalledTimes(1);
+    expect(deps.putImportDocument).toHaveBeenCalledTimes(1);
     expect(deps.commitImport).toHaveBeenCalledWith("user", fileId, "duplicate");
     const chunk = deps.chunks[0];
     const parsed = parseDesignDocument({ ...blankDesignDocument(), nodes: chunk.nodes });
@@ -145,7 +129,7 @@ describe("web import service", () => {
   });
   test("aborts a failed staging job and never commits partial content", async () => {
     const deps = services();
-    deps.validateImport.mockImplementation(async () => {
+    deps.putImportDocument.mockImplementation(async () => {
       throw new Error("Asset missing");
     });
     await expect(importWebCapture("user", input(), deps)).rejects.toThrow("Asset missing");
@@ -231,4 +215,71 @@ describe("web import service", () => {
     expect(copied.nodes[1].assetId).toBe(uploadedId);
     expect(deps.putAsset).toHaveBeenCalledTimes(1);
   });
+});
+
+test("identical referenced images upload once and unused images do not consume storage", async () => {
+  const deps = services();
+  const capture = input();
+  const duplicateId = "00000000-0000-4000-8000-000000000004";
+  const unusedId = "00000000-0000-4000-8000-000000000005";
+  capture.capture.assets.push(
+    { ...capture.capture.assets[0], id: duplicateId },
+    { ...capture.capture.assets[0], id: unusedId, base64: "dW51c2Vk" },
+  );
+  capture.capture.document.nodes.push({
+    ...frame,
+    id: "duplicate",
+    type: "image",
+    parentId: "frame",
+    assetId: duplicateId,
+  });
+  await importWebCapture("user", capture, deps);
+  expect(deps.putAsset).toHaveBeenCalledTimes(1);
+  expect(
+    parseDesignDocument({ ...blankDesignDocument(), nodes: deps.chunks[0].nodes })
+      .nodes.filter((node) => node.type === "image")
+      .map((node) => node.assetId),
+  ).toEqual([uploadedId, uploadedId]);
+});
+test("a maximum-sized capture stages once rather than rewriting twenty growing chunks", async () => {
+  const deps = services();
+  const capture = input();
+  capture.capture.assets = [];
+  capture.capture.document.nodes = [
+    frame,
+    ...Array.from({ length: 4999 }, (_, index) => ({
+      ...frame,
+      id: `node-${index}`,
+      parentId: "frame",
+      type: "container" as const,
+    })),
+  ];
+  await importWebCapture("user", capture, deps);
+  expect(deps.putImportDocument).toHaveBeenCalledTimes(1);
+  expect(deps.chunks[0].nodes).toHaveLength(5000);
+});
+test("a duplicate in-flight request never stages, uploads, commits, or aborts the original", async () => {
+  const deps = {
+    ...services(),
+    createImport: mock(async () => ({
+      importId: fileId,
+      alreadyCreated: true,
+      expectedRevision: 1,
+      expiresInHours: 24,
+      maxNodes: 5000,
+      maxChunkNodes: 250,
+    })),
+    captureReceipt: mock(async () => ({ state: "pending" as const })),
+  };
+  await expect(
+    importWebCapture("user", input(), deps, undefined, {
+      id: fileId,
+      hash: "a".repeat(64),
+      createdAt: Date.now(),
+    }),
+  ).rejects.toThrow("already processing");
+  expect(deps.putAsset).not.toHaveBeenCalled();
+  expect(deps.putImportDocument).not.toHaveBeenCalled();
+  expect(deps.commitImport).not.toHaveBeenCalled();
+  expect(deps.abortImport).not.toHaveBeenCalled();
 });

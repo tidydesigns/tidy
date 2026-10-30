@@ -4,7 +4,7 @@ import { parseDesignDocument } from "@tidy/design/document";
 import { captureElement, captureStyle, cssColor } from "@tidy/design/browser-capture";
 
 type Listener = (
-  message: { type: string; mode?: string },
+  message: { type: string; mode?: string; captureId?: string },
   sender: { id: string },
   respond: (value: unknown) => void,
 ) => unknown;
@@ -238,7 +238,7 @@ describe("rendered webpage capture", () => {
       onInvalidated: (callback: () => void) => invalidated.push(callback),
     } as never);
     const listener = [...listeners][0];
-    listener({ type: "bella:pick" }, { id: "bella-test" }, () => {});
+    listener({ type: "bella:pick", captureId: "fixture-capture" }, { id: "bella-test" }, () => {});
     const link = win.document.querySelector("a")!;
     bounds(link as unknown as Element, 10, 10, 120, 32);
     link.dispatchEvent(new win.PointerEvent("pointermove", { bubbles: true, composed: true }));
@@ -249,7 +249,7 @@ describe("rendered webpage capture", () => {
     expect(sent).not.toHaveBeenCalled();
     expect(win.document.querySelector("[data-bella-picker]")).not.toBeNull();
     win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", cancelable: true }));
-    expect(sent).toHaveBeenCalledWith({ type: "bella:picked" });
+    expect(sent).toHaveBeenCalledWith({ type: "bella:picked", captureId: "fixture-capture" });
     expect(win.document.querySelector("[data-bella-picker]")).toBeNull();
     for (const callback of invalidated) callback();
     expect(listeners.size).toBe(0);
@@ -260,11 +260,11 @@ describe("rendered webpage capture", () => {
       onInvalidated: (callback: () => void) => invalidated.push(callback),
     } as never);
     const listener = [...listeners][0];
-    listener({ type: "bella:pick" }, { id: "bella-test" }, () => {});
+    listener({ type: "bella:pick", captureId: "fixture-capture" }, { id: "bella-test" }, () => {});
     win.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", cancelable: true }));
-    expect(sent).toHaveBeenCalledWith({ type: "bella:cancelled" });
+    expect(sent).toHaveBeenCalledWith({ type: "bella:cancelled", captureId: "fixture-capture" });
     expect(win.document.querySelector("[data-bella-picker]")).toBeNull();
-    listener({ type: "bella:pick" }, { id: "bella-test" }, () => {});
+    listener({ type: "bella:pick", captureId: "fixture-capture" }, { id: "bella-test" }, () => {});
     expect(win.document.querySelector("[data-bella-picker]")).not.toBeNull();
     for (const callback of invalidated) callback();
     expect(listeners.size).toBe(0);
@@ -405,4 +405,19 @@ describe("effect screenshot fallbacks", () => {
     const capture = await captureElement(root as unknown as Element, "element");
     expect(capture.document.nodes.at(-1)?.text).toBe("CTA");
   });
+});
+
+test("late cleanup from an earlier selection cannot remove the next picker", () => {
+  const invalidated: (() => void)[] = [];
+  contentScript.main({
+    onInvalidated: (callback: () => void) => invalidated.push(callback),
+  } as never);
+  const listener = [...listeners][0]!;
+  listener({ type: "bella:pick", captureId: "old" }, { id: "bella-test" }, () => {});
+  listener({ type: "bella:pick", captureId: "new" }, { id: "bella-test" }, () => {});
+  listener({ type: "bella:stop", captureId: "old" }, { id: "bella-test" }, () => {});
+  expect(win.document.querySelector("[data-bella-picker]")).not.toBeNull();
+  listener({ type: "bella:stop", captureId: "new" }, { id: "bella-test" }, () => {});
+  expect(win.document.querySelector("[data-bella-picker]")).toBeNull();
+  invalidated.forEach((callback) => callback());
 });
