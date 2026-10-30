@@ -1,6 +1,7 @@
 import { Icon } from "@/components/ui/icon";
+import styles from "./onboarding.module.css";
 
-const steps = ["Create org", "Invite team", "Connect MCP"];
+const steps = ["Workspace", "Invite team", "Connect agent"];
 
 export function OnboardingProgress({
   step,
@@ -11,25 +12,22 @@ export function OnboardingProgress({
 }) {
   return (
     <nav aria-label="Onboarding progress" data-ph-public>
-      <ol className="flex items-center gap-2 sm:gap-3">
+      <ol className="flex items-center gap-6 max-md:justify-between max-md:gap-2">
         {steps.map((label, index) => (
           <li
             key={label}
             aria-current={!completed && step === index + 1 ? "step" : undefined}
-            className="flex items-center gap-2 text-[10px] sm:text-xs"
+            data-complete={completed || index + 1 < step ? "" : undefined}
+            className={`${styles.progressStep} flex items-center gap-2 whitespace-nowrap text-xs max-md:gap-1.5 max-md:text-[11px] max-[22.5rem]:gap-1 max-[22.5rem]:text-[10px]`}
           >
-            {index > 0 && <span aria-hidden="true" className="mr-1 h-px w-3 bg-border sm:w-6" />}
             <span
               aria-hidden="true"
-              className={`flex size-[22px] shrink-0 items-center justify-center rounded-full text-[10px] ${
-                step === index + 1
-                  ? "bg-[#ff5d00] text-[#1e1e1e]"
-                  : "bg-subtle-fill text-secondary-ink"
-              }`}
+              className={`${styles.progressNumber} flex size-6 shrink-0 items-center justify-center rounded-[7px] text-[11px]`}
             >
-              {completed ? <Icon name="check" size={12} /> : index + 1}
+              {completed || index + 1 < step ? <Icon name="checkBold" size={16} /> : index + 1}
             </span>
-            <span className={step === index + 1 ? "" : "text-secondary-ink"}>{label}</span>
+            <span>{label}</span>
+            {(completed || index + 1 < step) && <span className="sr-only">Complete</span>}
           </li>
         ))}
       </ol>

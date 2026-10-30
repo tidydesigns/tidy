@@ -53,11 +53,11 @@ export default async function OrganizationPage({
       replayDescription
       replayTitle
       step={returnToAccount ? undefined : 1}
-      title="Create your organisation."
+      title="Create your workspace."
       description={
         returnToAccount
-          ? "Give your space a name. You can invite people from Settings."
-          : "Give your space a name. You can invite people in the next step."
+          ? "Name your workspace. You can invite people from Settings."
+          : "Name your workspace, then invite your team and connect your coding agent."
       }
     >
       <OrganizationForm inviteTeam={!returnToAccount} />

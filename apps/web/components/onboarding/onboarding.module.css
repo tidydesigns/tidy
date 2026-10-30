@@ -1,0 +1,121 @@
+.page {
+  --onboarding-ink: light-dark(#424242, #e8e8e4);
+  --onboarding-muted: light-dark(#646464, #b7b7b7);
+  --onboarding-title-size: clamp(38px, 4.5vw, 52px);
+  --onboarding-body-size: 15px;
+  --onboarding-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  position: relative;
+  isolation: isolate;
+  min-height: 100svh;
+  background: light-dark(#fafafa, #202020);
+  color: var(--onboarding-ink);
+}
+
+.atmosphere {
+  position: absolute;
+  inset: auto 0 0;
+  height: 240px;
+  background: url("/onboarding/cloud-atmosphere.avif") center 65% / cover;
+  opacity: 0.12;
+  mask-image: linear-gradient(transparent, #000);
+}
+
+@media (prefers-color-scheme: dark) {
+  .atmosphere {
+    opacity: 0.07;
+  }
+}
+
+:global([data-theme="light"]) .atmosphere {
+  opacity: 0.12;
+}
+
+:global([data-theme="dark"]) .atmosphere {
+  opacity: 0.07;
+}
+
+.coral,
+.spectrum {
+  position: absolute;
+  width: clamp(56px, 8vw, 132px);
+  height: 188px;
+  background-size: cover;
+  opacity: 0.25;
+}
+
+.coral {
+  top: 28%;
+  right: -24px;
+  background-image: url("/onboarding/cloud-coral.avif");
+  clip-path: polygon(32% 0, 100% 0, 100% 100%, 0 100%, 0 32%, 32% 32%);
+}
+
+.spectrum {
+  bottom: 12%;
+  left: -32px;
+  background-image: url("/onboarding/cloud-spectrum.avif");
+  clip-path: polygon(0 0, 68% 0, 68% 24%, 100% 24%, 100% 76%, 68% 76%, 68% 100%, 0 100%);
+}
+
+.title {
+  font-family: var(--font-instrument-serif), serif;
+  font-size: var(--onboarding-title-size);
+  font-weight: 400;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  text-wrap: balance;
+}
+
+.description {
+  margin-top: 16px;
+  color: light-dark(#646464, #b7b7b7);
+  font-size: var(--onboarding-body-size);
+  line-height: 1.6;
+}
+
+.progressStep {
+  color: light-dark(#73736f, #a6a6a0);
+}
+
+.progressNumber {
+  border: 1px solid light-dark(#dedede, #44443f);
+}
+
+.progressStep[aria-current="step"] {
+  color: light-dark(#424242, #e8e8e4);
+}
+
+.progressStep[aria-current="step"] .progressNumber {
+  border-color: light-dark(#ababab, #777777);
+  background: light-dark(#e7e7e7, #3a3a3a);
+}
+
+.progressStep[data-complete] .progressNumber {
+  border-color: transparent;
+  background: #46a758;
+  color: #ffffff;
+}
+
+@media (max-width: 767px) {
+  .coral,
+  .spectrum {
+    width: 56px;
+    height: 100px;
+    opacity: 0.16;
+  }
+  .coral {
+    top: 0;
+  }
+  .spectrum {
+    bottom: 0;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .form button[type="submit"] {
+    transition: transform 120ms var(--onboarding-ease-out);
+  }
+  .form button[type="submit"]:active:not(:disabled):not(:focus-visible) {
+    transform: scale(0.98);
+  }
+}

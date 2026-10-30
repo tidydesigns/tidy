@@ -31,11 +31,13 @@ test("already authorized users can finish onboarding without skipping setup", ()
   expect(html).not.toContain('aria-current="step"');
 });
 
-test("copying waits for real authorization without adding helper text below the CTA", () => {
+test("copying keeps approval instructions visible while waiting for real authorization", () => {
   const render = (variant: "onboarding" | "workspace") =>
     renderToStaticMarkup(<McpSetupGuide {...setup} variant={variant} copied onCopied={() => {}} />);
   const onboarding = render("onboarding");
   expect(onboarding).toContain("Prompt copied");
+  expect(onboarding).toContain("Paste the prompt");
+  expect(onboarding).toContain("Copy setup prompt again");
   expect(onboarding).toContain("Waiting for your agent to connect…");
   expect(onboarding).not.toContain("You’re all set.");
   expect(render("workspace")).not.toContain("Waiting for your agent");
