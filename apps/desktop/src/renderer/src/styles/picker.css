@@ -1,5 +1,5 @@
 .desktop-picker.desktop-picker {
-  width: 312px;
+  width: 248px;
   max-width: calc(100vw - 16px);
   min-width: 0;
   display: flex;
@@ -7,7 +7,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--color-ink) 11%, transparent);
-  border-radius: 12px;
+  border-radius: 9px;
   background: color-mix(in srgb, var(--desktop-surface) 98%, var(--color-ink));
   color: var(--color-ink);
   font-family: system-ui, sans-serif;
@@ -20,14 +20,14 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 9px;
-  padding: 12px 14px;
+  gap: 7px;
+  padding: 7px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
   color: var(--color-muted-ink);
 }
 .picker-search > svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 .picker-search input {
@@ -46,35 +46,35 @@
   color: var(--color-muted-ink);
 }
 .desktop-picker :is(.select-menu-options, .machine-project-list) {
-  padding: 5px;
+  padding: 4px;
 }
 .desktop-picker :is(.machine-project-row, [role="menuitemcheckbox"]) {
-  min-height: 46px;
-  gap: 9px;
-  padding: 7px 10px;
+  min-height: 36px;
+  gap: 7px;
+  padding: 4px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: 5px;
   background: transparent;
 }
 .desktop-picker :is(.picker-label, [data-slot="select-menu-label"]) {
-  font-size: 12.5px;
+  font-size: 12px;
   font-weight: 500;
-  line-height: 18px;
+  line-height: 16px;
   letter-spacing: -0.012em;
 }
 .desktop-picker :is(.picker-description, [data-slot="select-menu-description"]) {
   display: block;
-  margin-top: 1px;
+  margin-top: 0;
   overflow: hidden;
   color: var(--color-muted-ink);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 400;
-  line-height: 14px;
+  line-height: 12px;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 .desktop-picker .select-menu-option-row {
-  border-radius: 7px;
+  border-radius: 5px;
 }
 .desktop-picker .select-menu-option-row:has([aria-checked="true"]),
 .desktop-picker .machine-project-row[aria-current="page"] {
@@ -88,9 +88,9 @@
   outline-offset: -1px;
 }
 .desktop-picker .machine-project-add {
-  gap: 9px;
-  border-radius: 7px;
-  padding-inline: 10px;
+  gap: 7px;
+  border-radius: 5px;
+  padding-inline: 8px;
 }
 @media (hover: hover) and (pointer: fine) {
   .desktop-picker .select-menu-option-row:has(button:enabled):hover,

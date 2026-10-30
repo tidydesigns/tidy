@@ -1,7 +1,7 @@
 .reference-file-picker .select-menu-options {
   min-width: 0;
   min-height: 0;
-  max-height: min(248px, 45dvh);
+  max-height: min(184px, 40dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }

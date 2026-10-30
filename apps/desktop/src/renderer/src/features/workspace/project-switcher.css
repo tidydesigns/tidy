@@ -6,7 +6,7 @@
 }
 .machine-project-list {
   min-height: 0;
-  max-height: min(320px, 60dvh);
+  max-height: min(240px, 50dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -15,8 +15,8 @@
 .machine-project-footer {
   flex-shrink: 0;
   border-top: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
-  padding: 5px;
+  padding: 4px;
 }
 .machine-project-list .machine-project-add {
-  min-height: 46px;
+  min-height: 36px;
 }
