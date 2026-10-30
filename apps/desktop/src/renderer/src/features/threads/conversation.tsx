@@ -67,7 +67,11 @@ const MarkdownContent = memo(function MarkdownContent({
             input={{ projectId, threadId, href }}
             name={link.name}
             active={active}
-          />
+          >
+            <ChatLink href={href} api={api} projectId={projectId}>
+              {link.name}
+            </ChatLink>
+          </ThreadVideo>
         ) : (
           <ChatLink href={href} api={api} projectId={projectId}>
             {children}
@@ -83,7 +87,11 @@ const MarkdownContent = memo(function MarkdownContent({
             input={{ projectId, threadId, href: src }}
             name={link.name}
             active={active}
-          />
+          >
+            <ChatLink href={src} api={api} projectId={projectId}>
+              {link.name}
+            </ChatLink>
+          </ThreadVideo>
         ) : (
           <span className="text-xs text-muted-ink">{alt || "Image"}</span>
         );

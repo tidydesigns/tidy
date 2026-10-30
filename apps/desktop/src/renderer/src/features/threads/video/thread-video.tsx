@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI } from "../../../../../shared/contracts/desktop";
 import { useVideoSource } from "./use-video-source";
@@ -10,11 +10,13 @@ export function ThreadVideo({
   input,
   name,
   active,
+  children,
 }: {
   api: Pick<DesktopAPI, "readVideoChunk">;
   input: VideoInput;
   name: string;
   active: boolean;
+  children?: ReactNode;
 }) {
   const host = useRef<HTMLSpanElement>(null);
   const [nearby, setNearby] = useState(false);
@@ -119,7 +121,7 @@ export function ThreadVideo({
         )}
       </span>
       <span className="thread-video-caption" title={input.href}>
-        {name}
+        {children ?? name}
       </span>
     </span>
   );

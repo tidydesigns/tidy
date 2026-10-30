@@ -399,9 +399,13 @@ async function runThreadLoadingTests(): Promise<string[]> {
           },
         ];
         let requests = 0;
+        const opened: [string, string][] = [];
         const pending = deferred<Awaited<ReturnType<DesktopAPI["readVideoChunk"]>>>();
         const api: DesktopAPI = {
           ...nativeAPI,
+          openChatLink: async (projectId, href) => {
+            opened.push([projectId, href]);
+          },
           readVideoChunk: async () => {
             requests++;
             if (requests === 2) return pending.promise;
@@ -419,16 +423,23 @@ async function runThreadLoadingTests(): Promise<string[]> {
         render(false);
         await settle();
         check(requests === 0, "Inactive thread fetched its video");
-        check(
-          !host.querySelector("a[href='recordings/demo.mp4']"),
-          "Video reference remained a file link",
-        );
+        check(host.querySelector(".thread-video"), "Video reference did not render inline");
         render(true);
         await until(
           () => Boolean(host.querySelector(".thread-video [role=alert]")),
           "Inline video error",
         );
         check(!document.querySelector("dialog[open]"), "Inline recording opened a dialog");
+        required(
+          host.querySelector<HTMLAnchorElement>(".thread-video-caption a"),
+          "Recording file link after preview failure",
+        ).click();
+        check(
+          opened.length === 1 &&
+            opened[0][0] === projectId &&
+            opened[0][1] === "recordings/demo.mp4",
+          "Preview failure lost the recording's file action",
+        );
         required(
           host.querySelector<HTMLButtonElement>(".thread-video-retry"),
           "Retry recording",
