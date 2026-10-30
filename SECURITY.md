@@ -29,10 +29,10 @@ Never connect pull-request CI or preview deployments to production credentials,
 provider accounts, customer data or storage buckets. Review third-party patches
 when updating authentication dependencies.
 
-The OAuth provider patch defers resource seeding to its existing first-use path.
-Public discovery and session initialization do not need resource-table I/O.
-Resource access still seeds missing records and checks persisted policy before
-client registration or token issuance.
+Public OAuth discovery uses the configured provider's metadata hook with an
+isolated, in-memory auth context. It cannot dispatch authentication endpoints or
+connect to the application database. Authentication and resource management keep
+the provider's normal initialization and persisted policy checks.
 
 The dependency audit permits the braces advisory GHSA-vfj7-8cjw-p6xm only through
 the reviewed development dependency chain

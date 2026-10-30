@@ -15,7 +15,7 @@ import {
   OrganizationAccessError,
   requireOrganizationPermission,
 } from "@/lib/organizations/authorization";
-import { betterAuth } from "better-auth";
+import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
 import { jwt, organization } from "better-auth/plugins";
 import { cimd } from "@better-auth/cimd";
@@ -65,6 +65,70 @@ async function invitationCapacity(organizationId: string, email: string, role: s
     if (message) throw new APIError("FORBIDDEN", { code: "PLAN_LIMIT", message });
     throw error;
   }
+}
+
+function createMcpPlugin() {
+  return hardenedMcp({
+    loginPage: "/login",
+    consentPage: "/mcp/consent",
+    resource: new URL(
+      "/api/mcp",
+      process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    ).toString(),
+    resources: [
+      {
+        identifier: desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+        allowedScopes: [DESKTOP_SYNC_SCOPE],
+      },
+    ],
+    clientRegistrationAllowedResources: [
+      desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
+    ],
+    scopes: [
+      DESKTOP_SYNC_SCOPE,
+      "openid",
+      "profile",
+      "offline_access",
+      "mcp:read",
+      "mcp:write",
+      "linear:read",
+      "linear:write",
+    ],
+    allowDynamicClientRegistration: true,
+    allowUnauthenticatedClientRegistration: true,
+    accessTokenExpiresIn: 900,
+    codeExpiresIn: 300,
+    refreshTokenExpiresIn: 60 * 60 * 24 * 30,
+    refreshTokenReuseInterval: 30,
+    extensions: [
+      {
+        claims: {
+          accessToken: async ({ user, client }) =>
+            user
+              ? {
+                  bella_grant_version: await authorizationVersion(user.id, client.clientId),
+                }
+              : {},
+        },
+      },
+    ],
+  });
+}
+
+function createDiscovery() {
+  const plugin = createMcpPlugin();
+  const { $context } = betterAuth<BetterAuthOptions>({
+    baseURL: process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
+    plugins: [
+      jwt({ disableSettingJwtHeader: true }),
+      { ...plugin, init: undefined },
+      cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
+    ],
+  });
+  return async (request: Request) => {
+    const result = await plugin.onRequest(request, await $context);
+    return result && "response" in result ? result.response : undefined;
+  };
 }
 
 function createAuth() {
@@ -401,51 +465,7 @@ function createAuth() {
       }),
       vaultSchema,
       jwt({ disableSettingJwtHeader: true }),
-      hardenedMcp({
-        loginPage: "/login",
-        consentPage: "/mcp/consent",
-        resource: new URL(
-          "/api/mcp",
-          process.env.BETTER_AUTH_URL ?? "http://localhost:3000",
-        ).toString(),
-        resources: [
-          {
-            identifier: desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
-            allowedScopes: [DESKTOP_SYNC_SCOPE],
-          },
-        ],
-        clientRegistrationAllowedResources: [
-          desktopSyncResource(process.env.BETTER_AUTH_URL ?? "http://localhost:3000"),
-        ],
-        scopes: [
-          DESKTOP_SYNC_SCOPE,
-          "openid",
-          "profile",
-          "offline_access",
-          "mcp:read",
-          "mcp:write",
-          "linear:read",
-          "linear:write",
-        ],
-        allowDynamicClientRegistration: true,
-        allowUnauthenticatedClientRegistration: true,
-        accessTokenExpiresIn: 900,
-        codeExpiresIn: 300,
-        refreshTokenExpiresIn: 60 * 60 * 24 * 30,
-        refreshTokenReuseInterval: 30,
-        extensions: [
-          {
-            claims: {
-              accessToken: async ({ user, client }) =>
-                user
-                  ? {
-                      bella_grant_version: await authorizationVersion(user.id, client.clientId),
-                    }
-                  : {},
-            },
-          },
-        ],
-      }),
+      createMcpPlugin(),
       cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
     ],
   });
@@ -529,7 +549,13 @@ function getAuth() {
   }
   return instance;
 }
+let discovery: ReturnType<typeof createDiscovery> | undefined;
 export const auth = new Proxy({} as TidyAuth, {
-  get: (_target, key) => Reflect.get(getAuth(), key),
+  get: (_target, key) => {
+    if (key === "handler" || key === "fetch")
+      return async (request: Request) =>
+        (await (discovery ??= createDiscovery())(request)) ?? getAuth().handler(request);
+    return Reflect.get(getAuth(), key);
+  },
   has: (_target, key) => Reflect.has(getAuth(), key),
 });

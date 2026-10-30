@@ -1,18 +1,21 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-test("OAuth discovery works without a database and advertises the correct resource scopes", () => {
-  const child = Bun.spawnSync(
-    [
-      process.execPath,
-      "--eval",
-      `
+test.each([false, true])(
+  "OAuth discovery is database-independent (database available: %s)",
+  (databaseAvailable) => {
+    const child = Bun.spawnSync(
+      [
+        process.execPath,
+        "--eval",
+        `
     import { expect, mock } from "bun:test";
     mock.module("server-only", () => ({}));
     let connections = 0;
     mock.module("@/lib/db", () => ({ db: { connect: async () => {
       connections++;
-      throw new Error("Database unavailable");
+      if (!${databaseAvailable}) throw new Error("Database unavailable");
+      return { query: async () => ({ rows: [] }), release() {} };
     } } }));
     const { auth } = await import("./lib/auth.ts");
     const headers = { "x-forwarded-for": "127.0.0.1" };
@@ -32,29 +35,49 @@ test("OAuth discovery works without a database and advertises the correct resour
     const metadata = await response.json();
     expect(metadata.scopes_supported).toContain("desktop:sync");
     expect(metadata.scopes_supported).toContain("mcp:read");
+    for (const path of ["/api/auth/.well-known/oauth-authorization-server", "/api/auth/.well-known/openid-configuration"]) {
+      const alias = await auth.handler(new Request("http://localhost:3000" + path, { headers }));
+      expect(alias.status).toBe(200);
+      expect(await alias.json()).toEqual(metadata);
+      const head = await auth.handler(new Request("http://localhost:3000" + path, { method: "HEAD", headers }));
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe("");
+      const post = await auth.handler(new Request("http://localhost:3000" + path, { method: "POST", headers }));
+      expect(post.status).toBe(405);
+      expect(post.headers.get("allow")).toBe("GET, HEAD");
+    }
     expect(connections).toBe(0);
+    if (${databaseAvailable}) {
+      expect(metadata).toEqual(await auth.api.getOAuthServerConfig());
+    } else {
+      await expect(auth.handler(new Request("http://localhost:3000/api/auth/oauth2/register", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      }))).rejects.toThrow("Database unavailable");
+    }
+    expect(connections).toBeGreaterThan(0);
     `,
-    ],
-    {
-      cwd: resolve(import.meta.dir, ".."),
-      env: {
-        ...process.env,
-        NODE_ENV: "production",
-        BETTER_AUTH_URL: "http://localhost:3000",
-        BETTER_AUTH_SECRET: "disposable-auth-test-secret-never-used-in-production",
+      ],
+      {
+        cwd: resolve(import.meta.dir, ".."),
+        env: {
+          ...process.env,
+          NODE_ENV: "production",
+          BETTER_AUTH_URL: "http://localhost:3000",
+          BETTER_AUTH_SECRET: "disposable-auth-test-secret-never-used-in-production",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 10_000,
       },
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 10_000,
-    },
-  );
-  expect({ exitCode: child.exitCode, stderr: child.stderr.toString() }).toEqual({
-    exitCode: 0,
-    stderr: "",
-  });
-});
+    );
+    expect({ exitCode: child.exitCode, stderr: child.stderr.toString() }).toEqual({
+      exitCode: 0,
+      stderr: "",
+    });
+  },
+);
 
-test("a stalled Worker session lookup cannot block a different request", () => {
+test("a stalled Worker auth initialization cannot block a different request", () => {
   const child = Bun.spawnSync(
     [
       process.execPath,
@@ -62,7 +85,6 @@ test("a stalled Worker session lookup cannot block a different request", () => {
       `
     import { mock } from "bun:test";
     import { AsyncLocalStorage } from "node:async_hooks";
-    import { createHmac } from "node:crypto";
     const requests = new AsyncLocalStorage();
     let unblock;
     const blocked = new Promise(resolve => { unblock = resolve; });
@@ -76,7 +98,7 @@ test("a stalled Worker session lookup cannot block a different request", () => {
     } }));
     mock.module("@/lib/db", () => ({ db: { connect: async () => ({
       query: async (sql) => {
-        if (requests.getStore()?.stall) {
+        if (/"oauthResource"/.test(sql) && requests.getStore()?.stall) {
           started();
           await blocked;
         }
@@ -84,14 +106,7 @@ test("a stalled Worker session lookup cannot block a different request", () => {
       }, release() {},
     }) } }));
     const { auth } = await import("./lib/auth.ts");
-    const first = requests.run({ ctx: {}, stall: true }, async () => {
-      const context = await auth.$context;
-      const token = "unknown-session-token";
-      const signature = createHmac("sha256", process.env.BETTER_AUTH_SECRET).update(token).digest("base64");
-      return auth.api.getSession({ headers: new Headers({ cookie:
-        context.authCookies.sessionToken.name + "=" + encodeURIComponent(token + "." + signature),
-      }) });
-    });
+    const first = requests.run({ ctx: {}, stall: true }, () => auth.api.getSession({ headers: new Headers() }));
     await starting;
     let timer;
     const second = await Promise.race([
