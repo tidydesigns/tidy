@@ -1396,13 +1396,14 @@ async function runThreadLoadingTests(): Promise<string[]> {
 
   await run("collapsed tool logs defer rows and retain expanded output on reopen", async (root) => {
     const output = "one\ntwo\nthree\nfour\nFinal output";
-    const activities: ToolActivity[] = Array.from({ length: 2 }, () => ({
+    const activities: ToolActivity[] = Array.from({ length: 10 }, (_, index) => ({
       id: crypto.randomUUID(),
       afterMessageId: crypto.randomUUID(),
       kind: "command",
       title: "Inspect",
       toolName: "Shell",
-      status: "completed",
+      status: index === 0 ? "failed" : "completed",
+      exitCode: index === 0 ? 1 : 0,
       startedAt: timestamp,
       endedAt: timestamp,
       output,
@@ -1413,13 +1414,21 @@ async function runThreadLoadingTests(): Promise<string[]> {
       host.querySelector<HTMLDetailsElement>(".tool-activity-group"),
       "Tool group",
     );
-    required(group.querySelector("summary"), "Group summary").click();
+    const summary = required(group.querySelector("summary"), "Group summary");
+    check(summary.textContent?.includes("10 steps"), "Summary lost the step count");
+    check(!/failed/i.test(summary.textContent ?? ""), "Summary promoted an individual failure");
+    check(!/failed/i.test(summary.getAttribute("aria-label") ?? ""), "Summary announced failures");
+    summary.click();
     await until(
       () => host.querySelectorAll(".tool-call").length === activities.length,
       "Expand tool rows",
     );
     const row = required(group.querySelector<HTMLDetailsElement>(".tool-call"), "Tool row");
-    required(row.querySelector("summary"), "Tool summary").click();
+    const detail = required(row.querySelector("summary"), "Tool summary");
+    check(detail.textContent?.includes("Ran"), "Command did not show that it ran");
+    check(detail.textContent?.includes("Failed · exit 1"), "Command lost its outcome");
+    check(detail.textContent?.match(/Failed/g)?.length === 1, "Command repeated its failure");
+    detail.click();
     await until(() => Boolean(row.querySelector("pre")), "Expand tool output");
     check(
       !row.querySelector("pre")?.textContent?.includes("Final output"),
