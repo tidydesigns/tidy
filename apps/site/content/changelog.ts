@@ -13,8 +13,138 @@ export type ChangelogEntry = {
 // Omit a category when there are no updates; every bullet has expandable details.
 export const changelog: readonly ChangelogEntry[] = [
   {
+    date: "2026-10-30",
+    features: [
+      {
+        title: "Shared browser previews in desktop threads",
+        details:
+          "Open a browser preview alongside your conversation and let your agent work in the same session. Take control to interact with the page yourself, then hand control back when you are ready.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More reliable website captures",
+        details:
+          "Extension captures stay tied to the page and destination you selected. Recover completed imports after a lost response without creating duplicates, and keep your destination choices during temporary connection failures. Screenshots are skipped when private content cannot be safely excluded.",
+      },
+      {
+        title: "Smoother canvas editing",
+        details:
+          "Panning, zooming and editing large designs take less repeated rendering work, keeping the canvas more responsive.",
+      },
+      {
+        title: "Accurate component exports",
+        details:
+          "Exported React components preserve layer identifiers containing special characters so the exported design renders correctly.",
+      },
+      {
+        title: "Keep cloud files with the right account",
+        details:
+          "Switching cloud accounts discards pending file lists from the previous account. Registered cloud workspaces must be opened through your account instead of as local projects.",
+      },
+      {
+        title: "Steadier thread cards",
+        details:
+          "Dragged thread cards stay within the thread list instead of overlapping nearby controls. Failure counts stay on one line in compact cards.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-29",
+    features: [
+      {
+        title: "Choose your desktop theme",
+        details:
+          "Choose System default, Dark or Light in Settings under Appearance. Your choice applies immediately and is remembered when you reopen the app.",
+      },
+      {
+        title: "Copy prompts and see when you sent them",
+        details:
+          "Hover over a prompt or focus it with the keyboard to see its send time and copy the original message text.",
+      },
+      {
+        title: "Clearer agent failure guidance",
+        details:
+          "Failed threads show a dismissible dialog with recovery guidance for sign-in, usage limits, connection problems and other errors. Expand the details or reopen them from the conversation when needed.",
+      },
+    ],
+    fixes: [
+      {
+        title: "Immediate file and folder actions",
+        details:
+          "New files open in an editable draft while they save. File moves and folder deletion update immediately, and folder navigation keeps available content visible while refreshing. Temporary connection failures no longer clear available previews.",
+      },
+      {
+        title: "Faster desktop navigation and search",
+        details:
+          "Cached workspace views stay visible while refreshing. Searching large projects, streaming replies and saving long conversations keep the app more responsive.",
+      },
+      {
+        title: "Faster connected-agent design updates",
+        details:
+          "Connected agents read and update designs with less waiting, and local design changes reach desktop previews sooner.",
+      },
+      {
+        title: "Clearer branch switching failures",
+        details:
+          "If a project branch cannot be switched, the desktop app explains the failure instead of leaving the change without feedback.",
+      },
+    ],
+  },
+  {
+    date: "2026-10-28",
+    features: [
+      {
+        title: "Connect remote workspaces over SSH",
+        details:
+          "Add a remote machine from desktop Settings, open its projects and start agent threads on the selected machine.",
+      },
+      {
+        title: "Browse projects by machine",
+        details:
+          "The desktop project menu groups projects under collapsible machines. Remove a project from the menu without deleting its files or thread history.",
+      },
+      {
+        title: "Place images inline with your prompt",
+        details:
+          "Image attachments keep their position within your message instead of moving away from the text that refers to them.",
+      },
+      {
+        title: "Follow agent progress more easily",
+        details:
+          "Desktop threads show elapsed working time and clearer activity states. Tool activity stays in a collapsed group above the reply, and streamed responses reveal complete sections as they arrive.",
+      },
+      {
+        title: "Try the desktop app in your browser",
+        details:
+          "Explore an interactive desktop demo on the website and find beta downloads for the desktop app.",
+      },
+    ],
+    fixes: [
+      {
+        title: "More responsive desktop conversations",
+        details:
+          "Search and long streaming conversations do less repeated work, keeping navigation and replies responsive.",
+      },
+      {
+        title: "Clearer completed turn status",
+        details:
+          "Completed agent turns keep their status labels aligned with the rest of the conversation activity.",
+      },
+      {
+        title: "Easier mobile website navigation",
+        details: "The website navigation and desktop demo fit smaller screens more reliably.",
+      },
+    ],
+  },
+  {
     date: "2026-10-27",
     features: [
+      {
+        title: "Control desktop analytics",
+        details:
+          "Choose whether to share optional desktop usage analytics from the privacy controls in Settings.",
+      },
       {
         title: "More ways to work with connected agents",
         details:
