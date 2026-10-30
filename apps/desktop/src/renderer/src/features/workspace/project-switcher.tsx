@@ -268,7 +268,7 @@ export function ProjectSwitcher({
               data-select-search
               ref={searchInput}
               aria-label="Search projects and workspaces"
-              placeholder="Search projects…"
+              placeholder="Search…"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
@@ -280,12 +280,12 @@ export function ProjectSwitcher({
               </p>
             )}
             {entries.map(
-              ({ machine, connected, catalog, machineProjects, status, showOpen, showOffline }) => (
+              ({ machine, connected, catalog, machineProjects, status, showOffline }) => (
                 <div key={machine.id}>
                   {machineProjects.map((project) => (
                     <div key={project.id} className="group/project relative flex items-center">
                       <Button
-                        className={`${rowClassName} ${onRemove ? "machine-project-removable" : ""}`}
+                        className={rowClassName}
                         title={project.path}
                         aria-label={`${project.name}, ${machine.label}`}
                         disabled={!connected}
@@ -306,21 +306,23 @@ export function ProjectSwitcher({
                             {!connected ? ` · ${status}` : ""}
                           </span>
                         </span>
-                        {selection.kind === "opening" &&
-                        selection.machineId === machine.id &&
-                        selection.projectId === project.id ? (
-                          <span className="text-[11px] text-muted-ink" role="status">
-                            Opening…
-                          </span>
-                        ) : !cloudId && machine.id === machineId && project.id === projectId ? (
-                          <Icon name="check" size={14} />
-                        ) : null}
+                        <span className="machine-project-indicator">
+                          {selection.kind === "opening" &&
+                          selection.machineId === machine.id &&
+                          selection.projectId === project.id ? (
+                            <span aria-label="Opening project" role="status">
+                              …
+                            </span>
+                          ) : !cloudId && machine.id === machineId && project.id === projectId ? (
+                            <Icon name="check" size={14} />
+                          ) : null}
+                        </span>
                       </Button>
                       {onRemove && connected && (
                         <Button
                           aria-label={`Remove ${project.name} from ${machine.label}`}
                           title="Remove from this machine. Files stay on disk."
-                          className={`absolute right-1 grid size-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-muted-ink opacity-0 group-hover/project:opacity-100 hover:bg-hover-surface hover:text-ink focus-visible:opacity-100 ${focusClassName}`}
+                          className={`machine-project-remove absolute grid size-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-muted-ink opacity-0 group-hover/project:opacity-100 hover:bg-hover-surface hover:text-ink focus-visible:opacity-100 ${focusClassName}`}
                           onClick={() => {
                             const key = `${machine.id}:${project.id}`;
                             if (removing.current.has(key)) return;
@@ -394,29 +396,6 @@ export function ProjectSwitcher({
                       </Button>
                     </div>
                   )}
-                  {showOpen && (
-                    <Button
-                      className={actionClassName}
-                      aria-label={`Open project on ${machine.label}`}
-                      onClick={() => void choose({ machineId: machine.id, close })}
-                    >
-                      <span className="machine-project-plus" aria-hidden="true">
-                        +
-                      </span>
-                      <span className={textClassName}>
-                        <span className="picker-label truncate">
-                          {selection.kind === "opening" &&
-                          selection.machineId === machine.id &&
-                          !selection.projectId
-                            ? "Opening…"
-                            : "Open project…"}
-                        </span>
-                        <span className="picker-description" title={machine.label}>
-                          {machine.label}
-                        </span>
-                      </span>
-                    </Button>
-                  )}
                   {showOffline && (
                     <p className={messageClassName}>
                       {machine.label} · {status}
@@ -451,9 +430,42 @@ export function ProjectSwitcher({
                   <span className="picker-label block truncate">{workspace.name}</span>
                   <span className="picker-description">Cloud</span>
                 </span>
-                {cloudId === workspace.id && <Icon name="check" size={14} />}
+                <span className="machine-project-indicator">
+                  {cloudId === workspace.id && <Icon name="check" size={14} />}
+                </span>
               </Button>
             ))}
+            {entries.some((entry) => entry.showOpen) && (
+              <div className="machine-project-actions">
+                {entries
+                  .filter((entry) => entry.showOpen)
+                  .map(({ machine }) => (
+                    <Button
+                      key={machine.id}
+                      className={actionClassName}
+                      aria-label={`Open project on ${machine.label}`}
+                      onClick={() => void choose({ machineId: machine.id, close })}
+                    >
+                      <span className="machine-project-plus" aria-hidden="true">
+                        +
+                      </span>
+                      <span className={textClassName}>
+                        <span className="picker-label truncate">
+                          {selection.kind === "opening" &&
+                          selection.machineId === machine.id &&
+                          !selection.projectId
+                            ? "Opening…"
+                            : "Open project…"}
+                        </span>
+                        <span className="picker-description" title={machine.label}>
+                          {machine.label}
+                        </span>
+                      </span>
+                      <span className="machine-project-indicator" aria-hidden="true" />
+                    </Button>
+                  ))}
+              </div>
+            )}
           </div>
           {onAddMachine && (
             <div className="machine-project-footer">

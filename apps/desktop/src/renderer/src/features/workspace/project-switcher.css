@@ -50,7 +50,7 @@
 }
 .machine-project-text {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   min-width: 0;
   flex: 1;
@@ -60,7 +60,8 @@
   flex: 1;
 }
 .machine-project-text .picker-description {
-  max-width: 60%;
+  max-width: 50%;
+  flex-shrink: 0;
   line-height: 16px;
 }
 .machine-project-dropdown .machine-project-row,
@@ -70,8 +71,25 @@
   font-size: 11px;
   line-height: 16px;
 }
-.machine-project-dropdown .machine-project-removable {
-  padding-right: 32px;
+.machine-project-indicator {
+  display: grid;
+  width: 14px;
+  height: 16px;
+  flex-shrink: 0;
+  place-items: center;
+  color: var(--color-muted-ink);
+}
+.machine-project-remove {
+  right: 3px;
+}
+.group\/project:has(.machine-project-remove):hover .machine-project-indicator,
+.group\/project:has(.machine-project-remove:focus-visible) .machine-project-indicator {
+  visibility: hidden;
+}
+.machine-project-actions {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
 }
 .machine-project-add .picker-label {
   font-size: 11px;
@@ -89,4 +107,8 @@
   .project-trigger:enabled:hover {
     background: var(--color-hover-surface);
   }
+}
+
+.machine-project-dropdown .machine-project-row > svg {
+  flex-shrink: 0;
 }
