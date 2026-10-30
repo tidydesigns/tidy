@@ -74,6 +74,7 @@ export function createDemoAPI(): DesktopAPI {
   let branch = "main";
   return {
     customTitlebar: true,
+    readVideoChunk: unsupported,
     bootstrap: async () => ({
       projects: [clone(project)],
       activeProject: snapshot(),

@@ -1,3 +1,4 @@
+import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
 import {
   browserScopeSchema,
   browserDiscardDraftSchema,
@@ -234,6 +235,7 @@ export function createWorkspaceRequests<Context>(
               : "https://claude.ai/settings/usage",
       ),
   );
+  handle("read-video-chunk", videoChunkRequestSchema, (value) => service.readVideoChunk(value));
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
     openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
   );

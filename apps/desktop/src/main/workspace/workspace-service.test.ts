@@ -1,8 +1,9 @@
+import { videoChunkSchema } from "../../shared/contracts/video-preview";
 import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import * as filesystem from "node:fs";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
@@ -1849,4 +1850,36 @@ test("project selections stay ordered across handlers and release after failure"
     selected.mockRestore();
     checkAccess.mockRestore();
   }
+});
+
+test("video previews resolve the authorized thread execution project and recheck workspace access", async () => {
+  const { directory, store, service, project } = await fixture();
+  const cloudRoot = join(directory, "workspace");
+  await mkdir(cloudRoot);
+  const workspace = (await store.open(cloudRoot, "Team")).project;
+  let allowed = true;
+  service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Workspace access revoked");
+  };
+  const thread = await service.startThread({
+    projectId: workspace.id,
+    executionProjectId: project.id,
+    harness: "codex",
+    prompt: "Record feature",
+    designIds: [],
+  });
+  await writeFile(join(project.path, "demo.mp4"), "execution recording");
+  await writeFile(join(cloudRoot, "demo.mp4"), "workspace content");
+  const requests = createWorkspaceRequests(service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  });
+  const input = { projectId: workspace.id, threadId: thread.id, href: "demo.mp4", offset: 0 };
+  const result = await requests.invoke("read-video-chunk", input, undefined);
+  const chunk = videoChunkSchema.parse(result);
+  expect(Buffer.from(chunk.data, "base64").toString()).toBe("execution recording");
+  allowed = false;
+  await expect(requests.invoke("read-video-chunk", input, undefined)).rejects.toThrow("revoked");
 });

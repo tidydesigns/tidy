@@ -1,3 +1,5 @@
+import { readVideoChunk } from "./video-preview";
+import type { VideoChunkRequest } from "../../shared/contracts/video-preview";
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
@@ -121,6 +123,13 @@ export class WorkspaceService {
     if (!this.authorizeCloudProject)
       throw new Error("Open this cloud workspace before running agents.");
     await this.authorizeCloudProject(projectId);
+  }
+
+  async readVideoChunk(input: VideoChunkRequest) {
+    const thread = await this.readThread(input.projectId, input.threadId);
+    const project = this.executionProject(thread);
+    await this.assertProjectAccess(project.id);
+    return readVideoChunk({ ...input, root: project.path });
   }
 
   private executionProject(thread: Pick<Thread, "projectId" | "executionProjectId">) {
