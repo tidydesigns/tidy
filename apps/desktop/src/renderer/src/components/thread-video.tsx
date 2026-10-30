@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import { useVideoSource, type VideoInput } from "./use-video-source";
-import "./video-preview.css";
+import "./thread-video.css";
 
 export function ThreadVideo({
   api,

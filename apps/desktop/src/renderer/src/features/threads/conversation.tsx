@@ -69,7 +69,7 @@ const MarkdownContent = memo(function MarkdownContent({
             active={active}
           />
         ) : (
-          <ChatLink href={href} api={api} projectId={projectId} threadId={threadId} active={active}>
+          <ChatLink href={href} api={api} projectId={projectId}>
             {children}
           </ChatLink>
         );
