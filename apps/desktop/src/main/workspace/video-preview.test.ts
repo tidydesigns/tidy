@@ -77,11 +77,11 @@ test("directories, unsupported links, empty and oversized videos are rejected", 
     "javascript:alert(1)",
     "notes.txt",
     "directory.mp4",
-    "empty.mp4",
-    "large.mp4",
   ]) {
     await expect(readVideoChunk({ root, href, offset: 0 })).rejects.toThrow();
   }
+  await expect(readVideoChunk({ root, href: "empty.mp4", offset: 0 })).rejects.toThrow("empty");
+  await expect(readVideoChunk({ root, href: "large.mp4", offset: 0 })).rejects.toThrow("128 MiB");
 });
 
 test("changed recordings and invalid continuation offsets fail instead of mixing bytes", async () => {

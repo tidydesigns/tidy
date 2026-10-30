@@ -32,9 +32,11 @@ export async function readVideoChunk({
   try {
     const info = await file.stat({ bigint: true });
     if (!info.isFile()) throw new Error("This video is not a regular file.");
-    if (!info.size || info.size > BigInt(MAX_VIDEO_BYTES))
+    if (!info.size)
+      throw new Error("This recording is empty. Try again when recording has finished.");
+    if (info.size > BigInt(MAX_VIDEO_BYTES))
       throw new Error(
-        "Video previews support recordings up to 128 MB. Export a shorter recording and try again.",
+        "Video previews support recordings up to 128 MiB. Export a shorter recording and try again.",
       );
     if ((await realpath(path)) !== path) throw new Error("The video path changed. Open it again.");
     const currentRevision = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;

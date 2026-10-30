@@ -38,7 +38,7 @@ export function ThreadVideo({
         setNearby(visible);
         if (visible) setStarted(true);
       },
-      { rootMargin: "240px" },
+      { root: element.closest(".transcript"), rootMargin: "240px" },
     );
     observer.observe(element);
     return () => {

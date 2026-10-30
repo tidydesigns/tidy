@@ -1,5 +1,5 @@
 import { videoFileTransfers } from "./video-task-queue";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import { loadVideoSource, type VideoInput } from "./load-video-source";
 import { videoMemoryBudget } from "./video-memory-budget";
@@ -23,7 +23,9 @@ export function useVideoSource(
   const [attempt, setAttempt] = useState(0);
   const [source, setSource] = useState({ api, key, attempt, state: loading });
   const priority = useRef(visible);
-  priority.current = visible;
+  useLayoutEffect(() => {
+    priority.current = visible;
+  }, [visible]);
   const retained = useRef<ReturnType<typeof videoMemoryBudget.retain>>(undefined);
   useEffect(() => {
     if (visible) retained.current?.touch();
