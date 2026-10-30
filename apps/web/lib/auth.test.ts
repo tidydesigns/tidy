@@ -10,6 +10,7 @@ test.each([false, true])(
         "--eval",
         `
     import { expect, mock } from "bun:test";
+    import { toNextJsHandler } from "better-auth/next-js";
     mock.module("server-only", () => ({}));
     let connections = 0;
     mock.module("@/lib/db", () => ({ db: { connect: async () => {
@@ -18,6 +19,8 @@ test.each([false, true])(
       return { query: async () => ({ rows: [] }), release() {} };
     } } }));
     const { auth } = await import("./lib/auth.ts");
+    const handlers = toNextJsHandler(auth);
+    expect("fetch" in auth).toBe(true);
     const headers = { "x-forwarded-for": "127.0.0.1" };
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp"]) {
       const response = await auth.handler(new Request("http://localhost:3000" + path, { headers }));
@@ -36,13 +39,13 @@ test.each([false, true])(
     expect(metadata.scopes_supported).toContain("desktop:sync");
     expect(metadata.scopes_supported).toContain("mcp:read");
     for (const path of ["/api/auth/.well-known/oauth-authorization-server", "/api/auth/.well-known/openid-configuration"]) {
-      const alias = await auth.handler(new Request("http://localhost:3000" + path, { headers }));
+      const alias = await handlers.GET(new Request("http://localhost:3000" + path, { headers }));
       expect(alias.status).toBe(200);
       expect(await alias.json()).toEqual(metadata);
-      const head = await auth.handler(new Request("http://localhost:3000" + path, { method: "HEAD", headers }));
+      const head = await handlers.GET(new Request("http://localhost:3000" + path, { method: "HEAD", headers }));
       expect(head.status).toBe(200);
       expect(await head.text()).toBe("");
-      const post = await auth.handler(new Request("http://localhost:3000" + path, { method: "POST", headers }));
+      const post = await handlers.POST(new Request("http://localhost:3000" + path, { method: "POST", headers }));
       expect(post.status).toBe(405);
       expect(post.headers.get("allow")).toBe("GET, HEAD");
     }
@@ -50,7 +53,7 @@ test.each([false, true])(
     if (${databaseAvailable}) {
       expect(metadata).toEqual(await auth.api.getOAuthServerConfig());
     } else {
-      await expect(auth.handler(new Request("http://localhost:3000/api/auth/oauth2/register", {
+      await expect(handlers.POST(new Request("http://localhost:3000/api/auth/oauth2/register", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
       }))).rejects.toThrow("Database unavailable");
     }

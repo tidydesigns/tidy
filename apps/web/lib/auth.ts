@@ -557,5 +557,5 @@ export const auth = new Proxy({} as TidyAuth, {
         (await (discovery ??= createDiscovery())(request)) ?? getAuth().handler(request);
     return Reflect.get(getAuth(), key);
   },
-  has: (_target, key) => Reflect.has(getAuth(), key),
+  has: (_target, key) => key === "handler" || key === "fetch" || Reflect.has(getAuth(), key),
 });
