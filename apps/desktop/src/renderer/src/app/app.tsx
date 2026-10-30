@@ -2087,6 +2087,7 @@ export function App({
                         threadId={thread.id}
                         active={!settingsOpen && mode === "code"}
                         connected={machine?.connected ?? true}
+                        openBrowser={openBrowserLink}
                         remoteLabel={
                           machine && machine.current.id !== "local"
                             ? machine.current.label

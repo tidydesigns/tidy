@@ -10,6 +10,7 @@ export function ThreadPortsStrip({
   active,
   connected = true,
   remoteLabel,
+  openBrowser,
 }: {
   api: DesktopAPI;
   projectId: string;
@@ -17,6 +18,7 @@ export function ThreadPortsStrip({
   active: boolean;
   connected?: boolean;
   remoteLabel?: string;
+  openBrowser?: (url: string) => void;
 }) {
   const [ports, setPorts] = useState<ThreadPort[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -127,7 +129,9 @@ export function ThreadPortsStrip({
 
   async function open(port: ThreadPort) {
     try {
-      await api.openChatLink(projectId, threadPortURL(port));
+      const url = threadPortURL(port);
+      if (api.browser && openBrowser) openBrowser(url);
+      else if (!remoteLabel) await api.openChatLink(projectId, url);
     } catch {
       if (mounted.current)
         setErrors((previous) => ({ ...previous, [port.processId]: "Could not open this port." }));
@@ -185,6 +189,7 @@ export function ThreadPortsStrip({
           <div
             id={listId}
             hidden={groups.length > 1 && !expanded}
+            onFocusCapture={() => setExpanded(true)}
             className="max-h-[132px] overflow-y-auto"
           >
             {groups.map((group) => {
@@ -214,7 +219,7 @@ export function ThreadPortsStrip({
                     </span>
                     <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
                       {group.map((entry) =>
-                        remoteLabel ? (
+                        remoteLabel && !(api.browser && openBrowser) ? (
                           <span
                             key={entry.id}
                             title={`Port ${entry.port} on ${remoteLabel}`}
@@ -227,11 +232,17 @@ export function ThreadPortsStrip({
                             key={entry.id}
                             type="button"
                             className="truncate text-[11px] text-ink underline decoration-border underline-offset-4 hover:decoration-current"
-                            title={`Open ${threadPortURL(entry)}`}
-                            disabled={pending}
+                            title={
+                              remoteLabel
+                                ? `Open port ${entry.port} on ${remoteLabel}`
+                                : `Open ${threadPortURL(entry)}`
+                            }
+                            disabled={pending || !connected}
                             onClick={() => void open(entry)}
                           >
-                            {entry.host === "::1" ? "[::1]" : "localhost"}:{entry.port}
+                            {remoteLabel
+                              ? `:${entry.port}`
+                              : `${entry.host === "::1" ? "[::1]" : "localhost"}:${entry.port}`}
                           </Button>
                         ),
                       )}
