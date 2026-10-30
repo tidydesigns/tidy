@@ -26,13 +26,23 @@ const readOpenRoot = (element: HTMLElement) => element.shadowRoot;
 
 test("private controls and overflowing or boxless editors disable screenshots before pixels are read", () => {
   for (const markup of [
+    '<input value="private">',
+    '<input type="text" value="private">',
     '<input type="password" value="secret">',
+    '<input type=" hidden " value="private">',
     '<textarea style="display:none">private</textarea>',
     '<div contenteditable style="display:contents"><p>overflowing private draft</p></div>',
     '<iframe src="about:blank"></iframe>',
   ]) {
     document.body.innerHTML = markup;
     expect(inspectScreenshotPage(readOpenRoot, () => {})).toBe(false);
+  }
+});
+
+test("hidden inputs do not disable screenshots of public content", () => {
+  for (const type of ["hidden", "HIDDEN"]) {
+    document.body.innerHTML = `<p>Public content</p><input type="${type}" value="token">`;
+    expect(inspectScreenshotPage(readOpenRoot, () => {})).toBe(true);
   }
 });
 

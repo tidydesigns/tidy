@@ -626,7 +626,7 @@ export async function putImportDocument(
   userId: string,
   importId: string,
   input: DesignDocument,
-  options: { preservePages?: boolean } = {},
+  options: { preservePages?: boolean; tooLargeMessage?: string } = {},
 ) {
   await requireDocumentSchema();
   const document = parseDesignDocument(input);
@@ -640,7 +640,9 @@ export async function putImportDocument(
   };
   const json = JSON.stringify(chunk);
   if (Buffer.byteLength(json) > IMPORT_LIMITS.bytesPerImport)
-    throw new PublicActionError("Import document is too large. Select less content.");
+    throw new PublicActionError(
+      options.tooLargeMessage ?? "Import document is too large. Select less content.",
+    );
   const stored = await db.query(
     `update "designImport" i set "chunks"=jsonb_build_object('0000',$3::jsonb)
     where i."id"=$1 and i."userId"=$2 and i."status"='staging' and i."expiresAt">now()

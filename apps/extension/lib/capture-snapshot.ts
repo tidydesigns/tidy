@@ -15,7 +15,13 @@ export function inspectScreenshotPage(
       const element = pending.pop();
       if (!element) continue;
       if (++visited > 15000 || performance.now() > deadline) return false;
-      if (/^(input|textarea|select|iframe|object|embed)$/i.test(element.localName)) return false;
+      if (/^(textarea|select|iframe|object|embed)$/i.test(element.localName)) return false;
+      // Whitespace makes an input type invalid (and therefore visible); do not trim it.
+      if (
+        /^input$/i.test(element.localName) &&
+        element.getAttribute("type")?.toLowerCase() !== "hidden"
+      )
+        return false;
       const editable = element.getAttribute("contenteditable")?.toLowerCase();
       if (editable === "" || editable === "true" || editable === "plaintext-only") return false;
       const shadow = element instanceof HTMLElement ? readShadowRoot(element) : element.shadowRoot;
