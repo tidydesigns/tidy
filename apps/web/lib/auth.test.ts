@@ -1,18 +1,26 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-test("MCP discovery excludes desktop sync while authorization discovery retains it", () => {
-  const child = Bun.spawnSync(
-    [
-      process.execPath,
-      "--eval",
-      `
+test.each([false, true])(
+  "OAuth discovery is database-independent (database available: %s)",
+  (databaseAvailable) => {
+    const child = Bun.spawnSync(
+      [
+        process.execPath,
+        "--eval",
+        `
     import { expect, mock } from "bun:test";
+    import { toNextJsHandler } from "better-auth/next-js";
     mock.module("server-only", () => ({}));
-    mock.module("@/lib/db", () => ({ db: { connect: async () => ({
-      query: async () => ({ rows: [] }), release() {},
-    }) } }));
+    let connections = 0;
+    mock.module("@/lib/db", () => ({ db: { connect: async () => {
+      connections++;
+      if (!${databaseAvailable}) throw new Error("Database unavailable");
+      return { query: async () => ({ rows: [] }), release() {} };
+    } } }));
     const { auth } = await import("./lib/auth.ts");
+    const handlers = toNextJsHandler(auth);
+    expect("fetch" in auth).toBe(true);
     const headers = { "x-forwarded-for": "127.0.0.1" };
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp"]) {
       const response = await auth.handler(new Request("http://localhost:3000" + path, { headers }));
@@ -30,26 +38,47 @@ test("MCP discovery excludes desktop sync while authorization discovery retains 
     const metadata = await response.json();
     expect(metadata.scopes_supported).toContain("desktop:sync");
     expect(metadata.scopes_supported).toContain("mcp:read");
+    for (const path of ["/api/auth/.well-known/oauth-authorization-server", "/api/auth/.well-known/openid-configuration"]) {
+      const alias = await handlers.GET(new Request("http://localhost:3000" + path, { headers }));
+      expect(alias.status).toBe(200);
+      expect(await alias.json()).toEqual(metadata);
+      const head = await handlers.GET(new Request("http://localhost:3000" + path, { method: "HEAD", headers }));
+      expect(head.status).toBe(200);
+      expect(await head.text()).toBe("");
+      const post = await handlers.POST(new Request("http://localhost:3000" + path, { method: "POST", headers }));
+      expect(post.status).toBe(405);
+      expect(post.headers.get("allow")).toBe("GET, HEAD");
+    }
+    expect(connections).toBe(0);
+    if (${databaseAvailable}) {
+      expect(metadata).toEqual(await auth.api.getOAuthServerConfig());
+    } else {
+      await expect(handlers.POST(new Request("http://localhost:3000/api/auth/oauth2/register", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      }))).rejects.toThrow("Database unavailable");
+    }
+    expect(connections).toBeGreaterThan(0);
     `,
-    ],
-    {
-      cwd: resolve(import.meta.dir, ".."),
-      env: {
-        ...process.env,
-        NODE_ENV: "production",
-        BETTER_AUTH_URL: "http://localhost:3000",
-        BETTER_AUTH_SECRET: "disposable-auth-test-secret-never-used-in-production",
+      ],
+      {
+        cwd: resolve(import.meta.dir, ".."),
+        env: {
+          ...process.env,
+          NODE_ENV: "production",
+          BETTER_AUTH_URL: "http://localhost:3000",
+          BETTER_AUTH_SECRET: "disposable-auth-test-secret-never-used-in-production",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: 10_000,
       },
-      stdout: "pipe",
-      stderr: "pipe",
-      timeout: 10_000,
-    },
-  );
-  expect({ exitCode: child.exitCode, stderr: child.stderr.toString() }).toEqual({
-    exitCode: 0,
-    stderr: "",
-  });
-});
+    );
+    expect({ exitCode: child.exitCode, stderr: child.stderr.toString() }).toEqual({
+      exitCode: 0,
+      stderr: "",
+    });
+  },
+);
 
 test("a stalled Worker auth initialization cannot block a different request", () => {
   const child = Bun.spawnSync(
