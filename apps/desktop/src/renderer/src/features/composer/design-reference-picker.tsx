@@ -13,6 +13,7 @@ import {
   type DraftCloudReference,
 } from "./cloud-reference";
 import type { CloudReferenceLibrary } from "./cloud-reference-catalogs";
+import "../../styles/picker.css";
 import "./design-reference-picker.css";
 
 export type CloudReferencePicker = {
@@ -139,7 +140,7 @@ export function DesignReferencePicker({
           <ComposerChevron />
         </>
       }
-      menuClassName={`${codeMenuClassName} reference-file-picker`}
+      menuClassName={`${codeMenuClassName} reference-file-picker desktop-picker`}
       maxMenuHeight={360}
       onOpenChange={(open) => {
         if (!open) setQuery("");
@@ -147,7 +148,7 @@ export function DesignReferencePicker({
       }}
       menuHeader={
         <>
-          <div className="reference-search">
+          <div className="picker-search">
             <ComposerIcon name="search" />
             <input
               data-select-search

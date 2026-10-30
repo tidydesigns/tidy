@@ -7,6 +7,7 @@ import type { CloudAccount } from "../../../../shared/contracts/cloud-sync";
 import type { WorkspaceMachine } from "../../../../shared/remote";
 import { ComposerChevron, ComposerIcon } from "../composer/composer-icon";
 import { errorText } from "../../app/workspace-error";
+import "../../styles/picker.css";
 import "./project-switcher.css";
 
 type Catalog = { kind: "loading" } | { kind: "ready"; projects: Project[] } | { kind: "error" };
@@ -206,7 +207,7 @@ export function ProjectSwitcher({
       placement="bottom"
       align="start"
       triggerClassName="project-trigger flex min-h-[34px] min-w-0 max-w-full items-center gap-[7px] rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-[13px] text-ink hover:bg-hover-surface [&>svg]:shrink-0 [&>svg]:text-muted-ink"
-      menuClassName="machine-project-dropdown"
+      menuClassName="machine-project-dropdown desktop-picker"
       maxMenuHeight={420}
       onOpenChange={(open) => {
         setSelection({ kind: "idle" });
@@ -257,7 +258,7 @@ export function ProjectSwitcher({
             }
           }}
         >
-          <div className="project-switcher-search">
+          <div className="picker-search">
             <ComposerIcon name="search" />
             <input
               data-select-search
@@ -295,8 +296,8 @@ export function ProjectSwitcher({
                       >
                         <Icon name="folder" size={15} />
                         <span className={textClassName}>
-                          <span className="block truncate">{project.name}</span>
-                          <span className="project-source">
+                          <span className="picker-label block truncate">{project.name}</span>
+                          <span className="picker-description">
                             {machine.label}
                             {!connected ? ` · ${status}` : ""}
                           </span>
@@ -406,7 +407,7 @@ export function ProjectSwitcher({
                             ? "Opening…"
                             : "Open project…"}
                         </span>
-                        <span className="project-source">{machine.label}</span>
+                        <span className="picker-description">{machine.label}</span>
                       </span>
                     </Button>
                   )}
@@ -440,8 +441,8 @@ export function ProjectSwitcher({
               >
                 <Icon name="cloud" size={15} />
                 <span className={textClassName}>
-                  <span className="block truncate">{workspace.name}</span>
-                  <span className="project-source">Cloud workspace</span>
+                  <span className="picker-label block truncate">{workspace.name}</span>
+                  <span className="picker-description">Cloud workspace</span>
                 </span>
                 {cloudId === workspace.id && <Icon name="check" size={15} />}
               </Button>

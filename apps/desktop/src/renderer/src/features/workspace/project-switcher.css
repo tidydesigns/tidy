@@ -1,46 +1,8 @@
-.machine-project-dropdown {
-  box-shadow:
-    0 8px 24px #0003,
-    0 2px 6px #0002,
-    inset 0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent);
-  width: 300px;
-  max-width: calc(100vw - 16px);
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid var(--color-border);
-  border-radius: 11px;
-  background: var(--desktop-surface);
-  color: var(--color-ink);
-  font-family: system-ui, sans-serif;
-}
 .machine-project-panel {
+  min-height: 0;
   display: flex;
   flex-direction: column;
   max-height: inherit;
-}
-.project-switcher-search {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 8px;
-  padding: 11px 12px;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-muted-ink);
-}
-.project-switcher-search > svg {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-.project-switcher-search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: var(--color-ink);
-  font: inherit;
-  font-size: 12px;
 }
 .machine-project-list {
   min-height: 0;
@@ -49,23 +11,12 @@
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--color-border) transparent;
-  padding: 4px;
-}
-.machine-project-dropdown .machine-project-row,
-.machine-project-list .machine-project-add {
-  min-height: 43px;
-}
-.project-source {
-  display: block;
-  margin-top: 2px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--color-muted-ink);
-  font-size: 10px;
-  line-height: 15px;
 }
 .machine-project-footer {
   flex-shrink: 0;
-  border-top: 1px solid var(--color-border);
-  padding: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
+  padding: 5px;
+}
+.machine-project-list .machine-project-add {
+  min-height: 46px;
 }
