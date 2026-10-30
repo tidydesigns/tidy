@@ -56,8 +56,8 @@ export default async function OrganizationPage({
       title="Create your workspace."
       description={
         returnToAccount
-          ? "Name your workspace. It’s where your designs and team come together."
-          : "Name your workspace. Your team and coding agent can join next."
+          ? "Name your workspace. You can invite people from Settings."
+          : "Name your workspace, then invite your team and connect your coding agent."
       }
     >
       <OrganizationForm inviteTeam={!returnToAccount} />

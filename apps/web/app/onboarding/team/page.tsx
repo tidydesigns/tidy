@@ -54,7 +54,7 @@ export default async function TeamPage({ searchParams }: PageProps<"/onboarding/
       replayTitle
       step={2}
       title="Invite your team."
-      description={`Invite people to ${organization.name}, or continue on your own. You can always invite your team later.`}
+      description={`Invite people to ${organization.name}, or continue on your own. You can invite people later.`}
     >
       <TeamInvites
         organizationId={organization.id}

@@ -101,16 +101,11 @@ export function McpSetupGuide({
           )}
         </Heading>
         <p data-ph-public className={styles.description}>
-          {nextStep ? (
-            "Open a chat in Codex, Claude Code or OpenCode. Paste the prompt and send it. Your agent will guide you through signing in."
-          ) : variant === "onboarding" ? (
-            "Let your coding agent work with your designs. Copy one prompt, then finish connecting in your agent."
-          ) : (
-            <>
-              Connect Tidy to your coding agent. Keep your designs and code in the same
-              conversation.
-            </>
-          )}
+          {nextStep
+            ? "Open a chat in Codex, Claude Code or OpenCode. Paste the prompt and send it. Your agent will guide you through signing in."
+            : variant === "onboarding"
+              ? "Copy the setup prompt, then paste and send it in your coding agent."
+              : "Connect your coding agent to work with your Tidy designs."}
         </p>
         <McpPromptButton {...props} />
       </section>
