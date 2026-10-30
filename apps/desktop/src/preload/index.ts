@@ -286,6 +286,9 @@ function workspaceApi(machineId?: string): DesktopAPI {
     respondToApproval: (projectId, threadId, approvalId, decision) =>
       scopedRequest("respond-approval", { projectId, threadId, approvalId, decision }),
     stopThread: (projectId, threadId) => scopedRequest("stop-thread", { projectId, threadId }),
+    threadPorts: (projectId, threadId) => scopedRequest("thread-ports", { projectId, threadId }),
+    stopThreadPort: (projectId, threadId, portId) =>
+      scopedRequest("stop-thread-port", { projectId, threadId, portId }),
     createDesign: (projectId, folderId) => scopedRequest("create-design", { projectId, folderId }),
     importDesign: (projectId, folderId) => scopedRequest("import-design", { projectId, folderId }),
     createDesignFolder: (projectId, name) =>

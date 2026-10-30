@@ -5,6 +5,13 @@ import type { HarnessUpdate, RunningHarness } from "./harnesses";
 import type { SkillInvocation } from "./harness-skills";
 import type { HarnessTransport, ProtocolMessage } from "./harness-transport";
 
+export type ProcessRegistration = {
+  environment: Record<string, string>;
+  onSpawn(pid: number, supervised?: boolean): void;
+  onExit(): void;
+  bind(threadId: string): Promise<void>;
+};
+
 export type SessionContext = {
   harness: HarnessId;
   executable: string;
@@ -13,6 +20,10 @@ export type SessionContext = {
   sessionId?: string;
   settings?: HarnessSettings;
   superviseParent?: boolean;
+  environment?: Record<string, string>;
+  onSpawn?: (pid: number, supervised?: boolean) => void;
+  onExit?: () => void;
+  processRegistration?: () => Promise<ProcessRegistration>;
 };
 export type TurnInput = {
   prompt: string;

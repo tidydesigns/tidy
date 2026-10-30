@@ -341,6 +341,14 @@ export function createWorkspaceRequests<Context>(
   handle("stop-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.stopThread(value.projectId, value.threadId),
   );
+  handle("thread-ports", z.object({ projectId, threadId: uuid }).strict(), (value) =>
+    service.threadPorts(value.projectId, value.threadId),
+  );
+  handle(
+    "stop-thread-port",
+    z.object({ projectId, threadId: uuid, portId: uuid }).strict(),
+    (value) => service.stopThreadPort(value.projectId, value.threadId, value.portId),
+  );
   handle(
     "create-design",
     z.object({ projectId, folderId: uuid.nullable().optional() }).strict(),

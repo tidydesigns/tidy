@@ -73,6 +73,8 @@ export function createDemoAPI(): DesktopAPI {
   };
   let branch = "main";
   return {
+    threadPorts: async () => [],
+    stopThreadPort: unsupported,
     customTitlebar: true,
     bootstrap: async () => ({
       projects: [clone(project)],

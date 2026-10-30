@@ -4,7 +4,7 @@ import type { HarnessId } from "../../shared/contracts/desktop";
 import type { RunningHarness } from "./harnesses";
 import { HarnessSession } from "./interactive-harness";
 import { HarnessNotSubmittedError } from "./harness-transport";
-import type { SessionContext, TurnInput } from "./session-types";
+import type { ProcessRegistration, SessionContext, TurnInput } from "./session-types";
 
 type ManagedContext = SessionContext & { projectId: string };
 type SessionFilter = {
@@ -32,6 +32,7 @@ type Entry = {
   invalidated: boolean;
   background: boolean;
   expiresAt: number;
+  processOwner?: ProcessRegistration;
 };
 const contextKey = (input: ManagedContext) =>
   JSON.stringify([
@@ -196,15 +197,36 @@ export class HarnessSessions {
             sessionId,
             settings,
             superviseParent,
+            environment: context.environment,
+            onSpawn: context.onSpawn,
+            onExit: context.onExit,
           };
+          const processOwner = await context.processRegistration?.();
+          if (pending.invalidated) {
+            processOwner?.onExit();
+            throw new Error("The harness context changed. Try again.");
+          }
+          if (processOwner) {
+            binding.environment = processOwner.environment;
+            binding.onSpawn = processOwner.onSpawn;
+            binding.onExit = processOwner.onExit;
+          }
+          let session: HarnessSession;
+          try {
+            session = new HarnessSession(binding);
+          } catch (error) {
+            processOwner?.onExit();
+            throw error;
+          }
           entry = {
             id,
             context: binding,
             key,
-            session: new HarnessSession(binding),
+            session,
             invalidated: false,
             background: false,
             expiresAt: 0,
+            processOwner,
           };
           this.entries.set(id, entry);
           const current = entry;
@@ -214,6 +236,7 @@ export class HarnessSessions {
           });
         }
         clearTimeout(entry.timer);
+        if (!composer) await entry.processOwner?.bind(id);
         return entry;
       })
       .finally(() => this.acquiring.delete(pending));

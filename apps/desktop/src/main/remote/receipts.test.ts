@@ -35,6 +35,33 @@ test("command receipts deduplicate concurrent requests and survive reopening", a
   expect(await reopened.status(randomUUID(), request.id)).toEqual({ kind: "missing" });
 });
 
+test("void command receipts survive recovery without replaying an authorized Stop", async () => {
+  const root = await mkdtemp(join(tmpdir(), "void-receipts-"));
+  roots.push(root);
+  const client = randomUUID(),
+    projectId = randomUUID();
+  const request = {
+    id: randomUUID(),
+    name: "stop-thread-port",
+    input: { projectId, threadId: randomUUID(), portId: randomUUID() },
+  };
+  let calls = 0;
+  const action = async () => {
+    calls++;
+  };
+  const authorize = async (id: string) => {
+    expect(id).toBe(projectId);
+  };
+  await new RequestReceipts(root).execute(client, request, action, authorize);
+  const reopened = new RequestReceipts(root);
+  expect(await reopened.status(client, request.id, authorize)).toEqual({
+    kind: "complete",
+    response: { ok: true },
+  });
+  expect(await reopened.execute(client, request, action, authorize)).toEqual({ ok: true });
+  expect(calls).toBe(1);
+});
+
 test("an interrupted command is never repeated and is distinguished from live work", async () => {
   const root = await mkdtemp(join(tmpdir(), "receipts-"));
   roots.push(root);

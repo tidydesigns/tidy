@@ -1,5 +1,6 @@
 import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
+import type { ThreadPort } from "./thread-ports";
 import type { SkillCatalog } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, type AttachedFile } from "./attachments";
@@ -241,6 +242,8 @@ export type DesktopAPI = {
   readAttachment(projectId: string, attachmentId: string): Promise<AttachedFile>;
   setThreadDone(projectId: string, threadId: string, done: boolean): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  threadPorts(projectId: string, threadId: string): Promise<ThreadPort[]>;
+  stopThreadPort(projectId: string, threadId: string, portId: string): Promise<void>;
   respondToApproval(
     projectId: string,
     threadId: string,

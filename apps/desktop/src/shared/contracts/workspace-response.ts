@@ -1,4 +1,5 @@
 import { browserStateSchema, browserResultSchema } from "./browser";
+import { threadPortsSchema } from "./thread-ports";
 import { draftImportResultSchema } from "./draft-import";
 import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
@@ -70,6 +71,8 @@ export const workspaceResponseSchemas = {
   "set-thread-done": liveThreadSchema,
   "respond-approval": liveThreadSchema,
   "stop-thread": z.void(),
+  "thread-ports": threadPortsSchema,
+  "stop-thread-port": z.void(),
   "add-attachment": attachedFileSchema,
   "read-attachment": attachedFileSchema,
   "create-design": localDesignSchema,

@@ -7,7 +7,7 @@ import { projectSetupResultSchema } from "../../shared/contracts/workspace-respo
 import { remoteRequestSchema, type RemoteRequest } from "../../shared/remote";
 
 const responseSchema = z.discriminatedUnion("ok", [
-  z.object({ ok: z.literal(true), data: z.unknown() }),
+  z.object({ ok: z.literal(true), data: z.unknown().optional() }),
   z.object({ ok: z.literal(false), error: z.string() }),
 ]);
 const scopeSchema = z.discriminatedUnion("kind", [

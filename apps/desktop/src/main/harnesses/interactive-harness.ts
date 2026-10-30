@@ -95,6 +95,9 @@ export class HarnessSession {
     sessionId,
     settings,
     superviseParent,
+    environment,
+    onSpawn,
+    onExit,
   }: SessionContext) {
     const input = {
       harness,
@@ -110,16 +113,19 @@ export class HarnessSession {
       ...input,
       args: harnessArguments(input),
       protocol: input.harness === "claude" ? "claude" : "jsonrpc",
-      ...(input.harness === "opencode"
-        ? {
-            env: {
-              ...harnessEnvironment("opencode"),
+      onSpawn,
+      onExit,
+      env: {
+        ...harnessEnvironment(harness),
+        ...environment,
+        ...(input.harness === "opencode"
+          ? {
               OPENCODE_CONFIG_CONTENT: JSON.stringify({
                 permission: input.settings?.permissionMode === "auto" ? "allow" : "ask",
               }),
-            },
-          }
-        : {}),
+            }
+          : {}),
+      },
     });
     this.done = this.transport.done;
     const context: AdapterContext = {
@@ -346,7 +352,13 @@ export class HarnessSession {
 }
 
 export function startInteractiveHarness(input: SessionContext & TurnInput): RunningHarness {
-  const session = new HarnessSession(input);
+  let session: HarnessSession;
+  try {
+    session = new HarnessSession(input);
+  } catch (error) {
+    input.onExit?.();
+    throw error;
+  }
   const turn = session.start(input);
   void turn.done.finally(() => session.close()).catch(() => {});
   return turn;

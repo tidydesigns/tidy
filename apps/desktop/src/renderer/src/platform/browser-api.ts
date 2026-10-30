@@ -135,6 +135,9 @@ const api: DesktopAPI = {
   respondToApproval: (projectId, threadId, approvalId, decision) =>
     request("respond-approval", { projectId, threadId, approvalId, decision }),
   stopThread: (projectId, threadId) => request("stop-thread", { projectId, threadId }),
+  threadPorts: (projectId, threadId) => request("thread-ports", { projectId, threadId }),
+  stopThreadPort: (projectId, threadId, portId) =>
+    request("stop-thread-port", { projectId, threadId, portId }),
   createDesign: (projectId, folderId) => request("create-design", { projectId, folderId }),
   importDesign,
   createDesignFolder: (projectId, name) => request("create-design-folder", { projectId, name }),
