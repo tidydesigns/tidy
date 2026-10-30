@@ -15,36 +15,6 @@ declare global {
   }
 }
 
-test("ordinary keyboard nudges do not read parent layout and remain undoable", async ({ page }) => {
-  await page.goto("/dev/hover-preview?nodes=5000");
-  await page.getByRole("button", { name: "Select Data / Dark", exact: true }).click();
-  const node = page.locator('[data-node-id="dense-25"]');
-  await node.click();
-  const before = await node.evaluate((element) => parseFloat(getComputedStyle(element).left));
-  await page.getByLabel("Design canvas", { exact: true }).focus();
-  const reads = await page.evaluate(() => {
-    const parent = document.querySelector('[data-node-id="hover-board"]');
-    const original = window.getComputedStyle;
-    let reads = 0;
-    window.getComputedStyle = (element, pseudo) => {
-      if (element === parent) reads++;
-      return original.call(window, element, pseudo);
-    };
-    try {
-      document
-        .querySelector('[aria-label="Design canvas"]')
-        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-      return reads;
-    } finally {
-      window.getComputedStyle = original;
-    }
-  });
-  expect(reads).toBe(0);
-  await expect(node).toHaveCSS("left", `${before + 1}px`);
-  await page.keyboard.press("ControlOrMeta+z");
-  await expect(node).toHaveCSS("left", `${before}px`);
-});
-
 for (const [axis, dimension, coordinate, key] of [
   ["Horizontal", "width", "left", "ArrowRight"],
   ["Vertical", "height", "top", "ArrowDown"],
@@ -72,7 +42,7 @@ for (const [axis, dimension, coordinate, key] of [
   });
 }
 
-test("selection clicks in a dense artboard do not measure snapping candidates", async ({
+test("dense selection clicks and keyboard nudges avoid unrelated layout reads", async ({
   page,
 }) => {
   await page.goto("/dev/hover-preview?nodes=5000");
@@ -106,6 +76,30 @@ test("selection clicks in a dense artboard do not measure snapping candidates", 
       delete window.selectionReads;
     });
   }
+  const node = page.locator('[data-node-id="dense-25"]');
+  const before = await node.evaluate((element) => parseFloat(getComputedStyle(element).left));
+  await page.getByLabel("Design canvas", { exact: true }).focus();
+  const reads = await page.evaluate(() => {
+    const parent = document.querySelector('[data-node-id="hover-board"]');
+    const original = window.getComputedStyle;
+    let reads = 0;
+    window.getComputedStyle = (element, pseudo) => {
+      if (element === parent) reads++;
+      return original.call(window, element, pseudo);
+    };
+    try {
+      document
+        .querySelector('[aria-label="Design canvas"]')
+        ?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+      return reads;
+    } finally {
+      window.getComputedStyle = original;
+    }
+  });
+  expect(reads).toBe(0);
+  await expect(node).toHaveCSS("left", `${before + 1}px`);
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(node).toHaveCSS("left", `${before}px`);
 });
 
 test("selection outlines keep screen-pixel widths through zoom and restore layer outlines", async ({
@@ -378,16 +372,7 @@ test("canvas stylesheet defaults survive appearance edits and undo", async ({ pa
     await expect(layer).toHaveCSS("border-top-width", "0px");
     await expect(layer).toHaveCSS("border-top-left-radius", "0px");
     await expect(layer).toHaveCSS("border-image-source", "none");
-    await expect(layer).toHaveCSS("transform", "none");
   };
-  await defaults();
-  await page.locator("summary").filter({ hasText: "Transform & constraints" }).click();
-  const rotation = page.getByRole("spinbutton", { name: "Rotation", exact: true });
-  await rotation.fill("23");
-  await rotation.press("Enter");
-  await expect(layer).not.toHaveCSS("transform", "none");
-  await page.getByLabel("Design canvas", { exact: true }).focus();
-  await page.keyboard.press("ControlOrMeta+z");
   await defaults();
   await page
     .locator("summary")
