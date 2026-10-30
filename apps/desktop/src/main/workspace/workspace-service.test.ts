@@ -1883,3 +1883,61 @@ test("video previews resolve the authorized thread execution project and recheck
   allowed = false;
   await expect(requests.invoke("read-video-chunk", input, undefined)).rejects.toThrow("revoked");
 });
+
+test("video continuation chunks reuse validated summaries without transcript reads or clones", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Record feature",
+    designIds: [],
+  });
+  await writeFile(join(project.path, "demo.mp4"), Buffer.alloc(1024 * 1024 + 7, 9));
+  const input = { projectId: project.id, threadId: thread.id, href: "demo.mp4", offset: 0 };
+  const read = spyOn(store, "readThread");
+  const readService = spyOn(service, "readThread");
+  const clone = spyOn(globalThis, "structuredClone");
+  try {
+    const first = await service.readVideoChunk(input);
+    await service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision });
+    expect(read).not.toHaveBeenCalled();
+    expect(readService).not.toHaveBeenCalled();
+    expect(
+      clone.mock.calls.some(
+        ([value]) =>
+          value &&
+          typeof value === "object" &&
+          "messages" in value &&
+          "id" in value &&
+          value.id === thread.id,
+      ),
+    ).toBe(false);
+  } finally {
+    read.mockRestore();
+    readService.mockRestore();
+    clone.mockRestore();
+  }
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const first = await service.readVideoChunk(input);
+  const cold = spyOn(store, "readThread");
+  try {
+    await Promise.all(
+      [512 * 1024, 1024 * 1024].map((offset) =>
+        service.readVideoChunk({ ...input, offset, revision: first.revision }),
+      ),
+    );
+    expect(cold).not.toHaveBeenCalled();
+  } finally {
+    cold.mockRestore();
+  }
+  const value = await store.readThread(project.id, thread.id);
+  await writeFile(
+    await store.storagePath(project.id, "threads", thread.id),
+    JSON.stringify({ ...value, projectId: crypto.randomUUID() }),
+  );
+  await expect(
+    service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision }),
+  ).rejects.toThrow("another project");
+});

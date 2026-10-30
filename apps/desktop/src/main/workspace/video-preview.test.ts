@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtemp, mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { readVideoChunk } from "./video-preview";
@@ -21,7 +21,7 @@ async function fixture() {
   directories.push(directory);
   const root = join(directory, "project");
   await mkdir(root);
-  return { root, directory };
+  return { root: await realpath(root), directory };
 }
 
 test("recordings transfer in bounded chunks with an unchanged revision", async () => {

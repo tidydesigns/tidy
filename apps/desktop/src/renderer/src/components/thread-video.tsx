@@ -17,17 +17,26 @@ export function ThreadVideo({
 }) {
   const host = useRef<HTMLSpanElement>(null);
   const [nearby, setNearby] = useState(false);
+  const [started, setStarted] = useState(false);
+  const position = useRef(0);
+  useEffect(() => {
+    position.current = 0;
+  }, [input.projectId, input.threadId, input.href]);
   useEffect(() => {
     const element = host.current;
     if (!active) {
       setNearby(false);
+      setStarted(false);
       return;
     }
     if (!element) return;
     let observing = true;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (observing) setNearby(entry?.isIntersecting ?? false);
+        if (!observing) return;
+        const visible = entry?.isIntersecting ?? false;
+        setNearby(visible);
+        if (visible) setStarted(true);
       },
       { rootMargin: "240px" },
     );
@@ -37,13 +46,23 @@ export function ThreadVideo({
       observer.disconnect();
     };
   }, [active]);
-  const enabled = active && nearby;
-  const { state, retry, playbackFailed } = useVideoSource(api, input, enabled);
+  const enabled = active && started;
+  const { state, retry, playbackFailed } = useVideoSource(api, input, enabled, nearby);
   return (
     <span className="thread-video" ref={host} role="group" aria-label={`Video: ${name}`}>
       <span className="thread-video-stage">
         {state.kind === "ready" ? (
           <video
+            onTimeUpdate={(event) => {
+              position.current = event.currentTarget.currentTime;
+            }}
+            onLoadedMetadata={(event) => {
+              if (position.current > 0)
+                event.currentTarget.currentTime = Math.min(
+                  position.current,
+                  event.currentTarget.duration,
+                );
+            }}
             src={state.url}
             controls
             playsInline
@@ -64,7 +83,11 @@ export function ThreadVideo({
             >
               <path d="m9 5 11 7-11 7V5Z" strokeLinejoin="round" />
             </svg>
-            {state.kind === "loading" ? (
+            {state.kind === "unloaded" ? (
+              <Button className="thread-video-retry" onClick={retry}>
+                Load recording
+              </Button>
+            ) : state.kind === "loading" ? (
               <>
                 <span className="text-xs">
                   {enabled ? "Loading recording…" : "Video recording"}

@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { open, realpath } from "node:fs/promises";
+import { openProjectVideo } from "../platform/project-video-file";
+import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { parseChatLink } from "../../shared/models/chat-links";
 import {
@@ -22,44 +22,44 @@ export async function readVideoChunk({
   const mimeType = link?.kind === "file" ? videoMimeType(link.path) : null;
   if (!link || link.kind !== "file" || !mimeType) throw new Error("Choose a supported video file.");
   const projectRoot = await realpath(root);
+  if (projectRoot !== resolve(root))
+    throw new Error("The project directory has moved. Open it again.");
   const path = await realpath(resolve(projectRoot, link.path));
   const within = relative(projectRoot, path);
   if (!within || isAbsolute(within) || within === ".." || within.startsWith(`..${sep}`))
     throw new Error("Video previews must stay inside this thread's project folder.");
-  const file = await open(
-    path,
-    constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0),
-  );
+  const file = await openProjectVideo(path);
   try {
-    const info = await file.stat();
+    const info = await file.stat({ bigint: true });
     if (!info.isFile()) throw new Error("This video is not a regular file.");
-    if (!info.size || info.size > MAX_VIDEO_BYTES)
+    if (!info.size || info.size > BigInt(MAX_VIDEO_BYTES))
       throw new Error(
         "Video previews support recordings up to 128 MB. Export a shorter recording and try again.",
       );
     if ((await realpath(path)) !== path) throw new Error("The video path changed. Open it again.");
-    const currentRevision = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+    const currentRevision = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
     if ((offset > 0 && !revision) || (revision && revision !== currentRevision))
       throw new Error(
         "The recording changed while loading. Try again when recording has finished.",
       );
     if (!Number.isSafeInteger(offset) || offset < 0 || offset >= info.size)
       throw new Error("Invalid video position.");
-    const bytes = Buffer.alloc(Math.min(VIDEO_CHUNK_BYTES, info.size - offset));
+    const size = Number(info.size);
+    const bytes = Buffer.alloc(Math.min(VIDEO_CHUNK_BYTES, size - offset));
     let length = 0;
     while (length < bytes.length) {
       const result = await file.read(bytes, length, bytes.length - length, offset + length);
       if (!result.bytesRead) throw new Error("The recording changed while loading. Try again.");
       length += result.bytesRead;
     }
-    const after = await file.stat();
+    const after = await file.stat({ bigint: true });
     if (
       after.size !== info.size ||
-      after.mtimeMs !== info.mtimeMs ||
-      after.ctimeMs !== info.ctimeMs
+      after.mtimeNs !== info.mtimeNs ||
+      after.ctimeNs !== info.ctimeNs
     )
       throw new Error("The recording changed while loading. Try again.");
-    return { data: bytes.toString("base64"), size: info.size, mimeType, revision: currentRevision };
+    return { data: bytes.toString("base64"), size, mimeType, revision: currentRevision };
   } finally {
     await file.close();
   }

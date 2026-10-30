@@ -95,7 +95,11 @@ export function VideoPreview({
                 <path d="m9 5 11 7-11 7V5Z" strokeLinejoin="round" />
               </svg>
             </span>
-            {state.kind === "loading" ? (
+            {state.kind === "unloaded" ? (
+              <Button className="thread-video-retry" onClick={retry}>
+                Load recording
+              </Button>
+            ) : state.kind === "loading" ? (
               <>
                 <p>Loading recording…</p>
                 <progress

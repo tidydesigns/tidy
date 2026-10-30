@@ -802,7 +802,7 @@ export class ProjectStore {
     const threads = await Promise.all(
       files.map(async (file) => {
         try {
-          return await this.threadSummary(projectId, file.slice(0, -5));
+          return await this.readThreadSummary(projectId, file.slice(0, -5));
         } catch {
           return null;
         }
@@ -813,7 +813,7 @@ export class ProjectStore {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  private async threadSummary(projectId: string, threadId: string): Promise<ThreadSummary> {
+  async readThreadSummary(projectId: string, threadId: string): Promise<ThreadSummary> {
     const path = await this.storagePath(projectId, "threads", threadId);
     const info = await lstat(path, { bigint: true });
     if (!info.isFile()) throw new Error("Project files must not be symbolic links.");

@@ -126,7 +126,12 @@ export class WorkspaceService {
   }
 
   async readVideoChunk(input: VideoChunkRequest) {
-    const thread = await this.readThread(input.projectId, input.threadId);
+    const thread =
+      this.jobs.get(input.threadId)?.thread ??
+      (await this.store.readThreadSummary(input.projectId, input.threadId));
+    if (thread.projectId !== input.projectId)
+      throw new Error("This thread belongs to another project.");
+    await this.store.assertThreadExecution(thread);
     const project = this.executionProject(thread);
     await this.assertProjectAccess(project.id);
     return readVideoChunk({ ...input, root: project.path });
