@@ -1,3 +1,4 @@
+import { Conversation } from "../../features/threads/conversation";
 import { ChatLink } from "../../components/chat-link";
 import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
 import { StrictMode, useDeferredValue, useRef, useState } from "react";
@@ -377,6 +378,95 @@ async function runThreadLoadingTests(): Promise<string[]> {
     await until(() => !document.querySelector(".video-preview-dialog"), "Dismiss video preview");
     check(document.activeElement === link, "Video dismissal lost link focus");
   });
+
+  await run(
+    "thread videos render inline, defer inactive reads and isolate late responses",
+    async (root) => {
+      const NativeObserver = window.IntersectionObserver;
+      window.IntersectionObserver = class extends NativeObserver {
+        constructor(
+          private readonly notify: IntersectionObserverCallback,
+          options?: IntersectionObserverInit,
+        ) {
+          super(notify, options);
+        }
+        override observe(target: Element) {
+          const bounds = target.getBoundingClientRect();
+          this.notify(
+            [
+              {
+                target,
+                boundingClientRect: bounds,
+                intersectionRect: bounds,
+                intersectionRatio: 1,
+                isIntersecting: true,
+                rootBounds: bounds,
+                time: performance.now(),
+              },
+            ],
+            this,
+          );
+        }
+      };
+      try {
+        const thread = { ...makeThread({ count: 0 }), status: "completed" as const };
+        thread.messages = [
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: "[Watch recording](recordings/demo.mp4)",
+          },
+        ];
+        let requests = 0;
+        const pending = deferred<Awaited<ReturnType<DesktopAPI["readVideoChunk"]>>>();
+        const api: DesktopAPI = {
+          ...nativeAPI,
+          readVideoChunk: async () => {
+            requests++;
+            if (requests === 2) return pending.promise;
+            throw new Error("Recording unavailable");
+          },
+        };
+        const render = (active: boolean) =>
+          flushSync(() =>
+            root.render(
+              <StrictMode>
+                <Conversation thread={thread} identity={thread.id} api={api} active={active} />
+              </StrictMode>,
+            ),
+          );
+        render(false);
+        await settle();
+        check(requests === 0, "Inactive thread fetched its video");
+        check(
+          !host.querySelector("a[href='recordings/demo.mp4']"),
+          "Video reference remained a file link",
+        );
+        render(true);
+        await until(
+          () => Boolean(host.querySelector(".thread-video [role=alert]")),
+          "Inline video error",
+        );
+        check(!document.querySelector("dialog[open]"), "Inline recording opened a dialog");
+        required(
+          host.querySelector<HTMLButtonElement>(".thread-video-retry"),
+          "Retry recording",
+        ).click();
+        await until(() => requests === 2, "Retry inline recording");
+        render(false);
+        pending.resolve({ data: "ZGVtbw==", size: 4, mimeType: "video/mp4", revision: "late" });
+        await settle();
+        check(!host.querySelector("video"), "Late transfer restarted an inactive video");
+        render(true);
+        await until(
+          () => requests === 3 && Boolean(host.querySelector(".thread-video [role=alert]")),
+          "Reopen inline recording",
+        );
+      } finally {
+        window.IntersectionObserver = NativeObserver;
+      }
+    },
+  );
 
   await run(
     "thread preloads wait for hover intent and keyboard focus remains immediate",

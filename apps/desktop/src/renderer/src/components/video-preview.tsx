@@ -1,14 +1,9 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
-import { MAX_VIDEO_BYTES, type VideoChunkRequest } from "../../../shared/contracts/video-preview";
-
-type PreviewState =
-  | { kind: "loading"; loaded: number; total: number | null }
-  | { kind: "ready"; url: string }
-  | { kind: "error"; message: string };
+import { useVideoSource, type VideoInput } from "./use-video-source";
 
 export function VideoPreview({
   api,
@@ -17,15 +12,14 @@ export function VideoPreview({
   onClose,
 }: {
   api: DesktopAPI;
-  input: Pick<VideoChunkRequest, "projectId" | "threadId" | "href">;
+  input: VideoInput;
   name: string;
   onClose(): void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const titleId = useId();
-  const [attempt, setAttempt] = useState(0);
-  const [state, setState] = useState<PreviewState>({ kind: "loading", loaded: 0, total: null });
-  const { projectId, threadId, href } = input;
+  const { state, retry, playbackFailed } = useVideoSource(api, input, true);
+  const { href } = input;
   useEffect(() => {
     const element = dialog.current;
     const previousFocus = document.activeElement;
@@ -36,57 +30,6 @@ export function VideoPreview({
         previousFocus.focus({ preventScroll: true });
     };
   }, []);
-  useEffect(() => {
-    let cancelled = false;
-    let url: string | undefined;
-    setState({ kind: "loading", loaded: 0, total: null });
-    async function load() {
-      const parts: ArrayBuffer[] = [];
-      let offset = 0;
-      let revision: string | undefined;
-      let total: number | undefined;
-      let mimeType: string | undefined;
-      while (!cancelled) {
-        const chunk = await api.readVideoChunk({ projectId, threadId, href, offset, revision });
-        if (cancelled) return;
-        const bytes = await (
-          await fetch(`data:application/octet-stream;base64,${chunk.data}`)
-        ).arrayBuffer();
-        if (cancelled) return;
-        if (
-          !bytes.byteLength ||
-          chunk.size > MAX_VIDEO_BYTES ||
-          offset + bytes.byteLength > chunk.size ||
-          (total !== undefined && total !== chunk.size) ||
-          (revision !== undefined && revision !== chunk.revision) ||
-          (mimeType !== undefined && mimeType !== chunk.mimeType)
-        )
-          throw new Error("The recording changed while loading. Try again.");
-        parts.push(bytes);
-        offset += bytes.byteLength;
-        total = chunk.size;
-        revision = chunk.revision;
-        mimeType = chunk.mimeType;
-        if (offset === total) {
-          url = URL.createObjectURL(new Blob(parts, { type: mimeType }));
-          setState({ kind: "ready", url });
-          return;
-        }
-        setState({ kind: "loading", loaded: offset, total });
-      }
-    }
-    void load().catch((error: unknown) => {
-      if (!cancelled)
-        setState({
-          kind: "error",
-          message: error instanceof Error ? error.message : "Could not load this recording.",
-        });
-    });
-    return () => {
-      cancelled = true;
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [api, projectId, threadId, href, attempt]);
 
   return createPortal(
     <Dialog
@@ -136,13 +79,7 @@ export function VideoPreview({
             playsInline
             preload="metadata"
             aria-label={name}
-            onError={() =>
-              setState({
-                kind: "error",
-                message:
-                  "This recording could not be played. Try exporting it as an H.264 MP4 or WebM video.",
-              })
-            }
+            onError={playbackFailed}
           />
         ) : (
           <div className="video-preview-status" role={state.kind === "error" ? "alert" : "status"}>
@@ -178,7 +115,7 @@ export function VideoPreview({
                 <p className="text-xs text-muted-ink">{state.message}</p>
                 <Button
                   className="cursor-pointer rounded-md border border-border bg-panel px-3 py-1.5 text-xs hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-muted-ink active:scale-97"
-                  onClick={() => setAttempt((value) => value + 1)}
+                  onClick={retry}
                 >
                   Try again
                 </Button>
