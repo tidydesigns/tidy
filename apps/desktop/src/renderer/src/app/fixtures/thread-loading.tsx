@@ -409,7 +409,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
           readVideoChunk: async () => {
             requests++;
             if (requests === 2) return pending.promise;
-            throw new Error("Recording unavailable");
+            throw new Error("Video previews support recordings up to 128 MiB.");
           },
         };
         const render = (active: boolean) =>
@@ -430,6 +430,10 @@ async function runThreadLoadingTests(): Promise<string[]> {
           "Inline video error",
         );
         check(!document.querySelector("dialog[open]"), "Inline recording opened a dialog");
+        check(
+          host.textContent?.includes("128 MiB"),
+          "Oversized recording lost its size-limit error",
+        );
         required(
           host.querySelector<HTMLAnchorElement>(".thread-video-caption a"),
           "Recording file link after preview failure",

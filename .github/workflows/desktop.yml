@@ -47,6 +47,11 @@ jobs:
           tidy_sandbox_helper="$(realpath apps/desktop/node_modules/electron/dist/chrome-sandbox)"
           sudo chown root:root "$tidy_sandbox_helper"
           sudo chmod 4755 "$tidy_sandbox_helper"
+      - name: Test native video file boundaries
+        run: >-
+          bun test
+          apps/desktop/src/main/platform/project-video-file.test.ts
+          apps/desktop/src/main/workspace/video-preview.test.ts
       - run: bun run build:desktop
       - if: runner.os == 'Linux'
         run: |
