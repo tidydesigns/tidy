@@ -1,6 +1,7 @@
 .browser-workspace {
   --browser-border: var(--color-border);
   position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   flex: 0 0 clamp(360px, 46%, 900px);
@@ -12,6 +13,10 @@
   background: var(--color-panel);
   color: var(--color-ink);
   font-size: 12px;
+}
+:root[data-titlebar="hidden"] .browser-workspace {
+  margin-top: calc(-1 * var(--desktop-titlebar-height));
+  app-region: no-drag;
 }
 .browser-workspace[hidden] {
   display: none;
