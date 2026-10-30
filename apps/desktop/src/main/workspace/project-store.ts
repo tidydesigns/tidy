@@ -192,6 +192,8 @@ export class ProjectStore {
           await this.atomicWrite(metadataPath, { version: 1, id: project.id });
         }
       }
+      if (!cloudName && this.projects.some((project) => project.path === path && project.cloud))
+        throw new Error("Open this cloud workspace through your account instead.");
       const previousRegistry = this.registry;
       const nextRegistry = {
         ...previousRegistry,
