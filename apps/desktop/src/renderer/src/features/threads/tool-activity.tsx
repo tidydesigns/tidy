@@ -121,7 +121,7 @@ const ToolRow = memo(function ToolRow({ tool, now }: { tool: ToolActivity; now: 
           <span className="tool-call-verb">
             {tool.status === "running"
               ? "Running"
-              : tool.status === "completed"
+              : tool.status === "completed" || tool.status === "failed"
                 ? "Ran"
                 : toolStatusLabel[tool.status]}
           </span>
@@ -135,7 +135,8 @@ const ToolRow = memo(function ToolRow({ tool, now }: { tool: ToolActivity; now: 
             {tool.title}
           </span>
         )}
-        {((!command && tool.status !== "completed") ||
+        {(tool.status === "failed" ||
+          (!command && tool.status !== "completed") ||
           (tool.exitCode !== undefined && tool.exitCode !== 0)) && (
           <span className={`tool-status tool-status-${tool.status}`}>
             {toolStatusLabel[tool.status]}
@@ -227,7 +228,6 @@ export const ToolActivityGroup = memo(
         list.current.scrollTop = list.current.scrollHeight;
     }, [activities.length, revealed, visible]);
     if (!activities.length && !phase) return null;
-    const failed = activities.filter((tool) => tool.status === "failed").length;
     const current = active.at(-1);
     const waiting = phase === "waiting" || phase === "stopping";
     const thinking = phase === "thinking" && !current;
@@ -260,7 +260,6 @@ export const ToolActivityGroup = memo(
             {activities.length} {activities.length === 1 ? "step" : "steps"}
           </span>
         )}
-        {failed > 0 && <span className="tool-status tool-status-failed">{failed} failed</span>}
       </>
     );
     if (!activities.length)
@@ -279,7 +278,7 @@ export const ToolActivityGroup = memo(
       >
         <summary
           onClick={() => setRevealed(true)}
-          aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}${failed ? `, ${failed} failed` : ""}`}
+          aria-label={`Tool activity, ${activities.length} ${activities.length === 1 ? "step" : "steps"}${running ? ", running" : ""}`}
         >
           {line}
           <span className="activity-chevron" aria-hidden="true">
