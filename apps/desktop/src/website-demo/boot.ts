@@ -24,8 +24,9 @@ function start() {
       /* Standalone cross-origin embeds use the system theme. */
     }
   }
-  document.documentElement.style.colorScheme =
-    theme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const resolved = theme ?? (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.style.colorScheme = resolved;
   void import("./main").catch(() => {
     document.getElementById("root")!.textContent =
       "Could not open the sample project. Reload the page to try again.";

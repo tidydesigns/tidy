@@ -18,7 +18,9 @@ let ready = false;
 const canvasView = new URLSearchParams(location.search).get("view") === "canvas";
 if (!canvasView) document.documentElement.dataset.titlebar = "hidden";
 const applyTheme = (theme: string | null) => {
-  document.documentElement.style.colorScheme = theme === "dark" ? "dark" : "light";
+  const resolved = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = resolved;
+  document.documentElement.style.colorScheme = resolved;
 };
 applyTheme(
   new URLSearchParams(location.search).get("theme") ?? document.documentElement.style.colorScheme,
