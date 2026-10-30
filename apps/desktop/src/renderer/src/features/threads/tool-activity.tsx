@@ -260,7 +260,7 @@ export const ToolActivityGroup = memo(
             {activities.length} {activities.length === 1 ? "step" : "steps"}
           </span>
         )}
-        {failed > 0 && <span className="tool-status-failed">{failed} failed</span>}
+        {failed > 0 && <span className="tool-status tool-status-failed">{failed} failed</span>}
       </>
     );
     if (!activities.length)

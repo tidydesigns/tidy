@@ -75,6 +75,7 @@ code.tool-call-title {
 .tool-duration {
   flex-shrink: 0;
   font-size: 12px;
+  white-space: nowrap;
 }
 .tool-activity-group svg,
 .tool-call svg {
