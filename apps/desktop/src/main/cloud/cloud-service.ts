@@ -503,7 +503,19 @@ export class CloudService implements CloudAPI {
     return work;
   }
   async files(id: string) {
-    return this.remote.files(id);
+    const generation = this.generation;
+    await this.initialize();
+    const accountId = this.auth.accountId;
+    const current = () =>
+      generation === this.generation &&
+      accountId === this.auth.accountId &&
+      Boolean(accountId) &&
+      !this.accountChanging &&
+      !this.closed;
+    if (!current()) throw new Error("The account changed.");
+    const files = await this.remote.files(id);
+    if (!current()) throw new Error("The account changed.");
+    return files;
   }
   async open(projectId: string, fileId: string, name: string) {
     this.assertWorkspaceAvailable();

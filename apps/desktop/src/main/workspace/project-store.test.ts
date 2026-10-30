@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
 import { CloudCompute } from "../cloud/cloud-compute";
+import * as localFiles from "../platform/local-files";
 import { storedThreadSchema, type Thread } from "../../shared/contracts/desktop";
 
 const cleanups: string[] = [];
@@ -45,6 +46,36 @@ function thread(projectId: string): Thread {
     updatedAt: new Date().toISOString(),
   };
 }
+
+test("cloud registrations retain their access boundary after restart and metadata replacement", async () => {
+  const f = await fixture();
+  const cloud = await f.store.register(f.root, "Cloud workspace");
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  await writeFile(
+    join(f.root, ".tidy", "project.json"),
+    JSON.stringify({ version: 1, id: randomUUID() }),
+  );
+  await expect(restarted.register(f.root)).rejects.toThrow("cloud workspace");
+  expect(restarted.project(cloud.id).cloud).toBe(true);
+});
+
+test("local registration cannot overwrite a concurrently registered cloud workspace", async () => {
+  const f = await fixture();
+  const project = await f.store.register(f.root);
+  const read = localFiles.readLocalFile;
+  let registeredCloud = false;
+  spyOn(localFiles, "readLocalFile").mockImplementation(async (...args) => {
+    const contents = await read(...args);
+    if (args[0] === join(f.root, ".tidy", "project.json") && !registeredCloud) {
+      registeredCloud = true;
+      await f.store.register(f.root, "Cloud workspace");
+    }
+    return contents;
+  });
+  await expect(f.store.register(f.root)).rejects.toThrow("cloud workspace");
+  expect(f.store.project(project.id).cloud).toBe(true);
+});
 
 test("cached design reads detect external equal-length edits with restored modification times", async () => {
   const f = await fixture();
