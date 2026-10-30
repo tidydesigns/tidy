@@ -1,64 +1,12 @@
+import { ReferenceIcon } from "./reference-icon";
+import { PullRequestIcon } from "./pull-request-icon";
+import { pullRequestURL } from "../../../shared/contracts/pull-request";
 import { useContext, type ReactNode } from "react";
 import { BrowserNavigationContext } from "../features/browser/browser-navigation";
 import { isDevelopmentURL } from "../../../shared/contracts/browser";
-import {
-  siGithub,
-  siGitlab,
-  siFigma,
-  siNotion,
-  siNpm,
-  siLinear,
-  siReact,
-  siTypescript,
-  siJavascript,
-  siCss,
-  siHtml5,
-  siSvelte,
-  siMarkdown,
-  siJson,
-  siPython,
-  siDocker,
-} from "simple-icons";
 import { showToast } from "@tidy/ui/toast";
 import { fileIconName, parseChatLink } from "../../../shared/models/chat-links";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
-
-const icons = {
-  github: siGithub,
-  gitlab: siGitlab,
-  figma: siFigma,
-  notion: siNotion,
-  npm: siNpm,
-  linear: siLinear,
-  react: siReact,
-  typescript: siTypescript,
-  javascript: siJavascript,
-  css: siCss,
-  html: siHtml5,
-  svelte: siSvelte,
-  markdown: siMarkdown,
-  json: siJson,
-  python: siPython,
-  docker: siDocker,
-};
-
-function ReferenceIcon({ name }: { name: keyof typeof icons | "file" }) {
-  return (
-    <svg aria-hidden="true" className="chat-link-icon" data-icon={name} viewBox="0 0 24 24">
-      {name === "file" ? (
-        <path
-          d="M14 3H6v18h12V7l-4-4Zm0 0v5h4M9 12h6m-6 4h6"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-      ) : (
-        <path d={icons[name].path} fill="currentColor" />
-      )}
-    </svg>
-  );
-}
 
 export function ChatLink({
   href,
@@ -68,38 +16,61 @@ export function ChatLink({
 }: {
   href?: string;
   children: ReactNode;
-  api: DesktopAPI;
+  api: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   projectId: string;
 }) {
   const openBrowser = useContext(BrowserNavigationContext);
   const link = parseChatLink(href);
   if (!link || !href) return <span>{children}</span>;
   const file = link.kind === "file";
-  const icon = file ? fileIconName(link.path) : link.service;
+  const icon = file
+    ? fileIconName(link.path)
+    : (link.service ?? (link.url.startsWith("mailto:") ? "mail" : "web"));
+  const position = file && link.line ? `:${link.line}${link.column ? `:${link.column}` : ""}` : "";
   const plainLabel = typeof children === "string" ? children : null;
   const pathLabel =
     file &&
     plainLabel !== null &&
-    [href, link.path, link.name, `${link.name}:${link.line}`].includes(plainLabel);
+    [href, link.path, link.name, `${link.name}:${link.line}`, `${link.name}${position}`].includes(
+      plainLabel,
+    );
+  const prURL = file ? null : pullRequestURL(href);
+  const open = () => {
+    if (link.kind === "external" && api.browser && openBrowser && isDevelopmentURL(link.url)) {
+      openBrowser(link.url);
+      return;
+    }
+    void api.openChatLink(projectId, href).catch((error: unknown) => {
+      showToast(error instanceof Error ? error.message : "Could not open this link.");
+    });
+  };
   return (
     <a
       className={file ? "chat-file-link" : "chat-web-link"}
       href={href}
-      title={file ? `Show in folder: ${link.path}${link.line ? `:${link.line}` : ""}` : link.url}
+      title={file ? `Show in folder: ${link.path}${position}` : link.url}
       onClick={(event) => {
         event.preventDefault();
-        if (link.kind === "external" && api.browser && openBrowser && isDevelopmentURL(link.url)) {
-          openBrowser(link.url);
-          return;
-        }
-        void api.openChatLink(projectId, href).catch((error: unknown) => {
-          showToast(error instanceof Error ? error.message : "Could not open this link.");
-        });
+        open();
+      }}
+      onAuxClick={(event) => {
+        if (event.button !== 1) return;
+        event.preventDefault();
+        open();
       }}
     >
-      {icon && <ReferenceIcon name={icon} />}
+      {prURL ? (
+        <PullRequestIcon url={prURL} api={api} projectId={projectId} />
+      ) : (
+        icon && <ReferenceIcon name={icon} />
+      )}
       <span>{pathLabel ? link.name : children}</span>
-      {file && link.line && <span className="chat-link-position">· L{link.line}</span>}
+      {file && link.line && (
+        <span className="chat-link-position">
+          · L{link.line}
+          {link.column ? `:C${link.column}` : ""}
+        </span>
+      )}
     </a>
   );
 }

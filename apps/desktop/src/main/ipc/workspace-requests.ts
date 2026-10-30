@@ -5,6 +5,7 @@ import {
   browserCommandSchema,
   browserQuerySchema,
 } from "../../shared/contracts/browser";
+import { PullRequestStates } from "../workspace/pull-request-states";
 import { DraftImports } from "../workspace/draft-imports";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
@@ -47,6 +48,7 @@ export function createWorkspaceRequests<Context>(
   platform: WorkspacePlatform<Context>,
 ) {
   const store = service.store;
+  const pullRequests = new PullRequestStates();
   const harnessDiscovery = new HarnessDiscovery();
   const imports = new DraftImports(store, (projectId) => service.assertProjectAccess(projectId));
   const uuid = z.string().uuid();
@@ -236,6 +238,7 @@ export function createWorkspaceRequests<Context>(
       ),
   );
   handle("read-video-chunk", videoChunkRequestSchema, (value) => service.readVideoChunk(value));
+  handle("pull-request-state", chatLinkRequestSchema, ({ href }) => pullRequests.read(href));
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
     openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
   );
