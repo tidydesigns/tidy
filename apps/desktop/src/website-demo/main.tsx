@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { ToastViewport } from "@tidy/ui/toast";
 import { App } from "../renderer/src/app/app";
 import { useCloud } from "../renderer/src/features/cloud/use-cloud";
+import { useCloudReferenceCatalogs } from "../renderer/src/features/composer/cloud-reference-catalogs";
 import { prepareDemo } from "./host";
 import { LocalCanvas } from "../renderer/src/features/designs/local-canvas";
 import { demoId, project, sampleDesign } from "./fixture";
@@ -98,6 +99,7 @@ function CanvasView() {
 function Demo({ initial }: { initial: PreparedWorkspace }) {
   // No cloud API is supplied: the public example stays entirely in memory.
   const cloud = useCloud();
+  const cloudReferences = useCloudReferenceCatalogs(undefined, undefined);
   useEffect(() => {
     ready = true;
     parent.postMessage({ type: "tidy-demo-ready" }, location.origin);
@@ -116,7 +118,11 @@ function Demo({ initial }: { initial: PreparedWorkspace }) {
   }, []);
   return (
     <>
-      {canvasView ? <CanvasView /> : <App cloud={cloud} initial={initial} />}
+      {canvasView ? (
+        <CanvasView />
+      ) : (
+        <App cloud={cloud} cloudReferences={cloudReferences} initial={initial} />
+      )}
       {new URLSearchParams(location.search).get("view") === "desktop" && (
         <div className="capture-window-controls" aria-hidden="true">
           <i />
