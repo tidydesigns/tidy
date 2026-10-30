@@ -18,6 +18,9 @@
   margin-top: calc(-1 * var(--desktop-titlebar-height));
   app-region: no-drag;
 }
+:root[data-titlebar="hidden"] .desktop-sidebar-hidden .browser-workspace-expanded {
+  margin-top: 0;
+}
 .browser-workspace[hidden] {
   display: none;
 }
@@ -80,6 +83,9 @@
   }
 }
 @media (max-width: 1000px) {
+  :root[data-titlebar="hidden"] .desktop-sidebar-hidden .browser-workspace {
+    margin-top: 0;
+  }
   .browser-workspace:not([hidden]) {
     position: absolute;
     inset: 0;
