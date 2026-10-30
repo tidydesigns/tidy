@@ -274,6 +274,10 @@ function workspaceApi(machineId?: string): DesktopAPI {
     checkHarnesses: () => scopedRequest("harnesses"),
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
+    renameThread: (projectId, threadId, title) =>
+      scopedRequest("rename-thread", { projectId, threadId, title }),
+    regenerateThreadTitle: (projectId, threadId, naming) =>
+      scopedRequest("regenerate-thread-title", { projectId, threadId, naming }),
     readThread: (projectId, threadId) => scopedRequest("read-thread", { projectId, threadId }),
     warmThread: (input) => scopedRequest("warm-thread", input),
     startThread: (input) => scopedRequest("start-thread", input),

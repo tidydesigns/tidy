@@ -1,11 +1,18 @@
 import { readVideoChunk } from "./video-preview";
 import type { VideoChunkRequest } from "../../shared/contracts/video-preview";
+import { generateThreadTitle, type NamingInput } from "../harnesses/thread-naming";
+import {
+  threadNamingSchema,
+  threadTitleSchema,
+  type ThreadNaming,
+} from "../../shared/contracts/thread-naming";
+import { promptThreadTitle, threadPromptText } from "../../shared/models/thread-naming";
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
-import { attachmentReference, attachmentText } from "../../shared/models/attachment-references";
+import { attachmentReference } from "../../shared/models/attachment-references";
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
 import { harnessNames } from "../../shared/contracts/harness-updates";
@@ -178,6 +185,12 @@ export class WorkspaceService {
   private executionProjects = new Map<string, string>();
   private preparingHarnesses = new Map<string, HarnessId>();
 
+  private titleJobs = new Map<
+    string,
+    { projectId: string; harness: HarnessId; controller: AbortController }
+  >();
+  private titleRequests = new Set<Promise<unknown>>();
+
   private sessionGeneration = 0;
   private sessions = new HarnessSessions();
   superviseHarnessParent = false;
@@ -188,6 +201,7 @@ export class WorkspaceService {
     private locate = findHarness,
     private configure = validateHarnessSettings,
     readonly skills = new HarnessSkills(locate),
+    private nameThread: (input: NamingInput) => Promise<string> = generateThreadTitle,
   ) {
     this.ports = new ThreadPorts(store.processState);
   }
@@ -204,6 +218,8 @@ export class WorkspaceService {
       )
     )
       throw new Error("Wait for this project's active work to finish before removing it.");
+    for (const job of this.titleJobs.values())
+      if (job.projectId === projectId) job.controller.abort();
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
     await this.browser.removeProject(projectId);
@@ -328,6 +344,7 @@ export class WorkspaceService {
     if (
       this.closing ||
       this.updatingHarnesses.has(id) ||
+      [...this.titleJobs.values()].some((job) => job.harness === id) ||
       [...this.preparingHarnesses.values()].some((harness) => harness === id) ||
       (!options.allowActiveRuns &&
         ([...this.jobs.values()].some((job) => job.thread.harness === id) ||
@@ -414,6 +431,111 @@ export class WorkspaceService {
       return structuredClone(active);
     }
     return this.store.readThread(projectId, threadId);
+  }
+
+  renameThread(projectId: string, threadId: string, value: string) {
+    const title = threadTitleSchema.parse(value);
+    return this.serialize(threadId, async () => {
+      await this.assertProjectAccess(projectId);
+      const thread = await this.mutableThread(projectId, threadId);
+      this.titleJobs.get(threadId)?.controller.abort();
+      this.titleJobs.delete(threadId);
+      await this.persistTitle(thread, title, "manual");
+      return structuredClone(thread);
+    });
+  }
+
+  private async persistTitle(thread: Thread, title: string, source: "manual" | "generated") {
+    const previous = {
+      title: thread.title,
+      titleSource: thread.titleSource,
+      titleRevision: thread.titleRevision,
+    };
+    thread.title = title;
+    thread.titleSource = source;
+    thread.titleRevision = (thread.titleRevision ?? 0) + 1;
+    thread.revision++;
+    try {
+      await this.store.writeThread(thread);
+    } catch (error) {
+      Object.assign(thread, previous);
+      thread.revision++;
+      this.emit({ type: "thread", thread });
+      throw error;
+    }
+    // Naming is metadata: keep message timestamps, unread state and ordering intact.
+    this.emit({ type: "thread", thread });
+  }
+
+  async regenerateThreadTitle(
+    projectId: string,
+    threadId: string,
+    preferences: ThreadNaming,
+    automatic = false,
+  ) {
+    const naming = threadNamingSchema.parse(preferences);
+    const snapshot = await this.serialize(threadId, async () => {
+      await this.assertProjectAccess(projectId);
+      const thread = await this.mutableThread(projectId, threadId);
+      if (automatic && thread.titleSource !== "prompt") return undefined;
+      await this.store.assertThreadExecution(thread, false);
+      const prompt = threadPromptText(
+        thread.messages.find((message) => message.role === "user")?.text ?? "",
+      );
+      if (!prompt) {
+        if (automatic) return undefined;
+        throw new Error("Add a written request before generating a thread name.");
+      }
+      const harness = naming.provider === "thread" ? thread.harness : naming.provider;
+      if (this.updatingHarnesses.has(harness))
+        throw new Error("This agent is updating. Try again shortly.");
+      if (this.titleJobs.size >= 2 && !this.titleJobs.has(threadId)) {
+        if (automatic) return undefined;
+        throw new Error("Two thread names are being generated. Try again shortly.");
+      }
+      this.titleJobs.get(threadId)?.controller.abort();
+      const job = { projectId, harness, controller: new AbortController() };
+      this.titleJobs.set(threadId, job);
+      return {
+        job,
+        revision: thread.titleRevision ?? 0,
+        prompt,
+        model: harness === thread.harness ? thread.settings?.model : undefined,
+      };
+    });
+    if (!snapshot) return this.readThread(projectId, threadId);
+    const { job } = snapshot;
+    try {
+      const executable = await this.locate(job.harness);
+      if (!executable)
+        throw new Error(`Install and sign in to ${harnessNames[job.harness]} to generate names.`);
+      job.controller.signal.throwIfAborted();
+      if (this.closing) throw new Error("Tidy is closing.");
+      const title = threadTitleSchema.parse(
+        await this.nameThread({
+          executable,
+          harness: job.harness,
+          model: snapshot.model,
+          prompt: snapshot.prompt,
+          instructions: naming.instructions,
+          signal: job.controller.signal,
+        }),
+      );
+      return await this.serialize(threadId, async () => {
+        await this.assertProjectAccess(projectId);
+        const thread = await this.mutableThread(projectId, threadId);
+        if (
+          this.titleJobs.get(threadId) !== job ||
+          job.controller.signal.aborted ||
+          (thread.titleRevision ?? 0) !== snapshot.revision
+        )
+          return structuredClone(thread);
+        await this.persistTitle(thread, title, "generated");
+        return structuredClone(thread);
+      });
+    } finally {
+      if (this.titleJobs.get(threadId) === job) this.titleJobs.delete(threadId);
+    }
   }
 
   setThreadDone(projectId: string, threadId: string, done: boolean) {
@@ -537,7 +659,8 @@ export class WorkspaceService {
       executionProjectId: input.executionProjectId,
       harness: input.harness,
       settings: input.settings,
-      title: input.prompt.replace(/\s+/g, " ").slice(0, 80),
+      title: promptThreadTitle(input.prompt),
+      titleSource: "prompt",
       designIds: input.designIds,
       messages: [],
       status: "idle",
@@ -548,13 +671,19 @@ export class WorkspaceService {
     try {
       if (input.threadId && (await this.store.threadExists(input.projectId, input.threadId)))
         throw new Error("This thread already exists.");
-      return await this.run(
+      const started = await this.run(
         thread,
         input.prompt,
         input.attachmentIds,
         input.messageId,
         input.skillId,
       );
+      if (input.naming?.mode === "automatic" && threadPromptText(input.prompt)) {
+        const naming = this.regenerateThreadTitle(input.projectId, thread.id, input.naming, true);
+        this.titleRequests.add(naming);
+        void naming.catch(() => {}).finally(() => this.titleRequests.delete(naming));
+      }
+      return started;
     } finally {
       this.starting.delete(thread.id);
       this.cancelledStarts.delete(thread.id);
@@ -794,11 +923,8 @@ export class WorkspaceService {
               : (await readLocalFile(file.path, MAX_IMAGE_BYTES)).toString("base64"),
         })),
     );
-    if (!thread.messages.length)
-      thread.title =
-        attachmentText(prompt, attachments).replace(/\s+/g, " ").slice(0, 80) ||
-        attachments[0]?.name.slice(0, 80) ||
-        "New thread";
+    if (!thread.messages.length && thread.titleSource !== "manual")
+      thread.title = promptThreadTitle(prompt);
     // Model and effort are already chosen from the catalog. The native harness validates
     // them at launch; sending must never fetch account limits or refresh that catalog.
     const [executable, references, images] = await Promise.all([
@@ -1259,6 +1385,8 @@ export class WorkspaceService {
   }
 
   async stopCloudThreads() {
+    for (const job of this.titleJobs.values())
+      if (this.store.project(job.projectId).cloud) job.controller.abort();
     this.sessionGeneration++;
     const owners = new Map(this.starting);
     for (const job of this.jobs.values()) owners.set(job.thread.id, job.thread.projectId);
@@ -1314,6 +1442,8 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     const update = Symbol("update");
     this.closing = update;
+    for (const job of this.titleJobs.values()) job.controller.abort();
+    await Promise.allSettled(this.titleRequests);
     try {
       await this.drainRequests(30_000);
       await this.stopAndFlush();
@@ -1383,6 +1513,8 @@ export class WorkspaceService {
 
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
+    for (const job of this.titleJobs.values()) job.controller.abort();
+    await Promise.allSettled(this.titleRequests);
     await this.drainRequests(requestDrainTimeoutMs);
     for (const watcher of this.watchers.values()) watcher.close();
     for (const refresh of this.designRefreshes.values()) refresh.close();

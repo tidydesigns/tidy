@@ -27,6 +27,7 @@ async function fixture(
   holdPreparation = false,
   skills?: HarnessSkills,
   holdStop = false,
+  namer?: ConstructorParameters<typeof WorkspaceService>[5],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -87,6 +88,7 @@ async function fixture(
     },
     configure,
     skills,
+    namer,
   );
   cleanups.push(async () => {
     resumePreparation();
@@ -905,7 +907,7 @@ test("attachment-only turns keep files with the message and send images to the h
     designIds: [],
     attachmentIds: [image.id, file.id],
   });
-  expect(thread.title).toBe("Screenshot.png");
+  expect(thread.title).toBe("New thread");
   expect(thread.messages[0].attachments?.map((file) => file.name)).toEqual([
     "Screenshot.png",
     "Notes.txt",
@@ -1939,4 +1941,179 @@ test("video continuation chunks reuse validated summaries without transcript rea
   await expect(
     service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision }),
   ).rejects.toThrow("another project");
+});
+
+const namingPreferences = { mode: "automatic", provider: "thread", instructions: "" } as const;
+
+test("background naming does not block starting, and a manual rename wins over a late generated title", async () => {
+  const generation = Promise.withResolvers<string>();
+  const requested =
+    Promise.withResolvers<
+      Parameters<NonNullable<ConstructorParameters<typeof WorkspaceService>[5]>>[0]
+    >();
+  const f = await fixture(undefined, false, undefined, false, (input) => {
+    requested.resolve(input);
+    return generation.promise;
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve navigation",
+    designIds: [],
+    naming: namingPreferences,
+  });
+  expect(thread.title).toBe("Improve navigation");
+  expect(thread.status).toBe("running");
+  const input = await requested.promise;
+  expect(input.prompt).toBe("Improve navigation");
+  const renamed = await f.service.renameThread(f.project.id, thread.id, "Navigation polish");
+  expect(input.signal.aborted).toBe(true);
+  generation.resolve("Late generated title");
+  const final = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await final;
+  expect((await f.service.readThread(f.project.id, thread.id)).title).toBe("Navigation polish");
+  expect(renamed.updatedAt).toBe(thread.updatedAt);
+  expect(renamed.titleSource).toBe("manual");
+  expect(renamed.messages).toEqual(thread.messages);
+});
+
+test("regeneration uses the selected provider without resuming or changing the working conversation", async () => {
+  let requested:
+    | Parameters<NonNullable<ConstructorParameters<typeof WorkspaceService>[5]>>[0]
+    | undefined;
+  const f = await fixture(undefined, false, undefined, false, async (input) => {
+    requested = input;
+    return "Refine the sidebar";
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Please refine the sidebar layout",
+    designIds: [],
+    settings: { model: "codex-model" },
+  });
+  const result = await f.service.regenerateThreadTitle(f.project.id, thread.id, {
+    ...namingPreferences,
+    provider: "claude",
+    instructions: "Keep it brief",
+  });
+  expect(requested?.harness).toBe("claude");
+  expect(requested?.model).toBeUndefined();
+  expect(requested?.instructions).toBe("Keep it brief");
+  expect(result.title).toBe("Refine the sidebar");
+  expect(result.titleSource).toBe("generated");
+  expect(result.updatedAt).toBe(thread.updatedAt);
+  expect(result.messages).toEqual(thread.messages);
+  expect(result.status).toBe("running");
+  expect(f.runs).toHaveLength(1);
+  f.runs[0].input.onUpdate({ type: "message", id: "response", text: "Still working" });
+  const final = finished(f.service, thread.id);
+  f.runs[0].complete();
+  expect((await final).title).toBe(result.title);
+  expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(result.title);
+});
+
+test("failed generation keeps the previous name and latest regeneration wins", async () => {
+  const first = Promise.withResolvers<string>();
+  const firstStarted = Promise.withResolvers<void>();
+  let calls = 0;
+  const f = await fixture(undefined, false, undefined, false, async () => {
+    calls++;
+    if (calls === 1) {
+      firstStarted.resolve();
+      return first.promise;
+    }
+    if (calls === 2) return "Current title";
+    throw new Error("Provider unavailable");
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve the sidebar",
+    designIds: [],
+  });
+  const pending = f.service.regenerateThreadTitle(f.project.id, thread.id, namingPreferences);
+  await firstStarted.promise;
+  const current = await f.service.regenerateThreadTitle(f.project.id, thread.id, namingPreferences);
+  first.resolve("Outdated title");
+  expect((await pending).title).toBe("Current title");
+  expect(current.title).toBe("Current title");
+  await expect(
+    f.service.regenerateThreadTitle(f.project.id, thread.id, namingPreferences),
+  ).rejects.toThrow("Provider unavailable");
+  expect((await f.service.readThread(f.project.id, thread.id)).title).toBe("Current title");
+});
+
+test("prompt naming makes no inference call and naming endpoints validate access and input", async () => {
+  let calls = 0;
+  const f = await fixture(undefined, false, undefined, false, async () => {
+    calls++;
+    return "Should not run";
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve the sidebar",
+    designIds: [],
+    naming: { ...namingPreferences, mode: "prompt" },
+  });
+  expect(calls).toBe(0);
+  expect(() => f.service.renameThread(f.project.id, thread.id, " ")).toThrow();
+  const other = await f.store.open(await mkdtemp(join(f.directory, "other-")));
+  await expect(
+    f.service.renameThread(other.project.id, thread.id, "Wrong project"),
+  ).rejects.toThrow();
+  await expect(
+    f.service.regenerateThreadTitle(other.project.id, thread.id, namingPreferences),
+  ).rejects.toThrow();
+  expect(calls).toBe(0);
+});
+
+test("a failed rename restores the current name and cancels a generated replacement", async () => {
+  const requested = Promise.withResolvers<AbortSignal>();
+  const f = await fixture(undefined, false, undefined, false, (input) => {
+    requested.resolve(input.signal);
+    return new Promise((_, reject) =>
+      input.signal.addEventListener("abort", () => reject(new Error("Cancelled")), { once: true }),
+    );
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve the sidebar",
+    designIds: [],
+    naming: namingPreferences,
+  });
+  const signal = await requested.promise;
+  const failure = spyOn(f.store, "writeThread").mockRejectedValueOnce(new Error("Disk full"));
+  await expect(f.service.renameThread(f.project.id, thread.id, "Unwritten title")).rejects.toThrow(
+    "Disk full",
+  );
+  failure.mockRestore();
+  expect((await f.service.readThread(f.project.id, thread.id)).title).toBe(thread.title);
+  expect(signal.aborted).toBe(true);
+  await f.service.close();
+  expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(thread.title);
+});
+
+test("shutdown cancels in-flight naming without waiting for the provider", async () => {
+  const requested = Promise.withResolvers<AbortSignal>();
+  const f = await fixture(undefined, false, undefined, false, (input) => {
+    requested.resolve(input.signal);
+    return new Promise((_, reject) =>
+      input.signal.addEventListener("abort", () => reject(new Error("Cancelled")), { once: true }),
+    );
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve the sidebar",
+    designIds: [],
+    naming: namingPreferences,
+  });
+  const signal = await requested.promise;
+  await f.service.close();
+  expect(signal.aborted).toBe(true);
+  expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(thread.title);
 });

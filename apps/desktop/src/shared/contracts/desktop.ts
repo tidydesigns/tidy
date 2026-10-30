@@ -1,4 +1,5 @@
 import type { PullRequestState } from "./pull-request";
+import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
 import type { ThreadPort } from "./thread-ports";
@@ -74,6 +75,8 @@ export const storedThreadSchema = z.object({
   /** Thread storage/design context; execution may use a separately selected local project. */
   executionProjectId: id.optional(),
   title: z.string().max(120),
+  titleSource: z.enum(["prompt", "generated", "manual"]).optional(),
+  titleRevision: z.number().int().nonnegative().optional(),
   harness: harnessIdSchema,
   sessionId: nativeSessionIdSchema.optional(),
   settings: harnessSettingsSchema.optional(),
@@ -214,6 +217,8 @@ export type DesktopAPI = {
     threadId: string,
     settings: HarnessSettings,
   ): Promise<Thread>;
+  renameThread(projectId: string, threadId: string, title: string): Promise<Thread>;
+  regenerateThreadTitle(projectId: string, threadId: string, naming: ThreadNaming): Promise<Thread>;
   readThread(projectId: string, threadId: string): Promise<Thread>;
   startThread(input: {
     threadId?: string;
@@ -222,6 +227,7 @@ export type DesktopAPI = {
     executionProjectId?: string;
     harness: HarnessId;
     prompt: string;
+    naming?: ThreadNaming;
     designIds: string[];
     settings?: HarnessSettings;
     attachmentIds?: string[];

@@ -441,6 +441,8 @@ export class RemoteClient {
         "start-thread",
         "send-message",
         "thread-settings",
+        "rename-thread",
+        "regenerate-thread-title",
         "set-thread-done",
         "respond-approval",
       ].includes(name)

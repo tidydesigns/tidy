@@ -1,3 +1,4 @@
+import { ThreadNamingSettings } from "./thread-naming-settings";
 import { useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import { Icon } from "@tidy/editor/components/ui/icon";
@@ -9,6 +10,7 @@ import { AppearanceSettings } from "./appearance-settings";
 const sectionLabels = {
   account: "Account",
   appearance: "Appearance",
+  threads: "Threads",
   privacy: "Privacy",
   remote: "Remote machines",
 };
@@ -54,7 +56,7 @@ export function Settings({
         </div>
         <nav className="settings-sections" aria-label="Settings sections">
           <span className="settings-label">Settings</span>
-          {(["account", "appearance", "privacy"] as const).map((item) => (
+          {(["account", "appearance", "threads", "privacy"] as const).map((item) => (
             <Button
               key={item}
               className="settings-section"
@@ -143,6 +145,9 @@ export function Settings({
           )}
           <div id="settings-appearance-panel" hidden={page !== "appearance"}>
             <AppearanceSettings />
+          </div>
+          <div id="settings-threads-panel" hidden={page !== "threads"}>
+            <ThreadNamingSettings />
           </div>
           <div id="settings-privacy-panel" hidden={page !== "privacy"}>
             <PrivacySettings active={active} />

@@ -289,6 +289,20 @@ resolves IDs against the project and harness before sending native file referenc
 or command blocks. `HarnessSkills` owns catalog caching and provider discovery;
 new harness integrations provide an adapter without changing the slash picker.
 
+New threads immediately use the written request as their name, ignoring inline attachment
+references. Settings → Threads chooses automatic naming or the first message, a naming
+provider (same as the thread by default), and optional naming instructions. Preferences
+stay on this device and apply to new threads. Automatic naming uses a separate, bounded
+text-only request through the selected CLI's existing sign-in; failures keep the prompt
+excerpt. Image-only threads keep “New thread” until a name is entered manually.
+
+Double-click a thread name in the sidebar or heading, or press F2, to rename it.
+Enter or leaving the field applies the name; Escape cancels. The heading's name menu
+also provides Rename and Regenerate name. Naming never resumes the working session,
+changes its messages or unread state, or overwrites a subsequent manual rename.
+OpenCode naming requires ACP session deletion support so temporary naming sessions can
+be removed. Naming uses the provider's inference allowance.
+
 Press Enter to send; Shift+Enter adds a new line. While the agent is working,
 Enter or Queue adds a follow-up for the next turn. Send now or Cmd/Ctrl+Enter sends
 the message into the active turn. Codex uses native steering; Claude interrupts

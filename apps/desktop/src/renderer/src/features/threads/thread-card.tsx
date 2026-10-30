@@ -19,6 +19,7 @@ export function ThreadCard({
   onSelect,
   onPreload,
   onDone,
+  onRenameRequested,
   modelName,
   projectName,
   repository,
@@ -32,6 +33,7 @@ export function ThreadCard({
   onSelect(): void;
   onPreload?(): void;
   onDone(): void;
+  onRenameRequested?(): void;
   modelName?: string;
   projectName?: string;
   repository?: RepositoryContext;
@@ -146,6 +148,12 @@ export function ThreadCard({
         className="thread-select flex w-full cursor-pointer flex-col gap-0.5 rounded-[inherit] border-0 bg-transparent px-2 py-2.5 text-left text-[13px] leading-5 text-inherit"
         aria-keyshortcuts={orderControls ? "Alt+ArrowUp Alt+ArrowDown" : undefined}
         onKeyDown={(event) => {
+          if (event.key === "F2" && onRenameRequested) {
+            event.preventDefault();
+            onSelect();
+            onRenameRequested();
+            return;
+          }
           if (
             orderControls &&
             event.altKey &&
@@ -170,6 +178,11 @@ export function ThreadCard({
         }}
       >
         <span
+          onDoubleClick={(event) => {
+            event.stopPropagation();
+            close();
+            onRenameRequested?.();
+          }}
           className={`thread-title block w-full truncate text-sm leading-5 font-medium ${thread.doneAt ? "pr-16" : "pr-12"} ${status === "idle" && !selected ? "text-[light-dark(#424242,#d4d4d4)]" : ""}`}
         >
           {thread.title}
