@@ -1,3 +1,5 @@
+import { ThreadVideo } from "../../features/threads/video/thread-video";
+import { Conversation } from "../../features/threads/conversation";
 import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
 import { StrictMode, useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -319,6 +321,52 @@ export async function runHarnessFailureNoticeTests(root: Root) {
   check(listeners.size === 1, "Access change leaked an event subscription");
 }
 
+function videoVisibilityFixture() {
+  const NativeObserver = window.IntersectionObserver;
+  const observers = new Map<IntersectionObserver, (visible: boolean) => void>();
+  window.IntersectionObserver = class extends NativeObserver {
+    constructor(
+      private readonly notify: IntersectionObserverCallback,
+      options?: IntersectionObserverInit,
+    ) {
+      super(notify, options);
+    }
+    override observe(target: Element) {
+      const show = (visible: boolean) => {
+        const bounds = target.getBoundingClientRect();
+        this.notify(
+          [
+            {
+              target,
+              boundingClientRect: bounds,
+              intersectionRect: bounds,
+              intersectionRatio: visible ? 1 : 0,
+              isIntersecting: visible,
+              rootBounds: bounds,
+              time: performance.now(),
+            },
+          ],
+          this,
+        );
+      };
+      observers.set(this, show);
+      show(true);
+    }
+    override disconnect() {
+      observers.delete(this);
+      super.disconnect();
+    }
+  };
+  return {
+    show: (visible: boolean) => {
+      for (const show of observers.values()) show(visible);
+    },
+    restore: () => {
+      window.IntersectionObserver = NativeObserver;
+    },
+  };
+}
+
 async function runThreadLoadingTests(): Promise<string[]> {
   const passed: string[] = [];
   async function run(name: string, test: (root: Root) => Promise<void>) {
@@ -336,6 +384,168 @@ async function runThreadLoadingTests(): Promise<string[]> {
   }
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
+
+  await run(
+    "thread videos render inline, defer inactive reads and isolate late responses",
+    async (root) => {
+      const visibility = videoVisibilityFixture();
+      try {
+        const thread = { ...makeThread({ count: 0 }), status: "completed" as const };
+        thread.messages = [
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: "[Watch recording](recordings/demo.mp4)",
+          },
+        ];
+        let requests = 0;
+        const opened: [string, string][] = [];
+        const pending = deferred<Awaited<ReturnType<DesktopAPI["readVideoChunk"]>>>();
+        const api: DesktopAPI = {
+          ...nativeAPI,
+          openChatLink: async (projectId, href) => {
+            opened.push([projectId, href]);
+          },
+          readVideoChunk: async () => {
+            requests++;
+            if (requests === 2) return pending.promise;
+            throw new Error("Video previews support recordings up to 128 MiB.");
+          },
+        };
+        const render = (active: boolean) =>
+          flushSync(() =>
+            root.render(
+              <StrictMode>
+                <Conversation thread={thread} identity={thread.id} api={api} active={active} />
+              </StrictMode>,
+            ),
+          );
+        render(false);
+        await settle();
+        check(requests === 0, "Inactive thread fetched its video");
+        check(host.querySelector(".thread-video"), "Video reference did not render inline");
+        render(true);
+        await until(
+          () => Boolean(host.querySelector(".thread-video [role=alert]")),
+          "Inline video error",
+        );
+        check(!document.querySelector("dialog[open]"), "Inline recording opened a dialog");
+        check(
+          host.textContent?.includes("128 MiB"),
+          "Oversized recording lost its size-limit error",
+        );
+        required(
+          host.querySelector<HTMLAnchorElement>(".thread-video-caption a"),
+          "Recording file link after preview failure",
+        ).click();
+        check(
+          opened.length === 1 &&
+            opened[0][0] === projectId &&
+            opened[0][1] === "recordings/demo.mp4",
+          "Preview failure lost the recording's file action",
+        );
+        required(
+          host.querySelector<HTMLButtonElement>(".thread-video-retry"),
+          "Retry recording",
+        ).click();
+        await until(() => requests === 2, "Retry inline recording");
+        render(false);
+        pending.resolve({ data: "ZGVtbw==", size: 4, mimeType: "video/mp4", revision: "late" });
+        await settle();
+        check(!host.querySelector("video"), "Late transfer restarted an inactive video");
+        render(true);
+        await until(
+          () => requests === 3 && Boolean(host.querySelector(".thread-video [role=alert]")),
+          "Reopen inline recording",
+        );
+      } finally {
+        visibility.restore();
+      }
+    },
+  );
+
+  await run(
+    "playable thread videos retain their source and seek position when scrolled away",
+    async (root) => {
+      const visibility = videoVisibilityFixture();
+      const originalRevoke = URL.revokeObjectURL;
+      const revoked: string[] = [];
+      URL.revokeObjectURL = (url) => {
+        revoked.push(url);
+        originalRevoke.call(URL, url);
+      };
+      let requests = 0;
+      const data =
+        "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAI5EU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEyTbuMU6uEHFO7a1OsggIj7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjMuMS4xMDFXQYxMYXZmNjMuMS4xMDFEiYhAn0AAAAAAABZUrmvXrgEAAAAAAABO14EBc8WIVLBHIumQ0S6cgQAitZyDdW5kiIEAhoVWX1ZQOIOBASPjg4QdzWUA4JCwgRC6gRCagQJVsIRVuYEBVe6BAOwBAAAAAAAAAgAAElTDZ/pzc59jwIBnyJlFo4dFTkNPREVSRIeMTGF2ZjYzLjEuMTAxc3PVY8CLY8WIVLBHIumQ0S5nyKBFo4dFTkNPREVSRIeTTGF2YzYzLjEuMTAxIGxpYnZweGfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDIuMDAwMDAwMDAwAB9DtnXt54EAo6OBAACAEAIAnQEqEAAQAABHCIWFiIWEiAICAAwNYAD+/6tQgKOVgQH0ALEBAAEQEAAYABhYL/QACAAAo5WBA+gAsQEAARAQABgAGFgv9AAIAACjlYEF3ACxAQABEBAAGAAYWC/0AAgAABxTu2uRu4+zgQC3iveBAfGCAbHwgQM=";
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        readVideoChunk: async () => {
+          requests++;
+          return { data, size: atob(data).length, mimeType: "video/webm", revision: "finished" };
+        },
+      };
+      const input = { projectId, threadId: crypto.randomUUID(), href: "recordings/demo.webm" };
+      const render = (active: boolean) =>
+        flushSync(() =>
+          root.render(
+            <StrictMode>
+              <ThreadVideo api={api} input={input} name="demo.webm" active={active} />
+            </StrictMode>,
+          ),
+        );
+      try {
+        render(true);
+        await until(
+          () => (host.querySelector("video")?.readyState ?? 0) >= 1,
+          "Decode recording metadata",
+        );
+        const video = required(host.querySelector("video"), "Inline player");
+        check(requests === 1, "Initial video loaded more than once");
+        check(video.controls && video.playsInline, "Recording lost its playback controls");
+        video.muted = true;
+        await video.play();
+        await until(() => video.currentTime > 0, "Play recording");
+        video.pause();
+        video.currentTime = 1;
+        await until(() => !video.seeking && video.currentTime >= 0.9, "Seek recording");
+        const url = video.currentSrc;
+        visibility.show(false);
+        await settle();
+        check(host.querySelector("video") === video, "Scrolling discarded the player");
+        visibility.show(true);
+        await settle();
+        check(
+          host.querySelector("video") === video && video.currentTime >= 0.9,
+          "Returning lost playback position",
+        );
+        check(
+          requests === 1 && !revoked.includes(url),
+          "Returning transferred the recording again",
+        );
+        input.href = "recordings/another.webm";
+        render(true);
+        await until(
+          () =>
+            host.querySelector("video") !== video &&
+            (host.querySelector("video")?.readyState ?? 0) >= 1,
+          "Load another recording",
+        );
+        check(
+          host.querySelector("video")?.currentTime === 0,
+          "Another recording inherited the seek position",
+        );
+        render(false);
+        await settle();
+        check(
+          !host.querySelector("video") && revoked.includes(url),
+          "Inactive thread retained its video data",
+        );
+      } finally {
+        visibility.restore();
+        URL.revokeObjectURL = originalRevoke;
+      }
+    },
+  );
 
   await run(
     "thread preloads wait for hover intent and keyboard focus remains immediate",

@@ -1,3 +1,4 @@
+import { videoChunkSchema } from "./video-preview";
 import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
 import { draftImportResultSchema } from "./draft-import";
@@ -61,6 +62,7 @@ export const workspaceResponseSchemas = {
   "harness-details": harnessDetailsSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
+  "read-video-chunk": videoChunkSchema,
   "open-chat-link": z.void(),
   "thread-settings": liveThreadSchema,
   "read-thread": liveThreadSchema,

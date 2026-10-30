@@ -1,3 +1,5 @@
+import { readVideoChunk } from "./video-preview";
+import type { VideoChunkRequest } from "../../shared/contracts/video-preview";
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";
 import { HarnessFailureError } from "../harnesses/provider-failure";
@@ -135,6 +137,18 @@ export class WorkspaceService {
     if (!this.authorizeCloudProject)
       throw new Error("Open this cloud workspace before running agents.");
     await this.authorizeCloudProject(projectId);
+  }
+
+  async readVideoChunk(input: VideoChunkRequest) {
+    const thread =
+      this.jobs.get(input.threadId)?.thread ??
+      (await this.store.readThreadSummary(input.projectId, input.threadId));
+    if (thread.projectId !== input.projectId)
+      throw new Error("This thread belongs to another project.");
+    await this.store.assertThreadExecution(thread);
+    const project = this.executionProject(thread);
+    await this.assertProjectAccess(project.id);
+    return readVideoChunk({ ...input, root: project.path });
   }
 
   private executionProject(thread: Pick<Thread, "projectId" | "executionProjectId">) {

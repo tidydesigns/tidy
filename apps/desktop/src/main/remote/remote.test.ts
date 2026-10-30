@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, mkdir, rm, stat, readdir, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -1035,4 +1035,37 @@ test("browser paste tolerates bounded socket pressure while other input remains 
     watch.close();
     observe.mockRestore();
   }
+});
+
+test("remote video preview transfers authenticated project bytes and rejects another thread's files", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: "Record a feature",
+    designIds: [],
+  });
+  const data = Buffer.alloc(512 * 1024 + 13, 21);
+  await writeFile(join(f.projectPath, "demo.webm"), data);
+  const input = { projectId: f.project.id, threadId: thread.id, href: "demo.webm", offset: 0 };
+  const first = await client.operation("read-video-chunk", input);
+  const second = await client.operation("read-video-chunk", {
+    ...input,
+    offset: 512 * 1024,
+    revision: first.revision,
+  });
+  expect(
+    Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(second.data, "base64")]),
+  ).toEqual(data);
+  await expect(
+    client.operation("read-video-chunk", { ...input, threadId: randomUUID() }),
+  ).rejects.toThrow();
+  const otherPath = join(f.root, "other");
+  await mkdir(otherPath);
+  const other = (await f.store.open(otherPath)).project;
+  await expect(
+    client.operation("read-video-chunk", { ...input, projectId: other.id }),
+  ).rejects.toThrow("another project");
 });

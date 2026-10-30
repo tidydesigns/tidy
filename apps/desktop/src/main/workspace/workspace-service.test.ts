@@ -1,8 +1,9 @@
+import { videoChunkSchema } from "../../shared/contracts/video-preview";
 import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import * as filesystem from "node:fs";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
@@ -1849,4 +1850,91 @@ test("project selections stay ordered across handlers and release after failure"
     selected.mockRestore();
     checkAccess.mockRestore();
   }
+});
+
+test("video previews resolve the authorized thread execution project and recheck workspace access", async () => {
+  const { directory, store, service, project } = await fixture();
+  const cloudRoot = join(directory, "workspace");
+  await mkdir(cloudRoot);
+  const workspace = (await store.open(cloudRoot, "Team")).project;
+  let allowed = true;
+  service.authorizeCloudProject = async () => {
+    if (!allowed) throw new Error("Workspace access revoked");
+  };
+  const thread = await service.startThread({
+    projectId: workspace.id,
+    executionProjectId: project.id,
+    harness: "codex",
+    prompt: "Record feature",
+    designIds: [],
+  });
+  await writeFile(join(project.path, "demo.mp4"), "execution recording");
+  await writeFile(join(cloudRoot, "demo.mp4"), "workspace content");
+  const requests = createWorkspaceRequests(service, {
+    chooseProject: async () => null,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder() {},
+  });
+  const input = { projectId: workspace.id, threadId: thread.id, href: "demo.mp4", offset: 0 };
+  const result = await requests.invoke("read-video-chunk", input, undefined);
+  const chunk = videoChunkSchema.parse(result);
+  expect(Buffer.from(chunk.data, "base64").toString()).toBe("execution recording");
+  allowed = false;
+  await expect(requests.invoke("read-video-chunk", input, undefined)).rejects.toThrow("revoked");
+});
+
+test("video continuation chunks reuse validated summaries without transcript reads or clones", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Record feature",
+    designIds: [],
+  });
+  await writeFile(join(project.path, "demo.mp4"), Buffer.alloc(1024 * 1024 + 7, 9));
+  const input = { projectId: project.id, threadId: thread.id, href: "demo.mp4", offset: 0 };
+  const read = spyOn(store, "readThread");
+  const clone = spyOn(globalThis, "structuredClone");
+  try {
+    const first = await service.readVideoChunk(input);
+    await service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision });
+    expect(read).not.toHaveBeenCalled();
+    expect(
+      clone.mock.calls.some(
+        ([value]) =>
+          value &&
+          typeof value === "object" &&
+          "messages" in value &&
+          "id" in value &&
+          value.id === thread.id,
+      ),
+    ).toBe(false);
+  } finally {
+    read.mockRestore();
+    clone.mockRestore();
+  }
+  const completed = finished(service, thread.id);
+  runs[0].complete();
+  await completed;
+  const first = await service.readVideoChunk(input);
+  const cold = spyOn(store, "readThread");
+  try {
+    await Promise.all(
+      [512 * 1024, 1024 * 1024].map((offset) =>
+        service.readVideoChunk({ ...input, offset, revision: first.revision }),
+      ),
+    );
+    expect(cold).not.toHaveBeenCalled();
+  } finally {
+    cold.mockRestore();
+  }
+  const value = await store.readThread(project.id, thread.id);
+  await writeFile(
+    await store.storagePath(project.id, "threads", thread.id),
+    JSON.stringify({ ...value, projectId: crypto.randomUUID() }),
+  );
+  await expect(
+    service.readVideoChunk({ ...input, offset: 512 * 1024, revision: first.revision }),
+  ).rejects.toThrow("another project");
 });

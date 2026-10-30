@@ -1,0 +1,74 @@
+.thread-video {
+  display: block;
+  width: 100%;
+  margin-block: 12px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-panel);
+}
+
+.thread-video-stage {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 10;
+  background: light-dark(#f5f5f5, #141414);
+}
+
+.thread-video-stage video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-height: 600px;
+  object-fit: contain;
+  background: #000;
+}
+
+.thread-video-status {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 400px;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-secondary-ink);
+}
+
+.thread-video-status progress {
+  width: 160px;
+  height: 4px;
+  accent-color: var(--color-muted-ink);
+}
+
+.thread-video-caption {
+  display: block;
+  overflow: hidden;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.thread-video-retry {
+  cursor: pointer;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+  font-size: 12px;
+}
+
+.thread-video-retry:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .thread-video-retry:hover {
+    background: var(--color-hover-surface);
+  }
+}

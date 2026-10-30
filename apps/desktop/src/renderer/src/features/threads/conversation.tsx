@@ -1,3 +1,5 @@
+import { ThreadVideo } from "./video/thread-video";
+import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
 import { codeFontClassName } from "../../styles/code-ui";
 import {
@@ -37,14 +39,18 @@ const MarkdownContent = memo(function MarkdownContent({
   text,
   streaming,
   minimum,
+  active,
   api,
   projectId,
+  threadId,
 }: {
   text: string;
   streaming: boolean;
   minimum: number;
+  active: boolean;
   api: DesktopAPI;
   projectId: string;
+  threadId: string;
 }) {
   const markdownPlugins = useMemo<ComponentProps<typeof Markdown>["remarkPlugins"]>(
     () => [remarkGfm, [remarkCompleteBlocks, { text, streaming, minimum }]],
@@ -52,14 +58,46 @@ const MarkdownContent = memo(function MarkdownContent({
   );
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
     () => ({
-      a: ({ href, children }) => (
-        <ChatLink href={href} api={api} projectId={projectId}>
-          {children}
-        </ChatLink>
-      ),
-      img: ({ alt }) => <span className="text-xs text-muted-ink">{alt || "Image"}</span>,
+      a: ({ href, children }) => {
+        const link = parseChatLink(href);
+        return href && link?.kind === "file" && videoMimeType(link.path) ? (
+          <ThreadVideo
+            key={href}
+            api={api}
+            input={{ projectId, threadId, href }}
+            name={link.name}
+            active={active}
+          >
+            <ChatLink href={href} api={api} projectId={projectId}>
+              {link.name}
+            </ChatLink>
+          </ThreadVideo>
+        ) : (
+          <ChatLink href={href} api={api} projectId={projectId}>
+            {children}
+          </ChatLink>
+        );
+      },
+      img: ({ alt, src }) => {
+        const link = typeof src === "string" ? parseChatLink(src) : null;
+        return typeof src === "string" && link?.kind === "file" && videoMimeType(link.path) ? (
+          <ThreadVideo
+            key={src}
+            api={api}
+            input={{ projectId, threadId, href: src }}
+            name={link.name}
+            active={active}
+          >
+            <ChatLink href={src} api={api} projectId={projectId}>
+              {link.name}
+            </ChatLink>
+          </ThreadVideo>
+        ) : (
+          <span className="text-xs text-muted-ink">{alt || "Image"}</span>
+        );
+      },
     }),
-    [api, projectId],
+    [api, projectId, threadId, active],
   );
   return (
     <Markdown
@@ -77,12 +115,14 @@ const MessageBody = memo(function MessageBody({
   message,
   api,
   projectId,
+  threadId,
   streaming,
   visible,
 }: {
   message: Message;
   api: DesktopAPI;
   projectId: string;
+  threadId: string;
   streaming: boolean;
   visible: boolean;
 }) {
@@ -102,8 +142,10 @@ const MessageBody = memo(function MessageBody({
         text={buffered.text}
         streaming={streaming}
         minimum={buffered.minimum}
+        active={visible}
         api={api}
         projectId={projectId}
+        threadId={threadId}
       />
     </div>
   );
@@ -117,6 +159,7 @@ const ConversationEntry = memo(function ConversationEntry({
   statusThread,
   api,
   projectId,
+  threadId,
   nodes,
 }: {
   message: Message;
@@ -126,6 +169,7 @@ const ConversationEntry = memo(function ConversationEntry({
   statusThread?: Thread;
   api: DesktopAPI;
   projectId: string;
+  threadId: string;
   nodes: Map<string, HTMLElement>;
 }) {
   const register = useCallback(
@@ -153,6 +197,7 @@ const ConversationEntry = memo(function ConversationEntry({
             message={message}
             api={api}
             projectId={projectId}
+            threadId={threadId}
             streaming={streaming}
             visible={active}
           />
@@ -477,6 +522,7 @@ export const Conversation = memo(function Conversation({
               statusThread={message.id === currentTurn ? thread : undefined}
               api={api}
               projectId={thread.projectId}
+              threadId={thread.id}
               nodes={nodes.current}
             />
           ))}

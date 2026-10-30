@@ -76,6 +76,7 @@ export function createDemoAPI(): DesktopAPI {
     threadPorts: async () => [],
     stopThreadPort: unsupported,
     customTitlebar: true,
+    readVideoChunk: unsupported,
     bootstrap: async () => ({
       projects: [clone(project)],
       activeProject: snapshot(),
