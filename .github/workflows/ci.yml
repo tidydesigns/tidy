@@ -49,6 +49,7 @@ jobs:
         suite:
           [
             accounts,
+            extension,
             auth,
             plans,
             agents,
