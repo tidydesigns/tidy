@@ -2514,12 +2514,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       const search = required(popup.querySelector<HTMLInputElement>("input"), "Design search");
       check(document.activeElement === search, "Search was not focused on open");
       required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='Design team']"),
-        "Cloud workspace source",
-      ).click();
-      await settle();
-      required(
-        popup.querySelector<HTMLButtonElement>("[role=menuitemcheckbox]"),
+        popup.querySelector<HTMLButtonElement>("[aria-label='Shared button']"),
         "Cloud reference",
       ).click();
       check(
@@ -2528,24 +2523,14 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       check(popup.matches(":popover-open"), "Multi-select dismissed the menu");
       check(trigger.textContent?.includes("· 1"), "Pending reference count did not update");
-      required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='This project']"),
-        "Project source",
-      ).click();
-      await settle();
       const local = required(
-        popup.querySelector<HTMLButtonElement>(".select-menu-options [role=menuitemcheckbox]"),
+        popup.querySelector<HTMLButtonElement>("[aria-label='Project design']"),
         "Project reference",
       );
       local.click();
       check(trigger.textContent?.includes("· 2"), "Project and cloud counts are separate");
       references = [{ ...references[0], kind: "error", message: "Offline" }];
       render();
-      required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
-        "Selected source",
-      ).click();
-      await settle();
       required(
         popup.querySelector<HTMLButtonElement>("[aria-label='Retry Shared button']"),
         "Retry reference",
@@ -2579,24 +2564,6 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(
         document.activeElement === currentLocal,
         "Arrow navigation did not enter project designs",
-      );
-      currentLocal.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
-      );
-      const selectedSource = required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
-        "Selected source",
-      );
-      check(
-        document.activeElement === selectedSource,
-        "Keyboard cannot reach the source rail from the file list",
-      );
-      selectedSource.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
-      );
-      check(
-        document.activeElement === currentLocal,
-        "Keyboard cannot return from sources to the file list",
       );
       currentLocal.dispatchEvent(
         new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
@@ -2689,7 +2656,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       render();
       await settle();
       check(
-        popup.textContent?.includes("Could not load another workspace"),
+        popup.textContent?.includes("Could not load cloud designs"),
         "Search reports no matches when a workspace failed to load",
       );
       required(
@@ -2790,19 +2757,9 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       check(popup.textContent?.includes("20 reference limit"), "Limit is unexplained");
       required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
-        "Selected references source",
-      ).click();
-      await settle();
-      required(
         popup.querySelector<HTMLButtonElement>("[aria-label='Remove Selected 0']"),
         "Remove at limit",
       ).click();
-      required(
-        popup.querySelector<HTMLButtonElement>("[aria-label='This project']"),
-        "Project source",
-      ).click();
-      await settle();
       check(
         !required(
           popup.querySelector<HTMLButtonElement>(".select-menu-options [role=menuitemcheckbox]"),
