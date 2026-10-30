@@ -17,6 +17,7 @@ import { attachmentReferenceClassName, attachmentSize } from "./message-attachme
 export type PromptEditorHandle = {
   focus(): void;
   cursor(): number;
+  atBoundary(direction: "up" | "down"): boolean;
   setSelectionRange(start: number, end: number): void;
 };
 type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPaste"> & {
@@ -113,6 +114,25 @@ export function PromptEditor({
     () => ({
       focus: () => input.current?.focus(),
       cursor: () => (input.current ? offset(input.current) : 0),
+      atBoundary: (direction) => {
+        const root = input.current;
+        const selection = window.getSelection();
+        if (!root || !selection?.isCollapsed || !selection.rangeCount) return false;
+        const caret = selection.getRangeAt(0);
+        if (!root.contains(caret.startContainer)) return false;
+        if (!read(root)) return true;
+        const contents = document.createRange();
+        contents.selectNodeContents(root);
+        const lines = Array.from(contents.getClientRects());
+        const position = caret.getClientRects()[0];
+        if (!position || !lines.length) {
+          const cursor = offset(root);
+          return direction === "up" ? cursor === 0 : cursor === read(root).length;
+        }
+        return direction === "up"
+          ? position.top < Math.min(...lines.map((line) => line.bottom))
+          : position.bottom > Math.max(...lines.map((line) => line.top));
+      },
       setSelectionRange: (start, end) => {
         if (input.current) select(input.current, start, end);
       },

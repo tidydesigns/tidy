@@ -11,11 +11,16 @@ import { PromptEditor, type PromptEditorHandle } from "./prompt-editor";
 import { Button } from "@tidy/ui/button";
 import { codeScrollbarClassName } from "../../styles/code-ui";
 import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
+import type { Message } from "../../../../shared/contracts/desktop";
+
+type HistoryEntry = Pick<Message, "text" | "attachments">;
 
 type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
   skills: Skill[];
   status: "loading" | "ready" | "error";
   retry(): void;
+  history?: readonly HistoryEntry[];
+  onRecall?(entry: HistoryEntry): void;
 };
 
 export function SkillPrompt({
@@ -25,11 +30,18 @@ export function SkillPrompt({
   status,
   retry,
   onKeyDown,
+  history = [],
+  onRecall,
   ...props
 }: Props) {
   const input = useRef<PromptEditorHandle>(null);
   const menu = useRef<HTMLDivElement>(null);
   const selection = useRef<{ text: string; cursor: number } | null>(null);
+  const browsing = useRef<{
+    entries: readonly HistoryEntry[];
+    index: number;
+    draft: HistoryEntry;
+  } | null>(null);
   const id = useId();
   const [cursor, setCursor] = useState(0);
   const [focused, setFocused] = useState(false);
@@ -50,6 +62,8 @@ export function SkillPrompt({
   }, [visible, selectedIndex]);
 
   useLayoutEffect(() => {
+    const current = browsing.current;
+    if (current && current.entries[current.index]?.text !== value) browsing.current = null;
     const pending = selection.current;
     selection.current = null;
     if (pending?.text === value) {
@@ -147,6 +161,7 @@ export function SkillPrompt({
         }}
         onCursorChange={setCursor}
         onChange={(text) => {
+          browsing.current = null;
           onChange(text);
           setDismissed(false);
         }}
@@ -178,6 +193,44 @@ export function SkillPrompt({
             event.preventDefault();
             choose(selected);
             return;
+          }
+          if (
+            !props.disabled &&
+            !event.defaultPrevented &&
+            !event.shiftKey &&
+            !event.metaKey &&
+            !event.ctrlKey &&
+            !event.altKey &&
+            (event.key === "ArrowUp" || event.key === "ArrowDown")
+          ) {
+            const direction = event.key === "ArrowUp" ? "up" : "down";
+            if (!browsing.current && direction === "up" && !value) {
+              const entries = history.filter(
+                (entry) => entry.text.length <= (props.maxLength ?? 32_000),
+              );
+              if (entries.length)
+                browsing.current = {
+                  entries,
+                  index: entries.length,
+                  draft: { text: value, attachments: props.files },
+                };
+            }
+            const current = browsing.current;
+            if (current && input.current?.atBoundary(direction)) {
+              event.preventDefault();
+              current.index = Math.max(
+                0,
+                Math.min(current.entries.length, current.index + (direction === "up" ? -1 : 1)),
+              );
+              const entry = current.entries[current.index] ?? current.draft;
+              selection.current = { text: entry.text, cursor: entry.text.length };
+              setCursor(entry.text.length);
+              setDismissed(true);
+              if (onRecall) onRecall(entry);
+              else onChange(entry.text);
+              if (current.index === current.entries.length) browsing.current = null;
+              return;
+            }
           }
           onKeyDown?.(event);
         }}

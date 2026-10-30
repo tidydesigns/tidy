@@ -26,6 +26,8 @@ import type { MachineBridge } from "../../../../shared/remote";
 import { UserFacingError } from "@tidy/ui/errors";
 import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
+import { SkillPrompt } from "../../features/composer/skill-prompt";
+import type { AttachedFile } from "../../../../shared/contracts/attachments";
 import type { ProjectSetupResult } from "../../../../shared/contracts/workspace-response";
 import { useWorkspaceState } from "../use-workspace-state";
 
@@ -2401,6 +2403,176 @@ async function runThreadLoadingTests(): Promise<string[]> {
     );
     await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
   });
+
+  await run(
+    "prompt history recalls messages and attachments without consuming editor navigation",
+    async (root) => {
+      const file: AttachedFile = {
+        id: crypto.randomUUID(),
+        name: "reference.png",
+        mimeType: "image/png",
+        size: 20,
+      };
+      const history = [
+        { text: "First request" },
+        { text: "Multiline\nrequest" },
+        { text: `Latest [[attachment:${file.id}]] request`, attachments: [file] },
+      ];
+      const draftFile = { ...file, id: crypto.randomUUID(), name: "draft.png" };
+      let current: { text: string; attachments: AttachedFile[] } = {
+        text: "",
+        attachments: [draftFile],
+      };
+      function Composer() {
+        const [draft, setDraft] = useState(current);
+        current = draft;
+        return (
+          <SkillPrompt
+            value={draft.text}
+            files={draft.attachments}
+            history={history}
+            onChange={(text) => setDraft((draft) => ({ ...draft, text }))}
+            onRecall={(entry) =>
+              setDraft({ text: entry.text, attachments: entry.attachments ?? [] })
+            }
+            skills={[]}
+            status="ready"
+            retry={() => {}}
+            style={{ whiteSpace: "pre-wrap", width: 500 }}
+          />
+        );
+      }
+      flushSync(() => root.render(<Composer />));
+      const editor = required(host.querySelector<HTMLElement>("[role=textbox]"), "Prompt editor");
+      editor.focus();
+      function key(key: string, options: KeyboardEventInit = {}) {
+        const event = new KeyboardEvent("keydown", {
+          key,
+          bubbles: true,
+          cancelable: true,
+          ...options,
+        });
+        flushSync(() => editor.dispatchEvent(event));
+        return event.defaultPrevented;
+      }
+      function cursor(end: boolean) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(!end);
+        window.getSelection()?.removeAllRanges();
+        window.getSelection()?.addRange(range);
+      }
+      cursor(false);
+      check(!key("ArrowDown"), "Empty draft consumed Down Arrow");
+      check(!key("ArrowUp", { shiftKey: true }), "History consumed text selection shortcut");
+      check(!key("ArrowUp", { isComposing: true }), "History consumed IME navigation");
+      check(key("ArrowUp") && current.text === history[2].text, "Up did not recall latest request");
+      check(current.attachments[0]?.id === file.id, "Recall lost message attachments");
+      check(
+        key("ArrowUp") && current.text === history[1].text,
+        "Repeated Up did not recall older request",
+      );
+      check(!key("ArrowUp"), "History consumed movement inside a multiline request");
+      cursor(false);
+      check(
+        key("ArrowUp") && current.text === history[0].text,
+        "Up at the first line did not recall oldest request",
+      );
+      check(
+        key("ArrowUp") && current.text === history[0].text,
+        "History wrapped past oldest request",
+      );
+      check(
+        key("ArrowDown") && current.text === history[1].text,
+        "Down did not recall newer request",
+      );
+      check(
+        key("ArrowDown") && current.text === history[2].text,
+        "Down did not return to latest request",
+      );
+      check(
+        key("ArrowDown") && !current.text && current.attachments[0]?.id === draftFile.id,
+        "Down did not restore draft",
+      );
+      check(!key("ArrowDown"), "History stayed active after restoring draft");
+      key("ArrowUp");
+      flushSync(() => document.execCommand("insertText", false, " edited"));
+      check(String(current.text).endsWith(" edited"), "Recalled request was not editable");
+      check(!key("ArrowDown"), "History overwrote an edited request");
+      cursor(false);
+      check(!key("ArrowUp"), "History overwrote a nonempty draft");
+      await settle();
+    },
+  );
+
+  await run(
+    "prompt history respects skills, wrapped lines, selection and disabled inputs",
+    async (root) => {
+      const recalled: string[] = [];
+      const history = [{ text: "Older" }, { text: "/review" }];
+      function render(value: string, disabled = false) {
+        flushSync(() =>
+          root.render(
+            <SkillPrompt
+              value={value}
+              onChange={() => {}}
+              onRecall={(entry) => {
+                recalled.push(entry.text);
+                render(entry.text);
+              }}
+              history={history}
+              skills={[
+                { id: "review", name: "review", description: "Review changes" },
+                { id: "test", name: "test", description: "Run tests" },
+              ]}
+              status="ready"
+              retry={() => {}}
+              disabled={disabled}
+              style={{ whiteSpace: "pre-wrap", width: 120 }}
+            />,
+          ),
+        );
+      }
+      function key(key: string) {
+        const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true });
+        flushSync(() => editor.dispatchEvent(event));
+        return event.defaultPrevented;
+      }
+      render("/");
+      const editor = required(host.querySelector<HTMLElement>("[role=textbox]"), "Prompt editor");
+      flushSync(() => editor.focus());
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      flushSync(() => editor.dispatchEvent(new FocusEvent("focusin", { bubbles: true })));
+      check(key("ArrowUp") && !recalled.length, "History consumed skill picker navigation");
+      render("");
+      range.selectNodeContents(editor);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      check(key("ArrowUp") && recalled[0] === "/review", "History did not recall skill command");
+      check(!host.querySelector("[role=listbox]"), "Recall opened skill picker over history");
+      range.selectNodeContents(editor);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      check(!key("ArrowUp"), "History consumed navigation with selected text");
+      render("", true);
+      check(!key("ArrowUp"), "Disabled editor recalled history");
+      history[1] = { text: "A long request that wraps across several lines in the prompt editor" };
+      render("");
+      flushSync(() => editor.focus());
+      range.selectNodeContents(editor);
+      range.collapse(true);
+      window.getSelection()?.removeAllRanges();
+      window.getSelection()?.addRange(range);
+      check(key("ArrowUp"), "Wrapped request was not recalled");
+      check(!key("ArrowUp"), "History consumed Up Arrow inside wrapped text");
+      await settle();
+    },
+  );
 
   return passed;
 }
