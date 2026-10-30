@@ -153,6 +153,8 @@ export class ProjectStore {
   async register(directory: string, cloudName?: string): Promise<Project> {
     const path = await realpath(directory);
     if (!(await stat(path)).isDirectory()) throw new Error("Select a project directory.");
+    if (!cloudName && this.projects.some((project) => project.path === path && project.cloud))
+      throw new Error("Open this cloud workspace through your account instead.");
     const project: Project = {
       id: randomUUID(),
       name: cloudName ?? basename(path),

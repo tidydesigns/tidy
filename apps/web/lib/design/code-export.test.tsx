@@ -22,8 +22,15 @@ test("partial MCP changes preserve layout, style, visibility and lock state", ()
 
 test("exported TypeScript compiles in isolation and renders native controls with shared flow rules", async () => {
   const directory = await mkdtemp(resolve(import.meta.dir, "../../.export-test-"));
+  const marker = "tidyExportIdentifierExecuted";
   try {
-    const output = exportComponent(document(), "new-thread", "NewThread");
+    const rootId = `root" data-probe={Reflect.set(globalThis, '${marker}', true)} />; //`;
+    const content = document();
+    for (const node of content.nodes) {
+      if (node.id === "new-thread") node.id = rootId;
+      if (node.parentId === "new-thread") node.parentId = rootId;
+    }
+    const output = exportComponent(content, rootId, "NewThread");
     for (const file of output.files) await writeFile(resolve(directory, file.path), file.content);
     await writeFile(
       resolve(directory, "Consumer.tsx"),
@@ -69,6 +76,7 @@ const invalid = <NewThread variant="unknown" />;
     await writeFile(file, await bundle.outputs[0].text());
     const { NewThread } = await import(file);
     const html = renderToStaticMarkup(createElement(NewThread));
+    expect(Reflect.has(globalThis, marker)).toBe(false);
     expect(html).toContain("<button");
     expect(html).toContain('type="button"');
     expect(html).toContain("display:flex");
@@ -90,6 +98,7 @@ const invalid = <NewThread variant="unknown" />;
     ).toContain('aria-label="Create a thread"');
     expect(codeRuntimeSource).not.toMatch(/from\s*["'](?:next|@\/|@(?:tidy|bella)\/)/);
   } finally {
+    Reflect.deleteProperty(globalThis, marker);
     await rm(directory, { recursive: true, force: true });
   }
 }, 30_000);

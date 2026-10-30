@@ -505,6 +505,60 @@ test("a catalog response arriving after sign-out cannot update the old account c
   expect((await f.cloud.state()).signedIn).toBe(false);
 });
 
+test.each(["sign-out", "sign-in", "close"] as const)(
+  "file lists cannot reach the renderer after %s starts",
+  async (transition) => {
+    const f = await fixture();
+    const entered = Promise.withResolvers<void>();
+    const response = Promise.withResolvers<typeof f.remote.library.files>();
+    f.remote.files = () => {
+      entered.resolve();
+      return response.promise;
+    };
+    f.auth.signIn = async () => {};
+    const request = f.cloud.files("org");
+    await entered.promise;
+    const changing =
+      transition === "sign-out"
+        ? f.cloud.signOut()
+        : transition === "sign-in"
+          ? f.cloud.signIn()
+          : f.cloud.close();
+    response.resolve(f.remote.library.files);
+    await expect(request).rejects.toThrow("account changed");
+    await changing;
+  },
+);
+
+test("file lists remain available for the current account and reject signed-out requests", async () => {
+  const f = await fixture();
+  expect(await f.cloud.files("org")).toEqual(f.remote.library.files);
+  await f.cloud.signOut();
+  const files = spyOn(f.remote, "files");
+  try {
+    await expect(f.cloud.files("org")).rejects.toThrow();
+    expect(files).not.toHaveBeenCalled();
+  } finally {
+    files.mockRestore();
+  }
+});
+
+test("the directory picker cannot reopen a signed-out cloud workspace as local storage", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  await f.cloud.signOut();
+  const requests = createWorkspaceRequests(f.service, {
+    chooseProject: async () => workspace.project.path,
+    chooseDesign: async () => null,
+    openExternal: async () => {},
+    showItemInFolder: () => {},
+  });
+  await expect(requests.invoke("open-project", undefined, undefined)).rejects.toThrow(
+    "cloud workspace",
+  );
+  expect(f.store.project(workspace.project.id).cloud).toBe(true);
+});
+
 test("keeping both conflict copies preserves local edits in a new cloud file", async () => {
   const f = await fixture(),
     fileId = f.remote.library.files[0].id;

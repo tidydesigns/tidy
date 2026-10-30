@@ -46,6 +46,19 @@ function thread(projectId: string): Thread {
   };
 }
 
+test("cloud registrations retain their access boundary after restart and metadata replacement", async () => {
+  const f = await fixture();
+  const cloud = await f.store.register(f.root, "Cloud workspace");
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  await writeFile(
+    join(f.root, ".tidy", "project.json"),
+    JSON.stringify({ version: 1, id: randomUUID() }),
+  );
+  await expect(restarted.register(f.root)).rejects.toThrow("cloud workspace");
+  expect(restarted.project(cloud.id).cloud).toBe(true);
+});
+
 test("cached design reads detect external equal-length edits with restored modification times", async () => {
   const f = await fixture();
   const { project } = await f.store.open(f.root);
