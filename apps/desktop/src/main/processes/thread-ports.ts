@@ -171,6 +171,7 @@ export class ThreadPorts {
       for (const entry of this.ports.values()) {
         if (next.has(entry.id)) continue;
         const listener = entry.listener;
+        if (this.stopping.has(listener.identity)) continue;
         if (
           !(await inspectOwnedProcess(listener.pid, new Set([listener.owner]))) &&
           (await inspectProcessIdentity(listener.pid)) === listener.identity
