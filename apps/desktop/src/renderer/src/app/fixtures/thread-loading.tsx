@@ -2084,13 +2084,18 @@ async function runThreadLoadingTests(): Promise<string[]> {
       let cancelled = 0;
       let machineId = "local";
       let cloudChoice = "";
+      let remoteConnected = true;
       const renderPicker = (disabled = false) =>
         flushSync(() =>
           root.render(
             <ProjectSwitcher
               machines={[
-                { id: "local", label: "This machine", status: null },
-                { id: remoteId, label: "Mac", status: { kind: "connected", target: "mac" } },
+                { id: "local", label: "Local device", status: null },
+                {
+                  id: remoteId,
+                  label: "Mac",
+                  status: remoteConnected ? { kind: "connected", target: "mac" } : null,
+                },
               ]}
               machineId={machineId}
               projects={
@@ -2131,7 +2136,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       trigger.click();
       await settle();
-      let dialog = required(
+      const dialog = required(
         host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
         "Project switcher",
       );
@@ -2143,49 +2148,42 @@ async function runThreadLoadingTests(): Promise<string[]> {
         Math.abs(popup.left - Math.max(8, anchor.left)) < 2 && popup.top >= anchor.bottom,
         "Project dropdown is not anchored below its trigger",
       );
-      check(!dialog.querySelector("input"), "Project switcher contains a search field");
-      let groups = dialog.querySelectorAll<HTMLDetailsElement>("details");
+      const search = required(dialog.querySelector<HTMLInputElement>("input"), "Project search");
+      check(document.activeElement === search, "Search was not focused on open");
       check(
-        groups[0].querySelectorAll(".machine-project-row").length === 1 &&
-          groups[0].querySelector(".machine-project-row")?.getAttribute("aria-current") === "page",
+        dialog.querySelectorAll(".machine-project-row[aria-current=page]").length === 1 &&
+          dialog.querySelectorAll(".machine-project-row").length === 3,
         "The same project folder appeared twice or lost its active selection",
       );
-      required(groups[0].querySelector("summary"), "Local machine heading").click();
+      const setQuery = (value: string) => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+          search,
+          value,
+        );
+        search.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      setQuery("Nothing matches this project");
       await settle();
-      check(!groups[0].open, "Local machine did not collapse");
-      trigger.click();
+      check(dialog.textContent?.includes("No matching projects"), "Empty search has no feedback");
+      setQuery("Mac");
       await settle();
-      trigger.click();
-      await settle();
-      dialog = required(
-        host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
-        "Reopened dropdown",
+      check(
+        dialog.querySelectorAll(".machine-project-row").length === 1,
+        "Machine search did not narrow projects",
       );
-      groups = dialog.querySelectorAll<HTMLDetailsElement>("details");
-      const localHeading = required(groups[0].querySelector("summary"), "Local machine heading");
-      check(document.activeElement === localHeading, "Reopening tried to focus a hidden project");
-      localHeading.dispatchEvent(
+      check(choices.length === 0, "Searching changed workspaces");
+      search.dispatchEvent(
         new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
       );
-      const remoteHeading = required(groups[1].querySelector("summary"), "Remote machine heading");
-      check(
-        document.activeElement === remoteHeading,
-        "Arrow navigation skipped a collapsed machine",
-      );
-      remoteHeading.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
-      );
-      check(
-        document.activeElement === localHeading,
-        "Arrow navigation entered a collapsed machine",
-      );
-      remoteHeading.click();
-      await settle();
-      check(choices.length === 0, "Expanding a machine changed workspaces");
       const project = required(
-        groups[1].querySelector<HTMLButtonElement>(".machine-project-row"),
+        dialog.querySelector<HTMLButtonElement>(".machine-project-row"),
         "Remote project",
       );
+      check(document.activeElement === project, "Arrow navigation skipped the search result");
+      project.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true }),
+      );
+      check(document.activeElement === search, "Arrow navigation did not return to search");
       check(project.title === "/remote/tidy", "Project metadata was not preloaded");
       const cancelledBeforeSelection = cancelled;
       project.click();
@@ -2199,23 +2197,29 @@ async function runThreadLoadingTests(): Promise<string[]> {
         "Project opened on the wrong machine",
       );
       await until(() => document.activeElement === trigger, "Closing restores trigger focus");
+      remoteConnected = false;
+      renderPicker();
       trigger.click();
       await settle();
       const cloudDialog = required(
         host.querySelector<HTMLElement>("[popover]"),
         "Remote project switcher",
       );
-      const cloudGroup = required(
-        [...cloudDialog.querySelectorAll("details")].find((group) =>
-          group.querySelector("summary")?.textContent?.includes("Cloud workspaces"),
-        ),
-        "Cloud workspaces after selecting a remote project",
+      check(
+        required(
+          cloudDialog.querySelector<HTMLButtonElement>("[aria-label='tidy, Mac']"),
+          "Offline project",
+        ).disabled,
+        "Offline project remains selectable",
       );
-      check(!cloudGroup.open, "Secondary cloud list should start collapsed");
-      required(cloudGroup.querySelector("summary"), "Cloud workspaces heading").click();
-      await settle();
-      check(Number(choices.length) === 1, "Expanding cloud workspaces changed projects");
-      required(cloudGroup.querySelector("button"), "Cloud workspace").click();
+      check(
+        cloudDialog.textContent?.includes("Mac · Offline"),
+        "Offline machine has no visible status",
+      );
+      required(
+        cloudDialog.querySelector<HTMLButtonElement>("[aria-label='Studio cloud workspace']"),
+        "Cloud workspace after selecting a remote project",
+      ).click();
       await until(() => !cloudDialog.matches(":popover-open"), "Cloud selection closes dropdown");
       check(cloudChoice === "studio", "Cloud workspace is unavailable from a remote project");
       trigger.click();
@@ -2310,7 +2314,6 @@ async function runThreadLoadingTests(): Promise<string[]> {
         host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
         "Project switcher",
       );
-      required(dialog.querySelector("summary"), "Machine heading").click();
       await until(
         () => Boolean(dialog.querySelector(".machine-project-retry")),
         "Failed catalog retry",
@@ -2381,10 +2384,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
       host.querySelector<HTMLDivElement>("[popover][role=dialog]"),
       "Dropdown",
     );
-    const headings = dialog.querySelectorAll("summary");
-    const remoteHeading = required(headings[1], "Remote machine");
-    remoteHeading.click();
-    await settle();
+    const search = required(dialog.querySelector<HTMLInputElement>("input"), "Project search");
     const remove = required(
       dialog.querySelector<HTMLButtonElement>("[aria-label='Remove Project from Mac']"),
       "Remove action",
@@ -2392,7 +2392,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
     remove.focus();
     remove.click();
     await settle();
-    check(document.activeElement === remoteHeading, "Removal lost focus outside the dropdown");
+    check(document.activeElement === search, "Removal lost focus outside the dropdown");
     check(
       calls.length === 1 && calls[0] === `${remoteId}:${project.id}`,
       "Removal targeted a different machine",
@@ -2412,12 +2412,11 @@ async function runThreadLoadingTests(): Promise<string[]> {
       dialog.querySelector("[role=alert]")?.textContent === updateMessage,
       "Removal failure was hidden",
     );
-    remoteHeading.dispatchEvent(
+    search.dispatchEvent(
       new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
     );
     check(
-      document.activeElement ===
-        remoteHeading.closest("details")?.querySelector(".machine-project-row"),
+      document.activeElement === dialog.querySelector(".machine-project-row"),
       "Restored project was not reachable with the keyboard",
     );
     required(
@@ -2431,7 +2430,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
     await settle();
     check(!dialog.querySelector("[role=alert]"), "Successful retry retained its error");
     check(Number(calls.length) === 2, "Removal could not be retried after failure");
-    check(document.activeElement === remoteHeading, "Successful removal lost keyboard focus");
+    check(document.activeElement === search, "Successful removal lost keyboard focus");
     document.activeElement?.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
     );
@@ -2865,7 +2864,67 @@ async function runReferenceViewportTests(): Promise<string[]> {
       document.activeElement?.getAttribute("role") === "menuitemcheckbox",
       "Keyboard cannot reach files on a small viewport",
     );
-    return ["cloud references fit a narrow window and retain scrolling and keyboard access"];
+    let cloudChoice = "";
+    flushSync(() =>
+      root.render(
+        <div style={{ paddingTop: 120, paddingLeft: 300 }}>
+          <ProjectSwitcher
+            projects={[]}
+            disabled={false}
+            onChoose={async () => {}}
+            cloudWorkspaces={Array.from({ length: 12 }, (_, index) => ({
+              id: `${index}`,
+              name: `Workspace ${index}`,
+            }))}
+            onCloudChange={(id) => {
+              cloudChoice = id;
+            }}
+          />
+        </div>,
+      ),
+    );
+    required(
+      host.querySelector<HTMLButtonElement>("[aria-label='Switch project']"),
+      "Project trigger",
+    ).click();
+    await settle();
+    const projectPopup = required(host.querySelector<HTMLElement>("[popover]"), "Project popup");
+    const projectBox = projectPopup.getBoundingClientRect();
+    check(
+      projectBox.left >= 0 &&
+        projectBox.right <= innerWidth &&
+        projectBox.top >= 0 &&
+        projectBox.bottom <= innerHeight,
+      "Project picker escapes a narrow viewport",
+    );
+    const projects = required(
+      projectPopup.querySelector<HTMLElement>(".machine-project-list"),
+      "Project list",
+    );
+    check(projects.scrollHeight > projects.clientHeight, "Project list is not scrollable");
+    const projectSearch = required(
+      projectPopup.querySelector<HTMLInputElement>("input"),
+      "Project search",
+    );
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(
+      projectSearch,
+      "Workspace 11",
+    );
+    projectSearch.dispatchEvent(new Event("input", { bubbles: true }));
+    await settle();
+    check(
+      projectPopup.querySelectorAll(".machine-project-row").length === 1,
+      "Search did not narrow cloud workspaces",
+    );
+    projectSearch.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await settle();
+    check(
+      cloudChoice === "11" && !projectPopup.matches(":popover-open"),
+      "Enter did not choose the matching cloud workspace",
+    );
+    return ["both pickers fit a narrow window and retain search, scrolling and keyboard access"];
   } finally {
     flushSync(() => root.unmount());
     document.documentElement.style.cssText = original[0];
