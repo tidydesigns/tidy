@@ -53,6 +53,31 @@ bun run --cwd apps/desktop test:browser
 Set `TIDY_BROWSER_EXECUTABLE=/path/to/chromium` to skip managed installation.
 The regular Bun suite skips the Node browser integration cases.
 
+## Terminal
+
+Choose **Terminal** at the bottom of a project workspace, or press **Ctrl+`**, to
+open a shell in that project's directory. Drag the top divider or focus it and use
+the arrow keys to resize the panel. Collapsing the panel and switching projects
+retain the shell and screen. The **×** action ends the shell; an exited shell can
+be replaced with **New shell**. Up to eight project terminals can remain open.
+
+The terminal uses `ghostty-web` with a native PTY and advertises 24-bit colour.
+Installed tools such as `nvim` run with the user's shell configuration. Nerd Font
+icons require an installed font in the terminal's fallback list. Cloud threads
+use their chosen local execution project; design-only workspaces have no shell.
+Remote terminals run on the selected machine through the existing authenticated
+connection. Older hosts request an update instead of opening a local shell.
+
+Terminal output stays in memory, with bounded replay and scrollback; it is not
+synced or added to transcripts. Hiding a terminal keeps it running. Ending its
+session, removing its project, or shutting down its owning backend terminates it.
+Sessions do not survive a backend restart.
+
+`bun run --cwd apps/desktop test:terminal` checks the actual sandboxed Electron
+renderer, project shell, true-colour pixels, input and session cleanup. Set
+`TIDY_TEST_NVIM=1` to include Neovim full-screen, split, resize and return-to-shell
+checks when `nvim` is installed. These checks use a synthetic project and home.
+
 ## Optional cloud sync
 
 Open the **Settings** gear at the bottom of the sidebar, then choose **Sign in**

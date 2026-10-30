@@ -9,6 +9,7 @@ import {
   type BrowserDraftCache,
 } from "../features/browser/browser-drafts";
 import { HarnessFailureNotices } from "../features/threads/harness-failure-dialog";
+import { TerminalDock } from "../features/terminal/terminal-dock";
 import {
   BrowserNavigationContext,
   type BrowserNavigationRequest,
@@ -2449,6 +2450,16 @@ export function App({
             </>
           )}
         </div>
+        {api?.terminal && (
+          <TerminalDock
+            key={machine?.current.id ?? "local"}
+            api={api}
+            projects={projects}
+            project={project?.cloud ? (mode === "code" ? executionProject : undefined) : project}
+            available={!machine || machine.connected}
+            active={!settingsOpen}
+          />
+        )}
       </main>
       {settingsVisited && (
         <Settings

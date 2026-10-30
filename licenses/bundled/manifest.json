@@ -442,5 +442,13 @@
   "webdriver-bidi-protocol": {
     "source": "LICENSE",
     "notice": "webdriver-bidi-protocol.txt"
+  },
+  "ghostty-web": {
+    "source": "LICENSE",
+    "notice": "ghostty-web.txt"
+  },
+  "@lydell/node-pty": {
+    "source": "LICENSE",
+    "notice": "node-pty.txt"
   }
 }

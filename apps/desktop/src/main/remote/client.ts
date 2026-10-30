@@ -1,4 +1,6 @@
 import { decodeBrowserFrame } from "../browser/frame-codec";
+import { remoteTerminal } from "../terminal/remote-terminal";
+import type { TerminalScope, TerminalOutput } from "../../shared/contracts/terminal";
 import {
   browserEventSchema,
   type BrowserScope,
@@ -114,6 +116,15 @@ export class RemoteClient {
       onError: () => {
         this.recoveryWarning =
           "Some project data could not be refreshed. Check that its folder is still available.";
+      },
+    });
+  }
+  watchTerminal(scope: TerminalScope, receive: (event: TerminalOutput) => void) {
+    return remoteTerminal(scope, receive, {
+      connection: () => (this.current.kind === "connected" ? this.connection : undefined),
+      subscribe: (listener) => {
+        this.statusListeners.add(listener);
+        return () => this.statusListeners.delete(listener);
       },
     });
   }

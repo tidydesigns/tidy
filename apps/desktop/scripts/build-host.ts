@@ -6,6 +6,7 @@ import { bundleLicenseBanner } from "../../../scripts/bundle-licenses";
 const result = await Bun.build({
   entrypoints: [resolve(import.meta.dirname, "host.ts")],
   target: "node",
+  external: ["@lydell/node-pty"],
   define: { TIDY_COMPUTE_WORKER_SOURCE: JSON.stringify(await bundledComputeWorker()) },
   format: "esm",
   metafile: true,

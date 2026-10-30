@@ -38,6 +38,7 @@ export const projectSetupResultSchema = z.discriminatedUnion("kind", [
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
+  "terminal-close": z.void(),
   "browser-state": browserStateSchema,
   "browser-discard-draft": z.void(),
   "browser-command": browserResultSchema,

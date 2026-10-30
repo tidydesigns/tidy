@@ -1,3 +1,11 @@
+import { z } from "zod";
+import {
+  terminalInputSchema,
+  terminalOutputSchema,
+  terminalScopeSchema,
+  terminalSessionSchema,
+  type TerminalAPI,
+} from "../shared/contracts/terminal";
 import {
   browserDiscardDraftSchema,
   browserOutputEnvelopeSchema,
@@ -114,10 +122,50 @@ function browserApi(machineId?: string): BrowserAPI {
   };
 }
 
+function terminalApi(machineId?: string): TerminalAPI {
+  return {
+    end: (session) => request("terminal-close", terminalSessionSchema.parse(session), machineId),
+    watch(raw, receive) {
+      const scope = terminalScopeSchema.parse(raw);
+      const watchId = crypto.randomUUID();
+      let closed = false;
+      const listener = (_event: Electron.IpcRendererEvent, raw: unknown) => {
+        if (closed) return;
+        const parsed = zTerminalEnvelope.safeParse(raw);
+        if (parsed.success && parsed.data.watchId === watchId) receive(parsed.data.output);
+      };
+      ipcRenderer.on("tidy:terminal-output", listener);
+      void ipcRenderer.invoke("tidy:terminal-watch", { ...scope, watchId, machineId }).catch(() => {
+        if (!closed)
+          receive({
+            kind: "error",
+            message: "Could not open the terminal. Check the project and machine connection.",
+          });
+      });
+      return {
+        input(input) {
+          if (!closed)
+            ipcRenderer.send("tidy:terminal-input", {
+              watchId,
+              input: terminalInputSchema.parse(input),
+            });
+        },
+        close() {
+          closed = true;
+          ipcRenderer.removeListener("tidy:terminal-output", listener);
+          ipcRenderer.send("tidy:terminal-unwatch", watchId);
+        },
+      };
+    },
+  };
+}
+const zTerminalEnvelope = z.object({ watchId: z.uuid(), output: terminalOutputSchema });
+
 function workspaceApi(machineId?: string): DesktopAPI {
   const scopedRequest = <Name extends WorkspaceOperation>(name: Name, input?: unknown) =>
     request(name, input, machineId);
   return {
+    terminal: terminalApi(machineId),
     browser: browserApi(machineId),
     projectDirectories: (path) => scopedRequest("project-directories", path),
     projectCheckouts: (projectId) => scopedRequest("project-checkouts", projectId),
