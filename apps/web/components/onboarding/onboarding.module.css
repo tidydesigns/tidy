@@ -73,30 +73,12 @@
   line-height: 1.6;
 }
 
-.progress {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-}
-
 .progressStep {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   color: light-dark(#73736f, #a6a6a0);
-  font-size: 12px;
-  white-space: nowrap;
 }
 
 .progressNumber {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
   border: 1px solid light-dark(#dedede, #44443f);
-  border-radius: 7px;
-  font-size: 11px;
 }
 
 .progressStep[aria-current="step"] {
@@ -115,14 +97,6 @@
 }
 
 @media (max-width: 767px) {
-  .progress {
-    justify-content: space-between;
-    gap: 8px;
-  }
-  .progressStep {
-    gap: 6px;
-    font-size: 11px;
-  }
   .coral,
   .spectrum {
     width: 56px;
@@ -134,13 +108,6 @@
   }
   .spectrum {
     bottom: 0;
-  }
-}
-
-@media (max-width: 360px) {
-  .progressStep {
-    gap: 4px;
-    font-size: 10px;
   }
 }
 

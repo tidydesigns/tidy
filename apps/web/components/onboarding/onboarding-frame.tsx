@@ -22,7 +22,7 @@ export function OnboardingFrame({
         <div className={styles.coral} />
         <div className={styles.spectrum} />
       </div>
-      <div className="mx-auto flex min-h-svh max-w-[1200px] flex-col px-12 pt-8 pb-7 max-md:p-6 max-[360px]:px-5">
+      <div className="mx-auto flex min-h-svh max-w-[1200px] flex-col px-12 pt-8 pb-7 max-md:p-6 max-[22.5rem]:px-5">
         <header className="flex min-h-11 flex-wrap items-center justify-between gap-6 max-md:gap-7 max-md:[&_nav]:w-full">
           <TidyLogo className="text-[38px] text-inherit" />
           {step && <OnboardingProgress step={step} completed={completed} />}
