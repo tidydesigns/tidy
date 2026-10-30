@@ -7,6 +7,8 @@ import { readFile, stat, access, mkdtemp, mkdir, rm } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
+import { promises as filesystem } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import { join } from "node:path";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
@@ -1375,3 +1377,76 @@ browserTest(
     assert.equal((await browser.state(scope)).downloads.length, 0);
   },
 );
+
+for (const cancellation of ["takeover", "turn expiry", "viewer release and retake"] as const) {
+  browserTest(`upload staging cannot attach files after ${cancellation}`, async () => {
+    const { browser, scope, url } = await fixture();
+    const opened = await browser.command(scope, { kind: "open", url });
+    const tabId = opened.state.activeTabId;
+    assert.ok(tabId);
+    await browser.command(scope, { kind: "click", tabId, selector: "#file" });
+    await until(async () => Boolean((await browser.state(scope)).fileChooser));
+    const chooser = (await browser.state(scope)).fileChooser;
+    assert.ok(chooser);
+    const viewerId = randomUUID();
+    const viewer = await watchBrowser({ browser, scope, id: viewerId, receive() {} });
+    if (cancellation === "viewer release and retake")
+      viewer.input({ tabId, input: { kind: "take-control" } });
+    const started = Promise.withResolvers<string>();
+    const resume = Promise.withResolvers<void>();
+    const originalWrite = filesystem.writeFile;
+    const writing = mock.method(
+      filesystem,
+      "writeFile",
+      async (...args: Parameters<typeof originalWrite>) => {
+        if (typeof args[0] === "string" && args[0].includes("tidy-browser-upload-")) {
+          started.resolve(args[0]);
+          await resume.promise;
+        }
+        return Reflect.apply(originalWrite, filesystem, args);
+      },
+    );
+    syncBuiltinESMExports();
+    const controller = new AbortController();
+    const actor = cancellation === "viewer release and retake" ? viewerId : "agent";
+    try {
+      const upload = browser.command(
+        scope,
+        {
+          kind: "upload",
+          tabId,
+          chooserId: chooser.id,
+          files: [{ name: "private.txt", data: Buffer.from("fixture bytes").toString("base64") }],
+        },
+        { actor, signal: controller.signal },
+      );
+      const rejected = assert.rejects(upload, /control|expired/);
+      const path = await started.promise;
+      if (cancellation === "turn expiry") controller.abort(new Error("Browser access expired."));
+      else {
+        if (cancellation === "viewer release and retake")
+          viewer.input({ tabId, input: { kind: "release-control" } });
+        viewer.input({ tabId, input: { kind: "take-control" } });
+      }
+      resume.resolve();
+      await rejected;
+      await assert.rejects(stat(path), { code: "ENOENT" });
+      assert.equal((await browser.state(scope)).fileChooser?.id, chooser.id);
+      const result = await browser.command(
+        scope,
+        {
+          kind: "evaluate",
+          tabId,
+          expression: "document.querySelector('#file').files.length",
+        },
+        { actor: cancellation === "turn expiry" ? "agent" : viewerId },
+      );
+      assert.equal(result.output, "0");
+    } finally {
+      resume.resolve();
+      writing.mock.restore();
+      syncBuiltinESMExports();
+      viewer.close();
+    }
+  });
+}

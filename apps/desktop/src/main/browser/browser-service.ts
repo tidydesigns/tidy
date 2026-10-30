@@ -569,6 +569,12 @@ export class BrowserService {
       workspace.lifetime.signal,
       ...(requestSignal ? [requestSignal] : []),
     ]);
+    const controlGeneration = workspace.controlGeneration;
+    const assertControl = () => {
+      signal.throwIfAborted();
+      if (workspace.controller !== actor || workspace.controlGeneration !== controlGeneration)
+        throw new Error("Browser control changed before the action could complete.");
+    };
     let output: string | undefined;
     try {
       if (action.kind === "open") {
@@ -598,6 +604,7 @@ export class BrowserService {
         if (!tab || tab.page.isClosed()) throw new Error("This browser tab is no longer open.");
         switch (action.kind) {
           case "upload": {
+            assertControl();
             const chooser = tab.chooser;
             if (!chooser || chooser.id !== action.chooserId)
               throw new Error("This file picker is no longer open.");
@@ -631,9 +638,11 @@ export class BrowserService {
               tab.uploads.push(directory);
               const paths: string[] = [];
               for (const [index, file] of action.files.entries()) {
+                assertControl();
                 if (tab.page.isClosed()) throw new Error("This browser tab is no longer open.");
                 const folder = join(directory, String(index));
                 await mkdir(folder, { mode: 0o700 });
+                assertControl();
                 const name = basename(file.name.replaceAll("\\", "/")).replace(/[\x00-\x1f]/g, "");
                 if (!name || name === "." || name === "..") throw new Error("Invalid file name.");
                 const path = join(folder, name);
@@ -642,6 +651,7 @@ export class BrowserService {
               }
               if (tab.page.isClosed() || tab.chooser?.id !== chooser.id)
                 throw new Error("This file picker is no longer open.");
+              assertControl();
               await tab.cdp.send("DOM.setFileInputFiles", {
                 backendNodeId: chooser.backendNodeId,
                 files: paths,
