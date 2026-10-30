@@ -1,3 +1,10 @@
+import { decodeBrowserFrame } from "../browser/frame-codec";
+import {
+  browserEventSchema,
+  type BrowserScope,
+  type BrowserOutput,
+  type BrowserWatch,
+} from "../../shared/contracts/browser";
 import { RecoveryCache } from "./recovery-cache";
 import { tailscaleVerificationSchema } from "./tailscale-verification";
 import { randomUUID } from "node:crypto";
@@ -70,6 +77,7 @@ export class RemoteClient {
   private closed = false;
   private attempt = 0;
   private current: ConnectionStatus;
+  private statusListeners = new Set<() => void>();
   private recovery;
   private recoveryWarning?: string;
   private hostId: string | null;
@@ -108,12 +116,180 @@ export class RemoteClient {
       },
     });
   }
+  watchBrowser(
+    scope: BrowserScope,
+    viewerId: string,
+    receive: (event: BrowserOutput) => void,
+  ): BrowserWatch {
+    let closed = false;
+    let socket: WebSocket | undefined;
+    let connection: RemoteConnection | undefined;
+    let generation = 0;
+    let visible = false;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let opening: AbortController | undefined;
+    const connect = () => {
+      if (closed) return;
+      if (this.current.kind !== "connected" || !this.connection) {
+        generation++;
+        opening?.abort();
+        opening = undefined;
+        socket?.terminate();
+        socket = undefined;
+        connection = undefined;
+        receive({ kind: "disconnected", message: "Waiting for the remote machine…" });
+        return;
+      }
+      if (connection && connection === this.connection) return;
+      connection = this.connection;
+      const active = connection;
+      const version = ++generation;
+      opening?.abort();
+      const attempt = new AbortController();
+      opening = attempt;
+      socket?.terminate();
+      socket = undefined;
+      void (async () => {
+        const health = await fetch(`${active.origin}/health`, {
+          signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(10000)]),
+          redirect: "error",
+        });
+        const capabilities = z
+          .object({ capabilities: z.array(z.string()).optional() })
+          .parse(await health.json()).capabilities;
+        if (closed || version !== generation) return;
+        if (
+          !capabilities?.includes("browser-v2") ||
+          !capabilities.includes("browser-draft-discard")
+        ) {
+          receive({
+            kind: "error",
+            message:
+              "This host needs a backend update for browser previews. Finish active work and reconnect the machine.",
+          });
+          receive({ kind: "disconnected", message: "Browser previews need a host update." });
+          return;
+        }
+        const response = await fetch(`${active.origin}/auth/ticket`, {
+          method: "POST",
+          redirect: "error",
+          headers: {
+            Authorization: `Bearer ${active.host.token}`,
+            "X-Tidy-Client": active.host.clientId,
+          },
+          signal: AbortSignal.any([attempt.signal, AbortSignal.timeout(10000)]),
+        });
+        if (!response.ok) throw new Error("Browser authentication expired. Reconnect the machine.");
+        const { ticket } = z
+          .object({ ticket: z.string().regex(/^[a-f0-9]{64}$/) })
+          .parse(await response.json());
+        if (closed || version !== generation) return;
+        const params = new URLSearchParams({ ...scope, viewerId, ticket });
+        const next = new WebSocket(
+          `${active.origin.replace("http:", "ws:")}/browser-stream?${params}`,
+          { maxPayload: 8 * 1024 * 1024, perMessageDeflate: false, handshakeTimeout: 15000 },
+        );
+        socket = next;
+        let lastReceived = performance.now();
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        const received = () => {
+          lastReceived = performance.now();
+        };
+        next.on("ping", received);
+        next.on("pong", received);
+        next.once("close", () => clearInterval(heartbeat));
+        next.once("open", () => {
+          if (closed || version !== generation) {
+            next.terminate();
+            return;
+          }
+          received();
+          heartbeat = setInterval(() => {
+            if (performance.now() - lastReceived >= 45000) next.terminate();
+          }, 15000);
+          heartbeat.unref();
+          if (!closed && version === generation)
+            next.send(
+              JSON.stringify({
+                tabId: null,
+                viewId: null,
+                input: { kind: "visibility", visible },
+              }),
+            );
+        });
+        next.on("message", (data, binary) => {
+          if (closed || version !== generation) return;
+          received();
+          if (binary) {
+            const frame = Array.isArray(data)
+              ? Buffer.concat(data)
+              : data instanceof ArrayBuffer
+                ? Buffer.from(data)
+                : data;
+            const decoded = decodeBrowserFrame(frame);
+            if (!decoded) next.terminate();
+            else receive(decoded);
+            return;
+          }
+          try {
+            receive(browserEventSchema.parse(JSON.parse(data.toString())));
+          } catch {
+            next.terminate();
+          }
+        });
+        const disconnected = () => {
+          if (closed || version !== generation) return;
+          generation++;
+          socket = undefined;
+          connection = undefined;
+          receive({ kind: "disconnected", message: "Reconnecting to the browser…" });
+          clearTimeout(retry);
+          retry = setTimeout(connect, 1500);
+        };
+        next.once("close", disconnected);
+        next.once("error", () => next.terminate());
+      })().catch((error: unknown) => {
+        if (closed || version !== generation) return;
+        connection = undefined;
+        receive({
+          kind: "disconnected",
+          message: error instanceof Error ? error.message : "Browser unavailable.",
+        });
+        clearTimeout(retry);
+        retry = setTimeout(connect, 3000);
+      });
+    };
+    this.statusListeners.add(connect);
+    connect();
+    return {
+      input: (input) => {
+        if (input.input.kind === "visibility") visible = input.input.visible;
+        if (socket?.readyState !== WebSocket.OPEN) return;
+        const bufferLimit = input.input.kind === "text" ? 4 * 1024 * 1024 : 128 * 1024;
+        if (socket.bufferedAmount > bufferLimit) {
+          socket.terminate();
+          return;
+        }
+        socket.send(JSON.stringify(input));
+      },
+      close: () => {
+        closed = true;
+        generation++;
+        opening?.abort();
+        clearTimeout(retry);
+        this.statusListeners.delete(connect);
+        socket?.terminate();
+      },
+    };
+  }
+
   get status() {
     return this.current;
   }
   private setStatus(value: ConnectionStatus) {
     this.current = value;
     this.options.statusChanged(value);
+    for (const listener of this.statusListeners) listener();
   }
   private clearVerification() {
     if (this.verification) clearTimeout(this.verification.timer);

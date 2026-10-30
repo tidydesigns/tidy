@@ -23,21 +23,24 @@
     "typecheck:tsc": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.renderer.json && tsc --noEmit -p tsconfig.test.json",
     "build:host": "bun scripts/build-host.ts",
     "host": "node --import tsx scripts/host.ts",
+    "test:browser": "bun run build && node --import tsx --test src/main/browser/browser-service.test.ts src/main/browser/download-archive.test.ts && bun scripts/test-browser.ts",
     "test:remote": "bun run build && bun scripts/test-remote.ts",
     "build:demo": "vite build --config website-demo.vite.config.ts"
   },
   "dependencies": {
+    "@puppeteer/browsers": "3.2.6",
     "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",
     "@tidy/editor": "workspace:*",
     "@tidy/ui": "workspace:*",
+    "puppeteer-core": "25.16.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "10.1.0",
     "remark-gfm": "4.0.1",
     "simple-icons": "16.35.0",
-    "zod": "^4.6.6",
-    "ws": "8.21.0"
+    "ws": "8.21.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@electron/fuses": "2.1.3",

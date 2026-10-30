@@ -1,7 +1,7 @@
 import { packager } from "@electron/packager";
 import { flipFuses, FuseV1Options, FuseVersion } from "@electron/fuses";
 import { execFileSync } from "node:child_process";
-import { cp, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,7 +14,11 @@ export async function packageDesktop() {
   const stagingDirectory = await mkdtemp(join(tmpdir(), "tidy-desktop-"));
 
   try {
-    await cp(join(appDirectory, "out"), join(stagingDirectory, "out"), { recursive: true });
+    await mkdir(join(stagingDirectory, "out"));
+    for (const directory of ["main", "preload", "renderer", "host"])
+      await cp(join(appDirectory, "out", directory), join(stagingDirectory, "out", directory), {
+        recursive: true,
+      });
     // macOS and Windows use the icon embedded in the native app/executable.
     if (process.platform === "linux")
       await cp(join(appDirectory, "resources/icon.png"), join(stagingDirectory, "icon.png"));

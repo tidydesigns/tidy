@@ -1,4 +1,13 @@
 import {
+  browserDiscardDraftSchema,
+  browserOutputEnvelopeSchema,
+  isBrowserQuery,
+  browserCommandSchema,
+  browserInputEnvelopeSchema,
+  browserScopeSchema,
+  type BrowserAPI,
+} from "../shared/contracts/browser";
+import {
   connectionStatusSchema,
   machineSchema,
   sshHostSchema,
@@ -45,10 +54,71 @@ async function request<Name extends WorkspaceOperation>(
   );
 }
 
+function browserApi(machineId?: string): BrowserAPI {
+  const watches = new Map<string, string>();
+  const keyFor = (scope: { projectId: string; threadId: string }) =>
+    `${scope.projectId}:${scope.threadId}`;
+  return {
+    discardDraft: (input) =>
+      request("browser-discard-draft", browserDiscardDraftSchema.parse(input), machineId),
+    download: async (name, data) => {
+      await ipcRenderer.invoke("tidy:browser-download", { name, data });
+    },
+    copy: async (text) => {
+      await ipcRenderer.invoke("tidy:browser-copy", text);
+    },
+    command: (raw) => {
+      const command = browserCommandSchema.parse(raw);
+      return request(
+        isBrowserQuery(command.action) ? "browser-query" : "browser-command",
+        { ...command, viewerId: watches.get(keyFor(command)) },
+        machineId,
+      );
+    },
+    watch: (raw, receive) => {
+      const scope = browserScopeSchema.parse(raw);
+      const watchId = crypto.randomUUID();
+      const key = keyFor(scope);
+      watches.set(key, watchId);
+      let closed = false;
+      const listener = (_event: Electron.IpcRendererEvent, raw: unknown) => {
+        if (closed) return;
+        const parsed = browserOutputEnvelopeSchema.safeParse(raw);
+        if (parsed.success && parsed.data.watchId === watchId) receive(parsed.data.output);
+      };
+      ipcRenderer.on("tidy:browser-output", listener);
+      void ipcRenderer
+        .invoke("tidy:browser-watch", { ...scope, watchId, machineId })
+        .catch((error: unknown) => {
+          if (!closed)
+            receive({
+              kind: "error",
+              message: error instanceof Error ? error.message : "Browser unavailable.",
+            });
+        });
+      return () => {
+        closed = true;
+        if (watches.get(key) === watchId) watches.delete(key);
+        ipcRenderer.removeListener("tidy:browser-output", listener);
+        ipcRenderer.send("tidy:browser-unwatch", watchId);
+      };
+    },
+    input: (scope, raw) => {
+      const watchId = watches.get(keyFor(scope));
+      if (watchId)
+        ipcRenderer.send("tidy:browser-input", {
+          watchId,
+          input: browserInputEnvelopeSchema.parse(raw),
+        });
+    },
+  };
+}
+
 function workspaceApi(machineId?: string): DesktopAPI {
   const scopedRequest = <Name extends WorkspaceOperation>(name: Name, input?: unknown) =>
     request(name, input, machineId);
   return {
+    browser: browserApi(machineId),
     projectDirectories: (path) => scopedRequest("project-directories", path),
     projectCheckouts: (projectId) => scopedRequest("project-checkouts", projectId),
     setupProject: (input) => scopedRequest("setup-project", input),

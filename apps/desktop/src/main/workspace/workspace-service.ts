@@ -1,4 +1,7 @@
+import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { HarnessFailureError } from "../harnesses/provider-failure";
+import { BrowserAgentBridge } from "../browser/agent-bridge";
+import { BrowserService } from "../browser/browser-service";
 import { attachmentReference, attachmentText } from "../../shared/models/attachment-references";
 import { HarnessSessions } from "../harnesses/harness-sessions";
 import { nativeSessionIdSchema } from "../../shared/contracts/desktop";
@@ -63,6 +66,7 @@ import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates"
 
 type Job = {
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
+  browserTool?: { close(): void };
   thread: Thread;
   turn: NonNullable<Thread["messages"][number]["turn"]>;
   queuedDelivery?: { message: QueuedMessage; index: number };
@@ -85,6 +89,13 @@ type FinishJobRequest = { job: Job } & (
 );
 
 export class WorkspaceService {
+  readonly browser = new BrowserService(async ({ projectId }) => {
+    await this.assertProjectAccess(projectId);
+    if (this.store.project(projectId).cloud)
+      throw new Error("Choose a connected code project for the browser.");
+  });
+  readonly browserAgent = new BrowserAgentBridge(this.browser);
+
   /** Installed by the native cloud coordinator; cloud data never grants local execution. */
   authorizeCloudProject?: (projectId: string) => Promise<void>;
   canAccessCloudProject?: (projectId: string) => boolean;
@@ -165,6 +176,7 @@ export class WorkspaceService {
       throw new Error("Wait for this project's active work to finish before removing it.");
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
+    await this.browser.removeProject(projectId);
     this.sessionGeneration++;
     await this.sessions.clear({ cwd: project.path });
     for (const key of [projectId, `${projectId}:folders`]) {
@@ -447,6 +459,20 @@ export class WorkspaceService {
       this.starting.delete(threadId);
       this.cancelledStarts.delete(threadId);
     }
+  }
+
+  discardBrowserDraft(input: BrowserDiscardDraft) {
+    return this.serialize(input.threadId, async () => {
+      await this.assertProjectAccess(input.ownerProjectId);
+      await this.assertProjectAccess(input.projectId);
+      if (
+        this.starting.has(input.threadId) ||
+        this.jobs.has(input.threadId) ||
+        (await this.store.threadExists(input.ownerProjectId, input.threadId))
+      )
+        return;
+      await this.browser.discardDraft(input);
+    });
   }
 
   startThread(input: Parameters<DesktopAPI["startThread"]>[0]) {
@@ -920,6 +946,17 @@ export class WorkspaceService {
         await this.finish({ job, kind: "stop" });
         return structuredClone(thread);
       }
+      const browserTool = await this.browserAgent.session({
+        projectId: project.id,
+        threadId: thread.id,
+      });
+      job.browserTool = browserTool;
+      if (job.stopped || this.closing) {
+        browserTool.close();
+        thread.status = "stopped";
+        await this.finish({ job, kind: "stop" });
+        return structuredClone(thread);
+      }
       this.sessionGeneration++;
       const launchInput = {
         projectId: thread.projectId,
@@ -927,8 +964,10 @@ export class WorkspaceService {
         executable,
         cwd: project.path,
         additionalDirectories,
-        prompt: preparedPrompt,
-        skill,
+        prompt: browserTool.instructions + "\n\n" + preparedPrompt,
+        skill: skill
+          ? { ...skill, context: browserTool.instructions + "\n\n" + skill.context }
+          : undefined,
         sessionId: thread.sessionId,
         settings: thread.settings,
         images,
@@ -940,6 +979,7 @@ export class WorkspaceService {
       if (job.stopped) job.process.stop();
       job.completion = this.complete(job);
     } catch (error) {
+      job.browserTool?.close();
       if (queuedMessages?.some((item) => item.id === messageId)) {
         thread.queuedMessages = queuedMessages;
         thread.messages = thread.messages.filter((item) => item.id !== messageId);
@@ -1084,6 +1124,7 @@ export class WorkspaceService {
         job.thread.errorKind = error instanceof HarnessFailureError ? error.kind : undefined;
       }
     }
+    job.browserTool?.close();
     job.analytics?.({
       name: "harness_turn_finished",
       harness: job.thread.harness,
@@ -1307,5 +1348,7 @@ export class WorkspaceService {
     for (const refresh of this.designRefreshes.values()) refresh.close();
     this.designRefreshes.clear();
     await this.stopAndFlush();
+    await this.browserAgent.close();
+    await this.browser.close();
   }
 }

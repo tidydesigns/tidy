@@ -1,3 +1,5 @@
+import { browserScopeSchema } from "../../shared/contracts/browser";
+import { serveBrowserStream } from "../browser/stream-socket";
 import { z } from "zod";
 import { RequestReceipts, unavailableReceiptResponse } from "./receipts";
 import { isRemoteMutation } from "../../shared/remote";
@@ -116,7 +118,12 @@ export function createRemoteHost({
     void (async () => {
       if (!trusted(request)) return send(403, { error: "Untrusted origin." });
       if (request.method === "GET" && request.url === "/health")
-        return send(200, { ...identity, protocol: 3, activeRuns: service.activeRunCount });
+        return send(200, {
+          ...identity,
+          capabilities: ["browser-v2", "browser-draft-discard"],
+          protocol: 3,
+          activeRuns: service.activeRunCount,
+        });
       if (
         request.method !== "POST" ||
         !["/auth/ticket", "/maintenance/restart"].includes(request.url ?? "")
@@ -126,8 +133,8 @@ export function createRemoteHost({
       if (!auth) return send(401, { error: "Session expired. Reconnect over SSH." });
       if (request.url === "/maintenance/restart") {
         if (!shutdown) return send(403, { error: "This backend is managed externally." });
-        if (service.activeRunCount > 0 || inflight > 0)
-          return send(409, { error: "Finish active runs before updating." });
+        if (service.activeRunCount > 0 || service.browser.activeCount > 0 || inflight > 0)
+          return send(409, { error: "Finish active runs and close browser tabs before updating." });
         if (!draining) {
           draining = true;
           setTimeout(shutdown, 100);
@@ -164,7 +171,7 @@ export function createRemoteHost({
     if (
       draining ||
       !trusted(request) ||
-      url.pathname !== "/events" ||
+      !["/events", "/browser-stream"].includes(url.pathname) ||
       !ticket ||
       ticket.expires < Date.now()
     ) {
@@ -179,6 +186,25 @@ export function createRemoteHost({
           return;
         }
         sockets.handleUpgrade(request, socket, head, (client) => {
+          if (url.pathname === "/browser-stream") {
+            const scope = browserScopeSchema.safeParse({
+              projectId: url.searchParams.get("projectId"),
+              threadId: url.searchParams.get("threadId"),
+            });
+            const viewerId = z.uuid().safeParse(url.searchParams.get("viewerId"));
+            if (!scope.success || !viewerId.success) {
+              client.close(1008, "Invalid browser scope");
+              return;
+            }
+            void serveBrowserStream({
+              socket: client,
+              browser: service.browser,
+              scope: scope.data,
+              viewerId: viewerId.data,
+              authorized: () => sessions.validate(ticket.clientId, ticket.token, { cached: true }),
+            });
+            return;
+          }
           clients.set(client, { ...ticket, writes: Promise.resolve(), queuedBytes: 0 });
           alive.add(client);
           client.on("pong", () => alive.add(client));
@@ -329,7 +355,7 @@ export function createRemoteHost({
         draining = true;
         clearInterval(heartbeat);
         unsubscribe();
-        for (const client of clients.keys()) client.terminate();
+        for (const client of sockets.clients) client.terminate();
         sockets.close();
         server.closeAllConnections();
         await new Promise<void>((resolve) => server.close(() => resolve()));

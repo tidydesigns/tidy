@@ -20,6 +20,7 @@ import { type ConnectionStatus } from "../../shared/remote";
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
+import type { BrowserOutput } from "../../shared/contracts/browser";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -923,5 +924,112 @@ test("a lost removal acknowledgement does not restore purged offline data", asyn
     expect(await readFile(cachePath, "utf8")).not.toContain(f.project.id);
   } finally {
     disconnect.mockRestore();
+  }
+});
+
+test("browser queries reject mutations and do not create durable command receipts", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const directory = join(f.root, "receipts");
+  await mkdir(directory, { recursive: true });
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  await expect(
+    client.operation("browser-query", {
+      ...scope,
+      action: { kind: "console", tabId: randomUUID() },
+    }),
+  ).rejects.toThrow("no longer open");
+  await expect(
+    client.operation("browser-query", { ...scope, action: { kind: "open", url: "about:blank" } }),
+  ).rejects.toThrow();
+  expect(await readdir(directory)).toEqual([]);
+  await expect(
+    client.operation("browser-command", { ...scope, action: { kind: "open", url: "about:blank" } }),
+  ).rejects.toThrow("Open the browser preview");
+  expect(f.service.browser.activeCount).toBe(0);
+});
+
+test("hosts without draft cleanup support disable previews without blocking project work", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const fetch = globalThis.fetch;
+  const health = spyOn(globalThis, "fetch").mockImplementation(
+    Object.assign(
+      (...args: Parameters<typeof fetch>) => {
+        if (String(args[0]) === `${f.origin()}/health`)
+          return Promise.resolve(Response.json({ capabilities: ["browser-v2"] }));
+        return fetch(...args);
+      },
+      { preconnect: fetch.preconnect },
+    ),
+  );
+  const events: BrowserOutput[] = [];
+  const watch = client.watchBrowser(
+    { projectId: f.project.id, threadId: randomUUID() },
+    randomUUID(),
+    (event) => events.push(event),
+  );
+  try {
+    await until(() => events.some((event) => event.kind === "disconnected"));
+    expect(events).toContainEqual({
+      kind: "disconnected",
+      message: "Browser previews need a host update.",
+    });
+    expect(
+      events.some((event) => event.kind === "error" && event.message.includes("backend update")),
+    ).toBe(true);
+    expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+    expect(f.service.browser.activeCount).toBe(0);
+  } finally {
+    watch.close();
+    health.mockRestore();
+  }
+});
+
+test("browser paste tolerates bounded socket pressure while other input remains bounded", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const scope = { projectId: f.project.id, threadId: randomUUID() };
+  const received: string[] = [];
+  const attach = f.service.browser.watch.bind(f.service.browser);
+  const observe = spyOn(f.service.browser, "watch").mockImplementation(async (...args) => {
+    const watch = await attach(...args);
+    return {
+      ...watch,
+      input(value) {
+        if (value.input.kind === "text") received.push(value.input.text);
+        watch.input(value);
+      },
+    };
+  });
+  let ready = false;
+  let disconnected = false;
+  const watch = client.watchBrowser(scope, randomUUID(), (event) => {
+    if (event.kind === "state") ready = true;
+    if (event.kind === "disconnected") disconnected = true;
+  });
+  const pressure = Object.getOwnPropertyDescriptor(WebSocket.prototype, "bufferedAmount");
+  if (!pressure) throw new Error("Socket buffer accessor is unavailable.");
+  try {
+    await until(() => ready);
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", {
+      ...pressure,
+      get: () => 256 * 1024,
+    });
+    const chunk = "界".repeat(15998) + "😀";
+    for (let i = 0; i < 32; i++)
+      watch.input({ tabId: null, viewId: null, input: { kind: "text", text: chunk } });
+    await until(() => received.length === 32);
+    expect(received.join("")).toBe(chunk.repeat(32));
+    expect(disconnected).toBe(false);
+    watch.input({ tabId: null, viewId: null, input: { kind: "release-control" } });
+    await until(() => disconnected);
+  } finally {
+    Object.defineProperty(WebSocket.prototype, "bufferedAmount", pressure);
+    watch.close();
+    observe.mockRestore();
   }
 });

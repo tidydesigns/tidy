@@ -1,5 +1,8 @@
 {
-  "ws": { "source": "LICENSE", "notice": "ws.txt" },
+  "ws": {
+    "source": "LICENSE",
+    "notice": "ws.txt"
+  },
   "paper": {
     "source": "LICENSE.txt",
     "notice": "Paper.js.txt"
@@ -359,5 +362,85 @@
   "simple-icons": {
     "source": "LICENSE.md",
     "notice": "simple-icons.txt"
+  },
+  "@puppeteer/browsers": {
+    "notice": "Puppeteer.txt",
+    "versions": ["3.2.6"],
+    "license": "Apache-2.0",
+    "upstream": "https://github.com/puppeteer/puppeteer/blob/main/LICENSE"
+  },
+  "modern-tar": {
+    "source": "LICENSE",
+    "notice": "modern-tar.txt"
+  },
+  "cliui": {
+    "source": "LICENSE.txt",
+    "notice": "cliui.txt"
+  },
+  "ansi-regex": {
+    "source": "license",
+    "notice": "ansi-regex.txt"
+  },
+  "strip-ansi": {
+    "source": "license",
+    "notice": "strip-ansi.txt"
+  },
+  "get-east-asian-width": {
+    "source": "license",
+    "notice": "get-east-asian-width.txt"
+  },
+  "emoji-regex": {
+    "source": "LICENSE-MIT.txt",
+    "notice": "emoji-regex.txt"
+  },
+  "string-width": {
+    "source": "license",
+    "notice": "string-width.txt"
+  },
+  "ansi-styles": {
+    "source": "license",
+    "notice": "ansi-styles.txt"
+  },
+  "wrap-ansi": {
+    "source": "license",
+    "notice": "wrap-ansi.txt"
+  },
+  "escalade": {
+    "source": "license",
+    "notice": "escalade.txt"
+  },
+  "yargs-parser": {
+    "source": "LICENSE.txt",
+    "notice": "yargs-parser.txt"
+  },
+  "yargs": {
+    "source": "LICENSE",
+    "notice": "yargs.txt"
+  },
+  "y18n": {
+    "source": "LICENSE",
+    "notice": "y18n.txt"
+  },
+  "get-caller-file": {
+    "source": "LICENSE.md",
+    "notice": "get-caller-file.txt"
+  },
+  "puppeteer-core": {
+    "notice": "Puppeteer.txt",
+    "versions": ["25.16.0"],
+    "license": "Apache-2.0",
+    "upstream": "https://github.com/puppeteer/puppeteer/blob/main/LICENSE"
+  },
+  "mitt": {
+    "source": "LICENSE",
+    "notice": "mitt.txt"
+  },
+  "chromium-bidi": {
+    "source": "LICENSE",
+    "notice": "chromium-bidi.txt"
+  },
+  "webdriver-bidi-protocol": {
+    "source": "LICENSE",
+    "notice": "webdriver-bidi-protocol.txt"
   }
 }

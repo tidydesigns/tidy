@@ -1,3 +1,9 @@
+import {
+  browserScopeSchema,
+  browserDiscardDraftSchema,
+  browserCommandSchema,
+  browserQuerySchema,
+} from "../../shared/contracts/browser";
 import { DraftImports } from "../workspace/draft-imports";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
@@ -66,6 +72,18 @@ export function createWorkspaceRequests<Context>(
       return result;
     });
   }
+  handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
+  handle("browser-discard-draft", browserDiscardDraftSchema, (input) =>
+    service.discardBrowserDraft(input),
+  );
+  handle("browser-query", browserQuerySchema, ({ action, viewerId, ...scope }) =>
+    service.browser.command(scope, action, { actor: viewerId }),
+  );
+  handle("browser-command", browserCommandSchema, ({ action, viewerId, ...scope }) => {
+    if (!viewerId) throw new Error("Open the browser preview before controlling it.");
+    return service.browser.command(scope, action, { actor: viewerId });
+  });
+
   function liveSnapshot(snapshot: Awaited<ReturnType<typeof store.snapshot>>) {
     return {
       ...snapshot,

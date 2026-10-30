@@ -1,3 +1,4 @@
+import { browserStateSchema, browserResultSchema } from "./browser";
 import { draftImportResultSchema } from "./draft-import";
 import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
@@ -34,6 +35,10 @@ export const projectSetupResultSchema = z.discriminatedUnion("kind", [
 export type ProjectSetupResult = z.infer<typeof projectSetupResultSchema>;
 const attachedFileSchema = attachmentSchema.extend({ previewUrl: z.string().optional() });
 export const workspaceResponseSchemas = {
+  "browser-state": browserStateSchema,
+  "browser-discard-draft": z.void(),
+  "browser-command": browserResultSchema,
+  "browser-query": browserResultSchema,
   "project-directories": directorySchema,
   "project-checkouts": z.array(projectCheckoutSchema),
   "setup-project": projectSetupResultSchema,

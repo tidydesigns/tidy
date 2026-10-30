@@ -1,3 +1,12 @@
+import { writeFile } from "node:fs/promises";
+import {
+  browserScopeSchema,
+  BROWSER_CLIPBOARD_LIMIT,
+  browserInputEnvelopeSchema,
+  type BrowserWatch,
+  type BrowserOutput,
+  type BrowserInputEnvelope,
+} from "../../shared/contracts/browser";
 import { openConnectedChatLink } from "../workspace/chat-links";
 import { discoverTailnet } from "../remote/tailscale";
 import { BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
@@ -208,6 +217,116 @@ export function registerWorkspaceIPC(
     if (!client) throw new Error("This machine is not connected. Reconnect it before continuing.");
     return client;
   }
+  ipcMain.handle("tidy:browser-download", async (event, raw: unknown) => {
+    trusted(event);
+    const { name, data } = z
+      .object({
+        name: z.string().min(1).max(200),
+        data: z
+          .string()
+          .max(22 * 1024 * 1024)
+          .regex(/^[A-Za-z0-9+/]*={0,2}$/),
+      })
+      .strict()
+      .parse(raw);
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (!window) throw new Error("Window unavailable.");
+    const chosen = await dialog.showSaveDialog(window, {
+      title: "Download file",
+      defaultPath: basename(name),
+    });
+    if (!chosen.canceled && chosen.filePath)
+      await writeFile(chosen.filePath, Buffer.from(data, "base64"));
+  });
+  ipcMain.handle("tidy:browser-copy", async (event, raw: unknown) => {
+    trusted(event);
+    const text = z.string().max(BROWSER_CLIPBOARD_LIMIT).parse(raw);
+    const { clipboard } = await import("electron");
+    clipboard.writeText(text);
+  });
+  const browserWatches = new Map<
+    string,
+    {
+      watch?: BrowserWatch;
+      closed: boolean;
+      pending: BrowserInputEnvelope[];
+      cleanup(): void;
+    }
+  >();
+  const watchRequest = browserScopeSchema
+    .extend({ watchId: z.uuid(), machineId: machineIdSchema.optional() })
+    .strict();
+  ipcMain.handle("tidy:browser-watch", async (event, raw: unknown) => {
+    trusted(event);
+    const { watchId, machineId, ...scope } = watchRequest.parse(raw);
+    const key = `${event.sender.id}:${watchId}`;
+    if (browserWatches.has(key)) throw new Error("This browser viewer is already attached.");
+    const entry: {
+      watch?: BrowserWatch;
+      closed: boolean;
+      pending: BrowserInputEnvelope[];
+      cleanup(): void;
+    } = { closed: false, pending: [], cleanup: () => {} };
+    browserWatches.set(key, entry);
+    const send = (output: BrowserOutput) => {
+      if (
+        entry.closed ||
+        event.sender.isDestroyed() ||
+        !trustedRendererURL(event.sender.mainFrame.url, rendererURL)
+      )
+        return;
+      event.sender.send("tidy:browser-output", { watchId, output });
+    };
+    const navigated = (
+      details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+    ) => {
+      if (details.isMainFrame && !details.isSameDocument) destroy();
+    };
+    const destroy = () => {
+      entry.closed = true;
+      entry.watch?.close();
+      browserWatches.delete(key);
+      event.sender.removeListener("destroyed", destroy);
+      event.sender.removeListener("did-start-navigation", navigated);
+    };
+    entry.cleanup = destroy;
+    event.sender.once("destroyed", destroy);
+    event.sender.on("did-start-navigation", navigated);
+    try {
+      const client = clientFor(event, machineId);
+      entry.watch = client
+        ? client.watchBrowser(scope, watchId, send)
+        : await service.browser.watch(scope, watchId, send);
+      if (entry.closed) entry.watch.close();
+      else for (const input of entry.pending.splice(0)) entry.watch.input(input);
+    } catch (error) {
+      destroy();
+      throw error;
+    } finally {
+      if (entry.closed) event.sender.removeListener("destroyed", destroy);
+    }
+  });
+  ipcMain.on("tidy:browser-input", (event, raw: unknown) => {
+    try {
+      trusted(event);
+      const { watchId, input } = z
+        .object({ watchId: z.uuid(), input: browserInputEnvelopeSchema })
+        .strict()
+        .parse(raw);
+      const entry = browserWatches.get(`${event.sender.id}:${watchId}`);
+      if (entry?.watch) entry.watch.input(input);
+      else if (entry && entry.pending.length < 16) entry.pending.push(input);
+    } catch {}
+  });
+  ipcMain.on("tidy:browser-unwatch", (event, raw: unknown) => {
+    try {
+      trusted(event);
+      const watchId = z.uuid().parse(raw);
+      const key = `${event.sender.id}:${watchId}`;
+      const entry = browserWatches.get(key);
+      if (entry) entry.cleanup();
+    } catch {}
+  });
   ipcMain.on("tidy:connectivity", (event, value: unknown) => {
     try {
       trusted(event);

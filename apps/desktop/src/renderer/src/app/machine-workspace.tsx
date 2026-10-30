@@ -1,3 +1,4 @@
+import type { BrowserDraftCache } from "../features/browser/browser-drafts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { z } from "zod";
 import { UserFacingError } from "@tidy/ui/errors";
@@ -44,6 +45,7 @@ export function MachineWorkspace() {
     source: MachineSelection | null;
   } | null>(null);
   const drafts = useRef(new Map<string, Record<string, Draft>>());
+  const browserDrafts = useRef<BrowserDraftCache>(new Map());
   const machineLabels = useRef(machines);
   machineLabels.current = machines;
   const apis = useRef(new Map<string, DesktopAPI>());
@@ -168,6 +170,7 @@ export function MachineWorkspace() {
           workspaceAPI={api}
           initial={prepared}
           draftCache={drafts.current}
+          browserDraftCache={browserDrafts.current}
           cloud={cloud}
           machine={{
             current,
