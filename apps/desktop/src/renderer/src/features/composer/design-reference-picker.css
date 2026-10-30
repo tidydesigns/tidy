@@ -1,0 +1,200 @@
+.reference-file-picker.reference-file-picker {
+  width: 360px;
+  max-width: calc(100vw - 16px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 11px;
+  box-shadow:
+    0 10px 30px #0003,
+    inset 0 1px 0 color-mix(in srgb, var(--color-ink) 3%, transparent);
+}
+.reference-search {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted-ink);
+}
+.reference-search > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.reference-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+}
+.reference-source-count {
+  flex-shrink: 0;
+  min-width: 14px;
+  text-align: right;
+  font-size: 10px;
+  color: var(--color-muted-ink);
+  font-variant-numeric: tabular-nums;
+}
+.reference-file-picker .select-menu-columns {
+  display: flex;
+  height: min(248px, 45dvh);
+  min-height: 0;
+  flex-shrink: 1;
+}
+.reference-sources {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 112px;
+  gap: 3px;
+  padding: 6px;
+  overflow-y: auto;
+  border-right: 1px solid var(--color-border);
+}
+.reference-source {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
+  gap: 7px;
+  padding: 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.reference-source > [aria-hidden] {
+  flex-shrink: 0;
+}
+.reference-source > .truncate {
+  flex: 1;
+  min-width: 0;
+}
+.reference-source[aria-pressed="true"],
+.reference-source:focus-visible {
+  color: var(--color-ink);
+  background: var(--color-hover-surface);
+}
+.reference-source:focus-visible {
+  outline: 1px solid var(--color-control-border);
+  outline-offset: -1px;
+}
+.reference-source:disabled {
+  cursor: default;
+  opacity: 0.4;
+  background: transparent;
+}
+.reference-source-divider {
+  height: 1px;
+  flex-shrink: 0;
+  margin: 4px 5px;
+  background: var(--color-border);
+}
+.reference-file-picker .select-menu-options {
+  min-width: 0;
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px;
+}
+.reference-file-picker .select-menu-option-row {
+  display: flex;
+  align-items: center;
+  border-radius: 6px;
+}
+.reference-file-picker .select-menu-option-row:focus-within {
+  background: var(--color-hover-surface);
+}
+.reference-file-picker.reference-file-picker [role="menuitemcheckbox"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 43px;
+  padding: 7px 9px;
+  gap: 6px;
+  background: transparent;
+}
+.reference-file-picker [data-slot="select-menu-content"],
+.reference-file-picker [data-slot="select-menu-text"] {
+  min-width: 0;
+  flex: 1;
+}
+.reference-file-picker.reference-file-picker [data-slot="select-menu-label"] {
+  font-size: 12px;
+  line-height: 17px;
+}
+.reference-file-picker.reference-file-picker [data-slot="select-menu-description"] {
+  margin-top: 1px;
+  font-size: 10px;
+  line-height: 15px;
+  color: var(--color-muted-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.reference-file-picker.reference-file-picker [role="menuitemcheckbox"]:focus-visible {
+  outline: 1px solid var(--color-control-border);
+  outline-offset: -1px;
+}
+.reference-empty {
+  padding: 13px 9px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 18px;
+}
+.reference-empty button,
+.reference-notice button,
+.reference-retry {
+  border: 0;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.reference-empty button {
+  display: block;
+  margin-top: 6px;
+  padding: 2px 0;
+}
+.reference-retry {
+  margin-right: 5px;
+  padding: 5px;
+}
+.reference-retry:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.reference-notice {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reference-source:enabled:hover,
+  .reference-file-picker .select-menu-option-row:has(button:enabled):hover {
+    color: var(--color-ink);
+    background: var(--color-hover-surface);
+  }
+  .reference-retry:enabled:hover {
+    background: var(--color-subtle-fill);
+  }
+}

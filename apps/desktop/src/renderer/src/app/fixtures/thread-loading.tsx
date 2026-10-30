@@ -24,6 +24,12 @@ import { RemoteMachines } from "../../features/settings/remote-machines";
 import { Settings } from "../../features/settings/settings";
 import type { MachineBridge } from "../../../../shared/remote";
 import { UserFacingError } from "@tidy/ui/errors";
+import { DesignReferencePicker } from "../../features/composer/design-reference-picker";
+import {
+  cloudReferenceKey,
+  type DraftCloudReference,
+} from "../../features/composer/cloud-reference";
+import type { CloudReferenceLibrary } from "../../features/composer/cloud-reference-catalogs";
 import { ProjectSwitcher } from "../../features/workspace/project-switcher";
 import { ProjectSetupDialog } from "../../features/composer/project-setup-dialog";
 import type { ProjectSetupResult } from "../../../../shared/contracts/workspace-response";
@@ -2076,6 +2082,8 @@ async function runThreadLoadingTests(): Promise<string[]> {
       const choices: { machine: string; project?: string }[] = [];
       let added = 0;
       let cancelled = 0;
+      let machineId = "local";
+      let cloudChoice = "";
       const renderPicker = (disabled = false) =>
         flushSync(() =>
           root.render(
@@ -2084,15 +2092,22 @@ async function runThreadLoadingTests(): Promise<string[]> {
                 { id: "local", label: "This machine", status: null },
                 { id: remoteId, label: "Mac", status: { kind: "connected", target: "mac" } },
               ]}
-              projects={[{ ...local, id: crypto.randomUUID() }, local]}
-              projectId={local.id}
+              machineId={machineId}
+              projects={
+                machineId === "local"
+                  ? [{ ...local, id: crypto.randomUUID() }, local]
+                  : [remoteProject]
+              }
+              projectId={machineId === "local" ? local.id : remoteProject.id}
               disabled={disabled}
-              loadProjects={async () => {
+              loadProjects={async (id) => {
                 loads++;
-                return [remoteProject];
+                return [id === "local" ? local : remoteProject];
               }}
               onChoose={async (machine, project) => {
                 choices.push({ machine, project });
+                machineId = machine;
+                renderPicker();
               }}
               onCancelNavigation={() => {
                 cancelled++;
@@ -2100,8 +2115,10 @@ async function runThreadLoadingTests(): Promise<string[]> {
               onAddMachine={() => {
                 added++;
               }}
-              cloudWorkspaces={[]}
-              onCloudChange={() => {}}
+              cloudWorkspaces={[{ id: "studio", name: "Studio" }]}
+              onCloudChange={(id) => {
+                cloudChoice = id;
+              }}
             />,
           ),
         );
@@ -2182,6 +2199,25 @@ async function runThreadLoadingTests(): Promise<string[]> {
         "Project opened on the wrong machine",
       );
       await until(() => document.activeElement === trigger, "Closing restores trigger focus");
+      trigger.click();
+      await settle();
+      const cloudDialog = required(
+        host.querySelector<HTMLElement>("[popover]"),
+        "Remote project switcher",
+      );
+      const cloudGroup = required(
+        [...cloudDialog.querySelectorAll("details")].find((group) =>
+          group.querySelector("summary")?.textContent?.includes("Cloud workspaces"),
+        ),
+        "Cloud workspaces after selecting a remote project",
+      );
+      check(!cloudGroup.open, "Secondary cloud list should start collapsed");
+      required(cloudGroup.querySelector("summary"), "Cloud workspaces heading").click();
+      await settle();
+      check(Number(choices.length) === 1, "Expanding cloud workspaces changed projects");
+      required(cloudGroup.querySelector("button"), "Cloud workspace").click();
+      await until(() => !cloudDialog.matches(":popover-open"), "Cloud selection closes dropdown");
+      check(cloudChoice === "studio", "Cloud workspace is unavailable from a remote project");
       trigger.click();
       await settle();
       const outside = document.createElement("button");
@@ -2402,7 +2438,482 @@ async function runThreadLoadingTests(): Promise<string[]> {
     await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
   });
 
+  await run(
+    "cloud reference picker mixes sources, keeps selection instant, and retains failures for retry",
+    async (root) => {
+      let selected: string[] = [];
+      let references: DraftCloudReference[] = [];
+      let retried = 0;
+      let connected = true;
+      const cloudFile = { id: crypto.randomUUID(), name: "Shared button", folderId: "components" };
+      const otherFile = { ...cloudFile, id: crypto.randomUUID() };
+      const library: CloudReferenceLibrary = {
+        accountId: "account",
+        retry: () => {},
+        refresh: () => {},
+        workspaces: [
+          {
+            id: "org",
+            name: "Design team",
+            canEdit: true,
+            catalog: {
+              kind: "ready",
+              catalog: { files: [cloudFile], folders: [{ id: "components", name: "Components" }] },
+            },
+          },
+          {
+            id: "other",
+            name: "Other team",
+            canEdit: false,
+            catalog: { kind: "ready", catalog: { files: [otherFile], folders: [] } },
+          },
+        ],
+      };
+      function render() {
+        flushSync(() =>
+          root.render(
+            <DesignReferencePicker
+              designs={[{ id: "local", name: "Project design" }]}
+              selected={selected}
+              onChange={(ids) => {
+                selected = ids;
+                render();
+              }}
+              disabled={false}
+              cloud={{
+                library,
+                selected: references,
+                canImport: connected,
+                onRetry: () => {
+                  retried++;
+                },
+                onToggle: (reference) => {
+                  const key = cloudReferenceKey(reference);
+                  references = references.some((item) => cloudReferenceKey(item) === key)
+                    ? references.filter((item) => cloudReferenceKey(item) !== key)
+                    : [
+                        ...references,
+                        { ...reference, token: crypto.randomUUID(), kind: "pending" },
+                      ];
+                  render();
+                },
+              }}
+            />,
+          ),
+        );
+      }
+      render();
+      const trigger = required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Design references']"),
+        "Reference trigger",
+      );
+      trigger.click();
+      await settle();
+      const popup = required(host.querySelector<HTMLElement>("[popover]"), "References popup");
+      check(popup.matches(":popover-open"), "References did not open");
+      const search = required(popup.querySelector<HTMLInputElement>("input"), "Design search");
+      check(document.activeElement === search, "Search was not focused on open");
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Design team']"),
+        "Cloud workspace source",
+      ).click();
+      await settle();
+      required(
+        popup.querySelector<HTMLButtonElement>("[role=menuitemcheckbox]"),
+        "Cloud reference",
+      ).click();
+      check(
+        references.length === 1 && references[0].kind === "pending",
+        "Selection waited for the download",
+      );
+      check(popup.matches(":popover-open"), "Multi-select dismissed the menu");
+      check(trigger.textContent?.includes("· 1"), "Pending reference count did not update");
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='This project']"),
+        "Project source",
+      ).click();
+      await settle();
+      const local = required(
+        popup.querySelector<HTMLButtonElement>(".select-menu-options [role=menuitemcheckbox]"),
+        "Project reference",
+      );
+      local.click();
+      check(trigger.textContent?.includes("· 2"), "Project and cloud counts are separate");
+      references = [{ ...references[0], kind: "error", message: "Offline" }];
+      render();
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
+        "Selected source",
+      ).click();
+      await settle();
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Retry Shared button']"),
+        "Retry reference",
+      ).click();
+      check(retried === 1, "Failed reference has no working retry");
+      connected = false;
+      render();
+      check(
+        required(
+          popup.querySelector<HTMLButtonElement>("[aria-label='Retry Shared button']"),
+          "Offline retry",
+        ).disabled,
+        "Offline transfer can still start",
+      );
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Remove Shared button']"),
+        "Remove failed reference",
+      ).click();
+      check(
+        references.length === 0 && trigger.textContent?.includes("· 1"),
+        "Removing failure changed project references",
+      );
+      const currentLocal = required(
+        popup.querySelector<HTMLButtonElement>("[role=menuitemcheckbox]"),
+        "Selected local reference",
+      );
+      search.focus();
+      search.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+      );
+      check(
+        document.activeElement === currentLocal,
+        "Arrow navigation did not enter project designs",
+      );
+      currentLocal.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true, cancelable: true }),
+      );
+      const selectedSource = required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
+        "Selected source",
+      );
+      check(
+        document.activeElement === selectedSource,
+        "Keyboard cannot reach the source rail from the file list",
+      );
+      selectedSource.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }),
+      );
+      check(
+        document.activeElement === currentLocal,
+        "Keyboard cannot return from sources to the file list",
+      );
+      currentLocal.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await settle();
+      check(
+        !popup.matches(":popover-open") && document.activeElement === trigger,
+        "Escape failed to restore focus",
+      );
+    },
+  );
+
+  await run(
+    "cloud reference picker searches across workspaces and bounds large lists",
+    async (root) => {
+      const files = Array.from({ length: 250 }, (_, index) => ({
+        id: crypto.randomUUID(),
+        name: index === 249 ? "Unique checkout screen" : `Design ${index}`,
+        folderId: null,
+      }));
+      let retried = "";
+      const library: CloudReferenceLibrary = {
+        accountId: "account",
+        retry: (id) => {
+          retried = id;
+        },
+        refresh: () => {},
+        workspaces: [
+          {
+            id: "org",
+            name: "Cloud team",
+            canEdit: true,
+            catalog: { kind: "ready", catalog: { files, folders: [] } },
+          },
+        ],
+      };
+      const render = () =>
+        flushSync(() =>
+          root.render(
+            <div style={{ paddingTop: 500 }}>
+              <DesignReferencePicker
+                designs={[]}
+                selected={[]}
+                onChange={() => {}}
+                disabled={false}
+                cloud={{
+                  library,
+                  selected: [],
+                  canImport: true,
+                  onToggle: () => {},
+                  onRetry: () => {},
+                }}
+              />
+            </div>,
+          ),
+        );
+      render();
+      required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Design references']"),
+        "Trigger",
+      ).click();
+      await settle();
+      const popup = required(host.querySelector<HTMLElement>("[popover]"), "Popup");
+      const input = required(popup.querySelector<HTMLInputElement>("input"), "Search");
+      const setQuery = (text: string) => {
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        setter?.call(input, text);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      setQuery("Unique checkout");
+      await settle();
+      check(
+        popup.querySelectorAll("[role=menuitemcheckbox]").length === 1,
+        "Search failed to find a design deep in the cloud catalog",
+      );
+      library.workspaces.push({
+        id: "loading",
+        name: "Another workspace",
+        canEdit: false,
+        catalog: { kind: "loading" },
+      });
+      render();
+      setQuery("nothing matches");
+      await settle();
+      check(popup.textContent?.includes("Loading designs"), "Search hides pending workspaces");
+      library.workspaces[1].catalog = {
+        kind: "error",
+        message: "Could not load another workspace",
+      };
+      render();
+      await settle();
+      check(
+        popup.textContent?.includes("Could not load another workspace"),
+        "Search reports no matches when a workspace failed to load",
+      );
+      required(
+        popup.querySelector<HTMLButtonElement>(".reference-empty button"),
+        "Retry unavailable search source",
+      ).click();
+      check(retried === "loading", "Search retried the wrong workspace");
+      library.workspaces[1].catalog = { kind: "ready", catalog: { files: [], folders: [] } };
+      render();
+      await settle();
+      check(
+        popup.textContent?.includes("No matching designs"),
+        "No-match search lacks useful feedback",
+      );
+      setQuery("Cloud team");
+      await settle();
+      check(
+        popup.querySelectorAll("[role=menuitemcheckbox]").length === 250,
+        "Workspace name search did not expose its designs",
+      );
+      const list = required(
+        popup.querySelector<HTMLElement>(".select-menu-options"),
+        "Cloud designs",
+      );
+      check(
+        list.clientHeight <= 250 && list.scrollHeight > list.clientHeight,
+        "Cloud list grows beyond its bounded region",
+      );
+      check(
+        popup.getBoundingClientRect().height <= 402,
+        "Reference menu exceeds its maximum height",
+      );
+    },
+  );
+
+  await run(
+    "empty, unavailable, and maximum-count reference pickers remain understandable and removable",
+    async (root) => {
+      let cloudSelected: DraftCloudReference[] = Array.from({ length: 20 }, (_, index) => ({
+        accountId: "account",
+        organizationId: "org",
+        fileId: crypto.randomUUID(),
+        name: `Selected ${index}`,
+        token: crypto.randomUUID(),
+        kind: "error",
+        message: "Offline",
+      }));
+      const library: CloudReferenceLibrary = {
+        accountId: "account",
+        retry: () => {},
+        refresh: () => {},
+        workspaces: [
+          {
+            id: "org",
+            name: "Workspace",
+            canEdit: true,
+            catalog: { kind: "error", message: "Could not load designs" },
+          },
+        ],
+      };
+      function render() {
+        flushSync(() =>
+          root.render(
+            <DesignReferencePicker
+              designs={[{ id: "local", name: "Local design" }]}
+              selected={[]}
+              onChange={() => {}}
+              disabled={false}
+              cloud={{
+                library,
+                selected: cloudSelected,
+                canImport: true,
+                onRetry: () => {},
+                onToggle: (reference) => {
+                  cloudSelected = cloudSelected.filter(
+                    (item) => cloudReferenceKey(item) !== cloudReferenceKey(reference),
+                  );
+                  render();
+                },
+              }}
+            />,
+          ),
+        );
+      }
+      render();
+      required(
+        host.querySelector<HTMLButtonElement>("[aria-label='Design references']"),
+        "Trigger",
+      ).click();
+      await settle();
+      const popup = required(host.querySelector<HTMLElement>("[popover]"), "Popup");
+      check(
+        required(
+          popup.querySelector<HTMLButtonElement>(".select-menu-options [role=menuitemcheckbox]"),
+          "Local row",
+        ).disabled,
+        "Local designs can exceed total reference limit",
+      );
+      check(popup.textContent?.includes("20 reference limit"), "Limit is unexplained");
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Selected']"),
+        "Selected references source",
+      ).click();
+      await settle();
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='Remove Selected 0']"),
+        "Remove at limit",
+      ).click();
+      required(
+        popup.querySelector<HTMLButtonElement>("[aria-label='This project']"),
+        "Project source",
+      ).click();
+      await settle();
+      check(
+        !required(
+          popup.querySelector<HTMLButtonElement>(".select-menu-options [role=menuitemcheckbox]"),
+          "Local row",
+        ).disabled,
+        "Removing a reference did not free capacity",
+      );
+      flushSync(() =>
+        root.render(
+          <DesignReferencePicker designs={[]} selected={[]} onChange={() => {}} disabled={false} />,
+        ),
+      );
+      await settle();
+      check(
+        required(
+          host.querySelector<HTMLButtonElement>("[aria-label='Design references']"),
+          "Empty reference trigger",
+        ).disabled,
+        "An empty reference picker still opens an instructional panel",
+      );
+      check(!popup.matches(":popover-open"), "Empty reference panel remained open");
+    },
+  );
+
   return passed;
 }
 
 Object.assign(window, { runThreadLoadingTests });
+
+async function runReferenceViewportTests(): Promise<string[]> {
+  const original = [
+    document.documentElement.style.cssText,
+    document.body.style.cssText,
+    host.style.cssText,
+  ];
+  document.documentElement.style.cssText = "width:100%;height:100%";
+  document.body.style.cssText = "width:100%;height:100%;margin:0";
+  host.style.cssText = "width:100%;height:100%;display:block";
+  const root = createRoot(host);
+  try {
+    const library: CloudReferenceLibrary = {
+      accountId: "account",
+      retry: () => {},
+      refresh: () => {},
+      workspaces: [
+        {
+          id: "org",
+          name: "Shared cloud designs",
+          canEdit: true,
+          catalog: {
+            kind: "ready",
+            catalog: {
+              files: Array.from({ length: 250 }, (_, index) => ({
+                id: crypto.randomUUID(),
+                name: `Design ${index}`,
+                folderId: null,
+              })),
+              folders: [],
+            },
+          },
+        },
+      ],
+    };
+    flushSync(() =>
+      root.render(
+        <div style={{ paddingTop: 180, paddingLeft: 160 }}>
+          <DesignReferencePicker
+            designs={[]}
+            selected={[]}
+            disabled={false}
+            onChange={() => {}}
+            cloud={{
+              library,
+              selected: [],
+              canImport: true,
+              onRetry: () => {},
+              onToggle: () => {},
+            }}
+          />
+        </div>,
+      ),
+    );
+    const trigger = required(
+      host.querySelector<HTMLButtonElement>("[aria-label='Design references']"),
+      "Reference trigger",
+    );
+    trigger.click();
+    await settle();
+    const popup = required(host.querySelector<HTMLElement>("[popover]"), "Reference menu");
+    const box = popup.getBoundingClientRect();
+    check(
+      box.left >= 0 && box.right <= innerWidth && box.top >= 0 && box.bottom <= innerHeight,
+      "Reference picker escapes a narrow viewport",
+    );
+    const list = required(popup.querySelector<HTMLElement>(".select-menu-options"), "Design list");
+    check(list.scrollHeight > list.clientHeight, "Large reference list is not scrollable");
+    const search = required(popup.querySelector<HTMLInputElement>("input"), "Search");
+    search.focus();
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }),
+    );
+    check(
+      document.activeElement?.getAttribute("role") === "menuitemcheckbox",
+      "Keyboard cannot reach files on a small viewport",
+    );
+    return ["cloud references fit a narrow window and retain scrolling and keyboard access"];
+  } finally {
+    flushSync(() => root.unmount());
+    document.documentElement.style.cssText = original[0];
+    document.body.style.cssText = original[1];
+    host.style.cssText = original[2];
+  }
+}
+Object.assign(window, { runReferenceViewportTests });

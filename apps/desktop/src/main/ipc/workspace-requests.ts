@@ -165,7 +165,11 @@ export function createWorkspaceRequests<Context>(
     }
     return { ...design, assets };
   });
-  handle("import-draft", draftImportSchema, (input) => imports.import(input));
+  handle("import-draft", draftImportSchema, async (input) => {
+    const result = await imports.import(input);
+    await service.refreshDesigns(input.projectId);
+    return result;
+  });
   handle("bootstrap", z.undefined(), async () => {
     const harnesses = harnessDiscovery.snapshot();
     let activeProject = null;

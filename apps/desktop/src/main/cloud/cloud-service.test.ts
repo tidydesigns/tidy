@@ -1121,3 +1121,122 @@ test("attached backend mode rejects cloud workspace operations before touching a
   expect((await attached.state()).bindings).toEqual([]);
   expect((await attached.account()).id).toBe("alice");
 });
+
+test("cloud reference export reads the current document without selecting, creating or syncing a workspace", async () => {
+  const f = await fixture();
+  const fileId = f.remote.library.files[0].id;
+  const before = f.store.projects.length;
+  const reference = await f.cloud.exportReference("org", fileId);
+  const original = f.remote.snapshots.get(fileId);
+  if (!original) throw new Error("Missing source document");
+  expect(reference.document).toEqual(original.content);
+  expect(reference.name).toBe("Cloud design");
+  expect(f.store.activeProjectId).toBe(f.local.project.id);
+  expect(f.store.projects).toHaveLength(before);
+  expect(f.cloud.sync.status).toHaveLength(0);
+  const changed = structuredClone(reference.document);
+  changed.pages[0].name = "Updated page";
+  f.remote.snapshots.set(fileId, { revision: 2, content: changed, name: "Renamed design" });
+  expect(await f.cloud.exportReference("org", fileId)).toMatchObject({
+    name: "Renamed design",
+    document: changed,
+  });
+});
+
+test("cloud references are available with viewing access and while a local background backend owns the workspace", async () => {
+  const f = await fixture();
+  f.remote.account = async () => ({
+    id: "alice",
+    organizations: [{ id: "org", name: "Shared", canEdit: false }],
+  });
+  const background = await f.make("alice", false);
+  const reference = await background.exportReference("org", f.remote.library.files[0].id);
+  expect(reference.document.nodes.length).toBeGreaterThan(0);
+  expect(background.sync.status).toHaveLength(0);
+});
+
+test("reference export rejects removed files and inaccessible workspaces before reading documents", async () => {
+  const f = await fixture();
+  const reads = f.remote.reads;
+  await expect(f.cloud.exportReference("other-org", f.remote.library.files[0].id)).rejects.toThrow(
+    "no longer available",
+  );
+  await expect(f.cloud.exportReference("org", randomUUID())).rejects.toThrow("no longer in");
+  expect(f.remote.reads).toBe(reads);
+  f.remote.account = async () => ({ id: "alice", organizations: [] });
+  await expect(f.cloud.exportReference("org", f.remote.library.files[0].id)).rejects.toThrow(
+    "no longer available",
+  );
+});
+
+test("reference export does not serve cached designs after revocation or while offline", async () => {
+  const f = await fixture();
+  const id = f.remote.library.files[0].id;
+  await f.cloud.exportReference("org", id);
+  f.remote.library.files = [];
+  await expect(f.cloud.exportReference("org", id)).rejects.toThrow("no longer in");
+  f.remote.offline = true;
+  await expect(f.cloud.exportReference("org", id)).rejects.toThrow("Offline");
+});
+
+test("reference export stops when sign-out happens during a cloud read", async () => {
+  const f = await fixture();
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  f.remote.catalogWait = async () => {
+    started.resolve();
+    await release.promise;
+  };
+  const pending = f.cloud.exportReference("org", f.remote.library.files[0].id);
+  const result = pending.then(
+    () => null,
+    (cause: unknown) => cause,
+  );
+  await started.promise;
+  const signingOut = f.cloud.signOut();
+  release.resolve();
+  await signingOut;
+  const failure = await result;
+  expect(failure instanceof Error && failure.message).toContain("account changed");
+  expect(f.remote.reads).toBe(0);
+});
+
+test("reference export includes referenced image bytes and rejects excessive image counts", async () => {
+  const f = await fixture();
+  const id = f.remote.library.files[0].id;
+  const document = blankDesignDocument();
+  const assetId = randomUUID();
+  const image = {
+    ...buildDrawnNode(randomUUID(), "container", null, { x: 0, y: 0, width: 100, height: 100 }),
+    type: "image" as const,
+    assetId,
+  };
+  document.nodes.push(image);
+  f.remote.snapshots.set(id, { revision: 1, content: document });
+  const bytes = "data:image/png;base64,aGVsbG8=";
+  f.remote.downloadAsset = async () => bytes;
+  expect((await f.cloud.exportReference("org", id)).assets).toEqual({ [assetId]: bytes });
+  document.nodes = Array.from({ length: 201 }, () => ({
+    ...image,
+    id: randomUUID(),
+    assetId: randomUUID(),
+  }));
+  f.remote.snapshots.set(id, { revision: 2, content: document });
+  await expect(f.cloud.exportReference("org", id)).rejects.toThrow("too many images");
+});
+
+test("selecting several cloud references at once shares account validation instead of invalidating earlier selections", async () => {
+  const f = await fixture();
+  const account = f.remote.account.bind(f.remote);
+  let accounts = 0;
+  f.remote.account = async () => {
+    accounts++;
+    await Bun.sleep(10);
+    return account();
+  };
+  const result = await Promise.all(
+    Array.from({ length: 6 }, () => f.cloud.exportReference("org", f.remote.library.files[0].id)),
+  );
+  expect(result).toHaveLength(6);
+  expect(accounts).toBe(1);
+});

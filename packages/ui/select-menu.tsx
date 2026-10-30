@@ -15,6 +15,7 @@ export type SelectMenuOption = {
   value: string;
   label: string;
   description?: string;
+  title?: string;
   icon?: ReactNode;
   disabled?: boolean;
   ariaLabel?: string;
@@ -44,6 +45,7 @@ export function SelectMenu({
   closeOnSelect = true,
   menuHeader,
   menuSidebar,
+  emptyContent,
   menuClassName = "",
   optionsClassName = "",
   optionAction,
@@ -56,6 +58,7 @@ export function SelectMenu({
   onOpenChange?(open: boolean): void;
   menuHeader?: ReactNode;
   menuSidebar?: ReactNode;
+  emptyContent?: ReactNode;
   menuClassName?: string;
   optionsClassName?: string;
   optionAction?: (option: SelectMenuOption) => ReactNode;
@@ -310,7 +313,7 @@ export function SelectMenu({
                   className={`${optionAction ? "select-menu-options" : "contents"} ${optionsClassName}`}
                 >
                   {options.length === 0 && menuHeader && (
-                    <p className="select-menu-empty">No matches</p>
+                    <div className="select-menu-empty">{emptyContent ?? "No matches"}</div>
                   )}
                   {options.map((option) => {
                     const button = (
@@ -327,6 +330,7 @@ export function SelectMenu({
                           option.checked ?? (actionMenu ? undefined : value === option.value)
                         }
                         aria-label={option.ariaLabel}
+                        title={option.title}
                         disabled={option.disabled}
                         onClick={() => {
                           if (closeOnSelect) {

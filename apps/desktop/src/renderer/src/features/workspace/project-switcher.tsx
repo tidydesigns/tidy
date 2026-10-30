@@ -58,6 +58,7 @@ export function ProjectSwitcher({
   const [expanded, setExpanded] = useState<Partial<Record<string, boolean>>>({
     [machineId]: true,
   });
+  const [cloudExpanded, setCloudExpanded] = useState(Boolean(cloudId));
   const [visit, setVisit] = useState(0);
   const [catalogs, setCatalogs] = useState<Partial<Record<string, Catalog>>>({});
   const [selection, setSelection] = useState<Selection>({ kind: "idle" });
@@ -408,31 +409,40 @@ export function ProjectSwitcher({
               );
             })}
             {cloudWorkspaces.length > 0 && (
-              <section className="mt-1 border-t border-border pt-1" aria-label="Cloud workspaces">
-                <div className={headingClassName}>
+              <details
+                className="group mt-1 border-t border-border pt-1"
+                open={cloudExpanded}
+                onToggle={(event) => setCloudExpanded(event.currentTarget.open)}
+              >
+                <summary className={headingClassName}>
                   <span className={deviceClassName}>
                     <Icon name="cloud" size={16} />
                   </span>
                   <span className="text-[13px] font-medium tracking-[-0.015em]">
                     Cloud workspaces
                   </span>
+                  <span className="ml-auto mr-[5px] shrink-0 -rotate-90 text-muted-ink group-open:rotate-0">
+                    <ComposerChevron />
+                  </span>
+                </summary>
+                <div className="max-h-[min(260px,35dvh)] overflow-y-auto pl-3 [scrollbar-width:thin]">
+                  {cloudWorkspaces.map((workspace) => (
+                    <Button
+                      key={workspace.id}
+                      className={rowClassName}
+                      aria-current={cloudId === workspace.id ? "page" : undefined}
+                      onClick={() => {
+                        onCloudChange(workspace.id);
+                        close();
+                      }}
+                    >
+                      <Icon name="cloud" size={17} />
+                      <span className={textClassName}>{workspace.name}</span>
+                      {cloudId === workspace.id && <Icon name="check" size={16} />}
+                    </Button>
+                  ))}
                 </div>
-                {cloudWorkspaces.map((workspace) => (
-                  <Button
-                    key={workspace.id}
-                    className={rowClassName}
-                    aria-current={cloudId === workspace.id ? "page" : undefined}
-                    onClick={() => {
-                      onCloudChange(workspace.id);
-                      close();
-                    }}
-                  >
-                    <Icon name="cloud" size={17} />
-                    <span className={textClassName}>{workspace.name}</span>
-                    {cloudId === workspace.id && <Icon name="check" size={16} />}
-                  </Button>
-                ))}
-              </section>
+              </details>
             )}
           </div>
           {onAddMachine && (

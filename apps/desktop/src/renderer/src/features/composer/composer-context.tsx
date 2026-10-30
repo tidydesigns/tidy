@@ -6,6 +6,7 @@ import {
 import { SelectMenu } from "@tidy/ui/select-menu";
 import type { DesignSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
+import { DesignReferencePicker, type CloudReferencePicker } from "./design-reference-picker";
 import { ComposerChevron, ComposerIcon } from "./composer-icon";
 import type { WorkspaceMachine } from "../../../../shared/remote";
 
@@ -14,6 +15,7 @@ export function ComposerContext({
   designs,
   selected,
   onReferencesChange,
+  cloudReferences,
   onBranchChange,
   disabled,
   pending,
@@ -24,11 +26,13 @@ export function ComposerContext({
   designs: Pick<DesignSummary, "id" | "name">[];
   selected: string[];
   onReferencesChange?: (ids: string[]) => void;
+  cloudReferences?: CloudReferencePicker;
   onBranchChange(branch: string): void;
   disabled: boolean;
   pending: boolean;
   machine?: {
     label: string;
+    disabled?: boolean;
     value?: string;
     options?: WorkspaceMachine[];
     onChange?(id: string): void;
@@ -46,34 +50,12 @@ export function ComposerContext({
       data-ph-private
     >
       {onReferencesChange ? (
-        <SelectMenu
-          label="Design references"
-          actionMenu
-          closeOnSelect={false}
-          placement="top"
-          align="start"
-          value=""
+        <DesignReferencePicker
+          designs={designs}
+          selected={selected}
+          onChange={onReferencesChange}
           disabled={disabled}
-          triggerClassName={`${codeContextTriggerClassName} reference-trigger`}
-          triggerContent={
-            <>
-              <ComposerIcon name="reference" />
-              <span>Design references{selected.length ? ` · ${selected.length}` : ""}</span>
-              <ComposerChevron />
-            </>
-          }
-          menuClassName={`${codeMenuClassName} reference-menu [&]:max-w-[min(280px,calc(100vw_-_16px))]`}
-          options={designs.map((design) => ({
-            value: design.id,
-            label: design.name,
-            checked: selected.includes(design.id),
-            disabled: !selected.includes(design.id) && selected.length >= 20,
-          }))}
-          onChange={(id) =>
-            onReferencesChange(
-              selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id],
-            )
-          }
+          cloud={cloudReferences}
         />
       ) : references.length > 0 ? (
         <span
@@ -101,7 +83,7 @@ export function ComposerContext({
         <SelectMenu
           label="Run on"
           value={machine.value ?? "local"}
-          disabled={disabled}
+          disabled={disabled || machine.disabled}
           placement="top"
           align="end"
           className="context-machine ml-auto min-w-0"

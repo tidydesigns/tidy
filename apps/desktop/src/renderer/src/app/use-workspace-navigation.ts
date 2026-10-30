@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { restoreWorkspaceTarget, workspaceTargetSchema } from "./navigation-state";
+import {
+  restoreWorkspaceTarget,
+  workspaceTargetSchema,
+  type WorkspaceTarget,
+} from "./navigation-state";
 import { useSessionState } from "./session-state";
 import type { CloudConnection } from "../features/cloud/use-cloud";
 
 export function useWorkspaceNavigation({
   cloud,
   hasCloudAPI,
+  initialTarget,
 }: {
   cloud: Pick<CloudConnection, "state" | "account">;
   hasCloudAPI: boolean;
+  initialTarget?: WorkspaceTarget;
 }) {
-  const [target, setTarget] = useSessionState("workspace", workspaceTargetSchema, null);
+  const [target, setTarget] = useSessionState(
+    "workspace",
+    workspaceTargetSchema,
+    null,
+    initialTarget,
+  );
+  useEffect(() => {
+    if (initialTarget !== undefined) setTarget(initialTarget);
+  }, [initialTarget, setTarget]);
   const [lastCloudTarget, setLastCloudTarget] = useState(target?.kind === "cloud" ? target : null);
   useEffect(() => {
     if (target?.kind === "cloud") setLastCloudTarget(target);

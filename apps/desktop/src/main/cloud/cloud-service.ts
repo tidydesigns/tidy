@@ -1,8 +1,11 @@
+import { documentAssetIds } from "@tidy/design/document";
+import { MAX_DRAFT_IMPORT_BYTES } from "../../shared/contracts/draft-import";
 import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { z } from "zod";
 import {
   cloudAccountSchema,
+  cloudReferenceSchema,
   cloudCatalogSchema,
   cloudThumbnailSchema,
   cloudAvatarSchema,
@@ -36,6 +39,7 @@ export class CloudService implements CloudAPI {
   private accountChanging = false;
   private latestAccount?: CloudAccount;
   private accountRequest = 0;
+  private referenceAccountWork?: { generation: number; promise: Promise<CloudAccount> };
   private accountWrites = Promise.resolve();
   private designVersions = new Map<string, string>();
   private workspaceWork = new Map<string, Promise<ProjectSnapshot>>();
@@ -331,6 +335,65 @@ export class CloudService implements CloudAPI {
       () => {},
     );
     return work;
+  }
+  async exportReference(organizationId: string, fileId: string) {
+    await this.initialize();
+    const generation = this.generation;
+    const accountId = this.auth.accountId;
+    const assertCurrent = () => {
+      if (
+        !accountId ||
+        accountId !== this.auth.accountId ||
+        generation !== this.generation ||
+        this.closed ||
+        this.accountChanging
+      )
+        throw new Error("The cloud account changed. Select this design again.");
+    };
+    assertCurrent();
+    let accountWork = this.referenceAccountWork;
+    if (!accountWork || accountWork.generation !== generation) {
+      const promise = this.account();
+      accountWork = { generation, promise };
+      this.referenceAccountWork = accountWork;
+      void promise
+        .finally(() => {
+          if (this.referenceAccountWork?.promise === promise) this.referenceAccountWork = undefined;
+        })
+        .catch(() => {});
+    }
+    const account = await accountWork.promise;
+    assertCurrent();
+    if (!account.organizations.some((organization) => organization.id === organizationId))
+      throw new Error("This cloud workspace is no longer available.");
+    const catalog = await this.remote.catalog(organizationId);
+    assertCurrent();
+    const file = catalog.files.find((item) => item.id === fileId);
+    if (!file) throw new Error("This design is no longer in the cloud workspace.");
+    const snapshot = await this.remote.read(fileId);
+    assertCurrent();
+    const assetIds = [...documentAssetIds(snapshot.content)];
+    if (assetIds.length > 200)
+      throw new Error("This design has too many images to use as a reference.");
+    const assets: Record<string, string> = {};
+    let bytes = Buffer.byteLength(JSON.stringify(snapshot.content));
+    const checkSize = () => {
+      if (bytes > MAX_DRAFT_IMPORT_BYTES - 10_000)
+        throw new Error("This design is too large to transfer. Choose a smaller reference.");
+    };
+    checkSize();
+    for (const assetId of assetIds) {
+      const dataUrl = await this.remote.downloadAsset(fileId, assetId);
+      assertCurrent();
+      bytes += Buffer.byteLength(dataUrl);
+      checkSize();
+      assets[assetId] = dataUrl;
+    }
+    return cloudReferenceSchema.parse({
+      name: snapshot.name ?? file.name,
+      document: snapshot.content,
+      assets,
+    });
   }
   async openFile(organizationId: string, fileId: string) {
     this.assertWorkspaceAvailable();

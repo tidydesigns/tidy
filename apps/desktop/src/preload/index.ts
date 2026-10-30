@@ -38,6 +38,7 @@ import {
   cloudStateSchema,
   cloudCatalogSchema,
   cloudOpenedSchema,
+  cloudReferenceSchema,
   cloudThumbnailSchema,
   cloudAvatarSchema,
 } from "../shared/contracts/cloud-sync";
@@ -208,6 +209,10 @@ function workspaceApi(machineId?: string): DesktopAPI {
         cloudCatalogSchema.parse(await ipcRenderer.invoke("tidy:cloud-catalog", id, cached)),
       openWorkspace: async (id) =>
         projectSnapshotSchema.parse(await ipcRenderer.invoke("tidy:cloud-open-workspace", id)),
+      exportReference: async (id, file) =>
+        cloudReferenceSchema.parse(
+          await ipcRenderer.invoke("tidy:cloud-export-reference", id, file),
+        ),
       openFile: async (id, file) =>
         cloudOpenedSchema.parse(await ipcRenderer.invoke("tidy:cloud-open-file", id, file)),
       createFile: async (id) =>
