@@ -6,6 +6,7 @@ beforeEach(() => {
 });
 afterEach(() => samplingOverride.mockRestore());
 import { expect, jest, test } from "bun:test";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { normalizedRoute, observeRequest } from "./request-observability";
 import { startOperation, traceStorage } from "./trace-context";
 
@@ -129,70 +130,89 @@ test("MCP SSE backpressure does not report a server stall after delivering a res
   }
 });
 
-test("MCP SSE waits measure upstream inactivity and still report a blocked read", async () => {
-  jest.useFakeTimers();
-  const reports: unknown[] = [];
-  const info = spySampling(console, "info").mockImplementation(() => {});
-  const warn = spySampling(console, "warn").mockImplementation(() => {});
-  let controller!: ReadableStreamDefaultController<Uint8Array>;
-  let readingStarted = () => {};
-  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
-  try {
-    const response = await observeRequest(
-      new Request("https://example.test/api/mcp", { method: "POST" }),
-      async () =>
-        new Response(
-          new ReadableStream<Uint8Array>(
-            {
-              start(value) {
-                controller = value;
-              },
-              pull() {
-                readingStarted();
-              },
-            },
-            { highWaterMark: 0 },
-          ),
-          { headers: { "Content-Type": "text/event-stream" } },
-        ),
-      async (_error, details) => {
-        reports.push(details);
+test.each([undefined, 0])(
+  "MCP transport heartbeats and stalled reads remain distinguishable (keepAliveMs: %s)",
+  async (keepAliveMs) => {
+    jest.useFakeTimers();
+    const reports: unknown[] = [];
+    const info = spySampling(console, "info").mockImplementation(() => {});
+    const warn = spySampling(console, "warn").mockImplementation(() => {});
+    const completion = Promise.withResolvers<void>();
+    const handler = createMcpHandler(
+      () => {
+        const server = new McpServer({ name: "Watchdog fixture", version: "1" });
+        server.registerTool("wait", {}, async () => {
+          await completion.promise;
+          return { content: [] };
+        });
+        return server;
       },
+      { keepAliveMs },
     );
-    reader = response.body!.getReader();
-    for (let index = 0; index < 3; index++) {
-      const started = new Promise<void>((resolve) => {
-        readingStarted = resolve;
+    let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+    try {
+      const request = new Request("https://example.test/api/mcp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json, text/event-stream",
+          "MCP-Protocol-Version": "2025-11-25",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "wait", arguments: {} },
+        }),
       });
-      const reading = reader.read();
-      await started;
-      jest.advanceTimersByTime(9000);
-      const chunk = new TextEncoder().encode(": keepalive\n\n");
-      controller.enqueue(chunk);
-      expect((await reading).value).toEqual(chunk);
-      expect(reports).toEqual([]);
+      const response = await observeRequest(
+        request,
+        () => handler.fetch(request),
+        async (_error, details) => {
+          reports.push(details);
+        },
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+      if (!response.body) throw new Error("MCP response has no body");
+      reader = response.body.getReader();
+      let reading = reader.read();
+      await Promise.resolve();
+      if (keepAliveMs === undefined) {
+        for (let index = 0; index < 3; index++) {
+          jest.advanceTimersByTime(15_000);
+          expect(new TextDecoder().decode((await reading).value)).toContain("keepalive");
+          expect(reports).toEqual([]);
+          reading = reader.read();
+          await Promise.resolve();
+        }
+      } else {
+        jest.advanceTimersByTime(29_999);
+        expect(reports).toEqual([]);
+        jest.advanceTimersByTime(1);
+        expect(reports).toEqual([
+          expect.objectContaining({ event: "request_stalled", route: "/api/mcp", phase: "body" }),
+        ]);
+        jest.advanceTimersByTime(30_000);
+        expect(reports).toHaveLength(1);
+      }
+      completion.resolve();
+      expect(new TextDecoder().decode((await reading).value)).toContain('"result"');
+      expect((await reader.read()).done).toBe(true);
+    } finally {
+      completion.resolve();
+      try {
+        await reader?.cancel();
+        await handler.close();
+      } finally {
+        reader?.releaseLock();
+        jest.useRealTimers();
+        info.mockRestore();
+        warn.mockRestore();
+      }
     }
-    const started = new Promise<void>((resolve) => {
-      readingStarted = resolve;
-    });
-    const stalled = reader.read();
-    await started;
-    jest.advanceTimersByTime(10_000);
-    expect(reports).toEqual([
-      expect.objectContaining({ event: "request_stalled", route: "/api/mcp", phase: "body" }),
-    ]);
-    jest.advanceTimersByTime(10_000);
-    expect(reports).toHaveLength(1);
-    controller.close();
-    expect((await stalled).done).toBe(true);
-  } finally {
-    await reader?.cancel();
-    reader?.releaseLock();
-    jest.useRealTimers();
-    info.mockRestore();
-    warn.mockRestore();
-  }
-});
+  },
+);
 
 test("request observation preserves response bodies and headers", async () => {
   const response = new Response("content", {

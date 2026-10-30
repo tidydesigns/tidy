@@ -70,7 +70,7 @@ async function observeTracedRequest(
   };
   let pending: ReturnType<typeof setTimeout> | undefined;
   let reportedStall = false;
-  const watchForStall = () => {
+  const watchForStall = (timeoutMs = 10_000) => {
     if (finished || reportedStall) return;
     pending = setTimeout(() => {
       reportedStall = true;
@@ -89,7 +89,7 @@ async function observeTracedRequest(
       );
       reportFailure("request_stalled");
       trace.snapshot();
-    }, 10_000);
+    }, timeoutMs);
   };
   watchForStall();
   const finish = (event: string, error?: unknown) => {
@@ -156,7 +156,7 @@ async function observeTracedRequest(
       {
         async pull(controller) {
           return trace.run(async () => {
-            if (mcpStream) watchForStall();
+            if (mcpStream) watchForStall(30_000);
             try {
               const next = await reader.read();
               if (next.done) {
