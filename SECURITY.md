@@ -29,6 +29,11 @@ Never connect pull-request CI or preview deployments to production credentials,
 provider accounts, customer data or storage buckets. Review third-party patches
 when updating authentication dependencies.
 
+The OAuth provider patch defers resource seeding to its existing first-use path.
+Public discovery and session initialization do not need resource-table I/O.
+Resource access still seeds missing records and checks persisted policy before
+client registration or token issuance.
+
 The dependency audit permits the braces advisory GHSA-vfj7-8cjw-p6xm only through
 the reviewed development dependency chain
 `eslint-config-next → @next/eslint-plugin-next → fast-glob → micromatch → braces`

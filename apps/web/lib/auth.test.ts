@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 
-test("MCP discovery excludes desktop sync while authorization discovery retains it", () => {
+test("OAuth discovery works without a database and advertises the correct resource scopes", () => {
   const child = Bun.spawnSync(
     [
       process.execPath,
@@ -9,9 +9,11 @@ test("MCP discovery excludes desktop sync while authorization discovery retains 
       `
     import { expect, mock } from "bun:test";
     mock.module("server-only", () => ({}));
-    mock.module("@/lib/db", () => ({ db: { connect: async () => ({
-      query: async () => ({ rows: [] }), release() {},
-    }) } }));
+    let connections = 0;
+    mock.module("@/lib/db", () => ({ db: { connect: async () => {
+      connections++;
+      throw new Error("Database unavailable");
+    } } }));
     const { auth } = await import("./lib/auth.ts");
     const headers = { "x-forwarded-for": "127.0.0.1" };
     for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/api/mcp"]) {
@@ -30,6 +32,7 @@ test("MCP discovery excludes desktop sync while authorization discovery retains 
     const metadata = await response.json();
     expect(metadata.scopes_supported).toContain("desktop:sync");
     expect(metadata.scopes_supported).toContain("mcp:read");
+    expect(connections).toBe(0);
     `,
     ],
     {
@@ -51,7 +54,7 @@ test("MCP discovery excludes desktop sync while authorization discovery retains 
   });
 });
 
-test("a stalled Worker auth initialization cannot block a different request", () => {
+test("a stalled Worker session lookup cannot block a different request", () => {
   const child = Bun.spawnSync(
     [
       process.execPath,
@@ -59,6 +62,7 @@ test("a stalled Worker auth initialization cannot block a different request", ()
       `
     import { mock } from "bun:test";
     import { AsyncLocalStorage } from "node:async_hooks";
+    import { createHmac } from "node:crypto";
     const requests = new AsyncLocalStorage();
     let unblock;
     const blocked = new Promise(resolve => { unblock = resolve; });
@@ -72,7 +76,7 @@ test("a stalled Worker auth initialization cannot block a different request", ()
     } }));
     mock.module("@/lib/db", () => ({ db: { connect: async () => ({
       query: async (sql) => {
-        if (/"oauthResource"/.test(sql) && requests.getStore()?.stall) {
+        if (requests.getStore()?.stall) {
           started();
           await blocked;
         }
@@ -80,7 +84,14 @@ test("a stalled Worker auth initialization cannot block a different request", ()
       }, release() {},
     }) } }));
     const { auth } = await import("./lib/auth.ts");
-    const first = requests.run({ ctx: {}, stall: true }, () => auth.api.getSession({ headers: new Headers() }));
+    const first = requests.run({ ctx: {}, stall: true }, async () => {
+      const context = await auth.$context;
+      const token = "unknown-session-token";
+      const signature = createHmac("sha256", process.env.BETTER_AUTH_SECRET).update(token).digest("base64");
+      return auth.api.getSession({ headers: new Headers({ cookie:
+        context.authCookies.sessionToken.name + "=" + encodeURIComponent(token + "." + signature),
+      }) });
+    });
     await starting;
     let timer;
     const second = await Promise.race([
