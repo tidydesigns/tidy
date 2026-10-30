@@ -564,6 +564,9 @@ test("workspace reads bypass durable mutation receipts", async () => {
     version: design.version,
   });
   await client.operation("repository-context", { projectId: f.project.id });
+  expect(
+    await client.operation("thread-ports", { projectId: f.project.id, threadId: randomUUID() }),
+  ).toEqual([]);
   expect(await readdir(join(f.root, "receipts"))).toEqual(before);
 });
 

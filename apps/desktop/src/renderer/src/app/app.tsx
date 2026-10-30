@@ -73,6 +73,7 @@ import { HarnessControls } from "../features/harnesses/harness-controls";
 import { ThreadReadingContext } from "../features/threads/thread-reading";
 import { ThreadCard } from "../features/threads/thread-card";
 import { MessageQueue } from "../features/threads/message-queue";
+import { ThreadPortsStrip } from "../features/threads/thread-ports";
 import { MessageActionIcon } from "../features/threads/message-action-icon";
 import { useMessageQueue } from "../features/threads/use-message-queue";
 import { MAX_QUEUED_MESSAGES, type MessageDelivery } from "../../../shared/contracts/message-queue";
@@ -2078,6 +2079,21 @@ export function App({
                         pending={Boolean(switchingBranch)}
                       />
                     </div>
+                    {thread && api && (
+                      <ThreadPortsStrip
+                        key={`${project.id}:${thread.id}`}
+                        api={api}
+                        projectId={project.id}
+                        threadId={thread.id}
+                        active={!settingsOpen && mode === "code"}
+                        connected={machine?.connected ?? true}
+                        remoteLabel={
+                          machine && machine.current.id !== "local"
+                            ? machine.current.label
+                            : undefined
+                        }
+                      />
+                    )}
                     <div className="composer-body relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
                       {machine && !machine.connected && (
                         <p

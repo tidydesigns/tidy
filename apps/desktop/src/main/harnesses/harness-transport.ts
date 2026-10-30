@@ -30,6 +30,8 @@ export type TransportInput = {
   superviseParent?: boolean;
   protocol: "jsonrpc" | "claude";
   env?: NodeJS.ProcessEnv;
+  onSpawn?: (pid: number, supervised?: boolean) => void;
+  onExit?: () => void;
 };
 
 export class HarnessTransport {
@@ -67,8 +69,10 @@ export class HarnessTransport {
         detached: process.platform !== "win32",
       },
     );
+    if (this.child.pid) input.onSpawn?.(this.child.pid, Boolean(supervised));
     this.done = new Promise((resolve) => {
       this.child.once("close", () => {
+        input.onExit?.();
         this.closed = true;
         this.signal("SIGKILL");
         clearTimeout(this.force);

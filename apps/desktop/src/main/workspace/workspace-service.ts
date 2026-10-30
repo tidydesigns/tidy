@@ -1,4 +1,5 @@
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
+import { ThreadPorts } from "../processes/thread-ports";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -95,6 +96,19 @@ export class WorkspaceService {
       throw new Error("Choose a connected code project for the browser.");
   });
   readonly browserAgent = new BrowserAgentBridge(this.browser);
+  private readonly ports: ThreadPorts;
+
+  async threadPorts(projectId: string, threadId: string) {
+    await this.assertProjectAccess(projectId);
+    return this.ports.list({ projectId, threadId });
+  }
+
+  async stopThreadPort(projectId: string, threadId: string, portId: string) {
+    await this.assertProjectAccess(projectId);
+    const thread = await this.readThread(projectId, threadId);
+    await this.assertProjectAccess(this.executionProject(thread).id);
+    await this.ports.stop({ projectId, threadId, portId });
+  }
 
   /** Installed by the native cloud coordinator; cloud data never grants local execution. */
   authorizeCloudProject?: (projectId: string) => Promise<void>;
@@ -160,7 +174,9 @@ export class WorkspaceService {
     private locate = findHarness,
     private configure = validateHarnessSettings,
     readonly skills = new HarnessSkills(locate),
-  ) {}
+  ) {
+    this.ports = new ThreadPorts(store.processState);
+  }
 
   async removeProject(projectId: string) {
     if (this.closing) throw new Error("Tidy is closing.");
@@ -229,6 +245,11 @@ export class WorkspaceService {
         cwd: project.path,
         settings,
         superviseParent: this.superviseHarnessParent,
+        processRegistration: () =>
+          this.ports.register({
+            projectId: input.projectId,
+            threadId: thread?.id ?? null,
+          }),
         additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
       },
     });
@@ -959,6 +980,8 @@ export class WorkspaceService {
       }
       this.sessionGeneration++;
       const launchInput = {
+        processRegistration: () =>
+          this.ports.register({ projectId: thread.projectId, threadId: thread.id }),
         projectId: thread.projectId,
         harness: thread.harness,
         executable,
@@ -974,7 +997,9 @@ export class WorkspaceService {
         onUpdate: (update: HarnessUpdate) => this.update(job, update),
         superviseParent: this.superviseHarnessParent,
       };
-      job.process = this.launch?.(launchInput) ?? this.sessions.start(thread.id, launchInput);
+      job.process = this.launch
+        ? this.launch({ ...launchInput, ...(await launchInput.processRegistration()) })
+        : this.sessions.start(thread.id, launchInput);
       job.analytics?.({ name: "harness_turn_started", harness: thread.harness });
       if (job.stopped) job.process.stop();
       job.completion = this.complete(job);
@@ -1302,6 +1327,7 @@ export class WorkspaceService {
     await Promise.allSettled(this.repositoryChanges.values());
     this.sessionGeneration++;
     await this.sessions.clear();
+    await this.ports.flush();
     await this.store.flush();
   }
 

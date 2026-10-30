@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { PrivateState } from "../platform/private-state";
 import {
   appendFile,
   lstat,
@@ -65,6 +66,7 @@ function missing(error: unknown) {
 }
 /** Project directories are explicitly selected on the host, then addressed by IDs. */
 export class ProjectStore {
+  readonly processState: PrivateState;
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   private registry: z.infer<typeof registrySchema> = {
     version: 1,
@@ -89,6 +91,7 @@ export class ProjectStore {
     private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+    this.processState = new PrivateState(join(directory, "process-state"));
   }
 
   private storageClaim(path: string) {
@@ -118,6 +121,7 @@ export class ProjectStore {
   async initialize() {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     await this.authority.initialize();
+    await this.processState.initialize();
     try {
       this.registry = registrySchema.parse(
         JSON.parse((await readLocalFile(join(this.directory, "projects.json"))).toString("utf8")),
