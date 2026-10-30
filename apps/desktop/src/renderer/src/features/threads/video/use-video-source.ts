@@ -1,10 +1,9 @@
 import { videoFileTransfers } from "./video-task-queue";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { DesktopAPI } from "../../../shared/contracts/desktop";
+import type { DesktopAPI } from "../../../../../shared/contracts/desktop";
 import { loadVideoSource, type VideoInput } from "./load-video-source";
 import { videoMemoryBudget } from "./video-memory-budget";
 
-export type { VideoInput } from "./load-video-source";
 export type VideoState =
   | { kind: "loading"; loaded: number; total: number | null }
   | { kind: "ready"; url: string }
@@ -13,7 +12,7 @@ export type VideoState =
 const loading: VideoState = { kind: "loading", loaded: 0, total: null };
 
 export function useVideoSource(
-  api: DesktopAPI,
+  api: Pick<DesktopAPI, "readVideoChunk">,
   input: VideoInput,
   enabled: boolean,
   visible = true,

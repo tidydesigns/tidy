@@ -1,4 +1,4 @@
-import { ThreadVideo } from "../../components/thread-video";
+import { ThreadVideo } from "./video/thread-video";
 import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
 import { codeFontClassName } from "../../styles/code-ui";

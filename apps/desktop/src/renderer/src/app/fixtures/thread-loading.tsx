@@ -1,4 +1,4 @@
-import { ThreadVideo } from "../../components/thread-video";
+import { ThreadVideo } from "../../features/threads/video/thread-video";
 import { Conversation } from "../../features/threads/conversation";
 import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
 import { StrictMode, useDeferredValue, useRef, useState } from "react";

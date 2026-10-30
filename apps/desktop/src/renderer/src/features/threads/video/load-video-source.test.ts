@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
-import { VIDEO_CHUNK_BYTES, type VideoChunkRequest } from "../../../shared/contracts/video-preview";
+import {
+  VIDEO_CHUNK_BYTES,
+  type VideoChunkRequest,
+} from "../../../../../shared/contracts/video-preview";
 import { loadVideoSource, VIDEO_TRANSFER_CONCURRENCY } from "./load-video-source";
 
 const input = { projectId: crypto.randomUUID(), threadId: crypto.randomUUID(), href: "demo.mp4" };

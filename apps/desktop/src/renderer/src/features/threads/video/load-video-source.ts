@@ -1,11 +1,11 @@
 import { videoChunkTransfers } from "./video-task-queue";
-import type { DesktopAPI } from "../../../shared/contracts/desktop";
+import type { DesktopAPI } from "../../../../../shared/contracts/desktop";
 import {
   MAX_VIDEO_BYTES,
   VIDEO_CHUNK_BYTES,
   type VideoChunkRequest,
   type VideoChunk,
-} from "../../../shared/contracts/video-preview";
+} from "../../../../../shared/contracts/video-preview";
 
 export type VideoInput = Pick<VideoChunkRequest, "projectId" | "threadId" | "href">;
 export const VIDEO_TRANSFER_CONCURRENCY = 4;

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
-import type { DesktopAPI } from "../../../shared/contracts/desktop";
-import { useVideoSource, type VideoInput } from "./use-video-source";
+import type { DesktopAPI } from "../../../../../shared/contracts/desktop";
+import { useVideoSource } from "./use-video-source";
+import type { VideoInput } from "./load-video-source";
 import "./thread-video.css";
 
 export function ThreadVideo({
@@ -10,7 +11,7 @@ export function ThreadVideo({
   name,
   active,
 }: {
-  api: DesktopAPI;
+  api: Pick<DesktopAPI, "readVideoChunk">;
   input: VideoInput;
   name: string;
   active: boolean;
