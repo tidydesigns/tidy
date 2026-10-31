@@ -1,5 +1,4 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { Icon } from "@tidy/editor/components/ui/icon";
 import { SelectMenu } from "@tidy/ui/select-menu";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 
@@ -95,7 +94,21 @@ export function ThreadTitle({
         size="sm"
         className="shrink-0"
         triggerClassName="grid size-7 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-muted-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
-        triggerContent={<Icon name="more" size={16} />}
+        triggerContent={
+          <svg
+            aria-hidden="true"
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            className="thread-name-dots pointer-events-none"
+            data-generating={generating || undefined}
+          >
+            <circle cx="4" cy="12" r="1.25" />
+            <circle cx="12" cy="12" r="1.25" />
+            <circle cx="20" cy="12" r="1.25" />
+          </svg>
+        }
         options={[
           { value: "rename", label: "Rename" },
           {

@@ -397,12 +397,15 @@ async function runThreadLoadingTests(): Promise<string[]> {
       const initial = { ...makeThread({ count: 1 }), title: "Original name" };
       const renamed: string[] = [];
       let regenerations = 0;
+      let finishGeneration = () => {};
       function Probe() {
         const [thread, setThread] = useState(initial);
+        const [generating, setGenerating] = useState(false);
+        finishGeneration = () => setGenerating(false);
         return (
           <ThreadTitle
             thread={thread}
-            generating={false}
+            generating={generating}
             editRequested={false}
             onEditFinished={() => {}}
             onRename={(_, title) => {
@@ -411,6 +414,7 @@ async function runThreadLoadingTests(): Promise<string[]> {
             }}
             onRegenerate={() => {
               regenerations++;
+              setGenerating(true);
             }}
           />
         );
@@ -461,6 +465,17 @@ async function runThreadLoadingTests(): Promise<string[]> {
       );
       flushSync(() => regenerate.click());
       check(regenerations === 1, "Regeneration did not run explicitly");
+      check(!host.querySelector('[role="menu"]'), "Name menu stayed open after regeneration");
+      check(
+        actions.getAnimations({ subtree: true }).length === 3,
+        "The three dots did not show regeneration after the menu closed",
+      );
+      check(heading().textContent === "Navigation polish", "Regeneration hid the current name");
+      flushSync(finishGeneration);
+      check(
+        actions.getAnimations({ subtree: true }).length === 0,
+        "The dots kept animating after regeneration finished",
+      );
     },
   );
 
