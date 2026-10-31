@@ -1,3 +1,4 @@
+import { claudeAccountUsage } from "./usage-state";
 import { skillCommand } from "../../shared/contracts/skills";
 import { z } from "zod";
 import { createClaudeParser } from "./harnesses";
@@ -46,7 +47,7 @@ export function createClaudeAdapter(context: AdapterContext): HarnessAdapter {
   let parse: ReturnType<typeof createClaudeParser> | undefined;
   return {
     async initialize() {
-      await context.transport.request("initialize");
+      claudeAccountUsage(await context.transport.request("initialize"), input.cwd);
     },
     async submit(message) {
       parse = createClaudeParser(emit);

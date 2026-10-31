@@ -1,3 +1,4 @@
+import { harnessUsageSchema } from "./harness-usage";
 import { z } from "zod";
 import { permissionModeSchema } from "./permissions";
 export const harnessSettingsSchema = z
@@ -44,6 +45,7 @@ export const harnessDetailsSchema = z.object({
       windowMinutes: z.number().optional(),
     }),
   ),
+  usage: harnessUsageSchema.optional(),
   usageError: z.string().optional(),
   updatedAt: z.string(),
   usagePage: z.enum(["subscription", "api"]),

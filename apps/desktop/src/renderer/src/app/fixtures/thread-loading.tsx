@@ -1,4 +1,5 @@
 import type { Draft } from "../../features/composer/machine-context";
+import { runHarnessUsageTests } from "./harness-usage";
 import { ThreadVideo } from "../../features/threads/video/thread-video";
 import { Conversation } from "../../features/threads/conversation";
 import { ThreadTitle } from "../../features/threads/thread-title";
@@ -509,6 +510,11 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         selectThreadNaming(previous);
       }
     },
+  );
+
+  await run(
+    "account usage opens immediately, retains refresh state and isolates providers",
+    runHarnessUsageTests,
   );
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);

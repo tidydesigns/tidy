@@ -131,6 +131,7 @@ const remoteReadOperations = new Set([
   "bootstrap",
   "project-snapshot",
   "harness-details",
+  "harness-usage",
   "harnesses",
   "read-thread",
   "thread-ports",

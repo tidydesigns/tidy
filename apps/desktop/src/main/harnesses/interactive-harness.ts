@@ -1,3 +1,4 @@
+import { observeUsage } from "./usage-state";
 import { HarnessFailureError } from "./provider-failure";
 import { randomUUID } from "node:crypto";
 import {
@@ -172,7 +173,10 @@ export class HarnessSession {
       opencode: createOpenCodeAdapter,
     };
     this.adapter = adapters[input.harness](context);
-    this.transport.onMessage = (value) => this.adapter.consume(value);
+    this.transport.onMessage = (value) => {
+      observeUsage(harness, cwd, value);
+      this.adapter.consume(value);
+    };
     this.transport.onClose = (error) => {
       if (this.state.kind === "cancelling") this.state.acknowledged = true;
       this.finish(error);

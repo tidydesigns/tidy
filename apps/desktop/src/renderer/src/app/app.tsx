@@ -72,6 +72,7 @@ import {
 } from "../../../shared/contracts/attachments";
 import { ProjectSwitcher } from "../features/workspace/project-switcher";
 import { ProjectFiles } from "../features/workspace/project-files";
+import { HarnessUsage } from "../features/harnesses/harness-usage";
 import { HarnessControls } from "../features/harnesses/harness-controls";
 import { ThreadReadingContext } from "../features/threads/thread-reading";
 import { ThreadCard } from "../features/threads/thread-card";
@@ -2344,6 +2345,24 @@ export function App({
                                 );
                             }}
                           />
+                          {api && executionProject && (
+                            <HarnessUsage
+                              key={`${executionProject.id}:${selectedHarness}`}
+                              api={api}
+                              projectId={executionProject.id}
+                              harness={selectedHarness}
+                              ready={harnessReady}
+                              initial={harnessDetails[detailKey]?.info?.usage}
+                              tokens={thread?.usage}
+                              activity={thread?.status}
+                              modelId={
+                                thread?.settings?.model ??
+                                draft.settings?.model ??
+                                thread?.actualModel ??
+                                harnessDetails[detailKey]?.info?.defaultModel
+                              }
+                            />
+                          )}
                         </div>
                         <div className="composer-tools ml-auto flex shrink-0 items-center gap-3">
                           <span ref={canvasDockHome} className="canvas-dock-home" />

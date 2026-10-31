@@ -1,3 +1,4 @@
+import { readHarnessUsage } from "../harnesses/harness-usage";
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
 import { threadNamingSchema, threadTitleSchema } from "../../shared/contracts/thread-naming";
 import {
@@ -221,6 +222,11 @@ export function createWorkspaceRequests<Context>(
     z.object({ projectId, harness: harnessIdSchema, refresh: z.boolean().optional() }).strict(),
     (value) =>
       readHarnessDetails(value.harness, store.project(value.projectId).path, value.refresh),
+  );
+  handle(
+    "harness-usage",
+    z.object({ projectId, harness: harnessIdSchema, refresh: z.boolean().optional() }).strict(),
+    (value) => readHarnessUsage(value.harness, store.project(value.projectId).path, value.refresh),
   );
   handle(
     "harness-usage-page",
