@@ -10,6 +10,10 @@ import {
 export type VideoInput = Pick<VideoChunkRequest, "projectId" | "threadId" | "href">;
 export const VIDEO_TRANSFER_CONCURRENCY = 4;
 
+const base64Bytes: typeof Uint8Array & {
+  fromBase64?: (data: string) => Uint8Array<ArrayBuffer>;
+} = Uint8Array;
+
 export async function loadVideoSource({
   api,
   input,
@@ -40,9 +44,12 @@ export async function loadVideoSource({
       chunk.mimeType !== first.mimeType
     )
       throw new Error("The recording changed while loading. Try again.");
-    const bytes = await (
-      await fetch(`data:application/octet-stream;base64,${chunk.data}`, { signal })
-    ).arrayBuffer();
+    const bytes =
+      typeof base64Bytes.fromBase64 === "function"
+        ? base64Bytes.fromBase64(chunk.data).buffer
+        : await (
+            await fetch(`data:application/octet-stream;base64,${chunk.data}`, { signal })
+          ).arrayBuffer();
     signal.throwIfAborted();
     if (failed) return;
     const expected = Math.min(VIDEO_CHUNK_BYTES, first.size - index * VIDEO_CHUNK_BYTES);

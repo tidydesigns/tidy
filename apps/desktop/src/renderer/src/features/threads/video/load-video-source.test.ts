@@ -19,39 +19,52 @@ function chunk(offset: number) {
   };
 }
 
-test("remote transfers overlap bounded requests and assemble out-of-order replies correctly", async () => {
-  let active = 0;
-  let peak = 0;
-  const requests: VideoChunkRequest[] = [];
-  const progress: number[] = [];
-  const api = {
-    readVideoChunk: async (request: VideoChunkRequest) => {
-      requests.push(request);
-      active++;
-      peak = Math.max(peak, active);
-      await new Promise((resolve) =>
-        setTimeout(resolve, 2 + (3 - ((request.offset / VIDEO_CHUNK_BYTES) % 4)) * 2),
+test.each(["default", "fallback"])(
+  "transfers overlap bounded requests and assemble out-of-order replies (%s decoder)",
+  async (decoder) => {
+    const descriptor = Object.getOwnPropertyDescriptor(Uint8Array, "fromBase64");
+    try {
+      if (decoder === "fallback")
+        Object.defineProperty(Uint8Array, "fromBase64", { value: undefined, configurable: true });
+      let active = 0;
+      let peak = 0;
+      const requests: VideoChunkRequest[] = [];
+      const progress: number[] = [];
+      const api = {
+        readVideoChunk: async (request: VideoChunkRequest) => {
+          requests.push(request);
+          active++;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) =>
+            setTimeout(resolve, 2 + (3 - ((request.offset / VIDEO_CHUNK_BYTES) % 4)) * 2),
+          );
+          active--;
+          return chunk(request.offset);
+        },
+      };
+      const result = await loadVideoSource({
+        api,
+        input,
+        signal: new AbortController().signal,
+        onProgress: (loaded) => progress.push(loaded),
+      });
+      expect(peak).toBe(VIDEO_TRANSFER_CONCURRENCY);
+      expect(requests).toHaveLength(9);
+      expect(requests[0].offset).toBe(0);
+      expect(requests.slice(1).every((request) => request.revision === "complete")).toBe(true);
+      const bytes = new Uint8Array(await result.blob.arrayBuffer());
+      expect(bytes.length).toBe(size);
+      for (let index = 0; index < 9; index++) expect(bytes[index * VIDEO_CHUNK_BYTES]).toBe(index);
+      expect(progress.at(-1)).toBe(size);
+      expect(progress.every((value, index) => index === 0 || value > progress[index - 1])).toBe(
+        true,
       );
-      active--;
-      return chunk(request.offset);
-    },
-  };
-  const result = await loadVideoSource({
-    api,
-    input,
-    signal: new AbortController().signal,
-    onProgress: (loaded) => progress.push(loaded),
-  });
-  expect(peak).toBe(VIDEO_TRANSFER_CONCURRENCY);
-  expect(requests).toHaveLength(9);
-  expect(requests[0].offset).toBe(0);
-  expect(requests.slice(1).every((request) => request.revision === "complete")).toBe(true);
-  const bytes = new Uint8Array(await result.blob.arrayBuffer());
-  expect(bytes.length).toBe(size);
-  for (let index = 0; index < 9; index++) expect(bytes[index * VIDEO_CHUNK_BYTES]).toBe(index);
-  expect(progress.at(-1)).toBe(size);
-  expect(progress.every((value, index) => index === 0 || value > progress[index - 1])).toBe(true);
-});
+    } finally {
+      if (descriptor) Object.defineProperty(Uint8Array, "fromBase64", descriptor);
+      else Reflect.deleteProperty(Uint8Array, "fromBase64");
+    }
+  },
+);
 
 test("cancelling a transfer prevents more chunk requests and late progress", async () => {
   const controller = new AbortController();
