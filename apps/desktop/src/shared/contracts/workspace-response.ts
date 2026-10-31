@@ -1,6 +1,7 @@
 import { harnessUsageSchema } from "./harness-usage";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
+import { chatImageSchema } from "./chat-images";
 import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
 import { draftImportResultSchema } from "./draft-import";
@@ -67,6 +68,7 @@ export const workspaceResponseSchemas = {
   "harness-usage-page": z.void(),
   "read-video-chunk": videoChunkSchema,
   "open-chat-link": z.void(),
+  "read-chat-image": chatImageSchema,
   "pull-request-state": pullRequestStateSchema.nullable(),
   "thread-settings": liveThreadSchema,
   "thread-execution-project": liveThreadSchema,

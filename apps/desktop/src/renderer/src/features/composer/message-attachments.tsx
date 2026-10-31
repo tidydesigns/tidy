@@ -1,6 +1,5 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { ImagePreview } from "../../components/chat-image";
+import { Fragment, useEffect, useState } from "react";
 import { attachmentParts } from "../../../../shared/models/attachment-references";
 import { Button } from "@tidy/ui/button";
 import type { AttachedFile, Attachment } from "../../../../shared/contracts/attachments";
@@ -13,62 +12,6 @@ export const attachmentSize = (size: number) =>
       : `${size} B`;
 export const attachmentReferenceClassName =
   "attachment-reference inline-flex max-w-[min(220px,100%)] items-baseline gap-1 overflow-hidden rounded-[5px] border border-border bg-panel px-[5px] align-baseline text-xs leading-5 text-ellipsis whitespace-nowrap text-ink select-all before:text-muted-ink before:content-['▧']";
-
-function AttachmentImage({ name, previewUrl }: { name: string; previewUrl: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null);
-
-  useLayoutEffect(() => {
-    if (expanded) dialog.current?.showModal();
-  }, [expanded]);
-
-  return (
-    <>
-      <Button
-        type="button"
-        className="size-full cursor-zoom-in rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-        aria-label={`Expand ${name}`}
-        aria-haspopup="dialog"
-        onClick={() => setExpanded(true)}
-      >
-        <img className="size-full rounded-[inherit] object-cover" src={previewUrl} alt={name} />
-      </Button>
-      {expanded &&
-        createPortal(
-          <Dialog
-            ref={dialog}
-            size="wide"
-            padded={false}
-            className="backdrop:bg-black/80!"
-            aria-label={`Image preview: ${name}`}
-            onClose={() => setExpanded(false)}
-          >
-            <div className="flex items-center justify-between gap-4 border-b border-border px-4 py-2">
-              <span className="min-w-0 truncate text-sm" title={name}>
-                {name}
-              </span>
-              <Button
-                type="button"
-                variant="text"
-                className="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded border border-border bg-panel text-xl text-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
-                aria-label="Close image preview"
-                autoFocus
-                onClick={() => dialog.current?.close()}
-              >
-                ×
-              </Button>
-            </div>
-            <img
-              className="block max-h-[calc(90dvh-4rem)] w-full object-contain"
-              src={previewUrl}
-              alt={name}
-            />
-          </Dialog>,
-          document.body,
-        )}
-    </>
-  );
-}
 
 export function AttachmentList({
   files,
@@ -90,7 +33,7 @@ export function AttachmentList({
           title={file.name}
         >
           {file.previewUrl ? (
-            <AttachmentImage name={file.name} previewUrl={file.previewUrl} />
+            <ImagePreview src={file.previewUrl} name={file.name} compact />
           ) : (
             <svg
               className="shrink-0 text-muted-ink"

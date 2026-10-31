@@ -216,6 +216,11 @@ export type DesktopAPI = {
     input: import("./video-preview").VideoChunkRequest,
   ): Promise<import("./video-preview").VideoChunk>;
   openChatLink(projectId: string, href: string): Promise<void>;
+  readChatImage(
+    projectId: string,
+    threadId: string,
+    href: string,
+  ): Promise<import("./chat-images").ChatImage>;
   pullRequestState?(projectId: string, href: string): Promise<PullRequestState | null>;
   setThreadSettings(
     projectId: string,

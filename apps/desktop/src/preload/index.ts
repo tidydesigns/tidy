@@ -270,6 +270,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
     // Account data comes from the selected machine; provider pages open on this desktop.
     openHarnessUsage: (harness, page) => request("harness-usage-page", { harness, page }),
     readVideoChunk: (input) => scopedRequest("read-video-chunk", input),
+    readChatImage: (projectId, threadId, href) =>
+      scopedRequest("read-chat-image", { projectId, threadId, href }),
     openChatLink: (projectId, href) => scopedRequest("open-chat-link", { projectId, href }),
     pullRequestState: (projectId, href) => scopedRequest("pull-request-state", { projectId, href }),
     setThreadSettings: (projectId, threadId, settings) =>

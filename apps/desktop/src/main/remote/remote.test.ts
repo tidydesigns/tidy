@@ -1236,3 +1236,35 @@ test("remote video previews transfer external host files and enforce thread owne
     client.operation("read-video-chunk", { ...input, projectId: other.id }),
   ).rejects.toThrow("another project");
 });
+
+test("remote image previews read the thread host without opening desktop files", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const href = join(f.root, "remote screenshot.png");
+  const data = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await writeFile(href, data);
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: `Inspect ![Screenshot](${href})`,
+    designIds: [],
+  });
+  const input = { projectId: f.project.id, threadId: thread.id, href };
+  const image = await client.operation("read-chat-image", input);
+  expect(image.name).toBe("remote screenshot.png");
+  expect(image.dataUrl).toBe(`data:image/png;base64,${data.toString("base64")}`);
+  await expect(
+    client.operation("read-chat-image", { ...input, threadId: randomUUID() }),
+  ).rejects.toThrow();
+  await expect(
+    client.operation("read-chat-image", { ...input, projectId: randomUUID() }),
+  ).rejects.toThrow();
+  await writeFile(join(f.root, "unreferenced.png"), data);
+  await expect(
+    client.operation("read-chat-image", { ...input, href: join(f.root, "unreferenced.png") }),
+  ).rejects.toThrow("not referenced");
+});
