@@ -1195,8 +1195,8 @@ test("stopped and unfinished tools never appear completed and late output is fen
   }
 });
 
-test("long tool histories are bounded by count and text size with an explicit truncation marker", async () => {
-  const { service, project, runs } = await fixture();
+test("tool histories stay bounded while created PRs survive pruning and restart", async () => {
+  const { directory, service, store, project, runs } = await fixture();
   const thread = await service.startThread({
     projectId: project.id,
     harness: "codex",
@@ -1209,6 +1209,11 @@ test("long tool histories are bounded by count and text size with an explicit tr
     toolName: "Shell",
     status: "completed" as const,
   };
+  const url = "https://github.com/owner/repo/pull/42";
+  runs[0].input.onUpdate({
+    type: "tool",
+    tool: { ...tool, id: "create-pr", input: "gh pr create", output: url, exitCode: 0 },
+  });
   for (let index = 0; index < MAX_TOOL_ACTIVITIES + 5; index++)
     runs[0].input.onUpdate({ type: "tool", tool: { ...tool, id: String(index) } });
   let result = await service.readThread(project.id, thread.id);
@@ -1224,6 +1229,15 @@ test("long tool histories are bounded by count and text size with an explicit tr
     result.toolActivities!.reduce((sum, value) => sum + toolLogSize(value), 0),
   ).toBeLessThanOrEqual(MAX_TOOL_LOG_CHARACTERS);
   expect(result.toolActivities!.at(-1)!.output).toHaveLength(32_000);
+  expect(result.toolActivities?.some((entry) => entry.input === "gh pr create")).toBe(false);
+  expect(result.pullRequests).toEqual([url]);
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  const reopened = new ProjectStore(join(directory, "app"));
+  await reopened.initialize();
+  expect((await reopened.readThread(project.id, thread.id)).pullRequests).toEqual([url]);
+  expect((await store.snapshot(project.id)).threads[0].pullRequests).toEqual([url]);
 });
 
 test("permission replies are scoped to the live project, thread and request and cannot be replayed", async () => {

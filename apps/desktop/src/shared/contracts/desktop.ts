@@ -1,4 +1,4 @@
-import type { PullRequestState } from "./pull-request";
+import { threadPullRequestsSchema, type PullRequestState } from "./pull-request";
 import type { ThreadNaming } from "./thread-naming";
 import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
@@ -91,6 +91,7 @@ export const storedThreadSchema = z.object({
   activity: z.string().max(500).optional(),
   toolActivities: z.array(toolActivitySchema).max(MAX_TOOL_ACTIVITIES).optional(),
   toolActivityTruncated: z.boolean().optional(),
+  pullRequests: threadPullRequestsSchema.optional(),
   error: z.string().max(4000).optional(),
   errorKind: harnessFailureKindSchema.optional(),
   updatedAt: z.string().datetime(),

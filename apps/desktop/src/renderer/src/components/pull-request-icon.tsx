@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type Ref } from "react";
+import { pullRequestStatus } from "./pull-request-status";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type Ref } from "react";
 import type { DesktopAPI } from "../../../shared/contracts/desktop";
 import type { PullRequestState } from "../../../shared/contracts/pull-request";
 
@@ -12,53 +13,29 @@ export function PullRequestIcon({
   projectId: string;
 }) {
   const element = useRef<SVGSVGElement>(null);
-  const key = `${projectId}:${url}`;
-  const [snapshot, setSnapshot] = useState<{
-    key: string;
-    api: Pick<DesktopAPI, "pullRequestState">;
-    state: PullRequestState | null;
-    checking: boolean;
-  } | null>(null);
-  const matching = snapshot?.key === key && snapshot.api === api;
-  const state = matching ? snapshot.state : null;
-  const checking = matching && snapshot.checking;
+  const status = useMemo(() => pullRequestStatus({ api, projectId, url }), [api, projectId, url]);
+  const { state, checking } = useSyncExternalStore(status.subscribe, status.read, status.read);
   useEffect(() => {
     if (!api.pullRequestState) return;
-    let current = true;
     let visible = false;
-    let refreshing = false;
-    const refresh = async () => {
-      if (!visible || refreshing || document.visibilityState === "hidden") return;
-      refreshing = true;
-      setSnapshot((previous) => ({
-        key,
-        api,
-        checking: true,
-        state: previous?.key === key && previous.api === api ? previous.state : null,
-      }));
-      try {
-        const value = await api.pullRequestState?.(projectId, url);
-        if (current) setSnapshot({ key, api, state: value ?? null, checking: false });
-      } catch {
-        if (current) setSnapshot({ key, api, state: null, checking: false });
-      } finally {
-        refreshing = false;
-      }
+    const refresh = () => {
+      if (visible && document.visibilityState !== "hidden") void status.refresh();
     };
     const observer = new IntersectionObserver(([entry]) => {
       visible = entry?.isIntersecting ?? false;
       if (visible) void refresh();
     });
     if (element.current) observer.observe(element.current);
+    const interval = setInterval(refresh, 60_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      current = false;
+      clearInterval(interval);
       observer.disconnect();
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [api, projectId, url, key]);
+  }, [api, status]);
   return <PullRequestGlyph state={state} checking={checking} iconRef={element} />;
 }
 

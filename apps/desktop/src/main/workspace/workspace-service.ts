@@ -22,6 +22,7 @@ import {
   switchRepositoryBranch,
 } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
+import { createdPullRequest } from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { threadHistoryContext } from "../../shared/models/thread-context";
 import {
@@ -774,6 +775,7 @@ export class WorkspaceService {
       titleSource: "prompt",
       designIds: input.designIds,
       messages: [],
+      pullRequests: [],
       status: "idle",
       updatedAt: new Date().toISOString(),
     };
@@ -1363,6 +1365,9 @@ export class WorkspaceService {
         activities.push(value);
         job.tools.set(update.tool.id, value.id);
       }
+      const pullRequest = createdPullRequest(value);
+      if (pullRequest && !thread.pullRequests?.includes(pullRequest))
+        thread.pullRequests = [...(thread.pullRequests ?? []), pullRequest].slice(-20);
       job.changedTools.add(value.id);
       let size = activities.reduce((total, tool) => total + toolLogSize(tool), 0);
       while (activities.length > MAX_TOOL_ACTIVITIES || size > MAX_TOOL_LOG_CHARACTERS) {

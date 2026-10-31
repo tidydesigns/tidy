@@ -1,3 +1,5 @@
+import { ChatLink } from "../../components/chat-link";
+import type { DesktopAPI } from "../../../../shared/contracts/desktop";
 import { harnessNames } from "../../../../shared/contracts/harness-updates";
 import { codeFontClassName } from "../../styles/code-ui";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -12,6 +14,7 @@ import { ThreadPreview } from "./thread-preview";
 
 export function ThreadCard({
   thread,
+  api,
   selected,
   loaded,
   now,
@@ -26,6 +29,7 @@ export function ThreadCard({
   orderControls,
 }: {
   thread: ThreadSummary;
+  api?: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   selected: boolean;
   loaded: boolean;
   now: number;
@@ -40,6 +44,8 @@ export function ThreadCard({
   orderControls?: ThreadOrderControls;
 }) {
   const working = thread.status === "running";
+  const hasPullRequests = Boolean(api && thread.pullRequests?.length);
+  const latestPullRequest = thread.pullRequests?.at(-1);
   const completionKey =
     thread.messageCount === undefined ? thread.updatedAt : `messages:${thread.messageCount}`;
   const visitKey = `tidy:thread-seen:${thread.projectId}:${thread.id}`;
@@ -102,7 +108,13 @@ export function ThreadCard({
       if (!(event.target instanceof Node && popup.contains(event.target))) dismiss();
     };
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") dismiss();
+      if (event.key === "Escape") {
+        if (popup.contains(document.activeElement))
+          root.current
+            ?.querySelector<HTMLButtonElement>(".thread-select")
+            ?.focus({ preventScroll: true });
+        dismiss();
+      }
     };
     window.addEventListener("resize", dismiss);
     document.addEventListener("scroll", scroll, true);
@@ -123,11 +135,19 @@ export function ThreadCard({
         orderControls?.onPointerDown(event);
       }}
       onPointerEnter={(event) => {
+        if (event.target instanceof Node && preview.current?.contains(event.target)) {
+          clearTimeout(timer.current);
+          return;
+        }
         if (event.pointerType === "mouse" && !orderControls?.dragging) {
           show();
         }
       }}
-      onPointerLeave={close}
+      onPointerLeave={(event) => {
+        clearTimeout(timer.current);
+        if (open && !event.currentTarget.contains(document.activeElement))
+          timer.current = setTimeout(close, 150);
+      }}
       onBlur={(event) => {
         if (
           !(
@@ -164,7 +184,9 @@ export function ThreadCard({
           }
         }}
         aria-current={selected ? "true" : undefined}
-        aria-describedby={open ? id : undefined}
+        aria-describedby={open && !hasPullRequests ? id : undefined}
+        aria-controls={open && hasPullRequests ? id : undefined}
+        aria-expanded={hasPullRequests ? open : undefined}
         onFocus={(event) => {
           onPreload?.();
           if (event.currentTarget.matches(":focus-visible")) {
@@ -188,12 +210,12 @@ export function ThreadCard({
           {thread.title}
         </span>
         <span
-          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-3.5 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
+          className="thread-harness flex h-[18px] w-3.5 items-center text-xs leading-[18px] text-muted-ink"
+          role="img"
+          aria-label={harnessNames[thread.harness]}
+          title={harnessNames[thread.harness]}
         >
-          <ModelProviderIcon harness={thread.harness} />
-          <span className="thread-provider-name shrink-0" title={harnessNames[thread.harness]}>
-            {harnessNames[thread.harness]}
-          </span>
+          <ModelProviderIcon harness={thread.harness} size={14} />
         </span>
         <time
           className="thread-time absolute top-2.5 right-2 text-[11px] leading-5 text-muted-ink tabular-nums"
@@ -203,32 +225,57 @@ export function ThreadCard({
           {relativeThreadTime(thread.updatedAt, now)}
         </time>
       </Button>
-      {status !== "idle" && (
-        <span
-          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
-          role="status"
-          aria-label={statusLabel}
-          title={statusLabel}
-        >
-          <span className="thread-status-symbol" aria-hidden="true">
-            {status === "completed" ? (
-              <svg viewBox="0 0 16 16">
-                <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
-                <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
-              </svg>
-            ) : status === "running" ? (
-              <span />
-            ) : (
-              <svg viewBox="0 0 16 16" fill="none">
-                <circle cx="8" cy="8" r="6" />
-                <path d="M8 4.5v4" />
-                <circle cx="8" cy="11" r="0.7" fill="currentColor" stroke="none" />
-              </svg>
+      <div className="thread-card-trailing pointer-events-none absolute top-8 right-2 left-7 grid grid-cols-[minmax(0,1fr)_64px] items-center gap-2">
+        {api && latestPullRequest && (
+          <span
+            className="thread-pull-requests pointer-events-auto col-start-1 flex min-w-0 max-w-full justify-self-start items-center gap-1 text-[11px] leading-[18px] text-muted-ink tabular-nums"
+            aria-label="Thread pull requests"
+            onPointerDown={(event) => event.stopPropagation()}
+            onFocus={() => {
+              clearTimeout(timer.current);
+              setOpen(true);
+            }}
+          >
+            <ChatLink href={latestPullRequest} api={api} projectId={thread.projectId}>
+              {`#${latestPullRequest.split("/").at(-1)}`}
+            </ChatLink>
+            {thread.pullRequests && thread.pullRequests.length > 1 && (
+              <span
+                className="shrink-0"
+                aria-label={`${thread.pullRequests.length - 1} more pull requests`}
+              >
+                +{thread.pullRequests.length - 1}
+              </span>
             )}
           </span>
-          {status !== "completed" && statusLabel}
-        </span>
-      )}
+        )}
+        {status !== "idle" && (
+          <span
+            className={`thread-card-status thread-state-${status} pointer-events-none col-start-2 flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+            role="status"
+            aria-label={statusLabel}
+            title={statusLabel}
+          >
+            <span className="thread-status-symbol" aria-hidden="true">
+              {status === "completed" ? (
+                <svg viewBox="0 0 16 16">
+                  <circle cx="8" cy="8" r="7" fill="currentColor" stroke="none" />
+                  <path className="thread-ready-check" d="m4.8 8 2.1 2.1 4.2-4.3" fill="none" />
+                </svg>
+              ) : status === "running" ? (
+                <span />
+              ) : (
+                <svg viewBox="0 0 16 16" fill="none">
+                  <circle cx="8" cy="8" r="6" />
+                  <path d="M8 4.5v4" />
+                  <circle cx="8" cy="11" r="0.7" fill="currentColor" stroke="none" />
+                </svg>
+              )}
+            </span>
+            {status !== "completed" && statusLabel}
+          </span>
+        )}
+      </div>
       <Button
         className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:text-[light-dark(#292929,#ffffff)] ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}
         onPointerEnter={close}
@@ -254,11 +301,15 @@ export function ThreadCard({
           ref={preview}
           id={id}
           popover="manual"
-          role="tooltip"
+          role={hasPullRequests ? "dialog" : "tooltip"}
+          aria-label={hasPullRequests ? `${thread.title} details` : undefined}
+          onPointerDown={(event) => event.stopPropagation()}
+          onPointerEnter={() => clearTimeout(timer.current)}
           className={`thread-preview fixed inset-auto m-0 max-h-[calc(100vh_-_16px)] w-max max-w-[min(20rem,calc(100vw_-_16px))] overflow-auto rounded-lg border border-border bg-panel p-3 text-xs whitespace-normal text-ink shadow-[0_4px_16px_rgb(0_0_0_/_12%)] ${codeFontClassName}`}
         >
           <ThreadPreview
             thread={thread}
+            api={api}
             projectName={projectName}
             repository={repository}
             modelName={modelName}

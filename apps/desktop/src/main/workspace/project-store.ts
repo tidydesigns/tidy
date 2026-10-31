@@ -28,6 +28,7 @@ import type {
   Thread,
   ThreadSummary,
 } from "../../shared/contracts/desktop";
+import { threadPullRequests } from "../../shared/models/thread-pull-requests";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
 import { UpdateResumes } from "./update-resumes";
@@ -429,6 +430,7 @@ export class ProjectStore {
     const thread = threadSchema.parse(
       await this.read(await this.storagePath(projectId, "threads", threadId)),
     );
+    thread.pullRequests = threadPullRequests(thread);
     return this.authorizeThread({ thread, projectId, threadId });
   }
 

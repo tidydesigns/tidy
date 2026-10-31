@@ -197,13 +197,16 @@
 .message-markdown .chat-web-link .chat-pull-request-icon {
   color: var(--color-secondary-ink);
 }
-.message-markdown .chat-web-link .chat-pull-request-icon[data-state="open"] {
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="open"],
+.chat-pull-request-icon[data-state="open"] {
   color: var(--desktop-status-success);
 }
-.message-markdown .chat-web-link .chat-pull-request-icon[data-state="merged"] {
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="merged"],
+.chat-pull-request-icon[data-state="merged"] {
   color: light-dark(#8250df, #bc8cff);
 }
-.message-markdown .chat-web-link .chat-pull-request-icon[data-state="closed"] {
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="closed"],
+.chat-pull-request-icon[data-state="closed"] {
   color: var(--desktop-status-danger);
 }
 .message-markdown a:focus-visible {
@@ -546,14 +549,6 @@
   }
 }
 
-@media (hover: none), (pointer: coarse) {
-  .thread-done {
-    position: static;
-    margin: 0 6px 6px auto;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
 .turn-status {
   margin: 0 0 20px;
   color: var(--color-muted-ink);
@@ -659,4 +654,61 @@
   .working-matrix i {
     opacity: 0.55;
   }
+}
+
+.thread-pull-requests .chat-web-link {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 4px;
+  border-radius: 3px;
+  text-decoration: none;
+}
+.thread-pull-requests .chat-web-link:hover {
+  color: var(--color-ink);
+}
+.thread-pull-requests .chat-link-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+.thread-pull-requests .chat-web-link > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.thread-preview-pull-requests .chat-web-link {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  border-radius: 4px;
+  padding: 4px;
+  text-decoration: none;
+}
+.thread-preview-pull-requests .chat-web-link > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.thread-preview-pull-requests .chat-web-link:hover,
+.thread-preview-pull-requests .chat-web-link:focus-visible {
+  background: var(--color-hover-surface);
+}
+.thread-preview-pull-requests .chat-link-icon {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+:is(.thread-pull-requests, .thread-preview-pull-requests) .chat-web-link:has([data-state="open"]) {
+  color: var(--desktop-status-success);
+}
+:is(.thread-pull-requests, .thread-preview-pull-requests)
+  .chat-web-link:has([data-state="merged"]) {
+  color: light-dark(#8250df, #bc8cff);
+}
+:is(.thread-pull-requests, .thread-preview-pull-requests)
+  .chat-web-link:has([data-state="closed"]) {
+  color: var(--desktop-status-danger);
 }

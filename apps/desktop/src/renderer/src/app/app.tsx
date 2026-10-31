@@ -1464,6 +1464,7 @@ export function App({
   const renderThread = useCallback(
     (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
       <ThreadCard
+        api={api}
         thread={
           threadNameOverrides[item.id] ? { ...item, title: threadNameOverrides[item.id] } : item
         }
@@ -1491,6 +1492,7 @@ export function App({
     [
       selectedThreadId,
       selectedThreadLoaded,
+      api,
       mode,
       now,
       updatingDone,

@@ -1,5 +1,14 @@
 import { z } from "zod";
 
+export const threadPullRequestsSchema = z
+  .array(
+    z
+      .string()
+      .max(4096)
+      .refine((url) => pullRequestURL(url) === url),
+  )
+  .max(20);
+
 export const pullRequestStateSchema = z.enum(["open", "draft", "merged", "closed"]);
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>;
 
