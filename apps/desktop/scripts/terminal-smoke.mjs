@@ -98,6 +98,49 @@ app.on("browser-window-created", (_event, window) => {
           );
         };
         const output = "window.terminalEvents.filter(e=>e.kind==='data').map(e=>e.data).join('')";
+        const key = async (keyCode, modifiers) => {
+          page.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+          page.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        };
+        const mod = process.platform === "darwin" ? "meta" : "control";
+
+        for (const selector of [".terminal-surface", ".terminal-surface textarea"]) {
+          assert.equal(
+            await evaluate(
+              `getComputedStyle(document.querySelector(${JSON.stringify(selector)})).caretColor`,
+            ),
+            "rgba(0, 0, 0, 0)",
+          );
+        }
+        const font =
+          "Number(/([0-9.]+)px/.exec(document.querySelector('.terminal-session:not([hidden]) canvas').getContext('2d').font)[1])";
+        const checkZoom = async () => {
+          await evaluate(
+            "document.querySelector('.terminal-session:not([hidden]) textarea').focus();true",
+          );
+          await wait(`${font}===13`);
+          const toolbarHeight = await evaluate(
+            "document.querySelector('.terminal-toolbar').getBoundingClientRect().height",
+          );
+          await key("=", [mod]);
+          await wait(`${font}===14`);
+          await key("=", [mod, "shift"]);
+          await wait(`${font}===15`);
+          await key("-", [mod]);
+          await wait(`${font}===14`);
+          assert.equal(page.getZoomFactor(), 1, "terminal zoom must not zoom the application");
+          assert.equal(
+            await evaluate(
+              "document.querySelector('.terminal-toolbar').getBoundingClientRect().height",
+            ),
+            toolbarHeight,
+          );
+          await key("0", [mod]);
+          await wait(`${font}===13`);
+        };
+        await checkZoom();
+
         await send(
           "printf '\\033[38;2;18;52;86mTIDY_COLOR\\033[0m\\n'; printf 'TERM=%s COLORTERM=%s\\n' \"$TERM\" \"$COLORTERM\"; pwd\r",
         );
@@ -133,6 +176,7 @@ app.on("browser-window-created", (_event, window) => {
           await wait(
             "Array.from(document.querySelector('.terminal-surface canvas').getContext('2d').getImageData(0,0,document.querySelector('.terminal-surface canvas').width,document.querySelector('.terminal-surface canvas').height).data).some((v,i,a)=>i%4===0&&v===18&&a[i+1]===52&&a[i+2]===86)",
           );
+          await checkZoom();
           await send(":vsplit\r");
           await wait(`${output}.includes('│')`);
           const previousWidth = await evaluate(
@@ -177,18 +221,15 @@ app.on("browser-window-created", (_event, window) => {
         );
         await evaluate("document.querySelector('[aria-label=\"Restore terminal\"]').click();true");
         await wait("!document.querySelector('.terminal-dock-fullscreen')");
-        const key = async (keyCode, modifiers) => {
-          page.sendInputEvent({ type: "keyDown", keyCode, modifiers });
-          page.sendInputEvent({ type: "keyUp", keyCode, modifiers });
-          await new Promise((resolve) => setTimeout(resolve, 25));
-        };
-        const mod = process.platform === "darwin" ? "meta" : "control";
         await send("export TIDY_TAB_ISOLATION=first\r");
         await evaluate("document.querySelector('.terminal-surface textarea').focus();true");
+        await key("=", [mod]);
+        await wait(`${font}===14`);
         await key("t", [mod]);
         await wait(
           "document.querySelectorAll('.terminal-tab[role=tab]').length===2 && !document.querySelector('.terminal-session:not([hidden]) .terminal-status')",
         );
+        await wait(`${font}===14`);
         await evaluate(
           `window.secondEvents=[];window.secondWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},terminalId:document.querySelector('.terminal-tab[role=tab][aria-selected=true]').id.replace('terminal-tab-',''),cols:80,rows:24},o=>{window.secondEvents.push(o);if(o.kind==='snapshot'||o.kind==='data')queueMicrotask(()=>window.secondWatch.input({kind:'ack',sessionId:o.sessionId,sequence:o.sequence}));});true`,
         );
@@ -228,6 +269,14 @@ app.on("browser-window-created", (_event, window) => {
         assert.equal(await evaluate("window.terminalEvents.some(e=>e.kind==='exit')"), false);
         await send("printf 'FIRST=%s\\n' \"$TIDY_TAB_ISOLATION\"\r");
         await wait(`${output}.includes('FIRST=first\\r\\n')`);
+        for (let step = 0; step < 30; step++) await key("=", [mod]);
+        await wait(`${font}===32`);
+        for (let step = 0; step < 30; step++) await key("-", [mod]);
+        await wait(`${font}===8`);
+        await key("0", [mod]);
+        await wait(`${font}===13`);
+        await key("=", [mod]);
+        await wait(`${font}===14`);
         const firstSession = await evaluate(
           "window.terminalEvents.find(e=>e.kind==='snapshot').sessionId",
         );
@@ -239,6 +288,7 @@ app.on("browser-window-created", (_event, window) => {
           "document.querySelector('.terminal-session:not([hidden]) canvas')!==null && !document.querySelector('.terminal-status')",
         );
         assert.equal(await evaluate("document.querySelectorAll('.terminal-tab').length"), 1);
+        await wait(`${font}===14`);
         await evaluate(
           `window.terminalEvents=[];window.terminalWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},terminalId:document.querySelector('.terminal-tab').id.replace('terminal-tab-',''),cols:80,rows:24},o=>{window.terminalEvents.push(o);if(o.kind==='snapshot'||o.kind==='data')queueMicrotask(()=>window.terminalWatch.input({kind:'ack',sessionId:o.sessionId,sequence:o.sequence}));});true`,
         );
@@ -257,7 +307,7 @@ app.on("browser-window-created", (_event, window) => {
           true,
         );
         console.info(
-          `PASS: real Electron shell, CSP/WASM, native PTY, project cwd, true-colour Canvas pixels, keyboard input, hide/reopen persistence, isolated tabs, shell titles, one-click fullscreen, native tab shortcuts, reload reattachment, close-tab cleanup${process.env.TIDY_TEST_NVIM ? ", Neovim full-screen/splits/resize/return to shell" : ""}.`,
+          `PASS: real Electron shell, CSP/WASM, native PTY, project cwd, true-colour Canvas pixels, keyboard input, hide/reopen persistence, isolated tabs, shell titles, one-click fullscreen, native tab shortcuts, terminal font zoom with stable app scale, suppressed browser caret, reload reattachment, close-tab cleanup${process.env.TIDY_TEST_NVIM ? ", Neovim full-screen/splits/resize/return to shell" : ""}.`,
         );
         result = 0;
       } catch (error) {

@@ -65,15 +65,20 @@ Use **+** to create independent tabs. Each tab's **×** closes its shell; the
 panel's **×** hides all tabs. Up to eight tabs per machine can remain open across
 projects. An exited shell can be replaced with **New shell**.
 
-| Action                | macOS                     | Windows/Linux             |
-| --------------------- | ------------------------- | ------------------------- |
-| Show/hide terminal    | Ctrl+`                    | Ctrl+`                    |
-| New tab from anywhere | Ctrl+Shift+`              | Ctrl+Shift+`              |
-| New tab while focused | ⌘T                        | Ctrl+T                    |
-| Close focused tab     | ⌘W                        | Ctrl+W                    |
-| Fullscreen/restore    | ⌘Enter                    | Ctrl+Enter                |
-| Next/previous tab     | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
-| Select tab 1–8        | ⌘1–8                      | Ctrl+1–8                  |
+| Action                   | macOS                     | Windows/Linux             |
+| ------------------------ | ------------------------- | ------------------------- |
+| Show/hide terminal       | Ctrl+`                    | Ctrl+`                    |
+| New tab from anywhere    | Ctrl+Shift+`              | Ctrl+Shift+`              |
+| New tab while focused    | ⌘T                        | Ctrl+T                    |
+| Close focused tab        | ⌘W                        | Ctrl+W                    |
+| Zoom in/out              | ⌘+ / ⌘−                   | Ctrl+Plus / Ctrl+Minus    |
+| Reset terminal font size | ⌘0                        | Ctrl+0                    |
+| Fullscreen/restore       | ⌘Enter                    | Ctrl+Enter                |
+| Next/previous tab        | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Select tab 1–8           | ⌘1–8                      | Ctrl+1–8                  |
+
+Terminal zoom changes the font and terminal dimensions without scaling the surrounding UI.
+Its size is retained across tabs and renderer reloads for the current machine.
 
 Tab headers also support Left/Right, Home and End. Shell keys such as Ctrl+C,
 Ctrl+D and Escape continue to reach the terminal. Native window shortcuts retain

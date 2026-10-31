@@ -10,6 +10,7 @@ export function TerminalSurface({
   terminalId,
   active,
   focusOnActivate,
+  fontSize,
   onTitle,
   copy,
 }: {
@@ -19,6 +20,7 @@ export function TerminalSurface({
   onTitle(title: string): void;
   active: boolean;
   focusOnActivate: boolean;
+  fontSize: number;
   copy?(text: string): Promise<void>;
 }) {
   const host = useRef<HTMLDivElement>(null);
@@ -26,6 +28,15 @@ export function TerminalSurface({
   const watch = useRef<TerminalWatch | undefined>(undefined);
   const session = useRef<string | undefined>(undefined);
   const visible = useRef(active);
+  const currentFontSize = useRef(fontSize);
+  useLayoutEffect(() => {
+    currentFontSize.current = fontSize;
+    const value = instance.current;
+    if (active && value && value.terminal.options.fontSize !== fontSize) {
+      value.terminal.options.fontSize = fontSize;
+      value.fit.fit();
+    }
+  }, [fontSize, active]);
   const shouldFocus = useRef(focusOnActivate);
   const titleCallback = useRef(onTitle);
   useLayoutEffect(() => {
@@ -68,6 +79,7 @@ export function TerminalSurface({
           (document.activeElement === document.body ||
             Boolean(document.activeElement?.closest(".terminal-dock, .terminal-launcher")));
         const focusAfterOpen = ownsFocus();
+        terminal.options.fontSize = currentFontSize.current;
         terminal.open(host.current);
         if (!focusAfterOpen && previousFocus instanceof HTMLElement)
           previousFocus.focus({ preventScroll: true });

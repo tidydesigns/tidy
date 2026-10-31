@@ -1,4 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { z } from "zod";
+import { terminalFont } from "./terminal-font";
 import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { showToast } from "@tidy/ui/toast";
@@ -70,6 +72,11 @@ export function TerminalDock({
   fullscreen: boolean;
   onFullscreenChange(value: boolean): void;
 }) {
+  const [fontSize, setFontSize] = useSessionState(
+    "terminal-font-size",
+    z.number().int().min(terminalFont.min).max(terminalFont.max),
+    terminalFont.default,
+  );
   const [state, setState] = useSessionState<TerminalState>("terminals", terminalStateSchema, {});
   const latestState = useRef(state);
   const dispatch = (action: TerminalAction) => {
@@ -172,6 +179,17 @@ export function TerminalDock({
       return;
     }
     if (!open) return;
+    if (action.startsWith("zoom-")) {
+      setFontSize((size) =>
+        action === "zoom-reset"
+          ? terminalFont.default
+          : Math.max(
+              terminalFont.min,
+              Math.min(terminalFont.max, size + (action === "zoom-in" ? 1 : -1)),
+            ),
+      );
+      return;
+    }
     if (action === "close") {
       const tab = current.tabs.find((tab) => tab.id === current.selected);
       if (tab) close(tab);
@@ -219,11 +237,12 @@ export function TerminalDock({
   }, [api, open]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
-      if (event.isComposing || event.repeat) return;
+      if (event.isComposing) return;
       const focused = Boolean(dock.current?.contains(event.target as Node));
       const action = terminalShortcut(
         {
           code: event.code,
+          key: event.key,
           control: event.ctrlKey,
           meta: event.metaKey,
           alt: event.altKey,
@@ -232,7 +251,7 @@ export function TerminalDock({
         focused,
         mac,
       );
-      if (!action || !active || !valid) return;
+      if (!action || !active || !valid || (event.repeat && !action.startsWith("zoom-"))) return;
       event.preventDefault();
       event.stopPropagation();
       actions.current(action);
@@ -399,6 +418,7 @@ export function TerminalDock({
                 terminalId={tab.id}
                 active={open && tab.id === current.selected && tab.projectId === project?.id}
                 focusOnActivate={focusTerminal}
+                fontSize={fontSize}
                 copy={api.browser?.copy}
                 onTitle={(title) =>
                   dispatch({ kind: "title", projectId: tab.projectId, id: tab.id, title })
