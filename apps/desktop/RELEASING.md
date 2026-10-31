@@ -92,13 +92,23 @@ indicators. Status, version and retry details appear in a compact tooltip above
 the control on hover or keyboard focus, dismissible with Escape. No status or
 error text reserves space beside the icon. Busy controls remain focusable for
 inspection and ignore activation until the operation completes. Clicking it stops
-active harness runs, checkpoints their threads, flushes local storage, and restarts
-to install. Squirrel also applies staged updates on the next normal quit/relaunch.
+active harness runs, checkpoints their threads and private restart intent, flushes
+local storage, and restarts to install. On relaunch, those threads resume their
+existing native sessions automatically, including retained background work and
+queued follow-ups. Completed and manually stopped threads stay stopped. Recovery
+runs in the background with bounded preparation concurrency; it does not add a
+synthetic user message to the conversation. Cloud threads must regain their
+original account and workspace authorization before launching.
+Squirrel also applies staged updates on the next normal quit/relaunch.
 Every update replaces the installed app and requires a restart. There is no
 automatic restart or extra menu entry. Download/check failures expose sanitized
 retry feedback. If native restart fails, the staged update remains retryable and
-the workspace reopens for new work; stopped harness runs require a follow-up
-message to continue.
+the workspace reopens and resumes its checkpointed runs. Each recovery intent is
+consumed before submission, so repeated launches cannot replay the same recovery.
+Changed conversations, settings or execution directories invalidate that intent.
+A missing native session or unavailable account leaves the thread stopped with
+an error and allows a follow-up message to continue. Ordinary quit and unexpected
+backend crashes do not request automatic continuation.
 
 Older builds without this updater need one manual DMG installation. Install Tidy
 in Applications before updating; running from a mounted DMG or a read-only folder

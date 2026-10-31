@@ -202,6 +202,8 @@ running process intact and the next launch uses the updated version. Other updat
 methods wait only for active/preparing responses on that same harness. Idle
 conversations stay open and other harnesses can continue working. New turns for
 the updating CLI are blocked briefly during installation.
+Queued follow-ups waiting on an installer start automatically when it releases
+the harness, including when an active Claude response finishes during an update.
 Package-manager installs run sequentially. Tidy verifies the installed version
 before reporting success and offers Retry after a failure. Quitting cancels queued
 updates and waits for an active installer to finish. Runs outside Tidy are managed
@@ -547,6 +549,10 @@ can automate signing and publishing after merges to `main` once its environment
 is configured and enabled. Installed Apple Silicon macOS apps check at startup and every 30
 minutes; once an update is staged, click the icon at the bottom of the sidebar to
 restart and install. Older builds need one manual DMG update to get the updater.
+Threads interrupted by this restart resume their native sessions automatically;
+partial replies and queued messages remain in place. A failed native restart
+resumes the same work in the existing app. Completed or manually stopped threads
+are not restarted, and cloud work still requires its original authorized account.
 See [in-app updates](RELEASING.md#in-app-updates) for channels and release verification.
 Website download links remain separate work. Existing `package:desktop` remains an
 unsigned local development package, including in pull-request CI.

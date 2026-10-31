@@ -244,7 +244,65 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   const cloud = await make();
   await cloud.account();
   await cloud.catalog("org");
-  return { root, store, local, state, remote, cloud, make, service: services[0], auth: auths[0] };
+  return {
+    root,
+    store,
+    local,
+    state,
+    remote,
+    cloud,
+    make,
+    services,
+    service: services[0],
+    auth: auths[0],
+  };
+}
+
+for (const access of ["same account", "different account", "revoked membership"] as const) {
+  test(`update recovery restores a cloud workspace only for its authorized account: ${access}`, async () => {
+    const launches: string[] = [];
+    const f = await fixture((input) => {
+      launches.push(input.cwd);
+      input.onUpdate({ type: "session", id: input.sessionId ?? randomUUID() });
+      const done = Promise.withResolvers<void>();
+      return { done: done.promise, deliveryState: "accepted", stop: () => done.resolve() };
+    });
+    const workspace = await f.cloud.openWorkspace("org");
+    const thread = await f.service.startThread({
+      projectId: workspace.project.id,
+      executionProjectId: f.local.project.id,
+      harness: "codex",
+      prompt: "Finish work",
+      designIds: [],
+    });
+    await f.service.prepareUpdate();
+    await f.cloud.close();
+    const cloud = await f.make(access === "different account" ? "bob" : "alice");
+    const service = f.services[f.services.length - 1];
+    if (access === "revoked membership") {
+      const accounts = spyOn(f.remote, "account").mockResolvedValue({
+        id: "alice",
+        organizations: [{ id: "org", name: "Team", canEdit: false }],
+      });
+      try {
+        await cloud.account();
+      } finally {
+        accounts.mockRestore();
+      }
+    }
+    await service.resumeUpdatedThreads();
+    const resumed = await service.readThread(workspace.project.id, thread.id);
+    if (access === "same account") {
+      expect(launches).toEqual([f.local.project.path, f.local.project.path]);
+      expect(resumed.status).toBe("running");
+      await service.assertProjectAccess(workspace.project.id);
+    } else {
+      expect(launches).toHaveLength(1);
+      expect(resumed.status).not.toBe("running");
+      expect(resumed.error).toContain("Couldn’t resume");
+      await expect(service.assertProjectAccess(workspace.project.id)).rejects.toThrow();
+    }
+  });
 }
 
 test("cloud files open in a private workspace without selecting or uploading the local project", async () => {

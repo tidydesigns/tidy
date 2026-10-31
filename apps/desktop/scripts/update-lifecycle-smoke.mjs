@@ -12,6 +12,7 @@ if (process.platform !== "darwin" || process.arch !== "arm64") {
 }
 const temporary = await mkdtemp(join(tmpdir(), "tidy-update-lifecycle-"));
 app.setPath("userData", temporary);
+process.env.TIDY_HOST_STATE = join(temporary, "host");
 Object.defineProperty(app, "isPackaged", { get: () => true });
 const bin = join(temporary, "bin");
 await mkdir(bin);

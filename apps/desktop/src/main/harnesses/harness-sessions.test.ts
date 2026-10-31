@@ -45,6 +45,73 @@ async function events(cwd: string) {
   );
 }
 
+for (const harness of harnessIdSchema.options) {
+  for (const background of [false, true]) {
+    test(`${harness} resumes ${background ? "background work" : "an active turn"} through a fresh backend after an update`, async () => {
+      const { ProjectStore } = await import("../workspace/project-store");
+      const { WorkspaceService } = await import("../workspace/workspace-service");
+      const cwd = await mkdtemp(join(directory, `${harness}-update-`));
+      const state = join(cwd, "private");
+      const store = new ProjectStore(state);
+      await store.initialize();
+      const { project } = await store.open(cwd);
+      const service = new WorkspaceService(
+        store,
+        undefined,
+        async () => executable,
+        async () => {},
+      );
+      let reopened: InstanceType<typeof WorkspaceService> | undefined;
+      const ready = Promise.withResolvers<void>();
+      service.subscribe((event) => {
+        if (event.type !== "thread" && event.type !== "thread-patch") return;
+        if (background ? event.thread.status === "completed" : Boolean(event.thread.sessionId))
+          ready.resolve();
+      });
+      try {
+        const thread = await service.startThread({
+          projectId: project.id,
+          harness,
+          prompt: background ? "background silent" : "hold",
+          designIds: [],
+        });
+        await ready.promise;
+        expect(service.activeRunCount).toBe(1);
+        const before = await service.readThread(project.id, thread.id);
+        await service.prepareUpdate();
+        expect(service.activeRunCount).toBe(0);
+        const nextStore = new ProjectStore(state);
+        await nextStore.initialize();
+        await nextStore.recover();
+        reopened = new WorkspaceService(
+          nextStore,
+          undefined,
+          async () => executable,
+          async () => {},
+        );
+        const completed = Promise.withResolvers<void>();
+        reopened.subscribe((event) => {
+          if (event.type === "thread" && event.thread.status === "completed") completed.resolve();
+        });
+        await reopened.resumeUpdatedThreads();
+        await completed.promise;
+        const after = await reopened.readThread(project.id, thread.id);
+        expect(after.sessionId).toBe(before.sessionId);
+        expect(after.messages.filter((message) => message.role === "user")).toEqual(
+          before.messages
+            .filter((message) => message.role === "user")
+            .map((message) => ({ ...message, turn: after.messages[0].turn })),
+        );
+        expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+        expect(await nextStore.updateResumes.list()).toEqual([]);
+      } finally {
+        await reopened?.close();
+        await service.close();
+      }
+    }, 10_000);
+  }
+}
+
 for (const scope of ["harness", "project", "repository"] as const) {
   test(`clearing a ${scope} cancels matching queued acquisitions while preserving unrelated sends`, async () => {
     const cwd = await mkdtemp(join(directory, "scoped-clear-"));

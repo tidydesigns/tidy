@@ -84,6 +84,20 @@ export class CloudService implements CloudAPI {
       )
         throw new Error("You need editing access to this workspace.");
     };
+    service.restoreUpdateAccess = async (projectId) => {
+      if (service.canAccessProject(projectId)) return;
+      this.assertWorkspaceAvailable();
+      await this.initialize();
+      const project = service.store.project(projectId);
+      const account = await this.account(true).catch(() => this.account());
+      const organization = account.organizations.find((org) => {
+        const key = this.cacheKey("workspace", org.id).slice("workspace-".length);
+        return org.canEdit && project.path.endsWith(`/workspace-${key}`);
+      });
+      if (!organization || (await this.workspace(organization.id)).id !== projectId)
+        throw new Error("Open this workspace with its signed-in account before continuing.");
+      await service.assertProjectAccess(projectId);
+    };
     this.remote = remote ?? new HTTPCloudRemote(auth);
     this.sync = new CloudSync(
       service.store,

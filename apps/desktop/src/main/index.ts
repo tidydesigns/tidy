@@ -410,6 +410,8 @@ app
     registerCloudIPC(cloud, entryURL, service);
     // Do not put credential reads, catch-up, or network access on the first-paint path.
     void cloud.initialize();
+    if (ownsInitialService)
+      void service.resumeUpdatedThreads().catch(() => analytics?.error("update"));
     updates = new AppUpdates({
       supported: app.isPackaged && process.platform === "darwin" && process.arch === "arm64",
       version,

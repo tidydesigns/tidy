@@ -67,7 +67,12 @@ export class HarnessSessions {
   get backgroundContexts() {
     return [...this.entries.values()]
       .filter((entry) => entry.session.available && entry.session.hasBackgroundWork)
-      .map(({ id, context }) => ({ threadId: id, harness: context.harness, cwd: context.cwd }));
+      .map(({ id, context }) => ({
+        threadId: id,
+        projectId: context.projectId,
+        harness: context.harness,
+        cwd: context.cwd,
+      }));
   }
 
   private retire(id: string, entry: Entry) {
