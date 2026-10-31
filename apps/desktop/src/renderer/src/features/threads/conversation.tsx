@@ -454,7 +454,12 @@ export const Conversation = memo(function Conversation({
   }, []);
 
   useLayoutEffect(() => {
-    if (!active || !thread || !viewport.current) return;
+    if (!active) {
+      setPreview(null);
+      cancelJump();
+      return;
+    }
+    if (!thread || !viewport.current) return;
     const user = turns.at(-1)?.id;
     if (!initialized.current) {
       const saved = positions.get(identity);
