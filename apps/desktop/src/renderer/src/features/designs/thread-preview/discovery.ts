@@ -25,10 +25,11 @@ export function threadDesigns(
     let targets = pathCache?.get(tool);
     if (!targets) {
       const paths = tool.files?.filter((file) => file.kind !== "deleted").map((file) => file.path);
-      const text = `${tool.title}\n${tool.input ?? ""}\n${paths?.join("\n") ?? ""}`.replace(
-        /\\+/g,
-        "/",
-      );
+      const text =
+        `${tool.title}\n${tool.input ?? ""}\n${tool.output ?? ""}\n${paths?.join("\n") ?? ""}`.replace(
+          /\\+/g,
+          "/",
+        );
       const matches = [
         ...text.matchAll(/(?:^|[\s/'"`=:])\.tidy\/designs\/([\da-f-]+)\.json(?![\w.-])/gi),
       ];

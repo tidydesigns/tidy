@@ -99,6 +99,27 @@ export class CloudService implements CloudAPI {
         throw new Error("Open this workspace with its signed-in account before continuing.");
       await service.assertProjectAccess(projectId);
     };
+    service.coordinateDesignSync = async (projectId, designId, connect) => {
+      await service.assertProjectAccess(projectId);
+      const workspace = this.workspaces.get(projectId);
+      if (!workspace || workspace.accountId !== this.auth.accountId)
+        throw new Error("Open this workspace with its signed-in account before syncing designs.");
+      const existing = () =>
+        this.sync.status.find((b) => b.projectId === projectId && b.designId === designId);
+      if (connect && !existing()) {
+        try {
+          await this.connectLocal(projectId, designId, workspace.organizationId);
+        } catch (error) {
+          // Concurrent opens share the binding created by the first queued request.
+          if (!existing()) throw error;
+        }
+      }
+      await service.assertProjectAccess(projectId);
+      const binding = existing();
+      return binding
+        ? { fileId: binding.fileId, status: binding.status, message: binding.message }
+        : undefined;
+    };
     this.remote = remote ?? new HTTPCloudRemote(auth);
     this.sync = new CloudSync(
       service.store,

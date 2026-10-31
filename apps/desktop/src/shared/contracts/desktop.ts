@@ -99,6 +99,8 @@ export const storedThreadSchema = z.object({
 export const liveThreadSchema = storedThreadSchema.extend({
   /** Live requests only. Never serialized to thread storage or replayed after restart. */
   pendingApprovals: z.array(approvalRequestSchema).optional(),
+  /** A live, scoped request to reveal a design; never restored from portable thread JSON. */
+  designPreview: z.object({ id, designId: id }).optional(),
 });
 export const threadSummarySchema = liveThreadSchema
   .omit({
@@ -106,6 +108,7 @@ export const threadSummarySchema = liveThreadSchema
     sessionId: true,
     toolActivities: true,
     pendingApprovals: true,
+    designPreview: true,
     queuedMessages: true,
     queueError: true,
   })

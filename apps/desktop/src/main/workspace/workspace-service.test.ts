@@ -3,7 +3,7 @@ import { HarnessSkills, type SkillAdapter } from "../harnesses/harness-skills";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import * as filesystem from "node:fs";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
@@ -12,6 +12,7 @@ import { createWorkspaceRequests } from "../ipc/workspace-requests";
 import * as harnessDiscovery from "../harnesses/harnesses";
 import type { startHarness, HarnessUpdate } from "../harnesses/harnesses";
 import type { DesktopEvent, Thread } from "../../shared/contracts/desktop";
+import type { DesignAgentResult } from "../../shared/contracts/design-agent";
 import {
   MAX_TOOL_ACTIVITIES,
   MAX_TOOL_LOG_CHARACTERS,
@@ -120,6 +121,166 @@ function finished(service: WorkspaceService, threadId: string) {
     });
   });
 }
+
+async function designClient(prompt: string) {
+  const config = prompt.match(/--config '([^']+)'/)?.[1];
+  if (!config) throw new Error("Missing local agent configuration");
+  const text = await readFile(config, "utf8");
+  const url = text.match(/^url = "([^"]+)"/m)![1];
+  const token = text.match(/Bearer ([a-f0-9]{64})/)![1];
+  return async (action: unknown, headers: Record<string, string> = {}) => {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, ...headers },
+      body: JSON.stringify(action),
+    });
+    return { status: response.status, body: (await response.json()) as DesignAgentResult };
+  };
+}
+
+test("local design actions create one editable file, reveal it in the thread, and preserve its identity on retries", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Explore a sidebar",
+    designIds: [],
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  expect(f.runs[0].input.prompt).toContain("do not create a separate HTML preview");
+  const action = { kind: "design-create", requestId: randomUUID(), name: "Sidebar CTA" };
+  const [first, retry] = await Promise.all([request(action), request(action)]);
+  expect(first.status).toBe(200);
+  expect(first.body.design.id).toBe(retry.body.design.id);
+  expect(first.body.sync.status).toBe("local");
+  expect(first.body.design.path).toContain("/.tidy/designs/");
+  expect(first.body.design.name).toBe("Sidebar CTA");
+  expect((await f.store.designs(f.project.id)).length).toBe(1);
+  const live = await f.service.readThread(f.project.id, thread.id);
+  expect(live.designIds).toEqual([first.body.design.id]);
+  expect(live.designPreview?.designId).toBe(first.body.design.id);
+  expect("designPreview" in (await f.store.readThread(f.project.id, thread.id))).toBe(false);
+  const reopened = await request({ kind: "design-open", designId: first.body.design.id });
+  expect(reopened.body.previewAttached).toBe(true);
+  expect((await f.service.readThread(f.project.id, thread.id)).designPreview?.id).not.toBe(
+    live.designPreview?.id,
+  );
+  const state = await request({ kind: "design-state", designId: first.body.design.id });
+  expect(state.body.design).toEqual(first.body.design);
+  expect((await request({ ...action, name: "Another name" })).status).toBe(400);
+});
+
+test("local design capabilities reject foreign designs and expire when the turn ends", async () => {
+  const f = await fixture();
+  const otherRoot = join(f.directory, "other-project");
+  await mkdir(otherRoot);
+  const other = await f.store.open(otherRoot);
+  const foreign = await f.store.createDesign(other.project.id);
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Design",
+    designIds: [],
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  expect(
+    (
+      await request(
+        { kind: "design-create", requestId: randomUUID(), name: "Cross origin" },
+        { Origin: "https://example.com" },
+      )
+    ).status,
+  ).toBe(403);
+  expect((await request({ kind: "design-open", designId: foreign.id })).status).toBe(400);
+  expect((await f.service.readThread(f.project.id, thread.id)).designIds).toEqual([]);
+  const done = finished(f.service, thread.id);
+  f.runs[0].complete();
+  await done;
+  expect(
+    (await request({ kind: "design-create", requestId: randomUUID(), name: "Too late" })).status,
+  ).toBe(403);
+  expect(await f.store.designs(f.project.id)).toEqual([]);
+});
+
+test("a failed thread checkpoint retains the created design for an idempotent retry", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Explore",
+    designIds: [],
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  const action = { kind: "design-create", requestId: randomUUID(), name: "Exploration" };
+  const write = f.store.writeThread.bind(f.store);
+  const failed = spyOn(f.store, "writeThread").mockImplementationOnce(async () => {
+    throw new Error("Checkpoint failed");
+  });
+  try {
+    expect((await request(action)).status).toBe(400);
+    const live = await f.service.readThread(f.project.id, thread.id);
+    expect(live.designIds).toEqual([]);
+    expect(live.designPreview).toBeUndefined();
+    failed.mockImplementation(write);
+    const retry = await request(action);
+    expect(retry.status).toBe(200);
+    expect((await f.store.designs(f.project.id)).map((d) => d.id)).toEqual([retry.body.design.id]);
+  } finally {
+    failed.mockRestore();
+  }
+});
+
+test.each([
+  ["codex", "read-only"],
+  ["claude", "plan"],
+] as const)("%s local design actions respect %s mode", async (harness, permissionMode) => {
+  const f = await fixture();
+  const existing = await f.store.createDesign(f.project.id);
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness,
+    prompt: "Review the design",
+    designIds: [],
+    settings: { permissionMode },
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  expect(
+    (await request({ kind: "design-create", requestId: randomUUID(), name: "Not allowed" })).status,
+  ).toBe(400);
+  expect((await request({ kind: "design-open", designId: existing.id })).status).toBe(200);
+  expect((await f.store.designs(f.project.id)).map((d) => d.id)).toEqual([existing.id]);
+});
+
+test("stopping during a design read prevents a late preview or sync request", async () => {
+  const f = await fixture();
+  const existing = await f.store.createDesign(f.project.id);
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Design",
+    designIds: [],
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  const started = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const read = f.store.readDesignReference.bind(f.store);
+  const delayed = spyOn(f.store, "readDesignReference").mockImplementation(async (...args) => {
+    started.resolve();
+    await release.promise;
+    return read(...args);
+  });
+  try {
+    const opening = request({ kind: "design-open", designId: existing.id });
+    await started.promise;
+    await f.service.stopThread(f.project.id, thread.id);
+    release.resolve();
+    expect((await opening).status).toBe(400);
+    expect((await f.service.readThread(f.project.id, thread.id)).designIds).toEqual([]);
+  } finally {
+    release.resolve();
+    delayed.mockRestore();
+  }
+});
 
 test("harness maintenance reserves an idle CLI, blocks its turns and leaves other harnesses usable", async () => {
   const { service, project, runs } = await fixture();

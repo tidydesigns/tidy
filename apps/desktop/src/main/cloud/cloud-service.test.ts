@@ -258,6 +258,33 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   };
 }
 
+test("thread-created workspace designs connect once locally while cloud upload is offline", async () => {
+  const f = await fixture();
+  const workspace = await f.cloud.openWorkspace("org");
+  f.remote.offline = true;
+  const design = await f.store.createDesign(workspace.project.id, {
+    name: "Thread exploration",
+    document: blankDesignDocument(),
+  });
+  const coordinate = f.service.coordinateDesignSync!;
+  const [first, second] = await Promise.all([
+    coordinate(workspace.project.id, design.id, true),
+    coordinate(workspace.project.id, design.id, true),
+  ]);
+  expect(first?.fileId).toBe(second?.fileId);
+  expect(first?.status).not.toBe("synced");
+  expect((await f.cloud.state()).bindings.filter((b) => b.designId === design.id)).toHaveLength(1);
+  expect((await f.cloud.catalog("org", true)).files.some((file) => file.id === first?.fileId)).toBe(
+    true,
+  );
+  const local = await f.store.readDesign(workspace.project.id, design.id);
+  expect(local.name).toBe("Thread exploration");
+  const disconnected = await f.store.createDesign(workspace.project.id);
+  expect(await coordinate(workspace.project.id, disconnected.id, false)).toBeUndefined();
+  await f.cloud.signOut();
+  await expect(coordinate(workspace.project.id, disconnected.id, true)).rejects.toThrow();
+});
+
 for (const access of [
   "same account",
   "different account",

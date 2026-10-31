@@ -188,6 +188,23 @@ export function ThreadDesignDock({
   useEffect(() => {
     if (thread.status === "running") setState((previous) => discoverCanvases(previous, candidates));
   }, [thread.status, candidates]);
+  const revealed = useRef<string | undefined>(undefined);
+  const reveal = thread.designPreview;
+  useEffect(() => {
+    if (!reveal || revealed.current === reveal.id || !designs.some((d) => d.id === reveal.designId))
+      return;
+    revealed.current = reveal.id;
+    setState((previous) => {
+      const next = discoverCanvases(previous, [reveal.designId]);
+      return next.openIds.at(-1) === reveal.designId
+        ? next
+        : {
+            ...next,
+            openIds: [...next.openIds.filter((id) => id !== reveal.designId), reveal.designId],
+          };
+    });
+    setFocusedId(reveal.designId);
+  }, [reveal, designs]);
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));

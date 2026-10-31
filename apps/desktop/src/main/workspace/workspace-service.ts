@@ -75,6 +75,8 @@ import { ProjectStore } from "./project-store";
 import type { UpdateResume } from "./update-resumes";
 import { readLocalFile } from "../platform/local-files";
 import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates";
+import type { DesignAgentHandler, DesignAgentSync } from "../../shared/contracts/design-agent";
+import { blankDesignDocument } from "@tidy/design/document";
 
 type Job = {
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
@@ -127,6 +129,102 @@ export class WorkspaceService {
   canAccessCloudProject?: (projectId: string) => boolean;
   /** Restore an update's account binding through the native cloud coordinator. */
   restoreUpdateAccess?: (projectId: string) => Promise<void>;
+  /** Native coordinator supplies account-bound sync; agent input cannot select an organization. */
+  coordinateDesignSync?: (
+    projectId: string,
+    designId: string,
+    connect: boolean,
+  ) => Promise<DesignAgentSync | undefined>;
+
+  private designAgent(job: Job, settings?: HarnessSettings): DesignAgentHandler {
+    const permission = validatePermissionMode(job.thread.harness, settings?.permissionMode);
+    const readOnly = permission === "read-only" || permission === "plan";
+    const creations = new Map<string, { name: string; design: Promise<{ id: string }> }>();
+    let pending: Promise<unknown> = Promise.resolve();
+    const run: DesignAgentHandler = async (action, signal) => {
+      const assertActive = () => {
+        signal.throwIfAborted();
+        if (this.closing || job.stopped || this.jobs.get(job.thread.id) !== job)
+          throw new Error("This thread's design access expired.");
+      };
+      assertActive();
+      const thread = job.thread;
+      await this.assertProjectAccess(thread.projectId);
+      assertActive();
+      let designId: string;
+      if (action.kind === "design-create") {
+        if (readOnly)
+          throw new Error(
+            "Creating designs is unavailable in read-only or plan mode. Change the thread's permission mode before creating a design.",
+          );
+        let creation = creations.get(action.requestId);
+        if (creation && creation.name !== action.name)
+          throw new Error("This design request ID was already used for another name.");
+        if (!creation) {
+          if (thread.designIds.length >= 20)
+            throw new Error("This thread already has 20 design references.");
+          creation = {
+            name: action.name,
+            design: this.store.createDesign(thread.projectId, {
+              name: action.name,
+              document: blankDesignDocument(),
+            }),
+          };
+          creations.set(action.requestId, creation);
+        }
+        designId = (await creation.design).id;
+      } else designId = action.designId;
+      const design = await this.store.readDesignReference(thread.projectId, designId);
+      assertActive();
+      if (action.kind !== "design-state") {
+        const previousIds = thread.designIds;
+        const previousPreview = thread.designPreview;
+        if (!thread.designIds.includes(designId)) {
+          if (thread.designIds.length >= 20)
+            throw new Error("This thread already has 20 design references.");
+          thread.designIds = [...thread.designIds, designId];
+        }
+        thread.designPreview = { id: randomUUID(), designId };
+        thread.revision++;
+        try {
+          await this.store.writeThread(thread);
+        } catch (error) {
+          thread.designIds = previousIds;
+          thread.designPreview = previousPreview;
+          thread.revision++;
+          this.emit({ type: "thread", thread });
+          throw error;
+        }
+        assertActive();
+        this.emit({ type: "thread", thread });
+        await this.refreshDesigns(thread.projectId);
+        assertActive();
+      }
+      const cloud = this.store.project(thread.projectId).cloud;
+      let sync: DesignAgentSync | { status: "local" | "unconnected"; message?: string } = {
+        status: cloud ? "unconnected" : "local",
+      };
+      if (cloud) {
+        if (!this.coordinateDesignSync)
+          throw new Error(
+            "The workspace sync coordinator is unavailable. The local design was retained.",
+          );
+        sync =
+          (await this.coordinateDesignSync(
+            thread.projectId,
+            designId,
+            action.kind !== "design-state" && !readOnly,
+          )) ?? sync;
+      }
+      assertActive();
+      return { design, previewAttached: thread.designIds.includes(designId), sync };
+    };
+    return (action, signal) => {
+      const work = pending.then(() => run(action, signal));
+      pending = work.catch(() => {});
+      return work;
+    };
+  }
 
   canDeliverEvent(event: DesktopEvent) {
     const id = event.type === "designs" ? event.projectId : event.thread.projectId;
@@ -1266,10 +1364,14 @@ export class WorkspaceService {
         await this.finish({ job, kind: "stop" });
         return structuredClone(thread);
       }
-      const browserTool = await this.browserAgent.session({
-        projectId: project.id,
-        threadId: thread.id,
-      });
+      const launchSettings = thread.settings;
+      const browserTool = await this.browserAgent.session(
+        {
+          projectId: project.id,
+          threadId: thread.id,
+        },
+        this.designAgent(job, launchSettings),
+      );
       job.browserTool = browserTool;
       if (job.stopped || this.closing) {
         browserTool.close();
@@ -1286,12 +1388,16 @@ export class WorkspaceService {
         executable,
         cwd: project.path,
         additionalDirectories,
-        prompt: browserTool.instructions + "\n\n" + preparedPrompt,
+        prompt: browserTool.instructions + browserTool.designInstructions + "\n\n" + preparedPrompt,
         skill: skill
-          ? { ...skill, context: browserTool.instructions + "\n\n" + skill.context }
+          ? {
+              ...skill,
+              context:
+                browserTool.instructions + browserTool.designInstructions + "\n\n" + skill.context,
+            }
           : undefined,
         sessionId: thread.sessionId,
-        settings: thread.settings,
+        settings: launchSettings,
         images,
         onUpdate: (update: HarnessUpdate) => this.update(job, update),
         superviseParent: this.superviseHarnessParent,

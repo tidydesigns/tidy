@@ -126,6 +126,25 @@ test("shell and read tools can identify known local designs without an attached 
   }
 });
 
+test("script output discovers newly created designs whose paths were computed rather than literal inputs", () => {
+  const value = thread({
+    toolActivities: [
+      tool({
+        kind: "command",
+        input: "python3 create.py",
+        output: `Created ${second.path}\nNodes: 86`,
+      }),
+    ],
+  });
+  expect(threadDesigns(value, [first])).toEqual([]);
+  expect(threadDesigns(value, [first, second])).toEqual([second]);
+  expect(
+    threadDesigns(thread({ toolActivities: [tool({ output: second.path, status: "failed" })] }), [
+      second,
+    ]),
+  ).toEqual([]);
+});
+
 test("old turns, failed tools, deleted files, unknown designs, and similar filenames do not select a canvas", () => {
   for (const activity of [
     tool({ afterMessageId: randomUUID(), title: second.path }),
