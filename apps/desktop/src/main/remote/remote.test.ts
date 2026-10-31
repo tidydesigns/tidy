@@ -158,6 +158,50 @@ test("SSH destinations cannot inject options or commands; host checks and keepal
   expect(args.at(-1)).toBe("developer@omarchy.example.ts.net");
 });
 
+test("remote file management persists archive, restore, folder deletion and permanent deletion", async () => {
+  const f = await fixture();
+  const { client, events } = f.client();
+  await until(() => client.status.kind === "connected");
+  const projectId = f.project.id;
+  const folder = await client.operation("create-design-folder", { projectId, name: "Screens" });
+  const file = await client.operation("create-design", { projectId, folderId: folder.id });
+  const archived = await client.operation("set-design-archived", {
+    projectId,
+    designId: file.id,
+    archived: true,
+  });
+  await until(() =>
+    events.some(
+      (event) =>
+        event.type === "designs" &&
+        event.designs.some(
+          (design) => design.id === file.id && design.archivedAt === archived.archivedAt,
+        ),
+    ),
+  );
+  await client.operation("delete-design-folder", { projectId, folderId: folder.id });
+  const restored = await client.operation("set-design-archived", {
+    projectId,
+    designId: file.id,
+    archived: false,
+  });
+  expect(restored).toMatchObject({
+    id: file.id,
+    path: file.path,
+    folderId: null,
+    archivedAt: null,
+    document: file.document,
+  });
+  await expect(client.operation("delete-design", { projectId, designId: file.id })).rejects.toThrow(
+    "Archive",
+  );
+  await client.operation("set-design-archived", { projectId, designId: file.id, archived: true });
+  await client.operation("delete-design", { projectId, designId: file.id });
+  const snapshot = await client.operation("project-snapshot", projectId);
+  expect(snapshot.folders).toEqual([]);
+  expect(snapshot.designs).toEqual([]);
+});
+
 for (const namingSupported of [false, true]) {
   test(`thread starts remain compatible with ${namingSupported ? "naming-capable" : "legacy"} remote hosts`, async () => {
     const f = await fixture();

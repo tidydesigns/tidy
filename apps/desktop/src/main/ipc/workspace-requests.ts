@@ -405,6 +405,27 @@ export function createWorkspaceRequests<Context>(
       return folder;
     },
   );
+  handle(
+    "delete-design-folder",
+    z.object({ projectId, folderId: uuid }).strict(),
+    async (value) => {
+      await store.deleteFolder(value.projectId, value.folderId);
+      await service.refreshDesigns(value.projectId);
+    },
+  );
+  handle(
+    "set-design-archived",
+    z.object({ projectId, designId: uuid, archived: z.boolean() }).strict(),
+    async (value) => {
+      const design = await store.setDesignArchived(value.projectId, value.designId, value.archived);
+      await service.refreshDesigns(value.projectId);
+      return design;
+    },
+  );
+  handle("delete-design", z.object({ projectId, designId: uuid }).strict(), async (value) => {
+    await store.deleteDesign(value.projectId, value.designId);
+    await service.refreshDesigns(value.projectId);
+  });
   handle("read-design", z.object({ projectId, designId: uuid }).strict(), (value) =>
     store.readDesign(value.projectId, value.designId),
   );

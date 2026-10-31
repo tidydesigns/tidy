@@ -65,6 +65,7 @@ export const LocalCanvas = memo(function LocalCanvas({
   const pending = useRef(0);
   const writes = useRef(Promise.resolve());
   const refreshEpoch = useRef(0);
+  const [archived, setArchived] = useState(Boolean(initial.archivedAt));
   const [assets, setAssets] = useState(initial.assets);
   const assetRetryKey = retryAssets?.join(",") ?? "";
   const assetUrls = useMemo(() => {
@@ -86,6 +87,7 @@ export const LocalCanvas = memo(function LocalCanvas({
         apply(value) {
           if (!value || value.version === file.current.version) return;
           file.current = value;
+          setArchived(Boolean(value.archivedAt));
           // Transport creates a new map on every edit. Preserve equal URLs so
           // text/property edits do not invalidate every cached artwork element.
           setAssets((current) => (equalJsonValues(current, value.assets) ? current : value.assets));
@@ -180,6 +182,8 @@ export const LocalCanvas = memo(function LocalCanvas({
         initialPanelsOpen={initialPanelsOpen}
         viewportMemory={viewportMemory}
         local
+        archived={archived}
+        canEdit={!archived}
         statusControl={status}
         active={active}
         previewAssetUrls={assetUrls}

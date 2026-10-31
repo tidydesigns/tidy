@@ -1007,6 +1007,7 @@ export function App({
           path: value.path,
           updatedAt: value.updatedAt,
           folderId: value.folderId,
+          archivedAt: value.archivedAt,
           nodeCount: value.nodeCount,
         };
         return {

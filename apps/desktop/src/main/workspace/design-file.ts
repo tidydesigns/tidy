@@ -13,6 +13,7 @@ export const summarizeDesignFile = (file: ParsedDesignFile): DesignFileSummary =
   id: file.id,
   name: file.name,
   folderId: file.folderId,
+  archivedAt: file.archivedAt,
   nodeCount: file.nodeCount,
   path: file.path,
   updatedAt: file.updatedAt,
@@ -70,6 +71,7 @@ export async function readDesignFile(path: string): Promise<ParsedDesignFile> {
         name: z.string().min(1).max(120),
         document: z.unknown(),
         folderId: z.uuid().nullable().optional(),
+        archivedAt: z.string().datetime().nullable().optional(),
       })
       .parse(JSON.parse((await readLocalFile(path)).toString("utf8")));
     if (basename(path) !== `${data.id}.json`)
@@ -82,6 +84,7 @@ export async function readDesignFile(path: string): Promise<ParsedDesignFile> {
       id: data.id,
       name: data.name,
       folderId: data.folderId ?? null,
+      archivedAt: data.archivedAt ?? null,
       nodeCount: document.nodes.length,
       path,
       stamp,

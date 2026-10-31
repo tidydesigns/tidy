@@ -46,6 +46,17 @@ test("resolves referenced designs without choosing unrelated recent project file
   );
 });
 
+test("archived designs stay out of thread previews even when tools or references name them", () => {
+  const archived = { ...second, archivedAt: timestamp };
+  const value = thread({
+    designIds: [second.id, first.id],
+    toolActivities: [tool({ title: second.path })],
+  });
+  expect(threadDesigns(value, [first, archived])).toEqual([first]);
+  const restored = { ...archived, archivedAt: null };
+  expect(threadDesigns(value, [first, restored])).toEqual([restored, first]);
+});
+
 test("the latest tool target wins over references, including files created during the turn", () => {
   const value = thread({
     designIds: [first.id],

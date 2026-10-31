@@ -495,6 +495,146 @@ test("legacy design files remain readable and folder membership survives canvas 
   expect((await store.readDesign(project.id, legacy.id)).folderId).toBe(folder.id);
 });
 
+test("archive and restore preserve design identity, content, folder and references across restart", async () => {
+  const { directory, root, store } = await fixture();
+  const { project } = await store.open(root);
+  const folder = await store.createFolder(project.id, "Screens");
+  const file = await store.createDesign(project.id, undefined, folder.id);
+  const conversation = thread(project.id);
+  conversation.designIds = [file.id];
+  await store.writeThread(conversation);
+  const archived = await store.setDesignArchived(project.id, file.id, true);
+  expect(archived.archivedAt).toBeString();
+  expect(archived).toMatchObject({
+    id: file.id,
+    name: file.name,
+    path: file.path,
+    folderId: folder.id,
+    document: file.document,
+  });
+  expect((await store.setDesignArchived(project.id, file.id, true)).version).toBe(archived.version);
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: archived.version,
+      name: "Blocked",
+    }),
+  ).rejects.toThrow("Restore");
+
+  const reopened = new ProjectStore(join(directory, "app-data"));
+  await reopened.initialize();
+  expect((await reopened.snapshot(project.id)).designs[0].archivedAt).toBe(archived.archivedAt);
+  expect((await reopened.readThread(project.id, conversation.id)).designIds).toEqual([file.id]);
+  const restored = await reopened.setDesignArchived(project.id, file.id, false);
+  expect(restored.archivedAt).toBeNull();
+  expect(restored).toMatchObject({
+    id: file.id,
+    name: file.name,
+    path: file.path,
+    folderId: folder.id,
+    document: file.document,
+  });
+  await reopened.updateDesign({
+    projectId: project.id,
+    designId: file.id,
+    expectedVersion: restored.version,
+    name: "Editable",
+  });
+});
+
+test("archiving serializes behind queued edits and restore completes before permanent deletion", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const file = await store.createDesign(project.id);
+  const edit = store.updateDesign({
+    projectId: project.id,
+    designId: file.id,
+    expectedVersion: file.version,
+    name: "Latest edit",
+  });
+  const archive = store.setDesignArchived(project.id, file.id, true);
+  await edit;
+  expect(await archive).toMatchObject({ name: "Latest edit", archivedAt: expect.any(String) });
+  const restore = store.setDesignArchived(project.id, file.id, false);
+  const deletion = store.deleteDesign(project.id, file.id);
+  await restore;
+  await expect(deletion).rejects.toThrow("Archive");
+  await store.setDesignArchived(project.id, file.id, true);
+  await store.deleteDesign(project.id, file.id);
+  expect((await store.snapshot(project.id)).designs).toEqual([]);
+  await expect(readFile(file.path)).rejects.toThrow();
+  // A rejected operation must not poison later writes.
+  expect((await store.createDesign(project.id)).id).toBeString();
+});
+
+test("deleting a folder unfiles active and archived designs without moving or changing their contents", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const folder = await store.createFolder(project.id, "Screens");
+  const other = await store.createFolder(project.id, "Other");
+  const active = await store.createDesign(project.id, undefined, folder.id);
+  const archived = await store.createDesign(project.id, undefined, folder.id);
+  const untouched = await store.createDesign(project.id, undefined, other.id);
+  await store.setDesignArchived(project.id, archived.id, true);
+  const originals = await Promise.all(
+    [active, archived].map(async (file) => JSON.parse(await readFile(file.path, "utf8"))),
+  );
+  await store.deleteFolder(project.id, folder.id);
+  expect((await store.folders(project.id)).map((item) => item.id)).toEqual([other.id]);
+  for (const [index, file] of [active, archived].entries()) {
+    expect(JSON.parse(await readFile(file.path, "utf8"))).toEqual({
+      ...originals[index],
+      folderId: null,
+    });
+    expect((await store.readDesign(project.id, file.id)).folderId).toBeNull();
+  }
+  expect((await store.readDesign(project.id, untouched.id)).version).toBe(untouched.version);
+  expect((await store.setDesignArchived(project.id, archived.id, false)).folderId).toBeNull();
+  await expect(store.createDesign(project.id, undefined, folder.id)).rejects.toThrow();
+});
+
+test("failed folder deletion retains metadata and leaves all members untouched", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const folder = await store.createFolder(project.id, "Screens");
+  const file = await store.createDesign(project.id, undefined, folder.id);
+  const broken = join(root, ".tidy/designs", `${randomUUID()}.json`);
+  await writeFile(broken, "invalid JSON");
+  await expect(store.deleteFolder(project.id, folder.id)).rejects.toThrow();
+  expect((await store.readFolder(project.id, folder.id)).name).toBe(folder.name);
+  expect((await store.readDesign(project.id, file.id)).version).toBe(file.version);
+  await rm(broken);
+  await store.deleteFolder(project.id, folder.id);
+});
+
+test("file management rejects cross-project IDs, path traversal and symlinked records", async () => {
+  const { root, store, directory } = await fixture();
+  const { project } = await store.open(root);
+  const otherRoot = join(directory, "other");
+  await mkdir(otherRoot);
+  const other = (await store.open(otherRoot)).project;
+  const file = await store.createDesign(other.id);
+  const folder = await store.createFolder(other.id, "Other");
+  await store.setDesignArchived(other.id, file.id, true);
+  await expect(store.setDesignArchived(project.id, file.id, true)).rejects.toThrow();
+  await expect(store.deleteDesign(project.id, file.id)).rejects.toThrow();
+  await expect(store.deleteFolder(project.id, folder.id)).rejects.toThrow();
+  await expect(store.deleteDesign(project.id, "../outside")).rejects.toThrow();
+  await symlink(file.path, join(root, ".tidy/designs", `${file.id}.json`));
+  await symlink(
+    join(otherRoot, ".tidy/folders", `${folder.id}.json`),
+    join(root, ".tidy/folders", `${folder.id}.json`),
+  );
+  await expect(store.setDesignArchived(project.id, file.id, false)).rejects.toThrow(
+    "symbolic links",
+  );
+  await expect(store.deleteDesign(project.id, file.id)).rejects.toThrow("symbolic links");
+  await expect(store.deleteFolder(project.id, folder.id)).rejects.toThrow("symbolic links");
+  expect((await store.readDesign(other.id, file.id)).archivedAt).toBeString();
+  expect((await store.readFolder(other.id, folder.id)).name).toBe("Other");
+});
+
 test("folders obey project boundaries and reject symbolic links and invalid destinations", async () => {
   const { directory, root, store } = await fixture();
   const project = (await store.open(root)).project;

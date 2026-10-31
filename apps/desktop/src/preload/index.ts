@@ -304,6 +304,11 @@ function workspaceApi(machineId?: string): DesktopAPI {
     importDesign: (projectId, folderId) => scopedRequest("import-design", { projectId, folderId }),
     createDesignFolder: (projectId, name) =>
       scopedRequest("create-design-folder", { projectId, name }),
+    deleteDesignFolder: (projectId, folderId) =>
+      scopedRequest("delete-design-folder", { projectId, folderId }),
+    setDesignArchived: (projectId, designId, archived) =>
+      scopedRequest("set-design-archived", { projectId, designId, archived }),
+    deleteDesign: (projectId, designId) => scopedRequest("delete-design", { projectId, designId }),
     renameDesignFolder: (projectId, folderId, name) =>
       scopedRequest("rename-design-folder", { projectId, folderId, name }),
     readDesign: (projectId, designId) => scopedRequest("read-design", { projectId, designId }),

@@ -55,6 +55,7 @@ export const designSchema = z.object({
   path: z.string(),
   updatedAt: z.string(),
   folderId: z.string().uuid().nullable().optional(),
+  archivedAt: z.string().datetime().nullable().optional(),
   nodeCount: z.number().optional(),
 });
 
@@ -279,6 +280,9 @@ export type DesktopAPI = {
   importDesign(projectId: string, folderId?: string | null): Promise<LocalDesign | null>;
   createDesignFolder(projectId: string, name: string): Promise<DesignFolder>;
   renameDesignFolder(projectId: string, folderId: string, name: string): Promise<DesignFolder>;
+  deleteDesignFolder(projectId: string, folderId: string): Promise<void>;
+  setDesignArchived(projectId: string, designId: string, archived: boolean): Promise<LocalDesign>;
+  deleteDesign(projectId: string, designId: string): Promise<void>;
   readDesign(projectId: string, designId: string): Promise<LocalDesign>;
   previewDesign(projectId: string, designId: string): Promise<LocalDesign>;
   refreshDesign(projectId: string, designId: string, version: string): Promise<LocalDesign | null>;

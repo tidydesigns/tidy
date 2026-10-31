@@ -151,6 +151,11 @@ const api: DesktopAPI = {
   createDesign: (projectId, folderId) => request("create-design", { projectId, folderId }),
   importDesign,
   createDesignFolder: (projectId, name) => request("create-design-folder", { projectId, name }),
+  deleteDesignFolder: (projectId, folderId) =>
+    request("delete-design-folder", { projectId, folderId }),
+  setDesignArchived: (projectId, designId, archived) =>
+    request("set-design-archived", { projectId, designId, archived }),
+  deleteDesign: (projectId, designId) => request("delete-design", { projectId, designId }),
   renameDesignFolder: (projectId, folderId, name) =>
     request("rename-design-folder", { projectId, folderId, name }),
   readDesign: (projectId, designId) => request("read-design", { projectId, designId }),

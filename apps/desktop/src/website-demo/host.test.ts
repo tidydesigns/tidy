@@ -77,4 +77,34 @@ describe("website desktop host", () => {
       api.uploadDesignAsset(project.id, "https://example.com/image.png"),
     ).rejects.toThrow("Choose an image");
   });
+
+  test("archived files appear in summaries and folder deletion preserves them for restore or deletion", async () => {
+    const api = createDemoAPI();
+    const folder = await api.createDesignFolder(project.id, "Screens");
+    const file = await api.createDesign(project.id, folder.id);
+    const archived = await api.setDesignArchived(project.id, file.id, true);
+    expect(archived.version).not.toBe(file.version);
+    expect(
+      (await api.bootstrap()).activeProject?.designs.find((item) => item.id === file.id)
+        ?.archivedAt,
+    ).toBe(archived.archivedAt);
+    await expect(
+      api.updateDesign({
+        projectId: project.id,
+        designId: file.id,
+        expectedVersion: archived.version,
+        name: "Blocked",
+      }),
+    ).rejects.toThrow("Restore");
+    await api.deleteDesignFolder(project.id, folder.id);
+    expect((await api.readDesign(project.id, file.id)).folderId).toBeNull();
+    const restored = await api.setDesignArchived(project.id, file.id, false);
+    expect(restored.archivedAt).toBeNull();
+    expect(restored.path).toBe(file.path);
+    expect(restored.document).toEqual(file.document);
+    await expect(api.deleteDesign(project.id, file.id)).rejects.toThrow("Archive");
+    await api.setDesignArchived(project.id, file.id, true);
+    await api.deleteDesign(project.id, file.id);
+    await expect(api.readDesign(project.id, file.id)).rejects.toThrow("not found");
+  });
 });

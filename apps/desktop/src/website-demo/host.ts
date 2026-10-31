@@ -39,6 +39,7 @@ export function createDemoAPI(): DesktopAPI {
       name: value.name,
       path: value.path,
       folderId: value.folderId,
+      archivedAt: value.archivedAt,
       updatedAt: value.updatedAt,
       nodeCount: value.nodeCount,
     }));
@@ -220,6 +221,7 @@ export function createDemoAPI(): DesktopAPI {
     updateDesign: async (input) => {
       checkProject(input.projectId);
       const value = getDesign(input.designId);
+      if (value.archivedAt) throw Error("Restore this archived design before editing it.");
       if (input.expectedVersion !== value.version)
         throw Error("The design changed. Please try again.");
       const next: LocalDesign = {
@@ -269,6 +271,36 @@ export function createDemoAPI(): DesktopAPI {
       folders.set(id, next);
       designEvent();
       return clone(next);
+    },
+    deleteDesignFolder: async (_, id) => {
+      if (!folders.has(id)) throw Error("Folder not found.");
+      for (const file of designs.values()) {
+        if (file.folderId !== id) continue;
+        file.folderId = null;
+        file.version = String(Number(file.version) + 1);
+        file.updatedAt = new Date().toISOString();
+      }
+      folders.delete(id);
+      designEvent();
+    },
+    setDesignArchived: async (_, id, archived) => {
+      const file = designs.get(id);
+      if (!file) throw Error("Design not found.");
+      if (Boolean(file.archivedAt) === archived) return clone(file);
+      const next = {
+        ...file,
+        archivedAt: archived ? new Date().toISOString() : null,
+        version: String(Number(file.version) + 1),
+        updatedAt: new Date().toISOString(),
+      };
+      designs.set(id, next);
+      designEvent();
+      return clone(next);
+    },
+    deleteDesign: async (_, id) => {
+      if (!designs.get(id)?.archivedAt) throw Error("Archive this design first.");
+      designs.delete(id);
+      designEvent();
     },
     uploadDesignAsset: async (_, dataUrl) => {
       if (

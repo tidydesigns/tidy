@@ -71,6 +71,16 @@ export function ProjectFiles({
       return "grid";
     }
   });
+  const [archived, setArchived] = useSessionState(`archive:${projectId}`, z.boolean(), false);
+  const [archiveChanges, setArchiveChanges] = useState<Record<string, boolean>>({});
+  const [removedFiles, setRemovedFiles] = useState<Set<string>>(() => new Set());
+  const [removedFolders, setRemovedFolders] = useState<Set<string>>(() => new Set());
+  const [pendingItems, setPendingItems] = useState<Set<string>>(() => new Set());
+  const [deleting, setDeleting] = useState<{
+    kind: "folder" | "file";
+    id: string;
+    name: string;
+  } | null>(null);
   const [editing, setEditing] = useState<Editing | null>(null);
   useEffect(() => {
     if (!active || view !== "list") return;
@@ -96,17 +106,20 @@ export function ProjectFiles({
   const [moves, setMoves] = useState<Record<string, string | null>>({});
   const finishing = useRef(false);
   const cancelled = useRef(false);
-  const folders = snapshot.folders ?? [];
-  const currentFolder = folders.find((item) => item.id === folderId);
+  const folders = (snapshot.folders ?? []).filter((folder) => !removedFolders.has(folder.id));
+  const currentFolder = archived ? undefined : folders.find((item) => item.id === folderId);
   const activeFolderId = currentFolder?.id ?? null;
   const displayName = (item: { id: string; name: string }) => renamed[item.id] ?? item.name;
   function fileFolder(file: DesignSummary) {
     const id = Object.hasOwn(moves, file.id) ? moves[file.id] : file.folderId;
     return folders.some((folder) => folder.id === id) ? id : null;
   }
-  const files = currentFolder
-    ? snapshot.designs.filter((file) => fileFolder(file) === activeFolderId)
-    : snapshot.designs;
+  const files = snapshot.designs.filter(
+    (file) =>
+      !removedFiles.has(file.id) &&
+      (archiveChanges[file.id] ?? Boolean(file.archivedAt)) === archived &&
+      (!currentFolder || fileFolder(file) === activeFolderId),
+  );
   const listColumns: FileListColumn[] = [
     "edited",
     "layers",
@@ -118,6 +131,7 @@ export function ProjectFiles({
   }
   const openFolder = (id: string | null) => {
     onNavigate();
+    setArchived(false);
     setFolderId(id);
     setError("");
     setEditing(null);
@@ -260,6 +274,55 @@ export function ProjectFiles({
       setPending(false);
     }
   }
+  function markPending(id: string, pending: boolean) {
+    setPendingItems((current) => {
+      const next = new Set(current);
+      if (pending) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+  async function archiveFile(file: DesignSummary) {
+    const notifyError = setError("");
+    const next = !archived;
+    setArchiveChanges((current) => ({ ...current, [file.id]: next }));
+    markPending(file.id, true);
+    try {
+      onUpdate(await api.setDesignArchived(projectId, file.id, next));
+    } catch (cause) {
+      notifyError(cause, next ? "Could not archive this file." : "Could not restore this file.");
+    } finally {
+      setArchiveChanges((current) => {
+        const result = { ...current };
+        delete result[file.id];
+        return result;
+      });
+      markPending(file.id, false);
+    }
+  }
+  async function deleteItem(item: NonNullable<typeof deleting>) {
+    const notifyError = setError("");
+    setDeleting(null);
+    const setRemoved = item.kind === "file" ? setRemovedFiles : setRemovedFolders;
+    setRemoved((current) => new Set(current).add(item.id));
+    markPending(item.id, true);
+    try {
+      if (item.kind === "file") await api.deleteDesign(projectId, item.id);
+      else await api.deleteDesignFolder(projectId, item.id);
+    } catch (cause) {
+      setRemoved((current) => {
+        const next = new Set(current);
+        next.delete(item.id);
+        return next;
+      });
+      notifyError(
+        cause,
+        item.kind === "file" ? "Could not delete this file." : "Could not delete this folder.",
+      );
+    } finally {
+      markPending(item.id, false);
+    }
+  }
   const date = (value: string) =>
     new Date(value).toLocaleDateString("en-IE", {
       day: "numeric",
@@ -276,20 +339,32 @@ export function ProjectFiles({
         placement="bottom"
         triggerClassName="file-actions"
         triggerContent={<Icon name="more" />}
-        disabled={pending}
-        options={[
-          { value: "rename", label: "Rename" },
-          { value: "move", label: "Move to…" },
-          ...(cloud?.organizations.length && !cloud.connected.includes(file.id)
-            ? [{ value: "publish", label: "Add to workspace…" }]
-            : []),
-        ]}
+        disabled={pending || pendingItems.has(file.id)}
+        options={
+          archived
+            ? [
+                { value: "restore", label: "Restore" },
+                { value: "delete", label: "Delete permanently" },
+              ]
+            : [
+                { value: "rename", label: "Rename" },
+                { value: "move", label: "Move to…" },
+                { value: "archive", label: "Archive" },
+                ...(cloud?.organizations.length && !cloud.connected.includes(file.id)
+                  ? [{ value: "publish", label: "Add to workspace…" }]
+                  : []),
+              ]
+        }
         onChange={(value) =>
-          value === "rename"
-            ? edit({ kind: "file", id: file.id }, displayName(file))
-            : value === "publish"
-              ? setPublishing(file)
-              : setMoving(file.id)
+          value === "archive" || value === "restore"
+            ? void archiveFile(file)
+            : value === "delete"
+              ? setDeleting({ kind: "file", id: file.id, name: displayName(file) })
+              : value === "rename"
+                ? edit({ kind: "file", id: file.id }, displayName(file))
+                : value === "publish"
+                  ? setPublishing(file)
+                  : setMoving(file.id)
         }
       />
     );
@@ -388,9 +463,16 @@ export function ProjectFiles({
           value=""
           triggerClassName="design-folder-actions"
           triggerContent={<Icon name="more" size={16} />}
-          disabled={pending}
-          options={[{ value: "rename", label: "Rename" }]}
-          onChange={() => edit({ kind: "folder", id: folder.id }, displayName(folder))}
+          disabled={pending || pendingItems.has(folder.id)}
+          options={[
+            { value: "rename", label: "Rename" },
+            { value: "delete", label: "Delete folder" },
+          ]}
+          onChange={(value) =>
+            value === "delete"
+              ? setDeleting({ kind: "folder", id: folder.id, name: displayName(folder) })
+              : edit({ kind: "folder", id: folder.id }, displayName(folder))
+          }
         />
       </li>
     );
@@ -402,12 +484,25 @@ export function ProjectFiles({
         createPortal(
           <>
             <Button
-              className={`sidebar-item design-files-home ${!currentFolder ? "selected" : ""}`}
-              aria-current={!currentFolder ? "page" : undefined}
+              className={`sidebar-item design-files-home ${!archived && !currentFolder ? "selected" : ""}`}
+              aria-current={!archived && !currentFolder ? "page" : undefined}
               onClick={() => openFolder(null)}
             >
               <Icon name="folder" size={15} />
               All files
+            </Button>
+            <Button
+              className={`sidebar-item ${archived ? "selected" : ""}`}
+              aria-current={archived ? "page" : undefined}
+              onClick={() => {
+                onNavigate();
+                setArchived(true);
+                setEditing(null);
+                setError("");
+              }}
+            >
+              <Icon name="archive" size={15} />
+              Archive
             </Button>
             <div className="sidebar-heading design-folders-heading">
               <span>Folders</span>
@@ -434,27 +529,33 @@ export function ProjectFiles({
       <div className="project-files">
         <div className={`design-browser-header ${filesHeader}`}>
           <h1 className="min-w-0 truncate text-3xl font-semibold tracking-tight">
-            {currentFolder ? displayName(currentFolder) : "All files"}
+            {archived ? "Archive" : currentFolder ? displayName(currentFolder) : "All files"}
           </h1>
           <div className="file-browser-controls">
-            <div
-              className="new-file-control"
-              onPointerEnter={preloadCanvasEditor}
-              onFocusCapture={preloadCanvasEditor}
-            >
-              <Button className="new-file-button" disabled={pending} onClick={() => void create()}>
-                + New file
-              </Button>
-              <SelectMenu
-                actionMenu
-                label="New file options"
-                value=""
-                triggerClassName="new-file-options"
-                disabled={pending}
-                options={[{ value: "import", label: "Import design…" }]}
-                onChange={() => void create(true)}
-              />
-            </div>
+            {!archived && (
+              <div
+                className="new-file-control"
+                onPointerEnter={preloadCanvasEditor}
+                onFocusCapture={preloadCanvasEditor}
+              >
+                <Button
+                  className="new-file-button"
+                  disabled={pending}
+                  onClick={() => void create()}
+                >
+                  + New file
+                </Button>
+                <SelectMenu
+                  actionMenu
+                  label="New file options"
+                  value=""
+                  triggerClassName="new-file-options"
+                  disabled={pending}
+                  options={[{ value: "import", label: "Import design…" }]}
+                  onChange={() => void create(true)}
+                />
+              </div>
+            )}
             <FileViewToggle
               view={view}
               onChange={(next) => {
@@ -476,8 +577,19 @@ export function ProjectFiles({
           </div>
         ) : (
           <p className="files-empty">
-            {currentFolder ? "No files in this folder" : "No design files yet"}
+            {archived
+              ? "No archived files"
+              : currentFolder
+                ? "No files in this folder"
+                : "No design files yet"}
           </p>
+        )}
+        {deleting && (
+          <DeleteDialog
+            item={deleting}
+            onClose={() => setDeleting(null)}
+            onDelete={() => void deleteItem(deleting)}
+          />
         )}
         {movingFile && (
           <MoveDialog
@@ -506,6 +618,47 @@ export function ProjectFiles({
         )}
       </div>
     </>
+  );
+}
+function DeleteDialog({
+  item,
+  onClose,
+  onDelete,
+}: {
+  item: { kind: "folder" | "file"; name: string };
+  onClose(): void;
+  onDelete(): void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const title = item.kind === "folder" ? "Delete folder?" : "Delete file permanently?";
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+  return (
+    <Dialog
+      ref={ref}
+      className="file-move-dialog"
+      aria-label={title}
+      onCancel={onClose}
+      onClose={onClose}
+    >
+      <div className="file-move-heading">
+        <h2>{title}</h2>
+      </div>
+      <p className="cloud-publish-note">
+        {item.kind === "folder"
+          ? `“${item.name}” will be deleted. Its files will stay in All files or Archive.`
+          : `“${item.name}” will be permanently deleted from this project. This cannot be undone.`}
+      </p>
+      <div className="flex justify-end gap-3 mt-6">
+        <Button autoFocus className="quiet-button" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button className="quiet-button" onClick={onDelete}>
+          {item.kind === "folder" ? "Delete folder" : "Delete permanently"}
+        </Button>
+      </div>
+    </Dialog>
   );
 }
 function PublishDialog({

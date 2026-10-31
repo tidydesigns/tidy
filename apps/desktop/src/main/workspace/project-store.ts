@@ -542,6 +542,7 @@ export class ProjectStore {
       id: cached.id,
       name: cached.name,
       folderId: cached.folderId,
+      archivedAt: cached.archivedAt,
       nodeCount: cached.nodeCount,
       path: cached.path,
       updatedAt: cached.updatedAt,
@@ -674,12 +675,18 @@ export class ProjectStore {
     const designId = randomUUID();
     const name =
       imported?.name.slice(0, 120) || `Design ${(await this.designs(projectId)).length + 1}`;
-    await this.atomicWrite(await this.storagePath(projectId, "designs", designId), {
-      id: designId,
-      name,
-      folderId,
-      document: parseDesignDocument(document),
-    });
+    await this.atomicWrite(
+      async () => {
+        if (folderId !== null) await this.readFolder(projectId, folderId);
+        return this.storagePath(projectId, "designs", designId);
+      },
+      {
+        id: designId,
+        name,
+        folderId,
+        document: parseDesignDocument(document),
+      },
+    );
     this.analytics?.({
       name: "design_file_created",
       storage: this.project(projectId).cloud ? "cloud" : "local",
@@ -702,6 +709,7 @@ export class ProjectStore {
     let result!: LocalDesign;
     const next = this.writes.then(async () => {
       const current = await this.readDesign(input.projectId, input.designId, false);
+      if (current.archivedAt) throw new Error("Restore this archived design before editing it.");
       if (current.version !== input.expectedVersion)
         throw new Error(
           "This design changed on disk. The latest version has been loaded; try your edit again.",
@@ -710,6 +718,7 @@ export class ProjectStore {
         await this.readFolder(input.projectId, input.folderId);
       const data = {
         id: current.id,
+        archivedAt: current.archivedAt ?? null,
         folderId: input.folderId === undefined ? (current.folderId ?? null) : input.folderId,
         name: name ?? current.name,
         document: document ?? current.document,
@@ -721,6 +730,71 @@ export class ProjectStore {
     this.writes = next.catch(() => {});
     await next;
     return result;
+  }
+
+  async setDesignArchived(projectId: string, designId: string, archived: boolean) {
+    let result!: LocalDesign;
+    const next = this.writes.then(async () => {
+      const current = await this.readDesign(projectId, designId, false);
+      if (Boolean(current.archivedAt) !== archived) {
+        const path = await this.storagePath(projectId, "designs", designId);
+        const data = (await this.read(path)) as Record<string, unknown>;
+        await this.writeAtomicFile(
+          path,
+          JSON.stringify(
+            {
+              ...data,
+              archivedAt: archived ? new Date().toISOString() : null,
+            },
+            null,
+            2,
+          ),
+        );
+      }
+      result = await this.readDesign(projectId, designId);
+    });
+    this.writes = next.catch(() => {});
+    await next;
+    return result;
+  }
+
+  async deleteDesign(projectId: string, designId: string) {
+    const next = this.writes.then(async () => {
+      const current = await this.readDesign(projectId, designId, false);
+      if (!current.archivedAt)
+        throw new Error("Archive this design before deleting it permanently.");
+      const path = await this.storagePath(projectId, "designs", designId);
+      await rm(path);
+      this.designCache.delete(path);
+      this.summaryCache.delete(path);
+    });
+    this.writes = next.catch(() => {});
+    await next;
+  }
+
+  /** Unfile every member before removing metadata, including archived designs. */
+  async deleteFolder(projectId: string, folderId: string) {
+    const next = this.writes.then(async () => {
+      await this.readFolder(projectId, folderId);
+      const directory = await this.storagePath(projectId, "designs");
+      // Read every valid design path; a corrupt member must not silently lose its folder.
+      const names = (await readdir(directory)).filter(
+        (name) => name.endsWith(".json") && id.safeParse(name.slice(0, -5)).success,
+      );
+      const members: DesignFileSummary[] = [];
+      for (const name of names) {
+        const file = await this.designSummary(projectId, name.slice(0, -5));
+        if (file.folderId === folderId) members.push(file);
+      }
+      for (const file of members) {
+        const path = await this.storagePath(projectId, "designs", file.id);
+        const data = (await this.read(path)) as Record<string, unknown>;
+        await this.writeAtomicFile(path, JSON.stringify({ ...data, folderId: null }, null, 2));
+      }
+      await rm(await this.storagePath(projectId, "folders", folderId));
+    });
+    this.writes = next.catch(() => {});
+    await next;
   }
 
   async uploadDesignAsset(projectId: string, dataUrl: string) {
@@ -773,6 +847,7 @@ export class ProjectStore {
             id: design.id,
             name: design.name,
             folderId: design.folderId,
+            archivedAt: design.archivedAt,
             nodeCount: design.nodeCount,
             path: design.path,
             updatedAt: design.updatedAt,

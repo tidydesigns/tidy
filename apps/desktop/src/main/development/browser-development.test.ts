@@ -139,6 +139,54 @@ test("browser design edits persist through the shared backend and stream live ev
   await reader.cancel();
 });
 
+test("file management uses validated shared requests and refreshes project snapshots", async () => {
+  const { origin, projectId, store, login } = await fixture();
+  const cookie = await login();
+  const request = async (name: string, input: unknown) => {
+    const response = await fetch(new URL("/__tidy/request", origin), {
+      method: "POST",
+      headers: { Cookie: cookie, Origin: origin.origin, "Content-Type": "application/json" },
+      body: JSON.stringify({ name, input }),
+    });
+    return response.json();
+  };
+  const folder = await store.createFolder(projectId, "Screens");
+  const file = await store.createDesign(projectId, undefined, folder.id);
+  expect(
+    await request("set-design-archived", { projectId, designId: "../escape", archived: true }),
+  ).toMatchObject({ ok: false });
+  expect(
+    await request("set-design-archived", { projectId, designId: file.id, archived: "true" }),
+  ).toMatchObject({ ok: false });
+  expect(await request("delete-design", { projectId, designId: file.id })).toMatchObject({
+    ok: false,
+  });
+  const archived = parseWorkspaceResponse(
+    "set-design-archived",
+    await request("set-design-archived", { projectId, designId: file.id, archived: true }),
+  );
+  expect(archived.archivedAt).toBeString();
+  parseWorkspaceResponse(
+    "delete-design-folder",
+    await request("delete-design-folder", { projectId, folderId: folder.id }),
+  );
+  const snapshot = parseWorkspaceResponse(
+    "project-snapshot",
+    await request("project-snapshot", projectId),
+  );
+  expect(snapshot.folders).toEqual([]);
+  expect(snapshot.designs[0]).toMatchObject({
+    id: file.id,
+    folderId: null,
+    archivedAt: archived.archivedAt,
+  });
+  parseWorkspaceResponse(
+    "delete-design",
+    await request("delete-design", { projectId, designId: file.id }),
+  );
+  expect((await store.snapshot(projectId)).designs).toEqual([]);
+});
+
 test("browser picker lists Linux folders and opens a different persisted project", async () => {
   const { origin, login, directory, project, store, projectId } = await fixture();
   const other = join(directory, "other-project");

@@ -8,7 +8,9 @@ export function threadDesigns(
   pathCache?: WeakMap<ToolActivity, string[]>,
 ) {
   const result: DesignSummary[] = [];
-  const known = new Map(designs.map((design) => [design.id, design]));
+  const known = new Map(
+    designs.filter((design) => !design.archivedAt).map((design) => [design.id, design]),
+  );
   const seen = new Set<string>();
   const add = (design: DesignSummary | undefined) => {
     if (design && !seen.has(design.id)) {

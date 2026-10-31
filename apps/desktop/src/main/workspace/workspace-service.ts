@@ -1191,6 +1191,7 @@ export class WorkspaceService {
         ? `You are working with designs in a synced Tidy workspace. Design files live in ${JSON.stringify(designDirectory)} and image assets in ${JSON.stringify(assetDirectory)}. Edit those original files; the desktop app syncs their changes. Conversations and repository files stay local.`
         : "You are working in a local Tidy project. The working directory is the project root.",
       "Each design JSON contains { id, name, folderId, document }; preserve id, name and folderId when editing document. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Design paths remain stable when files move between folders.",
+      "Preserve optional archivedAt metadata. Designs with a non-null archivedAt are archived; keep them read-only until restored.",
       ...(!thread.sessionId && thread.messages.length
         ? [threadHistoryContext(thread.messages)]
         : []),

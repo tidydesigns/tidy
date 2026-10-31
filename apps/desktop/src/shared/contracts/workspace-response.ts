@@ -92,6 +92,9 @@ export const workspaceResponseSchemas = {
   "update-design": localDesignSchema,
   "create-design-folder": folderSchema,
   "rename-design-folder": folderSchema,
+  "delete-design-folder": z.void(),
+  "set-design-archived": localDesignSchema,
+  "delete-design": z.void(),
   "upload-design-asset": z.object({ assetId: z.string(), url: z.string() }),
 };
 export const workspaceOperationSchema = z.object(workspaceResponseSchemas).keyof();
