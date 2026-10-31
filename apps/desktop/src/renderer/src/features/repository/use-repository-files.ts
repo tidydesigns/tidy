@@ -166,7 +166,14 @@ export function useRepositoryFiles({
         return;
       }
       refreshingRef.current = true;
-      let invalidateFiles = changesInitialized.current;
+      const initialized = changesInitialized.current;
+      let invalidateAll = initialized && !paths;
+      const invalidated = new Set(initialized ? paths : []);
+      const touches = (path: string) =>
+        invalidateAll ||
+        [...invalidated].some(
+          (parent) => !parent || path === parent || path.startsWith(`${parent}/`),
+        );
       changesInitialized.current = true;
       setRefreshing(true);
       setError("");
@@ -174,13 +181,26 @@ export function useRepositoryFiles({
         await api.repositoryChanges(projectId).then(
           (result) => {
             if (!lifetime.current) return;
-            invalidateFiles ||= result.changes.some(
-              (change) =>
-                change.previousPath !== null &&
-                (change.path === latest.current.selected ||
-                  change.path === fileRunning.current ||
-                  fileCache.current.has(change.path)),
-            );
+            const previous = changesRef.current;
+            if (
+              initialized &&
+              previous &&
+              (previous.head !== result.head || previous.repository !== result.repository)
+            )
+              invalidateAll = true;
+            const before = new Map(previous?.changes.map((change) => [change.path, change]));
+            const after = new Map(result.changes.map((change) => [change.path, change]));
+            for (const path of new Set([
+              ...fileCache.current.keys(),
+              ...(latest.current.selected ? [latest.current.selected] : []),
+              ...(fileRunning.current ? [fileRunning.current] : []),
+            ]))
+              if (
+                (before.get(path)?.previousPath ?? null) !==
+                  (after.get(path)?.previousPath ?? null) ||
+                before.get(path)?.filtered !== after.get(path)?.filtered
+              )
+                invalidated.add(path);
             setChanges((previous) =>
               previous?.repository === result.repository &&
               previous.head === result.head &&
@@ -190,6 +210,7 @@ export function useRepositoryFiles({
                 return (
                   change.path === next.path &&
                   change.previousPath === next.previousPath &&
+                  change.filtered === next.filtered &&
                   change.status === next.status
                 );
               })
@@ -208,11 +229,11 @@ export function useRepositoryFiles({
           },
         );
         if (!lifetime.current) return;
-        if (invalidateFiles) {
-          fileGeneration.current += 1;
-          fileCache.current.clear();
+        if (fileRunning.current && touches(fileRunning.current)) fileGeneration.current += 1;
+        for (const path of fileCache.current.keys())
+          if (touches(path)) fileCache.current.delete(path);
+        if (latest.current.selected && touches(latest.current.selected))
           setRevision((value) => value + 1);
-        }
         const targets = (paths ?? ["", ...latest.current.expanded]).filter(knownDirectory);
         for (let index = 0; index < targets.length; index += 4) {
           if (!lifetime.current || !latest.current.active) break;

@@ -95,8 +95,8 @@ async function filterOverrides(root: string) {
   };
 }
 
-async function usesExternalFilter(root: string, paths: string[], filters: ReadonlySet<string>) {
-  if (!filters.size || !paths.length) return false;
+async function externalFilteredPaths(root: string, paths: string[], filters: ReadonlySet<string>) {
+  if (!filters.size || !paths.length) return new Set<string>();
   const result = await git(
     root,
     ["check-attr", "-z", "--stdin", "filter"],
@@ -104,7 +104,11 @@ async function usesExternalFilter(root: string, paths: string[], filters: Readon
     4 * fileLimit,
   );
   if (result.code !== 0) throw new Error("Could not read repository file attributes.");
-  return result.text.split("\0").some((value, index) => index % 3 === 2 && filters.has(value));
+  const fields = result.text.split("\0");
+  const filtered = new Set<string>();
+  for (let index = 0; index + 2 < fields.length; index += 3)
+    if (filters.has(fields[index + 2])) filtered.add(fields[index].replace(/^\.\//, ""));
+  return filtered;
 }
 
 async function hasRepository(root: string) {
@@ -260,18 +264,37 @@ export async function readRepositoryChanges(root: string): Promise<RepositoryCha
     if (overrides.names.size) {
       const tracked = await git(
         root,
-        ["ls-files", "--cached", "-z", "--", "."],
+        [
+          "ls-files",
+          "--cached",
+          "--deduplicate",
+          "-z",
+          "--",
+          ".",
+          ":(exclude,attr:!filter)**",
+          ":(exclude,attr:-filter)**",
+        ],
         undefined,
         4 * fileLimit,
+        view,
+        "attributes",
       );
       if (tracked.code !== 0) throw new Error("Could not read tracked file attributes.");
       filterPaths = [...new Set([...filterPaths, ...tracked.text.split("\0").filter(Boolean)])];
     }
-    if (await usesExternalFilter(root, filterPaths, overrides.names))
-      throw new Error(
-        "Changes involving external Git filters cannot be determined safely. Review them in your editor.",
-      );
-    return { repository: true, head: view.head, changes };
+    const entries = new Map<string, RepositoryChange>(
+      changes.map((change) => [change.path, change]),
+    );
+    for (const path of await externalFilteredPaths(root, filterPaths, overrides.names)) {
+      if (!repositoryPathSchema.safeParse(path).success) continue;
+      entries.set(path, {
+        ...(entries.get(path) ?? { path, previousPath: null, status: "modified" as const }),
+        filtered: true,
+      });
+      if (entries.size > 20000)
+        throw new Error("This repository has more than 20,000 changed or filtered files.");
+    }
+    return { repository: true, head: view.head, changes: [...entries.values()] };
   } finally {
     await closeGitView(view);
   }
@@ -339,7 +362,7 @@ export async function readRepositoryFile(
     const index = await readGit(["ls-files", "--unmerged", "-z", "--", path]);
     if (index.code === 0 && index.text) return unavailable("conflict");
     const overrides = await filterOverrides(checked.root);
-    if (await usesExternalFilter(checked.root, [path], overrides.names))
+    if ((await externalFilteredPaths(checked.root, [path], overrides.names)).size)
       return unavailable("filtered");
     const prefixPath = prefix.text.replace(/\r?\n$/, "");
     const object = `HEAD:${prefixPath}${previousPath ?? path}`;
