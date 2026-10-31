@@ -32,14 +32,15 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
 });
 
-test("plain text resolves inline references and includes image-only attachments", () => {
+test("plain text preserves inline image positions and includes image-only attachments", () => {
+  const markdown = `![${file.name}](tidy-context://v1/image/${file.id})`;
   expect(messageClipboardText({ text: `Use [[attachment:${file.id}]]`, attachments: [file] })).toBe(
-    `Use ${file.name}`,
+    `Use ${markdown}`,
   );
   expect(messageClipboardText({ text: "Compare", attachments: [file] })).toBe(
-    `Compare\n${file.name}`,
+    `Compare\n${markdown}`,
   );
-  expect(messageClipboardText({ text: "", attachments: [file] })).toBe(file.name);
+  expect(messageClipboardText({ text: "", attachments: [file] })).toBe(markdown);
 });
 
 test("clipboard carries bounded attachment references without image bytes or preview URLs", () => {
@@ -247,4 +248,185 @@ test("replacing the draft attachments while an export is pending prevents an imp
       isRetained: () => retained,
     }),
   ).rejects.toMatchObject({ name: "AbortError" });
+});
+
+function referenceStorage() {
+  const entries = new Map<string, string>();
+  return {
+    getItem: (key: string) => entries.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      entries.set(key, value);
+    },
+  };
+}
+const plainClipboard = (text: string) => ({
+  getData: (type: string) => (type === "text/plain" ? text : ""),
+});
+
+test("Markdown references survive a plain-text round trip with edited text and duplicate filenames", () => {
+  const storage = referenceStorage();
+  const second = { ...file, id: crypto.randomUUID() };
+  const value = messageClipboardContent({
+    message: { text: `Before [[attachment:${file.id}]] after`, attachments: [file, second] },
+    projectId,
+    storage,
+  });
+  expect(value.text).toBe(
+    `Before ![${file.name}](tidy-context://v1/image/${file.id}) after\n![${second.name}](tidy-context://v1/image/${second.id})`,
+  );
+  const restored = readMessageClipboard(
+    plainClipboard(value.text.replace("Before", "Edited")),
+    storage,
+  );
+  expect(restored?.text).toBe(
+    `Edited [[attachment:${file.id}]] after\n[[attachment:${second.id}]]`,
+  );
+  expect(restored?.attachments).toEqual([file, second]);
+  expect(restored?.source.projectId).toBe(projectId);
+  expect(storage.getItem("clipboard-image-references")).not.toContain("previewUrl");
+});
+
+test("repeated Markdown images share one attachment and escaped filenames round-trip", () => {
+  const storage = referenceStorage();
+  const image = { ...file, name: "a[1]\\test.png" };
+  const value = messageClipboardContent({
+    message: { text: `[[attachment:${file.id}]] [[attachment:${file.id}]]`, attachments: [image] },
+    projectId,
+    storage,
+  });
+  expect(value.text).toContain("a\\[1\\]\\\\test.png");
+  const restored = readMessageClipboard(plainClipboard(value.text), storage);
+  expect(restored?.attachments).toEqual([image]);
+  expect(restored?.text).toBe(`[[attachment:${file.id}]] [[attachment:${file.id}]]`);
+});
+
+test("unknown, foreign-client, and mixed-project references remain ordinary text", () => {
+  const storage = referenceStorage();
+  const local = messageClipboardContent({
+    message: { text: "", attachments: [file] },
+    projectId,
+    storage,
+  });
+  expect(readMessageClipboard(plainClipboard(local.text), referenceStorage())).toBeNull();
+  const other = messageClipboardContent({
+    message: { text: "", attachments: [{ ...file, id: crypto.randomUUID() }] },
+    projectId: crypto.randomUUID(),
+    storage,
+  });
+  expect(readMessageClipboard(plainClipboard(`${local.text} ${other.text}`), storage)).toBeNull();
+  const foreign = messageClipboardContent({
+    message: { text: "", attachments: [{ ...file, id: crypto.randomUUID() }] },
+    projectId,
+    clientId: crypto.randomUUID(),
+    storage,
+  });
+  expect(readMessageClipboard(plainClipboard(foreign.text), storage)).toBeNull();
+  expect(
+    readMessageClipboard(
+      plainClipboard(`${local.text} ![unknown](tidy-context://v1/image/${crypto.randomUUID()})`),
+      storage,
+    ),
+  ).toBeNull();
+});
+
+test("the reference index is bounded and rejects corrupt storage and oversized pastes", () => {
+  const storage = referenceStorage();
+  const record = {
+    source: { clientId: clipboardClientId(), machineId: "local", projectId },
+    attachment: file,
+  };
+  storage.setItem(
+    "clipboard-image-references",
+    JSON.stringify(Array.from({ length: 500 }, () => record)),
+  );
+  const value = messageClipboardContent({
+    message: { text: "", attachments: [{ ...file, id: crypto.randomUUID() }] },
+    projectId,
+    storage,
+  });
+  expect(JSON.parse(storage.getItem("clipboard-image-references") ?? "[]")).toHaveLength(500);
+  expect(
+    readMessageClipboard(plainClipboard(" ".repeat(1_100_001) + value.text), storage),
+  ).toBeNull();
+  storage.setItem("clipboard-image-references", "{");
+  expect(readMessageClipboard(plainClipboard(value.text), storage)).toBeNull();
+  storage.setItem(
+    "clipboard-image-references",
+    JSON.stringify([{ ...record, attachment: { ...file, size: -1 } }]),
+  );
+  expect(readMessageClipboard(plainClipboard(value.text), storage)).toBeNull();
+});
+
+test("a plain-text reference restores actual image bytes through project imports", async () => {
+  const { store, source, destination, image, api } = await storageFixture();
+  const storage = referenceStorage();
+  const value = messageClipboardContent({
+    message: { text: "Image", attachments: [image] },
+    projectId: source.id,
+    storage,
+  });
+  const message = readMessageClipboard(plainClipboard(value.text), storage);
+  if (!message) throw new Error("Plain-text reference was rejected");
+  const imported = await importMessageAttachment({
+    source: api,
+    target: api,
+    message,
+    file: message.attachments[0],
+    projectId: destination.id,
+    signal: new AbortController().signal,
+  });
+  expect(imported.id).not.toBe(image.id);
+  expect((await store.readAttachment(destination.id, imported.id)).previewUrl).toBe(
+    image.previewUrl,
+  );
+});
+
+test("non-image filenames remain readable and unavailable reference storage preserves rich copy", () => {
+  expect(
+    messageClipboardText({
+      text: "Read",
+      attachments: [{ ...file, name: "notes.txt", mimeType: "text/plain" }],
+    }),
+  ).toBe("Read\nnotes.txt");
+  const storage = {
+    getItem: () => {
+      throw new Error("Storage unavailable");
+    },
+    setItem: () => {
+      throw new Error("Storage unavailable");
+    },
+  };
+  const value = messageClipboardContent({
+    message: { text: "Image", attachments: [file] },
+    projectId,
+    storage,
+  });
+  expect(
+    readMessageClipboard(
+      {
+        getData: (type) =>
+          type === "text/html" ? value.html : type === "text/plain" ? value.text : "",
+      },
+      storage,
+    )?.attachments,
+  ).toEqual([file]);
+});
+
+test("plain-text references enforce attachment count and combined byte limits", () => {
+  for (const [count, size] of [
+    [11, 3],
+    [2, 13 * 1024 * 1024],
+  ]) {
+    const storage = referenceStorage();
+    const text = Array.from(
+      { length: count },
+      () =>
+        messageClipboardContent({
+          message: { text: "", attachments: [{ ...file, id: crypto.randomUUID(), size }] },
+          projectId,
+          storage,
+        }).text,
+    ).join(" ");
+    expect(readMessageClipboard(plainClipboard(text), storage)).toBeNull();
+  }
 });
