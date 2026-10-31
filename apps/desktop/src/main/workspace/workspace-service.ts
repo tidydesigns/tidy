@@ -134,6 +134,7 @@ export class WorkspaceService {
     projectId: string,
     designId: string,
     connect: boolean,
+    assertActive?: () => void,
   ) => Promise<DesignAgentSync | undefined>;
 
   private designAgent(job: Job, settings?: HarnessSettings): DesignAgentHandler {
@@ -172,7 +173,12 @@ export class WorkspaceService {
           };
           creations.set(action.requestId, creation);
         }
-        designId = (await creation.design).id;
+        try {
+          designId = (await creation.design).id;
+        } catch (error) {
+          creations.delete(action.requestId);
+          throw error;
+        }
       } else designId = action.designId;
       const design = await this.store.readDesignReference(thread.projectId, designId);
       assertActive();
@@ -214,6 +220,7 @@ export class WorkspaceService {
             thread.projectId,
             designId,
             action.kind !== "design-state" && !readOnly,
+            assertActive,
           )) ?? sync;
       }
       assertActive();

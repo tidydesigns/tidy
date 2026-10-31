@@ -230,6 +230,33 @@ test("a failed thread checkpoint retains the created design for an idempotent re
   }
 });
 
+test("a failed design creation can be retried with the same request ID", async () => {
+  const f = await fixture();
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Explore",
+    designIds: [],
+  });
+  const request = await designClient(f.runs[0].input.prompt);
+  const action = { kind: "design-create", requestId: randomUUID(), name: "Exploration" };
+  const create = f.store.createDesign.bind(f.store);
+  const failing = spyOn(f.store, "createDesign").mockRejectedValueOnce(
+    new Error("Disk unavailable"),
+  );
+  try {
+    expect((await request(action)).status).toBe(400);
+    expect(await f.store.designs(f.project.id)).toEqual([]);
+    failing.mockImplementation(create);
+    const retry = await request(action);
+    expect(retry.status).toBe(200);
+    expect((await request(action)).body.design.id).toBe(retry.body.design.id);
+    expect((await f.store.designs(f.project.id)).map((d) => d.id)).toEqual([retry.body.design.id]);
+  } finally {
+    failing.mockRestore();
+  }
+});
+
 test.each([
   ["codex", "read-only"],
   ["claude", "plan"],

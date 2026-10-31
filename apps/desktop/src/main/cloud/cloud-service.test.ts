@@ -1,6 +1,6 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, realpath, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { blankDesignDocument, buildDrawnNode } from "@tidy/design/document";
@@ -284,6 +284,77 @@ test("thread-created workspace designs connect once locally while cloud upload i
   await f.cloud.signOut();
   await expect(coordinate(workspace.project.id, disconnected.id, true)).rejects.toThrow();
 });
+
+test.each(["queued", "reading"] as const)(
+  "stopping a turn cancels a design connection while %s even before its harness exits",
+  async (phase) => {
+    let prompt = "";
+    const done = Promise.withResolvers<void>();
+    const f = await fixture((input) => {
+      prompt = input.prompt;
+      return { done: done.promise, stop() {} };
+    });
+    const workspace = await f.cloud.openWorkspace("org");
+    const projectId = workspace.project.id;
+    const design = await f.store.createDesign(projectId);
+    const other = await f.store.createDesign(projectId);
+    const thread = await f.service.startThread({
+      projectId,
+      executionProjectId: f.local.project.id,
+      harness: "codex",
+      prompt: "Open a design",
+      designIds: [],
+    });
+    const configuration = await readFile(prompt.match(/--config '([^']+)'/)![1], "utf8");
+    const url = configuration.match(/^url = "([^"]+)"/m)![1];
+    const token = configuration.match(/Bearer ([a-f0-9]{64})/)![1];
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const requested = Promise.withResolvers<void>();
+    const read = f.store.readDesign.bind(f.store);
+    const reading = spyOn(f.store, "readDesign").mockImplementation(async (...args) => {
+      if (args[1] === (phase === "queued" ? other.id : design.id) && args[2] === false) {
+        entered.resolve();
+        await release.promise;
+      }
+      return read(...args);
+    });
+    const connect = f.cloud.connectLocal.bind(f.cloud);
+    const connecting = spyOn(f.cloud, "connectLocal").mockImplementation((...args) => {
+      const result = connect(...args);
+      if (args[1] === design.id) requested.resolve();
+      return result;
+    });
+    let busy: Promise<void> | undefined;
+    try {
+      if (phase === "queued") {
+        busy = f.cloud.connectLocal(projectId, other.id, "org");
+        await entered.promise;
+      }
+      const opening = fetch(url, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ kind: "design-open", designId: design.id }),
+      });
+      await requested.promise;
+      if (phase === "reading") await entered.promise;
+      await f.service.stopThread(projectId, thread.id);
+      release.resolve();
+      expect((await opening).status).toBe(400);
+      await busy;
+      expect((await f.cloud.state()).bindings.some((b) => b.designId === design.id)).toBe(false);
+      expect(await f.store.readDesignReference(projectId, design.id)).toMatchObject({
+        id: design.id,
+      });
+    } finally {
+      release.resolve();
+      done.resolve();
+      await busy;
+      reading.mockRestore();
+      connecting.mockRestore();
+    }
+  },
+);
 
 for (const access of [
   "same account",

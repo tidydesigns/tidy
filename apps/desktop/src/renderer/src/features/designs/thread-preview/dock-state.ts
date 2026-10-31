@@ -11,6 +11,7 @@ export type ThreadCanvasDock = {
   ids: string[];
   openIds: string[];
   geometry: Record<string, CanvasGeometry>;
+  revealedId?: string;
 };
 
 export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
@@ -46,7 +47,9 @@ export function parseCanvasDock(raw: string | null): ThreadCanvasDock {
         if (candidate.success) geometry[id] = candidate.data;
       }
     }
-    return { ids, openIds, geometry };
+    const revealedId =
+      "revealedId" in value && typeof value.revealedId === "string" ? value.revealedId : undefined;
+    return { ids, openIds, geometry, ...(revealedId ? { revealedId } : {}) };
   } catch {
     return empty;
   }
@@ -69,5 +72,19 @@ export function toggleCanvas(state: ThreadCanvasDock, id: string): ThreadCanvasD
     openIds: state.openIds.includes(id)
       ? state.openIds.filter((value) => value !== id)
       : [...state.openIds, id],
+  };
+}
+
+/** Remember consumption with the thread's dock state so navigation cannot replay a reveal. */
+export function revealCanvas(
+  state: ThreadCanvasDock,
+  reveal: { id: string; designId: string },
+): ThreadCanvasDock {
+  if (state.revealedId === reveal.id) return state;
+  const next = discoverCanvases(state, [reveal.designId]);
+  return {
+    ...next,
+    revealedId: reveal.id,
+    openIds: [...next.openIds.filter((id) => id !== reveal.designId), reveal.designId],
   };
 }
