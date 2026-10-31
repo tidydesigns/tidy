@@ -1,3 +1,4 @@
+import { createConnection } from "node:net";
 import { spawn } from "node:child_process";
 import { afterEach, expect, test } from "bun:test";
 import {
@@ -135,8 +136,25 @@ test.skipIf(process.platform === "win32")(
       }
       expect(port).toBeTruthy();
       parent.kill("SIGKILL");
-      await new Promise((resolve) => setTimeout(resolve, 500));
-      await expect(fetch(`http://127.0.0.1:${port}`)).rejects.toThrow();
+      let closed = false;
+      const cleanupDeadline = Date.now() + 2500;
+      while (!closed && Date.now() < cleanupDeadline) {
+        closed = await new Promise<boolean>((resolve) => {
+          const socket = createConnection({ host: "127.0.0.1", port: Number(port) });
+          const finish = (value: boolean) => {
+            socket.destroy();
+            resolve(value);
+          };
+          socket.setTimeout(250);
+          socket.once("connect", () => finish(false));
+          socket.once("timeout", () => finish(false));
+          socket.once("error", (error: NodeJS.ErrnoException) =>
+            finish(error.code === "ECONNREFUSED"),
+          );
+        });
+        if (!closed) await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      expect(closed).toBe(true);
     } finally {
       parent.kill("SIGKILL");
     }

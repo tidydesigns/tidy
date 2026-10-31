@@ -11,16 +11,18 @@ const execute = promisify(execFile);
 const discoverySupervisor = `
 tidy_parent=$1
 shift
-trap 'kill -KILL -- -$$ 2>/dev/null' 0 1 2 15
+trap '/bin/kill -KILL -- -$$ 2>/dev/null' 0 1 2 15
 "$@" &
 tidy_agent=$!
 (
   tidy_checks=0
-  while kill -0 "$tidy_parent" 2>/dev/null && [ "$tidy_checks" -lt 45 ]; do
-    sleep 0.2
+  while [ "$tidy_checks" -lt 45 ]; do
+    tidy_actual_parent=$(/bin/ps -o ppid= -p $$)
+    [ "$tidy_actual_parent" -eq "$tidy_parent" ] || break
+    /bin/sleep 0.2
     tidy_checks=$((tidy_checks + 1))
   done
-  kill -KILL -- -$$ 2>/dev/null
+  /bin/kill -KILL -- -$$ 2>/dev/null
 ) &
 wait "$tidy_agent"
 `;
