@@ -7,23 +7,23 @@ import type { ProjectSetupResult } from "../../../shared/contracts/workspace-res
 import type { WorkspaceMachine } from "../../../shared/remote";
 import { App } from "./app";
 import { NavigationScope, useSessionState } from "./session-state";
+import type { WorkspaceTarget } from "./navigation-state";
 import { readNavigation, writeNavigation } from "./navigation-storage";
 import { machineIdSchema } from "../../../shared/remote";
 import { chooseBrowserProject } from "../platform/browser-project-picker";
 import { ProjectSetupDialog } from "../features/composer/project-setup-dialog";
+import { useCloudReferenceCatalogs } from "../features/composer/cloud-reference-catalogs";
+import { DraftStore } from "../features/composer/draft-store";
 import { useCloud } from "../features/cloud/use-cloud";
 import { useDesktopDiagnostics } from "../features/settings/use-diagnostics";
-import type {
-  Draft,
-  MachineSelection,
-  PreparedWorkspace,
-} from "../features/composer/machine-context";
+import type { MachineSelection, PreparedWorkspace } from "../features/composer/machine-context";
 
 const local: WorkspaceMachine = { id: "local", label: "This machine", status: null };
 
 export function MachineWorkspace() {
   useDesktopDiagnostics(window.tidy?.analytics);
   const cloud = useCloud(window.tidy?.cloud);
+  const cloudReferences = useCloudReferenceCatalogs(window.tidy?.cloud, cloud.account);
   const bridge = window.tidyMachines;
   const [machines, setMachines] = useState<WorkspaceMachine[]>([local]);
   const [id, setId] = useSessionState("machine", machineIdSchema, "local");
@@ -40,11 +40,15 @@ export function MachineWorkspace() {
     }
   });
   const [prepared, setPrepared] = useState<PreparedWorkspace>();
+  const [cloudTarget, setCloudTarget] = useState<WorkspaceTarget>();
+  useEffect(() => {
+    if (id === "local") setCloudTarget(undefined);
+  }, [id]);
   const [setup, setSetup] = useState<{
     id: string;
     source: MachineSelection | null;
   } | null>(null);
-  const drafts = useRef(new Map<string, Record<string, Draft>>());
+  const drafts = useRef(new DraftStore());
   const browserDrafts = useRef<BrowserDraftCache>(new Map());
   const machineLabels = useRef(machines);
   machineLabels.current = machines;
@@ -172,6 +176,8 @@ export function MachineWorkspace() {
           draftCache={drafts.current}
           browserDraftCache={browserDrafts.current}
           cloud={cloud}
+          cloudReferences={cloudReferences}
+          initialCloudTarget={id === "local" ? cloudTarget : undefined}
           machine={{
             current,
             machines,
@@ -190,6 +196,20 @@ export function MachineWorkspace() {
             },
             cancelProjectNavigation: () => {
               projectNavigation.current++;
+            },
+            openCloudWorkspace: (organizationId) => {
+              if (
+                !window.tidy?.cloud ||
+                !cloud.account?.organizations.some(
+                  (organization) => organization.id === organizationId && organization.canEdit,
+                )
+              )
+                return;
+              projectNavigation.current++;
+              setCloudTarget({ kind: "cloud", accountId: cloud.account.id, organizationId });
+              setPrepared(undefined);
+              setSetup(null);
+              setId("local");
             },
             openProject: async (next, projectId) => {
               const generation = ++projectNavigation.current;
@@ -258,6 +278,13 @@ export function MachineWorkspace() {
               try {
                 writeNavigation({ storage: localStorage, key: "checkout-links", value: next });
               } catch {}
+            }
+            if (value.draft && project) {
+              const draft = value.draft;
+              drafts.current.update(setup.id, (current) => ({
+                ...current,
+                [`${project.id}:new`]: draft,
+              }));
             }
             setPrepared(value);
             setId(setup.id);

@@ -1,3 +1,4 @@
+import type { DraftCloudReference } from "./cloud-reference";
 import {
   draftImportSchema,
   MAX_DRAFT_IMPORT_BYTES,
@@ -20,6 +21,7 @@ export type Draft = {
   harness: HarnessId;
   designIds: string[];
   cloudFileIds?: string[];
+  cloudReferences?: DraftCloudReference[];
   executionProjectId?: string;
   settings?: HarnessSettings;
   attachments?: AttachedFile[];
@@ -37,6 +39,7 @@ export type MachineContext = {
   cancelProjectNavigation(): void;
   projects(id: string, refresh?: boolean): Promise<Project[]>;
   openProject(id: string, projectId?: string): Promise<void>;
+  openCloudWorkspace(organizationId: string): void;
   removeProject?(id: string, projectId: string): Promise<void>;
 };
 export type PreparedWorkspace = {
@@ -117,6 +120,7 @@ export async function copyDraft({
       attachments: imported?.attachments ?? [],
       designIds: imported?.designIds ?? [],
       cloudFileIds: undefined,
+      cloudReferences: undefined,
       executionProjectId: undefined,
       skill: undefined,
     },

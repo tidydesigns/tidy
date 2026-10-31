@@ -25,6 +25,11 @@ void app.whenReady().then(async () => {
     );
     const cases = z.array(z.string()).min(1).parse(result);
     for (const name of cases) console.info(`PASS: ${name}`);
+    window.setSize(480, 480);
+    const viewportResult: unknown = await window.webContents.executeJavaScript(
+      "window.runReferenceViewportTests()",
+    );
+    for (const name of z.array(z.string()).parse(viewportResult)) console.info(`PASS: ${name}`);
     window.destroy();
     app.exit(0);
   } catch (error) {

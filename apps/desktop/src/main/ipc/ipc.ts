@@ -35,6 +35,7 @@ import {
   cloudStateSchema,
   cloudCatalogSchema,
   cloudOpenedSchema,
+  cloudReferenceSchema,
   cloudThumbnailSchema,
   cloudAvatarSchema,
   type CloudAPI,
@@ -79,6 +80,10 @@ export function registerCloudIPC(
     "open-workspace": endpoint(z.tuple([org]), projectSnapshotSchema, (id) =>
       cloud.openWorkspace(id),
     ),
+    "export-reference": endpoint(z.tuple([org, z.uuid()]), cloudReferenceSchema, (id, file) => {
+      if (!cloud.exportReference) throw new Error("Update Tidy to use cloud design references.");
+      return cloud.exportReference(id, file);
+    }),
     "open-file": endpoint(z.tuple([org, z.uuid()]), cloudOpenedSchema, (id, file) =>
       cloud.openFile(id, file),
     ),

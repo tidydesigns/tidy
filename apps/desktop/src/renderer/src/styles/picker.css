@@ -1,0 +1,101 @@
+.desktop-picker.desktop-picker {
+  width: 248px;
+  max-width: calc(100vw - 16px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-ink) 11%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--desktop-surface) 98%, var(--color-ink));
+  color: var(--color-ink);
+  font-family: system-ui, sans-serif;
+  box-shadow:
+    0 2px 5px #0000000d,
+    0 12px 32px #00000026,
+    inset 0 1px 0 color-mix(in srgb, var(--color-ink) 4%, transparent);
+}
+.picker-search {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 7px;
+  padding: 7px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
+  color: var(--color-muted-ink);
+}
+.picker-search > svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.picker-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+}
+.picker-search input::placeholder {
+  color: var(--color-muted-ink);
+}
+.desktop-picker :is(.select-menu-options, .machine-project-list) {
+  padding: 4px;
+}
+.desktop-picker :is(.machine-project-row, [role="menuitemcheckbox"]) {
+  min-height: 36px;
+  gap: 7px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+}
+.desktop-picker :is(.picker-label, [data-slot="select-menu-label"]) {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: -0.012em;
+}
+.desktop-picker :is(.picker-description, [data-slot="select-menu-description"]) {
+  display: block;
+  margin-top: 0;
+  overflow: hidden;
+  color: var(--color-muted-ink);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.desktop-picker .select-menu-option-row {
+  border-radius: 5px;
+}
+.desktop-picker .select-menu-option-row:has([aria-checked="true"]),
+.desktop-picker .machine-project-row[aria-current="page"] {
+  background: color-mix(in srgb, var(--color-ink) 4.5%, transparent);
+}
+.desktop-picker .select-menu-option-row:focus-within {
+  background: color-mix(in srgb, var(--color-ink) 7%, transparent);
+}
+.desktop-picker :is([role="menuitemcheckbox"], .machine-project-row):focus-visible {
+  outline: 1px solid var(--color-control-border);
+  outline-offset: -1px;
+}
+.desktop-picker .machine-project-add {
+  gap: 7px;
+  border-radius: 5px;
+  padding-inline: 8px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .desktop-picker .select-menu-option-row:has(button:enabled):hover,
+  .desktop-picker .machine-project-row:enabled:hover,
+  .desktop-picker .machine-project-add:enabled:hover {
+    background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  }
+}

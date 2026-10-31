@@ -19,8 +19,15 @@ import {
 } from "../styles/code-ui";
 import { z } from "zod";
 import { useSessionState } from "./session-state";
-import { selectionSchema } from "./navigation-state";
+import { selectionSchema, type WorkspaceTarget } from "./navigation-state";
 import { useWorkspaceNavigation } from "./use-workspace-navigation";
+import type { CloudReferenceLibrary } from "../features/composer/cloud-reference-catalogs";
+import { useDraftStore, type DraftStore } from "../features/composer/draft-store";
+import {
+  toggleProjectCloudReference,
+  retryProjectCloudReference,
+  type CloudDesignReference,
+} from "../features/composer/cloud-reference";
 import { ComposerContext } from "../features/composer/composer-context";
 import type {
   Draft,
@@ -114,13 +121,17 @@ export function App({
   draftCache,
   browserDraftCache,
   cloud,
+  initialCloudTarget,
+  cloudReferences,
 }: {
   workspaceAPI?: DesktopAPI;
   machine?: MachineContext;
   initial?: PreparedWorkspace;
-  draftCache?: Map<string, Record<string, Draft>>;
+  draftCache?: DraftStore;
   browserDraftCache?: BrowserDraftCache;
   cloud: CloudConnection;
+  cloudReferences: CloudReferenceLibrary;
+  initialCloudTarget?: WorkspaceTarget;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
   const cloudLibrary = useMemo(
@@ -147,6 +158,7 @@ export function App({
   } = useWorkspaceNavigation({
     cloud,
     hasCloudAPI: Boolean(api?.cloud),
+    initialTarget: initialCloudTarget,
   });
   const [cloudCanvas, setCloudCanvas] = useState(false);
   const [threadQueries, setThreadQueries] = useState<Record<string, string>>({});
@@ -175,15 +187,11 @@ export function App({
   );
   const [selectedThreads, setSelectedThreads] = useSessionState("threads", selectionSchema, {});
   const [selectedDesigns, setSelectedDesigns] = useSessionState("designs", selectionSchema, {});
-  const [drafts, setDrafts] = useState<Record<string, Draft>>(() => ({
-    ...draftCache?.get(machine?.current.id ?? "local"),
-    ...(initial?.draft && initial.bootstrap.activeProject
-      ? { [`${initial.bootstrap.activeProject.project.id}:new`]: initial.draft }
-      : {}),
-  }));
-  useLayoutEffect(() => {
-    if (machine) draftCache?.set(machine.current.id, drafts);
-  }, [drafts, machine?.current.id, draftCache]);
+  const {
+    drafts,
+    setDrafts,
+    store: draftStore,
+  } = useDraftStore(draftCache, machine?.current.id ?? "local");
   useLayoutEffect(() => {
     const project = initial?.bootstrap.activeProject?.project;
     if (!initial?.draft || !project) return;
@@ -325,29 +333,29 @@ export function App({
     projectId: executionProject?.id,
     onError: reportRepositoryError,
   });
-  const referenceDesignIds = useMemo(
-    () =>
-      location === "cloud"
-        ? (draft.cloudFileIds ?? []).flatMap((fileId) => {
-            const binding = cloud.state?.bindings.find(
-              (item) => item.projectId === project?.id && item.fileId === fileId,
-            );
-            return binding && snapshot?.designs.some((design) => design.id === binding.designId)
-              ? [binding.designId]
-              : [];
-          })
-        : draft.designIds,
-    [
-      location,
-      draft.cloudFileIds,
-      draft.designIds,
-      cloud.state?.bindings,
-      project?.id,
-      snapshot?.designs,
-    ],
-  );
+  const workspaceReferenceIds =
+    location === "cloud"
+      ? (draft.cloudFileIds ?? []).flatMap((fileId) => {
+          const binding = cloud.state?.bindings.find(
+            (item) => item.projectId === project?.id && item.fileId === fileId,
+          );
+          return binding && snapshot?.designs.some((design) => design.id === binding.designId)
+            ? [binding.designId]
+            : [];
+        })
+      : draft.designIds;
+  const referenceDesignIds = [
+    ...new Set([
+      ...workspaceReferenceIds,
+      ...(draft.cloudReferences ?? []).flatMap((reference) =>
+        reference.kind === "ready" ? [reference.designId] : [],
+      ),
+    ]),
+  ];
   const referencesReady =
-    location !== "cloud" || referenceDesignIds.length === (draft.cloudFileIds?.length ?? 0);
+    (location !== "cloud" || workspaceReferenceIds.length === (draft.cloudFileIds?.length ?? 0)) &&
+    (draft.cloudReferences ?? []).every((reference) => reference.kind === "ready");
+  const referenceFailure = draft.cloudReferences?.some((reference) => reference.kind === "error");
   const executionReady = Boolean(executionProject);
   const designSnapshot = useMemo(
     () => (snapshot && !snapshot.project.cloud ? { ...snapshot, threads: [] } : undefined),
@@ -906,6 +914,35 @@ export function App({
           setError({ projectId, text: errorText(cause), original: cause });
         });
     }
+  }
+
+  const cloudReferenceTarget =
+    api && project && window.tidy
+      ? {
+          store: draftStore,
+          machineId: machine?.current.id ?? "local",
+          draftKey,
+          projectId: project.id,
+          fallback: draft,
+          source: window.tidy,
+          target: api,
+        }
+      : undefined;
+  function toggleCloudReference(reference: CloudDesignReference) {
+    if (!cloudReferenceTarget || selectedThreadId) return;
+    const existing = draft.cloudReferences?.some(
+      (item) =>
+        item.accountId === reference.accountId &&
+        item.organizationId === reference.organizationId &&
+        item.fileId === reference.fileId,
+    );
+    if (!existing && ((machine && !machine.connected) || reference.accountId !== cloud.account?.id))
+      return;
+    toggleProjectCloudReference({ ...cloudReferenceTarget, reference });
+  }
+  function retryCloudReference(token: string) {
+    if (!cloudReferenceTarget || selectedThreadId || (machine && !machine.connected)) return;
+    retryProjectCloudReference({ ...cloudReferenceTarget, token });
   }
 
   const executionContext = project?.cloud
@@ -1606,12 +1643,15 @@ export function App({
                       : undefined
                   }
                   cloudId={target?.kind === "cloud" ? target.organizationId : undefined}
-                  cloudWorkspaces={
-                    api?.cloud
-                      ? (cloud.account?.organizations ?? []).filter((item) => item.canEdit)
-                      : []
-                  }
-                  onCloudChange={selectCloudWorkspace}
+                  cloudWorkspaces={(cloud.account?.organizations ?? []).filter(
+                    (item) => item.canEdit,
+                  )}
+                  onCloudChange={(organizationId) => {
+                    navigation.current++;
+                    machine?.cancelProjectNavigation();
+                    if (api?.cloud) selectCloudWorkspace(organizationId);
+                    else machine?.openCloudWorkspace(organizationId);
+                  }}
                   onCancelNavigation={() => {
                     navigation.current++;
                     setOpening(false);
@@ -2042,6 +2082,7 @@ export function App({
                             ? {
                                 label: machine.current.label,
                                 value: machine.current.id,
+                                disabled: !referencesReady,
                                 options: machine.machines,
                                 onChange: (id) => {
                                   if (!project || !executionProject) return;
@@ -2055,6 +2096,30 @@ export function App({
                             : undefined
                         }
                         execution={executionContext}
+                        cloudReferences={{
+                          library: {
+                            ...cloudReferences,
+                            workspaces: cloudReferences.workspaces.filter(
+                              (workspace) =>
+                                location !== "cloud" || workspace.id !== cloudOrganizationId,
+                            ),
+                          },
+                          selected: draft.cloudReferences ?? [],
+                          onToggle: toggleCloudReference,
+                          onRetry: retryCloudReference,
+                          unavailableReason:
+                            machine && !machine.connected
+                              ? "Reconnect this machine to add cloud references."
+                              : !api?.importDraft || !window.tidy?.cloud?.exportReference
+                                ? "Update Tidy on both machines to add cloud references."
+                                : undefined,
+                          canImport: Boolean(
+                            api?.importDraft &&
+                            window.tidy?.cloud?.exportReference &&
+                            (!machine || machine.connected) &&
+                            cloud.account?.id,
+                          ),
+                        }}
                         designs={
                           location === "cloud"
                             ? (cloudCatalogs[cloudKey]?.files ?? [])
@@ -2070,7 +2135,7 @@ export function App({
                         }
                         onBranchChange={(branch) => void switchBranch(branch)}
                         disabled={
-                          Boolean(thread) ||
+                          Boolean(selectedThreadId) ||
                           busy ||
                           opening ||
                           Boolean(uploading[draftKey]) ||
@@ -2129,7 +2194,9 @@ export function App({
                           className="attachment-progress block px-2 pt-0.5 pb-2 text-[11px] text-muted-ink"
                           role="status"
                         >
-                          Preparing design references…
+                          {referenceFailure
+                            ? "A design reference could not be prepared. Retry or remove it in Design references."
+                            : "Preparing design references…"}
                         </span>
                       )}
                       {Boolean(uploading[draftKey]) && (

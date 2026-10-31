@@ -1,6 +1,10 @@
 import { z } from "zod";
+import { draftImportSchema } from "./draft-import";
 import type { ProjectSnapshot } from "./desktop";
 import { localDesignSchema } from "./workspace-response";
+
+export const cloudReferenceSchema = draftImportSchema.shape.designs.element;
+export type CloudReferenceDesign = z.infer<typeof cloudReferenceSchema>;
 
 export const cloudAccountSchema = z.object({
   id: z.string().min(1).max(2048),
@@ -74,6 +78,7 @@ export type CloudAPI = {
   signIn(): Promise<void>;
   signOut(): Promise<void>;
   account(cachedOnly?: boolean): Promise<CloudAccount>;
+  exportReference?(organizationId: string, fileId: string): Promise<CloudReferenceDesign>;
   openWorkspace(organizationId: string): Promise<ProjectSnapshot>;
   catalog(organizationId: string, cachedOnly?: boolean): Promise<CloudCatalog>;
   openFile(organizationId: string, fileId: string): Promise<CloudOpened>;
