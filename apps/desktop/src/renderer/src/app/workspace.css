@@ -17,8 +17,7 @@
   padding: 0;
   margin: 0;
 }
-.design-navigation .design-files-home,
-.design-navigation .design-folder-link {
+.design-navigation .sidebar-item {
   display: flex;
   align-items: center;
   gap: 8px;
