@@ -56,11 +56,17 @@ export class ThreadAuthority {
   }
 
   /** Called only with trusted in-memory state after a UI action or native protocol update. */
-  async write(projectPath: string, thread: Thread, executionProjectPath?: string) {
+  async write(
+    projectPath: string,
+    thread: Thread,
+    executionProjectPath?: string,
+    changeExecution = false,
+  ) {
     const key = this.key(projectPath, thread);
     const previous = await this.read(projectPath, thread);
     if (
       previous &&
+      !changeExecution &&
       (previous.executionProjectId !== thread.executionProjectId ||
         previous.executionProjectPath !== executionProjectPath)
     )

@@ -1484,6 +1484,132 @@ test("workspace threads keep shared designs and attachments separate from each l
   expect((await store.readThread(workspace.id, first.id)).executionProjectId).toBe(project.id);
 });
 
+test("idle workspace threads can change execution projects without losing their conversation or reusing native sessions", async () => {
+  const { directory, store, service, project, runs } = await fixture();
+  const cloudRoot = join(directory, "cloud");
+  const secondRoot = join(directory, "second");
+  await mkdir(cloudRoot);
+  await mkdir(secondRoot);
+  const cloud = (await store.open(cloudRoot, "Team")).project;
+  const second = (await store.open(secondRoot)).project;
+  service.authorizeCloudProject = async () => {};
+  const design = await store.createDesign(cloud.id);
+  const attachment = await store.addAttachment(
+    cloud.id,
+    "notes.txt",
+    "data:text/plain;base64,aGVsbG8=",
+  );
+  const thread = await service.startThread({
+    projectId: cloud.id,
+    harness: "codex",
+    prompt: "Refine the design first",
+    designIds: [design.id],
+    attachmentIds: [attachment.id],
+    settings: { permissionMode: "read-only" },
+  });
+  const sessionId = randomUUID();
+  runs[0].input.onUpdate({ type: "session", id: sessionId });
+  let done = finished(service, thread.id);
+  runs[0].complete();
+  const original = await done;
+  expect(original.sessionId).toBe(sessionId);
+  // Ordinary checkpoints must never grant a different directory, even after this feature is added.
+  await expect(store.writeThread({ ...original, executionProjectId: project.id })).rejects.toThrow(
+    "execution project changed",
+  );
+  const changed = await service.setThreadExecutionProject(cloud.id, thread.id, project.id);
+  expect(changed.id).toBe(thread.id);
+  expect(changed.messages).toEqual(original.messages);
+  expect(changed.designIds).toEqual([design.id]);
+  expect(changed.settings).toEqual(original.settings);
+  expect(changed.sessionId).toBeUndefined();
+  expect(changed.revision).toBe(original.revision + 1);
+  const restarted = new ProjectStore(join(directory, "app"));
+  await restarted.initialize();
+  expect((await restarted.readThread(cloud.id, thread.id)).executionProjectId).toBe(project.id);
+  expect((await restarted.readThread(cloud.id, thread.id)).sessionId).toBeUndefined();
+  await service.sendMessage({ projectId: cloud.id, threadId: thread.id, text: "Now implement it" });
+  expect(runs[1].input.cwd).toBe(project.path);
+  expect(runs[1].input.sessionId).toBeUndefined();
+  expect(runs[1].input.prompt).toContain("Refine the design first");
+  expect(runs[1].input.prompt).toContain(design.path);
+  expect(runs[1].input.prompt).toContain("Now implement it");
+  done = finished(service, thread.id);
+  const newSessionId = randomUUID();
+  runs[1].input.onUpdate({ type: "session", id: newSessionId });
+  runs[1].complete();
+  await done;
+  // Selecting the same project preserves its session; changing it retires that session.
+  expect((await service.setThreadExecutionProject(cloud.id, thread.id, project.id)).sessionId).toBe(
+    newSessionId,
+  );
+  expect(
+    (await service.setThreadExecutionProject(cloud.id, thread.id, second.id)).executionProjectId,
+  ).toBe(second.id);
+  const designOnly = await service.setThreadExecutionProject(cloud.id, thread.id);
+  expect(designOnly.executionProjectId).toBeUndefined();
+  expect(designOnly.sessionId).toBeUndefined();
+  await service.sendMessage({ projectId: cloud.id, threadId: thread.id, text: "Back to design" });
+  expect(runs[2].input.cwd).toBe(cloud.path);
+  expect(runs[2].input.additionalDirectories).toEqual([]);
+  expect((await store.readThread(cloud.id, thread.id)).messages[0].attachments?.[0].id).toBe(
+    attachment.id,
+  );
+});
+
+test("execution changes reject active runs, local owners, invalid targets, revoked access and edited bindings", async () => {
+  const { directory, store, service, project, runs } = await fixture();
+  await mkdir(join(directory, "cloud"));
+  const cloud = (await store.open(join(directory, "cloud"), "Team")).project;
+  service.authorizeCloudProject = async () => {};
+  const thread = await service.startThread({
+    projectId: cloud.id,
+    harness: "codex",
+    prompt: "Design",
+    designIds: [],
+  });
+  await expect(service.setThreadExecutionProject(cloud.id, thread.id, project.id)).rejects.toThrow(
+    "run to finish",
+  );
+  const done = finished(service, thread.id);
+  runs[0].complete();
+  await done;
+  await expect(service.setThreadExecutionProject(cloud.id, thread.id, cloud.id)).rejects.toThrow(
+    "local project",
+  );
+  await expect(
+    service.setThreadExecutionProject(cloud.id, thread.id, randomUUID()),
+  ).rejects.toThrow();
+  const local = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Local",
+    designIds: [],
+  });
+  const localDone = finished(service, local.id);
+  runs[1].complete();
+  await localDone;
+  await expect(service.setThreadExecutionProject(project.id, local.id)).rejects.toThrow(
+    "Only workspace threads",
+  );
+  service.authorizeCloudProject = async () => {
+    throw new Error("Access revoked");
+  };
+  await expect(service.setThreadExecutionProject(cloud.id, thread.id, project.id)).rejects.toThrow(
+    "Access revoked",
+  );
+  expect((await store.readThread(cloud.id, thread.id)).executionProjectId).toBeUndefined();
+  service.authorizeCloudProject = async () => {};
+  const current = await store.readThread(cloud.id, thread.id);
+  await writeFile(
+    await store.storagePath(cloud.id, "threads", thread.id),
+    JSON.stringify({ ...current, executionProjectId: project.id }),
+  );
+  await expect(service.setThreadExecutionProject(cloud.id, thread.id)).rejects.toThrow(
+    "execution project changed",
+  );
+});
+
 test("local threads cannot acquire another execution project and cloud targets must be local", async () => {
   const { directory, store, service, project, runs } = await fixture();
   await mkdir(join(directory, "cloud"));

@@ -480,6 +480,25 @@ export class ProjectStore {
       throw new Error("This thread's execution project changed. Start a new thread.");
   }
 
+  /** Explicit native UI action; ordinary writes still reject execution changes. */
+  async changeThreadExecution(thread: Thread, executionProjectId?: string) {
+    await this.assertThreadExecution(thread);
+    const next: Thread = {
+      ...thread,
+      executionProjectId,
+      sessionId: undefined,
+      revision: thread.revision + 1,
+    };
+    await this.authority.write(
+      this.project(thread.projectId).path,
+      next,
+      executionProjectId ? this.project(executionProjectId).path : undefined,
+      true,
+    );
+    await this.writeThread(next);
+    return next;
+  }
+
   writeThread(thread: Thread) {
     const value = threadSchema.parse(thread);
     const portable = { ...value };

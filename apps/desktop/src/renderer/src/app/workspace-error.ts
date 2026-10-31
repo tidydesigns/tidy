@@ -3,6 +3,7 @@ import {
   type BranchSwitchResult,
 } from "../../../shared/contracts/repository-context";
 import { UserFacingError, errorMessage } from "@tidy/ui/errors";
+import { sessionConflictMessages } from "../../../shared/contracts/session-conflicts";
 
 export type WorkspaceError = {
   original?: unknown;
@@ -11,7 +12,9 @@ export type WorkspaceError = {
 };
 
 export const errorText = (error: unknown) =>
-  errorMessage(error, "The operation could not be completed. Please try again.");
+  Object.values(sessionConflictMessages).find(
+    (message) => error instanceof Error && error.message === message,
+  ) ?? errorMessage(error, "The operation could not be completed. Please try again.");
 
 export function branchSwitchContext(result: BranchSwitchResult) {
   if (result.kind === "blocked") throw new UserFacingError(branchSwitchMessages[result.reason]);

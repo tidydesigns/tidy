@@ -215,7 +215,130 @@ for (const harness of harnessIdSchema.options) {
   }
 }
 
-for (const scope of ["harness", "project", "repository"] as const) {
+for (const harness of harnessIdSchema.options) {
+  test(`${harness} rejects incompatible settings before persisting them and continues background work on the same session`, async () => {
+    const { ProjectStore } = await import("../workspace/project-store");
+    const { WorkspaceService } = await import("../workspace/workspace-service");
+    const cwd = await mkdtemp(join(directory, `${harness}-background-settings-`));
+    const store = new ProjectStore(join(cwd, "private"));
+    await store.initialize();
+    const { project } = await store.open(cwd);
+    let validations = 0;
+    const service = new WorkspaceService(
+      store,
+      undefined,
+      async () => executable,
+      async () => {
+        validations++;
+      },
+    );
+    const finished = () =>
+      new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
+        const off = service.subscribe((event) => {
+          if (event.type === "thread" && event.thread.status !== "running") {
+            off();
+            resolve(event.thread);
+          }
+        });
+      });
+    try {
+      let done = finished();
+      const thread = await service.startThread({
+        projectId: project.id,
+        harness,
+        prompt: "background silent",
+        designIds: [],
+      });
+      const original = await done;
+      const pid = (await events(cwd))[0].pid;
+      for (const settings of [
+        { permissionMode: "auto" as const },
+        { model: "another-model" },
+        { effort: "high" },
+      ]) {
+        await expect(service.setThreadSettings(project.id, thread.id, settings)).rejects.toThrow(
+          "Keep its current",
+        );
+        expect((await store.readThread(project.id, thread.id)).settings).toEqual(original.settings);
+        expect((await store.readThread(project.id, thread.id)).revision).toBe(original.revision);
+      }
+      // Block before catalog/network discovery; default and explicitly selected default are equivalent.
+      expect(validations).toBe(0);
+      await service.setThreadSettings(project.id, thread.id, {
+        permissionMode: harness === "claude" ? "accept-edits" : "default",
+      });
+      done = finished();
+      await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
+      expect((await done).status).toBe("completed");
+      expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
+      expect(() => process.kill(pid, 0)).not.toThrow();
+    } finally {
+      await service.close();
+    }
+  });
+}
+
+test("a retained-session conflict leaves the follow-up unsent and can recover a previously saved incompatible setting", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "background-preflight-"));
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const finished = () =>
+    new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
+      const off = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status !== "running") {
+          off();
+          resolve(event.thread);
+        }
+      });
+    });
+  try {
+    let done = finished();
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "background silent",
+      designIds: [],
+    });
+    const original = await done;
+    const pid = (await events(cwd))[0].pid;
+    // Simulate a settings change saved by an older app while the native session is still running.
+    const incompatible = {
+      ...original,
+      settings: { permissionMode: "auto" as const },
+      revision: original.revision + 1,
+    };
+    await store.writeThread(incompatible);
+    const before = await events(cwd);
+    for (let attempt = 0; attempt < 2; attempt++)
+      await expect(
+        service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" }),
+      ).rejects.toThrow("background work");
+    const after = await store.readThread(project.id, thread.id);
+    expect(after.messages).toEqual(original.messages);
+    expect(after.status).toBe("completed");
+    expect(after.revision).toBe(incompatible.revision);
+    expect(await events(cwd)).toEqual(before);
+    // Reverting to the native session's settings is allowed even with background work.
+    await service.setThreadSettings(project.id, thread.id, {});
+    done = finished();
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
+    expect((await done).status).toBe("completed");
+    expect(new Set((await events(cwd)).map((event) => event.pid))).toEqual(new Set([pid]));
+  } finally {
+    await service.close();
+  }
+});
+
+for (const scope of ["harness", "project", "repository", "thread"] as const) {
   test(`clearing a ${scope} cancels matching queued acquisitions while preserving unrelated sends`, async () => {
     const cwd = await mkdtemp(join(directory, "scoped-clear-"));
     const sessions = new HarnessSessions();
@@ -241,7 +364,9 @@ for (const scope of ["harness", "project", "repository"] as const) {
           ? { harness: "claude" as const }
           : scope === "project"
             ? { projectIds: new Set(["cloud"]) }
-            : { directory: clearedPath }),
+            : scope === "thread"
+              ? { threadId: "cloud" }
+              : { directory: clearedPath }),
       });
       expect(await settled).toEqual([
         { status: "fulfilled", value: undefined },
@@ -328,7 +453,7 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await service.warmThread({ projectId: cloud.id, harness: "codex" });
     expect((await events(cloudPath)).some((event) => event.method === "thread/start")).toBe(true);
     const cloudDone = completed();
-    await service.startThread({
+    const backgroundThread = await service.startThread({
       projectId: cloud.id,
       executionProjectId: local.id,
       harness: "codex",
@@ -338,6 +463,10 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await cloudDone;
     expect(service.activeRunCount).toBe(1);
     const cloudPid = (await events(cwd))[0].pid;
+    await expect(service.setThreadExecutionProject(cloud.id, backgroundThread.id)).rejects.toThrow(
+      "active work",
+    );
+    expect(() => process.kill(cloudPid, 0)).not.toThrow();
     expect(service.reserveHarnessUpdate("codex")).toBeNull();
     await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
     await expect(service.removeProject(local.id)).rejects.toThrow("active work");
@@ -364,6 +493,60 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await service.removeProject(local.id);
     expect(store.projects.some((project) => project.id === local.id)).toBe(false);
     for (const pid of localPids) expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await service.close();
+  }
+});
+
+test("changing a workspace execution directory retires its native process and starts a fresh session", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "directory-switch-"));
+  const cloudPath = join(cwd, "cloud");
+  await mkdir(cloudPath);
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const local = (await store.open(cwd)).project;
+  const cloud = (await store.open(cloudPath, "Team")).project;
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  service.authorizeCloudProject = async () => {};
+  const completed = () =>
+    new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve(event.thread);
+        }
+      });
+    });
+  try {
+    let done = completed();
+    await service.startThread({
+      projectId: cloud.id,
+      harness: "codex",
+      prompt: "Initial design request",
+      designIds: [],
+    });
+    const thread = await done;
+    expect(thread.sessionId).toBeDefined();
+    const pid = (await events(cloudPath))[0].pid;
+    await service.setThreadExecutionProject(cloud.id, thread.id, local.id);
+    expect(() => process.kill(pid, 0)).toThrow();
+    done = completed();
+    await service.sendMessage({
+      projectId: cloud.id,
+      threadId: thread.id,
+      text: "Continue in the repository",
+    });
+    expect((await done).messages[0].text).toBe("Initial design request");
+    const started = await events(cwd);
+    expect(started.some((event) => event.method === "thread/start")).toBe(true);
+    expect(started.some((event) => event.method === "thread/resume")).toBe(false);
   } finally {
     await service.close();
   }

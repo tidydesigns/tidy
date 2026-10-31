@@ -5,9 +5,12 @@ import type { RunningHarness } from "./harnesses";
 import { HarnessSession } from "./interactive-harness";
 import { HarnessNotSubmittedError } from "./harness-transport";
 import type { ProcessRegistration, SessionContext, TurnInput } from "./session-types";
+import type { HarnessSettings } from "../../shared/contracts/harness-settings";
+import { sessionConflictMessages } from "../../shared/contracts/session-conflicts";
 
 type ManagedContext = SessionContext & { projectId: string };
 type SessionFilter = {
+  threadId?: string;
   harness?: HarnessId;
   projectIds?: ReadonlySet<string>;
   cwd?: string;
@@ -51,7 +54,7 @@ const contextKey = (input: ManagedContext) =>
 export class HarnessSessions {
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
-  private acquiring = new Set<{ context: ManagedContext; invalidated: boolean }>();
+  private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
     private options: { idleLimit: number; idleMs: number; backgroundSilentMs?: number } = {
@@ -74,6 +77,44 @@ export class HarnessSessions {
         harness: context.harness,
         cwd: context.cwd,
       }));
+  }
+
+  /** Reject a settings change before it can strand a retained session's background work. */
+  assertSettingsCanChange(id: string, settings: HarnessSettings) {
+    const entry = this.entries.get(id);
+    if (
+      entry?.session.available &&
+      (!entry.session.idle || entry.session.hasBackgroundWork) &&
+      contextKey({ ...entry.context, settings }) !== entry.key
+    )
+      throw new HarnessNotSubmittedError(sessionConflictMessages.settings);
+  }
+
+  private compatible(entry: Entry, context: ManagedContext) {
+    // Native upgrades move the executable symlink. Keep compatible background work
+    // on its retained process until it is safe to retire it.
+    const continuingNativeProcess =
+      entry.retireWhenIdle &&
+      contextKey({ ...context, executable: entry.context.executable }) === entry.key;
+    return (
+      !entry.invalidated &&
+      (entry.key === contextKey(context) || continuingNativeProcess) &&
+      entry.session.available &&
+      (context.sessionId !== undefined
+        ? entry.session.sessionId === context.sessionId
+        : entry.context.sessionId === undefined)
+    );
+  }
+
+  /** Preflight before adding a user message; acquisition repeats this check to close races. */
+  assertCompatible(id: string, context: ManagedContext) {
+    const entry = this.entries.get(id);
+    if (
+      entry?.session.available &&
+      (!entry.session.idle || entry.session.hasBackgroundWork) &&
+      !this.compatible(entry, context)
+    )
+      throw new HarnessNotSubmittedError(sessionConflictMessages.context);
   }
 
   private retire(id: string, entry: Entry) {
@@ -135,7 +176,7 @@ export class HarnessSessions {
       this.retire(key, item);
   }
   private acquire(id: string, context: ManagedContext, composer = false): Promise<Entry> {
-    const pending = { context, invalidated: false };
+    const pending = { id, context, invalidated: false };
     this.acquiring.add(pending);
     const operation = this.changes
       .catch(() => {})
@@ -143,24 +184,8 @@ export class HarnessSessions {
         if (pending.invalidated) throw new Error("The harness context changed. Try again.");
         const key = contextKey(context);
         let entry = this.entries.get(id);
-        // Native upgrades move the executable symlink. Existing background work may
-        // keep using its old process, but project, permissions, model and session must still match.
-        const continuingNativeProcess =
-          entry?.retireWhenIdle &&
-          contextKey({ ...context, executable: entry.context.executable }) === entry.key;
-        if (
-          entry &&
-          (entry.invalidated ||
-            (entry.key !== key && !continuingNativeProcess) ||
-            !entry.session.available ||
-            (context.sessionId !== undefined
-              ? entry.session.sessionId !== context.sessionId
-              : entry.context.sessionId !== undefined))
-        ) {
-          if (entry.session.available && (!entry.session.idle || entry.session.hasBackgroundWork))
-            throw new HarnessNotSubmittedError(
-              "Wait for background work to finish before changing this conversation's settings.",
-            );
+        this.assertCompatible(id, context);
+        if (entry && !this.compatible(entry, context)) {
           this.retire(id, entry);
           entry = undefined;
         }
@@ -322,8 +347,10 @@ export class HarnessSessions {
     ...filter
   }: SessionFilter & { idleOnly?: boolean; preserveActive?: boolean } = {}) {
     for (const pending of this.acquiring)
-      if (matches(pending.context, filter)) pending.invalidated = true;
+      if ((!filter.threadId || filter.threadId === pending.id) && matches(pending.context, filter))
+        pending.invalidated = true;
     for (const [id, entry] of this.entries) {
+      if (filter.threadId && filter.threadId !== id) continue;
       if (!matches(entry.context, filter)) continue;
       if (preserveActive && (!entry.session.idle || entry.session.hasBackgroundWork)) {
         // A versioned native install leaves this process usable until its existing work ends.

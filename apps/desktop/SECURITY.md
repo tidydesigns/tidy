@@ -75,6 +75,12 @@ as its execution directory. The local project ID and canonical path are bound in
 private thread authority; changing portable JSON cannot add, remove or redirect
 that binding. Checkpoints cannot replace a previously authorized execution path.
 The renderer supplies registered project IDs, never arbitrary paths.
+An explicit **Local project** action can replace the binding while the thread and
+its background work are idle. The native service rechecks workspace access and the
+target's canonical local path, closes that thread's retained harness, and clears its
+private native session ID. The next turn starts a fresh session with bounded recent
+conversation context and the existing permission mode. Portable JSON and ordinary
+checkpoints still cannot change the binding.
 
 Workspace actions require the current account and cached editing membership. Fresh
 account metadata replaces cached membership; offline work uses the last known
@@ -91,7 +97,7 @@ When a thread runs in a repository, its native harness also receives the workspa
 to its existing workspace-write sandbox; read-only mode remains read-only. Claude
 uses explicit `--add-dir` arguments with its chosen permission mode. Neither action
 grants access to the cache's parent directory or cloud credential storage. Native
-session resumption, skills, model discovery and branch guards use the fixed local
+session resumption, skills, model discovery and branch guards use the selected local
 execution project; transcripts and selected designs retain their workspace owner.
 
 ## Harness maintenance

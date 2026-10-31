@@ -23,6 +23,7 @@ import {
 } from "../repository/repository-context";
 import { HarnessSkills } from "../harnesses/harness-skills";
 import { summarizeThread } from "../../shared/models/thread-updates";
+import { threadHistoryContext } from "../../shared/models/thread-context";
 import {
   approvalDecisionSchema,
   validatePermissionMode,
@@ -251,7 +252,14 @@ export class WorkspaceService {
     const thread = input.threadId
       ? await this.store.readThread(input.projectId, input.threadId)
       : undefined;
-    if (thread && (thread.doneAt || this.jobs.has(thread.id) || !thread.sessionId)) return;
+    if (
+      thread &&
+      (thread.doneAt ||
+        this.starting.has(thread.id) ||
+        this.jobs.has(thread.id) ||
+        !thread.sessionId)
+    )
+      return;
     const binding = thread ?? input;
     if (this.updatingHarnesses.has(binding.harness)) return;
     const owner = this.store.project(input.projectId);
@@ -640,6 +648,48 @@ export class WorkspaceService {
     }
   }
 
+  /** A UI-authorized directory change must never resume the old native session. */
+  setThreadExecutionProject(projectId: string, threadId: string, executionProjectId?: string) {
+    return this.serialize(threadId, async () => {
+      if (this.closing) throw new Error("Tidy is closing.");
+      if (this.starting.has(threadId) || this.jobs.has(threadId))
+        throw new Error("Wait for this run to finish before changing its project.");
+      this.starting.set(threadId, projectId);
+      this.executionProjects.set(threadId, executionProjectId ?? projectId);
+      try {
+        await this.assertProjectAccess(projectId);
+        const thread = await this.store.readThread(projectId, threadId);
+        if (!this.store.project(projectId).cloud)
+          throw new Error("Only workspace threads can change their execution project.");
+        const target = this.executionProject({ projectId, executionProjectId });
+        if (thread.executionProjectId === executionProjectId) return thread;
+        if (
+          thread.status === "running" ||
+          this.sessions.backgroundContexts.some((item) => item.threadId === threadId)
+        )
+          throw new Error(
+            "Wait for this thread's active work to finish before changing its project.",
+          );
+        if (this.repositoryChanges.size)
+          throw new Error(
+            "Wait for the branch switch to finish before changing this thread's project.",
+          );
+        if ((await realpath(target.path)) !== target.path)
+          throw new Error("The execution project directory moved. Open it again.");
+        this.sessionGeneration++;
+        await this.sessions.clear({ threadId });
+        await this.assertProjectAccess(projectId);
+        if (this.closing) throw new Error("Tidy is closing.");
+        const next = await this.store.changeThreadExecution(thread, executionProjectId);
+        this.emit({ type: "thread", thread: next });
+        return next;
+      } finally {
+        this.starting.delete(threadId);
+        this.executionProjects.delete(threadId);
+      }
+    });
+  }
+
   /** Validate settings and reject delayed requests once shutdown begins. */
   setThreadSettings(projectId: string, threadId: string, settings: HarnessSettings) {
     return this.serialize(threadId, () => this.setThreadSettingsNow(projectId, threadId, settings));
@@ -658,8 +708,10 @@ export class WorkspaceService {
       const thread = await this.store.readThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
       await this.assertProjectAccess(projectId);
+      this.sessions.assertSettingsCanChange(threadId, settings);
       await this.configure(thread.harness, this.executionProject(thread).path, settings);
       if (this.closing) throw new Error("Tidy is closing.");
+      this.sessions.assertSettingsCanChange(threadId, settings);
       thread.settings = settings;
       thread.revision++;
       await this.store.writeThread(thread);
@@ -997,6 +1049,21 @@ export class WorkspaceService {
     ]);
     if (!executable)
       throw new Error(`Install ${harnessNames[thread.harness]} and sign in with its CLI first.`);
+    const [designDirectory, assetDirectory] = await Promise.all([
+      this.store.storagePath(owner.id, "designs"),
+      this.store.storagePath(owner.id, "assets"),
+    ]);
+    const additionalDirectories = owner.id !== project.id ? [designDirectory, assetDirectory] : [];
+    this.sessions.assertCompatible(thread.id, {
+      projectId: owner.id,
+      harness: thread.harness,
+      executable,
+      cwd: project.path,
+      additionalDirectories,
+      sessionId: thread.sessionId,
+      settings: thread.settings,
+      superviseParent: this.superviseHarnessParent,
+    });
     const skill = skillId
       ? await this.skills.resolve({
           harness: thread.harness,
@@ -1005,14 +1072,15 @@ export class WorkspaceService {
           prompt,
         })
       : undefined;
-    const designDirectory = await this.store.storagePath(owner.id, "designs");
-    const assetDirectory = await this.store.storagePath(owner.id, "assets");
     const context = [
       `The working directory is ${JSON.stringify(project.path)}.`,
       owner.cloud
         ? `You are working with designs in a synced Tidy workspace. Design files live in ${JSON.stringify(designDirectory)} and image assets in ${JSON.stringify(assetDirectory)}. Edit those original files; the desktop app syncs their changes. Conversations and repository files stay local.`
         : "You are working in a local Tidy project. The working directory is the project root.",
       "Each design JSON contains { id, name, folderId, document }; preserve id, name and folderId when editing document. document uses Tidy's shared DesignDocument schema (schemaVersion 1). Design paths remain stable when files move between folders.",
+      ...(!thread.sessionId && thread.messages.length
+        ? [threadHistoryContext(thread.messages)]
+        : []),
       ...(!owner.cloud
         ? [
             "Project designs live in .tidy/designs/*.json. Folder metadata lives in .tidy/folders/<id>.json; folderId is a local folder ID or null.",
@@ -1039,7 +1107,7 @@ export class WorkspaceService {
       images,
       attachments,
       project,
-      additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+      additionalDirectories,
       prompt: `${context}\n\nUser request:\n\n${prompt || "Review the attached files."}`,
       skill: skill ? { invocation: skill, context, prompt } : undefined,
     };

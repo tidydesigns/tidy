@@ -74,6 +74,7 @@ export function createDemoAPI(): DesktopAPI {
   let branch = "main";
   return {
     threadPorts: async () => [],
+    setThreadExecutionProject: unsupported,
     stopThreadPort: unsupported,
     customTitlebar: true,
     readVideoChunk: unsupported,
