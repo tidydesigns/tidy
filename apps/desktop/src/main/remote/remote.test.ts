@@ -1037,7 +1037,7 @@ test("browser paste tolerates bounded socket pressure while other input remains 
   }
 });
 
-test("remote video preview transfers authenticated project bytes and rejects another thread's files", async () => {
+test("remote video previews transfer external host files and enforce thread ownership", async () => {
   const f = await fixture();
   const { client } = f.client();
   await until(() => client.status.kind === "connected");
@@ -1048,8 +1048,9 @@ test("remote video preview transfers authenticated project bytes and rejects ano
     designIds: [],
   });
   const data = Buffer.alloc(512 * 1024 + 13, 21);
-  await writeFile(join(f.projectPath, "demo.webm"), data);
-  const input = { projectId: f.project.id, threadId: thread.id, href: "demo.webm", offset: 0 };
+  const href = join(f.root, "temporary recording.webm");
+  await writeFile(href, data);
+  const input = { projectId: f.project.id, threadId: thread.id, href, offset: 0 };
   const first = await client.operation("read-video-chunk", input);
   const second = await client.operation("read-video-chunk", {
     ...input,

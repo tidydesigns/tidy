@@ -121,22 +121,17 @@ test("opening a file resolves it within the project and strips navigation positi
   expect(f.opened).toEqual([]);
 });
 
-test("file traversal and symlink escapes cannot cross the project boundary", async () => {
+test("file links reveal referenced files outside the project", async () => {
   const f = await fixture();
   const outside = join(f.directory, "private.ts");
   await writeFile(outside, "private");
   await symlink(outside, join(f.root, "linked.ts"));
   await mkdir(join(f.root, "folder.ts"));
-  for (const href of [
-    "../private.ts",
-    "..%2fprivate.ts",
-    outside,
-    "linked.ts",
-    "folder.ts",
-    "missing.ts",
-  ])
+  for (const href of ["../private.ts", "..%2fprivate.ts", outside, "linked.ts"])
+    await openChatLink({ ...f, href });
+  expect(f.revealed).toEqual([outside, outside, outside, outside]);
+  for (const href of ["folder.ts", "missing.ts"])
     await expect(openChatLink({ ...f, href })).rejects.toThrow();
-  expect(f.revealed).toEqual([]);
   expect(f.opened).toEqual([]);
 });
 
@@ -225,7 +220,7 @@ test("remote chat links cannot reveal local files or launch unsupported protocol
   expect(f.revealed).toEqual([]);
 });
 
-test("reused local backend file links use its project root and retain path confinement", async () => {
+test("reused local backend file links resolve on the connected local machine", async () => {
   const f = await fixture();
   const projectId = crypto.randomUUID();
   let lookups = 0;
@@ -248,14 +243,10 @@ test("reused local backend file links use its project root and retain path confi
   expect(f.revealed).toEqual([f.file]);
   const outside = join(f.directory, "private.ts");
   await writeFile(outside, "private");
-  await symlink(outside, join(f.root, "linked.ts"));
-  for (const href of ["../private.ts", "linked.ts", "missing.ts"])
-    await expect(
-      openConnectedChatLink({
-        input: { projectId, href },
-        platform: f.platform,
-        getLocalProjectRoot,
-      }),
-    ).rejects.toThrow();
-  expect(f.revealed).toEqual([f.file]);
+  await openConnectedChatLink({
+    input: { projectId, href: outside },
+    platform: f.platform,
+    getLocalProjectRoot,
+  });
+  expect(f.revealed).toEqual([f.file, outside]);
 });

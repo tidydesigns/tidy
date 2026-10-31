@@ -1881,7 +1881,9 @@ test("video previews resolve the authorized thread execution project and recheck
   const chunk = videoChunkSchema.parse(result);
   expect(Buffer.from(chunk.data, "base64").toString()).toBe("execution recording");
   allowed = false;
-  await expect(requests.invoke("read-video-chunk", input, undefined)).rejects.toThrow("revoked");
+  await expect(
+    requests.invoke("read-video-chunk", { ...input, href: join(cloudRoot, "demo.mp4") }, undefined),
+  ).rejects.toThrow("revoked");
 });
 
 test("video continuation chunks reuse validated summaries without transcript reads or clones", async () => {

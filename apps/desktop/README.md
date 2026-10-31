@@ -158,6 +158,12 @@ See [backend installation and connection setup](REMOTE.md).
 
 ## Projects and threads
 
+Chat file links and video previews support files outside the project, including
+temporary recordings. They accept absolute paths, `file://` URLs, `~/` home paths
+and project-relative paths. Video paths resolve on the machine running the thread,
+relative to its execution project. Remote file links do not open matching paths
+on your desktop.
+
 1. Open a project directory, or choose a recent project from the top-left picker.
 2. Design lists folders in the sidebar and files in the main browser. All files
    includes every design, labeled with its folder or Unfiled. New folder creates
