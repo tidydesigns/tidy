@@ -251,9 +251,7 @@ function QueueRow({
     const next =
       row?.nextElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
       row?.previousElementSibling?.querySelector<HTMLButtonElement>(".queue-row-actions button") ??
-      button
-        .closest("section")
-        ?.nextElementSibling?.querySelector<HTMLElement>('[contenteditable="true"]');
+      button.closest(".composer")?.querySelector<HTMLElement>('[contenteditable="true"]');
     next?.focus();
   }
   return (

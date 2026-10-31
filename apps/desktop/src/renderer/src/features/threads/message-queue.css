@@ -1,8 +1,7 @@
 .message-queue {
   flex-shrink: 0;
-  width: calc(100% - var(--chat-gutter) * 2 - 24px);
-  max-width: calc(var(--chat-content-width) - 24px);
-  margin: 12px auto -12px;
+  width: calc(100% - 24px);
+  margin: 0 auto -12px;
   padding: 4px 4px 16px;
   border: 1px solid var(--color-border);
   border-bottom: 0;
@@ -10,9 +9,6 @@
   background: color-mix(in srgb, var(--desktop-surface) 60%, var(--color-panel));
   font-size: 12px;
   line-height: 1.4;
-}
-.message-queue + .composer {
-  margin-top: 0;
 }
 .queue-heading {
   display: flex;
@@ -171,5 +167,25 @@
   .message-queue button:active:not(:disabled):not(:focus-visible),
   .composer-actions button:active:not(:disabled):not(:focus-visible) {
     transform: none;
+  }
+}
+
+.thread-animated-height {
+  height: 0;
+  overflow: clip;
+  opacity: 0;
+  transition:
+    height 200ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 160ms ease-out;
+}
+.thread-animated-height[data-open] {
+  opacity: 1;
+}
+.thread-animated-content {
+  display: flow-root;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-animated-height {
+    transition: none;
   }
 }

@@ -1,3 +1,4 @@
+import { AnimatedHeight } from "../components/animated-height";
 import { promptThreadTitle } from "../../../shared/models/thread-naming";
 import { currentThreadNaming } from "../features/settings/thread-naming-preferences";
 import { useThreadNames } from "../features/threads/use-thread-names";
@@ -2103,16 +2104,6 @@ export function App({
                       }}
                     />
                   ) : null}
-                  {thread && (
-                    <MessageQueue
-                      key={`queue:${thread.id}`}
-                      messages={queue.messages}
-                      running={running}
-                      error={thread.queueError}
-                      onChange={queue.change}
-                      onRecover={queue.recover}
-                    />
-                  )}
                   <form
                     className={`composer relative isolate mx-auto mb-6 w-[calc(100%_-_var(--chat-gutter)_*_2)] max-w-(--chat-content-width) shrink-0 rounded-2xl border-0 bg-transparent p-0 ${codeFontClassName} ${thread ? "composer-active mt-3" : "composer-new mt-[58px]"}`}
                     onDragOver={(event) => {
@@ -2194,6 +2185,19 @@ export function App({
                             : undefined
                         }
                       />
+                    )}
+                    {thread && (
+                      <AnimatedHeight key={`queue:${thread.id}`} open={queue.messages.length > 0}>
+                        {queue.messages.length > 0 && (
+                          <MessageQueue
+                            messages={queue.messages}
+                            running={running}
+                            error={thread.queueError}
+                            onChange={queue.change}
+                            onRecover={queue.recover}
+                          />
+                        )}
+                      </AnimatedHeight>
                     )}
                     <div className="composer-body relative z-[1] rounded-2xl border border-border bg-(--desktop-composer-surface) p-3 max-[700px]:p-2.5 focus-within:border-control-border">
                       {machine && !machine.connected && (
