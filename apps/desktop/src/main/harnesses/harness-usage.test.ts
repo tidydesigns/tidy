@@ -1,6 +1,16 @@
 import { spawn } from "node:child_process";
 import { afterEach, expect, test } from "bun:test";
-import { chmod, copyFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdtemp,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectUsage } from "./harness-usage";
@@ -130,5 +140,17 @@ test.skipIf(process.platform === "win32")(
     } finally {
       parent.kill("SIGKILL");
     }
+  },
+);
+
+test.skipIf(process.platform === "win32")(
+  "OpenCode discovery quotes executable paths and does not depend on Node-mode Electron",
+  async () => {
+    const fixture = await openCodeFixture("ready");
+    const executable = join(fixture.cwd, "opencode $(touch injected)");
+    await rename(fixture.executable, executable);
+    const value = await readOpenCodeUsage(executable, fixture.cwd);
+    expect(value.windows).toHaveLength(3);
+    await expect(stat(join(fixture.cwd, "injected"))).rejects.toThrow();
   },
 );

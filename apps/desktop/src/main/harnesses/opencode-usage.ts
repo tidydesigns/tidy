@@ -1,4 +1,3 @@
-import { agentSupervisor } from "../remote/agent-supervisor";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { randomBytes } from "node:crypto";
@@ -7,6 +6,25 @@ import { parseOpenCodeUsage } from "./usage-protocol";
 import type { HarnessUsage } from "../../shared/contracts/harness-usage";
 
 const execute = promisify(execFile);
+// Positional arguments keep the executable and its arguments out of shell source. This also
+// works in hardened Electron releases, where the application cannot run as a Node executable.
+const discoverySupervisor = `
+tidy_parent=$1
+shift
+trap 'kill -KILL -- -$$ 2>/dev/null' 0 1 2 15
+"$@" &
+tidy_agent=$!
+(
+  tidy_checks=0
+  while kill -0 "$tidy_parent" 2>/dev/null && [ "$tidy_checks" -lt 45 ]; do
+    sleep 0.2
+    tidy_checks=$((tidy_checks + 1))
+  done
+  kill -KILL -- -$$ 2>/dev/null
+) &
+wait "$tidy_agent"
+`;
+
 const unavailable = (note: string): HarnessUsage => ({
   windows: [],
   state: "unknown",
@@ -34,21 +52,14 @@ export async function readOpenCodeUsage(executable: string, cwd: string): Promis
   const supervised = process.platform !== "win32";
   const args = ["--pure", "serve", "--hostname", "127.0.0.1", "--port", "0"];
   const child = spawn(
-    supervised ? process.execPath : executable,
+    supervised ? "/bin/sh" : executable,
     supervised
-      ? [
-          "-e",
-          `delete process.env.ELECTRON_RUN_AS_NODE;\n${agentSupervisor}`,
-          String(process.pid),
-          executable,
-          ...args,
-        ]
+      ? ["-c", discoverySupervisor, "tidy-usage", String(process.pid), executable, ...args]
       : args,
     {
       cwd,
       env: {
         ...env,
-        ...(supervised && process.versions.electron ? { ELECTRON_RUN_AS_NODE: "1" } : {}),
         OPENCODE_CONFIG_CONTENT: JSON.stringify({
           experimental: { schedules: false },
           server: { mdns: false },
