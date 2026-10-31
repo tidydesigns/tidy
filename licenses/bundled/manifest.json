@@ -470,5 +470,13 @@
   "supports-color": {
     "source": "license",
     "notice": "has-flag.txt"
+  },
+  "lowlight": {
+    "source": "license",
+    "notice": "lowlight.txt"
+  },
+  "highlight.js": {
+    "source": "LICENSE",
+    "notice": "highlight.js.txt"
   }
 }

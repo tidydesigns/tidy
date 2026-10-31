@@ -284,6 +284,11 @@ function workspaceApi(machineId?: string): DesktopAPI {
         ...(stopActive ? { stopActive } : {}),
       }),
     checkHarnesses: () => scopedRequest("harnesses"),
+    repositoryDirectory: (projectId, path) =>
+      scopedRequest("repository-directory", { projectId, path }),
+    repositoryChanges: (projectId) => scopedRequest("repository-changes", { projectId }),
+    repositoryFile: (projectId, path, previousPath) =>
+      scopedRequest("repository-file", { projectId, path, previousPath }),
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),
     renameThread: (projectId, threadId, title) =>

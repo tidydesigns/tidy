@@ -19,13 +19,15 @@ export function BrowserTabs({
   onSelect,
   onClose,
   onNew,
+  embedded = false,
 }: {
   state: Pick<BrowserState, "tabs" | "activeTabId">;
   disabled: boolean;
   creating: boolean;
   expanded: boolean;
-  onExpand(): void;
-  onHide(): void;
+  onExpand?(): void;
+  onHide?(): void;
+  embedded?: boolean;
   onSelect(id: string): void;
   onClose(id: string): void;
   onNew(): void;
@@ -40,7 +42,7 @@ export function BrowserTabs({
         {state.tabs.length === 0 && (
           <span className="browser-tab-placeholder flex items-center gap-[7px] rounded-md bg-hover-surface px-[9px] py-1.5 whitespace-nowrap text-ink">
             <BrowserGlyph size={14} />
-            Browser
+            {embedded ? "Preview" : "Browser"}
           </span>
         )}
         {state.tabs.map((item) => (
@@ -110,22 +112,26 @@ export function BrowserTabs({
         <Glyph name="plus" />
       </BrowserIconButton>
       <div className="browser-window-actions ml-auto flex gap-0.5">
-        <BrowserIconButton
-          type="button"
-          title={expanded ? "Restore browser size" : "Expand browser"}
-          aria-label={expanded ? "Restore browser size" : "Expand browser"}
-          onClick={onExpand}
-        >
-          <Glyph name="expand" />
-        </BrowserIconButton>
-        <BrowserIconButton
-          type="button"
-          title="Hide browser"
-          aria-label="Hide browser"
-          onClick={onHide}
-        >
-          <Glyph name="close" />
-        </BrowserIconButton>
+        {onExpand && (
+          <BrowserIconButton
+            type="button"
+            title={expanded ? "Restore browser size" : "Expand browser"}
+            aria-label={expanded ? "Restore browser size" : "Expand browser"}
+            onClick={onExpand}
+          >
+            <Glyph name="expand" />
+          </BrowserIconButton>
+        )}
+        {onHide && (
+          <BrowserIconButton
+            type="button"
+            title="Hide browser"
+            aria-label="Hide browser"
+            onClick={onHide}
+          >
+            <Glyph name="close" />
+          </BrowserIconButton>
+        )}
       </div>
     </header>
   );

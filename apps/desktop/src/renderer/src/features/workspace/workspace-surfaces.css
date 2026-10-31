@@ -1,0 +1,192 @@
+.project-workspace.surfaces-workspace {
+  position: relative;
+}
+.project-workspace.surfaces-workspace:not([hidden])[data-panel-open="true"] {
+  --chat-gutter: 16px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, var(--workspace-panel-width, 52%));
+}
+.workspace-side-panel {
+  --workspace-hairline: color-mix(in srgb, var(--color-border) 65%, transparent);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-ink);
+  font-size: 13px;
+  line-height: 1.5;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+.workspace-side-panel[hidden],
+.workspace-side-panel [hidden] {
+  display: none;
+}
+.workspace-panel-trigger {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.workspace-surface-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 6px 10px;
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--workspace-hairline);
+}
+.workspace-surface-tabs {
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.workspace-surface-tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+}
+.workspace-surface-tab:has([aria-selected="true"]) {
+  background: var(--color-surface);
+  border-color: var(--workspace-hairline);
+  box-shadow: 0 1px 2px #00000004;
+}
+.workspace-surface-tab [role="tab"] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.workspace-surface-tab [aria-selected="true"] {
+  color: var(--color-ink);
+  font-weight: 500;
+}
+.workspace-surface-tab > .workspace-icon-button {
+  width: 24px;
+  height: 26px;
+  min-height: 26px;
+  margin-right: 2px;
+}
+.workspace-surface-tab > .workspace-icon-button svg {
+  width: 12px;
+  height: 12px;
+}
+.workspace-surface-launcher {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+}
+.workspace-surface-launcher > div {
+  width: min(100%, 240px);
+}
+.workspace-surface-launcher p {
+  margin: 0 0 12px;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: center;
+}
+.workspace-surface-launcher button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 36px;
+  text-align: left;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .thread-heading {
+  gap: 8px;
+  padding-inline: 12px;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .content-heading {
+  gap: 8px;
+}
+.project-workspace.surfaces-workspace[data-panel-open="true"] .thread-workspace {
+  container: repository-conversation / inline-size;
+}
+@container repository-conversation (max-width: 380px) {
+  .composer-context {
+    flex-wrap: wrap;
+  }
+  .composer-context > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .composer-new .composer-lip {
+    position: relative;
+    inset: auto;
+    margin: 0 12px -20px;
+  }
+}
+
+.workspace-surface-header {
+  flex-shrink: 0;
+}
+.workspace-surface-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  flex-shrink: 0;
+  color: var(--color-muted-ink);
+}
+.workspace-resize-handle {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  z-index: 3;
+  cursor: col-resize;
+  touch-action: none;
+}
+.workspace-resize-handle:focus-visible {
+  outline: 1px solid var(--color-control-border);
+  outline-offset: -1px;
+}
+.workspace-side-panel[data-expanded] .workspace-resize-handle {
+  display: none;
+}
+.surfaces-workspace:has(> .workspace-side-panel[data-expanded]):not(
+    [hidden]
+  )[data-panel-open="true"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+.surfaces-workspace:has(> .workspace-side-panel[data-expanded]):not(
+    [hidden]
+  )[data-panel-open="true"]
+  > .thread-workspace {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .workspace-icon-button:hover {
+    color: var(--color-ink);
+  }
+  .workspace-resize-handle:hover {
+    background: var(--color-border);
+  }
+  .workspace-surface-tab:not(:hover, :focus-within):not(:has([aria-selected="true"]))
+    > .workspace-icon-button {
+    opacity: 0;
+  }
+}
+.workspace-icon-button:active {
+  transform: scale(0.96);
+}

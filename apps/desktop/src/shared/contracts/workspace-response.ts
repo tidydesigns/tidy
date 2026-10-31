@@ -4,6 +4,11 @@ import { videoChunkSchema } from "./video-preview";
 import { chatImageSchema } from "./chat-images";
 import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
+import {
+  repositoryDirectorySchema,
+  repositoryChangesSchema,
+  repositoryFileSchema,
+} from "./repository-files";
 import { draftImportResultSchema } from "./draft-import";
 import { branchSwitchResultSchema, repositoryContextSchema } from "./repository-context";
 import { projectCheckoutSchema, projectSetupIssueSchema } from "./project-setup";
@@ -61,6 +66,9 @@ export const workspaceResponseSchemas = {
   "project-snapshot": projectSnapshotSchema,
   harnesses: z.array(harnessConnectionSchema),
   "repository-context": repositoryContextSchema,
+  "repository-directory": repositoryDirectorySchema,
+  "repository-changes": repositoryChangesSchema,
+  "repository-file": repositoryFileSchema,
   "switch-branch": branchSwitchResultSchema,
   "harness-details": harnessDetailsSchema,
   "harness-usage": harnessUsageSchema,

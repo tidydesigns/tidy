@@ -4,7 +4,7 @@ import { BrowserGlyph, Glyph, BrowserIconButton, browserInputClass } from "./bro
 import { BrowserPage } from "./browser-page";
 import { useBrowserSession } from "./use-browser-session";
 import type { BrowserNavigationRequest } from "./browser-navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import {
   BrowserTabs,
@@ -21,7 +21,7 @@ import "./browser-workspace.css";
 
 const selectionExpression = `(() => { const el = document.activeElement; return el?.type === 'password' ? '' : el && typeof el.selectionStart === 'number' && typeof el.value === 'string' ? el.value.slice(el.selectionStart, el.selectionEnd) : window.getSelection()?.toString() || ''; })()`;
 
-export function BrowserWorkspace({
+export const BrowserWorkspace = memo(function BrowserWorkspace({
   api,
   scope,
   open,
@@ -30,6 +30,7 @@ export function BrowserWorkspace({
   machineLabel,
   onClose,
   requestedURL,
+  embedded = false,
 }: {
   api: BrowserAPI;
   scope: BrowserScope;
@@ -37,7 +38,8 @@ export function BrowserWorkspace({
   active: boolean;
   connected: boolean;
   machineLabel: string;
-  onClose(): void;
+  onClose?(): void;
+  embedded?: boolean;
   requestedURL?: BrowserNavigationRequest;
 }) {
   const [address, setAddress] = useState("");
@@ -76,7 +78,7 @@ export function BrowserWorkspace({
     closeTab,
     navigateURL,
   } = useBrowserSession({ api, scope, visible, canvas });
-  const canInput = state.control === "you" && connected && !disconnected;
+  const canInput = visible && state.control === "you" && connected && !disconnected;
   const canNavigate =
     connected && !disconnected && (state.control === "you" || state.control === "available");
   const tab = state.tabs.find((tab) => tab.id === state.activeTabId);
@@ -300,7 +302,7 @@ export function BrowserWorkspace({
   return (
     <aside
       ref={pane}
-      className={`browser-workspace ${expanded ? "browser-workspace-expanded" : ""}`}
+      className={`browser-workspace ${embedded ? "browser-workspace-embedded" : expanded ? "browser-workspace-expanded" : ""}`}
       hidden={!open}
       aria-label="Browser"
       data-connected={connected && !disconnected}
@@ -326,55 +328,58 @@ export function BrowserWorkspace({
         }
       }}
     >
-      <div
-        className="browser-resize-handle absolute inset-y-0 left-0 z-3 w-[5px] cursor-col-resize touch-none"
-        role="separator"
-        aria-label="Resize browser pane"
-        aria-valuemin={320}
-        aria-valuemax={900}
-        aria-valuenow={320}
-        aria-orientation="vertical"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          const element = pane.current;
-          if (!element || !["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
-          event.preventDefault();
-          const available = element.parentElement?.clientWidth ?? 1000;
-          element.style.flexBasis = `${Math.max(320, Math.min(available - 360, event.key === "Home" ? available * 0.46 : element.clientWidth + (event.key === "ArrowLeft" ? 16 : -16)))}px`;
-        }}
-        onPointerDown={(event) => {
-          if (resizing.current || !event.isPrimary || event.button !== 0 || !pane.current) return;
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          resizing.current = {
-            pointerId: event.pointerId,
-            x: event.clientX,
-            width: pane.current.clientWidth,
-          };
-        }}
-        onPointerMove={(event) => {
-          const start = resizing.current,
-            element = pane.current;
-          if (!start || !element || start.pointerId !== event.pointerId) return;
-          element.style.flexBasis = `${Math.max(320, Math.min((element.parentElement?.clientWidth ?? 1000) - 360, start.width + start.x - event.clientX))}px`;
-        }}
-        onPointerUp={(event) => {
-          if (resizing.current?.pointerId === event.pointerId) {
+      {!embedded && (
+        <div
+          className="browser-resize-handle absolute inset-y-0 left-0 z-3 w-[5px] cursor-col-resize touch-none"
+          role="separator"
+          aria-label="Resize browser pane"
+          aria-valuemin={320}
+          aria-valuemax={900}
+          aria-valuenow={320}
+          aria-orientation="vertical"
+          tabIndex={0}
+          onKeyDown={(event) => {
+            const element = pane.current;
+            if (!element || !["ArrowLeft", "ArrowRight", "Home"].includes(event.key)) return;
+            event.preventDefault();
+            const available = element.parentElement?.clientWidth ?? 1000;
+            element.style.flexBasis = `${Math.max(320, Math.min(available - 360, event.key === "Home" ? available * 0.46 : element.clientWidth + (event.key === "ArrowLeft" ? 16 : -16)))}px`;
+          }}
+          onPointerDown={(event) => {
+            if (resizing.current || !event.isPrimary || event.button !== 0 || !pane.current) return;
+            event.preventDefault();
+            event.currentTarget.setPointerCapture(event.pointerId);
+            resizing.current = {
+              pointerId: event.pointerId,
+              x: event.clientX,
+              width: pane.current.clientWidth,
+            };
+          }}
+          onPointerMove={(event) => {
+            const start = resizing.current,
+              element = pane.current;
+            if (!start || !element || start.pointerId !== event.pointerId) return;
+            element.style.flexBasis = `${Math.max(320, Math.min((element.parentElement?.clientWidth ?? 1000) - 360, start.width + start.x - event.clientX))}px`;
+          }}
+          onPointerUp={(event) => {
+            if (resizing.current?.pointerId === event.pointerId) {
+              resizing.current = null;
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+          }}
+          onPointerCancel={() => {
             resizing.current = null;
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-        }}
-        onPointerCancel={() => {
-          resizing.current = null;
-        }}
-      />
+          }}
+        />
+      )}
       <BrowserTabs
         state={state}
         disabled={!canNavigate}
         creating={openingPreview}
         expanded={expanded}
-        onExpand={() => setExpanded((value) => !value)}
-        onHide={onClose}
+        embedded={embedded}
+        onExpand={embedded ? undefined : () => setExpanded((value) => !value)}
+        onHide={embedded ? undefined : onClose}
         onSelect={selectTab}
         onClose={closeTab}
         onNew={newTab}
@@ -665,4 +670,4 @@ export function BrowserWorkspace({
       )}
     </aside>
   );
-}
+});

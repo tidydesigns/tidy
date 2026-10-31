@@ -141,3 +141,29 @@
 .browser-navigation > input:focus {
   background: var(--color-surface);
 }
+
+.browser-workspace.browser-workspace-embedded {
+  position: relative;
+  inset: auto;
+  z-index: auto;
+  flex: 1;
+  width: auto;
+  min-width: 0;
+  max-width: none;
+  border: 0;
+}
+.browser-workspace-embedded .browser-topline {
+  min-height: 36px;
+  padding-block: 3px;
+  border-bottom: 1px solid var(--color-border);
+}
+.browser-workspace-embedded .browser-tab {
+  height: 28px;
+  font-size: 11px;
+}
+.browser-workspace-embedded .browser-window-actions:empty {
+  display: none;
+}
+:root[data-titlebar="hidden"] .browser-workspace-embedded {
+  margin-top: 0;
+}

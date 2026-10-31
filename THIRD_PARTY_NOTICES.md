@@ -37,6 +37,9 @@ and assets retain their original licenses and copyright notices.
 - **Simple Icons 16.35.0**: CC0-1.0. The package licence is retained at
   `licenses/bundled/simple-icons.txt`. Individual marks retain their applicable
   licences and trademark rights.
+- **lowlight**: MIT; its upstream notice is retained at
+  `licenses/bundled/lowlight.txt`. **Highlight.js**: BSD-3-Clause; its upstream
+  notice is retained at `licenses/bundled/highlight.js.txt`.
 - **JavaScript logo**: MIT, copyright 2011 Christopher Williams. The full notice
   is retained at `licenses/bundled/javascript-logo.txt`.
 - The desktop OpenAI mark in `apps/desktop/src/renderer/src/openai.svg` is sourced
