@@ -4112,6 +4112,182 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     },
   );
 
+  await run(
+    "queued followups and ordinary thread messages stop individually without duplicating destinations",
+    async (root) => {
+      for (const kind of ["followup", "message"] as const) {
+        const child = makeThread({ count: 2 });
+        child.title = "Destination review";
+        let tasks: ThreadTask[] = Array.from({ length: 3 }, (_, index) => ({
+          id: crypto.randomUUID(),
+          childThreadId: child.id,
+          sequence: index + 1,
+          label: ["Active request", "First queued request", "Second queued request"][index],
+          state: index ? "queued" : "running",
+          kind: kind === "followup" && !index ? "initial" : kind,
+          harness: "codex",
+          createdAt: new Date(Date.parse(timestamp) + index).toISOString(),
+        }));
+        const summaries = new Map([[child.id, summarizeThread(child)]]);
+        const requests: {
+          project: string;
+          taskId: string;
+          resolve(): void;
+          reject(error: Error): void;
+        }[] = [];
+        const requestCount = () => requests.length;
+        const opened: string[] = [];
+        const onOpenThread = (_project: string, id: string) => opened.push(id);
+        const onCancel = (project: string, taskId: string) =>
+          new Promise<void>((resolve, reject) => {
+            requests.push({ project, taskId, resolve, reject });
+          });
+        const render = () =>
+          flushSync(() =>
+            root.render(
+              <AgentTasks
+                key={kind}
+                tasks={tasks}
+                summaries={summaries}
+                projectId={projectId}
+                onOpenThread={onOpenThread}
+                onCancel={onCancel}
+              />,
+            ),
+          );
+        try {
+          render();
+          await settle();
+          check(
+            host.querySelectorAll(".agent-task").length === 1 &&
+              host.querySelectorAll(".model-provider-icon").length === 1,
+            "Queued work duplicated the destination's provider or title row",
+          );
+          const disclosure = required(
+            host.querySelector<HTMLDetailsElement>(".agent-task-queue"),
+            "Queued assignment disclosure",
+          );
+          check(!disclosure.open, "Secondary assignments expanded by default");
+          const summary = required(
+            disclosure.querySelector<HTMLElement>("summary"),
+            "Queue summary",
+          );
+          summary.focus();
+          check(document.activeElement === summary, "Queue disclosure was not keyboard reachable");
+          check(
+            summary.textContent?.includes("2 queued assignments"),
+            "Queue summary did not count both pending assignments",
+          );
+          summary.click();
+          await settle();
+          check(
+            disclosure.open && host.querySelectorAll(".agent-queued-task").length === 2,
+            "Expanding the queue omitted pending assignments",
+          );
+          const firstStop = required(
+            disclosure.querySelector<HTMLButtonElement>('[aria-label="Stop First queued request"]'),
+            "First queued stop",
+          );
+          const secondStop = required(
+            disclosure.querySelector<HTMLButtonElement>(
+              '[aria-label="Stop Second queued request"]',
+            ),
+            "Second queued stop",
+          );
+          const secondRow = required(
+            secondStop.closest<HTMLElement>('[role="group"]'),
+            "Second queued row",
+          );
+          check(
+            secondRow.textContent?.includes("Second queued request") &&
+              secondRow.textContent?.includes("Queued"),
+            "Queued row omitted the individual prompt or state",
+          );
+          secondStop.focus();
+          check(
+            document.activeElement === secondStop,
+            "Queued assignment stop was not keyboard reachable",
+          );
+          secondStop.click();
+          await settle();
+          check(
+            requestCount() === 1 &&
+              requests[0].project === projectId &&
+              requests[0].taskId === tasks[2].id,
+            "Stopping the second queued request targeted its active or first sibling",
+          );
+          check(
+            secondStop.disabled &&
+              secondRow.textContent?.includes("Stopping") &&
+              !firstStop.disabled,
+            "Queued stop did not isolate optimistic feedback to its own request",
+          );
+          requests[0].reject(new Error("Synthetic queued cancellation failure"));
+          await settle();
+          const retry = required(
+            secondRow.querySelector<HTMLButtonElement>(
+              '[aria-label="Retry stopping Second queued request"]',
+            ),
+            "Queued cancellation retry",
+          );
+          check(
+            secondRow.querySelector('[role="alert"]')?.textContent?.includes("Could not stop") &&
+              !retry.disabled,
+            "Queued cancellation failure did not recover",
+          );
+          retry.click();
+          await settle();
+          check(
+            requestCount() === 2 && requests.every((request) => request.taskId === tasks[2].id),
+            "Retry cancelled an active or unrelated queued request",
+          );
+          tasks = tasks.map((task, index) =>
+            index === 2
+              ? { ...task, state: "cancel_requested", sequence: task.sequence + 10 }
+              : task,
+          );
+          render();
+          await settle();
+          check(
+            host
+              .querySelector<HTMLButtonElement>('.agent-task[data-state="running"]')
+              ?.textContent?.includes(child.title),
+            "A queued cancellation replaced the actually running destination",
+          );
+          check(
+            disclosure.open && secondRow.textContent?.includes("Stopping"),
+            "Queued stop feedback vanished during host confirmation",
+          );
+          requests[1].resolve();
+          tasks = tasks.map((task, index) =>
+            index === 2 ? { ...task, state: "cancelled", sequence: task.sequence + 10 } : task,
+          );
+          render();
+          await settle();
+          check(
+            disclosure.textContent?.includes("1 queued assignment") &&
+              disclosure.querySelectorAll(".agent-queued-task").length === 1,
+            "Confirmed cancellation removed the wrong queued assignment",
+          );
+          check(
+            !firstStop.disabled && host.querySelectorAll(".agent-task").length === 1,
+            "Cancelling a queued request disrupted its active destination or sibling",
+          );
+          required(
+            host.querySelector<HTMLButtonElement>('.agent-task[data-state="running"]'),
+            "Active destination",
+          ).click();
+          check(
+            opened.length === 1 && opened[0] === child.id,
+            "The single destination no longer opened its transcript",
+          );
+        } finally {
+          for (const request of requests) request.resolve();
+        }
+      }
+    },
+  );
+
   return passed;
 }
 

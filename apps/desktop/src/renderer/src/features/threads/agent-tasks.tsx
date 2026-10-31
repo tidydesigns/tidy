@@ -1,4 +1,4 @@
-import { memo, useRef, useState } from "react";
+import { memo, useMemo, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 import type { ThreadTask } from "../../../../shared/contracts/thread-tasks";
@@ -28,13 +28,21 @@ export function taskPresentation(task: ThreadTask, child?: ThreadSummary) {
 
 function taskDestinations(tasks: ThreadTask[]) {
   const priority = (task: ThreadTask) =>
-    task.state === "running" || task.state === "cancel_requested"
-      ? 2
-      : task.state === "queued"
-        ? 1
-        : 0;
+    task.state === "running"
+      ? 3
+      : task.state === "cancel_requested"
+        ? 2
+        : task.state === "queued"
+          ? 1
+          : 0;
   const destinations = new Map<string, ThreadTask>();
+  const pending = new Map<string, ThreadTask[]>();
   for (const task of tasks) {
+    if (task.state === "queued" || task.state === "cancel_requested") {
+      const queue = pending.get(task.childThreadId) ?? [];
+      queue.push(task);
+      pending.set(task.childThreadId, queue);
+    }
     const previous = destinations.get(task.childThreadId);
     if (
       !previous ||
@@ -45,7 +53,10 @@ function taskDestinations(tasks: ThreadTask[]) {
     )
       destinations.set(task.childThreadId, task);
   }
-  return [...destinations.values()];
+  return Array.from(destinations.values(), (task) => ({
+    task,
+    queued: (pending.get(task.childThreadId) ?? []).filter((queued) => queued.id !== task.id),
+  }));
 }
 
 export const AgentTasks = memo(function AgentTasks(props: {
@@ -55,36 +66,41 @@ export const AgentTasks = memo(function AgentTasks(props: {
   onOpenThread(projectId: string, threadId: string): void;
   onCancel?(projectId: string, taskId: string): Promise<void>;
 }) {
-  const agents = taskDestinations(props.tasks.filter((task) => task.kind !== "message"));
-  const threads = taskDestinations(props.tasks.filter((task) => task.kind === "message"));
+  const { agents, threads } = useMemo(
+    () => ({
+      agents: taskDestinations(props.tasks.filter((task) => task.kind !== "message")),
+      threads: taskDestinations(props.tasks.filter((task) => task.kind === "message")),
+    }),
+    [props.tasks],
+  );
   return (
     <>
-      {agents.length > 0 && <TaskLinks {...props} tasks={agents} />}
-      {threads.length > 0 && <TaskLinks {...props} tasks={threads} independent />}
+      {agents.length > 0 && <TaskLinks {...props} destinations={agents} />}
+      {threads.length > 0 && <TaskLinks {...props} destinations={threads} independent />}
     </>
   );
 });
 
 const TaskLinks = memo(function TaskLinks({
-  tasks,
+  destinations,
   summaries,
   projectId,
   onOpenThread,
   onCancel,
   independent = false,
 }: {
-  tasks: ThreadTask[];
+  destinations: ReturnType<typeof taskDestinations>;
   summaries: ReadonlyMap<string, ThreadSummary>;
   projectId: string;
   independent?: boolean;
   onOpenThread(projectId: string, threadId: string): void;
   onCancel?(projectId: string, taskId: string): Promise<void>;
 }) {
-  const active = tasks.filter((task) =>
+  const active = destinations.filter(({ task }) =>
     ["queued", "running", "cancel_requested"].includes(task.state),
   ).length;
-  const attention = tasks.some(
-    (task) =>
+  const attention = destinations.some(
+    ({ task }) =>
       task.state === "failed" ||
       task.state === "interrupted" ||
       (task.state === "running" && summaries.get(task.childThreadId)?.pendingApprovalCount),
@@ -101,18 +117,18 @@ const TaskLinks = memo(function TaskLinks({
           ›
         </span>
         <span>
-          {tasks.length}{" "}
+          {destinations.length}{" "}
           {independent
-            ? tasks.length === 1
+            ? destinations.length === 1
               ? "thread"
               : "threads"
-            : tasks.length === 1
+            : destinations.length === 1
               ? "agent"
               : "agents"}
         </span>
         <span className="agent-tasks-count" role="status" aria-live="polite" aria-atomic="true">
-          {tasks.some(
-            (task) =>
+          {destinations.some(
+            ({ task }) =>
               task.state === "running" && summaries.get(task.childThreadId)?.pendingApprovalCount,
           )
             ? "Needs approval"
@@ -125,18 +141,70 @@ const TaskLinks = memo(function TaskLinks({
       </summary>
       {expanded && (
         <div className="agent-task-list">
-          {tasks.map((task) => (
-            <TaskRow
-              key={task.id}
-              task={task}
-              child={summaries.get(task.childThreadId)}
-              projectId={projectId}
-              onOpenThread={onOpenThread}
-              onCancel={onCancel}
-            />
+          {destinations.map(({ task, queued }) => (
+            <div key={task.childThreadId}>
+              <TaskRow
+                key={task.id}
+                task={task}
+                child={summaries.get(task.childThreadId)}
+                projectId={projectId}
+                onOpenThread={onOpenThread}
+                onCancel={onCancel}
+              />
+              {queued.length > 0 && (
+                <QueuedAssignments
+                  tasks={queued}
+                  destinationName={summaries.get(task.childThreadId)?.title || task.label}
+                  projectId={projectId}
+                  onOpenThread={onOpenThread}
+                  onCancel={onCancel}
+                />
+              )}
+            </div>
           ))}
         </div>
       )}
+    </details>
+  );
+});
+
+const QueuedAssignments = memo(function QueuedAssignments({
+  tasks,
+  destinationName,
+  projectId,
+  onOpenThread,
+  onCancel,
+}: {
+  tasks: ThreadTask[];
+  destinationName: string;
+  projectId: string;
+  onOpenThread(projectId: string, threadId: string): void;
+  onCancel?(projectId: string, taskId: string): Promise<void>;
+}) {
+  return (
+    <details className="agent-task-queue">
+      <summary
+        aria-label={`${tasks.length} queued ${tasks.length === 1 ? "assignment" : "assignments"} for ${destinationName}`}
+      >
+        <span aria-hidden="true" className="agent-tasks-chevron">
+          ›
+        </span>
+        <span role="status" aria-live="polite" aria-atomic="true">
+          {tasks.length} queued {tasks.length === 1 ? "assignment" : "assignments"}
+        </span>
+      </summary>
+      <div className="agent-task-queue-list">
+        {tasks.map((task) => (
+          <TaskRow
+            key={task.id}
+            task={task}
+            projectId={projectId}
+            onOpenThread={onOpenThread}
+            onCancel={onCancel}
+            queued
+          />
+        ))}
+      </div>
     </details>
   );
 });
@@ -147,12 +215,14 @@ const TaskRow = memo(function TaskRow({
   projectId,
   onOpenThread,
   onCancel,
+  queued = false,
 }: {
   task: ThreadTask;
   child?: ThreadSummary;
   projectId: string;
   onOpenThread(projectId: string, threadId: string): void;
   onCancel?(projectId: string, taskId: string): Promise<void>;
+  queued?: boolean;
 }) {
   const [cancellation, setCancellation] = useState<"idle" | "pending" | "accepted" | "failed">(
     "idle",
@@ -167,7 +237,7 @@ const TaskRow = memo(function TaskRow({
   const canCancel = task.state === "queued" || task.state === "running";
   const failed = canCancel && !stopping && cancellation === "failed";
   const state = stopping ? { label: "Stopping", tone: "attention" } : taskPresentation(task, child);
-  const name = child?.title || task.label;
+  const name = queued ? task.label : child?.title || task.label;
   const label = `${name} · ${state.label}`;
   const exceptional =
     stopping ||
@@ -193,23 +263,34 @@ const TaskRow = memo(function TaskRow({
       aria-label={!child ? label : undefined}
     >
       <div className="agent-task-controls">
-        <Button
-          className="agent-task"
-          disabled={!child}
-          onClick={() => onOpenThread(projectId, task.childThreadId)}
-          data-state={task.state}
-          data-kind={task.kind}
-          aria-label={label}
-          title={`${label}${task.error ? ` · ${task.error}` : !child && task.state === "queued" ? " — thread available when the agent starts" : ""}`}
-        >
-          <ModelProviderIcon harness={task.harness} size={15} />
-          <span className="agent-task-label">{name}</span>
-          {exceptional ? (
+        {queued ? (
+          <div className="agent-queued-task">
+            <span className="agent-task-label" title={name}>
+              {name}
+            </span>
             <span className="agent-task-state" data-tone={state.tone} aria-hidden="true">
               {state.label}
             </span>
-          ) : null}
-        </Button>
+          </div>
+        ) : (
+          <Button
+            className="agent-task"
+            disabled={!child}
+            onClick={() => onOpenThread(projectId, task.childThreadId)}
+            data-state={task.state}
+            data-kind={task.kind}
+            aria-label={label}
+            title={`${label}${task.error ? ` · ${task.error}` : !child && task.state === "queued" ? " — thread available when the agent starts" : ""}`}
+          >
+            <ModelProviderIcon harness={task.harness} size={15} />
+            <span className="agent-task-label">{name}</span>
+            {exceptional ? (
+              <span className="agent-task-state" data-tone={state.tone} aria-hidden="true">
+                {state.label}
+              </span>
+            ) : null}
+          </Button>
+        )}
         {onCancel && active && (
           <Button
             className="agent-task-stop"

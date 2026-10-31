@@ -129,3 +129,28 @@ test("imported queue entries require explicit approval and cannot borrow another
     "explicitly",
   );
 });
+
+test("user queued messages may narrow Codex access without changing their private ceiling", async () => {
+  const f = await fixture();
+  const message = { id: f.message.id, text: f.message.text };
+  const fullAccess = { ...f.thread, settings: { permissionMode: "auto" as const } };
+  await f.authority.trust(f.projectPath, fullAccess, message);
+  await f.authority.verify(f.projectPath, f.thread, message);
+  await expect(
+    f.authority.verify(f.projectPath, f.thread, { ...message, text: "Changed" }),
+  ).rejects.toThrow("changed outside Tidy");
+  const readonly = { ...message, id: randomUUID() };
+  await f.authority.trust(f.projectPath, f.thread, readonly);
+  await expect(f.authority.verify(f.projectPath, fullAccess, readonly)).rejects.toThrow(
+    "original permissions",
+  );
+  const constrained = {
+    ...f.message,
+    id: randomUUID(),
+    executionConstraint: { harness: "codex" as const, permissionMode: "auto" as const },
+  };
+  await f.authority.trust(f.projectPath, fullAccess, constrained);
+  await expect(f.authority.verify(f.projectPath, f.thread, constrained)).rejects.toThrow(
+    "original permissions",
+  );
+});

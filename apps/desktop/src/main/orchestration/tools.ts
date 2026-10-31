@@ -262,7 +262,7 @@ export function orchestrationTools(options: {
     ),
     make(
       "task_cancel",
-      "Request cancellation of an owned task. Inspect its state to distinguish a request from confirmed termination. Committed edits are not rolled back.",
+      "Cancel an owned task. Cancelling an initial assignment also cancels its child follow-ups; cancelling a follow-up or ordinary send affects only that task. Inspect state for confirmed termination. Committed edits are not rolled back.",
       taskCancelSchema,
       false,
       (input) => tasks.cancel(scope, input),

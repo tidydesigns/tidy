@@ -17,7 +17,8 @@
 .agent-tasks-chevron {
   color: var(--color-muted-ink);
 }
-.agent-tasks[open] > summary .agent-tasks-chevron {
+.agent-tasks[open] > summary .agent-tasks-chevron,
+.agent-task-queue[open] > summary .agent-tasks-chevron {
   transform: rotate(90deg);
 }
 .agent-tasks-count {
@@ -39,7 +40,8 @@
   align-items: center;
   gap: 4px;
 }
-.agent-task {
+.agent-task,
+.agent-queued-task {
   display: flex;
   flex: 1;
   min-width: 0;
@@ -54,7 +56,37 @@
   background: transparent;
   color: var(--color-ink);
   font: inherit;
+}
+.agent-task {
   cursor: pointer;
+}
+.agent-task-queue {
+  margin: 0 0 6px 24px;
+}
+.agent-task-queue > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 3px 8px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-task-queue > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-task-queue-list {
+  max-height: min(160px, 25dvh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.agent-queued-task {
+  font-size: 12px;
+}
+.agent-task-queue .agent-task-error {
+  margin-left: 8px;
 }
 .agent-task:hover:not(:disabled) {
   background: var(--color-hover-surface);
@@ -67,6 +99,7 @@
 .agent-task:focus-visible,
 .agent-task-row:focus-visible,
 .agent-task-stop:focus-visible,
+.agent-task-queue > summary:focus-visible,
 .agent-tasks > summary:focus-visible {
   outline: 2px solid var(--color-muted-ink);
   outline-offset: 2px;

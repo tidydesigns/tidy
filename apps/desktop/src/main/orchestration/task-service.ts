@@ -437,7 +437,7 @@ export class TaskService {
   private settled = new Map<string, () => void>();
 
   private async stopExecution(task: TaskRecord) {
-    if (task.kind === "message" && this.host.stopTaskTurn)
+    if ((task.kind === "message" || task.kind === "followup") && this.host.stopTaskTurn)
       return this.host.stopTaskTurn(task.projectId, task.childThreadId, task.id);
     await this.host.stopThread(task.projectId, task.childThreadId);
     return true;
@@ -526,6 +526,7 @@ export class TaskService {
     const task = await this.store.get(request.task_id);
     if (!task || task.projectId !== scope.projectId || task.parentThreadId !== scope.threadId)
       throw new AgentOperationError("NOT_FOUND", "Assignment not found in this thread.");
+    const exactTask = task.kind === "message" || task.kind === "followup";
     const siblings = new Map(
       [task, ...this.pending.values(), ...this.active.values()]
         .filter(
@@ -533,7 +534,7 @@ export class TaskService {
             item.projectId === task.projectId &&
             item.childThreadId === task.childThreadId &&
             item.parentThreadId === scope.threadId &&
-            (task.kind !== "message" || item.id === task.id),
+            (!exactTask || item.id === task.id),
         )
         .map((item) => [item.id, item]),
     );
@@ -550,15 +551,17 @@ export class TaskService {
       .readThread(task.projectId, task.childThreadId)
       .catch(() => undefined);
     const ownsActiveRun = [...this.active.values()].some(
-      (item) => item.childThreadId === task.childThreadId && item.parentThreadId === scope.threadId,
+      (item) =>
+        item.childThreadId === task.childThreadId &&
+        item.parentThreadId === scope.threadId &&
+        (!exactTask || item.id === task.id),
     );
     const ownsRecipientTurn = child?.messages.some(
       (message) => message.id === task.id && message.turn && !message.turn.endedAt,
     );
-    const stopTarget =
-      task.kind === "message"
-        ? shouldStop && ownsActiveRun && ownsRecipientTurn
-        : shouldStop || child?.status === "running";
+    const stopTarget = exactTask
+      ? shouldStop && ownsActiveRun && ownsRecipientTurn
+      : shouldStop || child?.status === "running";
     const stopRequested = stopTarget ? await this.stopExecution(task) : false;
     void this.deliver().catch(() => {});
     const latest = await this.store.get(task.id);
@@ -575,7 +578,7 @@ export class TaskService {
         requested: stopRequested,
         confirmed:
           !pendingTaskIds.length &&
-          (task.kind === "message"
+          (exactTask
             ? afterStop?.status !== "running" ||
               afterStop.messages.filter((message) => message.role === "user").at(-1)?.id !== task.id
             : afterStop?.status !== "running"),
