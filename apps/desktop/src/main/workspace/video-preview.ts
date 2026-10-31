@@ -1,6 +1,6 @@
 import { openProjectVideo } from "../platform/project-video-file";
 import { realpath } from "node:fs/promises";
-import { resolveChatFilePath } from "./chat-file-path";
+import { resolveChatFilePath, rethrowChatFileError } from "./chat-file-path";
 import { parseChatLink } from "../../shared/models/chat-links";
 import {
   MAX_VIDEO_BYTES,
@@ -22,7 +22,7 @@ export async function readVideoChunk({
   const mimeType = link?.kind === "file" ? videoMimeType(link.path) : null;
   if (!link || link.kind !== "file" || !mimeType) throw new Error("Choose a supported video file.");
   const path = await resolveChatFilePath({ root, path: link.path });
-  const file = await openProjectVideo(path);
+  const file = await openProjectVideo(path).catch(rethrowChatFileError);
   try {
     const info = await file.stat({ bigint: true });
     if (!info.isFile()) throw new Error("This video is not a regular file.");

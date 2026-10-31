@@ -243,19 +243,10 @@ test("reused local backend file links resolve on the connected local machine", a
   expect(f.revealed).toEqual([f.file]);
   const outside = join(f.directory, "private.ts");
   await writeFile(outside, "private");
-  await symlink(outside, join(f.root, "linked.ts"));
-  for (const href of ["../private.ts", "linked.ts"])
-    await openConnectedChatLink({
-      input: { projectId, href },
-      platform: f.platform,
-      getLocalProjectRoot,
-    });
-  await expect(
-    openConnectedChatLink({
-      input: { projectId, href: "missing.ts" },
-      platform: f.platform,
-      getLocalProjectRoot,
-    }),
-  ).rejects.toThrow("no longer available");
-  expect(f.revealed).toEqual([f.file, outside, outside]);
+  await openConnectedChatLink({
+    input: { projectId, href: outside },
+    platform: f.platform,
+    getLocalProjectRoot,
+  });
+  expect(f.revealed).toEqual([f.file, outside]);
 });

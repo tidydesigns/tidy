@@ -147,3 +147,15 @@ test("missing recordings explain which machine needs the file", async () => {
       readVideoChunk({ root, href: "C:/recordings/demo.mp4", offset: 0 }),
     ).rejects.toThrow("different operating system");
 });
+
+test.skipIf(process.getuid?.() === 0)(
+  "unreadable recordings explain host file access instead of exposing an OS error",
+  async () => {
+    const { root, directory } = await fixture();
+    const path = join(directory, "restricted.mp4");
+    await writeFile(path, "recording", { mode: 0o000 });
+    await expect(readVideoChunk({ root, href: path, offset: 0 })).rejects.toThrow(
+      "This file cannot be accessed on the machine running this thread.",
+    );
+  },
+);

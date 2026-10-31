@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { stat } from "node:fs/promises";
-import { resolveChatFilePath } from "./chat-file-path";
+import { resolveChatFilePath, rethrowChatFileError } from "./chat-file-path";
 import { parseChatLink } from "../../shared/models/chat-links";
 
 export async function openChatLink({
@@ -19,7 +19,8 @@ export async function openChatLink({
   if (!link) throw new Error("This link is not supported.");
   if (link.kind === "external") return platform.openExternal(link.url);
   const path = await resolveChatFilePath({ root, path: link.path });
-  if (!(await stat(path)).isFile()) throw new Error("This link does not point to a regular file.");
+  if (!(await stat(path).catch(rethrowChatFileError)).isFile())
+    throw new Error("This link does not point to a regular file.");
   platform.showItemInFolder(path);
 }
 

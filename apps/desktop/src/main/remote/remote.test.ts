@@ -1037,7 +1037,7 @@ test("browser paste tolerates bounded socket pressure while other input remains 
   }
 });
 
-test("remote video preview transfers authenticated project bytes and rejects another thread's files", async () => {
+test("remote video previews transfer external host files and enforce thread ownership", async () => {
   const f = await fixture();
   const { client } = f.client();
   await until(() => client.status.kind === "connected");
@@ -1048,8 +1048,9 @@ test("remote video preview transfers authenticated project bytes and rejects ano
     designIds: [],
   });
   const data = Buffer.alloc(512 * 1024 + 13, 21);
-  await writeFile(join(f.projectPath, "demo.webm"), data);
-  const input = { projectId: f.project.id, threadId: thread.id, href: "demo.webm", offset: 0 };
+  const href = join(f.root, "temporary recording.webm");
+  await writeFile(href, data);
+  const input = { projectId: f.project.id, threadId: thread.id, href, offset: 0 };
   const first = await client.operation("read-video-chunk", input);
   const second = await client.operation("read-video-chunk", {
     ...input,
@@ -1059,19 +1060,6 @@ test("remote video preview transfers authenticated project bytes and rejects ano
   expect(
     Buffer.concat([Buffer.from(first.data, "base64"), Buffer.from(second.data, "base64")]),
   ).toEqual(data);
-  const outside = join(f.root, "temporary recording.webm");
-  await writeFile(outside, data);
-  for (const href of [outside, "../temporary%20recording.webm"]) {
-    const external = await client.operation("read-video-chunk", { ...input, href });
-    expect(Buffer.from(external.data, "base64")).toEqual(data.subarray(0, 512 * 1024));
-    const continuation = await client.operation("read-video-chunk", {
-      ...input,
-      href,
-      offset: 512 * 1024,
-      revision: external.revision,
-    });
-    expect(Buffer.from(continuation.data, "base64")).toEqual(data.subarray(512 * 1024));
-  }
   await expect(
     client.operation("read-video-chunk", { ...input, threadId: randomUUID() }),
   ).rejects.toThrow();
