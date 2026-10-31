@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState, type ReactNode, type PointerEvent } from "react";
 import { z } from "zod";
+import { DraftThreadCard } from "./draft-thread-card";
 import { useThreadDrag } from "./use-thread-drag";
 import type { ThreadSummary } from "../../../../shared/contracts/desktop";
 
@@ -78,11 +79,13 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   threads,
   search,
   renderThread,
+  draft,
 }: {
   projectId: string;
   threads: ThreadSummary[];
   search: string;
   renderThread: RenderThread;
+  draft?: { text: string; selected: boolean; onSelect(): void };
 }) {
   const [order, setOrder] = useState(() => readOrder(projectId));
   const ordered = useMemo(() => {
@@ -107,6 +110,9 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   }, [projectId, order, drag.draggingId]);
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: ThreadSummary) => item.title.toLocaleLowerCase().includes(query);
+  const visibleDraft = Boolean(
+    draft?.text.trim() && draft.text.toLocaleLowerCase().includes(query),
+  );
   const active = ordered.filter((item) => !item.doneAt && matches(item));
   const done = threads
     .filter((item) => item.doneAt && matches(item))
@@ -118,7 +124,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
       aria-label="Threads"
     >
       <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent]">
-        {query && active.length === 0 && done.length === 0 && (
+        {query && !visibleDraft && active.length === 0 && done.length === 0 && (
           <p
             className="thread-search-empty mx-2.5 my-2 text-xs leading-[18px] text-muted-ink"
             role="status"
@@ -131,6 +137,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
           ref={drag.list}
           onClickCapture={drag.onClickCapture}
         >
+          {visibleDraft && draft && <DraftThreadCard {...draft} />}
           {active.map((item, index) => (
             <ThreadRow
               key={item.id}
