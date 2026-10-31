@@ -4,7 +4,7 @@ import { lstat, opendir, realpath, mkdtemp, writeFile, rm } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import { checkedRepositoryPath as checkedPath, openRepositoryPath } from "./repository-path";
-import { git, createGitView, closeGitView, OutputLimitError } from "./repository-git";
+import { git, createGitView, closeGitView, OutputLimitError, type GitView } from "./repository-git";
 import {
   repositoryPathSchema,
   type RepositoryChanges,
@@ -95,13 +95,19 @@ async function filterOverrides(root: string) {
   };
 }
 
-async function externalFilteredPaths(root: string, paths: string[], filters: ReadonlySet<string>) {
+async function externalFilteredPaths(
+  root: string,
+  paths: string[],
+  filters: ReadonlySet<string>,
+  view: GitView,
+) {
   if (!filters.size || !paths.length) return new Set<string>();
   const result = await git(
     root,
     ["check-attr", "-z", "--stdin", "filter"],
     paths.map((path) => `./${path}`).join("\0") + "\0",
     4 * fileLimit,
+    view,
   );
   if (result.code !== 0) throw new Error("Could not read repository file attributes.");
   const fields = result.text.split("\0");
@@ -296,7 +302,7 @@ export async function readRepositoryChanges(root: string): Promise<RepositoryCha
     const entries = new Map<string, RepositoryChange>(
       changes.map((change) => [change.path, change]),
     );
-    for (const path of await externalFilteredPaths(root, filterPaths, overrides.names)) {
+    for (const path of await externalFilteredPaths(root, filterPaths, overrides.names, view)) {
       if (!repositoryPathSchema.safeParse(path).success) continue;
       entries.set(path, {
         ...(entries.get(path) ?? { path, previousPath: null, status: "modified" as const }),
@@ -373,7 +379,7 @@ export async function readRepositoryFile(
     const index = await readGit(["ls-files", "--unmerged", "-z", "--", path]);
     if (index.code === 0 && index.text) return unavailable("conflict");
     const overrides = await filterOverrides(checked.root);
-    if ((await externalFilteredPaths(checked.root, [path], overrides.names)).size)
+    if ((await externalFilteredPaths(checked.root, [path], overrides.names, view)).size)
       return unavailable("filtered");
     const prefixPath = prefix.text.replace(/\r?\n$/, "");
     const object = `HEAD:${prefixPath}${previousPath ?? path}`;
