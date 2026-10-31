@@ -188,3 +188,77 @@ for (const folderFailed of [false, true])
       await probe.close();
     }
   });
+
+test("scoped refreshes retain unrelated reads and caches while HEAD changes invalidate them", async () => {
+  const pending = deferred<RepositoryFile>();
+  const reads = new Map<string, number>();
+  let head = "first";
+  let filtered = false;
+  const content: RepositoryFile = {
+    kind: "text",
+    view: "file",
+    comparison: "head",
+    text: "available",
+  };
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => ({ entries: [], limited: false }),
+    repositoryChanges: async () => ({
+      repository: true,
+      head,
+      changes: filtered
+        ? [{ path: "src/a", previousPath: null, status: "modified", filtered: true }]
+        : [],
+    }),
+    repositoryFile: async (_project, path) => {
+      const count = (reads.get(path) ?? 0) + 1;
+      reads.set(path, count);
+      return path === "src/a" && count === 1 ? pending.promise : content;
+    },
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("src/a");
+    for (let index = 0; index < 3; index++)
+      await act(async () => {
+        await probe.current?.refresh(["other"]);
+      });
+    await act(async () => {
+      pending.resolve(content);
+      await pending.promise;
+    });
+    expect(probe.current?.file?.content).toEqual(content);
+    expect(reads.get("src/a")).toBe(1);
+    await probe.render("other/b");
+    await probe.render("src/a");
+    await act(async () => {
+      await probe.current?.refresh(["other"]);
+    });
+    expect(reads.get("src/a")).toBe(1);
+    await probe.render("other/b");
+    expect(reads.get("other/b")).toBe(2);
+    await act(async () => {
+      await probe.current?.refresh(["other"]);
+    });
+    expect(reads.get("other/b")).toBe(3);
+    await probe.render("src/a");
+    expect(reads.get("src/a")).toBe(1);
+    await act(async () => {
+      await probe.current?.refresh();
+    });
+    expect(reads.get("src/a")).toBe(2);
+    head = "second";
+    await act(async () => {
+      await probe.current?.refresh(["other"]);
+    });
+    expect(reads.get("src/a")).toBe(3);
+    filtered = true;
+    await act(async () => {
+      await probe.current?.refresh(["other"]);
+    });
+    expect(reads.get("src/a")).toBe(4);
+    expect(probe.current?.changes?.changes[0].filtered).toBe(true);
+  } finally {
+    await probe.close();
+  }
+});
