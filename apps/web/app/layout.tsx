@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
-import { Instrument_Sans } from "next/font/google";
 import localFont from "next/font/local";
 import { themeInitScript } from "@/lib/theme";
 import "./globals.css";
@@ -8,9 +7,11 @@ import { NavigationRecoveryProvider } from "@/components/workspace/navigation-re
 import { ToastViewport } from "@tidy/ui/toast";
 import { CookieConsent } from "@/components/privacy/cookie-consent";
 
-const instrumentSans = Instrument_Sans({
+const instrumentSans = localFont({
+  src: "../../../packages/ui/fonts/instrument-sans-latin.woff2",
   variable: "--font-instrument-sans",
-  subsets: ["latin"],
+  weight: "400 700",
+  display: "swap",
 });
 const instrumentSerif = localFont({
   src: "./fonts/InstrumentSerif-Regular.woff2",

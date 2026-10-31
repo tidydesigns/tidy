@@ -41,7 +41,7 @@ function createAuth() {
   });
 }
 
-export default {
+const worker = {
   fetch(request: Request) {
     // Match the app's request-scoped auth instances. Rebuilding an instance
     // cannot repair a pending import cached by the dependency's module.
@@ -69,3 +69,5 @@ export default {
     );
   },
 };
+
+export default worker;
