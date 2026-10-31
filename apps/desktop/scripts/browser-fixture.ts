@@ -1056,6 +1056,8 @@ async function run() {
           assert.equal((await value.service.browser.state(replacementDraft)).tabs.length, 1);
         } finally {
           value.service.startThread = startThread;
+          for (const result of pending.values())
+            result.reject(new Error("Fixture request cancelled."));
         }
       }
       if (label === "remote") {
