@@ -264,6 +264,10 @@ export function App({
   }, [selectedThreadId]);
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
   const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const promptHistory = useMemo(
+    () => thread?.messages.filter((message) => message.role === "user") ?? [],
+    [thread?.messages],
+  );
   const selectedSummary = snapshot?.threads.find((item) => item.id === selectedThreadId);
   const executionProjectId = selectedThreadId
     ? (thread?.executionProjectId ?? selectedSummary?.executionProjectId)
@@ -707,6 +711,20 @@ export function App({
       ...current,
       [draftKey]: { ...(current[draftKey] ?? draft), ...patch },
     }));
+  }
+
+  function changePrompt(text: string, attachments = draft.attachments) {
+    const name = skillCommand(text)?.name;
+    const skill = availableSkills.find((skill) => skill.name === name);
+    updateDraft({
+      text,
+      attachments,
+      skill: skill
+        ? { id: skill.id, name: skill.name, harness: selectedHarness }
+        : draft.skill?.name === name
+          ? draft.skill
+          : undefined,
+    });
   }
 
   const selectThread = useCallback(
@@ -2162,18 +2180,9 @@ export function App({
                         id="thread-prompt"
                         aria-label="Message"
                         value={draft.text}
-                        onChange={(text) => {
-                          const name = skillCommand(text)?.name;
-                          const skill = availableSkills.find((skill) => skill.name === name);
-                          updateDraft({
-                            text,
-                            skill: skill
-                              ? { id: skill.id, name: skill.name, harness: selectedHarness }
-                              : draft.skill?.name === name
-                                ? draft.skill
-                                : undefined,
-                          });
-                        }}
+                        onChange={(text) => changePrompt(text)}
+                        history={promptHistory}
+                        onRecall={(entry) => changePrompt(entry.text, entry.attachments ?? [])}
                         files={draft.attachments ?? []}
                         onAttachFiles={attachFiles}
                         placeholder={
