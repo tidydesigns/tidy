@@ -708,8 +708,10 @@ export class WorkspaceService {
       const thread = await this.store.readThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
       await this.assertProjectAccess(projectId);
+      this.sessions.assertSettingsCanChange(threadId, settings);
       await this.configure(thread.harness, this.executionProject(thread).path, settings);
       if (this.closing) throw new Error("Tidy is closing.");
+      this.sessions.assertSettingsCanChange(threadId, settings);
       thread.settings = settings;
       thread.revision++;
       await this.store.writeThread(thread);
@@ -1047,6 +1049,21 @@ export class WorkspaceService {
     ]);
     if (!executable)
       throw new Error(`Install ${harnessNames[thread.harness]} and sign in with its CLI first.`);
+    const [designDirectory, assetDirectory] = await Promise.all([
+      this.store.storagePath(owner.id, "designs"),
+      this.store.storagePath(owner.id, "assets"),
+    ]);
+    const additionalDirectories = owner.id !== project.id ? [designDirectory, assetDirectory] : [];
+    this.sessions.assertCompatible(thread.id, {
+      projectId: owner.id,
+      harness: thread.harness,
+      executable,
+      cwd: project.path,
+      additionalDirectories,
+      sessionId: thread.sessionId,
+      settings: thread.settings,
+      superviseParent: this.superviseHarnessParent,
+    });
     const skill = skillId
       ? await this.skills.resolve({
           harness: thread.harness,
@@ -1055,8 +1072,6 @@ export class WorkspaceService {
           prompt,
         })
       : undefined;
-    const designDirectory = await this.store.storagePath(owner.id, "designs");
-    const assetDirectory = await this.store.storagePath(owner.id, "assets");
     const context = [
       `The working directory is ${JSON.stringify(project.path)}.`,
       owner.cloud
@@ -1092,7 +1107,7 @@ export class WorkspaceService {
       images,
       attachments,
       project,
-      additionalDirectories: owner.id !== project.id ? [designDirectory, assetDirectory] : [],
+      additionalDirectories,
       prompt: `${context}\n\nUser request:\n\n${prompt || "Review the attached files."}`,
       skill: skill ? { invocation: skill, context, prompt } : undefined,
     };
