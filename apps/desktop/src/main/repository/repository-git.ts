@@ -26,6 +26,7 @@ export async function git(
   input?: string,
   limit = 2 * 1024 * 1024,
   view?: GitView,
+  pathspecs: "literal" | "attributes" = "literal",
 ) {
   const directory = await openRepositoryPath(cwd, "", true);
   try {
@@ -39,7 +40,9 @@ export async function git(
           "--no-pager",
           "--no-lazy-fetch",
           ...(view ? [`--git-dir=${view.directory}`, `--work-tree=${view.workTree}`] : []),
-          ...(args[0] === "check-ignore" ? [] : ["--literal-pathspecs"]),
+          ...(args[0] === "check-ignore" || pathspecs === "attributes"
+            ? []
+            : ["--literal-pathspecs"]),
           "-c",
           "core.fsmonitor=false",
           "-c",

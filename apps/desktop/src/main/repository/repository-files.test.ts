@@ -231,7 +231,12 @@ test("does not execute repository filters during status or diff reads", async ()
   await git(["config", "filter.fixture.smudge", "touch filter-ran; cat"]);
   await git(["config", "filter.fixture.process", "touch filter-ran; cat"]);
   await writeFile(join(root, "file.txt"), "changed\n");
-  await expect(readRepositoryChanges(root)).rejects.toThrow("external Git filters");
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+    filtered: true,
+  });
   expect(await readRepositoryFile(root, "file.txt")).toEqual({
     kind: "unavailable",
     reason: "filtered",
@@ -392,7 +397,12 @@ test("does not claim a diff for content transformed by an external Git filter", 
   await git(["commit", "-m", "Filtered fixture"]);
   expect((await git(["status", "--porcelain"])).stdout).toBe("");
   await git(["config", "filter.fixture.clean", "touch filter-ran; sed s/expanded/first/"]);
-  await expect(readRepositoryChanges(root)).rejects.toThrow("external Git filters");
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+    filtered: true,
+  });
   expect(await readRepositoryFile(root, "file.txt")).toEqual({
     kind: "unavailable",
     reason: "filtered",
@@ -441,7 +451,52 @@ test("reports unsupported filters even when raw working bytes equal HEAD", async
   await writeFile(join(root, "file.txt"), "intermediate\n");
   await writeFile(join(root, "file.txt"), "first\nlast\n");
   expect((await git(["status", "--porcelain"])).stdout).toContain(" M file.txt");
-  await expect(readRepositoryChanges(root)).rejects.toThrow("external Git filters");
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+    filtered: true,
+  });
+});
+
+test("global filters leave ordinary changes usable and only flag affected tracked paths", async () => {
+  const { root, git } = await fixture();
+  await mkdir(join(root, "assets"));
+  await writeFile(join(root, "assets/filtered.txt"), "stored\n");
+  await writeFile(join(root, "assets/plain.txt"), "plain\n");
+  await writeFile(
+    join(root, ".gitattributes"),
+    "assets/filtered.txt filter=fixture\nassets/plain.txt -filter\n",
+  );
+  await git(["add", "."]);
+  await git(["commit", "-m", "Fixture assets"]);
+  await writeFile(join(root, "file.txt"), "ordinary change\n");
+  const home = await mkdtemp(join(tmpdir(), "tidy-filter-home-"));
+  scratch.push(home);
+  const previousHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    await git(["config", "--global", "filter.fixture.clean", "touch filter-ran; cat"]);
+    expect((await readRepositoryChanges(root)).changes).toEqual([
+      { path: "file.txt", previousPath: null, status: "modified" },
+      { path: "assets/filtered.txt", previousPath: null, status: "modified", filtered: true },
+    ]);
+    expect((await readRepositoryChanges(join(root, "assets"))).changes).toEqual([
+      { path: "filtered.txt", previousPath: null, status: "modified", filtered: true },
+    ]);
+    expect(await readRepositoryFile(root, "file.txt")).toMatchObject({
+      kind: "text",
+      view: "diff",
+    });
+    expect(await readRepositoryFile(root, "assets/filtered.txt")).toEqual({
+      kind: "unavailable",
+      reason: "filtered",
+    });
+    await expect(access(join(root, "filter-ran"))).rejects.toThrow();
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME;
+    else process.env.HOME = previousHome;
+  }
 });
 
 test("represents a deleted and recreated tracked path once as a modification", async () => {

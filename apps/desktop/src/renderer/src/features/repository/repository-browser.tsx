@@ -271,14 +271,20 @@ export function RepositoryBrowser({
                 aria-setsize={row.siblings}
                 aria-expanded={isExpanded}
                 aria-selected={navigation.selected === row.path}
-                aria-label={`${row.name}${status ? `, ${status.status}` : ""}${folderChanges.has(row.path) ? `, ${folderChanges.get(row.path)} changed files` : ""}`}
+                aria-label={`${row.name}${status ? `, ${status.filtered ? "external filter, comparison unavailable" : status.status}` : ""}${folderChanges.has(row.path) ? `, ${folderChanges.get(row.path)} files to review` : ""}`}
                 className={`repository-tree-row ${activeRow?.path === row.path ? "focused" : ""}`}
-                data-status={status?.status}
+                data-status={status?.filtered ? undefined : status?.status}
                 style={{
                   top: (virtual.start + offset) * 28,
                   paddingLeft: Math.min(row.depth - 1, 12) * 12 + 6,
                 }}
-                title={status?.previousPath ? `${status.previousPath} → ${row.path}` : row.path}
+                title={
+                  status?.filtered
+                    ? `${row.path} · External filter: comparison unavailable`
+                    : status?.previousPath
+                      ? `${status.previousPath} → ${row.path}`
+                      : row.path
+                }
                 onPointerEnter={() => {
                   if (row.kind === "directory") void repository.preload(row.path);
                 }}
@@ -324,10 +330,14 @@ export function RepositoryBrowser({
                 {status && (
                   <span
                     className="repository-file-status"
-                    data-status={status.status}
+                    data-status={status.filtered ? undefined : status.status}
                     aria-hidden="true"
                   >
-                    {status.status === "untracked" ? "U" : status.status[0].toUpperCase()}
+                    {status.filtered
+                      ? "F"
+                      : status.status === "untracked"
+                        ? "U"
+                        : status.status[0].toUpperCase()}
                   </span>
                 )}
               </Button>
@@ -430,8 +440,15 @@ export function RepositoryBrowser({
               </span>
             </div>
             {selectedChange && (
-              <span className="repository-status-label" data-status={selectedChange.status}>
-                {selectedChange.status === "typechange" ? "Type changed" : selectedChange.status}
+              <span
+                className="repository-status-label"
+                data-status={selectedChange.filtered ? undefined : selectedChange.status}
+              >
+                {selectedChange.filtered
+                  ? "External filter"
+                  : selectedChange.status === "typechange"
+                    ? "Type changed"
+                    : selectedChange.status}
               </span>
             )}
             {changedIndex >= 0 && changedFiles.length > 1 && (

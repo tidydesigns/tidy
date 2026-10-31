@@ -34,6 +34,7 @@ export const repositoryDirectorySchema = z.object({
 export const repositoryChangeSchema = z.object({
   path: repositoryPathSchema,
   previousPath: repositoryPathSchema.nullable(),
+  filtered: z.literal(true).optional(),
   status: z.enum([
     "modified",
     "added",
