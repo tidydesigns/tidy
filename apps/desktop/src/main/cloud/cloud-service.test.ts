@@ -973,7 +973,7 @@ test("renderer subscriptions stop forwarding private cloud events after sign-out
   const workspace = await f.cloud.openWorkspace("org");
   const received: string[] = [];
   const unsubscribe = f.service.subscribeRenderer((event) => {
-    received.push(event.type === "designs" ? event.projectId : event.thread.projectId);
+    received.push("projectId" in event ? event.projectId : event.thread.projectId);
   });
   try {
     await f.service.refreshDesigns(workspace.project.id);

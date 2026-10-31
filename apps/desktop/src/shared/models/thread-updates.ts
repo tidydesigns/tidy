@@ -82,6 +82,7 @@ export function applyThreadPatch(previous: Thread, patch: ThreadPatch): Thread {
 }
 
 export function applyProjectEvent(snapshot: ProjectSnapshot, event: DesktopEvent): ProjectSnapshot {
+  if (event.type === "repository-change") return snapshot;
   const projectId = event.type === "designs" ? event.projectId : event.thread.projectId;
   if (projectId !== snapshot.project.id) return snapshot;
   if (event.type === "designs")

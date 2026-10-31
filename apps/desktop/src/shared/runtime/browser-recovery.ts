@@ -51,6 +51,10 @@ export function browserRecovery({
     },
     receive(event: DesktopEvent) {
       if (closed) return;
+      if (event.type === "repository-change") {
+        listener(event);
+        return;
+      }
       if (event.type === "designs")
         designVersions.set(event.projectId, (designVersions.get(event.projectId) ?? 0) + 1);
       if (event.type !== "designs") {

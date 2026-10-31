@@ -229,7 +229,7 @@ async function run() {
       window.focus();
       window.webContents.focus();
       await until(
-        () => evaluate('Boolean(document.querySelector(".browser-toggle-button"))'),
+        () => evaluate('Boolean(document.querySelector("#workspace-panel-trigger"))'),
         `${label} browser toggle`,
       );
       assert.equal(
@@ -239,13 +239,21 @@ async function run() {
         true,
         "Desktop fixture must use mouse input and the desktop thread layout.",
       );
+      assert.equal(
+        viewerIds.has(value.service),
+        false,
+        "A cold conversation must not subscribe to the browser.",
+      );
       if (label === "remote") {
         await until(
           () => evaluate('Boolean(document.querySelector(".chat-web-link"))'),
           "remote chat link",
         );
         await evaluate('document.querySelector(".chat-web-link").click()');
-      } else await evaluate('document.querySelector(".browser-toggle-button").click()');
+      } else
+        await evaluate(
+          'window.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyB",ctrlKey:true,shiftKey:true,bubbles:true}))',
+        );
       await until(
         () =>
           evaluate(
@@ -704,16 +712,65 @@ async function run() {
           "close focus-check preview",
         );
       }
+      const retainedViewer = viewerIds.get(value.service);
+      const retainedTab = (await value.service.browser.state(value.scope)).activeTabId;
+      await evaluate(`document.querySelector('#workspace-add-surface').click()`);
+      await evaluate(
+        `Array.from(document.querySelectorAll('.workspace-surface-launcher button')).find(button => button.textContent === 'Files').click()`,
+      );
+      await until(
+        () =>
+          evaluate(
+            `document.querySelector('#workspace-tab-files')?.getAttribute('aria-selected') === 'true'`,
+          ),
+        `${label} file surface`,
+      );
+      await until(
+        async () => (await value.service.browser.state(value.scope)).control === "available",
+        `${label} hidden preview releases control`,
+      );
+      await until(
+        () => evaluate(`Boolean(document.querySelector('.repository-browser'))`),
+        `${label} repository surface ready`,
+      );
+      assert.equal(
+        await evaluate(`(() => {
+          const tree = document.querySelector('.repository-browser').getBoundingClientRect();
+          const surface = document.querySelector('.workspace-surface-content:not([hidden])').getBoundingClientRect();
+          return Math.abs(tree.width - surface.width) < 1;
+        })()`),
+        true,
+        "File browsing must fill the available sidebar width.",
+      );
+      await evaluate(`document.querySelector('#workspace-tab-browser').click()`);
+      await until(
+        () => evaluate(`!document.querySelector('.browser-workspace').hidden`),
+        `${label} retained browser surface`,
+      );
+      assert.equal(
+        viewerIds.get(value.service),
+        retainedViewer,
+        "Surface switches retain the scoped browser viewer.",
+      );
+      assert.equal((await value.service.browser.state(value.scope)).activeTabId, retainedTab);
+      await evaluate(
+        `Array.from(document.querySelectorAll('.browser-workspace button')).find(button => button.textContent.includes('Take control'))?.click()`,
+      );
+      await until(
+        async () =>
+          (await value.service.browser.state(value.scope, retainedViewer)).control === "you",
+        `${label} browser control restored`,
+      );
       const paneWidth = z
         .number()
-        .parse(await evaluate('document.querySelector(".browser-workspace").clientWidth'));
-      await evaluate('document.querySelector(".browser-resize-handle").focus()');
+        .parse(await evaluate('document.querySelector(".workspace-side-panel").clientWidth'));
+      await evaluate('document.querySelector(".workspace-resize-handle").focus()');
       window.webContents.sendInputEvent({ type: "keyDown", keyCode: "Left" });
       window.webContents.sendInputEvent({ type: "keyUp", keyCode: "Left" });
       await until(
         () =>
           evaluate(
-            `(()=>{const pane=document.querySelector('.browser-workspace');return pane.clientWidth > ${paneWidth} && Number(document.querySelector('.browser-resize-handle').getAttribute('aria-valuenow')) === Math.round(pane.clientWidth)})()`,
+            `(()=>{const pane=document.querySelector('.workspace-side-panel');return pane.clientWidth > ${paneWidth} && Number(document.querySelector('.workspace-resize-handle').getAttribute('aria-valuenow')) === Math.round(pane.clientWidth)})()`,
           ),
         `${label} keyboard pane resize`,
       );
@@ -736,7 +793,7 @@ async function run() {
       await until(
         () =>
           evaluate(
-            '(()=>{const pane=document.querySelector(".browser-workspace").getBoundingClientRect();const work=document.querySelector("#workspace-panel-code").getBoundingClientRect();return innerWidth<=1000 && Math.abs(pane.width-work.width)<2 && Math.abs(pane.height-work.height)<2})()',
+            '(()=>{const pane=document.querySelector(".workspace-side-panel").getBoundingClientRect();const chat=document.querySelector(".thread-workspace").getBoundingClientRect();const work=document.querySelector("#workspace-panel-code").getBoundingClientRect();return innerWidth<=1000 && chat.width>0 && pane.left>=chat.right-1 && pane.right<=work.right+1 && document.documentElement.scrollWidth<=innerWidth})()',
           ),
         `${label} compact layout`,
       );
@@ -858,7 +915,9 @@ async function run() {
             "machine menu closed",
           );
         }
-        await evaluate('document.querySelector(".browser-toggle-button").click()');
+        await evaluate(
+          'window.dispatchEvent(new KeyboardEvent("keydown",{code:"KeyB",ctrlKey:true,shiftKey:true,bubbles:true}))',
+        );
         await until(
           () => viewerScopes.get(value.service)?.threadId === draftScope.threadId,
           "draft preview survives machine switch",
@@ -997,6 +1056,8 @@ async function run() {
           assert.equal((await value.service.browser.state(replacementDraft)).tabs.length, 1);
         } finally {
           value.service.startThread = startThread;
+          for (const result of pending.values())
+            result.reject(new Error("Fixture request cancelled."));
         }
       }
       if (label === "remote") {
@@ -1013,7 +1074,7 @@ async function run() {
         () => value.service.browser.activeCount === (label === "local" ? 2 : 1),
         `${label} draft tab cleaned up`,
       );
-      await evaluate('document.querySelector(".browser-window-actions button:last-child").click()');
+      await evaluate(`document.querySelector('[aria-label="Close side panel"]').click()`);
       assert.equal(value.service.browser.activeCount, label === "local" ? 2 : 1);
       console.log(
         `PASS: ${label} Electron browser panel, real input, Unicode paste, find, prompts, tab shortcuts, mobile viewport, compact layout, authenticated stream, hide without closing${label === "remote" ? ", reconnect retains tab" : ""}.`,
