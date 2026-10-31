@@ -9,7 +9,7 @@ import {
 import { harnessSettingsSchema } from "./harness-settings";
 import { validateHarnessSettings } from "../../main/harnesses/harness-details";
 
-test("Auto is explicit full access; existing threads retain their standard mode", () => {
+test("native Auto stays reviewed and distinct from Full access; legacy selections keep their meaning", () => {
   expect(effectivePermissionMode("codex")).toBe("default");
   expect(effectivePermissionMode("claude")).toBe("accept-edits");
   expect(codexPermissions("default")).toMatchObject({
@@ -26,6 +26,20 @@ test("Auto is explicit full access; existing threads retain their standard mode"
     approvalPolicy: "never",
   });
   expect(claudePermissionMode("auto")).toBe("bypassPermissions");
+  expect(claudePermissionMode("provider-auto")).toBe("auto");
+  expect(codexPermissions("provider-auto")).toEqual({
+    sandbox: "workspace-write",
+    approvalPolicy: "on-request",
+    approvalsReviewer: "auto_review",
+  });
+  for (const harness of ["codex", "claude", "opencode"] as const) {
+    expect(permissionModes[harness].find((option) => option.value === "auto")?.label).toBe(
+      "Full access",
+    );
+    expect(permissionModes[harness].find((option) => option.value === "provider-auto")?.label).toBe(
+      "Auto",
+    );
+  }
   expect(claudePermissionMode("accept-edits")).toBe("acceptEdits");
   expect(claudePermissionMode("plan")).toBe("plan");
   for (const harness of ["codex", "claude"] as const)

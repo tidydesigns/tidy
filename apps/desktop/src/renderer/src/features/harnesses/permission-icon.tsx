@@ -19,6 +19,8 @@ export function PermissionIcon({ mode }: { mode: PermissionMode }) {
           <rect x="5.5" y="10.5" width="13" height="10" rx="2.5" />
           <path d="M8.5 10.5V7a4 4 0 0 1 7.6-1.75M12 14.5v2" />
         </>
+      ) : mode === "provider-auto" ? (
+        <path d="m13.5 3-9 10.5H11L10.5 21l9-10.5H13L13.5 3Z" />
       ) : mode === "read-only" || mode === "plan" ? (
         <>
           <path d="M3 12c2-3.5 5-5.5 9-5.5s7 2 9 5.5c-2 3.5-5 5.5-9 5.5S5 15.5 3 12Z" />
