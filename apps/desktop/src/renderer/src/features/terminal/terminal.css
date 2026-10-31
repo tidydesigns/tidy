@@ -123,6 +123,8 @@
   color: #e4e4e7;
 }
 .terminal-surface {
+  /* Ghostty draws the terminal cursor on canvas; suppress Chromium's editable caret. */
+  caret-color: transparent;
   position: relative;
   flex: 1;
   min-width: 0;

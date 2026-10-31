@@ -1,3 +1,4 @@
+import { terminalFont } from "./terminal-font";
 import { Ghostty, Terminal, FitAddon } from "ghostty-web";
 import wasmURL from "ghostty-web/ghostty-vt.wasm?url";
 
@@ -10,7 +11,7 @@ export async function createTerminal() {
   const ghostty = await runtime;
   const terminal = new Terminal({
     ghostty,
-    fontSize: 13,
+    fontSize: terminalFont.default,
     fontFamily:
       '"SF Mono", "Cascadia Code", "DejaVu Sans Mono", Menlo, Consolas, "Symbols Nerd Font Mono", "Symbols Nerd Font", "JetBrainsMono Nerd Font", monospace',
     scrollback: 5000,

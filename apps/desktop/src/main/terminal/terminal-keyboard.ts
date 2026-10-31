@@ -19,13 +19,12 @@ export function terminalKeyboardFocus(contents: WebContents, active: boolean, re
   contents.on("before-input-event", (event, input) => {
     if (
       input.type !== "keyDown" ||
-      input.isAutoRepeat ||
       input.isComposing ||
       !trustedRendererURL(contents.mainFrame.url, rendererURL)
     )
       return;
     const shortcut = terminalShortcut(input, current.active, process.platform === "darwin");
-    if (!shortcut) return;
+    if (!shortcut || (input.isAutoRepeat && !shortcut.startsWith("zoom-"))) return;
     event.preventDefault();
     contents.send("tidy:terminal-shortcut", shortcut);
   });

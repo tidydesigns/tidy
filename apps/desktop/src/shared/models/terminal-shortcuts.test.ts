@@ -26,3 +26,23 @@ test("tab cycling preserves control characters and editor keys", () => {
     expect(terminalShortcut({ ...key, code }, true, true)).toBeUndefined();
   }
 });
+
+test("terminal zoom supports native plus/minus/reset, shifted plus, keypad and keyboard layouts", () => {
+  for (const mac of [true, false]) {
+    const key = { ...input, meta: mac, control: !mac };
+    for (const code of ["Equal", "NumpadAdd"]) {
+      expect(terminalShortcut({ ...key, code }, true, mac)).toBe("zoom-in");
+      expect(terminalShortcut({ ...key, code, shift: true }, true, mac)).toBe("zoom-in");
+      expect(terminalShortcut({ ...key, code }, false, mac)).toBeUndefined();
+    }
+    expect(terminalShortcut({ ...key, code: "BracketRight", key: "+" }, true, mac)).toBe("zoom-in");
+    for (const code of ["Minus", "NumpadSubtract"])
+      expect(terminalShortcut({ ...key, code }, true, mac)).toBe("zoom-out");
+    expect(terminalShortcut({ ...key, code: "Slash", key: "-" }, true, mac)).toBe("zoom-out");
+    expect(terminalShortcut({ ...key, code: "Digit0" }, true, mac)).toBe("zoom-reset");
+    expect(terminalShortcut({ ...key, code: "Numpad0" }, true, mac)).toBe("zoom-reset");
+    expect(terminalShortcut({ ...key, code: "Minus", shift: true }, true, mac)).toBeUndefined();
+    expect(terminalShortcut({ ...key, code: "Equal", alt: true }, true, mac)).toBeUndefined();
+  }
+  expect(terminalShortcut({ ...input, code: "Equal", meta: false }, true, true)).toBeUndefined();
+});
