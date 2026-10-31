@@ -742,12 +742,14 @@ export function App({
     }));
   }
 
-  function changePrompt(text: string, attachments = draft.attachments) {
+  function changePrompt(text: string, attachments?: AttachedFile[]) {
     const name = skillCommand(text)?.name;
     const skill = availableSkills.find((skill) => skill.name === name);
     updateDraft({
       text,
-      attachments,
+      // Text edits can follow attachment insertion in the same event. Only recall
+      // replaces files; otherwise preserve the latest draft's attachment list.
+      ...(attachments === undefined ? {} : { attachments }),
       skill: skill
         ? { id: skill.id, name: skill.name, harness: selectedHarness }
         : draft.skill?.name === name

@@ -1,3 +1,4 @@
+import type { Draft } from "../../features/composer/machine-context";
 import { ThreadVideo } from "../../features/threads/video/thread-video";
 import { Conversation } from "../../features/threads/conversation";
 import { ThreadTitle } from "../../features/threads/thread-title";
@@ -375,9 +376,10 @@ function videoVisibilityFixture() {
   };
 }
 
-async function runThreadLoadingTests(): Promise<string[]> {
+async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   const passed: string[] = [];
   async function run(name: string, test: (root: Root) => Promise<void>) {
+    if (!name.includes(filter)) return;
     sessionStorage.clear();
     const root = createRoot(host);
     try {
@@ -2845,6 +2847,237 @@ async function runThreadLoadingTests(): Promise<string[]> {
     );
     await until(() => !dialog.matches(":popover-open"), "Escape closes after project removal");
   });
+
+  for (const withExistingFile of [false, true]) {
+    await run(
+      `pasted images survive text updates and history recall (${withExistingFile ? "existing file" : "empty draft"})`,
+      async (root) => {
+        const { App } = await import("../app");
+        const project = {
+          id: crypto.randomUUID(),
+          path: "/synthetic/paste-project",
+          name: "Paste fixture",
+          openedAt: timestamp,
+        };
+        const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
+        const harnesses: Bootstrap["harnesses"] = [{ id: "codex", name: "Codex", status: "ready" }];
+        const bootstrap: Bootstrap = { projects: [project], activeProject: snapshot, harnesses };
+        const existing: AttachedFile[] = withExistingFile
+          ? [{ id: crypto.randomUUID(), name: "Notes.txt", mimeType: "text/plain", size: 5 }]
+          : [];
+        const stored = new Map(existing.map((file) => [file.id, file]));
+        const uploads: string[] = [];
+        const gate = deferred<void>();
+        const drafts = new Map<string, Record<string, Draft>>();
+        const png =
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+        let submitted: Parameters<DesktopAPI["startThread"]>[0] | undefined;
+        let started: Thread | undefined;
+        const api: DesktopAPI = {
+          ...nativeAPI,
+          cloud: undefined,
+          browser: undefined,
+          bootstrap: async () => bootstrap,
+          checkHarnesses: async () => harnesses,
+          selectProject: async () => snapshot,
+          onEvent: () => () => {},
+          onUpdate: () => () => {},
+          updateState: async () => ({ status: "unsupported" }),
+          repositoryContext: async () => ({
+            machine: "Fixture",
+            repository: false,
+            branch: null,
+            branches: [],
+          }),
+          skills: async () => ({ skills: [] }),
+          harnessDetails: async () => ({
+            models: [],
+            windows: [],
+            updatedAt: timestamp,
+            usagePage: "subscription",
+          }),
+          warmThread: async () => {},
+          threadPorts: async () => [],
+          async addAttachment(projectId, name, dataUrl) {
+            check(projectId === project.id, "Upload used the wrong project");
+            check(dataUrl === `data:image/png;base64,${png}`, "Paste lost image bytes");
+            uploads.push(name);
+            await gate.promise;
+            const file = {
+              id: crypto.randomUUID(),
+              name,
+              mimeType: "image/png",
+              size: 68,
+              previewUrl: dataUrl,
+            };
+            stored.set(file.id, file);
+            return file;
+          },
+          readAttachment: async (_projectId, id) => required(stored.get(id), "Stored attachment"),
+          readThread: async () => required(started, "Started thread"),
+          async startThread(input) {
+            submitted = input;
+            started = {
+              id: required(input.threadId, "Thread ID"),
+              projectId: project.id,
+              harness: "codex",
+              designIds: [],
+              title: "Pasted images",
+              status: "idle",
+              revision: 2,
+              updatedAt: timestamp,
+              messages: [
+                { id: crypto.randomUUID(), role: "user", text: "Earlier text-only request" },
+                {
+                  id: required(input.messageId, "Message ID"),
+                  role: "user",
+                  text: input.prompt,
+                  attachments: input.attachmentIds?.map((id) =>
+                    required(stored.get(id), "Sent file"),
+                  ),
+                },
+              ],
+            };
+            return started;
+          },
+        };
+        const machine = { id: "local" as const, label: "Fixture", status: null };
+        flushSync(() =>
+          root.render(
+            <App
+              workspaceAPI={api}
+              machine={{
+                current: machine,
+                machines: [machine],
+                connected: true,
+                switching: false,
+                select() {},
+                navigate() {},
+                cancelProjectNavigation() {},
+                projects: async () => [project],
+                openProject: async () => {},
+              }}
+              cloud={{
+                busy: false,
+                error: "",
+                state: undefined,
+                account: undefined,
+                signIn: async () => {},
+                signOut: async () => {},
+                retry() {},
+              }}
+              initial={{
+                bootstrap,
+                relation: "matching",
+                draft: {
+                  text: "",
+                  harness: "codex",
+                  designIds: [],
+                  ...(withExistingFile ? { attachments: existing } : {}),
+                },
+              }}
+              draftCache={drafts}
+            />,
+          ),
+        );
+        await settle();
+        const current = () => required(drafts.get("local"), "Draft cache");
+        const draft = () => required(current()[`${project.id}:new`], "New draft");
+        const editor = () => required(host.querySelector<HTMLElement>("#thread-prompt"), "Editor");
+        function key(value: string) {
+          const range = document.createRange();
+          range.selectNodeContents(editor());
+          range.collapse(value === "ArrowUp");
+          window.getSelection()?.removeAllRanges();
+          window.getSelection()?.addRange(range);
+          flushSync(() =>
+            editor().dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: value,
+                bubbles: true,
+                cancelable: true,
+              }),
+            ),
+          );
+        }
+        function paste() {
+          editor().focus();
+          const range = document.createRange();
+          range.selectNodeContents(editor());
+          range.collapse(false);
+          window.getSelection()?.removeAllRanges();
+          window.getSelection()?.addRange(range);
+          const data = new DataTransfer();
+          data.items.add(
+            new File([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], "image.png", {
+              type: "image/png",
+            }),
+          );
+          flushSync(() =>
+            editor().dispatchEvent(
+              new ClipboardEvent("paste", {
+                bubbles: true,
+                cancelable: true,
+                clipboardData: data,
+              }),
+            ),
+          );
+        }
+        paste();
+        check(draft().attachments?.length === existing.length + 1, "Paste discarded its image");
+        flushSync(() => document.execCommand("insertText", false, " Describe these "));
+        paste();
+        check(draft().attachments?.length === existing.length + 2, "Second paste lost files");
+        check(host.querySelectorAll(".composer-body img").length === 2, "Missing instant previews");
+        const start = required(host.querySelector<HTMLButtonElement>(".composer-submit"), "Start");
+        check(start.disabled, "Sending was enabled before images were stored");
+        gate.resolve();
+        await until(() => uploads.length === 2 && !start.disabled, "Both images stored");
+        const ids = draft().attachments?.map((file) => file.id) ?? [];
+        check(
+          ids.every((id) => stored.has(id)),
+          "Draft kept temporary IDs after upload",
+        );
+        flushSync(() => start.click());
+        await until(() => Boolean(submitted), "Submission");
+        check(JSON.stringify(submitted?.attachmentIds) === JSON.stringify(ids), "Send lost files");
+        check(submitted?.prompt.includes("Describe these"), "Send lost text between images");
+        check(
+          ids
+            .slice(existing.length)
+            .every((id) => submitted?.prompt.includes(`[[attachment:${id}]]`)),
+          "Send did not remap pasted references to stored IDs",
+        );
+        await until(
+          () => Boolean(started && current()[`${project.id}:${started.id}`]),
+          "Reply draft",
+        );
+        await settle();
+        await until(
+          () => host.querySelectorAll(".message-text .attachment-reference").length === 2,
+          "Sent images render as attachment chips",
+        );
+        check(
+          !host.querySelector(".transcript")?.textContent?.includes("[[attachment:"),
+          "Transcript exposed an unresolved attachment reference",
+        );
+        editor().focus();
+        key("ArrowUp");
+        const reply = () => required(current()[`${project.id}:${started!.id}`], "Reply draft");
+        check(reply().attachments?.length === ids.length, "Recall lost sent attachments");
+        key("ArrowUp");
+        check(reply().text === "Earlier text-only request", "Earlier message was not recalled");
+        check(reply().attachments?.length === 0, "Text-only recall retained stale attachments");
+        key("ArrowDown");
+        check(reply().attachments?.length === ids.length, "Forward recall lost attachments");
+        key("ArrowDown");
+        check(
+          !reply().text && reply().attachments?.length === 0,
+          "Recall did not restore empty draft",
+        );
+      },
+    );
+  }
 
   await run(
     "prompt history recalls messages and attachments without consuming editor navigation",
