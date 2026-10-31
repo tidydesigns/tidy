@@ -25,6 +25,7 @@ import { groupTurnActivity } from "./turn-activity";
 import { ChatLink } from "../../components/chat-link";
 import { parseChatLink } from "../../../../shared/models/chat-links";
 import { MarkdownPreview } from "../../components/markdown-preview";
+import { MarkdownTable } from "./markdown-table";
 import { TurnStatus } from "./turn-status";
 import { remarkCompleteBlocks, useBlockReveal, useBufferedMarkdown } from "./streamed-markdown";
 
@@ -58,6 +59,7 @@ const MarkdownContent = memo(function MarkdownContent({
   );
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
     () => ({
+      table: MarkdownTable,
       a: ({ href, children }) => {
         const link = parseChatLink(href);
         return href && link?.kind === "file" && videoMimeType(link.path) ? (
