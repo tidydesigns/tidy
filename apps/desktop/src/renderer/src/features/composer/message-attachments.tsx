@@ -1,6 +1,8 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { ClipboardCopyButton } from "../threads/message-copy-button";
+import { copyAttachmentImage } from "../threads/image-clipboard";
 import { attachmentParts } from "../../../../shared/models/attachment-references";
 import { Button } from "@tidy/ui/button";
 import type { AttachedFile, Attachment } from "../../../../shared/contracts/attachments";
@@ -73,9 +75,11 @@ function AttachmentImage({ name, previewUrl }: { name: string; previewUrl: strin
 export function AttachmentList({
   files,
   onRemove,
+  onCopyImage,
 }: {
   files: AttachedFile[];
   onRemove?: (id: string) => void;
+  onCopyImage?: (id: string) => Promise<void>;
 }) {
   if (!files.length) return null;
   return (
@@ -85,7 +89,8 @@ export function AttachmentList({
     >
       {files.map((file) => (
         <li
-          className={`message-attachment flex max-w-60 items-center gap-[9px] rounded-lg border border-border bg-panel text-ink ${file.previewUrl ? "message-attachment-image relative size-18 min-h-0 p-0" : "min-h-12 px-2 py-1.5"}`}
+          aria-busy={file.importState === "pending" || undefined}
+          className={`group/attachment relative message-attachment flex max-w-60 items-center gap-[9px] rounded-lg border border-border bg-panel text-ink ${file.previewUrl ? "message-attachment-image relative size-18 min-h-0 p-0" : "min-h-12 px-2 py-1.5"}`}
           key={file.referenceId ?? file.id}
           title={file.name}
         >
@@ -113,8 +118,24 @@ export function AttachmentList({
               <span className="truncate text-xs" title={file.name}>
                 {file.name}
               </span>
-              <small className="text-[11px] text-muted-ink">{attachmentSize(file.size)}</small>
+              <small
+                className="text-[11px] text-muted-ink"
+                role={file.importState ? "status" : undefined}
+              >
+                {file.importState === "pending"
+                  ? "Loading…"
+                  : file.importState === "failed"
+                    ? "Could not load. Remove and paste again."
+                    : attachmentSize(file.size)}
+              </small>
             </span>
+          )}
+          {onCopyImage && file.previewUrl && (
+            <ClipboardCopyButton
+              label={`Copy image: ${file.name}`}
+              onCopy={() => onCopyImage(file.id)}
+              className="absolute right-1 bottom-1 border border-border bg-panel opacity-0 group-hover/attachment:opacity-100 group-focus-within/attachment:opacity-100 [@media(hover:none)]:opacity-100 data-[copied]:opacity-100"
+            />
           )}
           {onRemove && (
             <Button
@@ -159,7 +180,10 @@ export function MessageAttachments({
     };
   }, [api, projectId, imageIds]);
   return (
-    <AttachmentList files={files.map((file) => ({ ...file, previewUrl: previews[file.id] }))} />
+    <AttachmentList
+      files={files.map((file) => ({ ...file, previewUrl: previews[file.id] }))}
+      onCopyImage={(attachmentId) => copyAttachmentImage({ api, projectId, attachmentId })}
+    />
   );
 }
 

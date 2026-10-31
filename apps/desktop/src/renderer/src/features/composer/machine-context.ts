@@ -1,3 +1,4 @@
+import { assertAttachmentsReady } from "./draft-attachments";
 import {
   draftImportSchema,
   MAX_DRAFT_IMPORT_BYTES,
@@ -28,6 +29,7 @@ export type Draft = {
 
 export type MachineSelection = { project: Project; contextProjectId: string; draft: Draft };
 export type MachineContext = {
+  api?(id: string): DesktopAPI | undefined;
   current: WorkspaceMachine;
   machines: WorkspaceMachine[];
   connected: boolean;
@@ -62,6 +64,7 @@ export async function copyDraft({
   onImport?(): void;
 }): Promise<{ draft: Draft; snapshot: ProjectSnapshot | null }> {
   signal?.throwIfAborted();
+  assertAttachmentsReady(source.draft.attachments ?? []);
   const attachments = [];
   const designs = [];
   let size = 0;

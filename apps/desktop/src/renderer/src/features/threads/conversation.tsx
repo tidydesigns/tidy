@@ -1,3 +1,4 @@
+import { MessageCopyButton } from "./message-copy-button";
 import { ThreadVideo } from "./video/thread-video";
 import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
@@ -16,8 +17,6 @@ import {
 import Markdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
-import { showToast } from "@tidy/ui/toast";
-import { Icon } from "@tidy/editor/components/ui/icon";
 import type { DesktopAPI, Message, Thread } from "../../../../shared/contracts/desktop";
 import { attachmentText } from "../../../../shared/models/attachment-references";
 import { AttachmentText, MessageAttachments } from "../composer/message-attachments";
@@ -155,6 +154,7 @@ const MessageBody = memo(function MessageBody({
 
 const ConversationEntry = memo(function ConversationEntry({
   message,
+  machineId,
   activities,
   active,
   streaming,
@@ -165,6 +165,7 @@ const ConversationEntry = memo(function ConversationEntry({
   nodes,
 }: {
   message: Message;
+  machineId: string;
   activities: NonNullable<Thread["toolActivities"]>;
   active: boolean;
   streaming: boolean;
@@ -208,26 +209,13 @@ const ConversationEntry = memo(function ConversationEntry({
           )}
         </article>
         {message.role === "user" && (
-          <div className="pointer-events-none absolute right-0 bottom-0 flex h-7 items-center gap-2 text-xs text-muted-ink opacity-0 group-focus-within/prompt:pointer-events-auto group-focus-within/prompt:opacity-100 group-hover/prompt:pointer-events-auto group-hover/prompt:opacity-100">
+          <div className="message-actions pointer-events-none absolute right-0 bottom-0 flex h-7 items-center gap-2 text-xs text-muted-ink opacity-0 group-focus-within/prompt:pointer-events-auto group-focus-within/prompt:opacity-100 group-hover/prompt:pointer-events-auto group-hover/prompt:opacity-100">
             {sentAt && (
               <time dateTime={sentAt} title={new Date(sentAt).toLocaleString()}>
                 {messageTime.format(new Date(sentAt))}
               </time>
             )}
-            <Button
-              type="button"
-              className="flex size-7 cursor-pointer items-center justify-center rounded-md hover:text-[light-dark(#292929,#ffffff)] focus-visible:outline-2 focus-visible:outline-offset-2"
-              aria-label="Copy prompt"
-              title="Copy prompt"
-              onClick={() => {
-                void navigator.clipboard.writeText(message.text).then(
-                  () => showToast("Prompt copied", "success"),
-                  () => showToast("Could not copy the prompt. Please try again."),
-                );
-              }}
-            >
-              <Icon name="copy" size={16} />
-            </Button>
+            <MessageCopyButton message={message} machineId={machineId} projectId={projectId} />
           </div>
         )}
       </div>
@@ -313,11 +301,13 @@ export const Conversation = memo(function Conversation({
   identity,
   api,
   active,
+  machineId = "local",
 }: {
   thread?: Thread;
   identity: string;
   api: DesktopAPI;
   active: boolean;
+  machineId?: string;
 }) {
   const [showFailure, setShowFailure] = useState(false);
   useEffect(() => {
@@ -617,6 +607,7 @@ export const Conversation = memo(function Conversation({
             <ConversationEntry
               key={message.id}
               message={message}
+              machineId={machineId}
               activities={toolsByTurn.get(message.id) ?? emptyActivities}
               active={active}
               streaming={message.role === "assistant" && message.id === streamingMessage}
