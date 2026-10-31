@@ -278,8 +278,8 @@ export function WorkspaceSurfaces({
         <Button
           id="workspace-add-surface"
           className="quiet-button workspace-icon-button"
-          aria-label="Open a surface"
-          title="Open a surface"
+          aria-label="Open a tab"
+          title="Open a tab"
           onClick={() => setPanel((current) => ({ ...current, active: null }))}
         >
           <RepositoryIcon name="plus" />
@@ -302,9 +302,9 @@ export function WorkspaceSurfaces({
         </Button>
       </header>
       {selected === null && (
-        <div className="workspace-surface-launcher" aria-label="Open a surface">
+        <div className="workspace-surface-launcher" aria-label="Open a tab">
           <div>
-            <p>Open a surface</p>
+            <p>Open a tab</p>
             {(["files", "diff", "browser"] as const).filter(available).map((surface) => (
               <Button
                 key={surface}

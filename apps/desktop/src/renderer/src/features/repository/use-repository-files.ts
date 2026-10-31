@@ -11,18 +11,22 @@ export type RepositoryAPI = Required<
 > &
   Pick<DesktopAPI, "onEvent">;
 
+export type RepositoryInvalidation = { id: number; paths: readonly string[] | null };
+
 export function useRepositoryFiles({
   api,
   projectId,
   active,
   selected,
   expanded,
+  continuous = false,
 }: {
   api: RepositoryAPI;
   projectId: string;
   active: boolean;
   selected: string | null;
   expanded: ReadonlySet<string>;
+  continuous?: boolean;
 }) {
   const [directories, setDirectories] = useState(new Map<string, RepositoryDirectory>());
   const [changes, setChanges] = useState<RepositoryChanges>();
@@ -32,6 +36,10 @@ export function useRepositoryFiles({
   const [changesError, setChangesError] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [contentRevision, setContentRevision] = useState<RepositoryInvalidation>({
+    id: 0,
+    paths: null,
+  });
   const directoryRequests = useRef(new Map<string, Promise<void>>());
   const directoryCache = useRef(new Map<string, RepositoryDirectory>());
   const directoryFailures = useRef(new Set<string>());
@@ -236,6 +244,11 @@ export function useRepositoryFiles({
           if (touches(path)) fileCache.current.delete(path);
         if (latest.current.selected && touches(latest.current.selected))
           setRevision((value) => value + 1);
+        if (initialized && (invalidateAll || invalidated.size))
+          setContentRevision((value) => ({
+            id: value.id + 1,
+            paths: invalidateAll ? null : [...invalidated],
+          }));
         const targets = (paths ?? ["", ...latest.current.expanded]).filter(knownDirectory);
         for (let index = 0; index < targets.length; index += 4) {
           if (!lifetime.current || !latest.current.active) break;
@@ -362,10 +375,15 @@ export function useRepositoryFiles({
     [api, projectId],
   );
 
+  const deferPreview =
+    continuous &&
+    ((!changes && !changesError) ||
+      Boolean(changes?.changes.some((change) => change.path === selected)));
   useEffect(() => {
     wantedFile.current = null;
     setFileError("");
     if (!active || !selected) return;
+    if (deferPreview) return;
     const cached = fileCache.current.get(selected);
     if (cached) {
       setFile({ path: selected, content: cached });
@@ -373,7 +391,7 @@ export function useRepositoryFiles({
     }
     wantedFile.current = { path: selected };
     void requestFile();
-  }, [selected, active, revision, requestFile]);
+  }, [selected, active, revision, requestFile, deferPreview]);
 
   return {
     directories,
@@ -381,6 +399,7 @@ export function useRepositoryFiles({
     file,
     error: changesError || fileError || error,
     refreshing,
+    contentRevision,
     refresh,
     preload: loadDirectory,
   };

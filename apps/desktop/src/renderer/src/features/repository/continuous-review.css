@@ -1,0 +1,206 @@
+.repository-review {
+  --repository-number-width: 44px;
+  --repository-added: light-dark(#217a49, #51bd91);
+  --repository-removed: light-dark(#b13f4a, #e5818e);
+  --repository-added-surface: color-mix(in srgb, var(--repository-added) 7%, var(--color-surface));
+  --repository-removed-surface: color-mix(
+    in srgb,
+    var(--repository-removed) 7%,
+    var(--color-surface)
+  );
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.repository-review-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 36px;
+  padding: 2px 10px;
+  border-bottom: 1px solid var(--repository-hairline);
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.repository-review-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overflow-anchor: none;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+.repository-review-scroll:focus-visible {
+  outline: 2px solid var(--color-control-border);
+  outline-offset: -2px;
+}
+.repository-review-canvas {
+  position: relative;
+  min-width: 0;
+}
+.repository-review-section {
+  position: absolute;
+  inset-inline: 0;
+}
+.repository-review-heading {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+.repository-review-heading > .repository-file-path {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  padding: 0;
+  height: 26px;
+  font-size: 12px;
+  font-weight: 400;
+}
+.repository-review-identity {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  white-space: nowrap;
+}
+.repository-review-count {
+  flex-shrink: 0;
+  color: var(--color-ink);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.repository-review-comparison {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+.repository-review-heading .repository-icon-button {
+  width: 20px;
+  height: 24px;
+  min-height: 24px;
+  padding: 2px;
+}
+.repository-review-heading > svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.repository-review-heading [aria-expanded] svg {
+  width: 12px;
+  height: 12px;
+}
+.repository-review-heading [aria-expanded="true"] svg {
+  transform: rotate(90deg);
+}
+.repository-review-file-state {
+  flex-shrink: 0;
+  color: var(--color-muted-ink);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+.repository-review-file-state[data-status="conflict"],
+.repository-review-file-state[data-status="deleted"] {
+  color: var(--repository-removed);
+}
+.repository-review-notice {
+  height: 24px;
+  margin: 0;
+  padding-inline: 12px;
+  overflow: hidden;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repository-review-body {
+  position: relative;
+  overflow: hidden;
+  font:
+    12px/24px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  tab-size: 4;
+  user-select: text;
+  -webkit-user-select: text;
+}
+.repository-review-rows {
+  position: relative;
+}
+.repository-review-body .repository-code-row {
+  border-left: 0;
+}
+.repository-review-body .repository-line-number {
+  position: static;
+  padding-right: 12px;
+  color: color-mix(in srgb, var(--color-ink) 45%, var(--color-surface));
+  background: transparent;
+  font-size: 11px;
+}
+.repository-review-body .repository-line-sign {
+  display: none;
+}
+.repository-review-body .repository-wrapped-row code {
+  padding-right: 12px;
+}
+.repository-review-body .repository-code-row[data-kind="added"] .repository-line-number {
+  color: var(--repository-added);
+}
+.repository-review-body .repository-code-row[data-kind="removed"] .repository-line-number {
+  color: var(--repository-removed);
+}
+.repository-review-body .repository-code-row mark {
+  background: color-mix(in srgb, var(--repository-added) 18%, transparent);
+}
+.repository-review-body .repository-code-row[data-kind="removed"] mark {
+  background: color-mix(in srgb, var(--repository-removed) 18%, transparent);
+}
+.repository-review-body .repository-code-row[data-kind="hunk"] {
+  border-radius: 0;
+  box-shadow: none;
+  background: color-mix(in srgb, var(--color-ink) 3%, var(--color-surface));
+}
+.repository-review-body[data-wrap="false"] .repository-wrapped-row code {
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.repository-review-body[data-wrap="false"] .repository-wrapped-row > .repository-code-row {
+  height: 24px;
+  overflow: hidden;
+}
+.repository-review-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 72px;
+  padding: 12px 16px;
+  margin: 0;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.repository-review-status > span {
+  flex: 1;
+}
+.workspace-side-panel[data-expanded] .repository-review-body {
+  font-size: 13px;
+}
+.repository-review-rows > .repository-review-status {
+  min-height: 24px;
+  padding: 0 16px;
+}

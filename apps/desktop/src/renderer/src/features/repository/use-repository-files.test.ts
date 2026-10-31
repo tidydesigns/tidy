@@ -30,16 +30,31 @@ function repositoryProbe(api: RepositoryAPI) {
   const root = createRoot(document.createElement("div"));
   const expanded = new Set<string>();
   let state: ReturnType<typeof useRepositoryFiles> | undefined;
-  function Probe({ selected, active }: { selected: string; active: boolean }) {
-    state = useRepositoryFiles({ api, projectId: "fixture", active, selected, expanded });
+  function Probe({
+    selected,
+    active,
+    continuous,
+  }: {
+    selected: string;
+    active: boolean;
+    continuous: boolean;
+  }) {
+    state = useRepositoryFiles({
+      api,
+      projectId: "fixture",
+      active,
+      selected,
+      expanded,
+      continuous,
+    });
     return null;
   }
   return {
     get current() {
       return state;
     },
-    render: (selected = "a", active = true) =>
-      act(async () => root.render(createElement(Probe, { selected, active }))),
+    render: (selected = "a", active = true, continuous = false) =>
+      act(async () => root.render(createElement(Probe, { selected, active, continuous }))),
     async close() {
       try {
         await act(async () => root.unmount());
@@ -262,6 +277,46 @@ test("scoped refreshes retain unrelated reads and caches while HEAD changes inva
     await probe.render("src/a", false);
     await probe.render("src/a");
     expect(reads.get("src/a")).toBe(5);
+  } finally {
+    await probe.close();
+  }
+});
+
+test("continuous review owns changed-file reads and receives background invalidations", async () => {
+  const status = deferred<RepositoryChanges>();
+  let reads = 0;
+  const api: RepositoryAPI = {
+    repositoryDirectory: async () => ({ entries: [], limited: false }),
+    repositoryChanges: () => status.promise,
+    repositoryFile: async () => {
+      reads++;
+      return { kind: "text", view: "file", comparison: "head", text: "available" };
+    },
+    onEvent: () => () => {},
+  };
+  const probe = repositoryProbe(api);
+  try {
+    await probe.render("changed", true, true);
+    expect(reads).toBe(0);
+    await act(async () => {
+      status.resolve({
+        repository: true,
+        head: "head",
+        changes: [{ path: "changed", previousPath: null, status: "modified" }],
+      });
+      await status.promise;
+    });
+    expect(reads).toBe(0);
+    const before = probe.current?.contentRevision.id ?? 0;
+    await act(async () => {
+      await probe.current?.refresh(["changed"]);
+    });
+    expect(probe.current?.contentRevision.id).toBeGreaterThan(before);
+    expect(probe.current?.contentRevision.paths).toEqual(["changed"]);
+    expect(reads).toBe(0);
+    await probe.render("unchanged", true, true);
+    expect(reads).toBe(1);
+    expect(probe.current?.file?.path).toBe("unchanged");
   } finally {
     await probe.close();
   }

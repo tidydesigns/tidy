@@ -194,6 +194,25 @@ summary:focus-visible {
   border-radius: 5px;
   cursor: pointer;
 }
+.workspace-panel-trigger {
+  display: inline-grid;
+  place-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-muted-ink);
+}
+.workspace-panel-trigger svg {
+  width: 18px;
+  height: 18px;
+}
+.workspace-panel-trigger:active {
+  transform: scale(0.96);
+}
 .recent-projects {
   display: flex;
   flex-direction: column;

@@ -36,6 +36,7 @@ import type {
   PreparedWorkspace,
 } from "../features/composer/machine-context";
 import { useRepositoryContext } from "../features/repository/use-repository-context";
+import { RepositoryIcon } from "../features/repository/repository-icons";
 import { SkillPrompt } from "../features/composer/skill-prompt";
 import { skillCommand, type Skill } from "../../../shared/contracts/skills";
 import { UserFacingError } from "@tidy/ui/errors";
@@ -2070,22 +2071,6 @@ export function App({
                         </Button>
                       )}
                     </div>
-                    {surfaceProject && (repositoryAPI || api?.browser) && !repositoryOpen && (
-                      <Button
-                        id="workspace-panel-trigger"
-                        className="quiet-button workspace-panel-trigger"
-                        aria-controls="workspace-side-panel"
-                        aria-expanded={false}
-                        onPointerEnter={() => void WorkspaceSurfaces.preload().catch(() => {})}
-                        onFocus={() => void WorkspaceSurfaces.preload().catch(() => {})}
-                        onClick={() => {
-                          setRepositoryMounted(true);
-                          setRepositoryOpen(true);
-                        }}
-                      >
-                        Open a surface
-                      </Button>
-                    )}
                     {thread && (
                       <div className="thread-context min-w-0 max-w-[390px] shrink-0 max-[700px]:ml-auto max-[700px]:max-w-full [&_.composer-context]:justify-end [&_.composer-context]:gap-4 [&_.thread-references]:m-0 [&_.thread-references]:whitespace-nowrap [&_.context-machine]:m-0 [&_.context-machine>span]:max-w-[100px] [&_.branch-trigger]:max-w-[150px]">
                         <ComposerContext
@@ -2099,6 +2084,24 @@ export function App({
                           pending={Boolean(switchingBranch)}
                         />
                       </div>
+                    )}
+                    {surfaceProject && (repositoryAPI || api?.browser) && !repositoryOpen && (
+                      <Button
+                        id="workspace-panel-trigger"
+                        className="quiet-button workspace-panel-trigger"
+                        aria-label="Open workspace panel"
+                        title="Open workspace panel"
+                        aria-controls="workspace-side-panel"
+                        aria-expanded={false}
+                        onPointerEnter={() => void WorkspaceSurfaces.preload().catch(() => {})}
+                        onFocus={() => void WorkspaceSurfaces.preload().catch(() => {})}
+                        onClick={() => {
+                          setRepositoryMounted(true);
+                          setRepositoryOpen(true);
+                        }}
+                      >
+                        <RepositoryIcon name="panel" />
+                      </Button>
                     )}
                   </div>
                   <BrowserNavigationContext value={openBrowserLink}>
