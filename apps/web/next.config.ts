@@ -28,7 +28,7 @@ if (uploadSourceMaps && (!process.env.POSTHOG_API_KEY || !process.env.POSTHOG_PR
 const nextConfig: NextConfig = {
   env: { NEXT_PUBLIC_APP_VERSION: release },
   output: "standalone",
-  deploymentId: process.env.NEXT_DEPLOYMENT_ID || release,
+  deploymentId: process.env.NEXT_DEPLOYMENT_ID || release.replace(/[^a-zA-Z0-9_-]/g, "-"),
   // PostHog sends trailing-slash API requests; forward them without a redirect.
   skipTrailingSlashRedirect: true,
   outputFileTracingRoot: path.join(import.meta.dirname, "../.."),
