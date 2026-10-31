@@ -49,6 +49,7 @@ const contextKey = (input: ManagedContext) =>
     input.settings?.effort,
     effectivePermissionMode(input.harness, input.settings?.permissionMode),
     !!input.superviseParent,
+    input.agentTools?.identity,
   ]);
 
 export class HarnessSessions {
@@ -57,7 +58,11 @@ export class HarnessSessions {
   private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
-    private options: { idleLimit: number; idleMs: number; backgroundSilentMs?: number } = {
+    private options: {
+      idleLimit: number;
+      idleMs: number;
+      backgroundSilentMs?: number;
+    } = {
       idleLimit: 2,
       idleMs: 30 * 60_000,
     },
@@ -236,6 +241,8 @@ export class HarnessSessions {
             sessionId,
             settings,
             superviseParent,
+            agentTools: context.agentTools,
+            mcp: context.mcp,
             environment: context.environment,
             onSpawn: context.onSpawn,
             onExit: context.onExit,
@@ -252,8 +259,11 @@ export class HarnessSessions {
           }
           let session: HarnessSession;
           try {
+            binding.mcp ??= await binding.agentTools?.open();
+            if (pending.invalidated) throw new Error("The harness context changed. Try again.");
             session = new HarnessSession(binding);
           } catch (error) {
+            binding.mcp?.close();
             processOwner?.onExit();
             throw error;
           }

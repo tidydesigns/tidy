@@ -442,5 +442,13 @@
   "webdriver-bidi-protocol": {
     "source": "LICENSE",
     "notice": "webdriver-bidi-protocol.txt"
+  },
+  "@modelcontextprotocol/server": {
+    "source": "LICENSE",
+    "notice": "MCP-server.txt"
+  },
+  "@modelcontextprotocol/core": {
+    "source": "LICENSE",
+    "notice": "MCP-core.txt"
   }
 }

@@ -25,6 +25,7 @@ export const acpSessionSchema = z.object({
 export const acpInitializationSchema = z.object({
   agentCapabilities: z.object({
     loadSession: z.boolean().optional(),
+    mcpCapabilities: z.object({ http: z.boolean().optional() }).optional(),
     sessionCapabilities: z.object({ delete: z.object({}).optional() }).optional(),
   }),
 });
@@ -104,7 +105,21 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
         ...object(
           await transport.request(sessionId ? "session/load" : "session/new", {
             cwd: input.cwd,
-            mcpServers: [],
+            mcpServers: input.mcp
+              ? [
+                  {
+                    type: "http",
+                    name: "tidy",
+                    url: input.mcp.url,
+                    headers: [
+                      {
+                        name: "Authorization",
+                        value: `Bearer ${input.mcp.token}`,
+                      },
+                    ],
+                  },
+                ]
+              : [],
             ...(sessionId ? { sessionId } : {}),
           }),
         ),
@@ -145,6 +160,8 @@ export function createOpenCodeAdapter(context: AdapterContext): HarnessAdapter {
       const capabilities = acpInitializationSchema.parse(
         await transport.request("initialize", acpInitializeParams),
       );
+      if (input.mcp && !capabilities.agentCapabilities.mcpCapabilities?.http)
+        throw new Error("Update OpenCode to connect application tools over HTTP.");
       if (sessionId && !capabilities.agentCapabilities.loadSession)
         throw new Error("Update OpenCode to resume this conversation.");
       if (sessionId) await ensureSession();

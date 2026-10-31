@@ -84,14 +84,15 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   search: string;
   renderThread: RenderThread;
 }) {
+  const roots = useMemo(() => threads.filter((thread) => !thread.parentThreadId), [threads]);
   const [order, setOrder] = useState(() => readOrder(projectId));
   const ordered = useMemo(() => {
     const known = new Set(order);
-    const incoming = threads.filter((item) => !known.has(item.id)).map((item) => item.id);
+    const incoming = roots.filter((item) => !known.has(item.id)).map((item) => item.id);
     const ids = [...incoming, ...order];
     const ranks = new Map(ids.map((id, index) => [id, index]));
-    return [...threads].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
-  }, [threads, order]);
+    return [...roots].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
+  }, [roots, order]);
   const drag = useThreadDrag({ ids: ordered.map((item) => item.id), setOrder });
   useEffect(() => {
     const ids = ordered.map((item) => item.id);
@@ -108,7 +109,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   const query = search.trim().toLocaleLowerCase();
   const matches = (item: ThreadSummary) => item.title.toLocaleLowerCase().includes(query);
   const active = ordered.filter((item) => !item.doneAt && matches(item));
-  const done = threads
+  const done = roots
     .filter((item) => item.doneAt && matches(item))
     .sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
   return (

@@ -1,5 +1,5 @@
 import { memo, Activity, useLayoutEffect, useRef, useState } from "react";
-import type { DesktopAPI, Thread } from "../../../../shared/contracts/desktop";
+import type { DesktopAPI, Thread, ThreadSummary } from "../../../../shared/contracts/desktop";
 import { lazyView, ViewLoading } from "../../components/lazy-view";
 import { loadConversation } from "./load-conversation";
 import { retainConversations } from "./conversation-cache";
@@ -21,12 +21,18 @@ export const Conversations = memo(function Conversations({
   threads,
   api,
   active,
+  summaries,
+  onOpenThread,
+  connected,
 }: {
   projectId: string;
   selected: string | null;
   threads: Readonly<Partial<Record<string, Thread>>>;
   api: DesktopAPI;
   active: boolean;
+  summaries?: ThreadSummary[];
+  onOpenThread?(projectId: string, threadId: string): void;
+  connected?: boolean;
 }) {
   const [visited, setVisited] = useState(active);
   if (active && !visited) setVisited(true);
@@ -52,6 +58,9 @@ export const Conversations = memo(function Conversations({
         }
         active={active && id === selected}
         api={api}
+        summaries={summaries}
+        onOpenThread={onOpenThread}
+        connected={connected}
       />
     </Activity>
   ));

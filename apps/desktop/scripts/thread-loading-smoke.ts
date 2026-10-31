@@ -40,6 +40,9 @@ try {
   const child = spawn(
     electron,
     [
+      ...(process.platform === "linux" && !process.env.DISPLAY && !process.env.WAYLAND_DISPLAY
+        ? ["--ozone-platform=headless", "--disable-gpu"]
+        : []),
       join(temporary, "runner/thread-loading-electron.mjs"),
       html,
       join(desktop, "out/preload/index.cjs"),
@@ -47,7 +50,7 @@ try {
     ],
     { env, stdio: "inherit" },
   );
-  const deadline = setTimeout(() => child.kill("SIGKILL"), 30_000);
+  const deadline = setTimeout(() => child.kill("SIGKILL"), 60_000);
   try {
     await new Promise<void>((resolve, reject) => {
       child.once("error", reject);

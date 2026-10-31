@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   mkdtemp,
+  cp,
   mkdir,
   readFile,
   rename,
@@ -14,7 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
-import { CloudCompute } from "../cloud/cloud-compute";
+import { TaskStore } from "../orchestration/task-store";
+import { CloudCompute, CloudComputeBusyError } from "../cloud/cloud-compute";
 import * as localFiles from "../platform/local-files";
 import { storedThreadSchema, type Thread } from "../../shared/contracts/desktop";
 
@@ -46,6 +48,48 @@ function thread(projectId: string): Thread {
     updatedAt: new Date().toISOString(),
   };
 }
+
+test("portable queue tampering cannot gain authority through restart or background checkpoints", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const value = thread(project.id);
+  value.settings = { permissionMode: "read-only" };
+  const message = {
+    id: randomUUID(),
+    text: "Inspect only",
+    executionConstraint: { harness: "codex" as const, permissionMode: "read-only" as const },
+    attachments: [{ id: randomUUID(), name: "notes.txt", mimeType: "text/plain", size: 12 }],
+  };
+  value.queuedMessages = [message];
+  await f.store.trustQueuedMessage(value, message);
+  await f.store.writeThread(value);
+  const path = await f.store.storagePath(project.id, "threads", value.id);
+  const portable = storedThreadSchema.parse(JSON.parse(await readFile(path, "utf8")));
+  portable.queuedMessages = [
+    {
+      ...message,
+      text: "Write changes instead",
+      executionConstraint: undefined,
+      attachments: [{ ...message.attachments[0], id: randomUUID() }],
+    },
+  ];
+  await writeFile(path, JSON.stringify(portable));
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  const loaded = await restarted.readThread(project.id, value.id);
+  await restarted.writeThread(loaded);
+  loaded.settings = { permissionMode: "auto" };
+  const queued = loaded.queuedMessages?.[0];
+  if (!queued) throw new Error("Expected the portable queue entry.");
+  await expect(restarted.assertQueuedMessage(loaded, queued, true)).rejects.toThrow(
+    "changed outside Tidy",
+  );
+  const imported = { ...message, id: randomUUID(), executionConstraint: undefined };
+  loaded.queuedMessages = [imported];
+  await restarted.writeThread(loaded);
+  await expect(restarted.assertQueuedMessage(loaded, imported)).rejects.toThrow("explicitly");
+  await restarted.assertQueuedMessage(loaded, imported, true);
+});
 
 test("cloud registrations retain their access boundary after restart and metadata replacement", async () => {
   const f = await fixture();
@@ -242,6 +286,72 @@ test("a copied project identity cannot redirect the original project's data", as
   );
   expect((await store.open(copiedRoot)).project.id).toBe(copy.id);
   await expect(store.readThread(copy.id, conversation.id)).rejects.toThrow();
+});
+
+test("removing a project never transfers its private incoming-work grant to a copied directory", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const recipient = thread(original.id);
+  await f.store.writeThread(recipient);
+  const tasks = new TaskStore(f.store.orchestrationDirectory);
+  await tasks.initialize();
+  try {
+    await tasks.setReceiver(original.id, recipient.id, true);
+    const grant = tasks.receiverGrant(original.id, recipient.id);
+    const copiedRoot = join(f.directory, "copy-after-removal");
+    await cp(f.root, copiedRoot, { recursive: true });
+    await f.store.remove(original.id);
+    const restarted = new ProjectStore(join(f.directory, "app-data"));
+    await restarted.initialize();
+    const copy = await restarted.register(copiedRoot);
+    expect(copy.id).not.toBe(original.id);
+    expect(tasks.receiverGrant(copy.id, recipient.id)).toBeUndefined();
+    expect(tasks.receiverGrant(original.id, recipient.id)).toBe(grant);
+    expect((await restarted.register(f.root)).id).toBe(original.id);
+    expect((await restarted.register(copiedRoot)).id).toBe(copy.id);
+    await expect(restarted.readThread(copy.id, recipient.id)).rejects.toThrow("another project");
+  } finally {
+    await tasks.close();
+  }
+});
+
+test("legacy registry paths seed private identities even when the original directory is missing", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const copiedRoot = join(f.directory, "copy-with-missing-original");
+  await cp(f.root, copiedRoot, { recursive: true });
+  await rm(f.root, { recursive: true });
+  await rm(join(f.directory, "app-data", "project-identities"), { recursive: true });
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  const copy = await restarted.register(copiedRoot);
+  expect(copy.id).not.toBe(original.id);
+  expect(restarted.project(original.id).path).toBe(f.root);
+  expect(restarted.project(copy.id).path).toBe(copiedRoot);
+  const again = new ProjectStore(join(f.directory, "app-data"));
+  await again.initialize();
+  expect((await again.register(copiedRoot)).id).toBe(copy.id);
+});
+
+test("a genuine directory move retains project identity without carrying native session authority", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const conversation = thread(original.id);
+  conversation.settings = { permissionMode: "auto" };
+  await f.store.writeThread(conversation);
+  await f.store.remove(original.id);
+  const moved = join(f.directory, "moved-original");
+  await rename(f.root, moved);
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  const project = await restarted.register(moved);
+  expect(project.id).toBe(original.id);
+  const loaded = await restarted.readThread(project.id, conversation.id);
+  expect(loaded.sessionId).toBeUndefined();
+  expect(loaded.settings?.permissionMode).toBeUndefined();
+  const again = new ProjectStore(join(f.directory, "app-data"));
+  await again.initialize();
+  expect((await again.register(moved)).id).toBe(original.id);
 });
 
 test("startup recovery repairs interrupted threads without reading design or folder metadata", async () => {
@@ -754,6 +864,57 @@ test("the summary cache bound does not truncate large project snapshots", async 
   expect(reads.mock.calls.length).toBeGreaterThan(records.length);
 });
 
+test("a cold design scan returns every valid file beyond the worker admission limit", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const seed = await store.createDesign(project.id);
+  const directory = await store.storagePath(project.id, "designs");
+  const ids = Array.from({ length: 300 }, () => randomUUID());
+  await Promise.all(
+    ids.map((id) =>
+      writeFile(
+        join(directory, `${id}.json`),
+        JSON.stringify({ id, name: "Design", document: seed.document }),
+      ),
+    ),
+  );
+  const result = await store.designs(project.id);
+  expect(new Set(result.map((item) => item.id))).toEqual(new Set([seed.id, ...ids]));
+});
+
+test("a cold thread scan returns every large file beyond the worker admission limit", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const directory = await store.storagePath(project.id, "threads");
+  const records = Array.from({ length: 300 }, () => {
+    const value = thread(project.id);
+    value.messages[0].text = "x".repeat(70_000);
+    return value;
+  });
+  await Promise.all(
+    records.map((value) => writeFile(join(directory, `${value.id}.json`), JSON.stringify(value))),
+  );
+  const result = await store.threadSummaries(project.id);
+  expect(new Set(result.map((item) => item.id))).toEqual(new Set(records.map((item) => item.id)));
+});
+
+test("worker saturation rejects metadata scans instead of omitting valid files", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const design = await store.createDesign(project.id);
+  const reopened = new ProjectStore(join(root, "registry"));
+  await reopened.initialize();
+  await reopened.register(root);
+  const value = thread(project.id);
+  value.messages[0].text = "x".repeat(70_000);
+  await store.writeThread(value);
+  spyOn(CloudCompute.prototype, "readSummary").mockRejectedValue(new CloudComputeBusyError());
+  spyOn(CloudCompute.prototype, "readThreadSummary").mockRejectedValue(new CloudComputeBusyError());
+  await expect(reopened.designs(project.id)).rejects.toBeInstanceOf(CloudComputeBusyError);
+  await expect(store.threadSummaries(project.id)).rejects.toBeInstanceOf(CloudComputeBusyError);
+  expect(await readFile(design.path, "utf8")).toContain(design.id);
+});
+
 test("failed project registration and recovery release only their own claims", async () => {
   const f = await fixture();
   const claims = new Map<string, number>();
@@ -971,4 +1132,119 @@ test("large queued message text uses worker encoding while absent and small queu
   } finally {
     encoder.mockRestore();
   }
+});
+
+test("worker-validated design commits preserve stored bytes on invalid input and capture call-time data", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const file = await store.createDesign(project.id);
+  const original = await readFile(file.path, "utf8");
+  await expect(
+    store.updateDesign({
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: file.version,
+      document: { ...file.document, nodes: [{ ...file.document.nodes[0], type: "invalid" }] },
+    }),
+  ).rejects.toThrow();
+  expect(await readFile(file.path, "utf8")).toBe(original);
+  const document = structuredClone(file.document);
+  document.nodes[0].name = "Captured";
+  const committing = store.updateDesign(
+    {
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: file.version,
+      document,
+    },
+    { includeAssets: false },
+  );
+  document.nodes[0].name = "Later caller mutation";
+  const result = await committing;
+  expect(result.version).not.toBe(file.version);
+  expect(result.document.nodes[0].name).toBe("Captured");
+  expect(result.assets).toEqual({});
+  expect((await store.readDesign(project.id, file.id)).document.nodes[0].name).toBe("Captured");
+});
+
+test("design encoding rechecks external versions before the atomic replacement", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const file = await store.createDesign(project.id);
+  const encode = CloudCompute.prototype.encodeDesign;
+  const compute = new CloudCompute();
+  spyOn(CloudCompute.prototype, "encodeDesign").mockImplementation(async (...args) => {
+    const encoded = await encode.apply(compute, args);
+    await writeFile(file.path, (await readFile(file.path, "utf8")).replace('"Frame"', '"Other"'));
+    return encoded;
+  });
+  const error = await store
+    .updateDesign({
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: file.version,
+      document: file.document,
+    })
+    .catch((error: unknown) => error);
+  expect(error).toBeInstanceOf(Error);
+  if (!(error instanceof Error)) throw new Error("Expected a version conflict.");
+  expect(error.message).toContain("changed on disk");
+  expect((await store.readDesign(project.id, file.id)).document.nodes[0].name).toBe("Other");
+  await compute.close();
+});
+
+test("revoked design authorization after encoding leaves the stored document unchanged", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const file = await store.createDesign(project.id);
+  const original = await readFile(file.path, "utf8");
+  const error = await store
+    .updateDesign({
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: file.version,
+      document: file.document,
+      beforeWrite: async () => {
+        throw new Error("Authorization revoked");
+      },
+    })
+    .catch((error: unknown) => error);
+  expect(error).toBeInstanceOf(Error);
+  if (!(error instanceof Error)) throw new Error("Expected revoked access.");
+  expect(error.message).toBe("Authorization revoked");
+  expect(await readFile(file.path, "utf8")).toBe(original);
+});
+
+test("a foreign edit during final authorization cannot be overwritten by the pending canvas commit", async () => {
+  const { root, store } = await fixture();
+  const { project } = await store.open(root);
+  const file = await store.createDesign(project.id);
+  const foreign = { id: file.id, name: "Foreign title", folderId: null, document: file.document };
+  const result = await store
+    .updateDesign({
+      projectId: project.id,
+      designId: file.id,
+      expectedVersion: file.version,
+      name: "Tool title",
+      beforeWrite: async () => {
+        await writeFile(file.path, JSON.stringify(foreign));
+      },
+    })
+    .catch((error: unknown) => error);
+  expect(result).toBeInstanceOf(Error);
+  if (!(result instanceof Error)) throw new Error("Expected version conflict.");
+  expect(result.message).toContain("changed on disk");
+  expect(JSON.parse(await readFile(file.path, "utf8")).name).toBe("Foreign title");
+});
+
+test("portable message provenance cannot manufacture incoming thread attribution", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const value = thread(project.id);
+  value.messageSources = { [value.messages[0].id]: { threadId: randomUUID() } };
+  await f.store.writeThread(value);
+  const path = await f.store.storagePath(project.id, "threads", value.id);
+  expect(await readFile(path, "utf8")).not.toContain("messageSources");
+  await writeFile(path, JSON.stringify(value));
+  expect(await f.store.readThread(project.id, value.id)).not.toHaveProperty("messageSources");
 });
