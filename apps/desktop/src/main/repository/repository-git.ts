@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { open, mkdtemp, mkdir, writeFile, rm, realpath } from "node:fs/promises";
+import { open, mkdtemp, mkdir, opendir, writeFile, utimes, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 import { isUtf8 } from "node:buffer";
 import { openRepositoryPath } from "./repository-path";
 
@@ -123,29 +123,54 @@ const configurationKeys = [
   "index.sparse",
 ];
 const metadataLimit = 1024 * 1024;
-async function copyMetadata(source: string, destination: string) {
+async function copyMetadata(source: string, destination: string, limit = metadataLimit) {
   const file = await open(source, constants.O_RDONLY | constants.O_NONBLOCK).catch(
     (error: unknown) => {
       if (error instanceof Error && "code" in error && error.code === "ENOENT") return null;
       throw error;
     },
   );
-  if (!file) return;
+  if (!file) return 0;
   try {
     const info = await file.stat();
     if (!info.isFile()) throw new Error("Git metadata cannot be previewed safely.");
-    if (info.size > metadataLimit) throw new OutputLimitError();
+    if (info.size > limit) throw new OutputLimitError();
     const chunks: Buffer[] = [];
     let size = 0;
-    for await (const chunk of file.createReadStream({ end: metadataLimit, autoClose: false })) {
+    for await (const chunk of file.createReadStream({ end: limit, autoClose: false })) {
       size += chunk.length;
-      if (size > metadataLimit) throw new OutputLimitError();
+      if (size > limit) throw new OutputLimitError();
       chunks.push(chunk);
     }
     await writeFile(destination, Buffer.concat(chunks, size), { mode: 0o600 });
+    // Git's racy-index checks require the snapshot timestamp to be no newer than the original.
+    await utimes(destination, info.atime, Math.floor(info.mtimeMs / 1000));
+    return size;
   } finally {
     await file.close();
   }
+}
+async function copyIndex(source: string, directory: string, format: string) {
+  const index = join(directory, "index");
+  let remaining = 64 * 1024 * 1024;
+  const size = await copyMetadata(source, index, remaining);
+  if (!size) return index;
+  remaining -= size;
+  const sharedName = new RegExp(`^sharedindex\\.[a-f0-9]{${format === "sha256" ? 64 : 40}}$`);
+  const entries = await opendir(dirname(source));
+  let count = 0;
+  for await (const entry of entries) {
+    if (++count > 4096) throw new OutputLimitError();
+    if (sharedName.test(entry.name)) {
+      if (!entry.isFile()) throw new Error("Git metadata cannot be previewed safely.");
+      remaining -= await copyMetadata(
+        join(dirname(source), entry.name),
+        join(directory, entry.name),
+        remaining,
+      );
+    }
+  }
+  return index;
 }
 export async function createGitView(root: string): Promise<GitView> {
   const [metadata, settings] = await Promise.all([
@@ -234,7 +259,7 @@ export async function createGitView(root: string): Promise<GitView> {
       throw new Error("Git's working tree is outside the selected project.");
     return {
       directory,
-      index,
+      index: await copyIndex(index, directory, format),
       objects,
       workTree,
       head: head ?? null,

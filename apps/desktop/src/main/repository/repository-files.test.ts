@@ -12,9 +12,10 @@ import {
   chmod,
   readFile,
   stat,
+  utimes,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { repositoryPathSchema } from "../../shared/contracts/repository-files";
 import {
@@ -584,51 +585,83 @@ test.each(["status", "preview"] as const)(
   },
 );
 
-test.each(["sha256", "split", "worktree", "nested", "sparse"] as const)(
-  "preserves %s repository status and index state",
-  async (kind) => {
-    const { root, git } = await fixture(true, kind === "sha256" ? "sha256" : "sha1");
-    let selected = root;
-    if (kind === "split") await git(["update-index", "--split-index"]);
-    if (kind === "worktree") {
-      selected = join(root, "linked");
-      await git(["worktree", "add", "-b", "fixture-linked", selected]);
+test.each([
+  "sha256",
+  "split",
+  "split-sha256",
+  "worktree",
+  "split-worktree",
+  "nested",
+  "sparse",
+] as const)("preserves %s repository status and index state", async (kind) => {
+  const { root, git } = await fixture(true, kind.endsWith("sha256") ? "sha256" : "sha1");
+  let selected = root;
+  if (kind.endsWith("worktree")) {
+    selected = join(root, "linked");
+    await git(["worktree", "add", "-b", "fixture-linked", selected]);
+  }
+  if (kind === "nested" || kind === "sparse") {
+    await mkdir(join(root, "nested"));
+    await writeFile(join(root, "nested/inside.txt"), "baseline\n");
+    await git(["add", "."]);
+    await git(["commit", "-m", "Nested fixture"]);
+    if (kind === "nested") selected = join(root, "nested");
+    else {
+      await git(["sparse-checkout", "init", "--cone", "--sparse-index"]);
+      await git(["sparse-checkout", "set", "nested"]);
     }
-    if (kind === "nested" || kind === "sparse") {
-      await mkdir(join(root, "nested"));
-      await writeFile(join(root, "nested/inside.txt"), "baseline\n");
-      await git(["add", "."]);
-      await git(["commit", "-m", "Nested fixture"]);
-      if (kind === "nested") selected = join(root, "nested");
-      else {
-        await git(["sparse-checkout", "init", "--cone", "--sparse-index"]);
-        await git(["sparse-checkout", "set", "nested"]);
-      }
-    }
-    const run = (args: string[]) => execute("git", args, { cwd: selected });
-    const path =
-      kind === "nested" ? "inside.txt" : kind === "sparse" ? "nested/inside.txt" : "file.txt";
-    await writeFile(join(selected, path), "modified\n");
-    const index = (
-      await run(["rev-parse", "--path-format=absolute", "--git-path", "index"])
-    ).stdout.trim();
-    const before = await readFile(index);
-    const shared =
-      kind === "split"
-        ? (await execute("git", ["rev-parse", "--shared-index-path"], { cwd: root })).stdout.trim()
-        : null;
-    const mtime = shared ? (await stat(join(root, shared))).mtimeMs : null;
-    expect((await readRepositoryChanges(selected)).changes).toContainEqual({
-      path,
-      previousPath: null,
-      status: "modified",
-    });
-    const file = await readRepositoryFile(selected, path);
-    expect(file.kind === "text" && file.text).toContain("+modified");
-    expect(await readFile(index)).toEqual(before);
-    if (shared && mtime !== null) expect((await stat(join(root, shared))).mtimeMs).toBe(mtime);
-  },
-);
+  }
+  const run = (args: string[]) => execute("git", args, { cwd: selected });
+  if (kind.startsWith("split")) await run(["update-index", "--split-index"]);
+  const path =
+    kind === "nested" ? "inside.txt" : kind === "sparse" ? "nested/inside.txt" : "file.txt";
+  await writeFile(join(selected, path), "modified\n");
+  const index = (
+    await run(["rev-parse", "--path-format=absolute", "--git-path", "index"])
+  ).stdout.trim();
+  const before = await readFile(index);
+  const shared = kind.startsWith("split")
+    ? resolve(selected, (await run(["rev-parse", "--shared-index-path"])).stdout.trim())
+    : null;
+  if (shared) await utimes(shared, 946684800, 946684800);
+  const mtime = shared ? (await stat(shared)).mtimeMs : null;
+  const sharedBefore = shared ? await readFile(shared) : null;
+  expect(
+    (await readRepositoryDirectory(selected, "")).entries.some(
+      (entry) => entry.path === path.split("/")[0],
+    ),
+  ).toBe(true);
+  expect((await readRepositoryChanges(selected)).changes).toContainEqual({
+    path,
+    previousPath: null,
+    status: "modified",
+  });
+  const file = await readRepositoryFile(selected, path);
+  expect(file.kind === "text" && file.text).toContain("+modified");
+  expect(await readFile(index)).toEqual(before);
+  if (shared && mtime !== null && sharedBefore !== null) {
+    expect((await stat(shared)).mtimeMs).toBe(mtime);
+    expect(await readFile(shared)).toEqual(sharedBefore);
+  }
+});
+
+test("detects same-size changes with racy index timestamps", async () => {
+  const { root, git } = await fixture();
+  await git(["config", "core.trustctime", "false"]);
+  await git(["config", "core.checkstat", "minimal"]);
+  const path = join(root, "file.txt");
+  await utimes(path, 946684800, 946684800);
+  await git(["add", "file.txt"]);
+  await writeFile(path, "other\nlast\n");
+  await utimes(path, 946684800, 946684800);
+  await utimes(join(root, ".git/index"), 946684800, 946684800);
+  expect((await git(["diff", "--name-only"])).stdout.trim()).toBe("file.txt");
+  expect((await readRepositoryChanges(root)).changes).toContainEqual({
+    path: "file.txt",
+    previousPath: null,
+    status: "modified",
+  });
+});
 
 test("preserves configured attribute and ignore paths in the private Git view", async () => {
   const { root, git } = await fixture();

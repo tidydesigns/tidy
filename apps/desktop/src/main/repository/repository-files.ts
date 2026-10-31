@@ -152,13 +152,24 @@ export async function readRepositoryDirectory(
               : "unsupported",
       });
     }
-    const ignored = entries.length
-      ? await git(
-          checked.root,
-          ["check-ignore", "-z", "--stdin"],
-          entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
-        )
-      : { code: 0, text: "" };
+    const view =
+      entries.length && (await hasRepository(checked.root))
+        ? await createGitView(checked.root)
+        : undefined;
+    let ignored;
+    try {
+      ignored = entries.length
+        ? await git(
+            checked.root,
+            ["check-ignore", "-z", "--stdin"],
+            entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
+            undefined,
+            view,
+          )
+        : { code: 0, text: "" };
+    } finally {
+      if (view) await closeGitView(view);
+    }
     if (![0, 1, 128].includes(ignored.code))
       throw new Error("Could not read repository ignore rules.");
     if (
