@@ -216,8 +216,10 @@ app
             );
             await store.initialize();
             await store.recover();
+            const workspace = new WorkspaceService(store);
+            await workspace.initializeOrchestration();
             return {
-              service: new WorkspaceService(store),
+              service: workspace,
               release: () => locks.close(),
             };
           } catch (error) {

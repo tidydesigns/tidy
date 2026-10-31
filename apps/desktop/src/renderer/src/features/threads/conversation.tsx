@@ -18,7 +18,15 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@tidy/ui/button";
 import { showToast } from "@tidy/ui/toast";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import type { DesktopAPI, Message, Thread } from "../../../../shared/contracts/desktop";
+import type {
+  DesktopAPI,
+  Message,
+  Thread,
+  ThreadSummary,
+} from "../../../../shared/contracts/desktop";
+import { AgentTasks } from "./agent-tasks";
+import { useThreadTasks } from "./use-thread-tasks";
+import type { ThreadTask } from "../../../../shared/contracts/thread-tasks";
 import { attachmentText } from "../../../../shared/models/attachment-references";
 import { AttachmentText, MessageAttachments } from "../composer/message-attachments";
 import { groupTurnActivity } from "./turn-activity";
@@ -163,6 +171,9 @@ const ConversationEntry = memo(function ConversationEntry({
   projectId,
   threadId,
   nodes,
+  tasks,
+  summaries,
+  onOpenThread,
 }: {
   message: Message;
   activities: NonNullable<Thread["toolActivities"]>;
@@ -173,6 +184,9 @@ const ConversationEntry = memo(function ConversationEntry({
   projectId: string;
   threadId: string;
   nodes: Map<string, HTMLElement>;
+  tasks?: ThreadTask[];
+  summaries: ReadonlyMap<string, ThreadSummary>;
+  onOpenThread?: (projectId: string, threadId: string) => void;
 }) {
   const register = useCallback(
     (node: HTMLDivElement | null) => {
@@ -239,6 +253,14 @@ const ConversationEntry = memo(function ConversationEntry({
           activities={activities}
         />
       )}
+      {tasks?.length && onOpenThread ? (
+        <AgentTasks
+          tasks={tasks}
+          summaries={summaries}
+          projectId={projectId}
+          onOpenThread={onOpenThread}
+        />
+      ) : null}
     </div>
   );
 });
@@ -311,12 +333,49 @@ export const Conversation = memo(function Conversation({
   identity,
   api,
   active,
+  summaries,
+  onOpenThread,
+  connected,
 }: {
   thread?: Thread;
   identity: string;
   api: DesktopAPI;
   active: boolean;
+  summaries?: ThreadSummary[];
+  onOpenThread?: (projectId: string, threadId: string) => void;
+  connected?: boolean;
 }) {
+  const assignments = useThreadTasks({
+    api,
+    projectId: thread?.projectId,
+    threadId: thread?.id,
+    active,
+    connected,
+  });
+  const childSummaries = useMemo(
+    () => new Map(summaries?.map((summary) => [summary.id, summary])),
+    [summaries],
+  );
+  const parentSummary = thread?.parentThreadId
+    ? childSummaries.get(thread.parentThreadId)
+    : undefined;
+  const parent =
+    assignments.parent ??
+    (parentSummary ? { threadId: parentSummary.id, title: parentSummary.title } : null);
+  const assignmentsByMessage = useMemo(() => {
+    const messages = new Set(thread?.messages.map((message) => message.id));
+    const groups = new Map<string, ThreadTask[]>();
+    for (const task of assignments.tasks) {
+      if (!task.originatingMessageId || !messages.has(task.originatingMessageId)) continue;
+      const group = groups.get(task.originatingMessageId) ?? [];
+      group.push(task);
+      groups.set(task.originatingMessageId, group);
+    }
+    return groups;
+  }, [assignments.tasks, thread?.messages]);
+  const earlierAssignments = assignments.tasks.filter(
+    (task) => !task.originatingMessageId || !assignmentsByMessage.has(task.originatingMessageId),
+  );
   const [showFailure, setShowFailure] = useState(false);
   useEffect(() => {
     if (!thread?.error || !active) setShowFailure(false);
@@ -467,9 +526,29 @@ export const Conversation = memo(function Conversation({
   const streamingMessage =
     running && thread.activity === "Replying" ? thread.messages.at(-1)?.id : undefined;
   return (
-    <div className="conversation relative min-h-0 min-w-0 flex-1">
+    <div className="conversation relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {parent && onOpenThread && thread && (
+        <nav className="agent-breadcrumb" aria-label="Thread breadcrumb">
+          <ol>
+            <li>
+              <Button
+                className="agent-parent hover:text-ink"
+                title={parent.title}
+                onClick={() => onOpenThread(thread.projectId, parent.threadId)}
+              >
+                {parent.title}
+              </Button>
+            </li>
+            <li aria-hidden="true">/</li>
+            <li aria-current="page" title={thread.title}>
+              {thread.title}
+            </li>
+          </ol>
+        </nav>
+      )}
+
       <div
-        className={`transcript h-full min-h-0 overflow-auto overscroll-contain px-[max(var(--chat-gutter),calc((100%_-_var(--chat-content-width))_/_2))] pt-8 pb-5 [overflow-anchor:none] [scroll-padding-bottom:20px] [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent] focus-visible:outline focus-visible:outline-border focus-visible:-outline-offset-1 max-[700px]:pt-6 [scroll-padding-top:32px] max-[700px]:[scroll-padding-top:24px] ${codeFontClassName}`}
+        className={`transcript flex-1 min-h-0 overflow-auto overscroll-contain px-[max(var(--chat-gutter),calc((100%_-_var(--chat-content-width))_/_2))] pt-8 pb-5 [overflow-anchor:none] [scroll-padding-bottom:20px] [scrollbar-width:thin] [scrollbar-color:var(--color-border)_transparent] focus-visible:outline focus-visible:outline-border focus-visible:-outline-offset-1 max-[700px]:pt-6 [scroll-padding-top:32px] max-[700px]:[scroll-padding-top:24px] ${codeFontClassName}`}
         ref={viewport}
         tabIndex={0}
         role="region"
@@ -526,8 +605,36 @@ export const Conversation = memo(function Conversation({
               projectId={thread.projectId}
               threadId={thread.id}
               nodes={nodes.current}
+              tasks={assignmentsByMessage.get(message.id)}
+              summaries={childSummaries}
+              onOpenThread={onOpenThread}
             />
           ))}
+          {earlierAssignments.length > 0 && thread && onOpenThread && (
+            <AgentTasks
+              tasks={earlierAssignments}
+              summaries={childSummaries}
+              projectId={thread.projectId}
+              onOpenThread={onOpenThread}
+            />
+          )}
+          {assignments.nextCursor !== null && (
+            <Button
+              className="text-xs text-muted-ink"
+              disabled={assignments.loading}
+              onClick={assignments.loadMore}
+            >
+              Show earlier assignments
+            </Button>
+          )}
+          {assignments.error && (
+            <div className="agent-task-recovery" role="status">
+              {assignments.error}
+              <Button onClick={assignments.retry} disabled={assignments.loading}>
+                Retry
+              </Button>
+            </div>
+          )}
           {thread?.error && (
             <HarnessFailureSummary
               error={thread.error}

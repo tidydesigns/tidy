@@ -1,0 +1,122 @@
+.agent-tasks {
+  margin: 12px 0 24px;
+  color: var(--color-ink);
+  font-size: 13px;
+}
+.agent-tasks > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  cursor: pointer;
+  list-style: none;
+}
+.agent-tasks > summary::-webkit-details-marker {
+  display: none;
+}
+.agent-tasks-chevron {
+  color: var(--color-muted-ink);
+}
+.agent-tasks[open] > summary .agent-tasks-chevron {
+  transform: rotate(90deg);
+}
+.agent-tasks-count {
+  margin-left: auto;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+}
+.agent-task-list {
+  max-height: 340px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.agent-task {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 8px;
+  margin: 2px 0;
+  border: 0;
+  border-radius: 6px;
+  text-align: left;
+  background: transparent;
+  color: var(--color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+.agent-task:hover:not(:disabled) {
+  background: var(--color-hover-surface);
+}
+.agent-tasks .agent-task:disabled {
+  cursor: default;
+  color: var(--color-ink);
+  opacity: 1;
+}
+.agent-task:focus-visible,
+.agent-tasks > summary:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+.agent-task-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.agent-breadcrumb {
+  flex-shrink: 0;
+  padding: 8px max(var(--chat-gutter), calc((100% - var(--chat-content-width)) / 2));
+  background: var(--desktop-surface);
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+}
+.agent-breadcrumb ol {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.agent-breadcrumb li {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-breadcrumb li:first-child {
+  flex-shrink: 2;
+}
+.agent-parent {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.agent-parent:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+.agent-breadcrumb [aria-current="page"] {
+  color: var(--color-ink);
+}
+.agent-task-recovery {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 0;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+}
+
+.agent-task-error {
+  margin: 2px 8px 8px 32px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}

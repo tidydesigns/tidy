@@ -1,3 +1,4 @@
+import { permissionModeSchema } from "./permissions";
 import { skillIdSchema, skillCommand } from "./skills";
 import { z } from "zod";
 import { attachmentSchema, MAX_ATTACHMENTS } from "./attachments";
@@ -8,6 +9,13 @@ export const queuedMessageSchema = z.object({
   id,
   text: z.string().max(32_000),
   skillId: skillIdSchema.optional(),
+  executionConstraint: z
+    .object({
+      harness: z.enum(["codex", "claude", "opencode"]),
+      permissionMode: permissionModeSchema,
+    })
+    .strict()
+    .optional(),
   attachments: z.array(attachmentSchema).max(MAX_ATTACHMENTS).optional(),
 });
 export type QueuedMessage = z.infer<typeof queuedMessageSchema>;

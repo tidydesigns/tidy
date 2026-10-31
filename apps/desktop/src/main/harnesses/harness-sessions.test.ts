@@ -1238,3 +1238,52 @@ for (const harness of harnessIdSchema.options) {
     }
   });
 }
+
+test("scoped agent tools are retained for one thread and never transferred from a warm composer", async () => {
+  const cwd = await mkdtemp(join(directory, "agent-tools-"));
+  const sessions = new HarnessSessions();
+  const opened: string[] = [];
+  const closed: string[] = [];
+  const context = (identity: string) => ({
+    projectId: "project",
+    harness: "codex" as const,
+    executable,
+    cwd,
+    agentTools: {
+      identity,
+      async open() {
+        opened.push(identity);
+        return {
+          url: "http://127.0.0.1:1234/mcp",
+          token: `token-${identity}`,
+          close() {
+            if (!closed.includes(identity)) closed.push(identity);
+          },
+        };
+      },
+    },
+  });
+  try {
+    await sessions.prepare({
+      kind: "composer",
+      id: "composer",
+      context: context("composer"),
+    });
+    await sessions.start("thread", {
+      ...context("thread"),
+      prompt: "First",
+      onUpdate() {},
+    }).done;
+    await sessions.start("thread", {
+      ...context("thread"),
+      prompt: "Second",
+      onUpdate() {},
+    }).done;
+    expect(opened).toEqual(["composer", "thread"]);
+    expect(closed).toEqual([]);
+    await sessions.clear();
+    expect([...closed].sort()).toEqual(["composer", "thread"]);
+  } finally {
+    await sessions.clear();
+  }
+});

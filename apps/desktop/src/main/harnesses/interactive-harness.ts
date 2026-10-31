@@ -35,14 +35,33 @@ type Turn = {
 type State =
   | { kind: "idle" }
   | { kind: "running"; turn: Turn }
-  | { kind: "cancelling"; turn: Turn; acknowledged: boolean; completed: boolean }
+  | {
+      kind: "cancelling";
+      turn: Turn;
+      acknowledged: boolean;
+      completed: boolean;
+    }
   | { kind: "closed" };
 
 export function harnessArguments(input: SessionContext) {
   const mode = validatePermissionMode(input.harness, input.settings?.permissionMode);
   switch (input.harness) {
     case "codex":
-      return ["app-server", "--listen", "stdio://"];
+      return [
+        "app-server",
+        "--listen",
+        "stdio://",
+        ...(input.mcp
+          ? [
+              "-c",
+              `mcp_servers.tidy.url=${JSON.stringify(input.mcp.url)}`,
+              "-c",
+              'mcp_servers.tidy.bearer_token_env_var="TIDY_AGENT_MCP_TOKEN"',
+              "-c",
+              'mcp_servers.tidy.default_tools_approval_mode="approve"',
+            ]
+          : []),
+      ];
     case "opencode":
       return ["acp", "--cwd", input.cwd];
     case "claude":
@@ -56,6 +75,31 @@ export function harnessArguments(input: SessionContext) {
         "--include-partial-messages",
         "--permission-prompt-tool",
         "stdio",
+        ...(input.mcp
+          ? [
+              "--mcp-config",
+              JSON.stringify({
+                mcpServers: {
+                  tidy: {
+                    type: "http",
+                    url: input.mcp.url,
+                    headers: {
+                      Authorization: "Bearer ${TIDY_AGENT_MCP_TOKEN}",
+                    },
+                  },
+                },
+              }),
+              ...(input.mcp.toolNames?.length
+                ? [
+                    "--allowedTools",
+                    input.mcp.toolNames
+                      .filter((name) => mode !== "default" || name !== "canvas_edit")
+                      .map((name) => `mcp__tidy__${name}`)
+                      .join(","),
+                  ]
+                : []),
+            ]
+          : []),
         "--permission-mode",
         claudePermissionMode(mode),
         ...(mode === "auto" ? ["--allow-dangerously-skip-permissions"] : []),
@@ -74,11 +118,16 @@ export function harnessArguments(input: SessionContext) {
 export class HarnessSession {
   private state: State = { kind: "idle" };
   private transport: HarnessTransport;
+  private mcp?: SessionContext["mcp"];
   private adapter: HarnessAdapter;
   private metadata = new Map<"session" | "model", HarnessUpdate>();
   private approvals = new Map<
     string,
-    { nativeId: unknown; choices: ApprovalDecision[]; result(decision: ApprovalDecision): unknown }
+    {
+      nativeId: unknown;
+      choices: ApprovalDecision[];
+      result(decision: ApprovalDecision): unknown;
+    }
   >();
   private backgroundTasks = new Set<string>();
   private backgroundOverflow = false;
@@ -99,6 +148,7 @@ export class HarnessSession {
     environment,
     onSpawn,
     onExit,
+    mcp,
   }: SessionContext) {
     const input = {
       harness,
@@ -108,17 +158,23 @@ export class HarnessSession {
       sessionId,
       settings,
       superviseParent,
+      mcp,
     };
     this.sessionId = input.sessionId;
+    this.mcp = mcp;
     this.transport = new HarnessTransport({
       ...input,
       args: harnessArguments(input),
       protocol: input.harness === "claude" ? "claude" : "jsonrpc",
       onSpawn,
-      onExit,
+      onExit: () => {
+        mcp?.close();
+        onExit?.();
+      },
       env: {
         ...harnessEnvironment(harness),
         ...environment,
+        ...(mcp ? { TIDY_AGENT_MCP_TOKEN: mcp.token } : {}),
         ...(input.harness === "opencode"
           ? {
               OPENCODE_CONFIG_CONTENT: JSON.stringify({
@@ -212,7 +268,9 @@ export class HarnessSession {
     void this.ready.catch(() => {});
   }
   get available() {
-    return this.state.kind !== "closed" && this.transport.available;
+    return (
+      this.state.kind !== "closed" && this.transport.available && this.mcp?.available !== false
+    );
   }
   get idle() {
     return this.state.kind === "idle";
@@ -374,18 +432,59 @@ export class HarnessSession {
     this.finish(new Error("The harness session closed."));
     this.state = { kind: "closed" };
     this.transport.close();
+    this.mcp?.close();
   }
 }
 
-export function startInteractiveHarness(input: SessionContext & TurnInput): RunningHarness {
+function startPreparedHarness(input: SessionContext & TurnInput): RunningHarness {
   let session: HarnessSession;
   try {
     session = new HarnessSession(input);
   } catch (error) {
+    input.mcp?.close();
     input.onExit?.();
     throw error;
   }
   const turn = session.start(input);
   void turn.done.finally(() => session.close()).catch(() => {});
   return turn;
+}
+
+export function startInteractiveHarness(input: SessionContext & TurnInput): RunningHarness {
+  if (!input.agentTools || input.mcp) return startPreparedHarness(input);
+  const agentTools = input.agentTools;
+  let running: RunningHarness | undefined;
+  let stopped = false;
+  const done = (async () => {
+    let mcp: Awaited<ReturnType<typeof agentTools.open>>;
+    try {
+      mcp = await agentTools.open();
+    } catch (error) {
+      input.onExit?.();
+      throw error;
+    }
+    if (stopped) {
+      mcp.close();
+      input.onExit?.();
+      return;
+    }
+    running = startPreparedHarness({ ...input, mcp });
+    await running.done;
+  })();
+  return {
+    get deliveryState() {
+      return running?.deliveryState ?? "not-submitted";
+    },
+    done,
+    stop() {
+      stopped = true;
+      running?.stop();
+    },
+    async steer(message) {
+      return running?.steer?.(message) ?? false;
+    },
+    respondToApproval(id, decision) {
+      return running?.respondToApproval?.(id, decision) ?? false;
+    },
+  };
 }
