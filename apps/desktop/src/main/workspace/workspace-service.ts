@@ -383,6 +383,7 @@ export class WorkspaceService {
   }
 
   private async agentToolsFor(thread: Thread) {
+    if (this.closing) throw new Error("Tidy is closing.");
     const mode = effectivePermissionMode(thread.harness, thread.settings?.permissionMode);
     const lineage = await this.tasks.store.forChild(thread.projectId, thread.id);
     const designIds = lineage
@@ -1305,6 +1306,7 @@ export class WorkspaceService {
     const additionalDirectories = owner.id !== project.id ? [designDirectory, assetDirectory] : [];
     this.sessions.assertCompatible(thread.id, {
       projectId: owner.id,
+      agentTools: await this.agentToolsFor(thread),
       harness: thread.harness,
       executable,
       cwd: project.path,
