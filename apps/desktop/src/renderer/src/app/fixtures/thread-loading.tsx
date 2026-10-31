@@ -1423,6 +1423,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await settle();
     const top = viewport.scrollTop;
     check(top > 0, "Fixture needs scrollable history");
+    required(host.querySelector<HTMLButtonElement>(".conversation-tick"), "First marker").focus();
+    await settle();
+    check(
+      Boolean(host.querySelector(".conversation-turn-preview")),
+      "Focused marker has no preview",
+    );
     render({ selected: b.id });
     await settle();
     render({ selected: a.id });
@@ -1432,6 +1438,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       "Returning rebuilt the message DOM",
     );
     check(Math.abs(visibleTranscript().scrollTop - top) < 2, "Returning lost the scroll position");
+    check(
+      !host.querySelector(".conversation-turn-preview"),
+      "Returning revived an abandoned preview",
+    );
     const rail = required(
       [...host.querySelectorAll<HTMLElement>(".conversation-rail")].find(
         (node) => node.getBoundingClientRect().height > 0,
@@ -1527,6 +1537,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           ),
         "Current response preview",
       );
+      const viewport = visibleTranscript();
+      first.click();
       const userId = crypto.randomUUID();
       threads[a.id] = {
         ...threads[a.id],
@@ -1538,14 +1550,20 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         ],
       };
       render({ selected: a.id });
-      await settle();
+      for (let index = 0; index < 10; index++) {
+        await frame();
+        check(
+          viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= 40,
+          "An old pending jump interrupted following the new turn",
+        );
+      }
       const added = required(buttons().at(-1), "Added turn");
       check(buttons().length === 5, "Added turn did not get a navigation target");
       check(
         added.getAttribute("aria-label")?.includes("A newly added turn"),
         "Added turn label is stale",
       );
-      check(added.style.top === "100%", "Added turn did not update navigation positions");
+      check(added.offsetTop > latest.offsetTop, "Added turn did not update navigation positions");
       added.focus();
       added.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
       await settle();
@@ -1565,7 +1583,6 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         !host.querySelector(".conversation-turn-preview"),
         "Escape did not dismiss the preview",
       );
-      const viewport = visibleTranscript();
       first.click();
       await until(() => viewport.scrollTop < 2, "First turn scroll settles");
       const previousTop = viewport.scrollTop;
@@ -1579,7 +1596,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           viewport.scrollTop +
             target.getBoundingClientRect().top -
             viewport.getBoundingClientRect().top -
-            Number.parseFloat(getComputedStyle(viewport).paddingTop),
+            Math.min(24, Number.parseFloat(getComputedStyle(viewport).paddingTop)),
         );
       added.click();
       await settle();
@@ -1590,6 +1607,174 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
     },
   );
+
+  await run(
+    "turn markers select short latest turns at the bottom and after resizing",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      threads[a.id] = {
+        ...a,
+        status: "completed",
+        messages: [
+          a.messages[0],
+          { ...a.messages[1], text: "Earlier response paragraph.\n\n".repeat(50) },
+          { id: crypto.randomUUID(), role: "user", text: "Short final prompt" },
+          { id: crypto.randomUUID(), role: "assistant", text: "Short final reply" },
+        ],
+      };
+      render({ selected: a.id });
+      await until(() => Boolean(host.querySelector(".transcript")), "Conversation loads");
+      await settle();
+      const viewport = visibleTranscript();
+      const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
+      const current = () => buttons().findIndex((button) => button.hasAttribute("aria-current"));
+      check(current() === 1, "Bottom of a short final turn selected an earlier turn");
+      required(buttons()[0], "First turn").click();
+      await settle();
+      required(buttons()[1], "Last turn").click();
+      await settle();
+      check(current() === 1, "Clamped final turn jump selected an earlier turn");
+      threads[a.id] = {
+        ...threads[a.id],
+        messages: threads[a.id].messages.map((message) => ({ ...message, text: "Short" })),
+      };
+      render({ selected: a.id });
+      await settle();
+      check(viewport.scrollHeight <= viewport.clientHeight, "Short fixture unexpectedly scrolls");
+      check(current() === 0, "First visible prompt was not the current navigation turn");
+      check(
+        buttons().every((button) => button.dataset.inView === "true"),
+        "Visible prompts were not all highlighted",
+      );
+      viewport.parentElement!.style.height = "180px";
+      viewport.parentElement!.style.flex = "none";
+      await settle();
+      required(buttons()[1], "Latest turn after resize").click();
+      await settle();
+      check(current() === 1, "Resizing lost the latest turn selection");
+    },
+  );
+
+  await run(
+    "turn markers follow visible prompts and fall back to the turn being read",
+    async (root) => {
+      const { a, threads, render } = conversationFixture(root);
+      threads[a.id] = {
+        ...a,
+        status: "completed",
+        messages: [
+          { id: crypto.randomUUID(), role: "user", text: "First" },
+          { id: crypto.randomUUID(), role: "user", text: "Second" },
+          a.messages[2],
+          { ...a.messages[3], text: "Long response paragraph.\n\n".repeat(50) },
+          ...a.messages.slice(4),
+        ],
+      };
+      render({ selected: a.id });
+      await settle();
+      const viewport = visibleTranscript();
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
+      required(buttons[1], "Second turn").click();
+      await settle();
+      check(buttons[1].hasAttribute("aria-current"), "Jump lost its turn selection");
+      check(buttons[1].dataset.inView === "true", "Visible prompt is not highlighted");
+      const finalReply = required(
+        viewport.querySelectorAll<HTMLElement>(".conversation-entry")[3],
+        "Reply",
+      );
+      viewport.scrollTop +=
+        finalReply.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
+      viewport.dispatchEvent(new Event("scroll"));
+      await settle();
+      check(buttons[2].hasAttribute("aria-current"), "Reading a response lost its preceding turn");
+    },
+  );
+
+  await run("turn markers keep a compact overview and precise pointer targets", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    threads[a.id] = { ...makeThread({ count: 160 }), id: a.id, status: "completed" };
+    render({ selected: a.id });
+    await settle();
+    const viewport = visibleTranscript();
+    viewport.parentElement!.style.height = "180px";
+    viewport.parentElement!.style.flex = "none";
+    await settle();
+    const buttons = [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
+    const list = required(host.querySelector<HTMLElement>(".conversation-ticks"), "Turn list");
+    for (const index of [0, 39, 79]) {
+      buttons[index].focus();
+      await frame();
+      const popup = required(
+        host.querySelector<HTMLElement>(".conversation-turn-preview"),
+        "Focused turn preview",
+      );
+      const popupBounds = popup.getBoundingClientRect();
+      const conversationBounds = viewport.getBoundingClientRect();
+      check(
+        popupBounds.top >= conversationBounds.top &&
+          popupBounds.bottom <= conversationBounds.bottom,
+        "Turn preview extends outside the conversation",
+      );
+    }
+    const bounds = list.getBoundingClientRect();
+    for (const index of [0, 1, 39, 78, 79]) {
+      const y = bounds.top + (bounds.height * index) / (buttons.length - 1);
+      list.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientY: y }));
+      await frame();
+      check(
+        buttons[index].classList.contains("previewing"),
+        "Pointer mapping chose the wrong turn",
+      );
+      list.dispatchEvent(new MouseEvent("click", { bubbles: true, clientY: y, detail: 1 }));
+      await settle();
+      check(
+        buttons[index].dataset.inView === "true",
+        "Pointer jump did not reveal the targeted prompt",
+      );
+    }
+    const before = viewport.scrollTop;
+    const wheel = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: -2,
+      deltaMode: WheelEvent.DOM_DELTA_LINE,
+    });
+    list.dispatchEvent(wheel);
+    await settle();
+    check(
+      wheel.defaultPrevented && Math.abs(viewport.scrollTop - (before - 32)) < 2,
+      "Wheel over the rail did not scroll the conversation in line units",
+    );
+    required(buttons[39], "Middle marker").click();
+    required(buttons[0], "First marker").click();
+    await settle();
+    check(viewport.scrollTop < 2, "An earlier jump overrode the next navigation action");
+    required(buttons[39], "Middle marker").click();
+    viewport.dispatchEvent(new WheelEvent("wheel", { bubbles: true, deltaY: -50 }));
+    viewport.scrollTop = 0;
+    viewport.dispatchEvent(new Event("scroll"));
+    await settle();
+    check(viewport.scrollTop < 2, "Jump settling overrode manual scrolling");
+    const zoom = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      ctrlKey: true,
+      deltaY: -2,
+    });
+    list.dispatchEvent(zoom);
+    check(!zoom.defaultPrevented, "Rail intercepted browser zoom");
+    const end = required(buttons.at(-1), "Last marker");
+    end.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true }),
+    );
+    await settle();
+    check(document.activeElement === buttons[0], "Home did not focus the first marker");
+    required(buttons[0], "First marker").dispatchEvent(
+      new KeyboardEvent("keydown", { key: "End", bubbles: true, cancelable: true }),
+    );
+    await settle();
+    check(document.activeElement === end, "End did not focus the last marker");
+  });
 
   await run("a cold thread fills its existing selected view when data arrives", async (root) => {
     const { a, threads, render } = conversationFixture(root);
