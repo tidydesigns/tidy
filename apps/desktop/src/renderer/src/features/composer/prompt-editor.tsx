@@ -220,7 +220,7 @@ export function PromptEditor({
     <div
       {...props}
       ref={input}
-      className={`prompt-editor cursor-text whitespace-pre-wrap wrap-anywhere aria-disabled:cursor-default data-[empty=true]:before:pointer-events-none data-[empty=true]:before:text-muted-ink data-[empty=true]:before:content-[attr(data-placeholder)] ${className ?? ""}`}
+      className={`prompt-editor relative cursor-text whitespace-pre-wrap wrap-anywhere aria-disabled:cursor-default data-[empty=true]:before:pointer-events-none data-[empty=true]:before:absolute data-[empty=true]:before:text-muted-ink data-[empty=true]:before:content-[attr(data-placeholder)] ${className ?? ""}`}
       contentEditable={!disabled}
       suppressContentEditableWarning
       aria-disabled={disabled || undefined}
