@@ -29,6 +29,7 @@ export function SelectMenu({
   replayLabel = false,
   replayOptions = false,
   labelledBy,
+  describedBy,
   disabled = false,
   className = "",
   placement = "bottom",
@@ -76,6 +77,7 @@ export function SelectMenu({
   replayLabel?: boolean;
   replayOptions?: boolean;
   labelledBy?: string;
+  describedBy?: string;
   disabled?: boolean;
   className?: string;
   placement?: "top" | "bottom";
@@ -237,6 +239,7 @@ export function SelectMenu({
           labelledBy ? undefined : actionMenu ? label : `${label}: ${selected?.label ?? value}`
         }
         aria-labelledby={labelledBy ? `${labelledBy} ${valueId}` : undefined}
+        aria-describedby={describedBy}
         aria-haspopup={menuContent ? "dialog" : "menu"}
         aria-expanded={visible}
         aria-controls={visible ? menuId : undefined}

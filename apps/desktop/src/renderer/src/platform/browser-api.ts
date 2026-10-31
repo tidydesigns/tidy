@@ -96,6 +96,8 @@ const api: DesktopAPI = {
   skills: (projectId, harness, refresh) => request("skills", { projectId, harness, refresh }),
   harnessDetails: (projectId, harness, refresh) =>
     request("harness-details", { projectId, harness, refresh }),
+  harnessUsage: (projectId, harness, refresh) =>
+    request("harness-usage", { projectId, harness, refresh }),
   async openHarnessUsage(harness, page) {
     const urls = {
       codex: {

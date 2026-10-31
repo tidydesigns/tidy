@@ -1,0 +1,300 @@
+.account-usage-control {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.account-usage-ring {
+  width: 18px;
+  height: 18px;
+  transform: rotate(-90deg);
+  fill: none;
+  stroke-width: 2;
+}
+.account-usage-ring circle:first-child {
+  stroke: var(--color-border);
+}
+.account-usage-ring circle:last-child {
+  stroke: var(--color-muted-ink);
+}
+.account-usage-ring[data-low] circle:last-child {
+  stroke: var(--desktop-status-warning);
+}
+.account-usage-popover {
+  width: min(340px, calc(100vw - 16px));
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--desktop-surface);
+  color: var(--color-ink);
+  box-shadow: 0 8px 28px #0002;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 18px;
+}
+.account-usage-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.account-usage-body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.account-usage-header,
+.account-usage-footer {
+  flex-shrink: 0;
+}
+.account-usage-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px;
+}
+.account-usage-header > svg {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+}
+.account-usage-header > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.account-usage-plan {
+  font-size: 13px;
+  font-weight: 500;
+}
+.account-usage-muted,
+.account-usage-note {
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  line-height: 16px;
+}
+.account-usage-section {
+  padding: 14px 16px;
+  border-top: 1px solid var(--color-border);
+}
+.account-usage-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+.account-usage-line > :last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.account-usage-number {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.account-usage-window + .account-usage-window {
+  margin-top: 16px;
+}
+.account-usage-track {
+  height: 4px;
+  background: var(--color-subtle-fill);
+  margin: 8px 0 6px;
+  border-radius: 3px;
+  overflow: hidden;
+}
+.account-usage-track > span {
+  display: block;
+  height: 100%;
+  background: var(--color-muted-ink);
+  border-radius: inherit;
+}
+.account-usage-track[data-stale] {
+  opacity: 0.45;
+}
+.account-usage-window[data-low] .account-usage-track > span {
+  background: var(--desktop-status-warning);
+}
+.account-usage-disclosure > summary {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+.account-usage-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+.account-usage-disclosure > summary::before {
+  content: "";
+  border: 3px solid transparent;
+  border-left: 4px solid currentColor;
+  margin-right: 1px;
+}
+.account-usage-disclosure[open] > summary::before {
+  transform: rotate(90deg);
+  transform-origin: 2px 3px;
+}
+.account-usage-disclosure > summary > span {
+  margin-left: auto;
+  color: var(--color-muted-ink);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.account-usage-reset-list,
+.account-usage-token-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.account-usage-reset-list {
+  max-height: 132px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.account-usage-note,
+.account-usage-error {
+  padding: 0 16px;
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+}
+.account-usage-error {
+  color: var(--desktop-status-warning);
+  font-size: 11px;
+}
+.account-usage-notice {
+  color: var(--desktop-status-warning);
+  margin-bottom: 14px;
+  font-size: 11px;
+}
+.account-usage-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--color-border);
+}
+.account-usage-refresh,
+.account-usage-manage {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: auto;
+  height: auto;
+  padding: 4px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  border: 0;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  cursor: pointer;
+}
+.account-usage-refresh {
+  width: 26px;
+  height: 26px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.account-usage-refresh:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.account-usage-refresh svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.account-usage-refresh:hover:enabled,
+.account-usage-manage:hover {
+  background: var(--color-hover-surface);
+  color: var(--color-ink);
+}
+.account-usage-loading {
+  display: grid;
+  gap: 16px;
+}
+.account-usage-loading > span {
+  height: 32px;
+  border-radius: 4px;
+  background: var(--color-subtle-fill);
+}
+.account-usage-reset-time {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.account-usage-window > .account-usage-line:last-child {
+  flex-wrap: wrap;
+}
+.account-usage-trigger {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  cursor: pointer;
+}
+.account-usage-preview {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(250px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--desktop-surface);
+  color: var(--color-ink);
+  box-shadow: 0 4px 16px #0002;
+  font-size: 12px;
+  line-height: 18px;
+}
+.account-usage-preview-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.account-usage-preview-heading svg {
+  flex-shrink: 0;
+}
+.account-usage-preview-window + .account-usage-preview-window {
+  margin-top: 8px;
+}
+.account-usage-preview > .account-usage-line {
+  margin-top: 8px;
+}
+.account-usage-preview-hint {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted-ink);
+  font-size: 11px;
+}
+.account-usage-trigger:focus-visible {
+  outline: 2px solid var(--color-muted-ink);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .account-usage-trigger:hover {
+    border-color: var(--color-border);
+    background: var(--color-hover-surface);
+    color: var(--color-ink);
+  }
+}

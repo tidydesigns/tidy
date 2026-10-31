@@ -28,6 +28,9 @@
   outline-offset: 2px;
 }
 .app-update-button[aria-disabled="true"] {
+  cursor: default;
+}
+.app-update-button[aria-busy="true"] {
   cursor: progress;
   color: var(--desktop-status-active);
 }

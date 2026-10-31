@@ -1,3 +1,4 @@
+import { harnessUsageSchema } from "./harness-usage";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
 import { browserStateSchema, browserResultSchema } from "./browser";
@@ -61,6 +62,7 @@ export const workspaceResponseSchemas = {
   "repository-context": repositoryContextSchema,
   "switch-branch": branchSwitchResultSchema,
   "harness-details": harnessDetailsSchema,
+  "harness-usage": harnessUsageSchema,
   skills: skillCatalogSchema,
   "harness-usage-page": z.void(),
   "read-video-chunk": videoChunkSchema,

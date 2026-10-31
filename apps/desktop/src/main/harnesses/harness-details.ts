@@ -1,3 +1,5 @@
+import { readCodexUsage } from "./harness-usage";
+import { claudeAccountUsage } from "./usage-state";
 import { acpInitializeParams, acpSessionSchema } from "./opencode-adapter";
 import { version } from "../../../package.json";
 import { validatePermissionMode } from "../../shared/contracts/permissions";
@@ -5,11 +7,7 @@ import { withHarnessConnection } from "./harness-connection";
 import { z } from "zod";
 import { findHarness } from "./harnesses";
 import type { HarnessId } from "../../shared/contracts/desktop";
-import type {
-  HarnessDetails,
-  HarnessSettings,
-  UsageWindow,
-} from "../../shared/contracts/harness-settings";
+import type { HarnessDetails, HarnessSettings } from "../../shared/contracts/harness-settings";
 
 const effort = z.string().max(30);
 const codexModels = z.object({
@@ -36,7 +34,12 @@ const claudeInit = z.object({
     }),
   ),
   account: z
-    .object({ tokenSource: z.string().optional(), apiKeySource: z.string().optional() })
+    .object({
+      tokenSource: z.string().optional(),
+      apiKeySource: z.string().optional(),
+      subscriptionType: z.string().max(200).optional(),
+      organization: z.string().max(200).optional(),
+    })
     .optional(),
 });
 
@@ -73,7 +76,9 @@ export async function inspectHarness(
         };
       }
       if (harness === "claude") {
-        const result = claudeInit.parse(await request("initialize"));
+        const initialized = await request("initialize");
+        const usage = claudeAccountUsage(initialized, cwd);
+        const result = claudeInit.parse(initialized);
         const models = result.models.map((model) => ({
           id: model.value,
           name: model.displayName,
@@ -84,8 +89,7 @@ export async function inspectHarness(
           models,
           defaultModel: models.find((model) => model.id === "default")?.id,
           windows: [],
-          usageError:
-            "Claude Code does not expose live account limits through this connection. Thread token usage is shown below when available.",
+          usage,
           updatedAt: new Date().toISOString(),
           usagePage:
             result.account?.apiKeySource && result.account.apiKeySource !== "none"
@@ -137,57 +141,16 @@ export async function inspectHarness(
           parsedConfig.data.config.model_reasoning_effort ??
           models.find((model) => model.id === defaultModel)?.defaultEffort;
       }
-      let windows: UsageWindow[] = [],
-        usageError: string | undefined;
-      try {
-        const window = z.object({
-          usedPercent: z.number().min(0).max(100),
-          resetsAt: z.number().nullish(),
-          windowDurationMins: z.number().nullish(),
-        });
-        const limits = z
-          .object({
-            rateLimits: z.object({ primary: window.nullish(), secondary: window.nullish() }),
-          })
-          .parse(await request("account/rateLimits/read"));
-        windows = [limits.rateLimits.primary, limits.rateLimits.secondary].flatMap((value, i) =>
-          value
-            ? [
-                {
-                  name: value.windowDurationMins
-                    ? value.windowDurationMins >= 1440
-                      ? `${Math.round(value.windowDurationMins / 1440)} day`
-                      : value.windowDurationMins >= 60
-                        ? `${Math.round(value.windowDurationMins / 60)} hour`
-                        : `${value.windowDurationMins} minute`
-                    : i === 0
-                      ? "Primary"
-                      : "Secondary",
-                  usedPercent: value.usedPercent,
-                  resetsAt: value.resetsAt ?? undefined,
-                  windowMinutes: value.windowDurationMins ?? undefined,
-                },
-              ]
-            : [],
-        );
-      } catch {
-        usageError =
-          "Account limits are unavailable for this connection. Check the provider usage page.";
-      }
-      let usagePage: HarnessDetails["usagePage"] = "subscription";
-      const account = z
-        .object({ account: z.object({ type: z.string() }).nullable() })
-        .safeParse(await request("account/read", { refreshToken: false }).catch(() => null));
-      if (account.success && account.data.account?.type.toLowerCase() === "apikey")
-        usagePage = "api";
+      const usage = await readCodexUsage(request, cwd, true);
       return {
         models,
         defaultModel,
         defaultEffort,
-        windows,
-        usageError,
+        windows: usage.windows,
+        usage,
+        usageError: usage.note,
         updatedAt: new Date().toISOString(),
-        usagePage,
+        usagePage: usage.usagePage,
       };
     } catch (cause) {
       if (cause instanceof z.ZodError)

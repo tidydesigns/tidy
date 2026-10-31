@@ -320,7 +320,16 @@ app.on("browser-window-created", (_event, window) => {
       page.send("tidy:harness-updates", []);
 
       // Exercise renderer update-state rendering and its sidebar action with synthetic events.
-      assert.equal(await evaluate("document.querySelector('.app-update-button')===null"), true);
+      assert.equal(
+        await evaluate("document.querySelector('.sidebar-footer .account-usage-trigger')!==null"),
+        true,
+      );
+      assert.equal(
+        await evaluate("document.querySelector('.composer-actions .account-usage-trigger')===null"),
+        true,
+      );
+      assert.equal(await evaluate("document.querySelector('.app-update-button')!==null"), true);
+      assert.equal(await evaluate("document.querySelector('.app-update-badge')===null"), true);
       for (const status of ["checking", "downloading", "installing"]) {
         page.send("tidy:update", { status, version: "0.1.0-beta.999" });
         await wait("document.querySelector('.app-update-button[aria-busy=\"true\"]')!==null");
@@ -420,7 +429,12 @@ app.on("browser-window-created", (_event, window) => {
         /Couldn’t restart.*retry/,
       );
       page.send("tidy:update", { status: "idle" });
-      await wait("document.querySelector('.app-update-button')===null");
+      await wait("document.querySelector('.app-update-button[data-state=idle]')!==null");
+      assert.equal(await evaluate("document.querySelector('.app-update-badge')===null"), true);
+      assert.equal(
+        await evaluate("document.querySelector('.app-update-button').getAttribute('aria-label')"),
+        "Check for updates",
+      );
 
       // A real canvas must still work under the restricted custom protocol.
       if (process.platform === "darwin") {

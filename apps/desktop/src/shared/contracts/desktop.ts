@@ -206,6 +206,11 @@ export type DesktopAPI = {
   ): Promise<import("./repository-context").BranchSwitchResult>;
   skills(projectId: string, harness: HarnessId, refresh?: boolean): Promise<SkillCatalog>;
   harnessDetails(projectId: string, harness: HarnessId, refresh?: boolean): Promise<HarnessDetails>;
+  harnessUsage?(
+    projectId: string,
+    harness: HarnessId,
+    refresh?: boolean,
+  ): Promise<import("./harness-usage").HarnessUsage>;
   openHarnessUsage(harness: HarnessId, page: "subscription" | "api"): Promise<void>;
   readVideoChunk(
     input: import("./video-preview").VideoChunkRequest,
