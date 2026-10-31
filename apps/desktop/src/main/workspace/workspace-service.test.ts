@@ -28,6 +28,7 @@ async function fixture(
   skills?: HarnessSkills,
   holdStop = false,
   namer?: ConstructorParameters<typeof WorkspaceService>[5],
+  locate?: ConstructorParameters<typeof WorkspaceService>[2],
 ) {
   const directory = await mkdtemp(join(tmpdir(), "tidy-workspace-"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
@@ -81,7 +82,8 @@ async function fixture(
         },
       };
     },
-    async () => {
+    async (...args) => {
+      if (locate) return locate(...args);
       prepared();
       if (holdPreparation) await preparationGate;
       return "/fixture/harness";
@@ -2117,3 +2119,93 @@ test("shutdown cancels in-flight naming without waiting for the provider", async
   expect(signal.aborted).toBe(true);
   expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(thread.title);
 });
+
+for (const shutdown of ["update", "quit"] as const) {
+  for (const stage of ["access", "discovery"] as const) {
+    test(`${shutdown} releases naming preparation stalled at ${stage} before stopping the working thread`, async () => {
+      const entered = Promise.withResolvers<void>();
+      const gate = Promise.withResolvers<void>();
+      let held = false;
+      let generations = 0;
+      const f = await fixture(
+        undefined,
+        false,
+        undefined,
+        false,
+        async () => {
+          generations++;
+          return "Generated name";
+        },
+        async () => {
+          if (stage === "discovery" && held) {
+            entered.resolve();
+            await gate.promise;
+          }
+          return "/fixture/harness";
+        },
+      );
+      const thread = await f.service.startThread({
+        projectId: f.project.id,
+        harness: "codex",
+        prompt: "Improve navigation",
+        designIds: [],
+      });
+      held = true;
+      const access =
+        stage === "access"
+          ? spyOn(f.service, "assertProjectAccess").mockImplementation(async () => {
+              entered.resolve();
+              await gate.promise;
+            })
+          : undefined;
+      const pending = f.service
+        .dispatch(() => f.service.regenerateThreadTitle(f.project.id, thread.id, namingPreferences))
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+      await entered.promise;
+      try {
+        if (shutdown === "update") {
+          const restore = await f.service.prepareUpdate();
+          restore();
+        } else await f.service.close(50);
+        expect(f.runs[0].stopped).toBe(true);
+        expect((await pending) instanceof Error).toBe(true);
+        gate.resolve();
+        await Promise.resolve();
+        expect(generations).toBe(0);
+        expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(thread.title);
+      } finally {
+        gate.resolve();
+        access?.mockRestore();
+      }
+    }, 2000);
+  }
+}
+
+test("quit bounds the wait for a naming provider that ignores cancellation", async () => {
+  const entered = Promise.withResolvers<void>();
+  const gate = Promise.withResolvers<string>();
+  const f = await fixture(undefined, false, undefined, false, async () => {
+    entered.resolve();
+    return gate.promise;
+  });
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve navigation",
+    designIds: [],
+    naming: namingPreferences,
+  });
+  await entered.promise;
+  try {
+    await f.service.close(25);
+    expect(f.runs[0].stopped).toBe(true);
+    gate.resolve("A late title");
+    await Promise.resolve();
+    expect((await f.store.readThread(f.project.id, thread.id)).title).toBe(thread.title);
+  } finally {
+    gate.resolve("A late title");
+  }
+}, 2000);

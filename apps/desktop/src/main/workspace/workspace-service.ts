@@ -190,6 +190,7 @@ export class WorkspaceService {
     { projectId: string; harness: HarnessId; controller: AbortController }
   >();
   private titleRequests = new Set<Promise<unknown>>();
+  private titleControllers = new Set<AbortController>();
 
   private sessionGeneration = 0;
   private sessions = new HarnessSessions();
@@ -467,6 +468,19 @@ export class WorkspaceService {
     this.emit({ type: "thread", thread });
   }
 
+  /** Cancellation releases naming-only preparation even when a dependency ignores its signal. */
+  private async titleStep<T>(signal: AbortSignal, action: () => Promise<T>): Promise<T> {
+    signal.throwIfAborted();
+    const cancelled = Promise.withResolvers<never>();
+    const abort = () => cancelled.reject(signal.reason);
+    signal.addEventListener("abort", abort, { once: true });
+    try {
+      return await Promise.race([action(), cancelled.promise]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+
   async regenerateThreadTitle(
     projectId: string,
     threadId: string,
@@ -474,42 +488,54 @@ export class WorkspaceService {
     automatic = false,
   ) {
     const naming = threadNamingSchema.parse(preferences);
-    const snapshot = await this.serialize(threadId, async () => {
-      await this.assertProjectAccess(projectId);
-      const thread = await this.mutableThread(projectId, threadId);
-      if (automatic && thread.titleSource !== "prompt") return undefined;
-      await this.store.assertThreadExecution(thread, false);
-      const prompt = threadPromptText(
-        thread.messages.find((message) => message.role === "user")?.text ?? "",
-      );
-      if (!prompt) {
-        if (automatic) return undefined;
-        throw new Error("Add a written request before generating a thread name.");
-      }
-      const harness = naming.provider === "thread" ? thread.harness : naming.provider;
-      if (this.updatingHarnesses.has(harness))
-        throw new Error("This agent is updating. Try again shortly.");
-      if (this.titleJobs.size >= 2 && !this.titleJobs.has(threadId)) {
-        if (automatic) return undefined;
-        throw new Error("Two thread names are being generated. Try again shortly.");
-      }
-      this.titleJobs.get(threadId)?.controller.abort();
-      const job = { projectId, harness, controller: new AbortController() };
-      this.titleJobs.set(threadId, job);
-      return {
-        job,
-        revision: thread.titleRevision ?? 0,
-        prompt,
-        model: harness === thread.harness ? thread.settings?.model : undefined,
-      };
-    });
-    if (!snapshot) return this.readThread(projectId, threadId);
-    const { job } = snapshot;
+    const controller = new AbortController();
+    const signal = controller.signal;
+    this.titleControllers.add(controller);
+    let ownedJob:
+      | { projectId: string; harness: HarnessId; controller: AbortController }
+      | undefined;
     try {
-      const executable = await this.locate(job.harness);
+      const snapshot = await this.titleStep(signal, () =>
+        this.serialize(threadId, async () => {
+          await this.titleStep(signal, () => this.assertProjectAccess(projectId));
+          const thread = await this.titleStep(signal, () =>
+            this.mutableThread(projectId, threadId),
+          );
+          if (automatic && thread.titleSource !== "prompt") return undefined;
+          await this.titleStep(signal, () => this.store.assertThreadExecution(thread, false));
+          const prompt = threadPromptText(
+            thread.messages.find((message) => message.role === "user")?.text ?? "",
+          );
+          if (!prompt) {
+            if (automatic) return undefined;
+            throw new Error("Add a written request before generating a thread name.");
+          }
+          const harness = naming.provider === "thread" ? thread.harness : naming.provider;
+          if (this.updatingHarnesses.has(harness))
+            throw new Error("This agent is updating. Try again shortly.");
+          if (this.titleJobs.size >= 2 && !this.titleJobs.has(threadId)) {
+            if (automatic) return undefined;
+            throw new Error("Two thread names are being generated. Try again shortly.");
+          }
+          this.titleJobs.get(threadId)?.controller.abort();
+          const job = { projectId, harness, controller: new AbortController() };
+          ownedJob = job;
+          this.titleJobs.set(threadId, job);
+          return {
+            job,
+            revision: thread.titleRevision ?? 0,
+            prompt,
+            model: harness === thread.harness ? thread.settings?.model : undefined,
+          };
+        }),
+      );
+      if (!snapshot) return this.readThread(projectId, threadId);
+      const { job } = snapshot;
+      const executable = await this.titleStep(signal, () => this.locate(job.harness));
       if (!executable)
         throw new Error(`Install and sign in to ${harnessNames[job.harness]} to generate names.`);
-      job.controller.signal.throwIfAborted();
+      signal.throwIfAborted();
+      snapshot.job.controller.signal.throwIfAborted();
       if (this.closing) throw new Error("Tidy is closing.");
       const title = threadTitleSchema.parse(
         await this.nameThread({
@@ -522,8 +548,8 @@ export class WorkspaceService {
         }),
       );
       return await this.serialize(threadId, async () => {
-        await this.assertProjectAccess(projectId);
-        const thread = await this.mutableThread(projectId, threadId);
+        await this.titleStep(signal, () => this.assertProjectAccess(projectId));
+        const thread = await this.titleStep(signal, () => this.mutableThread(projectId, threadId));
         if (
           this.titleJobs.get(threadId) !== job ||
           job.controller.signal.aborted ||
@@ -534,7 +560,8 @@ export class WorkspaceService {
         return structuredClone(thread);
       });
     } finally {
-      if (this.titleJobs.get(threadId) === job) this.titleJobs.delete(threadId);
+      this.titleControllers.delete(controller);
+      if (ownedJob && this.titleJobs.get(threadId) === ownedJob) this.titleJobs.delete(threadId);
     }
   }
 
@@ -1442,8 +1469,7 @@ export class WorkspaceService {
     if (this.closing) throw new Error("Tidy is closing.");
     const update = Symbol("update");
     this.closing = update;
-    for (const job of this.titleJobs.values()) job.controller.abort();
-    await Promise.allSettled(this.titleRequests);
+    await this.settleTitleRequests(5_000);
     try {
       await this.drainRequests(30_000);
       await this.stopAndFlush();
@@ -1493,6 +1519,23 @@ export class WorkspaceService {
     return request.finally(() => this.requests.delete(request));
   }
 
+  private async settleTitleRequests(timeoutMs: number) {
+    for (const controller of this.titleControllers) controller.abort();
+    for (const job of this.titleJobs.values()) job.controller.abort();
+    if (!this.titleRequests.size) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.allSettled([...this.titleRequests]),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(resolve, timeoutMs);
+        }),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private async drainRequests(timeoutMs: number) {
     if (!this.requests.size) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1513,8 +1556,7 @@ export class WorkspaceService {
 
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
-    for (const job of this.titleJobs.values()) job.controller.abort();
-    await Promise.allSettled(this.titleRequests);
+    await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
     await this.drainRequests(requestDrainTimeoutMs);
     for (const watcher of this.watchers.values()) watcher.close();
     for (const refresh of this.designRefreshes.values()) refresh.close();
