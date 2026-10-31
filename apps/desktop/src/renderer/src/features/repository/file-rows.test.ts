@@ -35,7 +35,7 @@ test("aligns replacement blocks and preserves numbering across multiple hunks wi
     kind: "text",
     view: "diff",
     comparison: "head",
-    text: "--- a/file\n+++ b/file\n@@ -2,3 +2,2 @@\n old\n-const x = 1;\n-extra\n+const x = 2;\n@@ -30,0 +31,1 @@\n+last\n",
+    text: "--- a/file\n+++ b/file\n@@ -2,3 +2,2 @@\n old\n-const x = 1;\n-extra\n+const x = 2;\n@@ -30,0 +31,1 @@\n++++ source\n",
   });
   const rows = result.rows.filter((row) => row.kind === "lines");
   expect(rows.map((row) => [row.before?.number ?? null, row.after?.number ?? null])).toEqual([
@@ -48,6 +48,7 @@ test("aligns replacement blocks and preserves numbering across multiple hunks wi
   expect(rows[1].after?.text).toBe("const x = 2;");
   expect(rows[1].before?.emphasis).toEqual([10, 11]);
   expect(rows[1].after?.emphasis).toEqual([10, 11]);
+  expect(rows[3].after?.text).toBe("+++ source");
   expect(result.added).toBe(2);
   expect(result.removed).toBe(2);
   expect(result.rows[0].kind).toBe("hunk");
@@ -66,24 +67,6 @@ test("keeps newline markers on the correct side without breaking replacement ali
   expect(rows.filter((row) => row.kind === "note").map((row) => row.side)).toEqual([
     "before",
     "after",
-  ]);
-});
-
-test("handles insertion-only, deletion-only, and literal header-like source lines", () => {
-  const result = prepareFileRows({
-    kind: "text",
-    view: "diff",
-    comparison: "head",
-    text: "@@ -1,2 +1,2 @@\n-old\n same\n++++ source\n",
-  });
-  expect(
-    result.rows
-      .filter((row) => row.kind === "lines")
-      .map((row) => [row.before?.text ?? null, row.after?.text ?? null]),
-  ).toEqual([
-    ["old", null],
-    ["same", "same"],
-    [null, "+++ source"],
   ]);
 });
 

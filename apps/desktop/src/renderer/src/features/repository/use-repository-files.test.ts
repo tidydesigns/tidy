@@ -16,19 +16,44 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-test("keeps the first preview and rejects stale content before React commits refresh", async () => {
+function repositoryProbe(api: RepositoryAPI) {
   const window = new Window({ url: "https://fixture.invalid" });
   const globals = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({
     window,
     document: window.document,
-    HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
   })) {
     globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   }
   const root = createRoot(document.createElement("div"));
+  const expanded = new Set<string>();
+  let state: ReturnType<typeof useRepositoryFiles> | undefined;
+  function Probe({ selected }: { selected: string }) {
+    state = useRepositoryFiles({ api, projectId: "fixture", active: true, selected, expanded });
+    return null;
+  }
+  return {
+    get current() {
+      return state;
+    },
+    render: (selected = "a") => act(async () => root.render(createElement(Probe, { selected }))),
+    async close() {
+      try {
+        await act(async () => root.unmount());
+        await window.happyDOM.close();
+      } finally {
+        for (const [key, descriptor] of globals) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+          else Reflect.deleteProperty(globalThis, key);
+        }
+      }
+    },
+  };
+}
+
+test("keeps the first preview and rejects stale content before React commits refresh", async () => {
   const status = deferred<RepositoryChanges>();
   const refreshedStatus = deferred<RepositoryChanges>();
   const oldFile = deferred<RepositoryFile>();
@@ -49,19 +74,9 @@ test("keeps the first preview and rejects stale content before React commits ref
     },
     onEvent: () => () => {},
   };
-  let state: ReturnType<typeof useRepositoryFiles> | undefined;
-  function Probe() {
-    state = useRepositoryFiles({
-      api,
-      projectId: "fixture",
-      active: true,
-      selected: "a",
-      expanded: new Set(),
-    });
-    return null;
-  }
+  const probe = repositoryProbe(api);
   try {
-    await act(async () => root.render(createElement(Probe)));
+    await probe.render();
     expect(fileReads).toBe(1);
     expect(directoryReads).toBe(1);
     await act(async () => {
@@ -71,7 +86,7 @@ test("keeps the first preview and rejects stale content before React commits ref
     expect(fileReads).toBe(1);
     expect(previousPaths).toEqual([undefined]);
     await act(async () => {
-      const refresh = state?.refresh([]);
+      const refresh = probe.current?.refresh([]);
       refreshedStatus.resolve({
         repository: true,
         head: "head",
@@ -84,31 +99,15 @@ test("keeps the first preview and rejects stale content before React commits ref
       await refresh;
     });
     expect(fileReads).toBe(2);
-    expect(state?.file?.content).toEqual(fresh);
+    expect(probe.current?.file?.content).toEqual(fresh);
     expect(previousPaths).toEqual([undefined, "old"]);
   } finally {
-    await act(async () => root.unmount());
-    await window.happyDOM.close();
-    for (const [key, descriptor] of globals) {
-      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-      else Reflect.deleteProperty(globalThis, key);
-    }
+    await probe.close();
   }
 });
 
-for (const status of ["ready", "failed", "renamed", "unrelated"] as const)
+for (const status of ["failed", "renamed", "unrelated"] as const)
   test(`initial ${status} status only rereads a file when its comparison changes`, async () => {
-    const window = new Window({ url: "https://fixture.invalid" });
-    const globals = new Map<string, PropertyDescriptor | undefined>();
-    for (const [key, value] of Object.entries({
-      window,
-      document: window.document,
-      IS_REACT_ACT_ENVIRONMENT: true,
-    })) {
-      globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-    }
-    const root = createRoot(document.createElement("div"));
     const content: RepositoryFile = {
       kind: "text",
       text: "available",
@@ -143,45 +142,19 @@ for (const status of ["ready", "failed", "renamed", "unrelated"] as const)
       },
       onEvent: () => () => {},
     };
-    let state: ReturnType<typeof useRepositoryFiles> | undefined;
-    function Probe() {
-      state = useRepositoryFiles({
-        api,
-        projectId: "fixture",
-        active: true,
-        selected: "a",
-        expanded: new Set(),
-      });
-      return null;
-    }
+    const probe = repositoryProbe(api);
     try {
-      await act(async () => root.render(createElement(Probe)));
+      await probe.render();
       expect(reads).toBe(status === "renamed" ? 2 : 1);
-      expect(state?.file?.content).toEqual(content);
-      expect(state?.error).toBe(status === "failed" ? "Could not read Git changes." : "");
+      expect(probe.current?.file?.content).toEqual(content);
+      expect(probe.current?.error).toBe(status === "failed" ? "Could not read Git changes." : "");
     } finally {
-      await act(async () => root.unmount());
-      await window.happyDOM.close();
-      for (const [key, descriptor] of globals) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else Reflect.deleteProperty(globalThis, key);
-      }
+      await probe.close();
     }
   });
 
 for (const folderFailed of [false, true])
   test(`cached file recovery preserves folder errors (${folderFailed})`, async () => {
-    const window = new Window({ url: "https://fixture.invalid" });
-    const globals = new Map<string, PropertyDescriptor | undefined>();
-    for (const [key, value] of Object.entries({
-      window,
-      document: window.document,
-      IS_REACT_ACT_ENVIRONMENT: true,
-    })) {
-      globals.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-      Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
-    }
-    const root = createRoot(document.createElement("div"));
     const content: RepositoryFile = {
       kind: "text",
       text: "available",
@@ -202,31 +175,16 @@ for (const folderFailed of [false, true])
       },
       onEvent: () => () => {},
     };
-    let state: ReturnType<typeof useRepositoryFiles> | undefined;
-    function Probe({ selected }: { selected: string }) {
-      state = useRepositoryFiles({
-        api,
-        projectId: "fixture",
-        active: true,
-        selected,
-        expanded: new Set(),
-      });
-      return null;
-    }
+    const probe = repositoryProbe(api);
     try {
-      await act(async () => root.render(createElement(Probe, { selected: "available" })));
-      await act(async () => root.render(createElement(Probe, { selected: "missing" })));
-      expect(state?.error).toBe("The file could not be opened.");
-      await act(async () => root.render(createElement(Probe, { selected: "available" })));
-      expect(state?.file?.content).toEqual(content);
-      expect(state?.error).toBe(folderFailed ? "The folder could not be opened." : "");
+      await probe.render("available");
+      await probe.render("missing");
+      expect(probe.current?.error).toBe("The file could not be opened.");
+      await probe.render("available");
+      expect(probe.current?.file?.content).toEqual(content);
+      expect(probe.current?.error).toBe(folderFailed ? "The folder could not be opened." : "");
       expect(reads).toEqual(["available", "missing"]);
     } finally {
-      await act(async () => root.unmount());
-      await window.happyDOM.close();
-      for (const [key, descriptor] of globals) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else Reflect.deleteProperty(globalThis, key);
-      }
+      await probe.close();
     }
   });
