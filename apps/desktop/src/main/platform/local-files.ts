@@ -13,10 +13,13 @@ export async function readLocalFile(path: string, limit = 16 * 1024 * 1024) {
       throw new Error("The local project file is too large.");
     const chunks: Buffer[] = [];
     let size = 0;
-    for await (const chunk of file.createReadStream({ start: 0, end: limit, autoClose: false })) {
-      size += chunk.length;
+    while (size <= limit) {
+      const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, limit - size + 1));
+      const { bytesRead } = await file.read(chunk, 0, chunk.length, size);
+      if (!bytesRead) break;
+      size += bytesRead;
       if (size > limit) throw new Error("The local project file is too large.");
-      chunks.push(chunk);
+      chunks.push(chunk.subarray(0, bytesRead));
     }
     return Buffer.concat(chunks, size);
   } finally {
