@@ -701,22 +701,28 @@ export class WorkspaceService {
     settings: HarnessSettings,
   ) {
     if (this.closing) throw new Error("Tidy is closing.");
-    if (this.starting.has(threadId) || this.jobs.has(threadId))
-      throw new Error("Wait for this run to finish before changing its settings.");
     this.starting.set(threadId, projectId);
     try {
-      const thread = await this.store.readThread(projectId, threadId);
+      const thread = await this.mutableThread(projectId, threadId);
       if (this.closing) throw new Error("Tidy is closing.");
       await this.assertProjectAccess(projectId);
-      this.sessions.assertSettingsCanChange(threadId, settings);
+      if (!this.jobs.has(threadId)) this.sessions.assertSettingsCanChange(threadId, settings);
       await this.configure(thread.harness, this.executionProject(thread).path, settings);
       if (this.closing) throw new Error("Tidy is closing.");
-      this.sessions.assertSettingsCanChange(threadId, settings);
+      if (!this.jobs.has(threadId)) this.sessions.assertSettingsCanChange(threadId, settings);
+      const previous = thread.settings;
       thread.settings = settings;
       thread.revision++;
-      await this.store.writeThread(thread);
+      try {
+        await this.store.writeThread(thread);
+      } catch (error) {
+        thread.settings = previous;
+        thread.revision++;
+        this.emit({ type: "thread", thread });
+        throw error;
+      }
       this.emit({ type: "thread", thread });
-      return thread;
+      return structuredClone(thread);
     } finally {
       this.starting.delete(threadId);
       this.cancelledStarts.delete(threadId);

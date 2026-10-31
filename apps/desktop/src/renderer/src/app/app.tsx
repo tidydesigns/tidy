@@ -205,7 +205,9 @@ export function App({
     status: "loading" | "ready" | "error";
   }>({ key: "", skills: [], status: "loading" });
   const skillRequest = useRef(0);
-  const [settingsPending, setSettingsPending] = useState<Record<string, boolean>>({});
+  const [settingsPending, setSettingsPending] = useState<
+    Record<string, Pick<Partial<Thread>, "settings" | "executionProjectId"> | undefined>
+  >({});
   const detailRequests = useRef<Record<string, number>>({});
   const [now, setNow] = useState(Date.now);
   const [updatingDone, setUpdatingDone] = useState<Record<string, boolean>>({});
@@ -299,9 +301,13 @@ export function App({
     [thread?.messages],
   );
   const selectedSummary = snapshot?.threads.find((item) => item.id === selectedThreadId);
-  const executionProjectId = selectedThreadId
-    ? (thread?.executionProjectId ?? selectedSummary?.executionProjectId)
-    : draft.executionProjectId;
+  const pendingConfiguration = thread ? settingsPending[thread.id] : undefined;
+  const executionProjectId =
+    pendingConfiguration && "executionProjectId" in pendingConfiguration
+      ? pendingConfiguration.executionProjectId
+      : selectedThreadId
+        ? (thread?.executionProjectId ?? selectedSummary?.executionProjectId)
+        : draft.executionProjectId;
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
@@ -675,11 +681,10 @@ export function App({
     patch: Pick<Partial<Thread>, "settings" | "executionProjectId">,
     persist: () => Promise<Thread>,
   ) {
-    if (!thread) return;
-    if (!api || !project || running || settingsPending[thread.id]) return;
-    const previous = thread,
+    if (!thread || !api || !project || settingsPending[thread.id]) return;
+    if (running && "executionProjectId" in patch) return;
+    const threadId = thread.id,
       projectId = project.id;
-    const optimistic = { ...thread, ...patch, revision: thread.revision + 1 };
     const apply = (value: Thread) => {
       setThreads((current) =>
         (current[value.id]?.revision ?? -1) > value.revision
@@ -703,41 +708,13 @@ export function App({
             };
       });
     };
-    setSettingsPending((current) => ({ ...current, [thread.id]: true }));
-    apply(optimistic);
+    setSettingsPending((current) => ({ ...current, [thread.id]: patch }));
     try {
       apply(await persist());
     } catch (cause) {
-      const matches = (value: ThreadSummary) =>
-        value.revision === optimistic.revision &&
-        value.status === optimistic.status &&
-        Object.keys(patch).every(
-          (key) =>
-            JSON.stringify(value[key as keyof typeof patch]) ===
-            JSON.stringify(patch[key as keyof typeof patch]),
-        );
-      setThreads((current) =>
-        current[previous.id] && matches(current[previous.id])
-          ? { ...current, [previous.id]: previous }
-          : current,
-      );
-      setSnapshots((current) => {
-        const entry = current[projectId];
-        return !entry
-          ? current
-          : {
-              ...current,
-              [projectId]: {
-                ...entry,
-                threads: entry.threads.map((item) =>
-                  item.id === previous.id && matches(item) ? summarizeThread(previous) : item,
-                ),
-              },
-            };
-      });
       setError({ projectId, text: errorText(cause), original: cause });
     } finally {
-      setSettingsPending((current) => ({ ...current, [previous.id]: false }));
+      setSettingsPending((current) => ({ ...current, [threadId]: undefined }));
     }
   }
 
@@ -2376,13 +2353,14 @@ export function App({
                               else void changeSettings({ ...thread.settings, ...selection });
                             }}
                             harness={selectedHarness}
-                            settings={thread?.settings ?? draft.settings ?? {}}
+                            settings={
+                              thread
+                                ? (settingsPending[thread.id]?.settings ?? thread.settings ?? {})
+                                : (draft.settings ?? {})
+                            }
                             actualModel={thread?.actualModel}
                             disabled={Boolean(
-                              running ||
-                              busy ||
-                              (thread && settingsPending[thread.id]) ||
-                              thread?.doneAt,
+                              busy || (thread && settingsPending[thread.id]) || thread?.doneAt,
                             )}
                             onHarnessChange={
                               thread

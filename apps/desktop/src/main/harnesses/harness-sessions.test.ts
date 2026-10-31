@@ -382,6 +382,63 @@ for (const scope of ["harness", "project", "repository", "thread"] as const) {
   });
 }
 
+test("settings selected during a native run persist for its next turn without interrupting it", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "running-settings-"));
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  const finished = () =>
+    new Promise<void>((resolve) => {
+      const off = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status !== "running") {
+          off();
+          resolve();
+        }
+      });
+    });
+  try {
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "codex",
+      prompt: "hold",
+      designIds: [],
+    });
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if ((await service.readThread(project.id, thread.id)).sessionId) break;
+      await Bun.sleep(5);
+    }
+    expect((await service.readThread(project.id, thread.id)).sessionId).toBeDefined();
+    const pid = (await events(cwd))[0].pid;
+    const settings = {
+      model: "another-model",
+      effort: "high",
+      permissionMode: "read-only" as const,
+    };
+    const changed = await service.setThreadSettings(project.id, thread.id, settings);
+    expect(changed.status).toBe("running");
+    expect(changed.settings).toEqual(settings);
+    expect(() => process.kill(pid, 0)).not.toThrow();
+    let done = finished();
+    await service.stopThread(project.id, thread.id);
+    await done;
+    done = finished();
+    await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "continue" });
+    await done;
+    expect((await store.readThread(project.id, thread.id)).settings).toEqual(settings);
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+  } finally {
+    await service.close();
+  }
+});
+
 test("a duplicate start or incompatible preparation cannot close another running turn", async () => {
   const cwd = await mkdtemp(join(directory, "concurrent-start-"));
   const sessions = new HarnessSessions();
