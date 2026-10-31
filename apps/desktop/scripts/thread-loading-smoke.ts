@@ -17,7 +17,7 @@ try {
     Bun.build({
       entrypoints: [join(desktop, "src/renderer/src/app/fixtures/thread-loading.tsx")],
       target: "browser",
-      define: { "process.env.NODE_ENV": '"production"' },
+      define: { "process.env.NODE_ENV": '"production"', "import.meta.env.DEV": "false" },
       outdir: join(temporary, "renderer"),
     }),
     Bun.build({
