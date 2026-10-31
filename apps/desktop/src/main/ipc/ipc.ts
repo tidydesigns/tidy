@@ -1,4 +1,5 @@
 import { writeFile } from "node:fs/promises";
+import { terminalKeyboardFocus } from "../terminal/terminal-keyboard";
 import {
   terminalInputSchema,
   terminalScopeSchema,
@@ -228,6 +229,12 @@ export function registerWorkspaceIPC(
     string,
     { watch?: TerminalWatch; pending: TerminalInput[]; cleanup(): void }
   >();
+  ipcMain.on("tidy:terminal-focus", (event, value: unknown) => {
+    try {
+      trusted(event);
+      terminalKeyboardFocus(event.sender, z.boolean().parse(value), rendererURL);
+    } catch {}
+  });
   ipcMain.handle("tidy:terminal-watch", async (event, raw: unknown) => {
     trusted(event);
     const { watchId, machineId, ...scope } = terminalScopeSchema

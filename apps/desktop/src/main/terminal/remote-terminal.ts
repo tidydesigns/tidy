@@ -48,7 +48,7 @@ export function remoteTerminal(
         .object({ capabilities: z.array(z.string()).optional() })
         .parse(await health.json()).capabilities;
       if (closed || generation !== version) return;
-      if (!capabilities?.includes("terminal-v1")) {
+      if (!capabilities?.includes(scope.terminalId ? "terminal-tabs-v1" : "terminal-v1")) {
         receive({
           kind: "error",
           message:

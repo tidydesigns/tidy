@@ -1,265 +1,51 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
 import { showToast } from "@tidy/ui/toast";
 import type { Project, DesktopAPI } from "../../../../shared/contracts/desktop";
-import type { TerminalAPI, TerminalWatch } from "../../../../shared/contracts/terminal";
+import type { TerminalShortcut } from "../../../../shared/contracts/terminal";
+import { terminalShortcut } from "../../../../shared/models/terminal-shortcuts";
+import { useSessionState } from "../../app/session-state";
+import { TerminalSurface } from "./terminal-surface";
+import {
+  emptyTerminals,
+  terminalState,
+  terminalStateSchema,
+  type TerminalAction,
+  type TerminalState,
+  type TerminalTab,
+} from "./terminal-state";
 
-type Instance = Awaited<ReturnType<typeof import("./terminal-runtime").createTerminal>>;
-
-function TerminalSurface({
-  api,
-  projectId,
-  active,
-  copy,
-  onEnd,
-}: {
-  api: TerminalAPI;
-  projectId: string;
-  active: boolean;
-  copy?(text: string): Promise<void>;
-  onEnd(): void;
-}) {
-  const host = useRef<HTMLDivElement>(null);
-  const instance = useRef<Instance | undefined>(undefined);
-  const watch = useRef<TerminalWatch | undefined>(undefined);
-  const session = useRef<string | undefined>(undefined);
-  const visible = useRef(active);
-  const [status, setStatus] = useState("Opening terminal…");
-  const [exited, setExited] = useState(false);
-  const [restarting, setRestarting] = useState(false);
-  const [attempt, setAttempt] = useState(0);
-  const reconnect = useRef<() => void>(() => {});
-  useLayoutEffect(() => {
-    visible.current = active;
-    if (active && instance.current) {
-      instance.current.fit.fit();
-      instance.current.terminal.focus();
-    }
-  }, [active]);
-  useEffect(() => {
-    let disposed = false;
-    let current: Instance | undefined;
-    let stop: (() => void) | undefined;
-    let observer: ResizeObserver | undefined;
-    let resizeFrame = 0;
-    void import("./terminal-runtime")
-      .then((module) => module.createTerminal())
-      .then((value) => {
-        if (disposed || !host.current) {
-          value.terminal.dispose();
-          return;
-        }
-        current = value;
-        instance.current = value;
-        const { terminal, fit } = value;
-        terminal.open(host.current);
-        fit.fit();
-        let replaying = false;
-        let sequence = 0;
-        let connected = false;
-        terminal.attachCustomKeyEventHandler((event) => {
-          if (
-            (event.metaKey || (event.ctrlKey && event.shiftKey)) &&
-            event.key.toLowerCase() === "c" &&
-            terminal.hasSelection()
-          ) {
-            event.preventDefault();
-            void (
-              copy
-                ? copy(terminal.getSelection())
-                : navigator.clipboard.writeText(terminal.getSelection())
-            ).catch(() => setStatus("Could not copy the selection."));
-            return true;
-          }
-          // Keep Tidy's terminal shortcut available while the terminal has focus.
-          // ghostty-web 0.4 returns true for a consumed key, unlike xterm's convention.
-          return event.ctrlKey && event.code === "Backquote";
-        });
-        const dataListener = terminal.onData((data) => {
-          if (!connected || replaying || !session.current) return;
-          if (data.length > 128_000) {
-            setStatus("Paste is too large. Paste fewer than 128,000 characters at a time.");
-            return;
-          }
-          for (let offset = 0; offset < data.length;) {
-            let end = Math.min(offset + 16_000, data.length);
-            const last = data.charCodeAt(end - 1);
-            if (end < data.length && last >= 0xd800 && last <= 0xdbff) end--;
-            watch.current?.input({
-              kind: "write",
-              sessionId: session.current,
-              data: data.slice(offset, end),
-            });
-            offset = end;
-          }
-        });
-        const resizeListener = terminal.onResize(({ cols, rows }) => {
-          if (connected && session.current)
-            watch.current?.input({
-              kind: "resize",
-              sessionId: session.current,
-              cols: Math.min(500, Math.max(2, cols)),
-              rows: Math.min(300, Math.max(1, rows)),
-            });
-        });
-        const attach = () => {
-          watch.current?.close();
-          connected = false;
-          setStatus("Connecting to terminal…");
-          watch.current = api.watch(
-            {
-              projectId,
-              cols: Math.min(500, Math.max(2, terminal.cols)),
-              rows: Math.min(300, Math.max(1, terminal.rows)),
-              resume: session.current ? { sessionId: session.current, sequence } : undefined,
-            },
-            (output) => {
-              if (disposed) return;
-              if (output.kind === "error" || output.kind === "disconnected") {
-                connected = false;
-                setStatus(output.message);
-                return;
-              }
-              if (output.kind === "exit") {
-                if (output.sessionId === session.current) {
-                  connected = false;
-                  setExited(true);
-                  setStatus(
-                    `Shell exited${output.exitCode === null ? "" : ` (${output.exitCode})`}.`,
-                  );
-                }
-                return;
-              }
-              if (output.kind === "snapshot") {
-                session.current = output.sessionId;
-                sequence = output.sequence;
-                replaying = true;
-                if (output.reset) {
-                  terminal.reset();
-                  terminal.resize(output.cols, output.rows);
-                }
-                const replayed = () => {
-                  replaying = false;
-                  if (disposed) return;
-                  // watch() may deliver its initial snapshot synchronously in a local adapter.
-                  queueMicrotask(() =>
-                    watch.current?.input({
-                      kind: "ack",
-                      sessionId: output.sessionId,
-                      sequence: output.sequence,
-                    }),
-                  );
-                };
-                // ghostty-web 0.4 cannot write an empty buffer (its WASM allocator returns a sentinel).
-                if (output.data) terminal.write(output.data, replayed);
-                else replayed();
-                connected = !output.exited;
-                setExited(output.exited);
-                setStatus(
-                  output.exited
-                    ? `Shell exited${output.exitCode === null ? "" : ` (${output.exitCode})`}.`
-                    : "",
-                );
-                if (visible.current) {
-                  fit.fit();
-                  terminal.focus();
-                }
-              } else {
-                if (output.sessionId !== session.current || output.sequence <= sequence) return;
-                if (output.sequence !== sequence + 1) {
-                  connected = false;
-                  setStatus("Terminal output was interrupted. Reconnect to continue.");
-                  return;
-                }
-                sequence = output.sequence;
-                terminal.write(output.data, () => {
-                  if (!disposed)
-                    watch.current?.input({
-                      kind: "ack",
-                      sessionId: output.sessionId,
-                      sequence: output.sequence,
-                    });
-                });
-              }
-            },
-          );
-        };
-        reconnect.current = attach;
-        attach();
-        observer = new ResizeObserver(() => {
-          cancelAnimationFrame(resizeFrame);
-          resizeFrame = requestAnimationFrame(() => {
-            if (visible.current) fit.fit();
-          });
-        });
-        observer.observe(host.current);
-        stop = () => {
-          dataListener.dispose();
-          resizeListener.dispose();
-        };
-      })
-      .catch(() => {
-        if (!disposed) setStatus("Could not load the terminal. Try reconnecting.");
-      });
-    return () => {
-      disposed = true;
-      observer?.disconnect();
-      cancelAnimationFrame(resizeFrame);
-      stop?.();
-      watch.current?.close();
-      watch.current = undefined;
-      current?.terminal.dispose();
-      instance.current = undefined;
-    };
-  }, [api, projectId, attempt, copy]);
+function Glyph({ kind }: { kind: "terminal" | "plus" | "maximize" | "restore" | "close" }) {
   return (
-    <div className="terminal-session" hidden={!active}>
-      <div ref={host} className="terminal-surface" aria-label="Project terminal" />
-      {status && (
-        <div className="terminal-status" role="status">
-          <span>{status}</span>
-          <Button
-            className="quiet-button"
-            disabled={restarting}
-            onClick={() => {
-              if (exited) {
-                const id = session.current;
-                setRestarting(true);
-                setStatus("Starting a new shell…");
-                void (id ? api.end({ projectId, sessionId: id }) : Promise.resolve())
-                  .then(() => {
-                    session.current = undefined;
-                    setAttempt((value) => value + 1);
-                  })
-                  .catch(() =>
-                    setStatus("Could not restart the shell. Check the machine connection."),
-                  )
-                  .finally(() => setRestarting(false));
-              } else if (instance.current) reconnect.current();
-              else setAttempt((value) => value + 1);
-            }}
-          >
-            {exited ? "New shell" : "Reconnect"}
-          </Button>
-        </div>
+    <svg
+      aria-hidden="true"
+      width="16"
+      height="16"
+      viewBox="0 0 20 20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {kind === "terminal" ? (
+        <>
+          <rect x="2.5" y="3.5" width="15" height="13" rx="2" />
+          <path d="m6 7 3 3-3 3m5 0h3" />
+        </>
+      ) : kind === "plus" ? (
+        <path d="M10 4v12M4 10h12" />
+      ) : kind === "close" ? (
+        <path d="m6 6 8 8m0-8-8 8" />
+      ) : kind === "maximize" ? (
+        <path d="M7 3H3v4m10-4h4v4M3 13v4h4m10-4v4h-4" />
+      ) : (
+        <>
+          <path d="M7 3v4H3m14 0h-4V3M3 13h4v4m6 0v-4h4" />
+        </>
       )}
-      <Button
-        className="terminal-end quiet-button"
-        title="End terminal session"
-        aria-label="End terminal session"
-        onClick={() => {
-          if (session.current)
-            void api
-              .end({ projectId, sessionId: session.current })
-              .catch(() =>
-                showToast("Could not end the terminal. Reopen it when the machine reconnects."),
-              );
-          onEnd();
-        }}
-      >
-        ×
-      </Button>
-    </div>
+    </svg>
   );
 }
 
@@ -268,155 +54,359 @@ export function TerminalDock({
   projects,
   project,
   available,
+  ready,
   active,
+  home,
+  fullscreen,
+  onFullscreenChange,
 }: {
   api: DesktopAPI;
   projects: Project[];
   project?: Project;
   available: boolean;
+  ready: boolean;
   active: boolean;
+  home: HTMLElement | null;
+  fullscreen: boolean;
+  onFullscreenChange(value: boolean): void;
 }) {
-  const [sessions, setSessions] = useState<Project[]>([]);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [height, setHeight] = useState(280);
-  useEffect(() => {
-    setExpanded((current) =>
-      Object.keys(current).every((id) => projects.some((project) => project.id === id))
-        ? current
-        : Object.fromEntries(
-            Object.entries(current).filter(([id]) => projects.some((project) => project.id === id)),
-          ),
-    );
-    setSessions((current) =>
-      current.every((session) => projects.some((project) => project.id === session.id))
-        ? current
-        : current.filter((session) => projects.some((project) => project.id === session.id)),
-    );
-  }, [projects]);
-  const toggle = useRef<HTMLButtonElement>(null);
-  const valid = project && !project.cloud && available && Boolean(api.terminal);
-  const open = Boolean(valid && expanded[project.id]);
-  const show = () => {
-    if (!valid) return;
-    if (open) toggle.current?.focus();
-    setExpanded((current) => ({ ...current, [project.id]: !current[project.id] }));
-    setSessions((current) =>
-      current.some((item) => item.id === project.id) ? current : [...current, project],
-    );
+  const [state, setState] = useSessionState<TerminalState>("terminals", terminalStateSchema, {});
+  const latestState = useRef(state);
+  const dispatch = (action: TerminalAction) => {
+    const next = terminalState(latestState.current, action);
+    if (next === latestState.current) return;
+    latestState.current = next;
+    setState(next);
   };
-  const showRef = useRef(show);
+  const [height, setHeight] = useState(300);
+  const [focusTerminal, setFocusTerminal] = useState(true);
+  const dock = useRef<HTMLDivElement>(null);
+  const launcher = useRef<HTMLButtonElement>(null);
+  const focusReported = useRef(false);
+  const valid = Boolean(project && !project.cloud && available && api.terminal);
+  const current = project ? (state[project.id] ?? emptyTerminals) : emptyTerminals;
+  const open = valid && current.open && active;
+  const tabs = Object.values(state).flatMap((value) => value.tabs);
+  const mac = navigator.platform.includes("Mac");
+  const mod = mac ? "⌘" : "Ctrl+";
+  useEffect(() => {
+    if (!ready) return;
+    dispatch({
+      kind: "prune",
+      projects: [...projects.map((value) => value.id), ...(project ? [project.id] : [])],
+    });
+  }, [projects, project, ready]);
   useLayoutEffect(() => {
-    showRef.current = show;
+    if (!open && fullscreen) onFullscreenChange(false);
+  }, [open, fullscreen, onFullscreenChange]);
+  useLayoutEffect(() => {
+    if (!open || !focusTerminal || !current.selected) return;
+    const input = document.querySelector<HTMLElement>(
+      `#terminal-panel-${current.selected} textarea`,
+    );
+    (input ?? document.getElementById(`terminal-tab-${current.selected}`))?.focus({
+      preventScroll: true,
+    });
+  }, [open, current.selected, focusTerminal]);
+
+  useLayoutEffect(() => {
+    if (open && current.selected)
+      document
+        .getElementById(`terminal-tab-${current.selected}`)
+        ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [open, current.selected]);
+
+  const hide = () => {
+    if (!project) return;
+    dispatch({ kind: "hide", projectId: project.id });
+    onFullscreenChange(false);
+    launcher.current?.focus({ preventScroll: true });
+  };
+  const create = () => {
+    if (!valid || !project) return;
+    if (tabs.length >= 8) {
+      showToast("Close a terminal tab before opening another.");
+      return;
+    }
+    setFocusTerminal(true);
+    dispatch({ kind: "new", projectId: project.id, id: crypto.randomUUID() });
+  };
+  const toggle = () => {
+    if (open) hide();
+    else if (!current.tabs.length) create();
+    else if (project) {
+      setFocusTerminal(true);
+      dispatch({ kind: "show", projectId: project.id });
+    }
+  };
+  const close = (tab: TerminalTab) => {
+    const index = (state[tab.projectId]?.tabs ?? []).findIndex((value) => value.id === tab.id);
+    dispatch({ kind: "close", projectId: tab.projectId, id: tab.id });
+    if (tab.projectId === project?.id && current.tabs.length === 1) {
+      onFullscreenChange(false);
+      launcher.current?.focus();
+    } else setFocusTerminal(true);
+    void api.terminal?.end({ projectId: tab.projectId, terminalId: tab.id }).catch(() => {
+      dispatch({ kind: "restore", projectId: tab.projectId, tab, index });
+      showToast(
+        "Could not close the terminal. Its tab was restored; reconnect the machine and try again.",
+      );
+    });
+  };
+  const select = (id: string, keyboardTabs = false) => {
+    if (!project) return;
+    setFocusTerminal(!keyboardTabs);
+    dispatch({ kind: "select", projectId: project.id, id });
+    if (keyboardTabs) document.getElementById(`terminal-tab-${id}`)?.focus();
+    else if (id === current.selected)
+      document.querySelector<HTMLElement>(`#terminal-panel-${id} textarea`)?.focus();
+  };
+  const shortcut = (action: TerminalShortcut) => {
+    if (!valid || !active) return;
+    if (action === "toggle") {
+      toggle();
+      return;
+    }
+    if (action === "new") {
+      create();
+      return;
+    }
+    if (!open) return;
+    if (action === "close") {
+      const tab = current.tabs.find((tab) => tab.id === current.selected);
+      if (tab) close(tab);
+    } else if (action === "maximize") onFullscreenChange(!fullscreen);
+    else {
+      const index =
+        action === "next" || action === "previous"
+          ? (current.tabs.findIndex((tab) => tab.id === current.selected) +
+              (action === "next" ? 1 : -1) +
+              current.tabs.length) %
+            current.tabs.length
+          : Number(action.slice(-1)) - 1;
+      if (current.tabs[index]) select(current.tabs[index].id);
+    }
+  };
+  const actions = useRef(shortcut);
+  useLayoutEffect(() => {
+    actions.current = shortcut;
   });
   useEffect(() => {
-    const key = (event: globalThis.KeyboardEvent) => {
-      if (
-        active &&
-        event.ctrlKey &&
-        !event.altKey &&
-        !event.shiftKey &&
-        !event.metaKey &&
-        event.code === "Backquote"
-      ) {
-        event.preventDefault();
-        showRef.current();
+    const reportFocus = () => {
+      const focused = Boolean(
+        dock.current && !dock.current.hidden && dock.current.contains(document.activeElement),
+      );
+      if (focused !== focusReported.current) {
+        focusReported.current = focused;
+        api.terminal?.focus?.(focused);
       }
     };
-    window.addEventListener("keydown", key);
-    return () => window.removeEventListener("keydown", key);
-  }, [active]);
+    const afterFocus = () => queueMicrotask(reportFocus);
+    document.addEventListener("focusin", reportFocus);
+    document.addEventListener("focusout", afterFocus);
+    // Native handling prevents menu accelerators (especially Cmd+W) from closing the window.
+    const stop = api.terminal?.onShortcut?.((action) => actions.current(action));
+    api.terminal?.focus?.(false);
+    focusReported.current = false;
+    reportFocus();
+    return () => {
+      document.removeEventListener("focusin", reportFocus);
+      document.removeEventListener("focusout", afterFocus);
+      stop?.();
+      api.terminal?.focus?.(false);
+      focusReported.current = false;
+    };
+  }, [api, open]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.isComposing || event.repeat) return;
+      const focused = Boolean(dock.current?.contains(event.target as Node));
+      const action = terminalShortcut(
+        {
+          code: event.code,
+          control: event.ctrlKey,
+          meta: event.metaKey,
+          alt: event.altKey,
+          shift: event.shiftKey,
+        },
+        focused,
+        mac,
+      );
+      if (!action || !active || !valid) return;
+      event.preventDefault();
+      event.stopPropagation();
+      actions.current(action);
+    };
+    window.addEventListener("keydown", key, true);
+    return () => window.removeEventListener("keydown", key, true);
+  }, [active, valid, mac]);
+
   return (
-    <div
-      className={`terminal-dock ${open ? "terminal-dock-open" : ""}`}
-      hidden={!valid}
-      style={{ height: open ? `min(${height}px, 65vh)` : undefined }}
-    >
-      {open && (
-        <div
-          className="terminal-resize"
-          role="separator"
-          tabIndex={0}
-          aria-label="Resize terminal"
-          aria-orientation="horizontal"
-          aria-valuemin={140}
-          aria-valuemax={Math.floor(window.innerHeight * 0.65)}
-          aria-valuenow={height}
-          onKeyDown={(event) => {
-            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
-              event.preventDefault();
-              setHeight((value) =>
-                Math.max(
-                  140,
-                  Math.min(window.innerHeight * 0.65, value + (event.key === "ArrowUp" ? 24 : -24)),
-                ),
-              );
-            }
-          }}
-          onPointerDown={(event) => {
-            if (event.button !== 0) return;
-            const target = event.currentTarget;
-            const startY = event.clientY;
-            const startHeight = target.parentElement!.getBoundingClientRect().height;
-            target.setPointerCapture(event.pointerId);
-            const move = (next: PointerEvent) =>
-              setHeight(
-                Math.max(
-                  140,
-                  Math.min(window.innerHeight * 0.65, startHeight + startY - next.clientY),
-                ),
-              );
-            const end = () => {
-              target.removeEventListener("pointermove", move);
-              target.removeEventListener("pointerup", end);
-              target.removeEventListener("pointercancel", end);
-            };
-            target.addEventListener("pointermove", move);
-            target.addEventListener("pointerup", end);
-            target.addEventListener("pointercancel", end);
-          }}
-        />
-      )}
-      <div className="terminal-toolbar">
-        <Button
-          ref={toggle}
-          className="quiet-button terminal-toggle"
-          aria-expanded={open}
-          aria-controls="workspace-terminal"
-          title="Terminal (Ctrl+`)"
-          onClick={show}
-        >
-          <svg
-            width="15"
-            height="15"
-            viewBox="0 0 20 20"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            aria-hidden="true"
+    <>
+      {home &&
+        valid &&
+        createPortal(
+          <Button
+            ref={launcher}
+            className="terminal-launcher terminal-icon-button"
+            title="Terminal (Ctrl+`)"
+            aria-label="Toggle terminal"
+            aria-expanded={open}
+            aria-controls="workspace-terminal"
+            onClick={toggle}
           >
-            <path d="m4 5 5 5-5 5m7 0h5" />
-          </svg>
-          Terminal <span aria-hidden="true">{open ? "⌄" : "⌃"}</span>
-        </Button>
-        {open && <span className="terminal-project">{project?.name}</span>}
+            <Glyph kind="terminal" />
+          </Button>,
+          home,
+        )}
+      <div
+        ref={dock}
+        id="workspace-terminal"
+        className={`terminal-dock ${fullscreen ? "terminal-dock-fullscreen" : ""}`}
+        hidden={!open}
+        style={!fullscreen ? { height: `min(${height}px, 65vh)` } : undefined}
+      >
+        {!fullscreen && (
+          <div
+            className="terminal-resize"
+            role="separator"
+            tabIndex={0}
+            aria-label="Resize terminal"
+            aria-orientation="horizontal"
+            aria-valuemin={140}
+            aria-valuemax={Math.floor(window.innerHeight * 0.65)}
+            aria-valuenow={height}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                event.preventDefault();
+                setHeight((value) =>
+                  Math.max(
+                    140,
+                    Math.min(
+                      window.innerHeight * 0.65,
+                      value + (event.key === "ArrowUp" ? 24 : -24),
+                    ),
+                  ),
+                );
+              }
+            }}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              const target = event.currentTarget;
+              const startY = event.clientY;
+              const startHeight = target.parentElement!.getBoundingClientRect().height;
+              target.setPointerCapture(event.pointerId);
+              const move = (next: PointerEvent) =>
+                setHeight(
+                  Math.max(
+                    140,
+                    Math.min(window.innerHeight * 0.65, startHeight + startY - next.clientY),
+                  ),
+                );
+              const end = () => {
+                target.removeEventListener("pointermove", move);
+                target.removeEventListener("pointerup", end);
+                target.removeEventListener("pointercancel", end);
+              };
+              target.addEventListener("pointermove", move);
+              target.addEventListener("pointerup", end);
+              target.addEventListener("pointercancel", end);
+            }}
+          />
+        )}
+        <div className="terminal-toolbar">
+          <div
+            className="terminal-tabs"
+            role="tablist"
+            aria-label="Terminal tabs"
+            onKeyDown={(event) => {
+              let index = current.tabs.findIndex((tab) => tab.id === current.selected);
+              if (event.key === "ArrowRight") index = (index + 1) % current.tabs.length;
+              else if (event.key === "ArrowLeft")
+                index = (index - 1 + current.tabs.length) % current.tabs.length;
+              else if (event.key === "Home") index = 0;
+              else if (event.key === "End") index = current.tabs.length - 1;
+              else return;
+              event.preventDefault();
+              if (current.tabs[index]) select(current.tabs[index].id, true);
+            }}
+          >
+            {current.tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={`terminal-tab-item ${current.selected === tab.id ? "terminal-tab-selected" : ""}`}
+              >
+                <Button
+                  role="tab"
+                  id={`terminal-tab-${tab.id}`}
+                  className="terminal-tab"
+                  aria-selected={current.selected === tab.id}
+                  aria-controls={`terminal-panel-${tab.id}`}
+                  tabIndex={current.selected === tab.id ? 0 : -1}
+                  title={tab.title}
+                  onClick={() => select(tab.id)}
+                >
+                  <Glyph kind="terminal" />
+                  <span>{tab.title}</span>
+                </Button>
+                <Button
+                  className="terminal-tab-close terminal-icon-button"
+                  aria-label={`Close ${tab.title}`}
+                  title={`Close tab (${mod}W)`}
+                  tabIndex={current.selected === tab.id ? 0 : -1}
+                  onClick={() => close(tab)}
+                >
+                  <Glyph kind="close" />
+                </Button>
+              </div>
+            ))}
+          </div>
+          <Button
+            className="terminal-icon-button"
+            aria-label="New terminal tab"
+            title={`New terminal tab (${mod}T)`}
+            onClick={create}
+          >
+            <Glyph kind="plus" />
+          </Button>
+          <div className="terminal-toolbar-spacer" />
+          <Button
+            className="terminal-icon-button"
+            aria-label={fullscreen ? "Restore terminal" : "Full screen terminal"}
+            aria-pressed={fullscreen}
+            title={`${fullscreen ? "Restore" : "Full screen"} terminal (${mod}Enter)`}
+            onClick={() => onFullscreenChange(!fullscreen)}
+          >
+            <Glyph kind={fullscreen ? "restore" : "maximize"} />
+          </Button>
+          <Button
+            className="terminal-icon-button"
+            aria-label="Hide terminal"
+            title="Hide terminal (Ctrl+`)"
+            onClick={hide}
+          >
+            <Glyph kind="close" />
+          </Button>
+        </div>
+        <div className="terminal-sessions">
+          {api.terminal &&
+            ready &&
+            tabs.map((tab) => (
+              <TerminalSurface
+                key={tab.id}
+                api={api.terminal!}
+                projectId={tab.projectId}
+                terminalId={tab.id}
+                active={open && tab.id === current.selected && tab.projectId === project?.id}
+                focusOnActivate={focusTerminal}
+                copy={api.browser?.copy}
+                onTitle={(title) =>
+                  dispatch({ kind: "title", projectId: tab.projectId, id: tab.id, title })
+                }
+              />
+            ))}
+        </div>
       </div>
-      <div id="workspace-terminal" className="terminal-sessions" hidden={!open}>
-        {api.terminal &&
-          sessions.map((item) => (
-            <TerminalSurface
-              key={item.id}
-              api={api.terminal!}
-              projectId={item.id}
-              active={open && item.id === project?.id}
-              copy={api.browser?.copy}
-              onEnd={() => {
-                setSessions((current) => current.filter((value) => value.id !== item.id));
-                setExpanded((current) => ({ ...current, [item.id]: false }));
-                toggle.current?.focus();
-              }}
-            />
-          ))}
-      </div>
-    </div>
+    </>
   );
 }

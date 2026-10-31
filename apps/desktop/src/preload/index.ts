@@ -4,6 +4,7 @@ import {
   terminalOutputSchema,
   terminalScopeSchema,
   terminalSessionSchema,
+  terminalShortcutSchema,
   type TerminalAPI,
 } from "../shared/contracts/terminal";
 import {
@@ -125,12 +126,22 @@ function browserApi(machineId?: string): BrowserAPI {
 function terminalApi(machineId?: string): TerminalAPI {
   const endings = new Map<string, Promise<void>>();
   return {
+    focus: (focused) => ipcRenderer.send("tidy:terminal-focus", z.boolean().parse(focused)),
+    onShortcut(receive) {
+      const listener = (_event: Electron.IpcRendererEvent, value: unknown) => {
+        const parsed = terminalShortcutSchema.safeParse(value);
+        if (parsed.success) receive(parsed.data);
+      };
+      ipcRenderer.on("tidy:terminal-shortcut", listener);
+      return () => ipcRenderer.removeListener("tidy:terminal-shortcut", listener);
+    },
     end(raw) {
       const session = terminalSessionSchema.parse(raw);
       const ending = request("terminal-close", session, machineId).finally(() => {
-        if (endings.get(session.projectId) === ending) endings.delete(session.projectId);
+        if (endings.get(`${session.projectId}:${session.terminalId ?? "default"}`) === ending)
+          endings.delete(`${session.projectId}:${session.terminalId ?? "default"}`);
       });
-      endings.set(session.projectId, ending);
+      endings.set(`${session.projectId}:${session.terminalId ?? "default"}`, ending);
       return ending;
     },
     watch(raw, receive) {
@@ -144,7 +155,7 @@ function terminalApi(machineId?: string): TerminalAPI {
       };
       ipcRenderer.on("tidy:terminal-output", listener);
       // A quick reopen must wait for the old end request, so it cannot kill the new interaction.
-      void (endings.get(scope.projectId) ?? Promise.resolve())
+      void (endings.get(`${scope.projectId}:${scope.terminalId ?? "default"}`) ?? Promise.resolve())
         .catch(() => {})
         .then(() => {
           if (!closed)

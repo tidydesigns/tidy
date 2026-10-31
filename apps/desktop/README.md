@@ -55,11 +55,29 @@ The regular Bun suite skips the Node browser integration cases.
 
 ## Terminal
 
-Choose **Terminal** at the bottom of a project workspace, or press **Ctrl+`**, to
-open a shell in that project's directory. Drag the top divider or focus it and use
-the arrow keys to resize the panel. Collapsing the panel and switching projects
-retain the shell and screen. The **×** action ends the shell; an exited shell can
-be replaced with **New shell**. Up to eight project terminals can remain open.
+Use the terminal icon beside the project picker, or **Ctrl+`**, to open a shell
+in that project's directory. Hiding it removes the whole panel and retains its
+shells and screens. The fullscreen button fills the workspace in one click;
+press it again to restore the panel. Drag the top divider or focus it and use the
+arrow keys to resize the panel.
+
+Use **+** to create independent tabs. Each tab's **×** closes its shell; the
+panel's **×** hides all tabs. Up to eight tabs per machine can remain open across
+projects. An exited shell can be replaced with **New shell**.
+
+| Action                | macOS                     | Windows/Linux             |
+| --------------------- | ------------------------- | ------------------------- |
+| Show/hide terminal    | Ctrl+`                    | Ctrl+`                    |
+| New tab from anywhere | Ctrl+Shift+`              | Ctrl+Shift+`              |
+| New tab while focused | ⌘T                        | Ctrl+T                    |
+| Close focused tab     | ⌘W                        | Ctrl+W                    |
+| Fullscreen/restore    | ⌘Enter                    | Ctrl+Enter                |
+| Next/previous tab     | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Select tab 1–8        | ⌘1–8                      | Ctrl+1–8                  |
+
+Tab headers also support Left/Right, Home and End. Shell keys such as Ctrl+C,
+Ctrl+D and Escape continue to reach the terminal. Native window shortcuts retain
+their usual meaning outside the terminal.
 
 The terminal uses `ghostty-web` with a native PTY and advertises 24-bit colour.
 Installed tools such as `nvim` run with the user's shell configuration. Nerd Font

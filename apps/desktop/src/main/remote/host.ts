@@ -25,6 +25,7 @@ const hostCapabilities = [
   "thread-naming",
   "repository-files",
   "terminal-v1",
+  "terminal-tabs-v1",
 ];
 export function createRemoteHost({
   service,

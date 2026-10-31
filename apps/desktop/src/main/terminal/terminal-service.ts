@@ -68,6 +68,7 @@ type Viewer = {
 };
 type Session = {
   id: string;
+  key: string;
   projectId: string;
   pty: IPty;
   cols: number;
@@ -76,7 +77,7 @@ type Session = {
   history: Chunk[];
   historyBytes: number;
   pending: string;
-  flush?: ReturnType<typeof setTimeout>;
+  flush?: ReturnType<typeof setImmediate>;
   exited: boolean;
   exitCode: number | null;
   paused: boolean;
@@ -99,14 +100,18 @@ export class TerminalService {
 
   private async open(scope: TerminalScope, admitted: () => boolean): Promise<Session> {
     if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
-    await this.projectPath(scope.projectId);
-    if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
-    const previous = this.sessions.get(scope.projectId);
-    if (previous) return previous;
-    const pending = this.opening.get(scope.projectId);
+    const key = `${scope.projectId}:${scope.terminalId ?? "default"}`;
+    const previous = this.sessions.get(key);
+    if (previous) {
+      await this.projectPath(scope.projectId);
+      if (this.closed || !admitted() || this.sessions.get(key) !== previous)
+        throw new Error("The terminal viewer closed.");
+      return previous;
+    }
+    const pending = this.opening.get(key);
     if (pending) return pending;
     if (this.sessions.size + this.opening.size >= MAX_SESSIONS)
-      throw new Error("Close a terminal before opening another project terminal.");
+      throw new Error("Close a terminal before opening another terminal.");
     const task = (async () => {
       const cwd = await this.projectPath(scope.projectId);
       if (this.closed || !admitted()) throw new Error("The terminal viewer closed.");
@@ -133,6 +138,7 @@ export class TerminalService {
       }
       const session: Session = {
         id: randomUUID(),
+        key,
         projectId: scope.projectId,
         pty,
         cols: scope.cols,
@@ -146,12 +152,13 @@ export class TerminalService {
         paused: false,
         viewers: new Set(),
       };
-      this.sessions.set(scope.projectId, session);
+      this.sessions.set(key, session);
       pty.onData((data) => {
         if (session.exited) return;
         session.pending += data;
-        if (session.pending.length >= 16_000) this.flush(session);
-        else session.flush ??= setTimeout(() => this.flush(session), 8);
+        // Echo keystrokes immediately; coalesce bulk output for one event-loop turn.
+        if (session.pending.length <= 1024 || session.pending.length >= 16_000) this.flush(session);
+        else session.flush ??= setImmediate(() => this.flush(session));
       });
       pty.onExit(({ exitCode }) => {
         this.flush(session);
@@ -162,15 +169,15 @@ export class TerminalService {
       });
       return session;
     })();
-    this.opening.set(scope.projectId, task);
+    this.opening.set(key, task);
     try {
       return await task;
     } finally {
-      this.opening.delete(scope.projectId);
+      this.opening.delete(key);
     }
   }
   private flush(session: Session) {
-    clearTimeout(session.flush);
+    clearImmediate(session.flush);
     session.flush = undefined;
     while (session.pending) {
       // Keep UTF-16 surrogate pairs together at frame boundaries.
@@ -263,8 +270,7 @@ export class TerminalService {
       input: (raw) => {
         if (closed || this.closed || !session.viewers.has(viewer)) return;
         const input = terminalInputSchema.parse(raw);
-        if (input.sessionId !== session.id || this.sessions.get(session.projectId) !== session)
-          return;
+        if (input.sessionId !== session.id || this.sessions.get(session.key) !== session) return;
         this.input(session, viewer, input);
       },
       close: () => {
@@ -294,14 +300,27 @@ export class TerminalService {
       session.pty.resize(input.cols, input.rows);
     }
   }
-  end(projectId: string, sessionId: string) {
-    if (this.sessions.get(projectId)?.id === sessionId) this.removeProject(projectId);
+  async end(projectId: string, sessionId?: string, terminalId?: string) {
+    if (terminalId) {
+      const key = `${projectId}:${terminalId}`;
+      await this.opening.get(key)?.catch(() => {});
+      const session = this.sessions.get(key);
+      if (session && (!sessionId || session.id === sessionId)) this.stopSession(key);
+    } else {
+      for (const session of this.sessions.values())
+        if (session.projectId === projectId && session.id === sessionId)
+          this.stopSession(session.key);
+    }
   }
   removeProject(projectId: string) {
-    const session = this.sessions.get(projectId);
+    for (const session of this.sessions.values())
+      if (session.projectId === projectId) this.stopSession(session.key);
+  }
+  private stopSession(key: string) {
+    const session = this.sessions.get(key);
     if (!session) return;
-    this.sessions.delete(projectId);
-    clearTimeout(session.flush);
+    this.sessions.delete(key);
+    clearImmediate(session.flush);
     for (const viewer of session.viewers) clearTimeout(viewer.timer);
     if (!session.exited) {
       try {
@@ -311,7 +330,7 @@ export class TerminalService {
   }
   async stopAll() {
     await Promise.allSettled(this.opening.values());
-    for (const id of this.sessions.keys()) this.removeProject(id);
+    for (const key of this.sessions.keys()) this.stopSession(key);
   }
   async close() {
     this.closed = true;

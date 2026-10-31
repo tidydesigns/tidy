@@ -7,6 +7,7 @@ export const terminalSizeSchema = z.object({
 export const terminalScopeSchema = terminalSizeSchema
   .extend({
     projectId: z.uuid(),
+    terminalId: z.uuid().optional(),
     resume: z
       .object({ sessionId: z.uuid(), sequence: z.number().int().nonnegative().safe() })
       .optional(),
@@ -14,8 +15,9 @@ export const terminalScopeSchema = terminalSizeSchema
   .strict();
 export type TerminalScope = z.infer<typeof terminalScopeSchema>;
 export const terminalSessionSchema = z
-  .object({ projectId: z.uuid(), sessionId: z.uuid() })
-  .strict();
+  .object({ projectId: z.uuid(), terminalId: z.uuid().optional(), sessionId: z.uuid().optional() })
+  .strict()
+  .refine((value) => Boolean(value.terminalId || value.sessionId), "Choose a terminal session.");
 export const terminalInputSchema = z.discriminatedUnion("kind", [
   z
     .object({ kind: z.literal("write"), sessionId: z.uuid(), data: z.string().min(1).max(32_000) })
@@ -52,7 +54,26 @@ export const terminalOutputSchema = z.discriminatedUnion("kind", [
 ]);
 export type TerminalOutput = z.infer<typeof terminalOutputSchema>;
 export type TerminalWatch = { input(input: TerminalInput): void; close(): void };
+export const terminalShortcutSchema = z.enum([
+  "toggle",
+  "new",
+  "close",
+  "maximize",
+  "next",
+  "previous",
+  "select-1",
+  "select-2",
+  "select-3",
+  "select-4",
+  "select-5",
+  "select-6",
+  "select-7",
+  "select-8",
+]);
+export type TerminalShortcut = z.infer<typeof terminalShortcutSchema>;
 export type TerminalAPI = {
+  focus?(focused: boolean): void;
+  onShortcut?(receive: (shortcut: TerminalShortcut) => void): () => void;
   end(session: z.infer<typeof terminalSessionSchema>): Promise<void>;
   watch(scope: TerminalScope, receive: (output: TerminalOutput) => void): TerminalWatch;
 };
