@@ -2862,7 +2862,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
 
   for (const withExistingFile of [false, true]) {
     await run(
-      `pasted images survive text updates and history recall (${withExistingFile ? "existing file" : "empty draft"})`,
+      `pasted images survive thread navigation, text updates and history recall (${withExistingFile ? "existing file" : "empty draft"})`,
       async (root) => {
         const { App } = await import("../app");
         const project = {
@@ -2871,7 +2871,18 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           name: "Paste fixture",
           openedAt: timestamp,
         };
-        const snapshot: ProjectSnapshot = { project, threads: [], designs: [], folders: [] };
+        const previous: Thread = {
+          ...makeThread({ count: 2 }),
+          projectId: project.id,
+          title: "Previous conversation",
+          status: "completed",
+        };
+        const snapshot: ProjectSnapshot = {
+          project,
+          threads: [summarizeThread(previous)],
+          designs: [],
+          folders: [],
+        };
         const harnesses: Bootstrap["harnesses"] = [{ id: "codex", name: "Codex", status: "ready" }];
         const bootstrap: Bootstrap = { projects: [project], activeProject: snapshot, harnesses };
         const existing: AttachedFile[] = withExistingFile
@@ -2908,6 +2919,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
             updatedAt: timestamp,
             usagePage: "subscription",
           }),
+          harnessUsage: async () => ({
+            windows: [],
+            state: "unknown",
+            updatedAt: timestamp,
+            usagePage: "subscription",
+          }),
           warmThread: async () => {},
           threadPorts: async () => [],
           async addAttachment(projectId, name, dataUrl) {
@@ -2926,7 +2943,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
             return file;
           },
           readAttachment: async (_projectId, id) => required(stored.get(id), "Stored attachment"),
-          readThread: async () => required(started, "Started thread"),
+          readThread: async (_projectId, id) =>
+            id === previous.id ? previous : required(started, "Started thread"),
           async startThread(input) {
             submitted = input;
             started = {
@@ -3045,6 +3063,29 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         check(start.disabled, "Sending was enabled before images were stored");
         gate.resolve();
         await until(() => uploads.length === 2 && !start.disabled, "Both images stored");
+        const draftText = draft().text;
+        const composerText = editor().textContent;
+        const draftButton = () =>
+          required(
+            [...host.querySelectorAll<HTMLButtonElement>(".sidebar-list > .thread-select")].find(
+              (button) => button.textContent?.includes("Draft · Not sent"),
+            ),
+            "Unsent draft",
+          );
+        check(draftButton().textContent?.includes("Describe these"), "Draft has no text preview");
+        flushSync(() =>
+          required(
+            host.querySelector<HTMLButtonElement>(`[data-thread-id="${previous.id}"] button`),
+            "Previous conversation",
+          ).click(),
+        );
+        await until(() => editor().textContent === "", "Previous thread's empty reply composer");
+        check(draftButton().getAttribute("aria-current") !== "true", "Draft remained selected");
+        flushSync(() => draftButton().click());
+        check(draft().text === draftText, "Returning to the draft changed its stored text");
+        check(editor().textContent === composerText, "Returning to the draft lost its text");
+        check(document.activeElement === editor(), "Returning did not focus the mounted composer");
+        check(draftButton().getAttribute("aria-current") === "true", "Draft is not selected");
         const ids = draft().attachments?.map((file) => file.id) ?? [];
         check(
           ids.every((id) => stored.has(id)),
@@ -3054,6 +3095,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         await until(() => Boolean(submitted), "Submission");
         check(JSON.stringify(submitted?.attachmentIds) === JSON.stringify(ids), "Send lost files");
         check(submitted?.prompt.includes("Describe these"), "Send lost text between images");
+        check(
+          !host.querySelector(".sidebar-list > .thread-select"),
+          "Sending left an unsent draft in the sidebar",
+        );
         check(
           ids
             .slice(existing.length)
