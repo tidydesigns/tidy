@@ -121,6 +121,10 @@ const api: DesktopAPI = {
     window.open(link.url, "_blank", "noopener,noreferrer");
   },
   checkHarnesses: () => request("harnesses"),
+  repositoryDirectory: (projectId, path) => request("repository-directory", { projectId, path }),
+  repositoryChanges: (projectId) => request("repository-changes", { projectId }),
+  repositoryFile: (projectId, path, previousPath) =>
+    request("repository-file", { projectId, path, previousPath }),
   repositoryContext: (projectId) => request("repository-context", { projectId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),

@@ -113,6 +113,7 @@ export const threadSummarySchema = liveThreadSchema
     queuedMessageCount: z.number().int().nonnegative().optional(),
   });
 export const desktopEventSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("repository-change"), projectId: id, path: z.string().max(4096) }),
   z.object({ type: z.literal("thread-summary"), thread: threadSummarySchema }),
   z.object({ type: z.literal("thread"), thread: liveThreadSchema }),
   z.object({
@@ -197,6 +198,16 @@ export type DesktopAPI = {
   removeProject?(projectId: string): Promise<void>;
   checkHarnesses(): Promise<HarnessConnection[]>;
   repositoryContext(projectId: string): Promise<RepositoryContext>;
+  repositoryDirectory?(
+    projectId: string,
+    path: string,
+  ): Promise<import("./repository-files").RepositoryDirectory>;
+  repositoryChanges?(projectId: string): Promise<import("./repository-files").RepositoryChanges>;
+  repositoryFile?(
+    projectId: string,
+    path: string,
+    previousPath?: string,
+  ): Promise<import("./repository-files").RepositoryFile>;
   switchBranch(
     projectId: string,
     branch: string,

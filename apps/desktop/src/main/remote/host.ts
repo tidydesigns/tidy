@@ -44,6 +44,7 @@ export function createRemoteHost({
       token: string;
       writes: Promise<void>;
       queuedBytes: number;
+      repositoryEvents: boolean;
     }
   >();
   const send = (
@@ -205,7 +206,12 @@ export function createRemoteHost({
             });
             return;
           }
-          clients.set(client, { ...ticket, writes: Promise.resolve(), queuedBytes: 0 });
+          clients.set(client, {
+            ...ticket,
+            writes: Promise.resolve(),
+            queuedBytes: 0,
+            repositoryEvents: false,
+          });
           alive.add(client);
           client.on("pong", () => alive.add(client));
           client.on("error", () => {});
@@ -291,6 +297,14 @@ export function createRemoteHost({
                     );
                   if (projectInput.success) resultProjectId = projectInput.data.projectId;
                   result = await requests.invoke(request.name, request.input, request);
+                  if (
+                    request.name === "repository-directory" ||
+                    request.name === "repository-changes" ||
+                    request.name === "repository-file"
+                  ) {
+                    const auth = clients.get(client);
+                    if (auth) auth.repositoryEvents = true;
+                  }
                 }
                 send(
                   client,
@@ -323,7 +337,10 @@ export function createRemoteHost({
       .catch(() => socket.destroy());
   });
   const unsubscribe = service.subscribeRenderer((event) => {
-    for (const client of clients.keys()) send(client, { type: "event", event }, event);
+    for (const [client, auth] of clients) {
+      if (event.type === "repository-change" && !auth.repositoryEvents) continue;
+      send(client, { type: "event", event }, event);
+    }
   });
   const heartbeat = setInterval(() => {
     for (const [client, auth] of clients)

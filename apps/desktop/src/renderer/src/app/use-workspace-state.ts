@@ -134,9 +134,9 @@ export function useWorkspaceState({
     let mounted = true;
     const refresh = connection !== "offline" || !loaded.current;
     let bootstrapping = refresh;
-    const initialEvents = new Map<string, DesktopEvent>();
+    const initialEvents = new Map<string, Exclude<DesktopEvent, { type: "repository-change" }>>();
     const unsubscribe = api.onEvent((event) => {
-      if (!mounted) return;
+      if (!mounted || event.type === "repository-change") return;
       if (bootstrapping) {
         const key = event.type === "designs" ? event.projectId : event.thread.id;
         const previous = initialEvents.get(key);

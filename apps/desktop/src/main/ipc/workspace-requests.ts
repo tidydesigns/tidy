@@ -6,6 +6,12 @@ import {
   browserQuerySchema,
 } from "../../shared/contracts/browser";
 import { PullRequestStates } from "../workspace/pull-request-states";
+import {
+  readRepositoryDirectory,
+  readRepositoryChanges,
+  readRepositoryFile,
+} from "../repository/repository-files";
+import { repositoryPathSchema } from "../../shared/contracts/repository-files";
 import { DraftImports } from "../workspace/draft-imports";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
@@ -246,6 +252,47 @@ export function createWorkspaceRequests<Context>(
     "thread-settings",
     z.object({ projectId, threadId: uuid, settings: harnessSettingsSchema }).strict(),
     (value) => service.setThreadSettings(value.projectId, value.threadId, value.settings),
+  );
+  function repositoryPath(projectId: string) {
+    const project = store.project(projectId);
+    if (project.cloud) throw new Error("Choose a local project to browse repository files.");
+    return project.path;
+  }
+  handle(
+    "repository-directory",
+    z.object({ projectId, path: repositoryPathSchema }).strict(),
+    (value) =>
+      readRepositoryDirectory(repositoryPath(value.projectId), value.path).then(async (result) => {
+        await service.repositoryObservers
+          .observe(value.projectId, repositoryPath(value.projectId), value.path)
+          .catch(() => {});
+        return result;
+      }),
+  );
+  handle("repository-changes", z.object({ projectId }).strict(), (value) =>
+    readRepositoryChanges(repositoryPath(value.projectId)),
+  );
+  handle(
+    "repository-file",
+    z
+      .object({
+        projectId,
+        path: repositoryPathSchema.min(1),
+        previousPath: repositoryPathSchema.min(1).optional(),
+      })
+      .strict(),
+    (value) =>
+      readRepositoryFile(repositoryPath(value.projectId), value.path, value.previousPath).then(
+        async (result) => {
+          const parent = value.path.includes("/")
+            ? value.path.slice(0, value.path.lastIndexOf("/"))
+            : "";
+          await service.repositoryObservers
+            .observe(value.projectId, repositoryPath(value.projectId), parent)
+            .catch(() => {});
+          return result;
+        },
+      ),
   );
   handle("repository-context", z.object({ projectId }).strict(), (value) =>
     readRepositoryContext(store.project(value.projectId).path),

@@ -567,6 +567,23 @@ test("workspace reads bypass durable mutation receipts", async () => {
   expect(
     await client.operation("thread-ports", { projectId: f.project.id, threadId: randomUUID() }),
   ).toEqual([]);
+  await writeFile(join(f.project.path, "sample.txt"), "local fixture\n");
+  const directory = await client.operation("repository-directory", {
+    projectId: f.project.id,
+    path: "",
+  });
+  expect(directory.entries.some((entry) => entry.path === "sample.txt")).toBe(true);
+  expect(await client.operation("repository-changes", { projectId: f.project.id })).toEqual({
+    repository: false,
+    head: null,
+    changes: [],
+  });
+  expect(
+    await client.operation("repository-file", { projectId: f.project.id, path: "sample.txt" }),
+  ).toEqual({ kind: "text", text: "local fixture\n", view: "file", comparison: "none" });
+  await expect(
+    client.operation("repository-file", { projectId: f.project.id, path: "../outside.txt" }),
+  ).rejects.toThrow();
   expect(await readdir(join(f.root, "receipts"))).toEqual(before);
 });
 
@@ -1069,4 +1086,17 @@ test("remote video previews transfer external host files and enforce thread owne
   await expect(
     client.operation("read-video-chunk", { ...input, projectId: other.id }),
   ).rejects.toThrow("another project");
+});
+
+test("repository notifications require per-connection capability opt-in", async () => {
+  const f = await fixture();
+  const legacy = f.client();
+  const modern = f.client();
+  await until(() => [legacy, modern].every(({ client }) => client.status.kind === "connected"));
+  await modern.client.operation("repository-directory", { projectId: f.project.id, path: "" });
+  await writeFile(join(f.projectPath, "changed.txt"), "fixture\n");
+  await until(() => modern.events.some((event) => event.type === "repository-change"));
+  await legacy.client.operation("project-snapshot", f.project.id);
+  expect(legacy.events.some((event) => event.type === "repository-change")).toBe(false);
+  expect(legacy.client.status.kind).toBe("connected");
 });
