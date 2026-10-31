@@ -47,35 +47,45 @@ const record = (value: unknown): Record<string, unknown> =>
   value !== null && typeof value === "object" ? (value as Record<string, unknown>) : {};
 const text = (value: unknown) => (typeof value === "string" ? value : "");
 
+export const harnessEnvironmentKeys = [
+  "HOME",
+  "USERPROFILE",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "SystemRoot",
+  "APPDATA",
+  "LOCALAPPDATA",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "CODEX_HOME",
+  "OPENAI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "ANTHROPIC_BASE_URL",
+  "CLAUDE_CONFIG_DIR",
+  "XDG_CACHE_HOME",
+  "HTTPS_PROXY",
+  "HTTP_PROXY",
+  "NO_PROXY",
+] as const;
+export const additionalProviderEnvironmentKeys = [
+  "OPENCODE_API_KEY",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GEMINI_API_KEY",
+  "OPENROUTER_API_KEY",
+] as const;
+
 /** Build the CLI environment from an allowlist and include standard user installation paths. */
 export function harnessEnvironment(harness?: HarnessId): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of [
-    "HOME",
-    "USERPROFILE",
-    "USER",
-    "LOGNAME",
-    "SHELL",
-    "LANG",
-    "LC_ALL",
-    "TMPDIR",
-    "TMP",
-    "TEMP",
-    "SystemRoot",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "XDG_CONFIG_HOME",
-    "XDG_DATA_HOME",
-    "CODEX_HOME",
-    "OPENAI_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "ANTHROPIC_BASE_URL",
-    ...(harness === "opencode"
-      ? ["OPENCODE_API_KEY", "GOOGLE_GENERATIVE_AI_API_KEY", "GEMINI_API_KEY", "OPENROUTER_API_KEY"]
-      : []),
-    "HTTPS_PROXY",
-    "HTTP_PROXY",
-    "NO_PROXY",
+    ...harnessEnvironmentKeys,
+    ...(harness === "opencode" ? additionalProviderEnvironmentKeys : []),
   ]) {
     if (process.env[key]) environment[key] = process.env[key];
   }

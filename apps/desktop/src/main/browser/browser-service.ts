@@ -1,5 +1,4 @@
-import { mkdtemp, mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { BrowserContext, Page, CDPSession, Dialog } from "puppeteer-core";
@@ -16,6 +15,7 @@ import {
 } from "../../shared/contracts/browser";
 import { BrowserScreencast, type BrowserViewer } from "./screencast";
 import { BrowserRuntime } from "./runtime";
+import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
 type Tab = {
   page: Page;
@@ -60,6 +60,7 @@ const ignored = () => {};
 export class BrowserService {
   private readonly workspaces = new Map<string, Workspace>();
   private closing = false;
+  private readonly scratch = new PrivateScratch();
   private cleanupPromises = new Set<Promise<unknown>>();
   private readonly runtime = new BrowserRuntime(
     (progress) => {
@@ -233,7 +234,7 @@ export class BrowserService {
       workspace.lifetime.signal.throwIfAborted();
       const context = await browser.createBrowserContext();
       opened = context;
-      workspace.downloadsDirectory = await mkdtemp(join(tmpdir(), "tidy-browser-downloads-"));
+      workspace.downloadsDirectory = await this.scratch.create("tidy-browser-downloads-");
       const downloads = await browser.target().createCDPSession();
       workspace.downloadSession = downloads;
       await downloads.send("Browser.setDownloadBehavior", {
@@ -634,7 +635,7 @@ export class BrowserService {
             let directory: string | undefined;
             let completed = false;
             try {
-              directory = await mkdtemp(join(tmpdir(), "tidy-browser-upload-"));
+              directory = await this.scratch.create("tidy-browser-upload-");
               tab.uploads.push(directory);
               const paths: string[] = [];
               for (const [index, file] of action.files.entries()) {
@@ -659,6 +660,8 @@ export class BrowserService {
               if (tab.page.isClosed()) throw new Error("This browser tab is no longer open.");
               if (tab.chooser?.id === chooser.id) tab.chooser = null;
               completed = true;
+            } catch (error) {
+              throw scratchStorageError(error, directory ?? "Tidy browser upload storage");
             } finally {
               if (!completed) {
                 tab.uploadBytes -= size;
@@ -1189,6 +1192,7 @@ export class BrowserService {
     }
     await Promise.allSettled([...this.cleanupPromises]);
     this.workspaces.clear();
+    await this.scratch.close();
   }
 }
 

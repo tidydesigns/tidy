@@ -1,4 +1,5 @@
 import { workspaceRuntime } from "../src/main/remote/workspace-host";
+import { hostPersistenceWarning } from "../src/main/remote/host-persistence";
 import { chmod, mkdir, open, readFile, writeFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -12,6 +13,19 @@ import { lockHost } from "../src/main/remote/host-lock";
 import { createRemoteHost } from "../src/main/remote/host";
 import { RequestReceipts } from "../src/main/remote/receipts";
 import { SessionStore, writePrivateJSON } from "../src/main/remote/session-store";
+import {
+  shouldUpdateHost,
+  selectHostActivation,
+  acceptHostActivation,
+  startHostService,
+} from "../src/main/remote/host-service";
+
+import { PrivateScratch } from "../src/main/platform/private-scratch";
+import { loadHostEnvironment } from "../src/main/remote/host-environment";
+
+declare const TIDY_HOST_SOURCE_TIMESTAMP: number;
+const sourceTimestamp =
+  typeof TIDY_HOST_SOURCE_TIMESTAMP === "number" ? TIDY_HOST_SOURCE_TIMESTAMP : 0;
 
 const directory = process.env.TIDY_HOST_STATE ?? join(homedir(), ".local", "state", "tidy-host");
 const runtimePath = join(directory, "runtime.json");
@@ -41,11 +55,23 @@ try {
     try {
       const token = await sessions.issue(clientId);
       let runtime = await ready();
-      if (runtime && runtime.buildId !== buildId && runtime.managed) {
+      if (
+        runtime &&
+        shouldUpdateHost({
+          current: runtime,
+          candidate: { buildId, sourceTimestamp },
+        }) &&
+        runtime.managed
+      ) {
         const previous = runtime;
         const response = await fetch(`http://127.0.0.1:${runtime.port}/maintenance/restart`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "X-Tidy-Client": clientId,
+            "X-Tidy-Build": buildId,
+            "X-Tidy-Source-Timestamp": String(sourceTimestamp),
+          },
           signal: AbortSignal.timeout(5000),
           redirect: "error",
         });
@@ -65,24 +91,39 @@ try {
           throw new Error("The existing backend needs a manual restart before updating.");
       }
       if (!runtime) {
-        const log = await open(join(directory, "server.log"), "a", 0o600);
-        try {
-          const child = spawn(
-            process.execPath,
-            [...process.execArgv, import.meta.filename, "serve", "--managed"],
-            {
-              detached: true,
-              stdio: ["ignore", log.fd, log.fd],
-              env: process.env,
-            },
-          );
-          await new Promise<void>((resolve, reject) => {
-            child.once("spawn", resolve);
-            child.once("error", reject);
-          });
-          child.unref();
-        } finally {
-          await log.close();
+        const activation = await selectHostActivation(directory, {
+          executable: process.execPath,
+          arguments: [...process.execArgv, import.meta.filename],
+          buildId,
+          sourceTimestamp,
+        });
+        const supervisor = await startHostService({
+          directory,
+          executable: activation.executable,
+          arguments: activation.arguments,
+          environment: process.env,
+          path: process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin",
+        });
+        if (!supervisor) {
+          const log = await open(join(directory, "server.log"), "a", 0o600);
+          try {
+            const child = spawn(
+              activation.executable,
+              [...activation.arguments, "serve", "--managed"],
+              {
+                detached: true,
+                stdio: ["ignore", log.fd, log.fd],
+                env: { ...process.env, TIDY_HOST_SUPERVISOR: "detached" },
+              },
+            );
+            await new Promise<void>((resolve, reject) => {
+              child.once("spawn", resolve);
+              child.once("error", reject);
+            });
+            child.unref();
+          } finally {
+            await log.close();
+          }
         }
         for (let attempt = 0; attempt < 300; attempt++) {
           runtime = await ready();
@@ -93,13 +134,31 @@ try {
           throw new Error(
             "The backend did not become ready. Inspect ~/.local/state/tidy-host/server.log.",
           );
+        if (runtime.buildId === activation.buildId)
+          await acceptHostActivation(directory, activation);
       }
-      process.stdout.write(JSON.stringify({ ...runtime, clientId, token }) + "\n");
+      process.stdout.write(
+        JSON.stringify({
+          ...runtime,
+          clientId,
+          token,
+          updatePending:
+            runtime.managed &&
+            shouldUpdateHost({ current: runtime, candidate: { buildId, sourceTimestamp } }),
+        }) + "\n",
+      );
     } finally {
       release();
     }
   } else if (command === "serve") {
     const unlock = lockHost(join(directory, "host.lock"));
+    if (["systemd", "launchd"].includes(process.env.TIDY_HOST_SUPERVISOR ?? ""))
+      await loadHostEnvironment(directory);
+    const scratch = new PrivateScratch();
+    const childTemporaryDirectory = await scratch.create("child-");
+    process.env.TMPDIR = childTemporaryDirectory;
+    process.env.TMP = childTemporaryDirectory;
+    process.env.TEMP = childTemporaryDirectory;
     const identityPath = join(directory, "identity");
     try {
       await writeFile(identityPath, randomUUID(), { flag: "wx", mode: 0o600 });
@@ -114,7 +173,12 @@ try {
     const store = new ProjectStore(join(directory, "workspace"), "/__tidy/assets", locks.claim);
     const service = new WorkspaceService(store);
     service.superviseHarnessParent = true;
-    const identity = { hostId, instanceId: randomUUID(), buildId };
+    const identity = {
+      hostId,
+      instanceId: randomUUID(),
+      buildId,
+      sourceTimestamp,
+    };
     const host = createRemoteHost({
       service,
       identity,
@@ -125,12 +189,18 @@ try {
     await store.initialize();
     await store.recover();
     const port = await host.listen();
+    const supervisor = z
+      .enum(["systemd", "launchd", "detached"])
+      .catch("detached")
+      .parse(process.env.TIDY_HOST_SUPERVISOR);
     await writePrivateJSON(runtimePath, {
       ...identity,
       protocol: 3,
       port,
       pid: process.pid,
       managed: process.argv.includes("--managed"),
+      supervisor,
+      persistenceWarning: await hostPersistenceWarning(supervisor),
     });
     process.stderr.write(JSON.stringify({ event: "host.ready", port, hostId }) + "\n");
     let closing = false;
@@ -140,6 +210,7 @@ try {
       void host
         .close()
         .then(() => service.close())
+        .then(() => scratch.close())
         .then(() => rm(runtimePath, { force: true }))
         .then(() => {
           locks.close();
@@ -161,7 +232,7 @@ try {
   } else if (command === "revoke") {
     await sessions.revoke(z.string().uuid().parse(process.argv[3]));
   } else if (command === "version") {
-    process.stdout.write(JSON.stringify({ protocol: 3, buildId }) + "\n");
+    process.stdout.write(JSON.stringify({ protocol: 3, buildId, sourceTimestamp }) + "\n");
   } else throw new Error("Usage: tidy-host serve | ensure CLIENT_ID | revoke CLIENT_ID | version");
 } catch (error) {
   process.stderr.write(
