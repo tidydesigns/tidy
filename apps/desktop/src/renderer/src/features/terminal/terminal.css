@@ -1,0 +1,167 @@
+.workspace {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.terminal-launcher-home {
+  flex-shrink: 0;
+}
+.terminal-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  color: var(--color-muted-ink);
+  border: 1px solid transparent;
+  border-radius: 5px;
+}
+.terminal-icon-button:is(:hover, :focus-visible) {
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+}
+.terminal-launcher[aria-expanded="true"] {
+  color: var(--color-ink);
+  background: var(--color-surface);
+}
+.terminal-dock {
+  grid-row: 2;
+  min-width: 0;
+  min-height: 0;
+  border-top: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+.terminal-dock[hidden],
+.terminal-session[hidden] {
+  display: none;
+}
+.workspace-terminal-fullscreen > :not(.terminal-dock) {
+  visibility: hidden;
+}
+.terminal-dock-fullscreen {
+  grid-area: 1 / 1 / -1 / -1;
+  height: 100%;
+  z-index: 3;
+  border-top: 0;
+}
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 36px;
+  flex-shrink: 0;
+  min-width: 0;
+  padding: 0 6px;
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-border);
+}
+.terminal-toolbar-spacer {
+  flex: 1;
+}
+.terminal-tabs {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.terminal-tab-item {
+  display: flex;
+  align-items: center;
+  min-width: 96px;
+  max-width: 180px;
+  flex: 0 1 auto;
+  border-bottom: 2px solid transparent;
+}
+.terminal-tab-selected {
+  background: var(--color-surface);
+  border-bottom-color: var(--color-muted-ink);
+}
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 100%;
+  flex: 1;
+  min-width: 0;
+  padding: 0 6px 0 8px;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+}
+.terminal-tab svg {
+  flex-shrink: 0;
+}
+.terminal-tab span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.terminal-tab:is(:hover, [aria-selected="true"]) {
+  color: var(--color-ink);
+}
+.terminal-tab-close {
+  width: 22px;
+  height: 24px;
+  margin-right: 3px;
+  opacity: 0;
+}
+.terminal-tab-item:is(:hover, :focus-within, .terminal-tab-selected) .terminal-tab-close {
+  opacity: 1;
+}
+.terminal-sessions,
+.terminal-session {
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #18181b;
+  color: #e4e4e7;
+}
+.terminal-surface {
+  /* Ghostty draws the terminal cursor on canvas; suppress Chromium's editable caret. */
+  caret-color: transparent;
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  padding: 6px 8px;
+  outline: none;
+}
+.terminal-status {
+  position: absolute;
+  bottom: 10px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  font-size: 12px;
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  border-radius: 5px;
+}
+.terminal-status .quiet-button {
+  color: #fafafa;
+  margin-left: auto;
+}
+.terminal-resize {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  z-index: 2;
+  cursor: ns-resize;
+  touch-action: none;
+}
+.terminal-resize:is(:hover, :focus-visible) {
+  background: var(--color-border);
+  outline: none;
+}

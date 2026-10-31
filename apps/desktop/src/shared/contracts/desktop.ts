@@ -165,6 +165,7 @@ export type Bootstrap = {
 };
 export type DesktopEvent = z.infer<typeof desktopEventSchema>;
 export type DesktopAPI = {
+  terminal?: import("./terminal").TerminalAPI;
   browser?: import("./browser").BrowserAPI;
   projectDirectories?(path: string): Promise<import("./browser-directory").Directory>;
   projectCheckouts?(projectId?: string): Promise<import("./project-setup").ProjectCheckout[]>;

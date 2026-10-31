@@ -3,6 +3,10 @@
 Tidy is licensed under the [Apache License 2.0](LICENSE). Third-party code
 and assets retain their original licenses and copyright notices.
 
+- **ghostty-web**, **Ghostty/libghostty-vt**, and **@lydell/node-pty**: MIT.
+  Notices are retained in `licenses/bundled/ghostty-web.txt`, `Ghostty.txt` and
+  `node-pty.txt`. Native PTY packages retain their bundled licences as well.
+
 - **Paper.js** and **Zod**: MIT. Full upstream license texts are retained at
   `licenses/bundled/Paper.js.txt` and `licenses/bundled/Zod.txt`.
 - **React**, **React DOM** and **Scheduler**: MIT, copyright Meta Platforms, Inc.

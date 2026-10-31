@@ -1,4 +1,12 @@
 import { writeFile } from "node:fs/promises";
+import { terminalKeyboardFocus } from "../terminal/terminal-keyboard";
+import {
+  terminalInputSchema,
+  terminalScopeSchema,
+  type TerminalWatch,
+  type TerminalInput,
+  type TerminalOutput,
+} from "../../shared/contracts/terminal";
 import {
   browserScopeSchema,
   BROWSER_CLIPBOARD_LIMIT,
@@ -217,6 +225,83 @@ export function registerWorkspaceIPC(
     if (!client) throw new Error("This machine is not connected. Reconnect it before continuing.");
     return client;
   }
+  const terminalWatches = new Map<
+    string,
+    { watch?: TerminalWatch; pending: TerminalInput[]; cleanup(): void }
+  >();
+  ipcMain.on("tidy:terminal-focus", (event, value: unknown) => {
+    try {
+      trusted(event);
+      terminalKeyboardFocus(event.sender, z.boolean().parse(value), rendererURL);
+    } catch {}
+  });
+  ipcMain.handle("tidy:terminal-watch", async (event, raw: unknown) => {
+    trusted(event);
+    const { watchId, machineId, ...scope } = terminalScopeSchema
+      .extend({ watchId: z.uuid(), machineId: machineIdSchema.optional() })
+      .strict()
+      .parse(raw);
+    const key = `${event.sender.id}:${watchId}`;
+    if (terminalWatches.has(key) || terminalWatches.size >= 16)
+      throw new Error("Too many terminal viewers.");
+    let closed = false;
+    const navigated = (
+      details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>,
+    ) => {
+      if (details.isMainFrame && !details.isSameDocument) destroy();
+    };
+    const destroy = () => {
+      closed = true;
+      entry.watch?.close();
+      terminalWatches.delete(key);
+      event.sender.removeListener("destroyed", destroy);
+      event.sender.removeListener("did-start-navigation", navigated);
+    };
+    const entry: { watch?: TerminalWatch; pending: TerminalInput[]; cleanup(): void } = {
+      pending: [],
+      cleanup: destroy,
+    };
+    terminalWatches.set(key, entry);
+    event.sender.once("destroyed", destroy);
+    event.sender.on("did-start-navigation", navigated);
+    const send = (output: TerminalOutput) => {
+      if (
+        !closed &&
+        !event.sender.isDestroyed() &&
+        trustedRendererURL(event.sender.mainFrame.url, rendererURL)
+      )
+        event.sender.send("tidy:terminal-output", { watchId, output });
+    };
+    try {
+      const client = clientFor(event, machineId);
+      entry.watch = client
+        ? client.watchTerminal(scope, send)
+        : await service.dispatch(() => service.terminal.watch(scope, send, () => !closed));
+      if (closed) entry.watch.close();
+      else for (const input of entry.pending.splice(0)) entry.watch.input(input);
+    } catch (error) {
+      destroy();
+      throw error;
+    }
+  });
+  ipcMain.on("tidy:terminal-input", (event, raw: unknown) => {
+    try {
+      trusted(event);
+      const { watchId, input } = z
+        .object({ watchId: z.uuid(), input: terminalInputSchema })
+        .strict()
+        .parse(raw);
+      const entry = terminalWatches.get(`${event.sender.id}:${watchId}`);
+      if (entry?.watch) entry.watch.input(input);
+      else if (entry && entry.pending.length < 16) entry.pending.push(input);
+    } catch {}
+  });
+  ipcMain.on("tidy:terminal-unwatch", (event, raw: unknown) => {
+    try {
+      trusted(event);
+      terminalWatches.get(`${event.sender.id}:${z.uuid().parse(raw)}`)?.cleanup();
+    } catch {}
+  });
   ipcMain.handle("tidy:browser-download", async (event, raw: unknown) => {
     trusted(event);
     const { name, data } = z

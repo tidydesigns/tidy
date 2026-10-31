@@ -43,6 +43,36 @@ projects and harness configurations you trust.
   bounded cache, so an empty provider-history entry can remain until the provider
   removes it. Discovery never submits a prompt.
 
+## Project terminals
+
+Opening a terminal starts an unrestricted interactive shell as the current OS
+user, in the registered code project's canonical directory. The renderer supplies
+project/session IDs, sizes and terminal input only; it cannot select a shell path,
+environment, or working directory. Cloud design caches cannot acquire shells.
+The terminal environment excludes application API keys, database credentials,
+`NODE_OPTIONS` and Electron flags; users' shell startup files retain normal authority.
+
+PTYs belong to the workspace backend, with at most eight project sessions and
+sixteen viewers. Hidden panels retain sessions. Project removal, explicit session
+closure and backend shutdown terminate them. Output stays in bounded memory and is
+never stored in conversations, remote request receipts, analytics, or cloud sync.
+Sequence acknowledgements provide backpressure and reconnect replay. A slow viewer
+is detached after fifteen seconds; missing replay history resets the display and
+requests a new full-screen repaint.
+
+Native terminal IPC uses the same trusted main-frame check as workspace requests;
+watch IDs are bound to their owning web contents and released on navigation or
+destruction. Remote terminal streams require single-use tickets from the existing
+authenticated host connection, reject browser origins, and revalidate the session
+on input and output. Reconnects discard unsent input instead of replaying commands.
+Active terminals prevent automatic backend replacement. Remote provisioning uses
+fixed, checksum-verified PTY release artifacts without running npm install scripts.
+
+`ghostty-web` and its WASM asset load locally on first terminal use. CSP permits
+`wasm-unsafe-eval` for WebAssembly compilation while continuing to prohibit general
+JavaScript evaluation, remote scripts, frames and new windows. Native PTY binaries
+are included in packaging and extracted from ASAR for the OS loader/spawn helper.
+
 ## Portable data and private authority
 
 Designs, folders, asset records, transcripts and tool logs live under the project's

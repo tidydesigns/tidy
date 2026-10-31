@@ -21,6 +21,7 @@ import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/de
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
 import type { BrowserOutput } from "../../shared/contracts/browser";
+import type { TerminalInput, TerminalOutput } from "../../shared/contracts/terminal";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -220,6 +221,70 @@ for (const namingSupported of [false, true]) {
     }
   });
 }
+test("terminal streams authenticate, preserve input order, avoid durable receipts, and detach on revocation", async () => {
+  const f = await fixture();
+  const sessionId = randomUUID();
+  const terminalId = randomUUID();
+  const inputs: TerminalInput[] = [];
+  let closed = false;
+  let publish: ((event: TerminalOutput) => void) | undefined;
+  let sequence = 0;
+  const watchSpy = spyOn(f.service.terminal, "watch").mockImplementation(async (scope, send) => {
+    expect(scope.projectId).toBe(f.project.id);
+    expect(scope.terminalId).toBe(terminalId);
+    publish = send;
+    send({
+      kind: "snapshot",
+      sessionId,
+      sequence,
+      data: "",
+      cols: 80,
+      rows: 24,
+      exited: false,
+      exitCode: null,
+      reset: true,
+    });
+    return {
+      input(input) {
+        inputs.push(input);
+        if (input.kind === "write")
+          send({ kind: "data", sessionId, sequence: ++sequence, data: input.data });
+      },
+      close() {
+        closed = true;
+      },
+    };
+  });
+  cleanups.push(() => watchSpy.mockRestore());
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const events: TerminalOutput[] = [];
+  const watch = client.watchTerminal(
+    { projectId: f.project.id, terminalId, cols: 80, rows: 24 },
+    (event) => {
+      events.push(event);
+      if (event.kind === "snapshot" || event.kind === "data")
+        watch.input({ kind: "ack", sessionId, sequence: event.sequence });
+    },
+  );
+  cleanups.push(() => watch.close());
+  await until(() => events.some((event) => event.kind === "snapshot"));
+  watch.input({ kind: "write", sessionId, data: "terminal-fixture-command" });
+  watch.input({ kind: "write", sessionId, data: "\r" });
+  await until(() => events.filter((event) => event.kind === "data").length === 2);
+  expect(inputs.filter((input) => input.kind === "write").map((input) => input.data)).toEqual([
+    "terminal-fixture-command",
+    "\r",
+  ]);
+  expect(await readdir(join(f.root, "receipts"))).toEqual([]);
+  const validate = spyOn(f.sessions, "validate").mockResolvedValue(false);
+  cleanups.push(() => validate.mockRestore());
+  publish?.({ kind: "data", sessionId, sequence: ++sequence, data: "revoked-output" });
+  await until(() => closed);
+  expect(events.some((event) => event.kind === "data" && event.data === "revoked-output")).toBe(
+    false,
+  );
+});
 
 test("authenticated WebSocket serves validated requests and remote directory selection", async () => {
   const f = await fixture();

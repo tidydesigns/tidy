@@ -5,6 +5,8 @@ import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { dirname } from "node:path";
 import manifest from "../package.json";
 
 const appDirectory = fileURLToPath(new URL("..", import.meta.url));
@@ -19,6 +21,18 @@ export async function packageDesktop() {
       await cp(join(appDirectory, "out", directory), join(stagingDirectory, "out", directory), {
         recursive: true,
       });
+    const require = createRequire(import.meta.url);
+    const pty = require.resolve("@lydell/node-pty/package.json");
+    const platformPackage = `@lydell/node-pty-${process.platform}-${process.arch}`;
+    for (const [name, source] of [
+      ["@lydell/node-pty", pty],
+      [platformPackage, createRequire(pty).resolve(`${platformPackage}/package.json`)],
+    ]) {
+      await cp(dirname(source!), join(stagingDirectory, "node_modules", name!), {
+        recursive: true,
+        dereference: true,
+      });
+    }
     // macOS and Windows use the icon embedded in the native app/executable.
     if (process.platform === "linux")
       await cp(join(appDirectory, "resources/icon.png"), join(stagingDirectory, "icon.png"));
@@ -70,7 +84,7 @@ export async function packageDesktop() {
       buildVersion: manifest.desktopBuildNumber,
       electronVersion: manifest.devDependencies.electron,
       out: join(appDirectory, "release"),
-      asar: true,
+      asar: { unpackDir: "node_modules/@lydell/node-pty-*" },
       overwrite: true,
       prune: false,
     });

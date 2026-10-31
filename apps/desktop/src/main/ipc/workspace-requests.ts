@@ -8,6 +8,7 @@ import {
 } from "../../shared/contracts/browser";
 import { PullRequestStates } from "../workspace/pull-request-states";
 import { DraftImports } from "../workspace/draft-imports";
+import { terminalSessionSchema } from "../../shared/contracts/terminal";
 import { draftImportSchema } from "../../shared/contracts/draft-import";
 import { harnessIdSchema } from "../../shared/contracts/desktop";
 import {
@@ -77,6 +78,9 @@ export function createWorkspaceRequests<Context>(
     });
   }
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
+  handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>
+    service.terminal.end(projectId, sessionId, terminalId),
+  );
   handle("browser-discard-draft", browserDiscardDraftSchema, (input) =>
     service.discardBrowserDraft(input),
   );

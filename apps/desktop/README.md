@@ -53,6 +53,54 @@ bun run --cwd apps/desktop test:browser
 Set `TIDY_BROWSER_EXECUTABLE=/path/to/chromium` to skip managed installation.
 The regular Bun suite skips the Node browser integration cases.
 
+## Terminal
+
+Use the terminal icon beside the project picker, or **Ctrl+`**, to open a shell
+in that project's directory. Hiding it removes the whole panel and retains its
+shells and screens. The fullscreen button fills the workspace in one click;
+press it again to restore the panel. Drag the top divider or focus it and use the
+arrow keys to resize the panel.
+
+Use **+** to create independent tabs. Each tab's **×** closes its shell; the
+panel's **×** hides all tabs. Up to eight tabs per machine can remain open across
+projects. An exited shell can be replaced with **New shell**.
+
+| Action                   | macOS                     | Windows/Linux             |
+| ------------------------ | ------------------------- | ------------------------- |
+| Show/hide terminal       | Ctrl+`                    | Ctrl+`                    |
+| New tab from anywhere    | Ctrl+Shift+`              | Ctrl+Shift+`              |
+| New tab while focused    | ⌘T                        | Ctrl+T                    |
+| Close focused tab        | ⌘W                        | Ctrl+W                    |
+| Zoom in/out              | ⌘+ / ⌘−                   | Ctrl+Plus / Ctrl+Minus    |
+| Reset terminal font size | ⌘0                        | Ctrl+0                    |
+| Fullscreen/restore       | ⌘Enter                    | Ctrl+Enter                |
+| Next/previous tab        | Ctrl+Tab / Ctrl+Shift+Tab | Ctrl+Tab / Ctrl+Shift+Tab |
+| Select tab 1–8           | ⌘1–8                      | Ctrl+1–8                  |
+
+Terminal zoom changes the font and terminal dimensions without scaling the surrounding UI.
+Its size is retained across tabs and renderer reloads for the current machine.
+
+Tab headers also support Left/Right, Home and End. Shell keys such as Ctrl+C,
+Ctrl+D and Escape continue to reach the terminal. Native window shortcuts retain
+their usual meaning outside the terminal.
+
+The terminal uses `ghostty-web` with a native PTY and advertises 24-bit colour.
+Installed tools such as `nvim` run with the user's shell configuration. Nerd Font
+icons require an installed font in the terminal's fallback list. Cloud threads
+use their chosen local execution project; design-only workspaces have no shell.
+Remote terminals run on the selected machine through the existing authenticated
+connection. Older hosts request an update instead of opening a local shell.
+
+Terminal output stays in memory, with bounded replay and scrollback; it is not
+synced or added to transcripts. Hiding a terminal keeps it running. Ending its
+session, removing its project, or shutting down its owning backend terminates it.
+Sessions do not survive a backend restart.
+
+`bun run --cwd apps/desktop test:terminal` checks the actual sandboxed Electron
+renderer, project shell, true-colour pixels, input and session cleanup. Set
+`TIDY_TEST_NVIM=1` to include Neovim full-screen, split, resize and return-to-shell
+checks when `nvim` is installed. These checks use a synthetic project and home.
+
 ## Optional cloud sync
 
 Open the **Settings** gear at the bottom of the sidebar, then choose **Sign in**
