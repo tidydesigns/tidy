@@ -487,6 +487,7 @@ export class WorkspaceService {
     preferences: ThreadNaming,
     automatic = false,
   ) {
+    if (this.closing) throw new Error("Tidy is closing.");
     const naming = threadNamingSchema.parse(preferences);
     const controller = new AbortController();
     const signal = controller.signal;

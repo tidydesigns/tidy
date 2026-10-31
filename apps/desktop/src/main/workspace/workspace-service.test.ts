@@ -2209,3 +2209,25 @@ test("quit bounds the wait for a naming provider that ignores cancellation", asy
     gate.resolve("A late title");
   }
 }, 2000);
+
+test("naming requested after shutdown never starts an access check", async () => {
+  const f = await fixture();
+  const thread = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    prompt: "Improve navigation",
+    designIds: [],
+  });
+  await f.service.close();
+  const access = spyOn(f.service, "assertProjectAccess").mockImplementation(
+    () => new Promise(() => {}),
+  );
+  try {
+    await expect(
+      f.service.regenerateThreadTitle(f.project.id, thread.id, namingPreferences),
+    ).rejects.toThrow("closing");
+    expect(access).not.toHaveBeenCalled();
+  } finally {
+    access.mockRestore();
+  }
+}, 1000);
