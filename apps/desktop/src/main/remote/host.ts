@@ -19,7 +19,13 @@ import { SessionStore } from "./session-store";
 
 export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
-const hostCapabilities = ["browser-v2", "browser-draft-discard", "thread-naming", "terminal-v1", "terminal-tabs-v1"];
+const hostCapabilities = [
+  "browser-v2",
+  "browser-draft-discard",
+  "thread-naming",
+  "terminal-v1",
+  "terminal-tabs-v1",
+];
 export function createRemoteHost({
   service,
   identity,
