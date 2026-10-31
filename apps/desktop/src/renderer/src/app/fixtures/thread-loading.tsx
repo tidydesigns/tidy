@@ -526,6 +526,84 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 
   await run(
+    "remote thread images preview through their host without reopening files",
+    async (root) => {
+      const visibility = videoVisibilityFixture();
+      try {
+        const png =
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jSkcAAAAASUVORK5CYII=";
+        const source = `data:image/png;base64,${png}`;
+        const thread = { ...makeThread({ count: 0 }), status: "completed" as const };
+        thread.messages = [
+          {
+            id: crypto.randomUUID(),
+            role: "assistant",
+            text: "![Remote screenshot](/tmp/remote-screen.png)",
+          },
+        ];
+        let reads = 0;
+        let fileOpens = 0;
+        const api: DesktopAPI = {
+          ...nativeAPI,
+          readChatImage: async (project, id, href) => {
+            check(
+              project === thread.projectId && id === thread.id,
+              "Image read used the wrong thread",
+            );
+            check(href === "/tmp/remote-screen.png", "Image read lost its host path");
+            reads++;
+            return { name: "remote-screen.png", dataUrl: source };
+          },
+          openChatLink: async () => {
+            fileOpens++;
+          },
+        };
+        const render = (active: boolean) =>
+          flushSync(() =>
+            root.render(
+              <StrictMode>
+                <Conversation thread={thread} identity={thread.id} api={api} active={active} />
+              </StrictMode>,
+            ),
+          );
+        render(false);
+        await settle();
+        check(reads === 0, "Inactive thread loaded its image");
+        render(true);
+        await until(
+          () => Boolean(host.querySelector('[aria-label="Preview Remote screenshot"]')),
+          "Remote thumbnail",
+        );
+        const thumbnail = required(
+          host.querySelector<HTMLButtonElement>('[aria-label="Preview Remote screenshot"]'),
+          "Remote thumbnail",
+        );
+        flushSync(() => {
+          thumbnail.focus();
+          thumbnail.click();
+        });
+        const preview = required(
+          document.querySelector<HTMLDialogElement>(
+            'dialog[open][aria-label="Image preview: Remote screenshot"]',
+          ),
+          "Remote image preview",
+        );
+        check(preview.matches(":modal"), "Remote preview did not open as a modal");
+        check(preview.querySelector("img")?.src === source, "Remote preview used the wrong source");
+        check(
+          Number(reads) === 1 && fileOpens === 0,
+          "Opening the preview fetched or reopened the image",
+        );
+        preview.requestClose();
+        await until(() => !preview.isConnected, "Close remote preview");
+        check(document.activeElement === thumbnail, "Remote preview lost thumbnail focus");
+      } finally {
+        visibility.restore();
+      }
+    },
+  );
+
+  await run(
     "thread videos render inline, defer inactive reads and isolate late responses",
     async (root) => {
       const visibility = videoVisibilityFixture();
@@ -3044,8 +3122,8 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         const start = required(host.querySelector<HTMLButtonElement>(".composer-submit"), "Start");
         check(start.disabled, "Sending was enabled before images were stored");
         const expand = required(
-          host.querySelector<HTMLButtonElement>('.composer-body [aria-label="Expand image.png"]'),
-          "Expand pasted image",
+          host.querySelector<HTMLButtonElement>('.composer-body [aria-label="Preview image.png"]'),
+          "Preview pasted image",
         );
         flushSync(() => {
           expand.focus();
@@ -3053,9 +3131,16 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         });
         const preview = required(document.querySelector("dialog[open]"), "Pasted image preview");
         check(preview.matches(":modal"), "Image preview did not open as a modal");
+        const temporarySource = required(expand.querySelector("img"), "Temporary thumbnail").src;
+        check(temporarySource.startsWith("blob:"), "Upload did not start with a temporary source");
         gate.resolve();
         await until(() => uploads.length === 2 && !start.disabled, "Both images stored");
         check(preview.isConnected && preview.matches(":modal"), "Upload closed the image preview");
+        check(expand.isConnected, "Upload replaced the thumbnail button");
+        check(
+          expand.querySelector("img")?.src === `data:image/png;base64,${png}`,
+          "Thumbnail retained the temporary source",
+        );
         check(
           preview.querySelector("img")?.src === `data:image/png;base64,${png}`,
           "Image preview retained the temporary source",
@@ -3094,18 +3179,25 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           !host.querySelector(".transcript")?.textContent?.includes("[[attachment:"),
           "Transcript exposed an unresolved attachment reference",
         );
-        flushSync(() =>
-          required(
-            host.querySelector<HTMLButtonElement>('.transcript [aria-label="Expand image.png"]'),
-            "Expand sent image",
-          ).click(),
+        const sentThumbnail = required(
+          host.querySelector<HTMLButtonElement>('.transcript [aria-label="Preview image.png"]'),
+          "Preview sent image",
         );
+        flushSync(() => {
+          sentThumbnail.focus();
+          sentThumbnail.click();
+        });
         const sentPreview = required(
           document.querySelector<HTMLDialogElement>("dialog[open]"),
           "Sent image preview",
         );
+        check(
+          sentPreview.querySelector("img")?.src === `data:image/png;base64,${png}`,
+          "Sent image preview used the wrong source",
+        );
         sentPreview.requestClose();
         await until(() => !sentPreview.isConnected, "Dismiss sent image preview");
+        check(document.activeElement === sentThumbnail, "Sent preview lost thumbnail focus");
         editor().focus();
         key("ArrowUp");
         const reply = () => required(current()[`${project.id}:${started!.id}`], "Reply draft");

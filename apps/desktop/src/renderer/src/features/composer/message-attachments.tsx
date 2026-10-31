@@ -33,7 +33,7 @@ export function AttachmentList({
           title={file.name}
         >
           {file.previewUrl ? (
-            <ImagePreview key={file.previewUrl} src={file.previewUrl} name={file.name} compact />
+            <ImagePreview src={file.previewUrl} name={file.name} compact />
           ) : (
             <svg
               className="shrink-0 text-muted-ink"

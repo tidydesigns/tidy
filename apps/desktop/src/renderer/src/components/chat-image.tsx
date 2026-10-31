@@ -15,9 +15,9 @@ function ImageViewer({ src, name, onClose }: { src: string; name: string; onClos
       ref={dialog}
       padded={false}
       size="wide"
-      aria-label={name}
+      aria-label={`Image preview: ${name}`}
       onClose={onClose}
-      className="image-viewer flex h-[calc(100dvh-2rem)] max-h-none max-w-none flex-col"
+      className="image-viewer flex h-[calc(100dvh-2rem)] max-h-none max-w-none flex-col backdrop:bg-black/80!"
     >
       <div className="flex shrink-0 items-center gap-3 border-b border-border px-4 py-3">
         <span className="min-w-0 flex-1 truncate text-sm">{name}</span>
@@ -65,13 +65,15 @@ export function ImagePreview({
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failedSource, setFailedSource] = useState<string | null>(null);
+  const failed = failedSource === src;
   return (
     <>
       <Button
         ref={trigger}
         type="button"
         aria-label={`Preview ${name}`}
+        aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         disabled={failed}
         className={`chat-image-preview inline-flex max-w-full cursor-zoom-in flex-col overflow-hidden rounded-lg border border-border bg-panel align-top text-left hover:border-muted-ink focus-visible:outline-2 focus-visible:outline-offset-2 ${compact ? "size-18" : "my-2 w-80"}`}
@@ -85,7 +87,7 @@ export function ImagePreview({
             loading="lazy"
             decoding="async"
             onError={() => {
-              setFailed(true);
+              setFailedSource(src);
               onError?.();
             }}
             className={
