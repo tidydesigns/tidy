@@ -36,6 +36,7 @@ export function scratchStorageError(error: unknown, directory: string): Error {
 /** Private scratch files stay on the host's user disk, independent of the shared /tmp quota. */
 export class PrivateScratch {
   private pending?: Promise<string>;
+  private maintenance?: Promise<void>;
   private closing = false;
 
   constructor(private readonly root = scratchRoot()) {}
@@ -56,8 +57,9 @@ export class PrivateScratch {
         throw new Error(`Tidy private storage belongs to another user: ${directory}`);
       await chmod(directory, 0o700);
     }
-    await this.removeStale(directory);
-    return mkdtemp(join(directory, `process-${process.pid}-`));
+    const created = await mkdtemp(join(directory, `process-${process.pid}-`));
+    this.maintenance = this.removeStale(directory).catch(() => {});
+    return created;
   }
 
   private async removeStale(root: string) {
@@ -109,6 +111,7 @@ export class PrivateScratch {
   async close() {
     this.closing = true;
     const directory = await this.pending?.catch(() => undefined);
+    await this.maintenance;
     if (directory) await rm(directory, { recursive: true, force: true });
   }
 }

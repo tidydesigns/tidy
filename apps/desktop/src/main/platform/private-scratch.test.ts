@@ -116,6 +116,7 @@ test("stale cleanup preserves live processes, recent files and unrelated entries
     for (const directory of [stale, live, recent, unrelated]) await mkdir(directory);
     for (const directory of [stale, live, unrelated]) await utimes(directory, old, old);
     await scratch.create("agent-");
+    await scratch.close();
     await assert.rejects(stat(stale), { code: "ENOENT" });
     for (const directory of [live, recent, unrelated])
       assert.ok((await stat(directory)).isDirectory());
