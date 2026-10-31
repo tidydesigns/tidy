@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
 import { request } from "node:http";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { SshSession } from "./ssh";
 
 test("SSH reuses accepted passwords once per command, refreshes rejected secrets and bounds prompts", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ask-"));
+  const root = await mkdtemp(join(homedir(), ".tidy-ssh-ask-"));
   const answers = ["first", "second", "third", "fourth"];
   let prompts = 0;
   const session = new SshSession({
@@ -57,13 +57,9 @@ test("SSH reuses accepted passwords once per command, refreshes rejected secrets
 });
 
 test("SSH surfaces browser verification and stops automatic retries when approval fails", async () => {
-  const root = await mkdtemp(join(tmpdir(), "verify-"));
+  const root = await mkdtemp(join(homedir(), ".tidy-ssh-verify-"));
   const configPath = join(root, "config");
   const { writeFile } = await import("node:fs/promises");
-  await writeFile(
-    configPath,
-    "Host fixture\n ProxyCommand /bin/sh -c 'echo https://login.tailscale.com/a/fixture >&2; exit 1'\n",
-  );
   const urls: string[] = [];
   const session = new SshSession({
     target: "fixture",
@@ -73,6 +69,10 @@ test("SSH surfaces browser verification and stops automatic retries when approva
     verify: (url) => urls.push(url),
   });
   try {
+    await writeFile(
+      configPath,
+      "Host fixture\n ProxyCommand /bin/sh -c 'echo https://login.tailscale.com/a/fixture >&2; exit 1'\n",
+    );
     await session.initialize();
     await expect(
       session.execute({ script: "true", signal: AbortSignal.timeout(5000) }),
