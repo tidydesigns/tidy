@@ -173,6 +173,7 @@ export function MachineWorkspace() {
           browserDraftCache={browserDrafts.current}
           cloud={cloud}
           machine={{
+            api: apiFor,
             current,
             machines,
             connected,

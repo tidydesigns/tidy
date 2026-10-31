@@ -9,6 +9,14 @@ import {
 } from "../features/settings/access-preferences";
 import { effectivePermissionMode, permissionModes } from "../../../shared/contracts/permissions";
 import { AnimatedHeight } from "../components/animated-height";
+import {
+  restoreDraftAttachments,
+  assertAttachmentsReady,
+} from "../features/composer/draft-attachments";
+import {
+  importMessageAttachment,
+  type ClipboardMessage,
+} from "../features/threads/message-clipboard";
 import { promptThreadTitle } from "../../../shared/models/thread-naming";
 import { currentThreadNaming } from "../features/settings/thread-naming-preferences";
 import { useThreadNames } from "../features/threads/use-thread-names";
@@ -258,6 +266,30 @@ export function App({
   const uploads = useRef<Record<string, Promise<void>>>({});
   const draftsRef = useRef(drafts);
   draftsRef.current = drafts;
+  const attachmentImports = useRef(new Map<string, AbortController>());
+  const importsMounted = useRef(false);
+  useEffect(() => {
+    importsMounted.current = true;
+    return () => {
+      importsMounted.current = false;
+      for (const controller of attachmentImports.current.values()) controller.abort();
+      attachmentImports.current.clear();
+      if (draftCache) {
+        const cached = Object.fromEntries(
+          Object.entries(draftsRef.current).map(([key, value]) => [
+            key,
+            {
+              ...value,
+              attachments: value.attachments?.map((file) =>
+                file.importState === "pending" ? { ...file, importState: "failed" as const } : file,
+              ),
+            },
+          ]),
+        );
+        draftCache.set(machine?.current.id ?? "local", cached);
+      }
+    };
+  }, [draftCache, machine?.current.id]);
   const canvasDockHome = useRef<HTMLSpanElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const focusComposerAfterSelection = useRef(false);
@@ -565,6 +597,7 @@ export function App({
     executionReady &&
     !opening &&
     !uploading[draftKey] &&
+    !draft.attachments?.some((file) => file.importState) &&
     !busy &&
     !switchingBranch &&
     !thread?.doneAt &&
@@ -1235,6 +1268,86 @@ export function App({
     return pending.map(({ attachment }) => attachment);
   }
 
+  function pasteMessage(message: ClipboardMessage): AttachedFile[] {
+    if (!api || !project || thread?.doneAt || busy) return [];
+    const key = draftKey;
+    const projectId = project.id;
+    const current = draftsRef.current[key] ?? draft;
+    const attached = message.attachments.map((file): AttachedFile => ({
+      ...file,
+      id: crypto.randomUUID(),
+      importState: "pending",
+    }));
+    if (
+      (current.attachments?.length ?? 0) + attached.length > MAX_ATTACHMENTS ||
+      [...(current.attachments ?? []), ...attached].reduce((sum, file) => sum + file.size, 0) >
+        MAX_ATTACHMENT_TOTAL_BYTES
+    ) {
+      showToast("Keep each message under 10 attachments and 25 MB.");
+      return [];
+    }
+    const next = { ...current, attachments: [...(current.attachments ?? []), ...attached] };
+    draftsRef.current = { ...draftsRef.current, [key]: next };
+    setDrafts((state) => ({
+      ...state,
+      [key]: { ...(state[key] ?? current), attachments: next.attachments },
+    }));
+    const source =
+      message.source.machineId === (machine?.current.id ?? "local")
+        ? api
+        : machine?.machines.some((value) => value.id === message.source.machineId)
+          ? machine.api?.(message.source.machineId)
+          : undefined;
+    for (const [index, placeholder] of attached.entries()) {
+      const controller = new AbortController();
+      attachmentImports.current.set(placeholder.id, controller);
+      const update = (file: AttachedFile) => {
+        if (!importsMounted.current) return;
+        setDrafts((state) => {
+          const latest = state[key];
+          if (!latest?.attachments?.some((item) => item.id === placeholder.id)) return state;
+          const next = {
+            ...latest,
+            attachments: latest.attachments.map((item) =>
+              item.id === placeholder.id ? file : item,
+            ),
+          };
+          draftsRef.current = { ...draftsRef.current, [key]: next };
+          return { ...state, [key]: next };
+        });
+      };
+      void Promise.resolve()
+        .then(async () => {
+          if (!source)
+            throw new Error("The source machine is unavailable. Reconnect and paste again.");
+          const imported = await importMessageAttachment({
+            source,
+            target: api,
+            message,
+            file: message.attachments[index],
+            projectId,
+            signal: controller.signal,
+            isRetained: () =>
+              draftsRef.current[key]?.attachments?.some((file) => file.id === placeholder.id) ??
+              false,
+          });
+          update({ ...imported, referenceId: placeholder.id });
+        })
+        .catch((cause: unknown) => {
+          if (
+            controller.signal.aborted ||
+            !importsMounted.current ||
+            !draftsRef.current[key]?.attachments?.some((file) => file.id === placeholder.id)
+          )
+            return;
+          update({ ...placeholder, importState: "failed" });
+          showToast(`Could not load ${placeholder.name}. ${errorText(cause)}`);
+        })
+        .finally(() => attachmentImports.current.delete(placeholder.id));
+    }
+    return attached;
+  }
+
   async function send(delivery: MessageDelivery = "queue") {
     if (
       (machine && (!machine.connected || machine.switching)) ||
@@ -1248,6 +1361,7 @@ export function App({
       (selectedThreadId && !thread) ||
       (!running && sendingKeys.current.has(draftKey)) ||
       uploading[draftKey] ||
+      draft.attachments?.some((file) => file.importState) ||
       busy ||
       switchingBranch ||
       thread?.doneAt ||
@@ -2203,6 +2317,7 @@ export function App({
                       projectId={project.id}
                       selected={selectedThreadId ?? null}
                       threads={threads}
+                      machineId={machine?.current.id ?? "local"}
                       active={!settingsOpen && mode === "code"}
                       api={api!}
                     />
@@ -2260,6 +2375,12 @@ export function App({
                                 options: machine.machines,
                                 onChange: (id) => {
                                   if (!project || !executionProject) return;
+                                  try {
+                                    assertAttachmentsReady(draft.attachments ?? []);
+                                  } catch (cause) {
+                                    showToast(errorText(cause));
+                                    return;
+                                  }
                                   machine.select(id, {
                                     project: executionProject,
                                     contextProjectId: project.id,
@@ -2342,6 +2463,7 @@ export function App({
                           thread?.doneAt
                             ? undefined
                             : (id) => {
+                                attachmentImports.current.get(id)?.abort();
                                 const file = draft.attachments?.find((item) => item.id === id);
                                 updateDraft({
                                   text: file
@@ -2440,9 +2562,21 @@ export function App({
                         value={draft.text}
                         onChange={(text) => changePrompt(text)}
                         history={promptHistory}
-                        onRecall={(entry) => changePrompt(entry.text, entry.attachments ?? [])}
+                        onRecall={(entry) =>
+                          changePrompt(
+                            entry.text,
+                            restoreDraftAttachments({
+                              attachments: entry.attachments ?? [],
+                              isPending: (id) => {
+                                const controller = attachmentImports.current.get(id);
+                                return Boolean(controller && !controller.signal.aborted);
+                              },
+                            }),
+                          )
+                        }
                         files={draft.attachments ?? []}
                         onAttachFiles={attachFiles}
+                        onPasteMessage={pasteMessage}
                         placeholder={
                           thread?.doneAt
                             ? "Reopen this thread to continue…"

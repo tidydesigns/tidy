@@ -1,3 +1,4 @@
+import type { AttachedFile } from "../../../../shared/contracts/attachments";
 import {
   useEffect,
   useId,
@@ -13,7 +14,7 @@ import { codeScrollbarClassName } from "../../styles/code-ui";
 import { matchingSkills, skillQuery, type Skill } from "../../../../shared/contracts/skills";
 import type { Message } from "../../../../shared/contracts/desktop";
 
-type HistoryEntry = Pick<Message, "text" | "attachments">;
+type HistoryEntry = Pick<Message, "text"> & { attachments?: AttachedFile[] };
 
 type Props = Omit<ComponentProps<typeof PromptEditor>, "ref"> & {
   skills: Skill[];
