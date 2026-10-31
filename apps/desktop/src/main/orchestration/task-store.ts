@@ -123,6 +123,7 @@ export class TaskStore {
     }
     const worker = new Worker(taskStoreWorker, {
       eval: true,
+      execArgv: [],
       workerData: { path },
     });
     this.worker = worker;
