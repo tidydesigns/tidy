@@ -336,7 +336,7 @@ export function registerTidyTools(server: McpServer, userId: string, activity: M
       try {
         return result(await createImport(userId, organization_id, name, file_id));
       } catch (error) {
-        return failure(actionError(error, "Could not start import."));
+        return failure(actionError(error, "Could not start import.", "mcp.create_import"));
       }
     },
   );

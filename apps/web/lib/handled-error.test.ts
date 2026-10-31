@@ -64,6 +64,10 @@ test("server public responses report the original value before selecting UI copy
     try { redirect("/files"); } catch (error) { navigation = error; }
     expect(() => actionError(navigation, "Fallback")).toThrow(navigation);
     expect(captured.length).toBe(beforeNavigation);
+    const importFailure = Object.assign(new Error("private import query"), { code: "42501" });
+    expect(actionError(importFailure, "Could not start import.", "mcp.create_import")).toBe("Could not start import.");
+    expect(captured.at(-1).error).toBe(importFailure);
+    expect(captured.at(-1).details).toMatchObject({ operation: "mcp.create_import", route: "/api/mcp", method: "POST", phase: "handler" });
   `,
     ],
     {

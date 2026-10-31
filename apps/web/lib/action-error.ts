@@ -4,13 +4,17 @@ import { planLimitMessage } from "@/lib/billing/plans";
 import { PublicActionError } from "@/lib/security/public-error";
 import { OrganizationAccessError } from "@/lib/organizations/access-error";
 
-export function actionError(error: unknown, fallback: string) {
+export function actionError(
+  error: unknown,
+  fallback: string,
+  operation?: Parameters<typeof reportHandledError>[1],
+) {
   const limit = planLimitMessage(error);
   if (limit) return limit;
   if (error instanceof PublicActionError || error instanceof OrganizationAccessError) {
-    if (Object.hasOwn(error, "cause")) reportHandledError(error);
+    if (Object.hasOwn(error, "cause")) reportHandledError(error, operation);
     return error.message;
   }
-  reportHandledError(error);
+  reportHandledError(error, operation);
   return fallback;
 }

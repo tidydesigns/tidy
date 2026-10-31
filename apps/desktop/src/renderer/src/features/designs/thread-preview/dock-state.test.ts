@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { discoverCanvases, parseCanvasDock, toggleCanvas } from "./dock-state";
+import { discoverCanvases, parseCanvasDock, revealCanvas, toggleCanvas } from "./dock-state";
 
 test("introduces one floating canvas, then adds stable canvas entries without stealing focus", () => {
   const first = discoverCanvases(parseCanvasDock(null), ["first", "second"]);
@@ -71,4 +71,17 @@ test("accepts legacy widths and retains independent heights without trusting inv
   expect(parseCanvasDock(JSON.stringify(toggleCanvas(restored, "sized"))).geometry).toEqual(
     restored.geometry,
   );
+});
+
+test("consumed reveals survive thread remounts while new reveals reopen the canvas", () => {
+  const reveal = { id: "request-1", designId: "first" };
+  const first = revealCanvas(parseCanvasDock(null), reveal);
+  expect(first.openIds).toEqual(["first"]);
+  const docked = toggleCanvas(first, "first");
+  const remounted = parseCanvasDock(JSON.stringify(docked));
+  expect(revealCanvas(remounted, reveal)).toBe(remounted);
+  expect(remounted.openIds).toEqual([]);
+  expect(revealCanvas(remounted, { ...reveal, id: "request-2" }).openIds).toEqual(["first"]);
+  // An unconsumed preview on another thread's first mount still opens.
+  expect(revealCanvas(parseCanvasDock(null), reveal).openIds).toEqual(["first"]);
 });

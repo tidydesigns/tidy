@@ -17,6 +17,7 @@ import { threadDesigns } from "./discovery";
 import {
   discoverCanvases,
   parseCanvasDock,
+  revealCanvas,
   toggleCanvas,
   type CanvasGeometry,
   type ThreadCanvasDock,
@@ -188,6 +189,13 @@ export function ThreadDesignDock({
   useEffect(() => {
     if (thread.status === "running") setState((previous) => discoverCanvases(previous, candidates));
   }, [thread.status, candidates]);
+  const reveal = thread.designPreview;
+  useEffect(() => {
+    if (!reveal || state.revealedId === reveal.id || !designs.some((d) => d.id === reveal.designId))
+      return;
+    setState((previous) => revealCanvas(previous, reveal));
+    setFocusedId(reveal.designId);
+  }, [reveal, designs, state.revealedId]);
   useEffect(() => {
     try {
       localStorage.setItem(key, JSON.stringify(state));

@@ -7,7 +7,11 @@ const reported = new WeakSet<object>();
 /** Report the original caught value before selecting public response copy. */
 export function reportHandledError(
   error: unknown,
-  operation: "action.failed" | "files.manage" | "mcp.admission" = "action.failed",
+  operation:
+    | "action.failed"
+    | "files.manage"
+    | "mcp.admission"
+    | "mcp.create_import" = "action.failed",
 ) {
   unstable_rethrow(error);
   if (error && typeof error === "object") {
@@ -19,7 +23,7 @@ export function reportHandledError(
       source: "operation",
       event: "operation_failed",
       operation,
-      ...(operation === "mcp.admission"
+      ...(operation.startsWith("mcp.")
         ? { route: "/api/mcp", method: "POST", phase: "handler" }
         : { phase: "action" }),
     }).catch(() => {});

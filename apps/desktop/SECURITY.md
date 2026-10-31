@@ -31,6 +31,13 @@ projects and harness configurations you trust.
 - Permission responses refer to live native requests. Unknown, expired and repeated
   responses are rejected. Stopping, completion and shutdown invalidate pending
   requests. Unsupported interactive requests fail closed.
+- Local design actions share the private loopback agent bridge and expire with
+  their turn. Requests reject browser origins and cannot choose a project path,
+  account or organization. The main process binds them to the running thread's
+  design workspace and rechecks access and cancellation before publishing a
+  preview or returning a path. Creation request UUIDs deduplicate retries within
+  a turn. Read-only and plan modes cannot create designs or establish cloud sync;
+  reveal requests are live UI state, never portable authority restored from disk.
 - Native connections may remain alive between turns. Up to two disposable idle
   connections are retained for thirty minutes. Running turns and reported background
   work are protected from idle eviction; background connections expire after four

@@ -79,6 +79,19 @@ and attachments and starts a fresh native session in the chosen directory for th
 next message, with recent conversation supplied as context. Project skills,
 model discovery and branch controls use the selected execution directory.
 
+Agents receive a private, turn-scoped local command alongside the shared-browser
+command. `design-create` takes a name and a request UUID (reuse it on retries),
+creates one local design, attaches it to the thread, reveals its native canvas
+window and registers background sync for cloud workspaces. The result includes
+the local JSON path and the actual sync status. Agents edit that same file while
+the window updates from filesystem events; no HTML conversion or separate cloud
+copy is needed. `design-open` reveals an existing local design and connects it if
+needed; `design-state` inspects its path and sync status without opening it.
+Creating a JSON file directly does not establish a sync binding: use `design-open`
+afterward. Read-only and plan modes allow inspection but cannot create designs or
+establish sync connections. Design actions use the thread's design workspace even
+when its harness runs in a different code project.
+
 Conversations, attachments, native session authority and repository files stay local.
 Workspace threads return when the same account reopens the workspace on this machine;
 web conversations and remote execution are separate. Signing out stops workspace

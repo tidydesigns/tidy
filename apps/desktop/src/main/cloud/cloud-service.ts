@@ -99,6 +99,27 @@ export class CloudService implements CloudAPI {
         throw new Error("Open this workspace with its signed-in account before continuing.");
       await service.assertProjectAccess(projectId);
     };
+    service.coordinateDesignSync = async (projectId, designId, connect, assertActive) => {
+      await service.assertProjectAccess(projectId);
+      const workspace = this.workspaces.get(projectId);
+      if (!workspace || workspace.accountId !== this.auth.accountId)
+        throw new Error("Open this workspace with its signed-in account before syncing designs.");
+      const existing = () =>
+        this.sync.status.find((b) => b.projectId === projectId && b.designId === designId);
+      if (connect && !existing()) {
+        try {
+          await this.connectLocal(projectId, designId, workspace.organizationId, assertActive);
+        } catch (error) {
+          // Concurrent opens share the binding created by the first queued request.
+          if (!existing()) throw error;
+        }
+      }
+      await service.assertProjectAccess(projectId);
+      const binding = existing();
+      return binding
+        ? { fileId: binding.fileId, status: binding.status, message: binding.message }
+        : undefined;
+    };
     this.remote = remote ?? new HTTPCloudRemote(auth);
     this.sync = new CloudSync(
       service.store,
@@ -572,14 +593,20 @@ export class CloudService implements CloudAPI {
     this.action = work.catch(() => {});
     await work;
   }
-  async connectLocal(projectId: string, designId: string, organizationId: string) {
+  async connectLocal(
+    projectId: string,
+    designId: string,
+    organizationId: string,
+    assertActive?: () => void,
+  ) {
     this.assertWorkspaceAvailable();
     const generation = this.generation;
     const work = this.action.then(async () => {
       await this.initialize();
       if (this.closed || generation !== this.generation) throw new Error("Cloud sync is stopped.");
       await this.service.assertProjectAccess(projectId);
-      await this.sync.connectLocal(projectId, designId, organizationId);
+      assertActive?.();
+      await this.sync.connectLocal(projectId, designId, organizationId, assertActive);
       await this.rememberFile(
         organizationId,
         projectId,

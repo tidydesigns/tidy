@@ -199,7 +199,15 @@ for await (const line of createInterface({ input: process.stdin })) {
     turnId = `turn-${sequence}`;
     promptId = value.id;
     const params = object(value.params);
-    const prompt = JSON.stringify(claude ? value.message : (params.input ?? params.prompt));
+    // Fixture commands belong to the user's request, not injected tool instructions.
+    const content = claude ? object(value.message).content : (params.input ?? params.prompt);
+    const texts = (Array.isArray(content) ? content : [content]).flatMap((part) => {
+      if (typeof part === "string") return [part];
+      if (part && typeof part === "object" && "text" in part && typeof part.text === "string")
+        return [part.text];
+      return [];
+    });
+    const prompt = texts.map((text) => text.split("\n\nUser request:\n\n").at(-1)).join("\n");
     stubborn = prompt.includes("stubborn");
     if (prompt.includes("crash")) process.exit(1);
     if (acp && prompt.includes("priced")) cost(prompt.includes("follow-up") ? 0.5 : 0.25);

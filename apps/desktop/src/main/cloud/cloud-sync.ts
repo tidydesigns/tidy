@@ -823,7 +823,12 @@ export class CloudSync {
     void this.designsChanged(projectId).catch(() => {});
     return design;
   }
-  async connectLocal(projectId: string, designId: string, organizationId: string) {
+  async connectLocal(
+    projectId: string,
+    designId: string,
+    organizationId: string,
+    assertActive?: () => void,
+  ) {
     if (!this.accountId || this.stopped) throw new Error("Sign in to sync a local design.");
     if (this.bindings.size >= 1000)
       throw new Error("This computer has reached its connected-file limit.");
@@ -835,6 +840,7 @@ export class CloudSync {
       throw new Error("This design is already connected.");
     const accountId = this.accountId;
     const local = await this.store.readDesign(projectId, designId, false);
+    assertActive?.();
     const binding: Binding = {
       id: randomUUID(),
       projectId,

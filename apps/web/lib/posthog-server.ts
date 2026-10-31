@@ -44,6 +44,7 @@ const operations = new Set([
   "action.failed",
   "files.manage",
   "mcp.admission",
+  "mcp.create_import",
   "workspace.session",
   "workspace.organizations",
   "workspace.role",
@@ -147,6 +148,13 @@ function directServerErrorCategory(value: Error) {
     "23503": "database_reference_conflict",
     "40P01": "database_deadlock",
     "40001": "database_serialization_conflict",
+    "42501": "database_permission_denied",
+    "42P01": "database_missing_table",
+    "42703": "database_missing_column",
+    "42P18": "database_indeterminate_parameter",
+    "42804": "database_datatype_mismatch",
+    "25P02": "database_transaction_aborted",
+    "25006": "database_read_only",
   };
   if (typeof code === "string" && Object.hasOwn(codes, code)) return codes[code];
   if (value.name === "AbortError") return "canceled";

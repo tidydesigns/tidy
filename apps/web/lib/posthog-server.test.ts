@@ -17,6 +17,22 @@ afterEach(() => {
   }
 });
 const runtime = { serverErrorsEnabled: "1", key: "test-key", host: "https://posthog.invalid" };
+
+test.each([
+  ["42501", "database_permission_denied"],
+  ["42P01", "database_missing_table"],
+  ["42703", "database_missing_column"],
+  ["42P18", "database_indeterminate_parameter"],
+  ["42804", "database_datatype_mismatch"],
+  ["25P02", "database_transaction_aborted"],
+  ["25006", "database_read_only"],
+])("server import diagnostics classify %s without exposing database details", (code, category) => {
+  const error = Object.assign(new Error("private SQL and design content"), { code });
+  expect(serverErrorCategory(error)).toBe(category);
+  const safe = safeServerError(error, "operation_failed");
+  expect(safe.message).toBe(`operation_failed: ${category}`);
+  expect(safe.message).not.toContain("private");
+});
 function collector() {
   const bodies: string[] = [];
   const transport = spyOn(globalThis, "fetch").mockImplementation((async (
