@@ -30,15 +30,16 @@ function repositoryProbe(api: RepositoryAPI) {
   const root = createRoot(document.createElement("div"));
   const expanded = new Set<string>();
   let state: ReturnType<typeof useRepositoryFiles> | undefined;
-  function Probe({ selected }: { selected: string }) {
-    state = useRepositoryFiles({ api, projectId: "fixture", active: true, selected, expanded });
+  function Probe({ selected, active }: { selected: string; active: boolean }) {
+    state = useRepositoryFiles({ api, projectId: "fixture", active, selected, expanded });
     return null;
   }
   return {
     get current() {
       return state;
     },
-    render: (selected = "a") => act(async () => root.render(createElement(Probe, { selected }))),
+    render: (selected = "a", active = true) =>
+      act(async () => root.render(createElement(Probe, { selected, active }))),
     async close() {
       try {
         await act(async () => root.unmount());
@@ -258,6 +259,9 @@ test("scoped refreshes retain unrelated reads and caches while HEAD changes inva
     });
     expect(reads.get("src/a")).toBe(4);
     expect(probe.current?.changes?.changes[0].filtered).toBe(true);
+    await probe.render("src/a", false);
+    await probe.render("src/a");
+    expect(reads.get("src/a")).toBe(5);
   } finally {
     await probe.close();
   }
