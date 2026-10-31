@@ -8,13 +8,17 @@ import {
   reserveBrowserDraft,
   type BrowserDraftCache,
 } from "../features/browser/browser-drafts";
+import type { ComponentProps } from "react";
+import type {
+  WorkspaceSurfaces as WorkspaceSurfacesComponent,
+  SurfaceRequest,
+} from "../features/workspace/workspace-surfaces";
+import { lazyView } from "../components/lazy-view";
 import { HarnessFailureNotices } from "../features/threads/harness-failure-dialog";
 import {
   BrowserNavigationContext,
   type BrowserNavigationRequest,
 } from "../features/browser/browser-navigation";
-import { BrowserWorkspace } from "../features/browser/browser-workspace";
-import { BrowserGlyph } from "../features/browser/browser-controls";
 import {
   codeFontClassName,
   desktopNavigationClassName,
@@ -96,6 +100,14 @@ import type {
   DesktopAPI,
 } from "../../../shared/contracts/desktop";
 
+const WorkspaceSurfaces = lazyView<ComponentProps<typeof WorkspaceSurfacesComponent>>(
+  () =>
+    import("../features/workspace/workspace-surfaces").then((module) => ({
+      default: module.WorkspaceSurfaces,
+    })),
+  { label: "workspace surfaces" },
+);
+
 const modes = [
   { id: "design", label: "Design" },
   { id: "code", label: "Threads" },
@@ -126,6 +138,18 @@ export function App({
   cloud: CloudConnection;
 }) {
   const api = machine ? workspaceAPI : window.tidy;
+  const repositoryAPI = useMemo(
+    () =>
+      api?.repositoryDirectory && api.repositoryChanges && api.repositoryFile
+        ? {
+            repositoryDirectory: api.repositoryDirectory,
+            repositoryChanges: api.repositoryChanges,
+            repositoryFile: api.repositoryFile,
+            onEvent: api.onEvent,
+          }
+        : null,
+    [api],
+  );
   const cloudLibrary = useMemo(
     () => ({ state: cloud.state, account: cloud.account }),
     [cloud.state, cloud.account],
@@ -153,9 +177,21 @@ export function App({
   });
   const [cloudCanvas, setCloudCanvas] = useState(false);
   const [threadQueries, setThreadQueries] = useState<Record<string, string>>({});
-  const [browserOpen, setBrowserOpen] = useState(false);
+  const [surfaceRequest, setSurfaceRequest] = useState<SurfaceRequest & { scope: string }>();
   const [browserRequest, setBrowserRequest] = useState<BrowserNavigationRequest>();
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
+  const [repositoryOpen, setRepositoryOpen] = useSessionState(
+    "repository-panel-open",
+    z.boolean(),
+    false,
+  );
+  const [repositoryMounted, setRepositoryMounted] = useState(repositoryOpen);
+  const wasRepositoryOpen = useRef(repositoryOpen);
+  useLayoutEffect(() => {
+    if (wasRepositoryOpen.current && !repositoryOpen)
+      document.getElementById("workspace-panel-trigger")?.focus();
+    wasRepositoryOpen.current = repositoryOpen;
+  }, [repositoryOpen]);
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [opening, setOpening] = useState(false);
   const projectFocus = useRef<HTMLElement | null>(null);
@@ -304,6 +340,7 @@ export function App({
   const executionProject = executionProjectId
     ? projects.find((item) => item.id === executionProjectId)
     : project;
+  const surfaceProject = executionProject && !executionProject.cloud ? executionProject : null;
   const localBrowserDrafts = useRef<BrowserDraftCache>(new Map());
   const draftBrowserIds = browserDraftCache ?? localBrowserDrafts.current;
   const browserDraftKey = draftKeyForBrowser({
@@ -317,6 +354,11 @@ export function App({
     return { projectId: executionProject.id, threadId };
   }, [draftBrowserIds, browserDraftKey, selectedThreadId]);
   useEffect(() => {
+    setSurfaceRequest((request) =>
+      request?.scope === `${browserScope?.projectId}:${browserScope?.threadId}`
+        ? request
+        : undefined,
+    );
     setBrowserRequest((request) =>
       request &&
       (request.projectId !== browserScope?.projectId || request.threadId !== browserScope.threadId)
@@ -327,10 +369,16 @@ export function App({
   const openBrowserLink = useCallback(
     (url: string) => {
       if (!browserScope) return;
-      setBrowserOpen(true);
+      setRepositoryMounted(true);
+      setRepositoryOpen(true);
+      setSurfaceRequest({
+        id: crypto.randomUUID(),
+        surface: "browser",
+        scope: `${browserScope.projectId}:${browserScope.threadId}`,
+      });
       setBrowserRequest({ ...browserScope, id: crypto.randomUUID(), url });
     },
-    [browserScope],
+    [browserScope, setRepositoryOpen],
   );
   useEffect(() => {
     const shortcut = (event: globalThis.KeyboardEvent) => {
@@ -342,12 +390,18 @@ export function App({
         browserScope
       ) {
         event.preventDefault();
-        setBrowserOpen((open) => !open);
+        setRepositoryMounted(true);
+        setRepositoryOpen(true);
+        setSurfaceRequest({
+          id: crypto.randomUUID(),
+          surface: "browser",
+          scope: `${browserScope.projectId}:${browserScope.threadId}`,
+        });
       }
     };
     window.addEventListener("keydown", shortcut);
     return () => window.removeEventListener("keydown", shortcut);
-  }, [api, browserScope]);
+  }, [api, browserScope, setRepositoryOpen]);
 
   const {
     repository,
@@ -1970,7 +2024,10 @@ export function App({
                 role="tabpanel"
                 aria-labelledby="workspace-tab-code"
                 hidden={mode !== "code"}
-                className="project-workspace bg-panel"
+                className="project-workspace bg-panel surfaces-workspace"
+                data-panel-open={Boolean(
+                  repositoryOpen && surfaceProject && (repositoryAPI || api?.browser),
+                )}
               >
                 <div
                   className={`thread-workspace relative flex min-h-0 min-w-0 flex-col ${codeStatusClassName}`}
@@ -2013,16 +2070,20 @@ export function App({
                         </Button>
                       )}
                     </div>
-                    {!browserOpen && api?.browser && browserScope && (
+                    {surfaceProject && (repositoryAPI || api?.browser) && !repositoryOpen && (
                       <Button
-                        type="button"
-                        className="quiet-button browser-toggle-button"
-                        aria-label="Open browser"
-                        aria-expanded={browserOpen}
-                        title="Browser (⌘/Ctrl+Shift+B)"
-                        onClick={() => setBrowserOpen(true)}
+                        id="workspace-panel-trigger"
+                        className="quiet-button workspace-panel-trigger"
+                        aria-controls="workspace-side-panel"
+                        aria-expanded={false}
+                        onPointerEnter={() => void WorkspaceSurfaces.preload().catch(() => {})}
+                        onFocus={() => void WorkspaceSurfaces.preload().catch(() => {})}
+                        onClick={() => {
+                          setRepositoryMounted(true);
+                          setRepositoryOpen(true);
+                        }}
                       >
-                        <BrowserGlyph />
+                        Open a surface
                       </Button>
                     )}
                     {thread && (
@@ -2431,18 +2492,32 @@ export function App({
                     />
                   )}
                 </div>
-                {api?.browser && browserScope && (
-                  <BrowserWorkspace
-                    key={`${browserScope.projectId}:${browserScope.threadId}`}
-                    api={api.browser}
-                    requestedURL={browserRequest}
-                    scope={browserScope}
-                    open={browserOpen}
-                    active={!settingsOpen && mode === "code"}
-                    connected={!machine || machine.connected}
-                    machineLabel={machine?.current.label ?? "This machine"}
+                {surfaceProject && (repositoryAPI || api?.browser) && repositoryMounted && (
+                  <WorkspaceSurfaces
+                    key={surfaceProject.id}
+                    projectId={surfaceProject.id}
+                    repositoryAPI={repositoryAPI ?? undefined}
+                    open={repositoryOpen}
+                    active={!settingsOpen && mode === "code" && repositoryOpen}
+                    request={
+                      surfaceRequest?.scope ===
+                      `${browserScope?.projectId}:${browserScope?.threadId}`
+                        ? surfaceRequest
+                        : undefined
+                    }
+                    browser={
+                      api?.browser && browserScope
+                        ? {
+                            api: api.browser,
+                            scope: browserScope,
+                            requestedURL: browserRequest,
+                            connected: !machine || machine.connected,
+                            machineLabel: machine?.current.label ?? "This machine",
+                          }
+                        : undefined
+                    }
                     onClose={() => {
-                      setBrowserOpen(false);
+                      setRepositoryOpen(false);
                       setBrowserRequest(undefined);
                     }}
                   />

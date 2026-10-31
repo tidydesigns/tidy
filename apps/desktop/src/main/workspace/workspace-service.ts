@@ -9,6 +9,7 @@ import {
 import { promptThreadTitle, threadPromptText } from "../../shared/models/thread-naming";
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";
+import { RepositoryObservers } from "../repository/repository-files";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -128,7 +129,10 @@ export class WorkspaceService {
   restoreUpdateAccess?: (projectId: string) => Promise<void>;
 
   canDeliverEvent(event: DesktopEvent) {
-    const id = event.type === "designs" ? event.projectId : event.thread.projectId;
+    const id =
+      event.type === "designs" || event.type === "repository-change"
+        ? event.projectId
+        : event.thread.projectId;
     return this.canAccessProject(id);
   }
 
@@ -171,6 +175,9 @@ export class WorkspaceService {
   }
   analyticsScope?: () => (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
   analytics?: (event: import("@tidy/design/analytics").AnalyticsEvent) => void;
+  readonly repositoryObservers = new RepositoryObservers((projectId, path) =>
+    this.emit({ type: "repository-change", projectId, path }),
+  );
   private repositoryChanges = new Map<string, Promise<unknown>>();
   private commands = new Map<string, Promise<unknown>>();
   private automaticQueues = new Set<string>();
@@ -233,6 +240,7 @@ export class WorkspaceService {
     // Unregister synchronously before yielding, so a new run cannot start in this project.
     await this.store.remove(projectId);
     await this.browser.removeProject(projectId);
+    this.repositoryObservers.forget(projectId);
     this.sessionGeneration++;
     await this.sessions.clear({ cwd: project.path });
     for (const key of [projectId, `${projectId}:folders`]) {
@@ -1811,6 +1819,7 @@ export class WorkspaceService {
     this.closing = "quit";
     await this.settleTitleRequests(Math.min(5_000, requestDrainTimeoutMs));
     await this.drainRequests(requestDrainTimeoutMs);
+    this.repositoryObservers.close();
     for (const watcher of this.watchers.values()) watcher.close();
     for (const refresh of this.designRefreshes.values()) refresh.close();
     this.designRefreshes.clear();

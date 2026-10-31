@@ -442,5 +442,13 @@
   "webdriver-bidi-protocol": {
     "source": "LICENSE",
     "notice": "webdriver-bidi-protocol.txt"
+  },
+  "lowlight": {
+    "source": "license",
+    "notice": "lowlight.txt"
+  },
+  "highlight.js": {
+    "source": "LICENSE",
+    "notice": "highlight.js.txt"
   }
 }
