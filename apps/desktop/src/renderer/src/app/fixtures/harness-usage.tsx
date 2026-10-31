@@ -10,6 +10,13 @@ function check(value: unknown, message: string): asserts value {
 async function settle() {
   await new Promise((resolve) => setTimeout(resolve, 30));
 }
+async function until(predicate: () => boolean, message: string) {
+  const deadline = performance.now() + 2000;
+  while (!predicate()) {
+    if (performance.now() >= deadline) throw new Error(message);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 function required<T>(value: T | undefined | null, label: string): T {
   check(value, label);
   return value;
@@ -81,7 +88,10 @@ export async function runHarnessUsageTests(root: Root) {
       new PointerEvent("pointerover", { bubbles: true, pointerType: "mouse" }),
     ),
   );
-  await settle();
+  await until(
+    () => Boolean(host.querySelector('[role="tooltip"]')),
+    "Hover did not show a usage summary",
+  );
   const preview = required(host.querySelector<HTMLElement>('[role="tooltip"]'), "Usage preview");
   check(preview.matches(":popover-open"), "Hover did not show its popover");
   check(
@@ -102,14 +112,20 @@ export async function runHarnessUsageTests(root: Root) {
       }),
     ),
   );
-  await new Promise((resolve) => setTimeout(resolve, 150));
+  await until(
+    () => !host.querySelector('[role="tooltip"]'),
+    "Hover summary stayed after the pointer left",
+  );
   check(!host.querySelector('[role="tooltip"]'), "Hover summary stayed after the pointer left");
   flushSync(() => {
     trigger().blur();
     trigger().focus();
     trigger().dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
   });
-  await settle();
+  await until(
+    () => Boolean(host.querySelector('[role="tooltip"]')),
+    "Keyboard focus did not show a usage summary",
+  );
   check(host.querySelector('[role="tooltip"]'), "Keyboard focus did not show a usage summary");
   flushSync(() =>
     trigger().dispatchEvent(
