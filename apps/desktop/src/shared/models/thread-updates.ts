@@ -1,4 +1,5 @@
 import type { Thread, ThreadSummary, ProjectSnapshot, DesktopEvent } from "../contracts/desktop";
+import { threadPullRequests } from "./thread-pull-requests";
 export type ThreadPatch = Omit<Extract<DesktopEvent, { type: "thread-patch" }>, "type">;
 
 export function summarizeThread(thread: Thread): ThreadSummary {
@@ -24,6 +25,7 @@ export function summarizeThread(thread: Thread): ThreadSummary {
     actualModel: thread.actualModel,
     usage: thread.usage,
     preview,
+    pullRequests: threadPullRequests(thread),
     messageCount: thread.messages.length,
     queuedMessageCount: thread.queuedMessages?.length ?? 0,
     designIds: thread.designIds,

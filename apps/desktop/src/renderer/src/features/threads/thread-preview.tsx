@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Icon } from "@tidy/editor/components/ui/icon";
-import type { ThreadSummary } from "../../../../shared/contracts/desktop";
+import { ChatLink } from "../../components/chat-link";
+import type { DesktopAPI, ThreadSummary } from "../../../../shared/contracts/desktop";
 import type { RepositoryContext } from "../../../../shared/contracts/repository-context";
 import { ComposerIcon } from "../composer/composer-icon";
 import { ModelProviderIcon } from "../harnesses/model-provider-icon";
@@ -29,11 +30,16 @@ function Detail({
 
 export function ThreadPreview({
   thread,
+  api,
   projectName,
   repository,
   modelName,
 }: {
-  thread: Pick<ThreadSummary, "title" | "harness" | "actualModel" | "settings">;
+  thread: Pick<
+    ThreadSummary,
+    "title" | "harness" | "actualModel" | "settings" | "projectId" | "pullRequests"
+  >;
+  api?: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   projectName?: string;
   repository?: RepositoryContext;
   modelName?: string;
@@ -58,6 +64,23 @@ export function ThreadPreview({
           </Detail>
         )}
       </dl>
+      {api && thread.pullRequests && thread.pullRequests.length > 0 && (
+        <ul
+          className="thread-preview-pull-requests mt-2 grid max-h-40 gap-0.5 overflow-y-auto overscroll-contain border-t border-border pt-2"
+          aria-label="Thread pull requests"
+        >
+          {thread.pullRequests.map((url) => (
+            <li key={url}>
+              <ChatLink href={url} api={api} projectId={thread.projectId}>
+                <span className="shrink-0 tabular-nums">{`#${url.split("/").at(-1)}`}</span>
+                <span className="truncate text-secondary-ink">
+                  {url.split("/").slice(3, 5).join("/")}
+                </span>
+              </ChatLink>
+            </li>
+          ))}
+        </ul>
+      )}
     </>
   );
 }
