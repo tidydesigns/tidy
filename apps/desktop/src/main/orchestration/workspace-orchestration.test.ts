@@ -345,6 +345,55 @@ test("owned follow-ups share scheduler slots, preserve results and cancel throug
   expect((await f.service.readThread(f.project.id, parent.id)).status).toBe("running");
 });
 
+test("cancelling a queued follow-up preserves the active child and other queued work", async () => {
+  const f = await fixture();
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const initial = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "First" });
+  await until(async () => f.runs.length === 2);
+  const first = await call(tools, "thread_send", {
+    thread_id: initial.child_thread_id,
+    request_id: randomUUID(),
+    message: "Cancel this follow-up",
+  });
+  const second = await call(tools, "thread_send", {
+    thread_id: initial.child_thread_id,
+    request_id: randomUUID(),
+    message: "Keep this follow-up",
+  });
+  const cancellation = await call(tools, "task_cancel", { task_id: first.task_id });
+  expect(cancellation).toMatchObject({
+    state: "cancelled",
+    child_cancellation: { requested: false, confirmed: true },
+  });
+  expect((await f.service.tasks.store.get(String(initial.task_id)))?.state).toBe("running");
+  expect((await f.service.tasks.store.get(String(second.task_id)))?.state).toBe("queued");
+  expect((await f.service.readThread(f.project.id, String(initial.child_thread_id))).status).toBe(
+    "running",
+  );
+  expect(f.runs).toHaveLength(2);
+  f.runs[1].complete();
+  await until(async () => f.runs.length === 3);
+  expect(f.runs[2].input.prompt).toContain("Keep this follow-up");
+  const child = await f.service.readThread(f.project.id, String(initial.child_thread_id));
+  expect(child.messages.some((message) => message.id === first.task_id)).toBe(false);
+  expect(child.messages.at(-1)?.id).toBe(String(second.task_id));
+  const stopped = await call(tools, "task_cancel", { task_id: second.task_id });
+  expect(stopped.child_cancellation).toMatchObject({ requested: true });
+  await until(
+    async () => (await f.service.tasks.store.get(String(second.task_id)))?.state === "cancelled",
+  );
+  expect((await f.service.tasks.store.get(String(initial.task_id)))?.state).toBe("completed");
+  expect(f.runs).toHaveLength(3);
+});
+
 test("completed children resume as independently reported runs in the same conversation", async () => {
   const f = await fixture();
   await f.service.startThread({
@@ -821,6 +870,51 @@ test("subagents cannot send work to independent receivers or expand recipient pe
   const context = await call(childTools, "thread_read", { thread_id: f.recipient.id });
   expect(context.parent_thread_id).toBeNull();
   expect(context.accepts_work).toBe(true);
+});
+
+test("cancelling a queued follow-up leaves a manually resumed child turn running", async () => {
+  const f = await fixture();
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools!.open();
+  cleanups.push(async () => tools.close());
+  const initial = await call(tools, "task_delegate", {
+    request_id: randomUUID(),
+    prompt: "Review",
+  });
+  await until(async () => f.runs.length === 2);
+  f.runs[1].complete();
+  await until(
+    async () => (await f.service.tasks.store.get(String(initial.task_id)))?.state === "completed",
+  );
+  const messageId = randomUUID();
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: String(initial.child_thread_id),
+    messageId,
+    text: "Manual continuation",
+  });
+  const followup = await call(tools, "thread_send", {
+    thread_id: initial.child_thread_id,
+    request_id: randomUUID(),
+    message: "Scheduled follow-up",
+  });
+  const cancelled = await call(tools, "task_cancel", { task_id: followup.task_id });
+  expect(cancelled).toMatchObject({
+    state: "cancelled",
+    child_cancellation: { requested: false, confirmed: true },
+  });
+  const child = await f.service.readThread(f.project.id, String(initial.child_thread_id));
+  expect(child.status).toBe("running");
+  expect(child.activity).not.toBe("Stopping");
+  expect(child.messages.at(-1)?.id).toBe(messageId);
+  expect((await f.service.tasks.store.get(String(initial.task_id)))?.state).toBe("completed");
+  expect(f.runs).toHaveLength(3);
 });
 
 test("owned follow-ups wait for a manually resumed child before launching", async () => {

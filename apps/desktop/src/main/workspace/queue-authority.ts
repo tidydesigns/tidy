@@ -106,11 +106,10 @@ export class QueueAuthority {
         "Review this imported queued message and send it explicitly before continuing.",
       );
     this.matches(authority, message);
-    if (
-      authority.harness !== thread.harness ||
-      authority.permissionMode !==
-        effectivePermissionMode(thread.harness, thread.settings?.permissionMode)
-    )
+    const mode = effectivePermissionMode(thread.harness, thread.settings?.permissionMode);
+    const narrowed =
+      !message.executionConstraint && thread.harness === "codex" && mode === "read-only";
+    if (authority.harness !== thread.harness || (authority.permissionMode !== mode && !narrowed))
       throw new Error("This queued message requires the conversation's original permissions.");
   }
 }
