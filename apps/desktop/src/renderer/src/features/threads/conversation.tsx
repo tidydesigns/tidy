@@ -435,7 +435,10 @@ export const Conversation = memo(function Conversation({
     let remaining = 8;
     let stable = 0;
     const align = () => {
-      if (!visible.current || !element.isConnected) return;
+      if (!visible.current || !element.isConnected || following.current) {
+        jumpFrame.current = 0;
+        return;
+      }
       const before = element.scrollTop;
       scrollTo(
         index === 0
