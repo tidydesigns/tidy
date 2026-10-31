@@ -486,5 +486,13 @@
   "@lydell/node-pty": {
     "source": "LICENSE",
     "notice": "node-pty.txt"
+  },
+  "@modelcontextprotocol/server": {
+    "source": "LICENSE",
+    "notice": "MCP-server.txt"
+  },
+  "@modelcontextprotocol/core": {
+    "source": "LICENSE",
+    "notice": "MCP-core.txt"
   }
 }

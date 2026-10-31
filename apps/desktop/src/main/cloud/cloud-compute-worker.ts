@@ -1,3 +1,6 @@
+import { AgentOperationError } from "../orchestration/contracts";
+import { canvasMarkup } from "../orchestration/render-markup";
+import { prepareCanvasEdit, canvasEditSchema } from "../orchestration/canvas-service";
 import { storedThreadSchema } from "../../shared/contracts/desktop";
 import { createHash } from "node:crypto";
 import { summarizeThread } from "../../shared/models/thread-updates";
@@ -56,8 +59,28 @@ async function run(request: ComputeRequest) {
       parentPort!.postMessage({ id: request.id, value });
       return;
     }
-    if (request.kind === "encode-thread") {
-      const json = JSON.stringify(request.thread, null, 2);
+    if (request.kind === "prepare-canvas") {
+      const value = prepareCanvasEdit(
+        parseDesignDocument(request.document),
+        canvasEditSchema.shape.operations.parse(request.operations),
+      );
+      parentPort!.postMessage({ id: request.id, value });
+      return;
+    }
+    if (request.kind === "render-markup") {
+      const value = canvasMarkup(request.snapshot);
+      parentPort!.postMessage({ id: request.id, value });
+      return;
+    }
+    if (request.kind === "encode-thread" || request.kind === "encode-design") {
+      const data =
+        request.kind === "encode-thread"
+          ? request.thread
+          : {
+              ...request.design,
+              document: parseDesignDocument(request.design.document),
+            };
+      const json = JSON.stringify(data, null, 2);
       const byteLength = Buffer.byteLength(json);
       if (byteLength > 16 * 1024 * 1024)
         throw new Error("The local project file reached its size limit.");
@@ -72,13 +95,19 @@ async function run(request: ComputeRequest) {
       const thread = storedThreadSchema.parse(
         JSON.parse((await readLocalFile(request.path)).toString("utf8")),
       );
-      parentPort!.postMessage({ id: request.id, value: summarizeThread(thread) });
+      parentPort!.postMessage({
+        id: request.id,
+        value: summarizeThread(thread),
+      });
       return;
     }
     if (request.kind === "read-file") {
       const file = await designFiles.read(request.path);
       if (request.summary) {
-        parentPort!.postMessage({ id: request.id, value: summarizeDesignFile(file) });
+        parentPort!.postMessage({
+          id: request.id,
+          value: summarizeDesignFile(file),
+        });
       } else parentPort!.postMessage({ id: request.id, value: file });
       return;
     }
@@ -92,11 +121,15 @@ async function run(request: ComputeRequest) {
   } catch (error) {
     parentPort!.postMessage({
       id: request.id,
+      errorCode: error instanceof AgentOperationError ? error.code : undefined,
       error:
         (request.kind === "read-file" ||
           request.kind === "read-thread-summary" ||
           request.kind === "encode-thread" ||
-          request.kind === "sign-thread") &&
+          request.kind === "sign-thread" ||
+          request.kind === "encode-design" ||
+          request.kind === "prepare-canvas" ||
+          request.kind === "render-markup") &&
         error instanceof Error
           ? error.message.slice(0, 300)
           : "This design could not be compared for sync.",

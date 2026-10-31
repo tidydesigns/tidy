@@ -27,9 +27,11 @@ export function ThreadCard({
   projectName,
   repository,
   orderControls,
+  childApprovalCount = 0,
 }: {
   thread: ThreadSummary;
   api?: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
+  childApprovalCount?: number;
   selected: boolean;
   loaded: boolean;
   now: number;
@@ -61,7 +63,7 @@ export function ThreadCard({
   });
   const status = thread.doneAt
     ? "idle"
-    : thread.pendingApprovalCount
+    : thread.pendingApprovalCount || childApprovalCount
       ? "permission"
       : working
         ? "running"
@@ -72,7 +74,9 @@ export function ThreadCard({
             : "idle";
   const statusLabel =
     status === "permission"
-      ? "Approval"
+      ? childApprovalCount && !thread.pendingApprovalCount
+        ? "Agent approval"
+        : "Approval"
       : status === "running"
         ? "Working"
         : status === "failed"

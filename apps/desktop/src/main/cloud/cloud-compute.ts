@@ -1,3 +1,7 @@
+import { CloudComputeBusyError } from "./cloud-compute-errors";
+export { CloudComputeBusyError } from "./cloud-compute-errors";
+import { AgentOperationError } from "../orchestration/contracts";
+import type { CanvasOperations, CanvasSnapshot } from "../orchestration/canvas-service";
 import { Worker } from "node:worker_threads";
 import type { Thread, ThreadSummary } from "../../shared/contracts/desktop";
 import type { DesignDocument } from "@tidy/design/document";
@@ -13,6 +17,24 @@ export type ComputeRequest = { id: number } & (
   | { kind: "read-thread-summary"; path: string }
   | { kind: "encode-thread"; thread: Thread }
   | { kind: "sign-thread"; thread: Thread; projectPath: string; executionPath: string }
+  | {
+      kind: "encode-design";
+      design: {
+        id: string;
+        name: string;
+        folderId: string | null;
+        document: unknown;
+      };
+    }
+  | {
+      kind: "prepare-canvas";
+      document: DesignDocument;
+      operations: CanvasOperations;
+    }
+  | {
+      kind: "render-markup";
+      snapshot: Pick<CanvasSnapshot, "document" | "rootId" | "assets" | "width">;
+    }
 );
 
 /** Diffing and asset translation must not occupy Electron's main event loop,
@@ -24,6 +46,7 @@ export class CloudCompute {
     number,
     { resolve(value: unknown): void; reject(error: Error): void }
   >();
+  constructor(private maxPending = 256) {}
   private run<T>(
     input:
       | Omit<Extract<ComputeRequest, { kind: "equal" | "diff" }>, "id">
@@ -31,8 +54,12 @@ export class CloudCompute {
       | Omit<Extract<ComputeRequest, { kind: "read-file" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "read-thread-summary" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "encode-thread" }>, "id">
-      | Omit<Extract<ComputeRequest, { kind: "sign-thread" }>, "id">,
+      | Omit<Extract<ComputeRequest, { kind: "sign-thread" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "encode-design" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "prepare-canvas" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "render-markup" }>, "id">,
   ): Promise<T> {
+    if (this.pending.size >= this.maxPending) return Promise.reject(new CloudComputeBusyError());
     if (!this.worker) {
       const worker = new Worker(
         typeof TIDY_COMPUTE_WORKER_SOURCE === "string"
@@ -45,14 +72,27 @@ export class CloudCompute {
             ),
       );
       this.worker = worker;
-      worker.on("message", (message: { id: number; value?: unknown; error?: string }) => {
-        const task = this.pending.get(message.id);
-        if (!task) return;
-        this.pending.delete(message.id);
-        if (message.error) task.reject(new Error(message.error));
-        else task.resolve(message.value);
-        if (!this.pending.size) worker.unref();
-      });
+      worker.on(
+        "message",
+        (message: {
+          id: number;
+          value?: unknown;
+          error?: string;
+          errorCode?: AgentOperationError["code"];
+        }) => {
+          const task = this.pending.get(message.id);
+          if (!task) return;
+          this.pending.delete(message.id);
+          if (message.error)
+            task.reject(
+              message.errorCode
+                ? new AgentOperationError(message.errorCode, message.error)
+                : new Error(message.error),
+            );
+          else task.resolve(message.value);
+          if (!this.pending.size) worker.unref();
+        },
+      );
       const failed = () => {
         if (this.worker !== worker) return;
         this.worker = undefined;
@@ -82,13 +122,22 @@ export class CloudCompute {
     return this.run<DesignDocument>({ kind: "remap", document, aliases });
   }
   readFile(path: string, background = false) {
-    return this.run<ParsedDesignFile>({ kind: "read-file", path, summary: false, background });
+    return this.run<ParsedDesignFile>({
+      kind: "read-file",
+      path,
+      summary: false,
+      background,
+    });
   }
   prioritizeFile(path: string) {
     this.worker?.postMessage({ kind: "prioritize", path });
   }
   readSummary(path: string) {
-    return this.run<DesignFileSummary>({ kind: "read-file", path, summary: true });
+    return this.run<DesignFileSummary>({
+      kind: "read-file",
+      path,
+      summary: true,
+    });
   }
   readThreadSummary(path: string) {
     return this.run<ThreadSummary>({ kind: "read-thread-summary", path });
@@ -98,6 +147,27 @@ export class CloudCompute {
   }
   threadSignature(thread: Thread, projectPath: string, executionPath: string) {
     return this.run<string>({ kind: "sign-thread", thread, projectPath, executionPath });
+  }
+  encodeDesign(design: Extract<ComputeRequest, { kind: "encode-design" }>["design"]) {
+    return this.run<Uint8Array>({ kind: "encode-design", design });
+  }
+  prepareCanvas(document: DesignDocument, operations: CanvasOperations) {
+    return this.run<DesignDocument>({
+      kind: "prepare-canvas",
+      document,
+      operations,
+    });
+  }
+  renderMarkup({
+    document,
+    rootId,
+    assets,
+    width,
+  }: Pick<CanvasSnapshot, "document" | "rootId" | "assets" | "width">) {
+    return this.run<string>({
+      kind: "render-markup",
+      snapshot: { document, rootId, assets, width },
+    });
   }
   async close() {
     const worker = this.worker;

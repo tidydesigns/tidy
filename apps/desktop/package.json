@@ -14,7 +14,7 @@
     "package": "bun run build && bun scripts/package.ts",
     "typecheck": "tsrs --noEmit -p tsconfig.node.json && tsrs --noEmit -p tsconfig.renderer.json && tsrs --noEmit -p tsconfig.test.json",
     "lint": "eslint .",
-    "test": "bun test src",
+    "test": "bun test src scripts/build-worker.test.ts",
     "test:threads": "bun run build && bun scripts/thread-loading-smoke.ts",
     "test:canvas": "bun run build:demo && bun scripts/canvas-transition-smoke.mjs",
     "test:security": "env -u ELECTRON_RUN_AS_NODE electron scripts/security-smoke.mjs && env -u ELECTRON_RUN_AS_NODE electron scripts/update-lifecycle-smoke.mjs",
@@ -31,6 +31,7 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.1.0",
+    "@modelcontextprotocol/server": "2.3.1",
     "@puppeteer/browsers": "3.2.6",
     "@tidy/design": "workspace:*",
     "@tidy/design-renderer": "workspace:*",

@@ -5,6 +5,7 @@ import { threadCompletionSchema } from "../../shared/contracts/thread-completion
 import { readHarnessUsage } from "../harnesses/harness-usage";
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
 import { threadNamingSchema, threadTitleSchema } from "../../shared/contracts/thread-naming";
+import { threadTasksRequestSchema } from "../../shared/contracts/thread-tasks";
 import {
   browserScopeSchema,
   browserDiscardDraftSchema,
@@ -87,6 +88,12 @@ export function createWorkspaceRequests<Context>(
       return result;
     });
   }
+  handle(
+    "set-thread-work-permission",
+    z.object({ projectId: uuid, threadId: uuid, enabled: z.boolean() }).strict(),
+    (input) => service.setThreadWorkPermission(input.projectId, input.threadId, input.enabled),
+  );
+  handle("thread-tasks", threadTasksRequestSchema, (input) => service.readThreadTasks(input));
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
   handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>
     service.terminal.end(projectId, sessionId, terminalId),

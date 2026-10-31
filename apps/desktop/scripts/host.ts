@@ -187,6 +187,7 @@ try {
     });
     await store.initialize();
     await store.recover();
+    await service.initializeOrchestration();
     const port = await host.listen();
     let closing = false;
     const close = () => {

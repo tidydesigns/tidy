@@ -89,16 +89,17 @@ export const ThreadSidebar = memo(function ThreadSidebar({
   draft?: { text: string; selected: boolean; onSelect(): void };
   complete?: boolean;
 }) {
+  const roots = useMemo(() => threads.filter((thread) => !thread.parentThreadId), [threads]);
   const [order, setOrder] = useState(() => readOrder(projectId));
   const orderedIds = useMemo(() => {
     const known = new Set(order);
-    const incoming = threads.filter((item) => !known.has(item.id)).map((item) => item.id);
+    const incoming = roots.filter((item) => !known.has(item.id)).map((item) => item.id);
     return [...incoming, ...order];
-  }, [threads, order]);
+  }, [roots, order]);
   const ordered = useMemo(() => {
     const ranks = new Map(orderedIds.map((id, index) => [id, index]));
-    return [...threads].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
-  }, [threads, orderedIds]);
+    return [...roots].sort((a, b) => (ranks.get(a.id) ?? 0) - (ranks.get(b.id) ?? 0));
+  }, [roots, orderedIds]);
   const drag = useThreadDrag({
     ids: complete ? ordered.map((item) => item.id) : orderedIds,
     setOrder,
@@ -124,7 +125,7 @@ export const ThreadSidebar = memo(function ThreadSidebar({
     draft?.text.trim() && draft.text.toLocaleLowerCase().includes(query),
   );
   const active = ordered.filter((item) => !item.doneAt && matches(item));
-  const done = threads
+  const done = roots
     .filter((item) => item.doneAt && matches(item))
     .sort((a, b) => (b.doneAt ?? "").localeCompare(a.doneAt ?? ""));
   return (

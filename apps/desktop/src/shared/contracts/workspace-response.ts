@@ -3,6 +3,7 @@ import { harnessUsageSchema } from "./harness-usage";
 import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
 import { chatImageSchema } from "./chat-images";
+import { threadTasksSchema } from "./thread-tasks";
 import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
 import {
@@ -87,6 +88,8 @@ export const workspaceResponseSchemas = {
   "rename-thread": liveThreadSchema,
   "regenerate-thread-title": liveThreadSchema,
   "read-thread": liveThreadSchema,
+  "set-thread-work-permission": liveThreadSchema,
+  "thread-tasks": threadTasksSchema,
   "warm-thread": z.void(),
   "start-thread": liveThreadSchema,
   "send-message": liveThreadSchema,

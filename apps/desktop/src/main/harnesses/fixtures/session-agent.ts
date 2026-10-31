@@ -139,6 +139,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     reply(value, {
       agentCapabilities: {
         loadSession: !existsSync("no-load-capability"),
+        mcpCapabilities: { http: true },
         ...(existsSync("delete-capability") ? { sessionCapabilities: { delete: {} } } : {}),
       },
     });

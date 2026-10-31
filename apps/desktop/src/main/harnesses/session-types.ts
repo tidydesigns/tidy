@@ -12,6 +12,14 @@ export type ProcessRegistration = {
   bind(threadId: string): Promise<void>;
 };
 
+export type AgentMcpConnection = {
+  url: string;
+  token: string;
+  readonly available?: boolean;
+  readonly toolNames?: readonly string[];
+  close(): void;
+};
+
 export type SessionContext = {
   harness: HarnessId;
   executable: string;
@@ -20,6 +28,8 @@ export type SessionContext = {
   sessionId?: string;
   settings?: HarnessSettings;
   superviseParent?: boolean;
+  agentTools?: { identity: string; open(): Promise<AgentMcpConnection> };
+  mcp?: AgentMcpConnection;
   environment?: Record<string, string>;
   onSpawn?: (pid: number, supervised?: boolean) => void;
   onExit?: () => void;
