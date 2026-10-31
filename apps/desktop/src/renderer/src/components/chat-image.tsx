@@ -1,3 +1,4 @@
+import { loadChatImage } from "./load-chat-image";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@tidy/ui/button";
@@ -95,11 +96,6 @@ export function ImagePreview({
             }
           />
         )}
-        {!compact && (
-          <span className="w-full truncate border-t border-border px-3 py-2 text-xs text-secondary-ink">
-            {name}
-          </span>
-        )}
       </Button>
       {open && (
         <ImageViewer
@@ -113,30 +109,6 @@ export function ImagePreview({
       )}
     </>
   );
-}
-
-const pendingImages = new WeakMap<DesktopAPI, Map<string, Promise<string>>>();
-function loadImage(api: DesktopAPI, projectId: string, threadId: string, href: string) {
-  let cache = pendingImages.get(api);
-  if (!cache) {
-    cache = new Map();
-    pendingImages.set(api, cache);
-  }
-  const key = JSON.stringify([projectId, threadId, href]);
-  const found = cache.get(key);
-  if (found) return found;
-  const request = api.readChatImage(projectId, threadId, href).then((image) => image.dataUrl);
-  cache.set(key, request);
-  const current = cache;
-  void request.then(
-    () => {
-      if (current.get(key) === request) current.delete(key);
-    },
-    () => {
-      if (current.get(key) === request) current.delete(key);
-    },
-  );
-  return request;
 }
 
 export function ChatImage({
@@ -165,12 +137,15 @@ export function ChatImage({
     const key = JSON.stringify([projectId, threadId, href]);
     if (loaded.current?.api === api && loaded.current.key === key) return;
     let current = true;
+    let release: (() => void) | undefined;
     setState({ kind: "loading" });
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         observer.disconnect();
-        void loadImage(api, projectId, threadId, href).then(
+        const load = loadChatImage(api, { projectId, threadId, href });
+        release = load.release;
+        void load.promise.then(
           (src) => {
             if (current) {
               loaded.current = { api, key };
@@ -187,6 +162,7 @@ export function ChatImage({
     if (container.current) observer.observe(container.current);
     return () => {
       current = false;
+      release?.();
       observer.disconnect();
     };
   }, [api, projectId, threadId, href, attempt, active]);

@@ -1,10 +1,15 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
+import * as markdown from "mdast-util-from-markdown";
 import { mkdtemp, mkdir, rm, symlink, truncate, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Thread } from "../../shared/contracts/desktop";
-import { chatImageSchema } from "../../shared/contracts/chat-images";
+import {
+  CHAT_IMAGE_CHUNK_BYTES,
+  MAX_CHAT_IMAGE_BYTES,
+  chatImageSchema,
+} from "../../shared/contracts/chat-images";
 import { isRemoteMutation } from "../../shared/remote";
 import { readChatImage } from "./chat-images";
 import { ProjectStore } from "./project-store";
@@ -156,5 +161,64 @@ test("a suffix, code sample, label, or unused definition cannot authorize an unr
     await expect(
       readChatImage({ root: f.root, thread: f.thread, href: "private.png" }),
     ).rejects.toThrow("not referenced");
+  }
+});
+
+test("large images use bounded chunks and reject changed files or missing continuation revisions", async () => {
+  const f = await fixture();
+  const path = join(f.root, "large.png");
+  await writeFile(path, png);
+  await truncate(path, MAX_CHAT_IMAGE_BYTES);
+  const input = f.reference("large.png");
+  const first = chatImageSchema.parse(await readChatImage(input));
+  expect(first.size).toBe(MAX_CHAT_IMAGE_BYTES);
+  expect(Buffer.byteLength(JSON.stringify(first))).toBeLessThan(270_000);
+  expect(Buffer.from(first.dataUrl.split(",")[1], "base64").length).toBe(CHAT_IMAGE_CHUNK_BYTES);
+  const next = await readChatImage({
+    ...input,
+    offset: CHAT_IMAGE_CHUNK_BYTES,
+    revision: first.revision,
+  });
+  expect(next.offset).toBe(CHAT_IMAGE_CHUNK_BYTES);
+  expect(next.revision).toBe(first.revision);
+  await expect(readChatImage({ ...input, offset: CHAT_IMAGE_CHUNK_BYTES })).rejects.toThrow(
+    "changed",
+  );
+  await expect(
+    readChatImage({ ...input, offset: first.size, revision: first.revision }),
+  ).rejects.toThrow("offset");
+  await truncate(path, CHAT_IMAGE_CHUNK_BYTES + 1);
+  await expect(
+    readChatImage({ ...input, offset: CHAT_IMAGE_CHUNK_BYTES, revision: first.revision }),
+  ).rejects.toThrow("changed");
+});
+
+test("destination parsing is reused across cloned reads but edited or removed messages revoke access", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "first.png"), png);
+  await writeFile(join(f.root, "second.png"), png);
+  f.thread.messages = [
+    {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      text: `${crypto.randomUUID()} ![First](first.png) ![Second](second.png)`,
+    },
+  ];
+  const parser = spyOn(markdown, "fromMarkdown");
+  try {
+    await readChatImage({ root: f.root, thread: structuredClone(f.thread), href: "first.png" });
+    await readChatImage({ root: f.root, thread: structuredClone(f.thread), href: "second.png" });
+    expect(parser).toHaveBeenCalledTimes(1);
+    f.thread.messages[0].text = "![Second](second.png)";
+    await expect(
+      readChatImage({ root: f.root, thread: f.thread, href: "first.png" }),
+    ).rejects.toThrow("not referenced");
+    await readChatImage({ root: f.root, thread: f.thread, href: "second.png" });
+    f.thread.messages = [];
+    await expect(
+      readChatImage({ root: f.root, thread: f.thread, href: "second.png" }),
+    ).rejects.toThrow("not referenced");
+  } finally {
+    parser.mockRestore();
   }
 });

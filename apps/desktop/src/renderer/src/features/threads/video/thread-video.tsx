@@ -115,13 +115,11 @@ export function ThreadVideo({
                 <Button className="thread-video-retry" onClick={retry}>
                   Try again
                 </Button>
+                {children}
               </>
             )}
           </span>
         )}
-      </span>
-      <span className="thread-video-caption" title={input.href}>
-        {children ?? name}
       </span>
     </span>
   );

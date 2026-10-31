@@ -118,8 +118,8 @@ const api: DesktopAPI = {
     request("thread-execution-project", { projectId, threadId, executionProjectId }),
   readVideoChunk: (input) => request("read-video-chunk", input),
   pullRequestState: (projectId, href) => request("pull-request-state", { projectId, href }),
-  readChatImage: (projectId, threadId, href) =>
-    request("read-chat-image", { projectId, threadId, href }),
+  readChatImage: (projectId, threadId, href, chunk) =>
+    request("read-chat-image", { projectId, threadId, href, ...chunk }),
   async openChatLink(_projectId, href) {
     const link = parseChatLink(href);
     if (!link) throw new Error("This link is not supported.");

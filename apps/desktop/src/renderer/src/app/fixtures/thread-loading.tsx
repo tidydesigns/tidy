@@ -552,7 +552,13 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
             );
             check(href === "/tmp/remote-screen.png", "Image read lost its host path");
             reads++;
-            return { name: "remote-screen.png", dataUrl: source };
+            return {
+              name: "remote-screen.png",
+              dataUrl: source,
+              offset: 0,
+              size: atob(png).length,
+              revision: "image-v1",
+            };
           },
           openChatLink: async () => {
             fileOpens++;
@@ -653,7 +659,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           "Oversized recording lost its size-limit error",
         );
         required(
-          host.querySelector<HTMLAnchorElement>(".thread-video-caption a"),
+          host.querySelector<HTMLAnchorElement>('.thread-video [role="alert"] a'),
           "Recording file link after preview failure",
         ).click();
         check(

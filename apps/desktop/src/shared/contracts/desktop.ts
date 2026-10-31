@@ -220,6 +220,7 @@ export type DesktopAPI = {
     projectId: string,
     threadId: string,
     href: string,
+    chunk?: Pick<import("./chat-images").ChatImageRequest, "offset" | "revision">,
   ): Promise<import("./chat-images").ChatImage>;
   pullRequestState?(projectId: string, href: string): Promise<PullRequestState | null>;
   setThreadSettings(
