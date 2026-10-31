@@ -1,3 +1,4 @@
+import { AnimatedHeight } from "../../components/animated-height";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Button } from "@tidy/ui/button";
 import type { DesktopAPI } from "../../../../shared/contracts/desktop";
@@ -144,7 +145,7 @@ export function ThreadPortsStrip({
         {announcement}
       </span>
       {ports.length > 0 && (
-        <section className="mb-2 px-1" aria-label="Running ports">
+        <section className="thread-ports px-3 pb-2" aria-label="Running ports">
           {groups.length > 1 && (
             <Button
               type="button"
@@ -157,7 +158,7 @@ export function ThreadPortsStrip({
                 aria-hidden="true"
                 className="size-1.5 shrink-0 rounded-full bg-current opacity-60"
               />
-              <span>
+              <span className="shrink-0">
                 {groups.length}{" "}
                 {unavailable || !connected ? "processes · status unknown" : "running processes"}
               </span>
@@ -186,81 +187,80 @@ export function ThreadPortsStrip({
                 : "Connection unavailable. Port status is unknown."}
             </p>
           )}
-          <div
-            id={listId}
-            hidden={groups.length > 1 && !expanded}
-            onFocusCapture={() => setExpanded(true)}
-            className="max-h-[132px] overflow-y-auto"
-          >
-            {groups.map((group) => {
-              const port = group[0];
-              const pending = stopping.has(port.processId);
-              return (
-                <div key={port.processId} className="py-1">
-                  <div className="flex min-w-0 items-center gap-2 text-[11px] leading-5 text-muted-ink">
-                    <span
-                      aria-hidden="true"
-                      className="size-1.5 shrink-0 rounded-full bg-current opacity-60"
-                    />
-                    <span className="shrink-0">
-                      {pending
-                        ? "Stopping…"
-                        : unavailable || !connected
-                          ? "Status unknown"
-                          : "Running"}
-                    </span>
-                    {remoteLabel && (
-                      <span className="truncate" title={remoteLabel}>
-                        {remoteLabel}
-                      </span>
-                    )}
-                    <span className="truncate" title={port.processName}>
-                      {port.processName}
-                    </span>
-                    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2">
-                      {group.map((entry) =>
-                        remoteLabel && !(api.browser && openBrowser) ? (
-                          <span
-                            key={entry.id}
-                            title={`Port ${entry.port} on ${remoteLabel}`}
-                            className="text-ink"
-                          >
-                            :{entry.port}
+          <AnimatedHeight open={groups.length < 2 || expanded}>
+            <div id={listId} className="max-h-[min(132px,20vh)] overflow-y-auto overscroll-contain">
+              {groups.map((group) => {
+                const port = group[0];
+                const pending = stopping.has(port.processId);
+                return (
+                  <div key={port.processId} className="py-1">
+                    <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-2 text-[11px] leading-5 text-muted-ink">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                        <span
+                          aria-hidden="true"
+                          className="size-1.5 shrink-0 rounded-full bg-current opacity-60"
+                        />
+                        <span className="shrink-0">
+                          {pending
+                            ? "Stopping…"
+                            : unavailable || !connected
+                              ? "Status unknown"
+                              : "Running"}
+                        </span>
+                        {remoteLabel && (
+                          <span className="max-w-[28%] truncate" title={remoteLabel}>
+                            {remoteLabel}
                           </span>
-                        ) : (
-                          <Button
-                            key={entry.id}
-                            type="button"
-                            className="truncate text-[11px] text-ink underline decoration-border underline-offset-4 hover:decoration-current"
-                            title={
-                              remoteLabel
-                                ? `Open port ${entry.port} on ${remoteLabel}`
-                                : `Open ${threadPortURL(entry)}`
-                            }
-                            disabled={pending || !connected}
-                            onClick={() => void open(entry)}
-                          >
-                            {remoteLabel
-                              ? `:${entry.port}`
-                              : `${entry.host === "::1" ? "[::1]" : "localhost"}:${entry.port}`}
-                          </Button>
-                        ),
-                      )}
+                        )}
+                        <span className="min-w-0 max-w-[40%] truncate" title={port.processName}>
+                          {port.processName}
+                        </span>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2">
+                          {group.map((entry) =>
+                            remoteLabel && !(api.browser && openBrowser) ? (
+                              <span
+                                key={entry.id}
+                                title={`Port ${entry.port} on ${remoteLabel}`}
+                                className="text-ink"
+                              >
+                                :{entry.port}
+                              </span>
+                            ) : (
+                              <Button
+                                key={entry.id}
+                                type="button"
+                                className="truncate text-[11px] text-ink underline decoration-border underline-offset-4 hover:decoration-current"
+                                title={
+                                  remoteLabel
+                                    ? `Open port ${entry.port} on ${remoteLabel}`
+                                    : `Open ${threadPortURL(entry)}`
+                                }
+                                disabled={pending || !connected}
+                                onClick={() => void open(entry)}
+                              >
+                                {remoteLabel
+                                  ? `:${entry.port}`
+                                  : `${entry.host === "::1" ? "[::1]" : "localhost"}:${entry.port}`}
+                              </Button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        className="shrink-0 rounded px-1.5 text-[11px] hover:bg-hover-surface hover:text-ink disabled:opacity-50"
+                        disabled={pending || !connected}
+                        aria-label={`Stop ${port.processName} on ${group.map((entry) => `port ${entry.port}`).join(", ")}`}
+                        onClick={() => void stop(port)}
+                      >
+                        {pending ? "Stopping…" : "Stop"}
+                      </Button>
                     </div>
-                    <Button
-                      type="button"
-                      className="shrink-0 rounded px-1.5 text-[11px] hover:bg-hover-surface hover:text-ink disabled:opacity-50"
-                      disabled={pending || !connected}
-                      aria-label={`Stop ${port.processName} on ${group.map((entry) => `port ${entry.port}`).join(", ")}`}
-                      onClick={() => void stop(port)}
-                    >
-                      {pending ? "Stopping…" : "Stop"}
-                    </Button>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          </AnimatedHeight>
           {Object.entries(errors).map(([processId, error]) =>
             error ? (
               <p key={processId} className="mt-1 text-[11px] text-muted-ink" role="alert">
