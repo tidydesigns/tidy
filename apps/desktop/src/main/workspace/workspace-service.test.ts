@@ -249,7 +249,7 @@ test("background-safe updates wait for Claude preparation before overlapping its
   release!();
 });
 
-test("queued follow-ups are retained when an update blocks delivery and can be sent after installation", async () => {
+test("queued follow-ups wait for maintenance and start automatically after installation", async () => {
   const { service, project, runs, store } = await fixture();
   const thread = await service.startThread({
     projectId: project.id,
@@ -270,22 +270,75 @@ test("queued follow-ups are retained when an update blocks delivery and can be s
     text: "Next response",
     delivery: "queue",
   });
-  expect(queued.queueError).toContain("updating");
+  expect(queued.queueError).toBeUndefined();
   expect(queued.queuedMessages?.map((message) => message.id)).toEqual([messageId]);
   expect((await store.readThread(project.id, thread.id)).queuedMessages?.[0].text).toBe(
     "Next response",
   );
   expect(runs).toHaveLength(1);
-  release!();
-  const sent = await service.updateMessageQueue({
-    projectId: project.id,
-    threadId: thread.id,
-    action: { kind: "steer", messageId },
+  const launched = Promise.withResolvers<Thread>();
+  const unsubscribe = service.subscribe((event) => {
+    if (
+      event.type === "thread" &&
+      event.thread.id === thread.id &&
+      event.thread.status === "running"
+    )
+      launched.resolve(event.thread);
   });
+  release!();
+  const sent = await launched.promise;
+  unsubscribe();
   expect(sent.status).toBe("running");
   expect(sent.queuedMessages).toHaveLength(0);
+  // The running checkpoint is emitted immediately before native launch.
+  await service.dispatch(async () => {});
+  for (let attempt = 0; attempt < 100 && runs.length < 2; attempt++) await Bun.sleep(5);
   expect(runs).toHaveLength(2);
 });
+
+for (const stop of [false, true]) {
+  test(`a Claude turn finishing during a native update ${stop ? "respects Stop on its deferred queue" : "continues its queue after installation"}`, async () => {
+    const { service, project, runs } = await fixture();
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "First response",
+      designIds: [],
+    });
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "Next response",
+      delivery: "queue",
+    });
+    const release = service.reserveHarnessUpdate("claude", { allowActiveRuns: true });
+    expect(release).not.toBeNull();
+    const complete = finished(service, thread.id);
+    runs[0].complete();
+    await complete;
+    // Serialize a read of the queue behind completion and deferred delivery.
+    await service.updateMessageQueue({
+      projectId: project.id,
+      threadId: thread.id,
+      action: {
+        kind: "edit",
+        messageId: (await service.readThread(project.id, thread.id)).queuedMessages![0].id,
+        text: "Edited next response",
+      },
+    });
+    expect(runs).toHaveLength(1);
+    if (stop) await service.stopThread(project.id, thread.id);
+    release!();
+    if (stop) {
+      await Bun.sleep(15);
+      expect(runs).toHaveLength(1);
+    } else {
+      for (let attempt = 0; attempt < 100 && runs.length < 2; attempt++) await Bun.sleep(5);
+      expect(runs).toHaveLength(2);
+      expect(runs[1].input.prompt).toContain("Edited next response");
+    }
+  });
+}
 
 test("update preparation checkpoints a running harness and can reopen the workspace after restart fails", async () => {
   const { service, store, project, runs } = await fixture();

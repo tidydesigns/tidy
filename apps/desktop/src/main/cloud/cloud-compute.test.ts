@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +8,40 @@ import { blankDesignDocument } from "@tidy/design/document";
 import { storedThreadSchema } from "../../shared/contracts/desktop";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { CloudCompute } from "./cloud-compute";
+
+test("recovery signatures remain compatible and bind conversation content, native authority and execution paths", async () => {
+  const compute = new CloudCompute();
+  const thread = storedThreadSchema.parse({
+    id: randomUUID(),
+    projectId: randomUUID(),
+    title: "Recovery signature",
+    harness: "codex",
+    sessionId: "native-session",
+    settings: { permissionMode: "read-only" },
+    designIds: [],
+    messages: [{ id: randomUUID(), role: "user", text: "Café 🦊 漢字 \ud800" }],
+    status: "stopped",
+    updatedAt: new Date().toISOString(),
+  });
+  try {
+    const signature = await compute.threadSignature(thread, "/owner", "/execution");
+    expect(signature).toBe(
+      createHash("sha256")
+        .update(JSON.stringify([thread, "/owner", "/execution"]))
+        .digest("hex"),
+    );
+    for (const changed of [
+      { ...thread, sessionId: "different-session" },
+      { ...thread, settings: { permissionMode: "auto" as const } },
+      { ...thread, messages: [{ ...thread.messages[0], text: "Changed request" }] },
+    ])
+      expect(await compute.threadSignature(changed, "/owner", "/execution")).not.toBe(signature);
+    expect(await compute.threadSignature(thread, "/other-owner", "/execution")).not.toBe(signature);
+    expect(await compute.threadSignature(thread, "/owner", "/other-execution")).not.toBe(signature);
+  } finally {
+    await compute.close();
+  }
+});
 
 test("worker cache returns independent scene copies after a metadata scan", async () => {
   const directory = await mkdtemp(join(tmpdir(), "tidy-worker-cache-"));

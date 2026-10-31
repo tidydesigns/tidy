@@ -12,6 +12,7 @@ export type ComputeRequest = { id: number } & (
   | { kind: "read-file"; path: string; summary: boolean; background?: boolean }
   | { kind: "read-thread-summary"; path: string }
   | { kind: "encode-thread"; thread: Thread }
+  | { kind: "sign-thread"; thread: Thread; projectPath: string; executionPath: string }
 );
 
 /** Diffing and asset translation must not occupy Electron's main event loop,
@@ -29,7 +30,8 @@ export class CloudCompute {
       | Omit<Extract<ComputeRequest, { kind: "remap" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "read-file" }>, "id">
       | Omit<Extract<ComputeRequest, { kind: "read-thread-summary" }>, "id">
-      | Omit<Extract<ComputeRequest, { kind: "encode-thread" }>, "id">,
+      | Omit<Extract<ComputeRequest, { kind: "encode-thread" }>, "id">
+      | Omit<Extract<ComputeRequest, { kind: "sign-thread" }>, "id">,
   ): Promise<T> {
     if (!this.worker) {
       const worker = new Worker(
@@ -93,6 +95,9 @@ export class CloudCompute {
   }
   encodeThread(thread: Thread) {
     return this.run<Uint8Array>({ kind: "encode-thread", thread });
+  }
+  threadSignature(thread: Thread, projectPath: string, executionPath: string) {
+    return this.run<string>({ kind: "sign-thread", thread, projectPath, executionPath });
   }
   async close() {
     const worker = this.worker;

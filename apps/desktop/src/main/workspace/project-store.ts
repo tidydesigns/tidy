@@ -30,6 +30,7 @@ import type {
 } from "../../shared/contracts/desktop";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
+import { UpdateResumes } from "./update-resumes";
 import { toolLogSize } from "../../shared/contracts/tool-activity";
 import { readLocalFile } from "../platform/local-files";
 import { CloudCompute } from "../cloud/cloud-compute";
@@ -85,12 +86,14 @@ export class ProjectStore {
     { release(): void; pending: number; retained: boolean }
   >();
   private authority: ThreadAuthority;
+  readonly updateResumes: UpdateResumes;
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
     private claimProject: (path: string) => () => void = () => () => {},
   ) {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
+    this.updateResumes = new UpdateResumes(directory);
     this.processState = new PrivateState(join(directory, "process-state"));
   }
 
@@ -427,6 +430,15 @@ export class ProjectStore {
       await this.read(await this.storagePath(projectId, "threads", threadId)),
     );
     return this.authorizeThread({ thread, projectId, threadId });
+  }
+
+  /** Hash large transcripts off the native event loop, using privately authorized session state. */
+  updateResumeSignature(thread: Thread, executionPath: string) {
+    return projectCompute.threadSignature(
+      thread,
+      this.project(thread.projectId).path,
+      executionPath,
+    );
   }
 
   private async authorizeThread<T extends Thread | ThreadSummary>({

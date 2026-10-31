@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
@@ -36,6 +36,59 @@ const eventsSchema = z.array(
     value: z.object({ params: z.unknown().optional(), message: z.unknown().optional() }),
   }),
 );
+
+test("a native Claude update preserves compatible follow-ups while its existing session has background work", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "claude-native-update-"));
+  const store = new ProjectStore(join(cwd, "private"));
+  await store.initialize();
+  const { project } = await store.open(cwd);
+  let installedExecutable = executable;
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => installedExecutable,
+    async () => {},
+  );
+  const finished = () =>
+    new Promise<string>((resolve) => {
+      const off = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status !== "running") {
+          off();
+          resolve(event.thread.status);
+        }
+      });
+    });
+  try {
+    const first = finished();
+    const thread = await service.startThread({
+      projectId: project.id,
+      harness: "claude",
+      prompt: "background silent",
+      designIds: [],
+    });
+    expect(await first).toBe("completed");
+    const release = service.reserveHarnessUpdate("claude", { allowActiveRuns: true });
+    expect(release).not.toBeNull();
+    // Claude's native updater advances a versioned symlink, changing the resolved CLI path.
+    const replacement = join(cwd, "updated-claude");
+    await copyFile(executable, replacement);
+    await chmod(replacement, 0o700);
+    installedExecutable = replacement;
+    release!();
+    const next = finished();
+    await service.sendMessage({
+      projectId: project.id,
+      threadId: thread.id,
+      text: "Continue after the native update",
+    });
+    expect(await next).toBe("completed");
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await service.close();
+  }
+});
 async function events(cwd: string) {
   return eventsSchema.parse(
     (await readFile(join(cwd, "session-events.jsonl"), "utf8"))
@@ -43,6 +96,123 @@ async function events(cwd: string) {
       .split("\n")
       .map((line) => JSON.parse(line)),
   );
+}
+
+test("native upgrade rollover never relaxes the permissions or project of retained background work", async () => {
+  const cwd = await mkdtemp(join(directory, "native-upgrade-boundary-"));
+  const replacement = join(cwd, "updated-claude");
+  await copyFile(executable, replacement);
+  await chmod(replacement, 0o700);
+  const sessions = new HarnessSessions();
+  const context = {
+    projectId: "project",
+    harness: "claude" as const,
+    executable,
+    cwd,
+    settings: { permissionMode: "plan" as const },
+  };
+  let sessionId: string | undefined;
+  try {
+    await sessions.start("thread", {
+      ...context,
+      prompt: "background silent",
+      onUpdate(update) {
+        if (update.type === "session") sessionId = update.id;
+      },
+    }).done;
+    await sessions.clear({ harness: "claude", idleOnly: true, preserveActive: true });
+    for (const changed of [
+      { ...context, projectId: "other-project" },
+      { ...context, settings: { permissionMode: "auto" as const } },
+      { ...context, settings: { ...context.settings, model: "another-model" } },
+    ])
+      await expect(
+        sessions.start("thread", {
+          ...changed,
+          executable: replacement,
+          sessionId,
+          prompt: "Must not run",
+          onUpdate() {},
+        }).done,
+      ).rejects.toThrow("background work");
+    await sessions.start("thread", {
+      ...context,
+      executable: replacement,
+      sessionId,
+      prompt: "Compatible follow-up",
+      onUpdate() {},
+    }).done;
+    expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(1);
+  } finally {
+    await sessions.clear();
+  }
+});
+
+for (const harness of harnessIdSchema.options) {
+  for (const background of [false, true]) {
+    test(`${harness} resumes ${background ? "background work" : "an active turn"} through a fresh backend after an update`, async () => {
+      const { ProjectStore } = await import("../workspace/project-store");
+      const { WorkspaceService } = await import("../workspace/workspace-service");
+      const cwd = await mkdtemp(join(directory, `${harness}-update-`));
+      const state = join(cwd, "private");
+      const store = new ProjectStore(state);
+      await store.initialize();
+      const { project } = await store.open(cwd);
+      const service = new WorkspaceService(
+        store,
+        undefined,
+        async () => executable,
+        async () => {},
+      );
+      let reopened: InstanceType<typeof WorkspaceService> | undefined;
+      const ready = Promise.withResolvers<void>();
+      service.subscribe((event) => {
+        if (event.type !== "thread" && event.type !== "thread-patch") return;
+        if (background ? event.thread.status === "completed" : Boolean(event.thread.sessionId))
+          ready.resolve();
+      });
+      try {
+        const thread = await service.startThread({
+          projectId: project.id,
+          harness,
+          prompt: background ? "background silent" : "hold",
+          designIds: [],
+        });
+        await ready.promise;
+        expect(service.activeRunCount).toBe(1);
+        const before = await service.readThread(project.id, thread.id);
+        await service.prepareUpdate();
+        expect(service.activeRunCount).toBe(0);
+        const nextStore = new ProjectStore(state);
+        await nextStore.initialize();
+        await nextStore.recover();
+        reopened = new WorkspaceService(
+          nextStore,
+          undefined,
+          async () => executable,
+          async () => {},
+        );
+        const completed = Promise.withResolvers<void>();
+        reopened.subscribe((event) => {
+          if (event.type === "thread" && event.thread.status === "completed") completed.resolve();
+        });
+        await reopened.resumeUpdatedThreads();
+        await completed.promise;
+        const after = await reopened.readThread(project.id, thread.id);
+        expect(after.sessionId).toBe(before.sessionId);
+        expect(after.messages.filter((message) => message.role === "user")).toEqual(
+          before.messages
+            .filter((message) => message.role === "user")
+            .map((message) => ({ ...message, turn: after.messages[0].turn })),
+        );
+        expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
+        expect(await nextStore.updateResumes.list()).toEqual([]);
+      } finally {
+        await reopened?.close();
+        await service.close();
+      }
+    }, 10_000);
+  }
 }
 
 for (const scope of ["harness", "project", "repository"] as const) {
