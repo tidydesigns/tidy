@@ -37,6 +37,7 @@ export class CloudService implements CloudAPI {
   private latestAccount?: CloudAccount;
   private accountRequest = 0;
   private accountWrites = Promise.resolve();
+  private updateAccountRequest?: Promise<CloudAccount>;
   private designVersions = new Map<string, string>();
   private workspaceWork = new Map<string, Promise<ProjectSnapshot>>();
   private workspaces = new Map<string, { accountId: string; organizationId: string }>();
@@ -89,7 +90,7 @@ export class CloudService implements CloudAPI {
       this.assertWorkspaceAvailable();
       await this.initialize();
       const project = service.store.project(projectId);
-      const account = await this.account(true).catch(() => this.account());
+      const account = await this.accountForUpdate();
       const organization = account.organizations.find((org) => {
         const key = this.cacheKey("workspace", org.id).slice("workspace-".length);
         return org.canEdit && project.path.endsWith(`/workspace-${key}`);
@@ -255,6 +256,24 @@ export class CloudService implements CloudAPI {
       throw new Error("Newer account metadata is loading. Try again.");
     this.latestAccount = cloudAccountSchema.parse(account);
     return account;
+  }
+  /** Share a fresh lookup across concurrent thread recoveries without racing account generations. */
+  private accountForUpdate() {
+    if (this.updateAccountRequest) return this.updateAccountRequest;
+    const request = this.account()
+      .catch((error: unknown) => {
+        if (
+          error instanceof TypeError ||
+          (error instanceof DOMException && error.name === "TimeoutError")
+        )
+          return this.account(true);
+        throw error;
+      })
+      .finally(() => {
+        if (this.updateAccountRequest === request) this.updateAccountRequest = undefined;
+      });
+    this.updateAccountRequest = request;
+    return request;
   }
   async catalog(organizationId: string, cachedOnly = false) {
     await this.initialize();

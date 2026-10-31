@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { blankDesignDocument, buildDrawnNode } from "@tidy/design/document";
 import { applyDocumentPatch } from "@tidy/editor/design/document-patch";
 import { CloudService } from "./cloud-service";
-import { CloudAuth } from "./cloud-auth";
+import { CloudAuth, CloudHTTPError } from "./cloud-auth";
 import { PrivateState } from "../platform/private-state";
 import { ProjectStore } from "../workspace/project-store";
 import { WorkspaceService } from "../workspace/workspace-service";
@@ -258,7 +258,16 @@ async function fixture(launch?: ConstructorParameters<typeof WorkspaceService>[1
   };
 }
 
-for (const access of ["same account", "different account", "revoked membership"] as const) {
+for (const access of [
+  "same account",
+  "different account",
+  "revoked membership",
+  "offline",
+  "timeout",
+  "cache write failure",
+  "401",
+  "403",
+] as const) {
   test(`update recovery restores a cloud workspace only for its authorized account: ${access}`, async () => {
     const launches: string[] = [];
     const f = await fixture((input) => {
@@ -277,22 +286,37 @@ for (const access of ["same account", "different account", "revoked membership"]
     });
     await f.service.prepareUpdate();
     await f.cloud.close();
-    const cloud = await f.make(access === "different account" ? "bob" : "alice");
+    await f.make(access === "different account" ? "bob" : "alice");
     const service = f.services[f.services.length - 1];
-    if (access === "revoked membership") {
-      const accounts = spyOn(f.remote, "account").mockResolvedValue({
+    const accounts = spyOn(f.remote, "account");
+    if (access === "revoked membership" || access === "cache write failure") {
+      accounts.mockResolvedValue({
         id: "alice",
         organizations: [{ id: "org", name: "Team", canEdit: false }],
       });
-      try {
-        await cloud.account();
-      } finally {
-        accounts.mockRestore();
-      }
     }
-    await service.resumeUpdatedThreads();
+    if (access === "offline") accounts.mockRejectedValue(new TypeError("Offline"));
+    if (access === "timeout")
+      accounts.mockRejectedValue(new DOMException("Network timeout", "TimeoutError"));
+    const write = f.state.write.bind(f.state);
+    const writing =
+      access === "cache write failure"
+        ? spyOn(f.state, "write").mockImplementation(async (key, value) => {
+            if (key.startsWith("account-")) throw new Error("Account cache write failed");
+            return write(key, value);
+          })
+        : undefined;
+    if (access === "401" || access === "403")
+      accounts.mockRejectedValue(new CloudHTTPError(Number(access)));
+    try {
+      await service.resumeUpdatedThreads();
+      expect(accounts).toHaveBeenCalledTimes(1);
+    } finally {
+      accounts.mockRestore();
+      writing?.mockRestore();
+    }
     const resumed = await service.readThread(workspace.project.id, thread.id);
-    if (access === "same account") {
+    if (access === "same account" || access === "offline" || access === "timeout") {
       expect(launches).toEqual([f.local.project.path, f.local.project.path]);
       expect(resumed.status).toBe("running");
       await service.assertProjectAccess(workspace.project.id);
@@ -304,6 +328,51 @@ for (const access of ["same account", "different account", "revoked membership"]
     }
   });
 }
+
+test("concurrent cloud thread recoveries share fresh account metadata without cancelling each other", async () => {
+  let launches = 0;
+  const f = await fixture((input) => {
+    launches++;
+    input.onUpdate({ type: "session", id: input.sessionId ?? randomUUID() });
+    const done = Promise.withResolvers<void>();
+    return { done: done.promise, deliveryState: "accepted", stop: () => done.resolve() };
+  });
+  const workspace = await f.cloud.openWorkspace("org");
+  for (let i = 0; i < 4; i++)
+    await f.service.startThread({
+      projectId: workspace.project.id,
+      executionProjectId: f.local.project.id,
+      harness: "codex",
+      prompt: `Task ${i}`,
+      designIds: [],
+    });
+  await f.service.prepareUpdate();
+  await f.cloud.close();
+  await f.make();
+  const service = f.services[f.services.length - 1];
+  const allEntered = Promise.withResolvers<void>();
+  const metadata = Promise.withResolvers<Awaited<ReturnType<Remote["account"]>>>();
+  const accounts = spyOn(f.remote, "account").mockImplementation(() => metadata.promise);
+  const restore = service.restoreUpdateAccess!;
+  let entering = 0;
+  service.restoreUpdateAccess = (projectId) => {
+    const result = restore(projectId);
+    if (++entering === 4) allEntered.resolve();
+    return result;
+  };
+  const recovery = service.resumeUpdatedThreads();
+  try {
+    await allEntered.promise;
+    metadata.resolve({ id: "alice", organizations: [{ id: "org", name: "Team", canEdit: true }] });
+    await recovery;
+    expect(accounts).toHaveBeenCalledTimes(1);
+    expect(launches).toBe(8);
+  } finally {
+    metadata.resolve({ id: "alice", organizations: [{ id: "org", name: "Team", canEdit: true }] });
+    await recovery;
+    accounts.mockRestore();
+  }
+});
 
 test("cloud files open in a private workspace without selecting or uploading the local project", async () => {
   const f = await fixture();
