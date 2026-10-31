@@ -8,13 +8,7 @@ function ImageViewer({ src, name, onClose }: { src: string; name: string; onClos
   const dialog = useRef<HTMLDialogElement>(null);
   const [zoomed, setZoomed] = useState(false);
   useEffect(() => {
-    const previous = document.activeElement;
     dialog.current?.showModal();
-    return () => {
-      dialog.current?.close();
-      if (previous instanceof HTMLElement && previous.isConnected)
-        previous.focus({ preventScroll: true });
-    };
   }, []);
   return createPortal(
     <Dialog
@@ -67,11 +61,13 @@ export function ImagePreview({
   name: string;
   compact?: boolean;
 }) {
+  const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
   return (
     <>
       <Button
+        ref={trigger}
         type="button"
         aria-label={`Preview ${name}`}
         onClick={() => setOpen(true)}
@@ -98,7 +94,16 @@ export function ImagePreview({
           </span>
         )}
       </Button>
-      {open && <ImageViewer src={src} name={name} onClose={() => setOpen(false)} />}
+      {open && (
+        <ImageViewer
+          src={src}
+          name={name}
+          onClose={() => {
+            setOpen(false);
+            trigger.current?.focus({ preventScroll: true });
+          }}
+        />
+      )}
     </>
   );
 }
