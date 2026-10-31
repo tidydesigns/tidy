@@ -3043,8 +3043,29 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         check(host.querySelectorAll(".composer-body img").length === 2, "Missing instant previews");
         const start = required(host.querySelector<HTMLButtonElement>(".composer-submit"), "Start");
         check(start.disabled, "Sending was enabled before images were stored");
+        const expand = required(
+          host.querySelector<HTMLButtonElement>('.composer-body [aria-label="Expand image.png"]'),
+          "Expand pasted image",
+        );
+        flushSync(() => {
+          expand.focus();
+          expand.click();
+        });
+        const preview = required(document.querySelector("dialog[open]"), "Pasted image preview");
+        check(preview.matches(":modal"), "Image preview did not open as a modal");
         gate.resolve();
         await until(() => uploads.length === 2 && !start.disabled, "Both images stored");
+        check(preview.isConnected && preview.matches(":modal"), "Upload closed the image preview");
+        check(
+          preview.querySelector("img")?.src === `data:image/png;base64,${png}`,
+          "Image preview retained the temporary source",
+        );
+        required(
+          preview.querySelector<HTMLButtonElement>('[aria-label="Close image preview"]'),
+          "Close pasted image",
+        ).click();
+        await until(() => !preview.isConnected, "Close pasted image preview");
+        check(document.activeElement === expand, "Closing preview lost thumbnail focus");
         const ids = draft().attachments?.map((file) => file.id) ?? [];
         check(
           ids.every((id) => stored.has(id)),
@@ -3073,6 +3094,18 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           !host.querySelector(".transcript")?.textContent?.includes("[[attachment:"),
           "Transcript exposed an unresolved attachment reference",
         );
+        flushSync(() =>
+          required(
+            host.querySelector<HTMLButtonElement>('.transcript [aria-label="Expand image.png"]'),
+            "Expand sent image",
+          ).click(),
+        );
+        const sentPreview = required(
+          document.querySelector<HTMLDialogElement>("dialog[open]"),
+          "Sent image preview",
+        );
+        sentPreview.requestClose();
+        await until(() => !sentPreview.isConnected, "Dismiss sent image preview");
         editor().focus();
         key("ArrowUp");
         const reply = () => required(current()[`${project.id}:${started!.id}`], "Reply draft");
