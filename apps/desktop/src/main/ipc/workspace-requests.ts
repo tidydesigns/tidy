@@ -84,6 +84,11 @@ export function createWorkspaceRequests<Context>(
     (input) => service.setThreadWorkPermission(input.projectId, input.threadId, input.enabled),
   );
   handle("thread-tasks", threadTasksRequestSchema, (input) => service.readThreadTasks(input));
+  handle(
+    "cancel-thread-task",
+    z.object({ projectId: uuid, threadId: uuid, taskId: uuid }).strict(),
+    (input) => service.cancelThreadTask(input.projectId, input.threadId, input.taskId),
+  );
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
   handle("browser-discard-draft", browserDiscardDraftSchema, (input) =>
     service.discardBrowserDraft(input),

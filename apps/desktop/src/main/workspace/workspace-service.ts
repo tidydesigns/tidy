@@ -239,7 +239,7 @@ export class WorkspaceService {
             "FORBIDDEN",
             "The parent stopped before this assignment could start.",
           );
-        const parent = await this.readThread(projectId, threadId);
+        const parent = await this.readThread(projectId, threadId, { includeSources: false });
         if (
           this.jobs.get(threadId)?.stopped ||
           parent.doneAt ||
@@ -252,9 +252,12 @@ export class WorkspaceService {
           );
         return parent;
       },
-      readThread: (projectId: string, threadId: string) => this.readThread(projectId, threadId),
+      readThread: (projectId: string, threadId: string) =>
+        this.readThread(projectId, threadId, { includeSources: false }),
       startThread: (input: Parameters<DesktopAPI["startThread"]>[0]) => this.startThread(input),
       stopThread: (projectId: string, threadId: string) => this.stopThread(projectId, threadId),
+      stopTaskTurn: (projectId: string, threadId: string, taskId: string) =>
+        this.stopTaskTurn(projectId, threadId, taskId),
       sendMessage: (
         input: Parameters<DesktopAPI["sendMessage"]>[0],
         guard?: Parameters<TaskHost["sendMessage"]>[1],
@@ -265,9 +268,13 @@ export class WorkspaceService {
         this.withLiveThreads(projectId, await store.threadSummaries(projectId)),
     };
     this.tasks = new TaskService(
-      new TaskStore(store.orchestrationDirectory, (task) => {
-        void this.publishTaskChange(task).catch(() => {});
-      }),
+      new TaskStore(
+        store.orchestrationDirectory,
+        (task) => {
+          void this.publishTaskChange(task).catch(() => {});
+        },
+        (projectId) => store.projects.find((project) => project.id === projectId)?.path,
+      ),
       host,
     );
     this.canvas = new CanvasService({
@@ -334,8 +341,18 @@ export class WorkspaceService {
     await this.tasks.store.setReceiver(projectId, threadId, enabled);
     await this.assertProjectAccess(projectId);
     const thread = await this.readThread(projectId, threadId);
-    this.emit({ type: "thread-summary", thread: summarizeThread(thread) });
+    this.emit({ type: "thread", thread });
     return thread;
+  }
+
+  async cancelThreadTask(projectId: string, threadId: string, taskId: string) {
+    if (this.closing) throw new Error("Tidy is closing.");
+    await this.assertProjectAccess(projectId);
+    await this.store.readThreadSummary(projectId, threadId);
+    await this.tasks.cancel(
+      { projectId, threadId, designIds: [], writable: false, signal: new AbortController().signal },
+      { task_id: taskId },
+    );
   }
 
   async readThreadTasks(input: ThreadTasksRequest) {
@@ -653,7 +670,30 @@ export class WorkspaceService {
       this.emit({ type: "designs", projectId, designs, folders });
   }
 
-  async readThread(projectId: string, threadId: string): Promise<Thread> {
+  private async withThreadSources(thread: Thread): Promise<Thread> {
+    const sources = await this.tasks.store.incomingSources(
+      thread.projectId,
+      thread.id,
+      thread.messages,
+    );
+    return {
+      ...thread,
+      messageSources: Object.fromEntries(
+        sources.map((source) => [source.messageId, { threadId: source.threadId }]),
+      ),
+    };
+  }
+
+  async readThread(
+    projectId: string,
+    threadId: string,
+    options: { includeSources?: boolean } = {},
+  ): Promise<Thread> {
+    const thread = await this.readThreadState(projectId, threadId);
+    return options.includeSources === false ? thread : this.withThreadSources(thread);
+  }
+
+  private async readThreadState(projectId: string, threadId: string): Promise<Thread> {
     const active = this.jobs.get(threadId)?.thread;
     if (active) {
       if (active.projectId !== projectId)
@@ -1457,6 +1497,7 @@ export class WorkspaceService {
           ? { attachments: attachments.map((file) => attachmentSchema.parse(file)) }
           : {}),
       });
+    if (authorize) thread.messageSources = (await this.withThreadSources(thread)).messageSources;
     thread.status = "running";
     thread.revision++;
     thread.error = undefined;
@@ -1761,7 +1802,7 @@ export class WorkspaceService {
     }
     this.jobs.delete(job.thread.id);
     job.toolsController.abort();
-    await this.tasks.finished(job.thread);
+    await this.tasks.finished(job.thread).catch(() => {});
     this.emit({ type: "thread", thread: job.thread });
     void this.refreshDesigns(job.thread.projectId).catch(() => {});
     if (request.kind === "done" && writeFailure) throw writeFailure.cause;
@@ -1825,6 +1866,15 @@ export class WorkspaceService {
   async stopThread(projectId: string, threadId: string) {
     this.requestThreadStop(projectId, threadId, true);
     await this.store.updateResumes.cancel(projectId, threadId);
+  }
+
+  async stopTaskTurn(projectId: string, threadId: string, taskId: string) {
+    const job = this.jobs.get(threadId);
+    if (!job || job.thread.projectId !== projectId || job.submission.messageId !== taskId)
+      return false;
+    this.requestThreadStop(projectId, threadId, true);
+    await this.store.updateResumes.cancel(projectId, threadId);
+    return true;
   }
 
   private requestThreadStop(projectId: string, threadId: string, notify: boolean) {

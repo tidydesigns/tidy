@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TaskStore, type TaskInput } from "./task-store";
+import { Worker } from "node:worker_threads";
+import { TaskStore, TaskStoreError, type TaskInput } from "./task-store";
 
 const stores: TaskStore[] = [];
 const directories: string[] = [];
@@ -407,4 +408,419 @@ test("private lineage and receiver grants survive restart without reparenting or
   await restored.setReceiver(input.projectId, recipient, false);
   await restored.setReceiver(input.projectId, recipient, true);
   expect(restored.receiverGrant(input.projectId, recipient)).not.toBe(grant);
+});
+
+test("fresh task views include older unfinished work without moving the history cursor", async () => {
+  const { store, input } = await fixture();
+  const active = await store.create(input);
+  await store.transition({ id: active.id, state: "running" });
+  const history = [];
+  for (let index = 0; index < 57; index++) {
+    const task = await store.create({
+      ...input,
+      requestId: randomUUID(),
+      childThreadId: randomUUID(),
+    });
+    await store.transition({ id: task.id, state: "failed" });
+    history.push(task);
+  }
+  const page = await store.threadPage(input.projectId, input.parentThreadId);
+  expect(page.tasks.find((task) => task.id === active.id)?.state).toBe("running");
+  expect(page.tasks).toHaveLength(51);
+  const older = await store.threadPage(
+    input.projectId,
+    input.parentThreadId,
+    page.nextCursor ?? undefined,
+  );
+  expect(new Set([...page.tasks, ...older.tasks].map((task) => task.id)).size).toBe(58);
+  expect(older.nextCursor).toBeNull();
+  const filtered = await store.threadPage(input.projectId, input.parentThreadId, undefined, [
+    history[0].id,
+  ]);
+  expect(filtered.tasks.map((task) => task.id)).toEqual([history[0].id]);
+});
+
+async function recover<T>(read: () => Promise<T>) {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    try {
+      return await read();
+    } catch (error) {
+      if (!(error instanceof TaskStoreError) || error.code !== "BUSY" || Date.now() > deadline)
+        throw error;
+      await Bun.sleep(10);
+    }
+  }
+}
+function currentWorker(store: TaskStore) {
+  const worker: unknown = Reflect.get(store, "worker");
+  if (!(worker instanceof Worker)) throw new Error("Expected a real storage worker.");
+  return worker;
+}
+
+test("a failed storage worker recovers on later calls without interrupting live provider work", async () => {
+  const { store, input, directory } = await fixture();
+  const task = await store.create(input);
+  await store.transition({ id: task.id, state: "running" });
+  await store.setReceiver(input.projectId, input.childThreadId, true);
+  const grant = store.receiverGrant(input.projectId, input.childThreadId);
+  const oldWorker = currentWorker(store);
+  await oldWorker.terminate();
+  expect(store.receiverGrant(input.projectId, input.childThreadId)).toBeUndefined();
+  expect(await store.get(task.id).catch((error: unknown) => error)).toMatchObject({ code: "BUSY" });
+  expect((await recover(() => store.get(task.id)))?.state).toBe("running");
+  expect(store.receiverGrant(input.projectId, input.childThreadId)).toBe(grant);
+  expect(store.parentThreadId(input.projectId, input.childThreadId)).toBe(input.parentThreadId);
+  oldWorker.emit("error", new Error("Late error from replaced worker"));
+  oldWorker.emit("exit", 1);
+  expect((await store.get(task.id))?.state).toBe("running");
+  await store.close();
+  const replacement = new TaskStore(join(directory, "private"));
+  stores.push(replacement);
+  expect((await replacement.get(task.id))?.state).toBe("interrupted");
+});
+
+test("a lost committed mutation fails once and is reconciled by its original request ID", async () => {
+  const { store, input, directory } = await fixture();
+  const worker = currentWorker(store);
+  worker.removeAllListeners("message");
+  const mutation = store.create(input).catch((error: unknown) => error);
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  let taskId: string | undefined;
+  try {
+    const deadline = Date.now() + 3000;
+    while (!taskId) {
+      const row = database
+        .query<{ id: string }, [string]>("SELECT id FROM tasks WHERE request_id = ?")
+        .get(input.requestId);
+      taskId = row?.id;
+      if (Date.now() > deadline) throw new Error("The real mutation did not commit.");
+      if (!taskId) await Bun.sleep(5);
+    }
+  } finally {
+    database.close();
+  }
+  worker.emit("error", new Error("Lost worker response"));
+  expect(await mutation).toMatchObject({ code: "STORAGE" });
+  const reconciled = await recover(() =>
+    store.forRequest(input.projectId, input.parentThreadId, input.requestId),
+  );
+  expect(reconciled?.id).toBe(taskId);
+  expect(reconciled?.state).toBe("queued");
+  expect((await store.create(input)).id).toBe(taskId);
+  expect(
+    (await store.list({ projectId: input.projectId, parentThreadId: input.parentThreadId })).tasks,
+  ).toHaveLength(1);
+});
+
+test("shutdown racing initial worker startup cannot create a replacement worker", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "tidy-store-close-race-"));
+  directories.push(directory);
+  const store = new TaskStore(directory);
+  stores.push(store);
+  const opening = store.initialize().catch((error: unknown) => error);
+  await store.close();
+  expect(await opening).toMatchObject({ code: "CLOSED" });
+  expect(await store.initialize().catch((error: unknown) => error)).toMatchObject({
+    code: "CLOSED",
+  });
+  expect(Reflect.get(store, "worker")).toBeUndefined();
+});
+
+const oldDate = "2000-01-01T00:00:00.000Z";
+async function ageTasks(directory: string, ids: string[]) {
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    const update = database.query(
+      "UPDATE tasks SET record = json_set(record, '$.updatedAt', ?, '$.createdAt', ?) WHERE id = ?",
+    );
+    database.transaction(() => {
+      for (const id of ids) update.run(oldDate, oldDate, id);
+    })();
+  } finally {
+    database.close();
+  }
+}
+
+test("maintenance retains immutable request and ownership grants while bounding rich history", async () => {
+  const { store, input, directory } = await fixture();
+  const original = {
+    ...input,
+    settings: { permissionMode: "read-only" as const },
+    designIds: [randomUUID()],
+  };
+  const task = await store.create(original);
+  await store.transition({ id: task.id, state: "running" });
+  await store.transition({ id: task.id, state: "completed", summary: "Retained until expiry" });
+  await store.delivered(task.id);
+  const undelivered = await store.create({
+    ...input,
+    requestId: randomUUID(),
+    childThreadId: randomUUID(),
+  });
+  await store.transition({ id: undelivered.id, state: "failed", error: "Not delivered" });
+  const running = await store.create({
+    ...input,
+    requestId: randomUUID(),
+    childThreadId: randomUUID(),
+  });
+  await store.transition({ id: running.id, state: "running" });
+  await ageTasks(directory, [task.id, undelivered.id, running.id]);
+  const recent = await store.create({
+    ...input,
+    requestId: randomUUID(),
+    childThreadId: randomUUID(),
+  });
+  await store.transition({ id: recent.id, state: "failed" });
+  await store.delivered(recent.id);
+  const result = await store.maintain({ before: "2999-01-01T00:00:00.000Z" });
+  expect(result.compactedTasks).toBe(1);
+  expect((await store.get(task.id))?.archived).toBe(true);
+  expect((await store.get(task.id))?.summary).toBeUndefined();
+  expect((await store.get(undelivered.id))?.error).toBe("Not delivered");
+  expect((await store.get(running.id))?.state).toBe("running");
+  expect((await store.get(recent.id))?.archived).toBeUndefined();
+  expect((await store.create(original)).id).toBe(task.id);
+  expect(
+    await store
+      .create({ ...original, prompt: "Altered old request" })
+      .catch((error: unknown) => error),
+  ).toMatchObject({ code: "REQUEST_CONFLICT" });
+  const owner = await store.forChild(input.projectId, input.childThreadId);
+  expect(owner?.id).toBe(task.id);
+  expect(owner?.settings.permissionMode).toBe("read-only");
+  expect(owner?.designIds).toEqual(original.designIds);
+  expect(
+    (
+      await store.list({
+        projectId: input.projectId,
+        parentThreadId: input.parentThreadId,
+        ids: [task.id],
+      })
+    ).tasks[0]?.archived,
+  ).toBe(true);
+  await store.close();
+  const restored = new TaskStore(join(directory, "private"));
+  stores.push(restored);
+  await restored.initialize();
+  expect(restored.parentThreadId(input.projectId, input.childThreadId)).toBe(input.parentThreadId);
+  expect(
+    (await restored.forChild(input.projectId, input.childThreadId))?.settings.permissionMode,
+  ).toBe("read-only");
+  expect((await restored.create(original)).id).toBe(task.id);
+});
+
+test("rich task capacity automatically compacts old delivered results without replaying them", async () => {
+  const { store, input, directory } = await fixture();
+  const task = await store.create(input);
+  await store.transition({ id: task.id, state: "running" });
+  await store.transition({ id: task.id, state: "completed" });
+  await store.delivered(task.id);
+  await ageTasks(directory, [task.id]);
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    const template = await store.get(task.id);
+    if (!template) throw new Error("Missing seed task.");
+    const insert = database.query("INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    database.transaction(() => {
+      for (let index = 1; index < 10_000; index++) {
+        const record = {
+          ...template,
+          id: randomUUID(),
+          requestId: randomUUID(),
+          kind: "followup",
+          sequence: index + 3,
+        };
+        insert.run(
+          record.id,
+          record.projectId,
+          record.parentThreadId,
+          record.requestId,
+          "seed-fingerprint",
+          record.state,
+          record.sequence,
+          1,
+          JSON.stringify(record),
+        );
+      }
+      database.exec("UPDATE metadata SET sequence = 10003 WHERE id = 1");
+    })();
+  } finally {
+    database.close();
+  }
+  const admitted = await store.create({
+    ...input,
+    childThreadId: randomUUID(),
+    requestId: randomUUID(),
+  });
+  expect(admitted.state).toBe("queued");
+  expect((await store.get(task.id))?.archived).toBe(true);
+  expect((await store.create(input)).id).toBe(task.id);
+});
+
+test("receipt capacity expires only old completed receipts and never forgets used request keys", async () => {
+  const { store, directory } = await fixture();
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  const pending = `canvas-${"a".repeat(64)}`;
+  const recent = `canvas-${"b".repeat(64)}`;
+  const old = `canvas-${"0".repeat(64)}`;
+  try {
+    const insert = database.query(
+      "INSERT INTO operation_receipts (key, value, updated_at) VALUES (?, ?, ?)",
+    );
+    database.transaction(() => {
+      for (let index = 0; index < 9998; index++)
+        insert.run(
+          `canvas-${index.toString(16).padStart(64, "0")}`,
+          '{"kind":"complete"}',
+          oldDate,
+        );
+      insert.run(pending, '{"kind":"pending"}', oldDate);
+      insert.run(recent, '{"kind":"complete"}', new Date().toISOString());
+    })();
+  } finally {
+    database.close();
+  }
+  const fresh = `canvas-${"c".repeat(64)}`;
+  await store.writeReceipt(fresh, { kind: "pending" });
+  expect(await store.readReceipt(old).catch((error: unknown) => error)).toMatchObject({
+    code: "RECEIPT_EXPIRED",
+  });
+  expect(
+    await store.writeReceipt(old, { kind: "pending" }).catch((error: unknown) => error),
+  ).toMatchObject({ code: "RECEIPT_EXPIRED" });
+  expect(await store.readReceipt(pending)).toEqual({ kind: "pending" });
+  expect(await store.readReceipt(recent)).toEqual({ kind: "complete" });
+  expect(await store.readReceipt(fresh)).toEqual({ kind: "pending" });
+  expect((await store.maintain({ before: "2999-01-01T00:00:00.000Z" })).expiredReceipts).toBe(100);
+  expect(await store.readReceipt(pending)).toEqual({ kind: "pending" });
+});
+
+test("incoming message attribution uses private exact content and survives rich history compaction", async () => {
+  const { store, input, directory } = await fixture();
+  const recipient = randomUUID();
+  const message = await store.create({
+    ...input,
+    kind: "message",
+    childThreadId: recipient,
+    prompt: "Exact incoming assignment",
+  });
+  const userMessage = { id: message.id, role: "user" as const, text: message.prompt };
+  expect(await store.incomingSources(input.projectId, recipient, [userMessage])).toEqual([
+    { messageId: message.id, threadId: input.parentThreadId },
+  ]);
+  expect(
+    await store.incomingSources(input.projectId, recipient, [{ ...userMessage, text: "Altered" }]),
+  ).toEqual([]);
+  expect(
+    await store.incomingSources(input.projectId, recipient, [
+      { ...userMessage, role: "assistant" },
+    ]),
+  ).toEqual([]);
+  expect(
+    await store.incomingSources(input.projectId, recipient, [
+      {
+        ...userMessage,
+        attachments: [{ id: randomUUID(), name: "Added.txt", mimeType: "text/plain", size: 0 }],
+      },
+    ]),
+  ).toEqual([]);
+  expect(await store.incomingSources(randomUUID(), recipient, [userMessage])).toEqual([]);
+  expect(await store.incomingSources(input.projectId, randomUUID(), [userMessage])).toEqual([]);
+  expect(
+    await store.incomingSources(input.projectId, recipient, [{ ...userMessage, id: randomUUID() }]),
+  ).toEqual([]);
+  await store.transition({ id: message.id, state: "running" });
+  await store.transition({ id: message.id, state: "completed" });
+  await store.delivered(message.id);
+  await ageTasks(directory, [message.id]);
+  expect((await store.maintain()).compactedTasks).toBe(1);
+  expect((await store.get(message.id))?.prompt).not.toBe(message.prompt);
+  expect(await store.incomingSources(input.projectId, recipient, [userMessage])).toEqual([
+    { messageId: message.id, threadId: input.parentThreadId },
+  ]);
+  expect(
+    await store.incomingSources(input.projectId, recipient, [{ ...userMessage, text: "Altered" }]),
+  ).toEqual([]);
+});
+
+test("receiver grants bind registered storage paths and fail closed for legacy or missing scopes", async () => {
+  const { store, input, directory } = await fixture();
+  await store.setReceiver(input.projectId, input.childThreadId, true);
+  const legacyGrant = store.receiverGrant(input.projectId, input.childThreadId);
+  await store.close();
+  const scopes = new Map<string, string>([[input.projectId, "/registered/project"]]);
+  const scoped = new TaskStore(join(directory, "private"), undefined, (id) => scopes.get(id));
+  stores.push(scoped);
+  await scoped.initialize();
+  expect(scoped.receiverGrant(input.projectId, input.childThreadId)).toBeUndefined();
+  await scoped.setReceiver(input.projectId, input.childThreadId, true);
+  const first = scoped.receiverGrant(input.projectId, input.childThreadId);
+  expect(first).toBeDefined();
+  expect(first).not.toBe(legacyGrant);
+  await scoped.setReceiver(input.projectId, input.childThreadId, true);
+  expect(scoped.receiverGrant(input.projectId, input.childThreadId)).toBe(first);
+  scopes.set(input.projectId, "/moved/project");
+  expect(scoped.receiverGrant(input.projectId, input.childThreadId)).toBeUndefined();
+  await scoped.setReceiver(input.projectId, input.childThreadId, true);
+  const moved = scoped.receiverGrant(input.projectId, input.childThreadId);
+  expect(moved).toBeDefined();
+  expect(moved).not.toBe(first);
+  scopes.delete(input.projectId);
+  expect(scoped.receiverGrant(input.projectId, input.childThreadId)).toBeUndefined();
+  expect(
+    await scoped
+      .setReceiver(input.projectId, input.childThreadId, true)
+      .catch((error: unknown) => error),
+  ).toMatchObject({ code: "NOT_FOUND" });
+  scopes.set(input.projectId, "/moved/project");
+  await scoped.close();
+  const restored = new TaskStore(join(directory, "private"), undefined, (id) => scopes.get(id));
+  stores.push(restored);
+  await restored.initialize();
+  expect(restored.receiverGrant(input.projectId, input.childThreadId)).toBe(moved);
+});
+
+test("the finite tombstone safety cap never evicts used IDs or uncertain receipts", async () => {
+  const { store, input, directory } = await fixture();
+  const task = await store.create(input);
+  await store.transition({ id: task.id, state: "running" });
+  await store.transition({ id: task.id, state: "completed" });
+  await store.delivered(task.id);
+  await ageTasks(directory, [task.id]);
+  const pending = `canvas-${"f".repeat(64)}`;
+  await store.writeReceipt(pending, { kind: "pending" });
+  const { Database } = await import("bun:sqlite");
+  const database = new Database(join(directory, "private", "tasks.sqlite"));
+  try {
+    const insert = database.query("INSERT INTO receipt_tombstones VALUES (?)");
+    database.transaction(() => {
+      for (let index = 0; index < 100_000; index++)
+        insert.run(`canvas-${index.toString(16).padStart(64, "0")}`);
+    })();
+  } finally {
+    database.close();
+  }
+  expect(await store.maintain()).toMatchObject({ capacityReached: true, compactedTasks: 0 });
+  expect((await store.get(task.id))?.archived).toBeUndefined();
+  expect((await store.create(input)).id).toBe(task.id);
+  expect(
+    await store
+      .create({ ...input, requestId: randomUUID(), childThreadId: randomUUID() })
+      .catch((error: unknown) => error),
+  ).toMatchObject({ code: "CAPACITY" });
+  expect(
+    await store.readReceipt(`canvas-${"0".repeat(64)}`).catch((error: unknown) => error),
+  ).toMatchObject({ code: "RECEIPT_EXPIRED" });
+  await store.writeReceipt(pending, { kind: "complete" });
+  expect(await store.readReceipt(pending)).toEqual({ kind: "complete" });
+  expect(
+    await store
+      .writeReceipt(`canvas-${"e".repeat(64)}`, { kind: "pending" })
+      .catch((error: unknown) => error),
+  ).toMatchObject({ code: "CAPACITY" });
 });

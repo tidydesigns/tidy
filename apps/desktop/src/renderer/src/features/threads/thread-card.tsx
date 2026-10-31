@@ -25,9 +25,11 @@ export function ThreadCard({
   repository,
   orderControls,
   childApprovalCount = 0,
+  onOpenChildApproval,
 }: {
   thread: ThreadSummary;
   childApprovalCount?: number;
+  onOpenChildApproval?(): void;
   selected: boolean;
   loaded: boolean;
   now: number;
@@ -76,6 +78,9 @@ export function ThreadCard({
         : status === "failed"
           ? "Failed"
           : "Unread response";
+  const canOpenChildApproval =
+    status === "permission" && !thread.pendingApprovalCount && Boolean(onOpenChildApproval);
+  const Status = canOpenChildApproval ? Button : "span";
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
@@ -192,7 +197,7 @@ export function ThreadCard({
           {thread.title}
         </span>
         <span
-          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-3.5 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : "max-w-[calc(100%_-_76px)]"}`}
+          className={`thread-harness flex min-w-0 items-center gap-1.5 text-xs leading-[18px] text-muted-ink [&>.model-provider-icon]:size-3.5 [&>svg]:size-3.5 [&>svg]:shrink-0 [&>span]:truncate ${status === "idle" ? "max-w-full" : status === "completed" ? "max-w-[calc(100%_-_28px)]" : status === "permission" && childApprovalCount && !thread.pendingApprovalCount ? "max-w-[calc(100%_-_116px)]" : "max-w-[calc(100%_-_76px)]"}`}
         >
           <ModelProviderIcon harness={thread.harness} />
           <span className="thread-provider-name shrink-0" title={harnessNames[thread.harness]}>
@@ -208,10 +213,20 @@ export function ThreadCard({
         </time>
       </Button>
       {status !== "idle" && (
-        <span
-          className={`thread-card-status thread-state-${status} pointer-events-none absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
-          role="status"
-          aria-label={statusLabel}
+        <Status
+          onClick={
+            canOpenChildApproval
+              ? () => {
+                  close();
+                  onOpenChildApproval?.();
+                }
+              : undefined
+          }
+          className={`thread-card-status thread-state-${status} ${canOpenChildApproval ? "cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2" : "pointer-events-none"} absolute right-2 bottom-2.5 flex max-w-[calc(100%_-_20px)] items-center gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+          role={canOpenChildApproval ? undefined : "status"}
+          aria-label={
+            canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel
+          }
           title={statusLabel}
         >
           <span className="thread-status-symbol" aria-hidden="true">
@@ -231,7 +246,7 @@ export function ThreadCard({
             )}
           </span>
           {status !== "completed" && statusLabel}
-        </span>
+        </Status>
       )}
       <Button
         className={`thread-done absolute top-[7px] right-2 flex h-[22px] min-h-[26px] min-w-11 cursor-pointer items-center justify-center gap-[3px] rounded border-0 bg-transparent px-1.5 py-[3px] text-[11px] leading-[1.5] text-muted-ink hover:text-[light-dark(#292929,#ffffff)] ${thread.doneAt ? "thread-reopen w-14" : "w-10"}`}

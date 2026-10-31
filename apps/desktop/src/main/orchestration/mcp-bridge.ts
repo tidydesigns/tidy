@@ -257,7 +257,11 @@ export class AgentMcpBridge {
                           ? { code: error.code, message: error.message.slice(0, 2000) }
                           : error instanceof TaskStoreError
                             ? {
-                                code: ["REQUEST_CONFLICT", "INVALID_STATE"].includes(error.code)
+                                code: [
+                                  "REQUEST_CONFLICT",
+                                  "INVALID_STATE",
+                                  "RECEIPT_EXPIRED",
+                                ].includes(error.code)
                                   ? "CONFLICT"
                                   : error.code === "CAPACITY"
                                     ? "CAPACITY"
@@ -271,9 +275,11 @@ export class AgentMcpBridge {
                                     ? "This request ID belongs to different input. Repeat the original input or use a new request ID."
                                     : error.code === "INVALID_STATE"
                                       ? "This assignment state changed. Read its current result before continuing."
-                                      : error.code === "CAPACITY"
-                                        ? "Local history reached its retention limit. Additional requests require storage maintenance."
-                                        : "Assignment storage could not complete this operation.",
+                                      : error.code === "RECEIPT_EXPIRED"
+                                        ? "This edit receipt expired after the retention window. Inspect the current design and use a new request ID; it cannot be replayed or undone automatically."
+                                        : error.code === "CAPACITY"
+                                          ? "Local retained history reached its safety limit. Older settled results are compacted after 30 days; preserve this project and contact support before resetting storage."
+                                          : "Assignment storage could not complete this operation.",
                               }
                             : error instanceof z.ZodError
                               ? {

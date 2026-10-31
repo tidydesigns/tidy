@@ -89,8 +89,13 @@ export function orchestrationTools(options: {
           writable: scope.writable,
           contract_version: 1,
           limits: TASK_LIMITS,
+          retention: {
+            rich_history_days: 30,
+            compact_identity_limit: 100_000,
+            receipts_expire_under_capacity_pressure: true,
+          },
           guidance:
-            "Use explicit IDs and versioned canvas reads. Edit in atomic semantic batches with expected_version and a stable request_id. Read again after conflicts. Task completion is worker-reported; verify its claims. Never approve another agent's permissions.",
+            "Use explicit IDs and versioned canvas reads. Edit in atomic semantic batches with expected_version and a stable request_id. Read again after conflicts. Task completion is worker-reported; verify its claims. Never approve another agent's permissions. Delegates share the registered execution checkout; coordinate native file writes explicitly. Old delivered history may be compacted after 30 days; expired canvas receipts cannot be replayed or undone.",
         };
       },
     ),

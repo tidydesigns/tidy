@@ -174,8 +174,10 @@ const ConversationEntry = memo(function ConversationEntry({
   tasks,
   summaries,
   onOpenThread,
+  source,
 }: {
   message: Message;
+  source?: { threadId: string };
   activities: NonNullable<Thread["toolActivities"]>;
   active: boolean;
   streaming: boolean;
@@ -188,6 +190,12 @@ const ConversationEntry = memo(function ConversationEntry({
   summaries: ReadonlyMap<string, ThreadSummary>;
   onOpenThread?: (projectId: string, threadId: string) => void;
 }) {
+  const cancelTask = useCallback(
+    async (projectId: string, taskId: string) => {
+      await api.cancelThreadTask?.(projectId, threadId, taskId);
+    },
+    [api, threadId],
+  );
   const register = useCallback(
     (node: HTMLDivElement | null) => {
       if (node) nodes.set(message.id, node);
@@ -207,8 +215,23 @@ const ConversationEntry = memo(function ConversationEntry({
       >
         <article
           className={`message message-${message.role} text-[15px] leading-[1.65] wrap-anywhere ${message.role === "user" ? "rounded-[12px_12px_4px_12px] bg-subtle-fill px-4 py-3" : "mt-6 mb-7 text-[light-dark(#292929,#e2e2e2)]"}`}
-          aria-label={message.role === "user" ? "Your message" : "Assistant message"}
+          aria-label={
+            source
+              ? "Work from another thread"
+              : message.role === "user"
+                ? "Your message"
+                : "Assistant message"
+          }
         >
+          {source && (
+            <Button
+              className="mb-2 max-w-full truncate text-xs text-muted-ink"
+              onClick={() => onOpenThread?.(projectId, source.threadId)}
+              disabled={!onOpenThread}
+            >
+              From {summaries.get(source.threadId)?.title ?? "another thread"}
+            </Button>
+          )}
           <MessageBody
             message={message}
             api={api}
@@ -259,6 +282,7 @@ const ConversationEntry = memo(function ConversationEntry({
           summaries={summaries}
           projectId={projectId}
           onOpenThread={onOpenThread}
+          onCancel={api.cancelThreadTask ? cancelTask : undefined}
         />
       ) : null}
     </div>
@@ -373,6 +397,13 @@ export const Conversation = memo(function Conversation({
     }
     return groups;
   }, [assignments.tasks, thread?.messages]);
+  const taskThreadId = thread?.id;
+  const cancelTask = useCallback(
+    async (projectId: string, taskId: string) => {
+      if (taskThreadId) await api.cancelThreadTask?.(projectId, taskThreadId, taskId);
+    },
+    [api, taskThreadId],
+  );
   const earlierAssignments = assignments.tasks.filter(
     (task) => !task.originatingMessageId || !assignmentsByMessage.has(task.originatingMessageId),
   );
@@ -597,6 +628,7 @@ export const Conversation = memo(function Conversation({
             <ConversationEntry
               key={message.id}
               message={message}
+              source={thread.messageSources?.[message.id]}
               activities={toolsByTurn.get(message.id) ?? emptyActivities}
               active={active}
               streaming={message.role === "assistant" && message.id === streamingMessage}
@@ -616,6 +648,7 @@ export const Conversation = memo(function Conversation({
               summaries={childSummaries}
               projectId={thread.projectId}
               onOpenThread={onOpenThread}
+              onCancel={api.cancelThreadTask ? cancelTask : undefined}
             />
           )}
           {assignments.nextCursor !== null && (

@@ -3562,9 +3562,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         ).click();
         await settle();
       };
-      await select("Allow work");
+      await select("Allow other threads");
       check(trigger().textContent?.includes("allowed"), "Permission waited for persistence");
-      await select("Block work");
+      await select("Block other threads");
       check(
         trigger().textContent?.includes("blocked"),
         "Rapid reversal did not update immediately",
@@ -3779,6 +3779,333 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
           host.querySelectorAll('.agent-task[data-kind="followup"]').length === 1,
         "Destination did not advance to its active follow-up",
       );
+    },
+  );
+
+  await run(
+    "agent rows expose actionable states, focus queued work and recover individual stop failures",
+    async (root) => {
+      const child = makeThread({ count: 2 });
+      child.title = "Visual review";
+      const queuedName = `Queued ${"layout review ".repeat(12)}`.slice(0, 160);
+      let tasks: ThreadTask[] = [
+        {
+          id: crypto.randomUUID(),
+          childThreadId: crypto.randomUUID(),
+          sequence: 1,
+          label: queuedName,
+          state: "queued",
+          kind: "initial",
+          harness: "codex",
+          createdAt: timestamp,
+        },
+        {
+          id: crypto.randomUUID(),
+          childThreadId: child.id,
+          sequence: 2,
+          label: "Review layout",
+          state: "running",
+          kind: "initial",
+          harness: "codex",
+          createdAt: timestamp,
+        },
+      ];
+      const opened: string[] = [];
+      const requests: {
+        project: string;
+        taskId: string;
+        resolve(): void;
+        reject(error: Error): void;
+      }[] = [];
+      const requestCount = () => requests.length;
+      const summaries = new Map([
+        [child.id, { ...summarizeThread(child), pendingApprovalCount: 1 }],
+      ]);
+      const render = () =>
+        flushSync(() =>
+          root.render(
+            <AgentTasks
+              tasks={tasks}
+              summaries={summaries}
+              projectId={projectId}
+              onOpenThread={(_project, id) => opened.push(id)}
+              onCancel={(project, taskId) =>
+                new Promise<void>((resolve, reject) => {
+                  requests.push({ project, taskId, resolve, reject });
+                })
+              }
+            />,
+          ),
+        );
+      const previousWidth = host.style.width;
+      host.style.width = "320px";
+      try {
+        render();
+        await settle();
+        const queued = required(
+          host.querySelector<HTMLButtonElement>(`[aria-label="${queuedName} · Queued"] button`),
+          "Queued identity",
+        );
+        const queuedGroup = required(queued.closest<HTMLElement>('[role="group"]'), "Queued row");
+        queuedGroup.focus();
+        check(
+          document.activeElement === queuedGroup && queuedGroup.tabIndex === 0,
+          "Queued identity could not receive keyboard focus",
+        );
+        check(
+          queuedGroup.getAttribute("aria-label")?.includes("Queued") &&
+            queuedGroup.textContent?.includes(queuedName),
+          "Queued row did not expose its identity and state",
+        );
+        queued.click();
+        check(opened.length === 0, "Queued identity opened a nonexistent child");
+        const approval = required(
+          host.querySelector<HTMLButtonElement>('[aria-label="Visual review · Needs approval"]'),
+          "Specific child approval",
+        );
+        check(
+          approval.textContent?.includes("Needs approval"),
+          "Approval was available only in a tooltip",
+        );
+        const childGroup = required(approval.closest<HTMLElement>('[role="group"]'), "Child row");
+        check(
+          childGroup
+            .querySelector('[role="status"]')
+            ?.textContent?.includes("Visual review · Needs approval"),
+          "Live status omitted the affected child's identity",
+        );
+        const stop = required(
+          queuedGroup.querySelector<HTMLButtonElement>(`[aria-label="Stop ${queuedName}"]`),
+          "Stop queued assignment",
+        );
+        stop.focus();
+        check(document.activeElement === stop, "Queued stop action was not keyboard reachable");
+        stop.click();
+        await settle();
+        check(
+          requestCount() === 1 &&
+            requests[0].taskId === tasks[0].id &&
+            requests[0].project === projectId,
+          "Stop did not target exactly the owned task",
+        );
+        check(
+          stop.disabled && queuedGroup.textContent?.includes("Stopping"),
+          "Stop did not respond optimistically",
+        );
+        stop.click();
+        check(requestCount() === 1, "Pending cancellation was submitted twice");
+        const childStop = required(
+          childGroup.querySelector<HTMLButtonElement>('[aria-label="Stop Visual review"]'),
+          "Independent stop action",
+        );
+        check(!childStop.disabled, "Stopping one assignment blocked another");
+        childStop.click();
+        await settle();
+        check(
+          requestCount() === 2 && requests[1].taskId === tasks[1].id,
+          "The next stop targeted the wrong assignment",
+        );
+        check(opened.length === 0, "Stopping an assignment also opened its transcript");
+        requests[0].reject(new Error("Synthetic cancellation failure"));
+        await settle();
+        const retry = required(
+          queuedGroup.querySelector<HTMLButtonElement>(
+            `[aria-label="Retry stopping ${queuedName}"]`,
+          ),
+          "Retry cancellation",
+        );
+        check(
+          !retry.disabled &&
+            queuedGroup.querySelector('[role="alert"]')?.textContent?.includes("Could not stop"),
+          "Cancellation failure had no recovery",
+        );
+        check(
+          queued.textContent?.includes("Queued") && !queued.textContent?.includes("Stopping"),
+          "Failed cancellation hid the actual task state",
+        );
+        retry.click();
+        await settle();
+        check(
+          requestCount() === 3 && requests[2].taskId === tasks[0].id,
+          "Retry changed the cancellation target",
+        );
+        requests[1].resolve();
+        requests[2].resolve();
+        tasks = tasks.map((task) => ({
+          ...task,
+          state: "cancelled",
+          sequence: task.sequence + 10,
+        }));
+        render();
+        await settle();
+        check(
+          host.querySelectorAll(".agent-task-stop").length === 0,
+          "Terminal assignments retained stop controls",
+        );
+        check(
+          queuedGroup.textContent?.includes("Stopped") &&
+            queuedGroup.querySelector('[role="status"]')?.textContent?.includes("Stopped"),
+          "Confirmed cancellation was not visible or announced",
+        );
+        check(
+          queuedGroup.scrollWidth <= queuedGroup.clientWidth + 1,
+          "Long queued identity overflowed a narrow conversation",
+        );
+      } finally {
+        host.style.width = previousWidth;
+        for (const request of requests) request.resolve();
+      }
+    },
+  );
+
+  await run(
+    "incoming work links its source and conversation controls cancel only their owned task",
+    async (root) => {
+      const sender = makeThread({ count: 2 });
+      sender.title = "Design coordinator";
+      const recipient = makeThread({ count: 2 });
+      recipient.messageSources = { [recipient.messages[0].id]: { threadId: sender.id } };
+      const task: ThreadTask = {
+        id: crypto.randomUUID(),
+        childThreadId: crypto.randomUUID(),
+        sequence: 1,
+        label: "Queued typography review",
+        state: "queued",
+        kind: "initial",
+        harness: "codex",
+        createdAt: timestamp,
+        originatingMessageId: recipient.messages[0].id,
+      };
+      const opened: string[] = [];
+      const cancellations: string[][] = [];
+      const api: DesktopAPI = {
+        ...nativeAPI,
+        readThreadTasks: async () => ({ parent: null, tasks: [task], nextCursor: null }),
+        cancelThreadTask: async (project, parent, id) => {
+          cancellations.push([project, parent, id]);
+        },
+      };
+      flushSync(() =>
+        root.render(
+          <Conversation
+            thread={recipient}
+            identity={recipient.id}
+            api={api}
+            active
+            summaries={[summarizeThread(sender)]}
+            onOpenThread={(_project, id) => opened.push(id)}
+          />,
+        ),
+      );
+      await until(
+        () => Boolean(host.querySelector('[aria-label="Work from another thread"]')),
+        "Incoming source projection",
+      );
+      const source = required(
+        [...host.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
+          button.textContent?.includes("From Design coordinator"),
+        ),
+        "Source thread link",
+      );
+      source.click();
+      check(opened.length === 1 && opened[0] === sender.id, "Source link opened the wrong thread");
+      await until(
+        () => Boolean(host.querySelector(`[aria-label="Stop ${task.label}"]`)),
+        "Queued stop control",
+      );
+      required(
+        host.querySelector<HTMLButtonElement>(`[aria-label="Stop ${task.label}"]`),
+        "Queued stop",
+      ).click();
+      await settle();
+      check(
+        cancellations.length === 1 &&
+          cancellations[0].join(":") === [recipient.projectId, recipient.id, task.id].join(":"),
+        "Conversation cancellation lost its parent/task identity",
+      );
+      check(opened.length === 1, "Stopping work navigated away from the current thread");
+    },
+  );
+
+  await run("sidebar approval status and touch actions retain separate hit areas", async (root) => {
+    const previousWidth = host.style.width;
+    host.style.width = "250px";
+    try {
+      flushSync(() =>
+        root.render(
+          <ThreadCard
+            thread={summarizeThread(makeThread({ count: 2 }))}
+            selected
+            loaded
+            now={Date.now()}
+            pending={false}
+            childApprovalCount={1}
+            onSelect={() => {}}
+            onDone={() => {}}
+          />,
+        ),
+      );
+      await settle();
+      const status = required(
+        host.querySelector<HTMLElement>(".thread-card-status"),
+        "Agent approval status",
+      );
+      const done = required(host.querySelector<HTMLElement>(".thread-done"), "Thread done action");
+      if (matchMedia("(hover: none), (pointer: coarse)").matches) {
+        const a = status.getBoundingClientRect(),
+          b = done.getBoundingClientRect();
+        check(
+          a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom,
+          "Approval status overlapped the Done control",
+        );
+      }
+    } finally {
+      host.style.width = previousWidth;
+    }
+  });
+
+  await run(
+    "parent approval action reaches its child without changing normal thread navigation",
+    async (root) => {
+      let parentOpens = 0,
+        childOpens = 0;
+      const counts = () => ({ parent: parentOpens, child: childOpens });
+      const thread = makeThread({ count: 2 });
+      flushSync(() =>
+        root.render(
+          <ThreadCard
+            thread={summarizeThread(thread)}
+            selected
+            loaded
+            now={Date.now()}
+            pending={false}
+            childApprovalCount={1}
+            onSelect={() => {
+              parentOpens++;
+            }}
+            onDone={() => {}}
+            onOpenChildApproval={() => {
+              childOpens++;
+            }}
+          />,
+        ),
+      );
+      await settle();
+      const approval = required(
+        host.querySelector<HTMLButtonElement>(
+          `[aria-label="Open agent approval for ${thread.title}"]`,
+        ),
+        "Direct child approval action",
+      );
+      approval.focus();
+      check(document.activeElement === approval, "Child approval was not keyboard reachable");
+      approval.click();
+      check(counts().child === 1 && counts().parent === 0, "Child approval selected the wrong destination");
+      required(
+        host.querySelector<HTMLButtonElement>(".thread-select"),
+        "Parent destination",
+      ).click();
+      check(counts().parent === 1 && counts().child === 1, "Normal parent navigation changed");
     },
   );
 

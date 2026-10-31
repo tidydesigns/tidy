@@ -39,12 +39,14 @@ export class CanvasRenderer {
       const height = Math.max(1, Math.min(4096, Math.ceil(root.box.height)));
       if (width * height > 16_000_000)
         throw new AgentOperationError("BUSY", "Preview exceeds the pixel limit.");
-      const markup = await this.compute.renderMarkup({
-        document: snapshot.document,
-        rootId: snapshot.rootId,
-        assets: snapshot.assets,
-        width,
-      });
+      const markup = await untilAborted(snapshot.signal, () =>
+        this.compute.renderMarkup({
+          document: snapshot.document,
+          rootId: snapshot.rootId,
+          assets: snapshot.assets,
+          width,
+        }),
+      );
       snapshot.signal.throwIfAborted();
       const browser = await untilAborted(snapshot.signal, () => this.runtime.get());
       snapshot.signal.throwIfAborted();

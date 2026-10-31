@@ -286,6 +286,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
     readThread: (projectId, threadId) => scopedRequest("read-thread", { projectId, threadId }),
     setThreadWorkPermission: (projectId, threadId, enabled) =>
       scopedRequest("set-thread-work-permission", { projectId, threadId, enabled }),
+    cancelThreadTask: (projectId, threadId, taskId) =>
+      scopedRequest("cancel-thread-task", { projectId, threadId, taskId }),
     readThreadTasks: (input) => scopedRequest("thread-tasks", input),
     warmThread: (input) => scopedRequest("warm-thread", input),
     startThread: (input) => scopedRequest("start-thread", input),

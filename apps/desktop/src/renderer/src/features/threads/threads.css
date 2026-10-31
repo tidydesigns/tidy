@@ -540,6 +540,10 @@
 }
 
 @media (hover: none), (pointer: coarse) {
+  .thread-card-status {
+    right: 70px;
+    max-width: calc(100% - 92px);
+  }
   .thread-done {
     position: static;
     margin: 0 6px 6px auto;

@@ -22,8 +22,8 @@ export function ThreadWorkPermission({ api, thread }: { api: DesktopAPI; thread:
       triggerClassName="quiet-button text-xs shrink-0"
       placement="bottom"
       options={[
-        { value: "blocked", label: "Block work from other threads" },
-        { value: "allowed", label: "Allow work from other threads" },
+        { value: "blocked", label: "Block other threads from starting work here" },
+        { value: "allowed", label: "Allow other threads to start work here" },
       ]}
       onChange={(value) => {
         const next = value === "allowed";

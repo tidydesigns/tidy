@@ -76,6 +76,7 @@ export const workspaceResponseSchemas = {
   "read-thread": liveThreadSchema,
   "set-thread-work-permission": liveThreadSchema,
   "thread-tasks": threadTasksSchema,
+  "cancel-thread-task": z.void(),
   "warm-thread": z.void(),
   "start-thread": liveThreadSchema,
   "send-message": liveThreadSchema,

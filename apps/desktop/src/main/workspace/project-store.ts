@@ -32,6 +32,7 @@ import { summarizeThread } from "../../shared/models/thread-updates";
 import { ThreadAuthority } from "./thread-authority";
 import { UpdateResumes } from "./update-resumes";
 import { QueueAuthority } from "./queue-authority";
+import { ProjectIdentity } from "./project-identity";
 import type { QueuedMessage } from "../../shared/contracts/message-queue";
 import { toolLogSize } from "../../shared/contracts/tool-activity";
 import { readLocalFile } from "../platform/local-files";
@@ -109,6 +110,7 @@ export class ProjectStore {
   private authority: ThreadAuthority;
   readonly updateResumes: UpdateResumes;
   private queueAuthority: QueueAuthority;
+  private projectIdentity: ProjectIdentity;
   constructor(
     private directory: string,
     private assetBase = "/__tidy/assets",
@@ -117,6 +119,7 @@ export class ProjectStore {
     this.authority = new ThreadAuthority(join(directory, "thread-authority"));
     this.updateResumes = new UpdateResumes(directory);
     this.queueAuthority = new QueueAuthority(join(directory, "queue-authority"));
+    this.projectIdentity = new ProjectIdentity(join(directory, "project-identities"));
     this.processState = new PrivateState(join(directory, "process-state"));
     this.orchestrationDirectory = join(directory, "orchestration");
   }
@@ -149,6 +152,7 @@ export class ProjectStore {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     await this.authority.initialize();
     await this.queueAuthority.initialize();
+    await this.projectIdentity.initialize();
     await this.processState.initialize();
     try {
       this.registry = registrySchema.parse(
@@ -157,6 +161,9 @@ export class ProjectStore {
     } catch (error) {
       if (!missing(error)) throw new Error("The local project registry could not be read.");
     }
+    for (const project of this.registry.projects)
+      if (!(await this.projectIdentity.claim(project.id, project.path)))
+        throw new Error("The private project identity does not match its registered directory.");
   }
 
   get draftImportDirectory() {
@@ -212,17 +219,11 @@ export class ProjectStore {
           .object({ version: z.literal(1), id })
           .parse(await this.read(metadataPath)).id;
       }
-      const previous = this.projects.find((item) => item.id === project.id);
-      if (previous && previous.path !== path) {
-        const previousPath = await realpath(previous.path).catch((error) => {
-          if (missing(error)) return null;
-          throw error;
-        });
-        if (previousPath && previousPath !== path) {
-          // A copied identity must not redirect a registered project's active jobs or data.
+      if (!(await this.projectIdentity.claim(project.id, path))) {
+        do {
           project.id = randomUUID();
-          await this.atomicWrite(metadataPath, { version: 1, id: project.id });
-        }
+        } while (!(await this.projectIdentity.claim(project.id, path)));
+        await this.atomicWrite(metadataPath, { version: 1, id: project.id });
       }
       if (!cloudName && this.projects.some((project) => project.path === path && project.cloud))
         throw new Error("Open this cloud workspace through your account instead.");

@@ -1462,13 +1462,15 @@ export function App({
     (selectedSummary?.messageCount === undefined ||
       thread.messages.length === selectedSummary.messageCount);
   const childApprovals = useMemo(() => {
-    const counts = new Map<string, number>();
+    const counts = new Map<string, { count: number; threadId: string }>();
     for (const item of snapshot?.threads ?? []) {
-      if (item.parentThreadId && item.pendingApprovalCount)
-        counts.set(
-          item.parentThreadId,
-          (counts.get(item.parentThreadId) ?? 0) + item.pendingApprovalCount,
-        );
+      if (item.parentThreadId && item.pendingApprovalCount) {
+        const previous = counts.get(item.parentThreadId);
+        counts.set(item.parentThreadId, {
+          count: (previous?.count ?? 0) + item.pendingApprovalCount,
+          threadId: previous?.threadId ?? item.id,
+        });
+      }
     }
     return counts;
   }, [snapshot?.threads]);
@@ -1480,7 +1482,15 @@ export function App({
           threadNameOverrides[item.id] ? { ...item, title: threadNameOverrides[item.id] } : item
         }
         onRenameRequested={() => setEditingThreadName(item.id)}
-        childApprovalCount={childApprovals.get(item.id)}
+        childApprovalCount={childApprovals.get(item.id)?.count}
+        onOpenChildApproval={
+          childApprovals.has(item.id)
+            ? () => {
+                const approval = childApprovals.get(item.id);
+                if (approval) selectThread(item.projectId, approval.threadId);
+              }
+            : undefined
+        }
         orderControls={orderControls}
         selected={mode === "code" && sidebarThreadId === item.id}
         loaded={selectedThreadId === item.id && selectedThreadLoaded}

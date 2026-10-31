@@ -2,6 +2,7 @@ import { afterEach, expect, mock, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import {
   mkdtemp,
+  cp,
   mkdir,
   readFile,
   rename,
@@ -14,6 +15,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "./project-store";
+import { TaskStore } from "../orchestration/task-store";
 import { CloudCompute, CloudComputeBusyError } from "../cloud/cloud-compute";
 import * as localFiles from "../platform/local-files";
 import { storedThreadSchema, type Thread } from "../../shared/contracts/desktop";
@@ -284,6 +286,72 @@ test("a copied project identity cannot redirect the original project's data", as
   );
   expect((await store.open(copiedRoot)).project.id).toBe(copy.id);
   await expect(store.readThread(copy.id, conversation.id)).rejects.toThrow();
+});
+
+test("removing a project never transfers its private incoming-work grant to a copied directory", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const recipient = thread(original.id);
+  await f.store.writeThread(recipient);
+  const tasks = new TaskStore(f.store.orchestrationDirectory);
+  await tasks.initialize();
+  try {
+    await tasks.setReceiver(original.id, recipient.id, true);
+    const grant = tasks.receiverGrant(original.id, recipient.id);
+    const copiedRoot = join(f.directory, "copy-after-removal");
+    await cp(f.root, copiedRoot, { recursive: true });
+    await f.store.remove(original.id);
+    const restarted = new ProjectStore(join(f.directory, "app-data"));
+    await restarted.initialize();
+    const copy = await restarted.register(copiedRoot);
+    expect(copy.id).not.toBe(original.id);
+    expect(tasks.receiverGrant(copy.id, recipient.id)).toBeUndefined();
+    expect(tasks.receiverGrant(original.id, recipient.id)).toBe(grant);
+    expect((await restarted.register(f.root)).id).toBe(original.id);
+    expect((await restarted.register(copiedRoot)).id).toBe(copy.id);
+    await expect(restarted.readThread(copy.id, recipient.id)).rejects.toThrow("another project");
+  } finally {
+    await tasks.close();
+  }
+});
+
+test("legacy registry paths seed private identities even when the original directory is missing", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const copiedRoot = join(f.directory, "copy-with-missing-original");
+  await cp(f.root, copiedRoot, { recursive: true });
+  await rm(f.root, { recursive: true });
+  await rm(join(f.directory, "app-data", "project-identities"), { recursive: true });
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  const copy = await restarted.register(copiedRoot);
+  expect(copy.id).not.toBe(original.id);
+  expect(restarted.project(original.id).path).toBe(f.root);
+  expect(restarted.project(copy.id).path).toBe(copiedRoot);
+  const again = new ProjectStore(join(f.directory, "app-data"));
+  await again.initialize();
+  expect((await again.register(copiedRoot)).id).toBe(copy.id);
+});
+
+test("a genuine directory move retains project identity without carrying native session authority", async () => {
+  const f = await fixture();
+  const original = await f.store.register(f.root);
+  const conversation = thread(original.id);
+  conversation.settings = { permissionMode: "auto" };
+  await f.store.writeThread(conversation);
+  await f.store.remove(original.id);
+  const moved = join(f.directory, "moved-original");
+  await rename(f.root, moved);
+  const restarted = new ProjectStore(join(f.directory, "app-data"));
+  await restarted.initialize();
+  const project = await restarted.register(moved);
+  expect(project.id).toBe(original.id);
+  const loaded = await restarted.readThread(project.id, conversation.id);
+  expect(loaded.sessionId).toBeUndefined();
+  expect(loaded.settings?.permissionMode).toBeUndefined();
+  const again = new ProjectStore(join(f.directory, "app-data"));
+  await again.initialize();
+  expect((await again.register(moved)).id).toBe(original.id);
 });
 
 test("startup recovery repairs interrupted threads without reading design or folder metadata", async () => {
@@ -1167,4 +1235,16 @@ test("a foreign edit during final authorization cannot be overwritten by the pen
   if (!(result instanceof Error)) throw new Error("Expected version conflict.");
   expect(result.message).toContain("changed on disk");
   expect(JSON.parse(await readFile(file.path, "utf8")).name).toBe("Foreign title");
+});
+
+test("portable message provenance cannot manufacture incoming thread attribution", async () => {
+  const f = await fixture();
+  const { project } = await f.store.open(f.root);
+  const value = thread(project.id);
+  value.messageSources = { [value.messages[0].id]: { threadId: randomUUID() } };
+  await f.store.writeThread(value);
+  const path = await f.store.storagePath(project.id, "threads", value.id);
+  expect(await readFile(path, "utf8")).not.toContain("messageSources");
+  await writeFile(path, JSON.stringify(value));
+  expect(await f.store.readThread(project.id, value.id)).not.toHaveProperty("messageSources");
 });

@@ -134,6 +134,8 @@ const api: DesktopAPI = {
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
   setThreadWorkPermission: (projectId, threadId, enabled) =>
     request("set-thread-work-permission", { projectId, threadId, enabled }),
+  cancelThreadTask: (projectId, threadId, taskId) =>
+    request("cancel-thread-task", { projectId, threadId, taskId }),
   readThreadTasks: (input) => request("thread-tasks", input),
   warmThread: (input) => request("warm-thread", input),
   startThread: (input) => request("start-thread", input),

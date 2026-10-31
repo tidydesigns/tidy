@@ -371,40 +371,45 @@ test("a tool deadline returns a structured failure before the transport closes",
   expect(cancelled?.aborted).toBe(true);
 });
 
-test("request ID conflicts are actionable nonretryable protocol errors", async () => {
-  const bridge = new AgentMcpBridge({
-    tools: () => [
-      {
-        name: "task_write",
-        description: "Write assignment",
-        inputSchema: z.object({}),
-        invoke: async () => {
-          throw new TaskStoreError("REQUEST_CONFLICT", "Private storage detail");
+for (const errorCode of ["REQUEST_CONFLICT", "RECEIPT_EXPIRED"] as const) {
+  test(`${errorCode} produces an actionable nonretryable protocol error`, async () => {
+    const bridge = new AgentMcpBridge({
+      tools: () => [
+        {
+          name: "task_write",
+          description: "Write assignment",
+          inputSchema: z.object({}),
+          invoke: async () => {
+            throw new TaskStoreError(errorCode, "Private storage detail");
+          },
         },
+      ],
+    });
+    bridges.push(bridge);
+    const connection = await bridge.session({
+      projectId: "project",
+      threadId: "thread",
+      designIds: [],
+      writable: true,
+      authorize: async () => {},
+    });
+    const result = await payload(
+      await request(connection, {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "task_write", arguments: {} },
+      }),
+    );
+    expect(result).toMatchObject({
+      result: {
+        isError: true,
+        structuredContent: { error: { code: "CONFLICT", retryable: false } },
       },
-    ],
+    });
+    expect(JSON.stringify(result)).not.toContain("Private storage detail");
   });
-  bridges.push(bridge);
-  const connection = await bridge.session({
-    projectId: "project",
-    threadId: "thread",
-    designIds: [],
-    writable: true,
-    authorize: async () => {},
-  });
-  const result = await payload(
-    await request(connection, {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: "task_write", arguments: {} },
-    }),
-  );
-  expect(result).toMatchObject({
-    result: { isError: true, structuredContent: { error: { code: "CONFLICT", retryable: false } } },
-  });
-  expect(JSON.stringify(result)).not.toContain("Private storage detail");
-});
+}
 
 test("malformed tool outputs fail their advertised schema without leaking implementation details", async () => {
   const bridge = new AgentMcpBridge({

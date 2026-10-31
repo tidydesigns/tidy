@@ -38,7 +38,7 @@ export const threadTaskSchema = z.object({
   error: z.string().max(1000).optional(),
 });
 export const threadTasksPageSchema = z.object({
-  tasks: z.array(threadTaskSchema).max(50),
+  tasks: z.array(threadTaskSchema).max(100),
   nextCursor: z.number().int().positive().nullable(),
 });
 export const threadTasksSchema = threadTasksPageSchema.extend({
