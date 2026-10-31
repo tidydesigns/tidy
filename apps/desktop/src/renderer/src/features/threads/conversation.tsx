@@ -453,13 +453,16 @@ export const Conversation = memo(function Conversation({
     align();
   }, []);
 
-  useLayoutEffect(() => {
-    if (!active) {
+  useLayoutEffect(
+    () => () => {
       setPreview(null);
       cancelJump();
-      return;
-    }
-    if (!thread || !viewport.current) return;
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!active || !thread || !viewport.current) return;
     const user = turns.at(-1)?.id;
     if (!initialized.current) {
       const saved = positions.get(identity);
