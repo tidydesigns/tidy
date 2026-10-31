@@ -23,7 +23,12 @@ export const remoteRequestSchema = z
   .strict();
 export type RemoteRequest = z.infer<typeof remoteRequestSchema>;
 export const remoteFrameSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("hello"), protocol: z.literal(3), hostId: z.string().uuid() }),
+  z.object({
+    type: z.literal("hello"),
+    protocol: z.literal(3),
+    hostId: z.string().uuid(),
+    capabilities: z.array(z.string()).optional(),
+  }),
   z.object({ type: z.literal("result"), id: z.string().uuid(), response: z.unknown() }),
   z.object({ type: z.literal("event"), event: desktopEventSchema }),
 ]);

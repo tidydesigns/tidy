@@ -17,6 +17,7 @@ import { SessionStore } from "./session-store";
 
 export const MAX_REMOTE_BYTES = 32 * 1024 * 1024;
 const DRAIN_TIMEOUT_MS = 30_000;
+const hostCapabilities = ["browser-v2", "browser-draft-discard", "thread-naming"];
 export function createRemoteHost({
   service,
   identity,
@@ -120,7 +121,7 @@ export function createRemoteHost({
       if (request.method === "GET" && request.url === "/health")
         return send(200, {
           ...identity,
-          capabilities: ["browser-v2", "browser-draft-discard"],
+          capabilities: hostCapabilities,
           protocol: 3,
           activeRuns: service.activeRunCount,
         });
@@ -210,7 +211,12 @@ export function createRemoteHost({
           client.on("pong", () => alive.add(client));
           client.on("error", () => {});
           client.on("close", () => clients.delete(client));
-          send(client, { type: "hello", protocol: 3, hostId: identity.hostId });
+          send(client, {
+            type: "hello",
+            protocol: 3,
+            hostId: identity.hostId,
+            capabilities: hostCapabilities,
+          });
           let pending = 0;
           client.on("message", (data, binary) => {
             if (binary || ++pending > 64) {
