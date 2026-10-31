@@ -629,61 +629,64 @@ test("interrupt waits for the native turn to start after its early acceptance ac
   }
 });
 
-test("OpenCode preserves selected model, native command and image inputs and reports turn usage", async () => {
-  const cwd = await mkdtemp(join(directory, "inputs-"));
-  const session = new HarnessSession({
-    harness: "opencode",
-    executable,
-    cwd,
-    settings: { model: "fixture/model" },
-  });
-  const updates: HarnessUpdate[] = [];
-  try {
-    await session.start({
-      prompt: "Project context priced /review file",
-      skill: {
-        invocation: { kind: "command", name: "review", description: "Review" },
-        prompt: "/review file",
-        context: "Project context priced",
-      },
-      images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
-      onUpdate: (update) => updates.push(update),
-    }).done;
-    const recorded = await events(cwd);
-    expect(
-      recorded.find((event) => event.method === "session/set_config_option")?.value.params,
-    ).toMatchObject({ configId: "model", value: "fixture/model" });
-    expect(recorded.find((event) => event.method === "session/prompt")?.value.params).toMatchObject(
-      {
+test.each(["/", "$"])(
+  "OpenCode preserves selected model, %s command and image inputs and reports turn usage",
+  async (prefix) => {
+    const cwd = await mkdtemp(join(directory, "inputs-"));
+    const session = new HarnessSession({
+      harness: "opencode",
+      executable,
+      cwd,
+      settings: { model: "fixture/model" },
+    });
+    const updates: HarnessUpdate[] = [];
+    try {
+      await session.start({
+        prompt: "Project context priced /review file",
+        skill: {
+          invocation: { kind: "command", name: "review", description: "Review" },
+          prompt: `${prefix}review file`,
+          context: "Project context priced",
+        },
+        images: [{ path: join(cwd, "image.png"), mimeType: "image/png", data: "aW1hZ2U=" }],
+        onUpdate: (update) => updates.push(update),
+      }).done;
+      const recorded = await events(cwd);
+      expect(
+        recorded.find((event) => event.method === "session/set_config_option")?.value.params,
+      ).toMatchObject({ configId: "model", value: "fixture/model" });
+      expect(
+        recorded.find((event) => event.method === "session/prompt")?.value.params,
+      ).toMatchObject({
         prompt: [
           { type: "text", text: "/review file\n\nProject context priced" },
           { type: "image", mimeType: "image/png", data: "aW1hZ2U=" },
         ],
-      },
-    );
-    expect(updates.find((update) => update.type === "usage")).toMatchObject({
-      cumulative: false,
-      usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8, costUSD: 0.25 },
-    });
-    const followUp: HarnessUpdate[] = [];
-    await session.start({
-      prompt: "priced follow-up",
-      onUpdate: (update) => followUp.push(update),
-    }).done;
-    expect(followUp.find((update) => update.type === "usage")).toMatchObject({
-      cumulative: false,
-      usage: { costUSD: 0.25 },
-    });
-    const next: HarnessUpdate[] = [];
-    await session.start({ prompt: "Continue", onUpdate: (update) => next.push(update) }).done;
-    expect(next.find((update) => update.type === "usage")).toMatchObject({
-      usage: { costUSD: undefined },
-    });
-  } finally {
-    session.close();
-    await session.done;
-  }
-});
+      });
+      expect(updates.find((update) => update.type === "usage")).toMatchObject({
+        cumulative: false,
+        usage: { inputTokens: 120, cachedInputTokens: 20, outputTokens: 8, costUSD: 0.25 },
+      });
+      const followUp: HarnessUpdate[] = [];
+      await session.start({
+        prompt: "priced follow-up",
+        onUpdate: (update) => followUp.push(update),
+      }).done;
+      expect(followUp.find((update) => update.type === "usage")).toMatchObject({
+        cumulative: false,
+        usage: { costUSD: 0.25 },
+      });
+      const next: HarnessUpdate[] = [];
+      await session.start({ prompt: "Continue", onUpdate: (update) => next.push(update) }).done;
+      expect(next.find((update) => update.type === "usage")).toMatchObject({
+        usage: { costUSD: undefined },
+      });
+    } finally {
+      session.close();
+      await session.done;
+    }
+  },
+);
 
 for (const replayCost of [false, true]) {
   test(`OpenCode resumed turn cost uses ${replayCost ? "replayed" : "unknown"} session totals`, async () => {

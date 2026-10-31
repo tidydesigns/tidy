@@ -543,13 +543,13 @@ for (const native of [false, true]) {
     });
     const queued = (await store.readThread(project.id, thread.id)).queuedMessages![0];
     expect(queued.skillId).toBe(skillId);
-    await action({ kind: "edit", messageId: queued.id, text: "/review edited arguments" });
+    await action({ kind: "edit", messageId: queued.id, text: "$review edited arguments" });
     expect((await read()).queuedMessages![0].skillId).toBe(skillId);
     await action({ kind: "steer", messageId: queued.id });
     const delivered = native ? runs[0].steers[0] : runs[1].input;
     expect(delivered.skill?.invocation.name).toBe("review");
-    expect(delivered.skill?.prompt).toBe("/review edited arguments");
-    expect(delivered.prompt).toEndWith("/review edited arguments");
+    expect(delivered.skill?.prompt).toBe("$review edited arguments");
+    expect(delivered.prompt).toEndWith("$review edited arguments");
     expect((await read()).queuedMessages).toHaveLength(0);
     expect(
       applyQueueAction([queued], { kind: "edit", messageId: queued.id, text: "/different" })[0]
