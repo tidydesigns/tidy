@@ -1,5 +1,5 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
-import { mkdtemp, mkdir, rm, stat, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, stat, readdir, readFile, writeFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -21,6 +21,8 @@ import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/de
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
 import type { BrowserOutput } from "../../shared/contracts/browser";
+import { MAX_CHAT_IMAGE_BYTES } from "../../shared/contracts/chat-images";
+import { readChatImageSource } from "../../renderer/src/components/load-chat-image";
 
 const cleanups: (() => Promise<unknown> | void)[] = [];
 afterEach(async () => {
@@ -1236,3 +1238,85 @@ test("remote video previews transfer external host files and enforce thread owne
     client.operation("read-video-chunk", { ...input, projectId: other.id }),
   ).rejects.toThrow("another project");
 });
+
+test("remote image previews read the thread host without opening desktop files", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const href = join(f.root, "remote screenshot.png");
+  const data = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a1WQAAAAASUVORK5CYII=",
+    "base64",
+  );
+  await writeFile(href, data);
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: `Inspect ![Screenshot](<${href}>)`,
+    designIds: [],
+  });
+  const input = { projectId: f.project.id, threadId: thread.id, href: encodeURI(href) };
+  const image = await client.operation("read-chat-image", input);
+  expect(image.name).toBe("remote screenshot.png");
+  expect(image.dataUrl).toBe(`data:image/png;base64,${data.toString("base64")}`);
+  await expect(
+    client.operation("read-chat-image", { ...input, threadId: randomUUID() }),
+  ).rejects.toThrow();
+  await expect(
+    client.operation("read-chat-image", { ...input, projectId: randomUUID() }),
+  ).rejects.toThrow();
+  await writeFile(join(f.root, "unreferenced.png"), data);
+  await expect(
+    client.operation("read-chat-image", { ...input, href: join(f.root, "unreferenced.png") }),
+  ).rejects.toThrow("not referenced");
+});
+
+test("two large image previews transfer in bounded responses without disconnecting the host", async () => {
+  const f = await fixture();
+  const { client } = f.client();
+  await until(() => client.status.kind === "connected");
+  const paths = [join(f.root, "large-first.png"), join(f.root, "large-second.png")];
+  for (const path of paths) {
+    await writeFile(path, Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+    await truncate(path, MAX_CHAT_IMAGE_BYTES);
+  }
+  const thread = await client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: paths.map((path) => `![Screenshot](<${path}>)`).join("\n"),
+    designIds: [],
+  });
+  let largestResponse = 0;
+  const api = {
+    async readChatImage(
+      projectId: string,
+      threadId: string,
+      href: string,
+      chunk?: { offset?: number; revision?: string },
+    ) {
+      const image = await client.operation("read-chat-image", {
+        projectId,
+        threadId,
+        href,
+        ...chunk,
+      });
+      largestResponse = Math.max(largestResponse, Buffer.byteLength(JSON.stringify(image)));
+      await Bun.sleep(2);
+      return image;
+    },
+  };
+  const sources = await Promise.all(
+    paths.map((href) =>
+      readChatImageSource({
+        api,
+        input: { projectId: f.project.id, threadId: thread.id, href },
+        signal: new AbortController().signal,
+      }),
+    ),
+  );
+  for (const source of sources)
+    expect(Buffer.from(source.split(",")[1], "base64").length).toBe(MAX_CHAT_IMAGE_BYTES);
+  expect(largestResponse).toBeLessThan(270_000);
+  expect(client.status.kind).toBe("connected");
+  expect((await client.operation("bootstrap")).activeProject?.project.id).toBe(f.project.id);
+}, 20_000);

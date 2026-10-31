@@ -137,6 +137,7 @@ const remoteReadOperations = new Set([
   "thread-ports",
   "warm-thread",
   "read-attachment",
+  "read-chat-image",
   "read-video-chunk",
   "read-design",
   "preview-design",

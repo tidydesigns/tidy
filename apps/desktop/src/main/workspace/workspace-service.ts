@@ -1,3 +1,5 @@
+import { readChatImage } from "./chat-images";
+import type { ChatImageRequest } from "../../shared/contracts/chat-images";
 import { readVideoChunk } from "./video-preview";
 import type { VideoChunkRequest } from "../../shared/contracts/video-preview";
 import { generateThreadTitle, type NamingInput } from "../harnesses/thread-naming";
@@ -149,6 +151,14 @@ export class WorkspaceService {
     if (!this.authorizeCloudProject)
       throw new Error("Open this cloud workspace before running agents.");
     await this.authorizeCloudProject(projectId);
+  }
+
+  async readChatImage(input: ChatImageRequest) {
+    const thread = await this.readThread(input.projectId, input.threadId);
+    await this.store.assertThreadExecution(thread);
+    const project = this.executionProject(thread);
+    await this.assertProjectAccess(project.id);
+    return readChatImage({ ...input, thread, root: project.path });
   }
 
   async readVideoChunk(input: VideoChunkRequest) {

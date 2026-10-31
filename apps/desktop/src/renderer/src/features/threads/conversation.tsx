@@ -1,3 +1,4 @@
+import { ChatImage } from "../../components/chat-image";
 import { ThreadVideo } from "./video/thread-video";
 import { videoMimeType } from "../../../../shared/contracts/video-preview";
 import { HarnessFailureDialog, HarnessFailureSummary } from "./harness-failure-dialog";
@@ -60,8 +61,22 @@ const MarkdownContent = memo(function MarkdownContent({
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
     () => ({
       table: MarkdownTable,
-      a: ({ href, children }) => {
+      a: ({ href, children, node }) => {
+        if (node?.children.some((child) => child.type === "element" && child.tagName === "img"))
+          return <span>{children}</span>;
         const link = parseChatLink(href);
+        if (href && link?.kind === "file" && /\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
+          return (
+            <ChatImage
+              key={href}
+              api={api}
+              projectId={projectId}
+              threadId={threadId}
+              href={href}
+              name={typeof children === "string" ? children : link.name}
+              active={active}
+            />
+          );
         return href && link?.kind === "file" && videoMimeType(link.path) ? (
           <ThreadVideo
             key={href}
@@ -94,8 +109,18 @@ const MarkdownContent = memo(function MarkdownContent({
               {link.name}
             </ChatLink>
           </ThreadVideo>
+        ) : typeof src === "string" && link?.kind === "file" ? (
+          <ChatImage
+            key={src}
+            api={api}
+            projectId={projectId}
+            threadId={threadId}
+            href={src}
+            name={alt || link.name}
+            active={active}
+          />
         ) : (
-          <span className="text-xs text-muted-ink">{alt || "Image"}</span>
+          <span className="text-xs text-muted-ink">{alt || "Image unavailable"}</span>
         );
       },
     }),

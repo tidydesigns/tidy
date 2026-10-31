@@ -126,6 +126,9 @@ export function createDemoAPI(): DesktopAPI {
       updatedAt: new Date().toISOString(),
     }),
     openHarnessUsage: unsupported,
+    readChatImage: async () => {
+      throw new Error("Image unavailable in this demo.");
+    },
     openChatLink: async (_, href) => {
       const url = new URL(href, location.origin);
       if (url.protocol !== "https:") throw Error("External files are unavailable in the demo.");

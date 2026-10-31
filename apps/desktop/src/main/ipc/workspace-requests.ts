@@ -33,6 +33,7 @@ import { harnessSettingsSchema } from "../../shared/contracts/harness-settings";
 import { HarnessDiscovery } from "../harnesses/harness-discovery";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { messageDeliverySchema, queueRequestSchema } from "../../shared/contracts/message-queue";
+import { chatImageRequestSchema } from "../../shared/contracts/chat-images";
 import { chatLinkRequestSchema, openChatLink } from "../workspace/chat-links";
 
 export type WorkspacePlatform<Context> = {
@@ -246,6 +247,7 @@ export function createWorkspaceRequests<Context>(
   );
   handle("read-video-chunk", videoChunkRequestSchema, (value) => service.readVideoChunk(value));
   handle("pull-request-state", chatLinkRequestSchema, ({ href }) => pullRequests.read(href));
+  handle("read-chat-image", chatImageRequestSchema, (value) => service.readChatImage(value));
   handle("open-chat-link", chatLinkRequestSchema, (value) =>
     openChatLink({ root: store.project(value.projectId).path, href: value.href, platform }),
   );
