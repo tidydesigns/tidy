@@ -108,10 +108,8 @@ export const HarnessUsage = memo(function HarnessUsage({
 }) {
   const modelProvider = modelId?.includes("/") ? modelId.split("/")[0] : undefined;
   const providerApplicable =
-    harness !== "opencode" ||
-    !modelProvider ||
-    modelProvider === "opencode" ||
-    modelProvider === "opencode-go";
+    harness !== "opencode" || modelProvider === "opencode" || modelProvider === "opencode-go";
+  const canRefresh = ready && Boolean(api.harnessUsage) && providerApplicable;
   const cache = useMemo(
     () => usageCache(api, projectId, harness, initial),
     [api, projectId, harness],
@@ -320,7 +318,12 @@ export const HarnessUsage = memo(function HarnessUsage({
           </>
         }
         menuContent={() => (
-          <div data-ph-private className="account-usage-content">
+          <div
+            data-ph-private
+            className="account-usage-content"
+            tabIndex={-1}
+            data-select-initial={!canRefresh || undefined}
+          >
             <div className="account-usage-header">
               <HarnessIcon harness={harness} size={20} />
               <div>
@@ -346,8 +349,10 @@ export const HarnessUsage = memo(function HarnessUsage({
                 className="account-usage-refresh"
                 aria-label="Refresh account usage"
                 title="Refresh account usage"
-                data-select-initial
-                disabled={snapshot.loading || !ready || !api.harnessUsage || !providerApplicable}
+                data-select-initial={canRefresh || undefined}
+                disabled={!canRefresh}
+                aria-disabled={snapshot.loading || !canRefresh}
+                aria-busy={snapshot.loading}
                 onClick={() => {
                   setNow(Date.now());
                   void cache.refresh(true);
@@ -460,7 +465,9 @@ export const HarnessUsage = memo(function HarnessUsage({
                   {!ready
                     ? `Sign in to ${name} to view account usage.`
                     : !providerApplicable
-                      ? "OpenCode doesn't expose account allowances for this model's provider."
+                      ? modelProvider
+                        ? "OpenCode doesn't expose account allowances for this model's provider."
+                        : "Choose a model to view its account allowances."
                       : (usage?.note ??
                         "This connection doesn't report account limits. Check your provider account.")}
                 </p>

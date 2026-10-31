@@ -139,6 +139,16 @@ export async function runHarnessUsageTests(root: Root) {
     "Click left the hover summary over the full panel",
   );
   check(panel().textContent?.includes("43% left"), "Opening usage waited for its pending refresh");
+  const pendingRefresh = required(
+    panel().querySelector<HTMLButtonElement>('[aria-label="Refresh account usage"]'),
+    "Pending refresh control missing",
+  );
+  check(
+    !pendingRefresh.disabled && pendingRefresh.getAttribute("aria-disabled") === "true",
+    "A pending refresh removed its focusable control",
+  );
+  check(document.activeElement === pendingRefresh, "A pending refresh lost initial panel focus");
+  flushSync(() => pendingRefresh.click());
   await settle();
   check(reads.length === 1, "Opening usage duplicated its pending preload");
   const conversation = required(
@@ -224,14 +234,18 @@ export async function runHarnessUsageTests(root: Root) {
     "Sign-out retained the previous account's figures",
   );
   harness = "opencode";
-  render({
-    ...usage,
-    account: { plan: "OpenCode Go", billing: "subscription" },
-    resets: undefined,
-    credits: undefined,
-    windows: [{ id: "old", name: "5-hour limit", usedPercent: 100, resetsAt: 1 }],
-    updatedAt: new Date().toISOString(),
-  });
+  render(
+    {
+      ...usage,
+      account: { plan: "OpenCode Go", billing: "subscription" },
+      resets: undefined,
+      credits: undefined,
+      windows: [{ id: "old", name: "5-hour limit", usedPercent: 100, resetsAt: 1 }],
+      updatedAt: new Date().toISOString(),
+    },
+    true,
+    "opencode-go/fixture",
+  );
   flushSync(() => trigger().click());
   check(
     panel().textContent?.includes("Checking…") && !panel().textContent?.includes("100% left"),
@@ -244,6 +258,21 @@ export async function runHarnessUsageTests(root: Root) {
     check(!host.querySelector('[role="dialog"]'), "Click-away did not dismiss usage");
   } finally {
     outside.remove();
+  }
+  for (const modelId of [undefined, "providerless-model"]) {
+    render(usage, true, modelId);
+    flushSync(() => trigger().click());
+    check(
+      !panel().querySelector('[role="meter"]') && panel().textContent?.includes("Choose a model"),
+      "Allowances were attributed to an unknown OpenCode model provider",
+    );
+    check(panel().contains(document.activeElement), "Unavailable allowances lost panel focus");
+    flushSync(() =>
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      ),
+    );
+    check(!host.querySelector('[role="dialog"]'), "Unavailable allowances trapped keyboard users");
   }
   render(usage, true, "openai/gpt-model");
   flushSync(() => trigger().click());
