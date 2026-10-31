@@ -94,7 +94,7 @@ export function ThreadTitle({
         actionMenu
         size="sm"
         className="shrink-0"
-        triggerClassName="quiet-button grid size-7 place-items-center rounded border-0 bg-transparent p-0 text-muted-ink hover:bg-hover-surface"
+        triggerClassName="grid size-7 cursor-pointer place-items-center rounded border-0 bg-transparent p-0 text-muted-ink hover:bg-hover-surface focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus-ring"
         triggerContent={<Icon name="more" size={16} />}
         options={[
           { value: "rename", label: "Rename" },
