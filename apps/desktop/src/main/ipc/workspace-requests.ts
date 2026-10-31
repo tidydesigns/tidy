@@ -78,8 +78,8 @@ export function createWorkspaceRequests<Context>(
     });
   }
   handle("browser-state", browserScopeSchema, (scope) => service.browser.state(scope));
-  handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId }) =>
-    service.terminal.end(projectId, sessionId),
+  handle("terminal-close", terminalSessionSchema, ({ projectId, sessionId, terminalId }) =>
+    service.terminal.end(projectId, sessionId, terminalId),
   );
   handle("browser-discard-draft", browserDiscardDraftSchema, (input) =>
     service.discardBrowserDraft(input),

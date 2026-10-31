@@ -195,3 +195,86 @@ test("a viewer canceled during project resolution cannot start a shell", async (
   await expect(watching).rejects.toThrow("viewer closed");
   expect(starts).toBe(0);
 });
+
+test("tab IDs isolate shells, stale sessions cannot close replacements, and project removal closes every tab", async () => {
+  const projectId = randomUUID();
+  const shells: { writes: string[]; killed: boolean }[] = [];
+  const service = new TerminalService(
+    async () => "/synthetic/project",
+    () => {
+      const shell = { writes: [] as string[], killed: false };
+      shells.push(shell);
+      return {
+        write: (data: string) => shell.writes.push(data),
+        resize() {},
+        pause() {},
+        resume() {},
+        kill() {
+          shell.killed = true;
+        },
+        onData() {
+          return { dispose() {} };
+        },
+        onExit() {
+          return { dispose() {} };
+        },
+      } as unknown as IPty;
+    },
+  );
+  services.push(service);
+  const firstId = randomUUID(),
+    secondId = randomUUID();
+  const firstEvents: TerminalOutput[] = [],
+    secondEvents: TerminalOutput[] = [];
+  const scope = { projectId, cols: 80, rows: 24 };
+  const [first, second] = await Promise.all([
+    service.watch({ ...scope, terminalId: firstId }, (e) => firstEvents.push(e)),
+    service.watch({ ...scope, terminalId: secondId }, (e) => secondEvents.push(e)),
+  ]);
+  expect(service.activeCount).toBe(2);
+  first.input({ kind: "write", sessionId: snapshot(firstEvents).sessionId, data: "one" });
+  second.input({
+    kind: "write",
+    sessionId: snapshot(firstEvents).sessionId,
+    data: "wrong session",
+  });
+  second.input({ kind: "write", sessionId: snapshot(secondEvents).sessionId, data: "two" });
+  expect(shells.map((s) => s.writes)).toEqual([["one"], ["two"]]);
+  await service.end(projectId, undefined, firstId);
+  expect(shells.map((s) => s.killed)).toEqual([true, false]);
+  const replacementEvents: TerminalOutput[] = [];
+  await service.watch({ ...scope, terminalId: firstId }, (e) => replacementEvents.push(e));
+  await service.end(projectId, snapshot(firstEvents).sessionId, firstId);
+  expect(shells[2].killed).toBe(false);
+  for (let i = 0; i < 6; i++) await service.watch({ ...scope, terminalId: randomUUID() }, () => {});
+  await expect(service.watch({ ...scope, terminalId: randomUUID() }, () => {})).rejects.toThrow(
+    "Close a terminal",
+  );
+  service.removeProject(projectId);
+  expect(shells.every((s) => s.killed)).toBe(true);
+  expect(service.activeCount).toBe(0);
+});
+
+test("closing a tab during asynchronous authorization waits for its shell and terminates it", async () => {
+  const f = fixture();
+  const terminalId = randomUUID();
+  const opening = f.service.watch(
+    { projectId: f.projectId, terminalId, cols: 80, rows: 24 },
+    () => {},
+  );
+  const closing = f.service.end(f.projectId, undefined, terminalId);
+  await opening;
+  await closing;
+  expect(f.counts()).toMatchObject({ starts: 1, kills: 1 });
+  expect(f.service.activeCount).toBe(0);
+});
+
+test("small interactive output reaches viewers synchronously without a batching timer", async () => {
+  const f = fixture();
+  await f.service.watch(
+    { projectId: f.projectId, terminalId: randomUUID(), cols: 80, rows: 24 },
+    (e) => f.events.push(e),
+  );
+  f.emit("x");
+  expect(f.events.at(-1)).toMatchObject({ kind: "data", data: "x" });
+});

@@ -224,12 +224,14 @@ for (const namingSupported of [false, true]) {
 test("terminal streams authenticate, preserve input order, avoid durable receipts, and detach on revocation", async () => {
   const f = await fixture();
   const sessionId = randomUUID();
+  const terminalId = randomUUID();
   const inputs: TerminalInput[] = [];
   let closed = false;
   let publish: ((event: TerminalOutput) => void) | undefined;
   let sequence = 0;
   const watchSpy = spyOn(f.service.terminal, "watch").mockImplementation(async (scope, send) => {
     expect(scope.projectId).toBe(f.project.id);
+    expect(scope.terminalId).toBe(terminalId);
     publish = send;
     send({
       kind: "snapshot",
@@ -257,11 +259,14 @@ test("terminal streams authenticate, preserve input order, avoid durable receipt
   const { client } = f.client();
   await until(() => client.status.kind === "connected");
   const events: TerminalOutput[] = [];
-  const watch = client.watchTerminal({ projectId: f.project.id, cols: 80, rows: 24 }, (event) => {
-    events.push(event);
-    if (event.kind === "snapshot" || event.kind === "data")
-      watch.input({ kind: "ack", sessionId, sequence: event.sequence });
-  });
+  const watch = client.watchTerminal(
+    { projectId: f.project.id, terminalId, cols: 80, rows: 24 },
+    (event) => {
+      events.push(event);
+      if (event.kind === "snapshot" || event.kind === "data")
+        watch.input({ kind: "ack", sessionId, sequence: event.sequence });
+    },
+  );
   cleanups.push(() => watch.close());
   await until(() => events.some((event) => event.kind === "snapshot"));
   watch.input({ kind: "write", sessionId, data: "terminal-fixture-command" });

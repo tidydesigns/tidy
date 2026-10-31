@@ -157,6 +157,8 @@ export function App({
   const [browserOpen, setBrowserOpen] = useState(false);
   const [browserRequest, setBrowserRequest] = useState<BrowserNavigationRequest>();
   const [mode, setMode] = useSessionState<Mode>("mode", z.enum(["design", "code"]), "design");
+  const [terminalHome, setTerminalHome] = useState<HTMLElement | null>(null);
+  const [terminalFullscreen, setTerminalFullscreen] = useState(false);
   const [designNavigation, setDesignNavigation] = useState<HTMLElement | null>(null);
   const [opening, setOpening] = useState(false);
   const projectFocus = useRef<HTMLElement | null>(null);
@@ -1589,7 +1591,10 @@ export function App({
   const canvasFocused = mode === "design" && (location === "cloud" ? cloudCanvas : Boolean(design));
 
   return (
-    <DesktopShell canvasFocused={!settingsOpen && canvasFocused} settingsOpen={settingsOpen}>
+    <DesktopShell
+      canvasFocused={!settingsOpen && (canvasFocused || terminalFullscreen)}
+      settingsOpen={settingsOpen}
+    >
       <HarnessFailureNotices key={failureNoticeAccessKey} api={api} />
       <aside
         id="desktop-navigation"
@@ -1684,6 +1689,7 @@ export function App({
                 />
               )}
             </div>
+            <div ref={setTerminalHome} className="terminal-launcher-home" />
           </div>
           {project && (
             <div className="workspace-thread-actions flex items-center gap-1.5 px-1 py-0.5">
@@ -1836,7 +1842,10 @@ export function App({
           <AppUpdate api={api} />
         </div>
       </aside>
-      <main className="workspace" hidden={settingsOpen}>
+      <main
+        className={`workspace ${terminalFullscreen ? "workspace-terminal-fullscreen" : ""}`}
+        hidden={settingsOpen}
+      >
         {location === "cloud" && !cloudOrganizationId && (
           <div className="cloud-unavailable">
             <p role={cloud.error ? "alert" : "status"}>{cloud.error || "Opening workspace…"}</p>
@@ -1848,7 +1857,11 @@ export function App({
           </div>
         )}
         {api && cloud.state?.signedIn && cloudOrganizationId && (
-          <div className="workspace-view" hidden={location !== "cloud" || mode !== "design"}>
+          <div
+            className="workspace-view"
+            inert={terminalFullscreen}
+            hidden={location !== "cloud" || mode !== "design"}
+          >
             <CloudWorkspace
               key={`${cloud.account?.id}:${cloudOrganizationId}`}
               api={api}
@@ -1861,7 +1874,11 @@ export function App({
             />
           </div>
         )}
-        <div className="workspace-view" hidden={location === "cloud" && mode !== "code"}>
+        <div
+          className="workspace-view"
+          inert={terminalFullscreen}
+          hidden={location === "cloud" && mode !== "code"}
+        >
           {!project && location === "cloud" ? (
             <div className="cloud-unavailable">
               <p role={cloudWorkspaceError ? "alert" : "status"}>
@@ -2457,7 +2474,11 @@ export function App({
             projects={projects}
             project={project?.cloud ? (mode === "code" ? executionProject : undefined) : project}
             available={!machine || machine.connected}
+            ready={!loading}
             active={!settingsOpen}
+            home={terminalHome}
+            fullscreen={terminalFullscreen}
+            onFullscreenChange={setTerminalFullscreen}
           />
         )}
       </main>

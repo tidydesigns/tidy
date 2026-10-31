@@ -57,6 +57,9 @@ let primary;
 app.on("browser-window-created", (_event, window) => {
   if (primary) return;
   primary = window;
+  window.show = () => {}; // Keep the synthetic fixture from taking the user's keyboard focus.
+  window.hide();
+  window.webContents.setBackgroundThrottling(false);
   const page = window.webContents;
   page.on("did-fail-load", (_event, code, description) =>
     console.error("Terminal load failed", code, description),
@@ -76,18 +79,17 @@ app.on("browser-window-created", (_event, window) => {
   page.once("did-finish-load", () => {
     void (async () => {
       try {
-        await wait(
-          "document.querySelector('.terminal-dock:not([hidden]) .terminal-toggle')!==null",
-        );
+        await wait("document.querySelector('.terminal-launcher')!==null");
         assert.equal(await evaluate("typeof require"), "undefined");
+        assert.equal(await evaluate("document.querySelector('.terminal-dock').hidden"), true);
         await evaluate(
-          "window.addEventListener('error',e=>console.error(e.error?.stack));document.querySelector('.terminal-toggle').click(); true",
+          "window.addEventListener('error',e=>console.error(e.error?.stack));document.querySelector('.terminal-launcher').click(); true",
         );
         await wait(
           "document.querySelector('.terminal-surface canvas')!==null && !document.querySelector('.terminal-status')",
         );
         await evaluate(
-          `window.terminalEvents=[]; window.terminalWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},cols:80,rows:24},output=>{window.terminalEvents.push(output);if(output.kind==='snapshot'||output.kind==='data')queueMicrotask(()=>window.terminalWatch.input({kind:'ack',sessionId:output.sessionId,sequence:output.sequence}));}); true`,
+          `window.terminalEvents=[]; window.terminalWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},terminalId:document.querySelector('.terminal-tab[role=tab][aria-selected=true]').id.replace('terminal-tab-',''),cols:80,rows:24},output=>{window.terminalEvents.push(output);if(output.kind==='snapshot'||output.kind==='data')queueMicrotask(()=>window.terminalWatch.input({kind:'ack',sessionId:output.sessionId,sequence:output.sequence}));}); true`,
         );
         await wait("window.terminalEvents.some(e=>e.kind==='snapshot')");
         const send = async (data) => {
@@ -106,16 +108,17 @@ app.on("browser-window-created", (_event, window) => {
         await wait(
           "Array.from(document.querySelector('.terminal-surface canvas').getContext('2d').getImageData(0,0,document.querySelector('.terminal-surface canvas').width,document.querySelector('.terminal-surface canvas').height).data).some((v,i,a)=>i%4===0&&v===18&&a[i+1]===52&&a[i+2]===86)",
         );
-        await evaluate("document.querySelector('.terminal-toggle').click(); true");
+        await evaluate("document.querySelector('[aria-label=\"Hide terminal\"]').click(); true");
+        assert.equal(await evaluate("document.querySelector('.terminal-dock').hidden"), true);
         await send("printf 'TIDY_HIDDEN_SESSION\\n'\r");
         await wait(`${output}.includes('TIDY_HIDDEN_SESSION\\r\\n')`);
-        await evaluate("document.querySelector('.terminal-toggle').click(); true");
+        await evaluate("document.querySelector('.terminal-launcher').click(); true");
         assert.equal(
           await evaluate("window.terminalEvents.filter(e=>e.kind==='snapshot').length"),
           1,
         );
         await evaluate("document.querySelector('.terminal-surface textarea').focus(); true");
-        window.focus();
+        page.focus();
         for (const key of "echo tidykeyboard") {
           page.sendInputEvent({ type: "keyDown", keyCode: key === " " ? "Space" : key });
           page.sendInputEvent({ type: "keyUp", keyCode: key === " " ? "Space" : key });
@@ -144,14 +147,117 @@ app.on("browser-window-created", (_event, window) => {
           await send("printf 'TIDY_NVIM_RETURNED\\n'\r");
           await wait(`${output}.includes('TIDY_NVIM_RETURNED\\r\\n')`);
         }
-        await evaluate(
-          "document.querySelector('[aria-label=\"End terminal session\"]').click(); true",
+        const initialWidth = await evaluate(
+          "document.querySelector('.terminal-dock').getBoundingClientRect().width",
         );
+        await evaluate(
+          "document.querySelector('[aria-label=\"Full screen terminal\"]').click();true",
+        );
+        await wait(
+          "document.querySelector('.terminal-dock-fullscreen')!==null && document.querySelector('.desktop-sidebar-hidden')!==null",
+        );
+        assert.ok(
+          await evaluate(
+            `document.querySelector('.terminal-dock').getBoundingClientRect().width>${initialWidth}`,
+          ),
+        );
+        assert.ok(
+          await evaluate(
+            "document.querySelector('.terminal-dock').getBoundingClientRect().height>500",
+          ),
+        );
+        if (process.env.TIDY_TEST_SCREENSHOT)
+          await writeFile(
+            process.env.TIDY_TEST_SCREENSHOT + ".fullscreen.png",
+            (await page.capturePage()).toPNG(),
+          );
+        assert.equal(
+          await evaluate("document.querySelector('.workspace-view:not([hidden])').inert"),
+          true,
+        );
+        await evaluate("document.querySelector('[aria-label=\"Restore terminal\"]').click();true");
+        await wait("!document.querySelector('.terminal-dock-fullscreen')");
+        const key = async (keyCode, modifiers) => {
+          page.sendInputEvent({ type: "keyDown", keyCode, modifiers });
+          page.sendInputEvent({ type: "keyUp", keyCode, modifiers });
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        };
+        const mod = process.platform === "darwin" ? "meta" : "control";
+        await send("export TIDY_TAB_ISOLATION=first\r");
+        await evaluate("document.querySelector('.terminal-surface textarea').focus();true");
+        await key("t", [mod]);
+        await wait(
+          "document.querySelectorAll('.terminal-tab[role=tab]').length===2 && !document.querySelector('.terminal-session:not([hidden]) .terminal-status')",
+        );
+        await evaluate(
+          `window.secondEvents=[];window.secondWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},terminalId:document.querySelector('.terminal-tab[role=tab][aria-selected=true]').id.replace('terminal-tab-',''),cols:80,rows:24},o=>{window.secondEvents.push(o);if(o.kind==='snapshot'||o.kind==='data')queueMicrotask(()=>window.secondWatch.input({kind:'ack',sessionId:o.sessionId,sequence:o.sequence}));});true`,
+        );
+        await wait("window.secondEvents.some(e=>e.kind==='snapshot')");
+        await evaluate(
+          `window.secondWatch.input({kind:'write',sessionId:window.secondEvents.find(e=>e.kind==='snapshot').sessionId,data:${JSON.stringify("printf 'SECOND=%s\\n' \"$TIDY_TAB_ISOLATION\"; printf '\\033]2;second-shell\\007'\r")}});true`,
+        );
+        await wait(
+          "window.secondEvents.some(e=>e.kind==='data'&&e.data.includes('SECOND=\\r\\n'))",
+        );
+        await wait(
+          "document.querySelector('.terminal-tab[role=tab][aria-selected=true]').textContent==='second-shell'",
+        );
+        assert.equal(
+          await evaluate(
+            "window.secondEvents.find(e=>e.kind==='snapshot').sessionId!==window.terminalEvents.find(e=>e.kind==='snapshot').sessionId",
+          ),
+          true,
+        );
+        await key("Tab", ["control"]);
+        await wait(
+          "document.querySelectorAll('.terminal-tab[role=tab]')[0].getAttribute('aria-selected')==='true'",
+        );
+        await key("2", [mod]);
+        await wait(
+          "document.querySelectorAll('.terminal-tab[role=tab]')[1].getAttribute('aria-selected')==='true'",
+        );
+        await key("Return", [mod]);
+        await wait("document.querySelector('.terminal-dock-fullscreen')!==null");
+        await key("Return", [mod]);
+        await wait("!document.querySelector('.terminal-dock-fullscreen')");
+        await key("w", [mod]);
+        await wait(
+          "document.querySelectorAll('.terminal-tab[role=tab]').length===1 && window.secondEvents.some(e=>e.kind==='exit')",
+        );
+        assert.equal(window.isDestroyed(), false);
+        assert.equal(await evaluate("window.terminalEvents.some(e=>e.kind==='exit')"), false);
+        await send("printf 'FIRST=%s\\n' \"$TIDY_TAB_ISOLATION\"\r");
+        await wait(`${output}.includes('FIRST=first\\r\\n')`);
+        const firstSession = await evaluate(
+          "window.terminalEvents.find(e=>e.kind==='snapshot').sessionId",
+        );
+        await evaluate("window.secondWatch.close();window.terminalWatch.close();true");
+        const loaded = new Promise((resolve) => page.once("did-finish-load", resolve));
+        page.reload();
+        await loaded;
+        await wait(
+          "document.querySelector('.terminal-session:not([hidden]) canvas')!==null && !document.querySelector('.terminal-status')",
+        );
+        assert.equal(await evaluate("document.querySelectorAll('.terminal-tab').length"), 1);
+        await evaluate(
+          `window.terminalEvents=[];window.terminalWatch=window.tidy.terminal.watch({projectId:${JSON.stringify(projectId)},terminalId:document.querySelector('.terminal-tab').id.replace('terminal-tab-',''),cols:80,rows:24},o=>{window.terminalEvents.push(o);if(o.kind==='snapshot'||o.kind==='data')queueMicrotask(()=>window.terminalWatch.input({kind:'ack',sessionId:o.sessionId,sequence:o.sequence}));});true`,
+        );
+        await wait("window.terminalEvents.some(e=>e.kind==='snapshot')");
+        assert.equal(
+          await evaluate("window.terminalEvents.find(e=>e.kind==='snapshot').sessionId"),
+          firstSession,
+        );
+        await evaluate("document.querySelector('.terminal-tab-close').click();true");
         await wait("window.terminalEvents.some(e=>e.kind==='exit')");
-        await evaluate("window.terminalWatch.close(); true");
-        assert.equal(await evaluate("document.querySelector('.terminal-surface')===null"), true);
+        await evaluate("window.terminalWatch.close();true");
+        assert.equal(
+          await evaluate(
+            "document.querySelector('.terminal-surface')===null && document.querySelector('.terminal-dock').hidden",
+          ),
+          true,
+        );
         console.info(
-          `PASS: real Electron shell, CSP/WASM, native PTY, project cwd, true-colour Canvas pixels, keyboard input, hide/reopen persistence, end-session cleanup${process.env.TIDY_TEST_NVIM ? ", Neovim full-screen/splits/resize/return to shell" : ""}.`,
+          `PASS: real Electron shell, CSP/WASM, native PTY, project cwd, true-colour Canvas pixels, keyboard input, hide/reopen persistence, isolated tabs, shell titles, one-click fullscreen, native tab shortcuts, reload reattachment, close-tab cleanup${process.env.TIDY_TEST_NVIM ? ", Neovim full-screen/splits/resize/return to shell" : ""}.`,
         );
         result = 0;
       } catch (error) {
