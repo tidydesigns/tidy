@@ -101,19 +101,32 @@ async function externalFilteredPaths(
   filters: ReadonlySet<string>,
   view: GitView,
 ) {
-  if (!filters.size || !paths.length) return new Set<string>();
-  const result = await git(
-    root,
-    ["check-attr", "-z", "--stdin", "filter"],
-    paths.map((path) => `./${path}`).join("\0") + "\0",
-    4 * fileLimit,
-    view,
-  );
-  if (result.code !== 0) throw new Error("Could not read repository file attributes.");
-  const fields = result.text.split("\0");
   const filtered = new Set<string>();
-  for (let index = 0; index + 2 < fields.length; index += 3)
-    if (filters.has(fields[index + 2])) filtered.add(fields[index].replace(/^\.\//, ""));
+  if (!filters.size) return filtered;
+  let offset = 0;
+  while (offset < paths.length) {
+    let input = "";
+    let bytes = 0;
+    while (offset < paths.length) {
+      const path = `./${paths[offset]}\0`;
+      const size = Buffer.byteLength(path);
+      if (input && bytes + size > 512 * 1024) break;
+      input += path;
+      bytes += size;
+      offset++;
+    }
+    const result = await git(
+      root,
+      ["check-attr", "-z", "--stdin", "filter"],
+      input,
+      4 * fileLimit,
+      view,
+    );
+    if (result.code !== 0) throw new Error("Could not read repository file attributes.");
+    const fields = result.text.split("\0");
+    for (let index = 0; index + 2 < fields.length; index += 3)
+      if (filters.has(fields[index + 2])) filtered.add(fields[index].replace(/^\.\//, ""));
+  }
   return filtered;
 }
 
@@ -158,21 +171,26 @@ export async function readRepositoryDirectory(
               : "unsupported",
       });
     }
-    const view =
-      entries.length && (await hasRepository(checked.root))
-        ? await createGitView(checked.root)
-        : undefined;
-    let ignored;
+    let view: GitView | undefined;
+    let ignoreUnavailable = false;
+    if (entries.length && (await hasRepository(checked.root))) {
+      try {
+        view = await createGitView(checked.root);
+      } catch (error) {
+        if (!(error instanceof OutputLimitError)) throw error;
+        ignoreUnavailable = true;
+      }
+    }
+    let ignored = { code: 0, text: "" };
     try {
-      ignored = entries.length
-        ? await git(
-            checked.root,
-            ["check-ignore", "-z", "--stdin"],
-            entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
-            undefined,
-            view,
-          )
-        : { code: 0, text: "" };
+      if (entries.length && !ignoreUnavailable)
+        ignored = await git(
+          checked.root,
+          ["check-ignore", "-z", "--stdin"],
+          entries.map((entry) => `./${entry.path}`).join("\0") + "\0",
+          undefined,
+          view,
+        );
     } finally {
       if (view) await closeGitView(view);
     }
@@ -195,6 +213,7 @@ export async function readRepositoryDirectory(
             a.name.localeCompare(b.name, "en"),
         ),
       limited,
+      ...(ignoreUnavailable ? { ignoreUnavailable: true } : {}),
     };
   } finally {
     await checked.file.close();
@@ -277,41 +296,68 @@ export async function readRepositoryChanges(root: string): Promise<RepositoryCha
           ? change.previousPath.slice(base.length)
           : null,
       }));
-    let filterPaths = changes.map((change) => change.path);
-    if (overrides.names.size) {
-      const tracked = await git(
-        root,
-        [
-          "ls-files",
-          "--cached",
-          "--deduplicate",
-          "-z",
-          "--",
-          ".",
-          ":(exclude,attr:!filter)**",
-          ":(exclude,attr:-filter)**",
-        ],
-        undefined,
-        4 * fileLimit,
-        view,
-        "attributes",
-      );
-      if (tracked.code !== 0) throw new Error("Could not read tracked file attributes.");
-      filterPaths = [...new Set([...filterPaths, ...tracked.text.split("\0").filter(Boolean)])];
-    }
     const entries = new Map<string, RepositoryChange>(
       changes.map((change) => [change.path, change]),
     );
-    for (const path of await externalFilteredPaths(root, filterPaths, overrides.names, view)) {
-      if (!repositoryPathSchema.safeParse(path).success) continue;
-      entries.set(path, {
-        ...(entries.get(path) ?? { path, previousPath: null, status: "modified" as const }),
-        filtered: true,
-      });
-      if (entries.size > 20000)
-        throw new Error("This repository has more than 20,000 changed or filtered files.");
+    let limited = false;
+    if (overrides.names.size) {
+      try {
+        for (const path of await externalFilteredPaths(
+          root,
+          changes.map((change) => change.path),
+          overrides.names,
+          view,
+        )) {
+          const change = entries.get(path);
+          if (change) entries.set(path, { ...change, filtered: true });
+        }
+        const tracked = await git(
+          root,
+          [
+            "ls-files",
+            "--cached",
+            "--deduplicate",
+            "-z",
+            "--",
+            ".",
+            ":(exclude,attr:!filter)**",
+            ":(exclude,attr:-filter)**",
+          ],
+          undefined,
+          4 * fileLimit,
+          view,
+          "attributes",
+        );
+        if (tracked.code !== 0) throw new Error("Could not read tracked file attributes.");
+        const candidates = [
+          ...new Set(
+            tracked.text
+              .split("\0")
+              .filter(
+                (path) =>
+                  path && !entries.has(path) && repositoryPathSchema.safeParse(path).success,
+              ),
+          ),
+        ];
+        const remaining = 20000 - entries.size;
+        limited = candidates.length > remaining;
+        for (const path of await externalFilteredPaths(
+          root,
+          candidates.slice(0, remaining),
+          overrides.names,
+          view,
+        ))
+          entries.set(path, { path, previousPath: null, status: "modified", filtered: true });
+      } catch {
+        limited = true;
+      }
     }
-    return { repository: true, head: view.head, changes: [...entries.values()] };
+    return {
+      repository: true,
+      head: view.head,
+      changes: [...entries.values()],
+      ...(limited ? { limited: true } : {}),
+    };
   } finally {
     await closeGitView(view);
   }

@@ -13,6 +13,7 @@ import {
   readFile,
   stat,
   utimes,
+  truncate,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -25,11 +26,13 @@ import {
   readRepositoryFile,
 } from "./repository-files";
 import { openRepositoryPath } from "./repository-path";
+import { createGitView, closeGitView, closeGitSnapshots } from "./repository-git";
 import { prepareFileRows } from "../../renderer/src/features/repository/file-rows";
 
 const execute = promisify(execFile);
 const scratch: string[] = [];
 afterEach(async () => {
+  await closeGitSnapshots();
   await Promise.all(scratch.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 async function fixture(commit = true, format: "sha1" | "sha256" = "sha1") {
@@ -666,6 +669,93 @@ test("detects same-size changes with racy index timestamps", async () => {
     status: "modified",
   });
 });
+
+test("shares concurrent index snapshots, refreshes configuration, and retains leased revisions", async () => {
+  const { root, git } = await fixture();
+  const views = await Promise.all(Array.from({ length: 4 }, () => createGitView(root)));
+  try {
+    expect(new Set(views.map((view) => view.index)).size).toBe(1);
+    const original = views[0].index;
+    await git(["config", "core.ignorecase", "true"]);
+    const configured = await createGitView(root);
+    views.push(configured);
+    expect(configured.index).toBe(original);
+    expect(await readFile(join(configured.directory, "config"), "utf8")).toContain(
+      'ignorecase="true"',
+    );
+    await writeFile(join(root, "file.txt"), "staged\n");
+    await git(["add", "file.txt"]);
+    const updated = await createGitView(root);
+    views.push(updated);
+    expect(updated.index).not.toBe(original);
+    await access(original);
+    await Promise.all(views.splice(0, 5).map(closeGitView));
+    await expect(access(original)).rejects.toThrow();
+    expect((await readRepositoryChanges(root)).changes).toContainEqual({
+      path: "file.txt",
+      previousPath: null,
+      status: "modified",
+    });
+  } finally {
+    await Promise.all(views.map(closeGitView));
+  }
+  await closeGitSnapshots();
+  await expect(access(views[0].index)).rejects.toThrow();
+});
+
+test("keeps folder browsing available when the Git index exceeds the snapshot limit", async () => {
+  const { root } = await fixture();
+  await truncate(join(root, ".git/index"), 64 * 1024 * 1024 + 1);
+  const directory = await readRepositoryDirectory(root, "");
+  expect(directory.ignoreUnavailable).toBe(true);
+  expect(directory.entries).toContainEqual({ path: "file.txt", name: "file.txt", kind: "file" });
+});
+
+test.each(["count", "payload"] as const)(
+  "retains ordinary changes when filtered paths exceed the %s budget",
+  async (budget) => {
+    const { root, git } = await fixture();
+    await writeFile(join(root, ".gitattributes"), "*.asset filter=fixture\n");
+    await git(["add", ".gitattributes"]);
+    await git(["commit", "-m", "Fixture attributes"]);
+    await git(["config", "filter.fixture.clean", "cat"]);
+    const blob = (await git(["rev-parse", "HEAD:file.txt"])).stdout.trim();
+    const paths = Array.from(
+      { length: 20001 },
+      (_, index) => `${budget === "payload" ? "x".repeat(220) : "asset"}-${index}.asset`,
+    );
+    const input = join(root, ".git/fixture-input");
+    async function runInput(args: string[], text: string) {
+      await writeFile(input, text);
+      const child = Bun.spawn(["git", ...args], {
+        cwd: root,
+        stdin: Bun.file(input),
+        stdout: "ignore",
+        stderr: "pipe",
+      });
+      const error = await new Response(child.stderr).text();
+      expect(await child.exited, error).toBe(0);
+    }
+    await runInput(
+      ["update-index", "--index-info"],
+      paths.map((path) => `100644 ${blob}\t${path}\n`).join(""),
+    );
+    await runInput(["update-index", "--skip-worktree", "--stdin"], paths.join("\n") + "\n");
+    await git(["commit", "--quiet", "-m", "Fixture asset index"]);
+    await writeFile(join(root, "file.txt"), "modified\n");
+    expect((await git(["status", "--porcelain", "--untracked-files=all"])).stdout).toBe(
+      " M file.txt\n",
+    );
+    const result = await readRepositoryChanges(root);
+    expect(result.limited).toBe(true);
+    expect(result.changes.length).toBeLessThanOrEqual(20000);
+    expect(result.changes).toContainEqual({
+      path: "file.txt",
+      previousPath: null,
+      status: "modified",
+    });
+  },
+);
 
 test("preserves configured attribute and ignore paths in the private Git view", async () => {
   const { root, git } = await fixture();

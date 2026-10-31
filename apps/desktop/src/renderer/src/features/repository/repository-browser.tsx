@@ -350,7 +350,9 @@ export function RepositoryBrowser({
               ? "Reading files…"
               : navigation.view === "changes"
                 ? repository.changes
-                  ? "No changed files"
+                  ? repository.changes.limited
+                    ? "Some files could not be checked"
+                    : "No changed files"
                   : repository.error
                     ? "Changes unavailable"
                     : "Reading changes…"
@@ -361,6 +363,19 @@ export function RepositoryBrowser({
       {limitedFolders.length > 0 && (
         <p className="repository-limit">
           Folder preview limit reached (5,000 entries or 2 MiB). Some files are omitted.
+        </p>
+      )}
+      {navigation.view === "files" &&
+        [...repository.directories].some(
+          ([path, directory]) => directory.ignoreUnavailable && (!path || expanded.has(path)),
+        ) && (
+          <p className="repository-limit" role="status">
+            Some ignored files may be shown.
+          </p>
+        )}
+      {navigation.view === "changes" && repository.changes?.limited && (
+        <p className="repository-limit" role="status">
+          Some filtered files could not be checked. Ordinary changes are shown.
         </p>
       )}
     </div>

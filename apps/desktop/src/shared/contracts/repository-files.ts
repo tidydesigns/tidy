@@ -30,6 +30,7 @@ export const repositoryEntrySchema = z.object({
 export const repositoryDirectorySchema = z.object({
   entries: z.array(repositoryEntrySchema).max(5000),
   limited: z.boolean(),
+  ignoreUnavailable: z.literal(true).optional(),
 });
 export const repositoryChangeSchema = z.object({
   path: repositoryPathSchema,
@@ -49,6 +50,7 @@ export const repositoryChangesSchema = z.object({
   repository: z.boolean(),
   head: z.string().max(100).nullable(),
   changes: z.array(repositoryChangeSchema).max(20000),
+  limited: z.literal(true).optional(),
 });
 export const repositoryFileSchema = z.discriminatedUnion("kind", [
   z.object({
