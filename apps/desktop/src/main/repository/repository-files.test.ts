@@ -612,7 +612,10 @@ test.each([
     }
   }
   const run = (args: string[]) => execute("git", args, { cwd: selected });
-  if (kind.startsWith("split")) await run(["update-index", "--split-index"]);
+  if (kind.startsWith("split")) {
+    await run(["update-index", "--split-index"]);
+    await run(["config", "filter.fixture.clean", "cat"]);
+  }
   const path =
     kind === "nested" ? "inside.txt" : kind === "sparse" ? "nested/inside.txt" : "file.txt";
   await writeFile(join(selected, path), "modified\n");
@@ -636,6 +639,7 @@ test.each([
     previousPath: null,
     status: "modified",
   });
+  if (shared && mtime !== null) expect((await stat(shared)).mtimeMs).toBe(mtime);
   const file = await readRepositoryFile(selected, path);
   expect(file.kind === "text" && file.text).toContain("+modified");
   expect(await readFile(index)).toEqual(before);
