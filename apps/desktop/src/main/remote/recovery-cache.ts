@@ -242,6 +242,7 @@ export class RecoveryCache {
         "start-thread",
         "send-message",
         "thread-settings",
+        "thread-execution-project",
         "set-thread-done",
         "respond-approval",
       ].includes(name)

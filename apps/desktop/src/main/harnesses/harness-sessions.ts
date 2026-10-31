@@ -8,6 +8,7 @@ import type { ProcessRegistration, SessionContext, TurnInput } from "./session-t
 
 type ManagedContext = SessionContext & { projectId: string };
 type SessionFilter = {
+  threadId?: string;
   harness?: HarnessId;
   projectIds?: ReadonlySet<string>;
   cwd?: string;
@@ -51,7 +52,7 @@ const contextKey = (input: ManagedContext) =>
 export class HarnessSessions {
   private entries = new Map<string, Entry>();
   private retiring = new Set<Promise<void>>();
-  private acquiring = new Set<{ context: ManagedContext; invalidated: boolean }>();
+  private acquiring = new Set<{ id: string; context: ManagedContext; invalidated: boolean }>();
   private changes: Promise<unknown> = Promise.resolve();
   constructor(
     private options: { idleLimit: number; idleMs: number; backgroundSilentMs?: number } = {
@@ -135,7 +136,7 @@ export class HarnessSessions {
       this.retire(key, item);
   }
   private acquire(id: string, context: ManagedContext, composer = false): Promise<Entry> {
-    const pending = { context, invalidated: false };
+    const pending = { id, context, invalidated: false };
     this.acquiring.add(pending);
     const operation = this.changes
       .catch(() => {})
@@ -322,8 +323,10 @@ export class HarnessSessions {
     ...filter
   }: SessionFilter & { idleOnly?: boolean; preserveActive?: boolean } = {}) {
     for (const pending of this.acquiring)
-      if (matches(pending.context, filter)) pending.invalidated = true;
+      if ((!filter.threadId || filter.threadId === pending.id) && matches(pending.context, filter))
+        pending.invalidated = true;
     for (const [id, entry] of this.entries) {
+      if (filter.threadId && filter.threadId !== id) continue;
       if (!matches(entry.context, filter)) continue;
       if (preserveActive && (!entry.session.idle || entry.session.hasBackgroundWork)) {
         // A versioned native install leaves this process usable until its existing work ends.

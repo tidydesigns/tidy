@@ -69,6 +69,7 @@ export const workspaceResponseSchemas = {
   "open-chat-link": z.void(),
   "pull-request-state": pullRequestStateSchema.nullable(),
   "thread-settings": liveThreadSchema,
+  "thread-execution-project": liveThreadSchema,
   "rename-thread": liveThreadSchema,
   "regenerate-thread-title": liveThreadSchema,
   "read-thread": liveThreadSchema,

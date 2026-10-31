@@ -254,6 +254,12 @@ export function createWorkspaceRequests<Context>(
     z.object({ projectId, threadId: uuid, settings: harnessSettingsSchema }).strict(),
     (value) => service.setThreadSettings(value.projectId, value.threadId, value.settings),
   );
+  handle(
+    "thread-execution-project",
+    z.object({ projectId, threadId: uuid, executionProjectId: uuid.optional() }).strict(),
+    (value) =>
+      service.setThreadExecutionProject(value.projectId, value.threadId, value.executionProjectId),
+  );
   handle("repository-context", z.object({ projectId }).strict(), (value) =>
     readRepositoryContext(store.project(value.projectId).path),
   );

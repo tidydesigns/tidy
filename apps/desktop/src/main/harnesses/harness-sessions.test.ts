@@ -215,7 +215,7 @@ for (const harness of harnessIdSchema.options) {
   }
 }
 
-for (const scope of ["harness", "project", "repository"] as const) {
+for (const scope of ["harness", "project", "repository", "thread"] as const) {
   test(`clearing a ${scope} cancels matching queued acquisitions while preserving unrelated sends`, async () => {
     const cwd = await mkdtemp(join(directory, "scoped-clear-"));
     const sessions = new HarnessSessions();
@@ -241,7 +241,9 @@ for (const scope of ["harness", "project", "repository"] as const) {
           ? { harness: "claude" as const }
           : scope === "project"
             ? { projectIds: new Set(["cloud"]) }
-            : { directory: clearedPath }),
+            : scope === "thread"
+              ? { threadId: "cloud" }
+              : { directory: clearedPath }),
       });
       expect(await settled).toEqual([
         { status: "fulfilled", value: undefined },
@@ -328,7 +330,7 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await service.warmThread({ projectId: cloud.id, harness: "codex" });
     expect((await events(cloudPath)).some((event) => event.method === "thread/start")).toBe(true);
     const cloudDone = completed();
-    await service.startThread({
+    const backgroundThread = await service.startThread({
       projectId: cloud.id,
       executionProjectId: local.id,
       harness: "codex",
@@ -338,6 +340,10 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await cloudDone;
     expect(service.activeRunCount).toBe(1);
     const cloudPid = (await events(cwd))[0].pid;
+    await expect(service.setThreadExecutionProject(cloud.id, backgroundThread.id)).rejects.toThrow(
+      "active work",
+    );
+    expect(() => process.kill(cloudPid, 0)).not.toThrow();
     expect(service.reserveHarnessUpdate("codex")).toBeNull();
     await expect(service.switchBranch(local.id, "other")).rejects.toThrow("active work");
     await expect(service.removeProject(local.id)).rejects.toThrow("active work");
@@ -364,6 +370,60 @@ test("access withdrawal and project removal release scoped sessions and protect 
     await service.removeProject(local.id);
     expect(store.projects.some((project) => project.id === local.id)).toBe(false);
     for (const pid of localPids) expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await service.close();
+  }
+});
+
+test("changing a workspace execution directory retires its native process and starts a fresh session", async () => {
+  const { ProjectStore } = await import("../workspace/project-store");
+  const { WorkspaceService } = await import("../workspace/workspace-service");
+  const cwd = await mkdtemp(join(directory, "directory-switch-"));
+  const cloudPath = join(cwd, "cloud");
+  await mkdir(cloudPath);
+  const store = new ProjectStore(join(cwd, "state"));
+  await store.initialize();
+  const local = (await store.open(cwd)).project;
+  const cloud = (await store.open(cloudPath, "Team")).project;
+  const service = new WorkspaceService(
+    store,
+    undefined,
+    async () => executable,
+    async () => {},
+  );
+  service.authorizeCloudProject = async () => {};
+  const completed = () =>
+    new Promise<import("../../shared/contracts/desktop").Thread>((resolve) => {
+      const unsubscribe = service.subscribe((event) => {
+        if (event.type === "thread" && event.thread.status === "completed") {
+          unsubscribe();
+          resolve(event.thread);
+        }
+      });
+    });
+  try {
+    let done = completed();
+    await service.startThread({
+      projectId: cloud.id,
+      harness: "codex",
+      prompt: "Initial design request",
+      designIds: [],
+    });
+    const thread = await done;
+    expect(thread.sessionId).toBeDefined();
+    const pid = (await events(cloudPath))[0].pid;
+    await service.setThreadExecutionProject(cloud.id, thread.id, local.id);
+    expect(() => process.kill(pid, 0)).toThrow();
+    done = completed();
+    await service.sendMessage({
+      projectId: cloud.id,
+      threadId: thread.id,
+      text: "Continue in the repository",
+    });
+    expect((await done).messages[0].text).toBe("Initial design request");
+    const started = await events(cwd);
+    expect(started.some((event) => event.method === "thread/start")).toBe(true);
+    expect(started.some((event) => event.method === "thread/resume")).toBe(false);
   } finally {
     await service.close();
   }

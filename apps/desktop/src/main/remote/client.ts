@@ -442,6 +442,7 @@ export class RemoteClient {
         "start-thread",
         "send-message",
         "thread-settings",
+        "thread-execution-project",
         "rename-thread",
         "regenerate-thread-title",
         "set-thread-done",

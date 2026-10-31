@@ -274,6 +274,8 @@ function workspaceApi(machineId?: string): DesktopAPI {
     pullRequestState: (projectId, href) => scopedRequest("pull-request-state", { projectId, href }),
     setThreadSettings: (projectId, threadId, settings) =>
       scopedRequest("thread-settings", { projectId, threadId, settings }),
+    setThreadExecutionProject: (projectId, threadId, executionProjectId) =>
+      scopedRequest("thread-execution-project", { projectId, threadId, executionProjectId }),
     checkHarnesses: () => scopedRequest("harnesses"),
     repositoryContext: (projectId) => scopedRequest("repository-context", { projectId }),
     switchBranch: (projectId, branch) => scopedRequest("switch-branch", { projectId, branch }),

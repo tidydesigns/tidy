@@ -665,10 +665,21 @@ export function App({
       updateDraft({ settings });
       return;
     }
+    if (!api || !project) return;
+    await changeThreadConfiguration({ settings }, () =>
+      api.setThreadSettings(project.id, thread.id, settings),
+    );
+  }
+
+  async function changeThreadConfiguration(
+    patch: Pick<Partial<Thread>, "settings" | "executionProjectId">,
+    persist: () => Promise<Thread>,
+  ) {
+    if (!thread) return;
     if (!api || !project || running || settingsPending[thread.id]) return;
     const previous = thread,
       projectId = project.id;
-    const optimistic = { ...thread, settings, revision: thread.revision + 1 };
+    const optimistic = { ...thread, ...patch, revision: thread.revision + 1 };
     const apply = (value: Thread) => {
       setThreads((current) =>
         (current[value.id]?.revision ?? -1) > value.revision
@@ -695,12 +706,16 @@ export function App({
     setSettingsPending((current) => ({ ...current, [thread.id]: true }));
     apply(optimistic);
     try {
-      apply(await api.setThreadSettings(projectId, thread.id, settings));
+      apply(await persist());
     } catch (cause) {
       const matches = (value: ThreadSummary) =>
         value.revision === optimistic.revision &&
         value.status === optimistic.status &&
-        JSON.stringify(value.settings) === JSON.stringify(settings);
+        Object.keys(patch).every(
+          (key) =>
+            JSON.stringify(value[key as keyof typeof patch]) ===
+            JSON.stringify(patch[key as keyof typeof patch]),
+        );
       setThreads((current) =>
         current[previous.id] && matches(current[previous.id])
           ? { ...current, [previous.id]: previous }
@@ -878,9 +893,28 @@ export function App({
   }
 
   async function chooseExecutionProject(value: string) {
-    if (!api || !project?.cloud || selectedThreadId || opening) return;
+    if (
+      !api ||
+      !project?.cloud ||
+      (selectedThreadId && !thread) ||
+      running ||
+      opening ||
+      (thread && settingsPending[thread.id])
+    )
+      return;
+    const changeExecution = async (executionProjectId?: string) => {
+      if (!thread) {
+        updateDraft({ executionProjectId, skill: undefined });
+        return;
+      }
+      if (thread.executionProjectId === executionProjectId) return;
+      updateDraft({ skill: undefined });
+      await changeThreadConfiguration({ executionProjectId }, () =>
+        api.setThreadExecutionProject(project.id, thread.id, executionProjectId),
+      );
+    };
     if (value !== "open") {
-      updateDraft({ executionProjectId: value === "design" ? undefined : value, skill: undefined });
+      await changeExecution(value === "design" ? undefined : value);
       return;
     }
     const key = draftKey;
@@ -890,6 +924,10 @@ export function App({
       const opened = await api.openProject();
       if (!opened) return;
       applySnapshot(opened, false);
+      if (thread) {
+        await changeExecution(opened.project.id);
+        return;
+      }
       setDrafts((current) => ({
         ...current,
         [key]: {
@@ -971,9 +1009,9 @@ export function App({
           ...(executionProjectId && !projects.some((item) => item.id === executionProjectId)
             ? [{ value: executionProjectId, label: "Project unavailable" }]
             : []),
-          ...(!selectedThreadId ? [{ value: "open", label: "Open project…" }] : []),
+          { value: "open", label: "Open project…" },
         ],
-        ...(!selectedThreadId
+        ...(!selectedThreadId || (thread && !settingsPending[thread.id])
           ? { onChange: (value: string) => void chooseExecutionProject(value) }
           : {}),
       }
@@ -2051,7 +2089,7 @@ export function App({
                           designs={snapshot.designs}
                           selected={thread.designIds}
                           onBranchChange={(branch) => void switchBranch(branch)}
-                          disabled={running}
+                          disabled={running || busy || opening}
                           pending={Boolean(switchingBranch)}
                         />
                       </div>

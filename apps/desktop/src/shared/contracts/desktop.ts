@@ -222,6 +222,11 @@ export type DesktopAPI = {
     threadId: string,
     settings: HarnessSettings,
   ): Promise<Thread>;
+  setThreadExecutionProject(
+    projectId: string,
+    threadId: string,
+    executionProjectId?: string,
+  ): Promise<Thread>;
   renameThread(projectId: string, threadId: string, title: string): Promise<Thread>;
   regenerateThreadTitle(projectId: string, threadId: string, naming: ThreadNaming): Promise<Thread>;
   readThread(projectId: string, threadId: string): Promise<Thread>;

@@ -114,6 +114,8 @@ const api: DesktopAPI = {
   },
   setThreadSettings: (projectId, threadId, settings) =>
     request("thread-settings", { projectId, threadId, settings }),
+  setThreadExecutionProject: (projectId, threadId, executionProjectId) =>
+    request("thread-execution-project", { projectId, threadId, executionProjectId }),
   readVideoChunk: (input) => request("read-video-chunk", input),
   pullRequestState: (projectId, href) => request("pull-request-state", { projectId, href }),
   async openChatLink(_projectId, href) {

@@ -73,8 +73,10 @@ to run against the workspace's private local design cache, or choose a local pro
 in the composer to run its harness in that repository. Any number of local projects
 can use the same workspace. Select workspace design references before starting;
 only selected files download, and edits use their existing sync bindings. The
-project choice is fixed for that thread, including follow-ups, queues and native
-session resumption. Start another thread to use a different project. Project skills,
+project choice can be changed from the thread's **Local project** menu when its
+agent and background work are idle. Changing it preserves the conversation, designs
+and attachments and starts a fresh native session in the chosen directory for the
+next message, with recent conversation supplied as context. Project skills,
 model discovery and branch controls use the selected execution directory.
 
 Conversations, attachments, native session authority and repository files stay local.
