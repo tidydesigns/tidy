@@ -36,24 +36,6 @@ export default function HomePage() {
             </div>
           </div>
           <div className={styles.heroCopy}>
-            <a
-              className={styles.launchBanner}
-              href="https://www.producthunt.com/posts/tidy-9"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <circle cx="12" cy="12" r="12" fill="#DA552F" />
-                <path
-                  d="M8 18V6H13A4 4 0 0 1 13 14H10.5V18H8ZM10.5 8.5V11.5H13A1.5 1.5 0 0 0 13 8.5H10.5Z"
-                  fill="white"
-                />
-              </svg>
-              <span>We’re live on Product Hunt</span>
-              <span className={styles.launchBannerArrow} aria-hidden="true">
-                ↗
-              </span>
-            </a>
             <h1 id="hero-title">
               Design and build
               <br />
