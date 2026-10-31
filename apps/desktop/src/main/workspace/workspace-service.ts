@@ -10,6 +10,7 @@ import { promptThreadTitle, threadPromptText } from "../../shared/models/thread-
 import type { BrowserDiscardDraft } from "../../shared/contracts/browser";
 import { ThreadPorts } from "../processes/thread-ports";
 import { RepositoryObservers } from "../repository/repository-files";
+import { closeGitSnapshots } from "../repository/repository-git";
 import { HarnessFailureError } from "../harnesses/provider-failure";
 import { BrowserAgentBridge } from "../browser/agent-bridge";
 import { BrowserService } from "../browser/browser-service";
@@ -1760,6 +1761,7 @@ export class WorkspaceService {
     await this.sessions.clear();
     await this.ports.flush();
     await this.store.flush();
+    await closeGitSnapshots();
   }
 
   get activeRunCount() {

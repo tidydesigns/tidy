@@ -78,6 +78,7 @@ export function useRepositoryFiles({
           if (
             previous &&
             previous.limited === value.limited &&
+            previous.ignoreUnavailable === value.ignoreUnavailable &&
             previous.entries.length === value.entries.length &&
             previous.entries.every(
               (entry, index) =>
@@ -204,6 +205,7 @@ export function useRepositoryFiles({
             setChanges((previous) =>
               previous?.repository === result.repository &&
               previous.head === result.head &&
+              previous.limited === result.limited &&
               previous.changes.length === result.changes.length &&
               previous.changes.every((change, index) => {
                 const next = result.changes[index];
