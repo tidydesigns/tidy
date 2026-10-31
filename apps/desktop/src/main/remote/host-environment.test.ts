@@ -48,9 +48,18 @@ test("supervisor environment survives restart privately and newer snapshots repl
     assert.equal(target.OPENAI_API_KEY, dummyEnvironment.OPENAI_API_KEY);
     assert.equal(target.TMPDIR, "/private-child-temp");
     await persistHostEnvironment(directory, { OPENAI_API_KEY: "dummy-rotated-credential" });
-    const restarted: NodeJS.ProcessEnv = {};
+    const restarted: NodeJS.ProcessEnv = {
+      ANTHROPIC_API_KEY: "dummy-stale-manager-credential",
+      CODEX_HOME: "/dummy/stale-config",
+      TMPDIR: "/private-child-temp",
+      UNRELATED_SETTING: "preserved",
+    };
     await loadHostEnvironment(directory, restarted);
-    assert.deepEqual(restarted, { OPENAI_API_KEY: "dummy-rotated-credential" });
+    assert.deepEqual(restarted, {
+      OPENAI_API_KEY: "dummy-rotated-credential",
+      TMPDIR: "/private-child-temp",
+      UNRELATED_SETTING: "preserved",
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

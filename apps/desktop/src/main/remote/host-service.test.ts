@@ -173,6 +173,7 @@ test("persisted activation survives a stopped host without allowing older or equ
   await acceptHostActivation(root, newer);
   expect(await selectHostActivation(root, older)).toEqual(newer);
   expect(await selectHostActivation(root, { ...older, sourceTimestamp: 200 })).toEqual(newer);
+  await acceptHostActivation(root, older);
   expect(JSON.parse(await readFile(join(root, "activation.json"), "utf8"))).toEqual(newer);
   const latest = { ...older, sourceTimestamp: 300 };
   expect(await selectHostActivation(root, latest)).toEqual(latest);

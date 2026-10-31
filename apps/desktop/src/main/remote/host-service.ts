@@ -113,7 +113,7 @@ async function configured(path: string) {
   }
 }
 
-/** Called only after the shared host/launch locks establish that no backend is running. */
+/** Probe the shared runtime under the launch lock and reuse a healthy host before calling. */
 export async function startHostService(
   options: ServiceOptions,
 ): Promise<"systemd" | "launchd" | null> {
@@ -242,7 +242,6 @@ const activationSchema = z.object({
   sourceTimestamp: z.number().int().nonnegative(),
 });
 
-/** The launch lock serializes activation selection across all connecting clients. */
 export async function selectHostActivation(
   directory: string,
   candidate: z.infer<typeof activationSchema>,
@@ -262,6 +261,8 @@ export async function acceptHostActivation(
   directory: string,
   activation: z.infer<typeof activationSchema>,
 ) {
+  const selected = await selectHostActivation(directory, activation);
+  if (selected.buildId !== activation.buildId) return;
   await writePrivateJSON(join(directory, "activation.json"), activationSchema.parse(activation), {
     durable: true,
   });

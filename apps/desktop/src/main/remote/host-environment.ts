@@ -68,6 +68,7 @@ export async function loadHostEnvironment(
     const environment = environmentSchema.safeParse(parsed);
     if (!environment.success)
       throw new Error("The saved backend environment is invalid. Reconnect to recreate it.");
+    for (const key of supportedKeys) delete target[key];
     Object.assign(target, hostEnvironment(environment.data));
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;

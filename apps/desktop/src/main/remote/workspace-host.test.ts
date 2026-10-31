@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { preparedHostSchema, runtimeSchema, hostDescriptorSchema } from "../../shared/remote";
 import { ProjectStore } from "../workspace/project-store";
 import { migrateWorkspaceRegistry } from "./workspace-host";
+import { selectHostActivation } from "./host-service";
 const cleanup: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -240,6 +241,10 @@ for (const blockPublication of [false, true]) {
         });
         expect(code).toBe(1);
         expect(errors).toContain('"event":"host.failed"');
+        await expect(readFile(join(root, "activation.json"))).rejects.toHaveProperty(
+          "code",
+          "ENOENT",
+        );
         await rm(join(root, "runtime.json"), { recursive: true });
       }
       const child = spawn("node", ["--import", "tsx", "scripts/host.ts", "ensure", randomUUID()], {
@@ -292,6 +297,60 @@ for (const blockPublication of [false, true]) {
     10000,
   );
 }
+
+test("a managed backend accepts its healthy runtime without a connecting launcher", async () => {
+  const root = await mkdtemp(join(tmpdir(), "service-start-host-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  await mkdir(home);
+  const child = spawn("node", ["--import", "tsx", "scripts/host.ts", "serve", "--managed"], {
+    cwd: new URL("../../..", import.meta.url),
+    env: {
+      ...process.env,
+      HOME: home,
+      XDG_CACHE_HOME: join(home, "cache"),
+      TIDY_HOST_STATE: root,
+      TIDY_HOST_SUPERVISOR: "detached",
+    },
+    stdio: "pipe",
+    timeout: 10000,
+    killSignal: "SIGKILL",
+  });
+  let errors = "";
+  child.stderr.on("data", (chunk) => {
+    errors += chunk.toString();
+  });
+  child.stdout.resume();
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.once("exit", resolve);
+    child.once("error", reject);
+  });
+  try {
+    let runtime: Buffer | undefined;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      runtime = await readFile(join(root, "runtime.json")).catch(() => undefined);
+      if (runtime && errors.includes('"event":"host.ready"')) break;
+      if (child.exitCode !== null) throw new Error(errors);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!runtime) throw new Error(`The managed backend did not become ready: ${errors}`);
+    const descriptor = runtimeSchema.parse(JSON.parse(runtime.toString()));
+    const accepted = JSON.parse(await readFile(join(root, "activation.json"), "utf8"));
+    expect(accepted.buildId).toBe(descriptor.buildId);
+    expect(accepted.sourceTimestamp).toBe(descriptor.sourceTimestamp);
+    expect(
+      await selectHostActivation(root, {
+        executable: process.execPath,
+        arguments: ["/fixture/old-host.mjs"],
+        buildId: "older",
+        sourceTimestamp: 0,
+      }),
+    ).toEqual(accepted);
+  } finally {
+    child.kill("SIGTERM");
+    await exited;
+  }
+}, 15000);
 
 test("a failed final service flush retains host and project ownership after draining", async () => {
   const root = await mkdtemp(join(tmpdir(), "checkpoint-host-"));

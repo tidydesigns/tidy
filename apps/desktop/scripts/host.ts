@@ -134,8 +134,6 @@ try {
           throw new Error(
             "The backend did not become ready. Inspect ~/.local/state/tidy-host/server.log.",
           );
-        if (runtime.buildId === activation.buildId)
-          await acceptHostActivation(directory, activation);
       }
       process.stdout.write(
         JSON.stringify({
@@ -189,20 +187,6 @@ try {
     await store.initialize();
     await store.recover();
     const port = await host.listen();
-    const supervisor = z
-      .enum(["systemd", "launchd", "detached"])
-      .catch("detached")
-      .parse(process.env.TIDY_HOST_SUPERVISOR);
-    await writePrivateJSON(runtimePath, {
-      ...identity,
-      protocol: 3,
-      port,
-      pid: process.pid,
-      managed: process.argv.includes("--managed"),
-      supervisor,
-      persistenceWarning: await hostPersistenceWarning(supervisor),
-    });
-    process.stderr.write(JSON.stringify({ event: "host.ready", port, hostId }) + "\n");
     let closing = false;
     const close = () => {
       if (closing) return;
@@ -229,6 +213,27 @@ try {
     };
     process.on("SIGTERM", close);
     process.on("SIGINT", close);
+    const supervisor = z
+      .enum(["systemd", "launchd", "detached"])
+      .catch("detached")
+      .parse(process.env.TIDY_HOST_SUPERVISOR);
+    await writePrivateJSON(runtimePath, {
+      ...identity,
+      protocol: 3,
+      port,
+      pid: process.pid,
+      managed: process.argv.includes("--managed"),
+      supervisor,
+      persistenceWarning: await hostPersistenceWarning(supervisor),
+    });
+    if (process.argv.includes("--managed"))
+      await acceptHostActivation(directory, {
+        executable: process.execPath,
+        arguments: [...process.execArgv, import.meta.filename],
+        buildId,
+        sourceTimestamp,
+      });
+    process.stderr.write(JSON.stringify({ event: "host.ready", port, hostId }) + "\n");
   } else if (command === "revoke") {
     await sessions.revoke(z.string().uuid().parse(process.argv[3]));
   } else if (command === "version") {
