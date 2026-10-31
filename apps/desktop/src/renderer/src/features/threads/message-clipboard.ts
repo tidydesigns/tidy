@@ -7,7 +7,10 @@ import {
 } from "../../../../shared/contracts/attachments";
 import type { DesktopAPI, Message } from "../../../../shared/contracts/desktop";
 import { machineIdSchema } from "../../../../shared/remote";
-import { attachmentText } from "../../../../shared/models/attachment-references";
+import {
+  attachmentParts,
+  attachmentReference,
+} from "../../../../shared/models/attachment-references";
 
 export const MESSAGE_CLIPBOARD_MIME = "web application/x-tidy-message+json";
 const maxFragmentLength = 1_100_000;
@@ -45,11 +48,100 @@ export function clipboardClientId() {
   }
 }
 
+const referenceStorageKey = "clipboard-image-references";
+const referenceSchema = z
+  .object({
+    source: clipboardMessageSchema.shape.source,
+    attachment: attachmentSchema.strict(),
+  })
+  .strict();
+const referencesSchema = z.array(referenceSchema).max(500);
+type ClipboardStorage = Pick<Storage, "getItem" | "setItem">;
+function clipboardStorage(): ClipboardStorage | undefined {
+  try {
+    return localStorage;
+  } catch {
+    return undefined;
+  }
+}
+function imageReferences(storage: ClipboardStorage | undefined) {
+  try {
+    const raw = storage?.getItem(referenceStorageKey) ?? "[]";
+    if (raw.length > 1_000_000) return [];
+    return referencesSchema.parse(JSON.parse(raw));
+  } catch {
+    return [];
+  }
+}
+function rememberImages(message: ClipboardMessage, storage: ClipboardStorage | undefined) {
+  const images = message.attachments.filter((file) => file.mimeType.startsWith("image/"));
+  if (!images.length) return;
+  const ids = new Set(images.map((file) => file.id));
+  const entries = imageReferences(storage).filter((entry) => !ids.has(entry.attachment.id));
+  try {
+    storage?.setItem(
+      referenceStorageKey,
+      JSON.stringify(
+        [...entries, ...images.map((attachment) => ({ source: message.source, attachment }))].slice(
+          -500,
+        ),
+      ),
+    );
+  } catch {}
+}
+function imageMarkdown(file: ClipboardMessage["attachments"][number]) {
+  const name = file.name.replace(/[\r\n]/g, " ").replace(/[\\[\]]/g, "\\$&");
+  return `![${name}](tidy-context://v1/image/${file.id})`;
+}
 export function messageClipboardText(message: Pick<Message, "text" | "attachments">) {
   const attachments = message.attachments ?? [];
-  const text = attachmentText(message.text, attachments);
-  const extra = attachments.filter((file) => !message.text.includes(`[[attachment:${file.id}]]`));
-  return [text, ...extra.map((file) => file.name)].filter(Boolean).join("\n");
+  const included = new Set<string>();
+  const label = (file: ClipboardMessage["attachments"][number]) =>
+    file.mimeType.startsWith("image/") ? imageMarkdown(file) : file.name;
+  const text = attachmentParts(message.text, attachments)
+    .map((part) => {
+      if (part.kind === "text") return part.text;
+      included.add(part.file.id);
+      return label(part.file);
+    })
+    .join("");
+  return [text, ...attachments.filter((file) => !included.has(file.id)).map(label)]
+    .filter(Boolean)
+    .join("\n");
+}
+function readImageReferences(text: string, storage: ClipboardStorage | undefined) {
+  if (text.length > maxFragmentLength || !text.includes("tidy-context://v1/image/")) return null;
+  const references = new Map(imageReferences(storage).map((entry) => [entry.attachment.id, entry]));
+  const files = new Map<string, ClipboardMessage["attachments"][number]>();
+  let source: ClipboardMessage["source"] | undefined;
+  let invalid = false;
+  const restored = text.replace(
+    /!\[(?:\\.|[^\]\\\r\n])*\]\(tidy-context:\/\/v1\/image\/([0-9a-f-]{36})\)/g,
+    (markdown, id: string) => {
+      const entry = references.get(id);
+      if (
+        !entry ||
+        entry.source.clientId !== clipboardClientId() ||
+        (source &&
+          (source.machineId !== entry.source.machineId ||
+            source.projectId !== entry.source.projectId))
+      ) {
+        invalid = true;
+        return markdown;
+      }
+      source = entry.source;
+      files.set(id, entry.attachment);
+      return attachmentReference(entry.attachment);
+    },
+  );
+  if (invalid || !source || !files.size) return null;
+  const parsed = clipboardMessageSchema.safeParse({
+    version: 1,
+    source,
+    text: restored,
+    attachments: [...files.values()],
+  });
+  return parsed.success ? parsed.data : null;
 }
 
 export function messageClipboardContent({
@@ -57,11 +149,13 @@ export function messageClipboardContent({
   projectId,
   machineId = "local",
   clientId = clipboardClientId(),
+  storage = clipboardStorage(),
 }: {
   message: Pick<Message, "text" | "attachments">;
   projectId: string;
   machineId?: string;
   clientId?: string;
+  storage?: ClipboardStorage;
 }) {
   const fragment = clipboardMessageSchema.parse({
     version: 1,
@@ -71,6 +165,7 @@ export function messageClipboardContent({
   });
   const encoded = JSON.stringify(fragment);
   if (encoded.length > maxFragmentLength) throw new Error("This message is too large to copy.");
+  rememberImages(fragment, storage);
   const text = messageClipboardText(message);
   const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   return {
@@ -90,7 +185,10 @@ export function decodeMessageClipboard(raw: string) {
   }
 }
 
-export function readMessageClipboard(data: Pick<DataTransfer, "getData">) {
+export function readMessageClipboard(
+  data: Pick<DataTransfer, "getData">,
+  storage = clipboardStorage(),
+) {
   let fragment = decodeMessageClipboard(data.getData(MESSAGE_CLIPBOARD_MIME));
   if (!fragment) {
     const html = data.getData("text/html");
@@ -101,11 +199,13 @@ export function readMessageClipboard(data: Pick<DataTransfer, "getData">) {
       } catch {}
     }
   }
-  if (!fragment || fragment.source.clientId !== clipboardClientId()) return null;
+  const plain = data.getData("text/plain");
+  if (!fragment || fragment.source.clientId !== clipboardClientId())
+    return readImageReferences(plain, storage);
   const normalize = (text: string) => text.replace(/\r\n?/g, "\n");
-  return normalize(data.getData("text/plain")) === normalize(messageClipboardText(fragment))
+  return normalize(plain) === normalize(messageClipboardText(fragment))
     ? fragment
-    : null;
+    : readImageReferences(plain, storage);
 }
 
 export async function copyMessage(input: Parameters<typeof messageClipboardContent>[0]) {
