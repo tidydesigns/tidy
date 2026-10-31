@@ -16,6 +16,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inspectUsage } from "./harness-usage";
 import { readOpenCodeUsage } from "./opencode-usage";
+import { HarnessSession } from "./interactive-harness";
+import { observedUsage, rememberUsage, scopeUsage, usageScope } from "./usage-state";
 const directories: string[] = [];
 afterEach(async () => {
   for (const directory of directories.splice(0))
@@ -172,3 +174,93 @@ test.skipIf(process.platform === "win32")(
     await expect(stat(join(fixture.cwd, "injected"))).rejects.toThrow();
   },
 );
+
+async function until(check: () => boolean | Promise<boolean>) {
+  const deadline = Date.now() + 2500;
+  while (!(await check())) {
+    if (Date.now() >= deadline) throw new Error("Native usage fixture did not report in time.");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
+
+for (const scenario of ["fresh", "changed", "unavailable"] as const)
+  test(`Codex native usage establishes identity without blocking a turn: ${scenario}`, async () => {
+    const cwd = await directory();
+    const executable = join(cwd, "codex");
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+import { existsSync, writeFileSync } from 'node:fs';
+const send=value=>process.stdout.write(JSON.stringify(value)+'\\n');
+const usage=usedPercent=>send({method:'account/rateLimits/updated',params:{rateLimits:{primary:{usedPercent}}}});
+let sequence=0;
+for await(const line of createInterface({input:process.stdin})){
+ const value=JSON.parse(line);
+ if(value.method==='initialize')send({id:value.id,result:{}});
+ else if(value.method==='thread/start')send({id:value.id,result:{thread:{id:'b56ba7bb-00aa-4a56-a64c-593c3c377dcc'}}});
+ else if(value.method==='account/read'){
+  writeFileSync('account-requested','');
+  usage(99);
+  const timer=setInterval(()=>{
+   if(!existsSync('release-account'))return;
+   clearInterval(timer);
+   send(${scenario === "unavailable" ? "{id:value.id,error:{code:-32601,message:'unsupported'}}" : "{id:value.id,result:{account:{type:'chatgpt',planType:'plus',email:'first@example.invalid'}}}"});
+   setTimeout(()=>{usage(40);writeFileSync('usage-reported','');},20);
+  },10);
+ } else if(value.method==='turn/start'){
+  const id='turn-'+(++sequence);
+  send({id:value.id,result:{turn:{id}}});
+  send({method:'turn/completed',params:{turn:{id,status:'completed'}}});
+ }
+}
+`,
+    );
+    await chmod(executable, 0o700);
+    const session = new HarnessSession({ harness: "codex", executable, cwd });
+    try {
+      await session.ready;
+      // This turn must finish while the account response is still deliberately withheld.
+      await session.start({ prompt: "First turn", onUpdate() {} }).done;
+      await until(() =>
+        stat(join(cwd, "account-requested")).then(
+          () => true,
+          () => false,
+        ),
+      );
+      expect(usageScope("codex", cwd)).toBeUndefined();
+      expect(observedUsage("codex", cwd)).toBeUndefined();
+      if (scenario === "changed") {
+        scopeUsage("codex", cwd, { account: { type: "chatgpt", email: "new@example.invalid" } });
+        rememberUsage("codex", cwd, {
+          windows: [{ id: "new-account", name: "Current limit", usedPercent: 20 }],
+          state: "available",
+          updatedAt: new Date().toISOString(),
+          usagePage: "subscription",
+        });
+      }
+      const currentScope = usageScope("codex", cwd);
+      await writeFile(join(cwd, "release-account"), "");
+      await until(() =>
+        stat(join(cwd, "usage-reported")).then(
+          () => true,
+          () => false,
+        ),
+      );
+      // The response to this turn follows the usage event on the same native stream.
+      await session.start({ prompt: "Second turn", onUpdate() {} }).done;
+      if (scenario === "fresh") {
+        expect(usageScope("codex", cwd)).toBeTruthy();
+        expect(observedUsage("codex", cwd)?.windows[0].usedPercent).toBe(40);
+      } else if (scenario === "changed") {
+        expect(usageScope("codex", cwd)).toBe(currentScope);
+        expect(observedUsage("codex", cwd)?.windows[0].usedPercent).toBe(20);
+      } else {
+        expect(usageScope("codex", cwd)).toBeUndefined();
+        expect(observedUsage("codex", cwd)).toBeUndefined();
+      }
+    } finally {
+      session.close();
+      await session.done;
+    }
+  });

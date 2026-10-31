@@ -1,4 +1,4 @@
-import { observeUsage, usageScope } from "./usage-state";
+import { observeUsage, scopeUsage, usageScope } from "./usage-state";
 import { HarnessFailureError } from "./provider-failure";
 import { randomUUID } from "node:crypto";
 import {
@@ -173,9 +173,9 @@ export class HarnessSession {
       opencode: createOpenCodeAdapter,
     };
     this.adapter = adapters[input.harness](context);
-    let scope = "";
+    let scope: string | undefined;
     this.transport.onMessage = (value) => {
-      observeUsage(harness, cwd, value, scope);
+      if (scope !== undefined) observeUsage(harness, cwd, value, scope);
       this.adapter.consume(value);
     };
     this.transport.onClose = (error) => {
@@ -186,7 +186,21 @@ export class HarnessSession {
     this.ready = this.adapter
       .initialize()
       .then(() => {
-        scope = usageScope(harness, cwd) ?? "";
+        if (harness !== "codex") {
+          scope = usageScope(harness, cwd);
+          return;
+        }
+        const previousScope = usageScope(harness, cwd);
+        // Optional accounting must not delay a turn. Ignore events until this connection's
+        // identity is known, and don't let a late read replace a newer account's scope.
+        void this.transport
+          .request("account/read", { refreshToken: false }, 1000)
+          .then((account) => {
+            if (!this.available || usageScope(harness, cwd) !== previousScope) return;
+            scopeUsage(harness, cwd, account);
+            scope = usageScope(harness, cwd);
+          })
+          .catch(() => {});
       })
       .catch((error: unknown) => {
         this.finish(
