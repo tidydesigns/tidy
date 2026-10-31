@@ -2356,9 +2356,9 @@ export function App({
                               tokens={thread?.usage}
                               activity={thread?.status}
                               modelId={
-                                thread?.settings?.model ??
-                                draft.settings?.model ??
-                                thread?.actualModel ??
+                                (thread
+                                  ? (thread.settings?.model ?? thread.actualModel)
+                                  : draft.settings?.model) ??
                                 harnessDetails[detailKey]?.info?.defaultModel
                               }
                             />
