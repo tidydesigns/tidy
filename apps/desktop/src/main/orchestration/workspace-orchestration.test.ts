@@ -167,6 +167,51 @@ test("renderer task views include queued assignments, durable turn links and pri
   ).toBe("Design review complete");
 });
 
+test("completed child events remain visible while task completion persistence retries", async () => {
+  const f = await fixture();
+  const parent = await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate an inspection",
+    designIds: [],
+  });
+  const tools = await f.runs[0].input.agentTools?.open();
+  if (!tools) throw new Error("Missing agent tool connection.");
+  cleanups.push(async () => tools.close());
+  const task = await call(tools, "task_delegate", { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.runs.length === 2);
+  const transition = f.service.tasks.store.transition.bind(f.service.tasks.store);
+  const failures = spyOn(f.service.tasks.store, "transition").mockImplementation(async (input) => {
+    if (input.id === task.task_id && input.state === "completed")
+      throw new Error("Assignment completion could not be persisted.");
+    return transition(input);
+  });
+  cleanups.push(async () => failures.mockRestore());
+  const events: import("../../shared/contracts/desktop").DesktopEvent[] = [];
+  const unsubscribe = f.service.subscribeRenderer((event) => events.push(event));
+  cleanups.push(async () => {
+    unsubscribe();
+  });
+  f.runs[1].complete();
+  await until(async () =>
+    events.some(
+      (event) =>
+        event.type === "thread" &&
+        event.thread.id === task.child_thread_id &&
+        event.thread.status === "completed",
+    ),
+  );
+  expect((await f.service.tasks.store.get(String(task.task_id)))?.state).toBe("running");
+  expect((await f.service.readThread(f.project.id, parent.id)).queuedMessages ?? []).toHaveLength(
+    0,
+  );
+  failures.mockRestore();
+  await f.service.tasks.deliver();
+  expect((await f.service.tasks.store.get(String(task.task_id)))?.state).toBe("completed");
+  expect(f.runs).toHaveLength(2);
+});
+
 test("a real workspace delegates, persists results, queues a parent continuation and revokes stopped tool access", async () => {
   const f = await fixture();
   const parent = await f.service.startThread({
@@ -580,10 +625,21 @@ test("ordinary work waits for user turns, stays independent, and cancels only th
   f.runs[1].complete();
   await until(async () => f.runs.length === 3);
   const after = await f.service.readThread(f.project.id, f.recipient.id);
-  expect(after.messages.at(-1)?.id).toBe(runningRequest.request_id);
+  expect(after.messages.at(-1)?.id).toBe(String(running.task_id));
   expect(after.parentThreadId).toBeUndefined();
+  expect(after.messageSources?.[String(running.task_id)]).toEqual({ threadId: f.parent.id });
+  const disk = await readFile(
+    await f.store.storagePath(f.project.id, "threads", f.recipient.id),
+    "utf8",
+  );
+  expect(disk).not.toContain("messageSources");
   const queued = await call(f.tools, "thread_send", { ...request, request_id: randomUUID() });
-  await call(f.tools, "task_cancel", { task_id: queued.task_id });
+  await expect(
+    f.service.cancelThreadTask(f.project.id, f.recipient.id, String(queued.task_id)),
+  ).rejects.toThrow("not found");
+  expect((await f.service.tasks.store.get(String(queued.task_id)))?.state).toBe("queued");
+  await f.service.cancelThreadTask(f.project.id, f.parent.id, String(queued.task_id));
+  expect((await f.service.tasks.store.get(String(queued.task_id)))?.state).toBe("cancelled");
   expect((await f.service.tasks.store.get(String(running.task_id)))?.state).toBe("running");
   expect((await f.service.readThread(f.project.id, f.recipient.id)).status).toBe("running");
   f.runs[2].input.onUpdate({
@@ -615,6 +671,109 @@ test("ordinary work waits for user turns, stays independent, and cancels only th
   await expect(
     f.service.setThreadWorkPermission(randomUUID(), f.recipient.id, true),
   ).rejects.toThrow();
+});
+
+test("sender-scoped retry IDs produce distinct recipient turns and cancellation ownership", async () => {
+  const f = await independentThreads();
+  await f.service.startThread({
+    projectId: f.project.id,
+    harness: "codex",
+    settings: { permissionMode: "read-only" },
+    prompt: "Coordinate another review",
+    designIds: [],
+  });
+  const otherTools = await f.runs[2].input.agentTools?.open();
+  if (!otherTools) throw new Error("Missing second sender tool connection.");
+  cleanups.push(async () => otherTools.close());
+  await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, true);
+  const request = {
+    thread_id: f.recipient.id,
+    request_id: randomUUID(),
+    message: "Review the same plan",
+  };
+  const first = await call(f.tools, "thread_send", request);
+  const second = await call(otherTools, "thread_send", request);
+  expect(second.task_id).not.toBe(first.task_id);
+  expect((await call(f.tools, "thread_send", request)).task_id).toBe(first.task_id);
+  expect((await call(otherTools, "thread_send", request)).task_id).toBe(second.task_id);
+  f.runs[1].complete();
+  await until(async () => f.runs.length === 4);
+  const firstTurn = await f.service.readThread(f.project.id, f.recipient.id);
+  expect(firstTurn.messages.at(-1)?.id).toBe(String(first.task_id));
+  f.runs[3].complete();
+  await until(async () => f.runs.length === 5);
+  const secondTurn = await f.service.readThread(f.project.id, f.recipient.id);
+  expect(secondTurn.messages.at(-1)?.id).toBe(String(second.task_id));
+  const firstCancellation = await call(f.tools, "task_cancel", { task_id: first.task_id });
+  expect(firstCancellation.child_cancellation).toMatchObject({ requested: false, confirmed: true });
+  expect((await f.service.tasks.store.get(String(second.task_id)))?.state).toBe("running");
+  expect((await f.service.readThread(f.project.id, f.recipient.id)).status).toBe("running");
+  const secondCancellation = await call(otherTools, "task_cancel", { task_id: second.task_id });
+  expect(secondCancellation.child_cancellation).toMatchObject({ requested: true });
+  await until(
+    async () => (await f.service.tasks.store.get(String(second.task_id)))?.state === "cancelled",
+  );
+  expect(
+    (await call(otherTools, "task_cancel", { task_id: second.task_id })).child_cancellation,
+  ).toMatchObject({ confirmed: true });
+  const recipient = await f.service.readThread(f.project.id, f.recipient.id);
+  for (const task of [first, second])
+    expect(recipient.messages.filter((message) => message.id === task.task_id)).toHaveLength(1);
+  expect(recipient.messages.some((message) => message.id === request.request_id)).toBe(false);
+  expect(f.runs).toHaveLength(5);
+});
+
+test("parent cancellation cannot stop a user turn replacing an incoming assignment during a stale read", async () => {
+  const f = await independentThreads();
+  await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, true);
+  const task = await call(f.tools, "thread_send", {
+    thread_id: f.recipient.id,
+    request_id: randomUUID(),
+    message: "Review before the user continues",
+  });
+  f.runs[1].complete();
+  await until(async () => f.runs.length === 3);
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const readThread = f.service.readThread.bind(f.service);
+  let capture = true;
+  const stalled = spyOn(f.service, "readThread").mockImplementation(async (projectId, threadId) => {
+    const thread = await readThread(projectId, threadId);
+    if (capture && threadId === f.recipient.id) {
+      capture = false;
+      entered.resolve();
+      await release.promise;
+    }
+    return thread;
+  });
+  cleanups.push(async () => {
+    release.resolve();
+    stalled.mockRestore();
+  });
+  const cancellation = f.service.tasks.cancelParent(f.project.id, f.parent.id);
+  await entered.promise;
+  f.runs[2].complete();
+  await until(
+    async () => (await f.service.tasks.store.get(String(task.task_id)))?.state === "cancelled",
+  );
+  const userMessageId = randomUUID();
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: f.recipient.id,
+    messageId: userMessageId,
+    text: "Continue my own work",
+  });
+  expect(f.runs).toHaveLength(4);
+  expect(await f.service.stopTaskTurn(randomUUID(), f.recipient.id, userMessageId)).toBe(false);
+  expect(await f.service.stopTaskTurn(f.project.id, f.recipient.id, String(task.task_id))).toBe(
+    false,
+  );
+  release.resolve();
+  await cancellation;
+  const recipient = await f.service.readThread(f.project.id, f.recipient.id);
+  expect(recipient.status).toBe("running");
+  expect(recipient.activity).not.toBe("Stopping");
+  expect(recipient.messages.at(-1)?.id).toBe(userMessageId);
 });
 
 for (const change of ["revoke", "done"] as const) {
@@ -738,3 +897,21 @@ for (const kind of ["child", "ordinary"] as const) {
     expect(resumable.some((entry) => entry.threadId === target)).toBe(false);
   });
 }
+
+test("receiving permission publishes authoritative state to every connected view", async () => {
+  const f = await independentThreads();
+  const events: import("../../shared/contracts/desktop").Thread[] = [];
+  const unsubscribe = f.service.subscribe((event) => {
+    if (event.type === "thread" && event.thread.id === f.recipient.id) events.push(event.thread);
+  });
+  try {
+    await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, true);
+    await f.service.setThreadWorkPermission(f.project.id, f.recipient.id, false);
+    expect(events.map((thread) => thread.acceptsThreadWork)).toEqual([true, false]);
+    expect((await f.service.readThread(f.project.id, f.recipient.id)).acceptsThreadWork).toBe(
+      false,
+    );
+  } finally {
+    unsubscribe();
+  }
+});

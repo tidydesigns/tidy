@@ -28,10 +28,12 @@ export function ThreadCard({
   repository,
   orderControls,
   childApprovalCount = 0,
+  onOpenChildApproval,
 }: {
   thread: ThreadSummary;
   api?: Pick<DesktopAPI, "openChatLink" | "browser" | "pullRequestState">;
   childApprovalCount?: number;
+  onOpenChildApproval?(): void;
   selected: boolean;
   loaded: boolean;
   now: number;
@@ -82,6 +84,9 @@ export function ThreadCard({
         : status === "failed"
           ? "Failed"
           : "Unread response";
+  const canOpenChildApproval =
+    status === "permission" && !thread.pendingApprovalCount && Boolean(onOpenChildApproval);
+  const Status = canOpenChildApproval ? Button : "span";
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const root = useRef<HTMLDivElement>(null),
@@ -229,7 +234,7 @@ export function ThreadCard({
           {relativeThreadTime(thread.updatedAt, now)}
         </time>
       </Button>
-      <div className="thread-card-trailing pointer-events-none absolute top-8 right-2 left-7 grid grid-cols-[minmax(0,1fr)_64px] items-center gap-2">
+      <div className="thread-card-trailing pointer-events-none absolute top-8 right-2 left-7 grid grid-cols-[minmax(0,1fr)_max-content] items-center gap-2">
         {api && latestPullRequest && (
           <span
             className="thread-pull-requests pointer-events-auto col-start-1 flex min-w-0 max-w-full justify-self-start items-center gap-1 text-[11px] leading-[18px] text-muted-ink tabular-nums"
@@ -259,10 +264,11 @@ export function ThreadCard({
           </span>
         )}
         {status !== "idle" && (
-          <span
-            className={`thread-card-status thread-state-${status} pointer-events-none col-start-2 flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
-            role="status"
-            aria-label={statusLabel}
+          <Status
+            onClick={canOpenChildApproval ? () => { close(); onOpenChildApproval?.(); } : undefined}
+            className={`thread-card-status thread-state-${status} ${canOpenChildApproval ? "pointer-events-auto cursor-pointer border-0 bg-transparent p-0 focus-visible:outline-2 focus-visible:outline-offset-2" : "pointer-events-none"} col-start-2 flex shrink-0 items-center justify-self-end gap-[5px] text-[11px] leading-[1.5] ${status === "running" ? "text-(--desktop-status-active)" : status === "permission" ? "text-(--desktop-status-warning)" : status === "failed" ? "text-(--desktop-status-danger)" : "text-[light-dark(#15803d,#4caf50)]"}`}
+            role={canOpenChildApproval ? undefined : "status"}
+            aria-label={canOpenChildApproval ? `Open agent approval for ${thread.title}` : statusLabel}
             title={statusLabel}
           >
             <span className="thread-status-symbol" aria-hidden="true">
@@ -282,7 +288,7 @@ export function ThreadCard({
               )}
             </span>
             {status !== "completed" && statusLabel}
-          </span>
+          </Status>
         )}
       </div>
       <Button

@@ -26,17 +26,28 @@
   font-size: 12px;
 }
 .agent-task-list {
-  max-height: 340px;
+  max-height: min(340px, 45dvh);
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+.agent-task-row {
+  margin: 2px 0;
+  border-radius: 6px;
+}
+.agent-task-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
 .agent-task {
   display: flex;
+  flex: 1;
+  min-width: 0;
   width: 100%;
   align-items: center;
   gap: 9px;
   padding: 7px 8px;
-  margin: 2px 0;
+  margin: 0;
   border: 0;
   border-radius: 6px;
   text-align: left;
@@ -54,9 +65,39 @@
   opacity: 1;
 }
 .agent-task:focus-visible,
+.agent-task-row:focus-visible,
+.agent-task-stop:focus-visible,
 .agent-tasks > summary:focus-visible {
   outline: 2px solid var(--color-muted-ink);
   outline-offset: 2px;
+}
+.agent-task-state {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--color-muted-ink);
+}
+.agent-task-state[data-tone="attention"] {
+  color: var(--desktop-status-warning);
+}
+.agent-task-stop {
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted-ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.agent-task-stop:hover:not(:disabled) {
+  background: var(--color-hover-surface);
+  color: var(--color-ink);
+}
+.agent-task-stop:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 .agent-task-label {
   flex: 1;

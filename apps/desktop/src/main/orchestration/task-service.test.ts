@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -123,6 +123,52 @@ test("fast completion during submission releases execution slots and delivers on
   expect(f.parent.queuedMessages).toHaveLength(5);
   await f.service.deliver();
   expect(f.parent.queuedMessages).toHaveLength(5);
+});
+
+test("completion persistence failures release capacity and retry results without rerunning inference", async () => {
+  const f = await fixture();
+  const tasks: Awaited<ReturnType<TaskService["delegate"]>>[] = [];
+  for (let index = 0; index < 3; index++)
+    tasks.push(await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" }));
+  await until(async () => f.launches() === 2);
+  const child = f.threads.get(tasks[0].child_thread_id);
+  if (!child) throw new Error("Missing child.");
+  const transition = f.store.transition.bind(f.store);
+  let unavailable = true;
+  const failures = spyOn(f.store, "transition").mockImplementation(async (input) => {
+    if (unavailable && input.id === tasks[0].task_id && input.state === "completed")
+      throw new Error("Assignment storage is unavailable.");
+    return transition(input);
+  });
+  cleanups.push(async () => failures.mockRestore());
+  child.status = "completed";
+  child.messages = [{ id: randomUUID(), role: "assistant", text: "Inspection complete" }];
+  await f.service.finished(child);
+  await until(async () => f.launches() === 3);
+  expect((await f.store.get(tasks[0].task_id))?.state).toBe("running");
+  expect(f.parent.queuedMessages ?? []).toHaveLength(0);
+  unavailable = false;
+  await until(async () => (await f.store.get(tasks[0].task_id))?.state === "completed");
+  await f.service.deliver();
+  expect((await f.store.get(tasks[0].task_id))?.summary).toBe("Inspection complete");
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  await f.service.deliver();
+  expect(f.parent.queuedMessages).toHaveLength(1);
+  expect(f.launches()).toBe(3);
+});
+
+test("unavailable completion storage settles running assignments and shutdown", async () => {
+  const f = await fixture();
+  const task = await f.service.delegate(f.scope, { request_id: randomUUID(), prompt: "Inspect" });
+  await until(async () => f.launches() === 1);
+  const child = f.threads.get(task.child_thread_id);
+  if (!child) throw new Error("Missing child.");
+  const failures = spyOn(f.store, "get").mockRejectedValue(new Error("Storage worker stopped."));
+  cleanups.push(async () => failures.mockRestore());
+  child.status = "completed";
+  await f.service.finished(child);
+  await f.service.close();
+  expect(f.launches()).toBe(1);
 });
 
 test("duplicate assignments launch once and mismatched reuse is rejected", async () => {

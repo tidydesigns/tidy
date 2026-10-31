@@ -21,6 +21,7 @@ export type TaskHost = {
   readThread(projectId: string, threadId: string): Promise<Thread>;
   startThread(input: Parameters<DesktopAPI["startThread"]>[0]): Promise<Thread>;
   stopThread(projectId: string, threadId: string): Promise<void>;
+  stopTaskTurn?(projectId: string, threadId: string, taskId: string): Promise<boolean>;
   sendMessage(
     input: Parameters<DesktopAPI["sendMessage"]>[0],
     guard?: {
@@ -86,6 +87,7 @@ export class TaskService {
   private commands: Promise<unknown> = Promise.resolve();
   private commandCount = 0;
   private launches = new Set<Promise<void>>();
+  private completions = new Map<string, Parameters<TaskStore["transition"]>[0]>();
   private deliveryDirty = false;
   private closed = false;
   private delivering?: Promise<void>;
@@ -309,6 +311,7 @@ export class TaskService {
     if (this.closed) return;
     for (const [id, task] of this.pending) {
       if (this.active.size >= TASK_LIMITS.active_tasks) break;
+      if (this.completions.size + this.active.size >= TASK_LIMITS.queued_tasks) break;
       if ([...this.active.values()].some((active) => active.childThreadId === task.childThreadId))
         continue;
       if (
@@ -383,7 +386,7 @@ export class TaskService {
               {
                 projectId: task.projectId,
                 threadId: task.childThreadId,
-                messageId: task.requestId,
+                messageId: task.id,
                 text: task.prompt,
               },
               {
@@ -405,23 +408,24 @@ export class TaskService {
       try {
         await this.host.assertCanStartTask(task.projectId, task.parentThreadId);
       } catch {
-        await this.host.stopThread(task.projectId, task.childThreadId);
+        await this.stopExecution(task);
       }
       if (result.status !== "running") await this.finished(result);
       else {
         const afterStart = await this.store.get(task.id);
-        if (afterStart?.state === "cancel_requested")
-          await this.host.stopThread(task.projectId, task.childThreadId);
+        if (afterStart?.state === "cancel_requested") await this.stopExecution(task);
         if (afterStart && !terminal.has(afterStart.state)) await completion.promise;
       }
     } catch (error) {
-      const latest = await this.store.get(task.id);
-      if (latest && !terminal.has(latest.state))
-        await this.store.transition({
-          id: task.id,
-          state: "failed",
-          error: error instanceof Error ? error.message.slice(0, 16_000) : "Assignment failed.",
-        });
+      if (!this.completions.has(task.id)) {
+        const latest = await this.store.get(task.id);
+        if (latest && !terminal.has(latest.state))
+          await this.store.transition({
+            id: task.id,
+            state: "failed",
+            error: error instanceof Error ? error.message.slice(0, 16_000) : "Assignment failed.",
+          });
+      }
       await this.deliver();
     } finally {
       this.settled.delete(task.id);
@@ -431,6 +435,13 @@ export class TaskService {
     }
   }
   private settled = new Map<string, () => void>();
+
+  private async stopExecution(task: TaskRecord) {
+    if (task.kind === "message" && this.host.stopTaskTurn)
+      return this.host.stopTaskTurn(task.projectId, task.childThreadId, task.id);
+    await this.host.stopThread(task.projectId, task.childThreadId);
+    return true;
+  }
 
   async finished(thread: Thread) {
     const task = this.byChild.get(thread.id);
@@ -453,17 +464,32 @@ export class TaskService {
       .map((message) => message.text)
       .join("\n\n")
       .slice(-16_000);
-    const latest = await this.store.get(task.id);
-    if (latest && !terminal.has(latest.state))
-      await this.store.transition({
+    if (!this.completions.has(task.id))
+      this.completions.set(task.id, {
         id: task.id,
         state,
         summary,
         ...(thread.error ? { error: thread.error.slice(0, 16_000) } : {}),
       });
-    this.settled.get(task.id)?.();
-    this.settled.delete(task.id);
+    try {
+      await this.persistCompletion(task.id);
+    } catch {
+      this.deliveryRetryNeeded = true;
+    } finally {
+      this.settled.get(task.id)?.();
+      this.settled.delete(task.id);
+    }
     void this.deliver().catch(() => {});
+  }
+
+  private async persistCompletion(id: string) {
+    const completion = this.completions.get(id);
+    if (!completion) return;
+    const latest = await this.store.get(id);
+    if (!latest) throw new TaskStoreError("NOT_FOUND", "Assignment completion is unavailable.");
+    if (!terminal.has(latest.state)) await this.store.transition(completion);
+    this.completions.delete(id);
+    this.drain();
   }
 
   async read(scope: AgentScope, input: unknown) {
@@ -527,13 +553,13 @@ export class TaskService {
       (item) => item.childThreadId === task.childThreadId && item.parentThreadId === scope.threadId,
     );
     const ownsRecipientTurn = child?.messages.some(
-      (message) => message.id === task.requestId && message.turn && !message.turn.endedAt,
+      (message) => message.id === task.id && message.turn && !message.turn.endedAt,
     );
     const stopTarget =
       task.kind === "message"
         ? shouldStop && ownsActiveRun && ownsRecipientTurn
         : shouldStop || child?.status === "running";
-    if (stopTarget) await this.host.stopThread(task.projectId, task.childThreadId);
+    const stopRequested = stopTarget ? await this.stopExecution(task) : false;
     void this.deliver().catch(() => {});
     const latest = await this.store.get(task.id);
     const related = await Promise.all([...siblings.keys()].map((id) => this.store.get(id)));
@@ -546,13 +572,12 @@ export class TaskService {
     return {
       ...publicTask(latest ?? task),
       child_cancellation: {
-        requested: Boolean(stopTarget),
+        requested: stopRequested,
         confirmed:
           !pendingTaskIds.length &&
           (task.kind === "message"
             ? afterStop?.status !== "running" ||
-              afterStop.messages.filter((message) => message.role === "user").at(-1)?.id !==
-                task.requestId
+              afterStop.messages.filter((message) => message.role === "user").at(-1)?.id !== task.id
             : afterStop?.status !== "running"),
         pending_task_ids: pendingTaskIds,
       },
@@ -587,10 +612,10 @@ export class TaskService {
           if (
             task.kind !== "message" ||
             target?.messages.some(
-              (message) => message.id === task.requestId && message.turn && !message.turn.endedAt,
+              (message) => message.id === task.id && message.turn && !message.turn.endedAt,
             )
           )
-            await this.host.stopThread(projectId, task.childThreadId);
+            await this.stopExecution(task);
         } else await this.store.transition({ id: task.id, state: "cancelled" });
       }),
     );
@@ -605,24 +630,36 @@ export class TaskService {
         this.deliveryDirty = false;
         await this.deliverPending();
       } while (this.deliveryDirty && !this.closed);
-    })().finally(() => {
-      this.delivering = undefined;
-      if (this.deliveryRetryNeeded && !this.closed) {
-        this.deliveryRetry = setTimeout(() => {
-          this.deliveryRetry = undefined;
-          void this.deliver().catch(() => {});
-        }, this.deliveryRetryMs);
-        this.deliveryRetry.unref();
-        this.deliveryRetryMs = Math.min(30_000, this.deliveryRetryMs * 2);
-      } else {
-        this.deliveryRetryMs = 1000;
-      }
-    });
+    })()
+      .catch((error: unknown) => {
+        this.deliveryRetryNeeded = true;
+        throw error;
+      })
+      .finally(() => {
+        this.delivering = undefined;
+        if (this.deliveryRetryNeeded && !this.closed) {
+          this.deliveryRetry = setTimeout(() => {
+            this.deliveryRetry = undefined;
+            void this.deliver().catch(() => {});
+          }, this.deliveryRetryMs);
+          this.deliveryRetry.unref();
+          this.deliveryRetryMs = Math.min(30_000, this.deliveryRetryMs * 2);
+        } else {
+          this.deliveryRetryMs = 1000;
+        }
+      });
     return this.delivering;
   }
   private async deliverPending() {
     if (this.closed) return;
     this.deliveryRetryNeeded = false;
+    for (const id of this.completions.keys()) {
+      try {
+        await this.persistCompletion(id);
+      } catch {
+        this.deliveryRetryNeeded = true;
+      }
+    }
     let after = 0;
     while (!this.closed) {
       const pending = await this.store.pendingDeliveries(after);
@@ -687,15 +724,11 @@ export class TaskService {
     clearTimeout(this.deliveryRetry);
     this.pending.clear();
     try {
-      await Promise.allSettled(
-        [...this.active.values()].map((task) =>
-          this.host.stopThread(task.projectId, task.childThreadId),
-        ),
-      );
+      await Promise.allSettled([...this.active.values()].map((task) => this.stopExecution(task)));
       for (const settle of this.settled.values()) settle();
       await this.commands;
       await Promise.allSettled(this.launches);
-      await this.delivering;
+      await this.delivering?.catch(() => {});
     } finally {
       await this.store.close();
     }
