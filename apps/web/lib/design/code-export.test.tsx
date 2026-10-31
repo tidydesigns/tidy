@@ -43,10 +43,8 @@ const invalid = <NewThread variant="unknown" />;
     expect(output.variants).toEqual(["primary", "secondary", "danger"]);
     const check = Bun.spawn(
       [
-        "bun",
-        "x",
-        "--no-install",
-        "tsc",
+        process.execPath,
+        Bun.resolveSync("typescript/bin/tsc", import.meta.dir),
         "--noEmit",
         "--skipLibCheck",
         "--strict",
