@@ -259,7 +259,7 @@ export function useRepositoryFiles({
   useEffect(() => {
     if (!active) return;
     void loadDirectory("");
-    void refresh([]);
+    void refresh(changesInitialized.current ? undefined : []);
     const focus = () => {
       if (!document.hidden) void refresh();
     };
