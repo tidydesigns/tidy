@@ -1250,10 +1250,10 @@ test("remote image previews read the thread host without opening desktop files",
   const thread = await client.operation("start-thread", {
     projectId: f.project.id,
     harness: "claude",
-    prompt: `Inspect ![Screenshot](${href})`,
+    prompt: `Inspect ![Screenshot](<${href}>)`,
     designIds: [],
   });
-  const input = { projectId: f.project.id, threadId: thread.id, href };
+  const input = { projectId: f.project.id, threadId: thread.id, href: encodeURI(href) };
   const image = await client.operation("read-chat-image", input);
   expect(image.name).toBe("remote screenshot.png");
   expect(image.dataUrl).toBe(`data:image/png;base64,${data.toString("base64")}`);

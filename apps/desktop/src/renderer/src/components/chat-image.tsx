@@ -56,10 +56,12 @@ export function ImagePreview({
   src,
   name,
   compact = false,
+  onError,
 }: {
   src: string;
   name: string;
   compact?: boolean;
+  onError?(): void;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
@@ -82,7 +84,10 @@ export function ImagePreview({
             alt={name}
             loading="lazy"
             decoding="async"
-            onError={() => setFailed(true)}
+            onError={() => {
+              setFailed(true);
+              onError?.();
+            }}
             className={
               compact ? "size-full object-cover" : "h-44 w-full object-contain bg-subtle-fill"
             }
@@ -186,7 +191,15 @@ export function ChatImage({
   return (
     <span ref={container} className="inline-block max-w-full align-top">
       {state.kind === "ready" ? (
-        <ImagePreview src={state.src} name={name} />
+        <ImagePreview
+          key={state.src}
+          src={state.src}
+          name={name}
+          onError={() => {
+            loaded.current = null;
+            setState({ kind: "failed" });
+          }}
+        />
       ) : (
         <span
           className="my-2 inline-flex h-56 w-80 max-w-full flex-col items-center justify-center gap-2 rounded-lg border border-border bg-subtle-fill px-3 text-xs text-muted-ink"

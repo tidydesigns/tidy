@@ -39,7 +39,7 @@ async function fixture() {
   };
   function reference(href: string) {
     thread.messages = [
-      { id: crypto.randomUUID(), role: "assistant", text: `![Screenshot](${href})` },
+      { id: crypto.randomUUID(), role: "assistant", text: `![Screenshot](<${href}>)` },
     ];
     return { root, thread, href };
   }
@@ -121,5 +121,40 @@ test("the workspace request reads the owning host and validates thread and proje
       await expect(requests.invoke("read-chat-image", invalid, undefined)).rejects.toThrow();
   } finally {
     await service.close();
+  }
+});
+
+test("rendered Markdown encodings and reference links authorize the same complete destination", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "screen shot & detail.png"), png);
+  for (const text of [
+    "![Screenshot](<screen shot &amp; detail.png>)",
+    "[Screenshot](<screen shot & detail.png>)",
+    "![Screenshot][screen]\n\n[screen]: <screen shot &amp; detail.png>",
+  ]) {
+    f.thread.messages = [{ id: crypto.randomUUID(), role: "assistant", text }];
+    const image = await readChatImage({
+      root: f.root,
+      thread: f.thread,
+      href: "screen%20shot%20&%20detail.png",
+    });
+    expect(image.dataUrl).toBe(`data:image/png;base64,${png.toString("base64")}`);
+  }
+});
+
+test("a suffix, code sample, label, or unused definition cannot authorize an unrelated image", async () => {
+  const f = await fixture();
+  await writeFile(join(f.root, "private.png"), png);
+  for (const text of [
+    "![Screenshot](/somewhere/private.png)",
+    "`![Screenshot](private.png)`",
+    "```md\n![Screenshot](private.png)\n```",
+    "[private.png](different.png)",
+    "[unused]: private.png",
+  ]) {
+    f.thread.messages = [{ id: crypto.randomUUID(), role: "assistant", text }];
+    await expect(
+      readChatImage({ root: f.root, thread: f.thread, href: "private.png" }),
+    ).rejects.toThrow("not referenced");
   }
 });

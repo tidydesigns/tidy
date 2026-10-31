@@ -1,7 +1,37 @@
+import { fromMarkdown } from "mdast-util-from-markdown";
+import type { Root, RootContent } from "mdast";
 import { resolveChatFilePath } from "./chat-file-path";
 import { openProjectVideo as openImageFile } from "../platform/project-video-file";
 import { parseChatLink } from "../../shared/models/chat-links";
 import type { Thread } from "../../shared/contracts/desktop";
+
+function referencesImage(text: string, path: string) {
+  const tree = fromMarkdown(text);
+  const definitions = new Map<string, string>();
+  const pending: (Root | RootContent)[] = [tree];
+  const destinations: string[] = [];
+  const references: string[] = [];
+  while (pending.length) {
+    const node = pending.pop();
+    if (!node) continue;
+    if (node.type === "definition" && !definitions.has(node.identifier))
+      definitions.set(node.identifier, node.url);
+    if (node.type === "image" || node.type === "link") destinations.push(node.url);
+    if (node.type === "imageReference" || node.type === "linkReference")
+      references.push(node.identifier);
+    if ("children" in node)
+      for (let index = node.children.length - 1; index >= 0; index--)
+        pending.push(node.children[index]);
+  }
+  for (const id of references) {
+    const url = definitions.get(id);
+    if (url) destinations.push(url);
+  }
+  return destinations.some((url) => {
+    const link = parseChatLink(url);
+    return link?.kind === "file" && link.path === path;
+  });
+}
 
 export async function readChatImage({
   root,
@@ -15,10 +45,8 @@ export async function readChatImage({
   const link = parseChatLink(href);
   if (!link || link.kind !== "file" || !/\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
     throw new Error("This image format is not supported.");
-  if (!thread.messages.some((message) => message.text.includes(href)))
+  if (!thread.messages.some((message) => referencesImage(message.text, link.path)))
     throw new Error("This image is not referenced in the thread.");
-  if (/^[a-z]:\//i.test(link.path) && process.platform !== "win32")
-    throw new Error("This image belongs to a different operating system.");
   const path = await resolveChatFilePath({ root, path: link.path });
   const file = await openImageFile(path);
   let bytes: Buffer;

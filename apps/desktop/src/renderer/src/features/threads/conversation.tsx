@@ -61,7 +61,9 @@ const MarkdownContent = memo(function MarkdownContent({
   const markdownComponents = useMemo<ComponentProps<typeof Markdown>["components"]>(
     () => ({
       table: MarkdownTable,
-      a: ({ href, children }) => {
+      a: ({ href, children, node }) => {
+        if (node?.children.some((child) => child.type === "element" && child.tagName === "img"))
+          return <span>{children}</span>;
         const link = parseChatLink(href);
         if (href && link?.kind === "file" && /\.(?:png|jpe?g|gif|webp)$/i.test(link.name))
           return (

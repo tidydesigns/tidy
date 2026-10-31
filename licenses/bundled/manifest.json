@@ -442,5 +442,33 @@
   "webdriver-bidi-protocol": {
     "source": "LICENSE",
     "notice": "webdriver-bidi-protocol.txt"
+  },
+  "character-entities": {
+    "source": "license",
+    "notice": "character-entities.txt"
+  },
+  "micromark-util-symbol": {
+    "source": "license",
+    "notice": "decode-named-character-reference.txt"
+  },
+  "dequal": {
+    "source": "license",
+    "notice": "dequal.txt"
+  },
+  "debug": {
+    "source": "LICENSE",
+    "notice": "debug.txt"
+  },
+  "ms": {
+    "source": "license.md",
+    "notice": "ms.txt"
+  },
+  "has-flag": {
+    "source": "license",
+    "notice": "has-flag.txt"
+  },
+  "supports-color": {
+    "source": "license",
+    "notice": "has-flag.txt"
   }
 }
