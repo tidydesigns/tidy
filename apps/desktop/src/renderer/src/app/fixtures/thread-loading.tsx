@@ -2180,6 +2180,105 @@ async function runThreadLoadingTests(): Promise<string[]> {
     },
   );
 
+  await run("thread tables scroll without squeezing columns and expand in place", async (root) => {
+    const { a, threads, render } = conversationFixture(root);
+    const text = [
+      "| Harness | What its own interfaces show | What Tidy can access |",
+      "| --- | --- | --- |",
+      ...Array.from(
+        { length: 16 },
+        () =>
+          "| **Claude Code** | Subscription usage bars, session tokens and estimated cost, activity breakdowns, and usage-credit spending where applicable. | Initialization includes subscription information. Streamed rate-limit events expose status and optional utilization/reset time. [Usage](https://example.com/usage) |",
+      ),
+      "\n| Other table | Value |\n| --- | --- |\n| Small | Separate |",
+    ].join("\n");
+    const reply = { id: crypto.randomUUID(), role: "assistant" as const, text };
+    threads[a.id] = { ...a, status: "completed", messages: [a.messages[0], reply] };
+    render({ selected: a.id });
+    await settle();
+    const message = required(host.querySelector<HTMLElement>(".message-markdown"), "Message");
+    message.style.width = "360px";
+    await settle();
+    const scroller = required(
+      message.querySelector<HTMLDivElement>(".markdown-table-scroll"),
+      "Table scroller",
+    );
+    const table = required(scroller.querySelector("table"), "Table");
+    const firstColumn = required(table.querySelector("th"), "First column");
+    check(scroller.scrollWidth > scroller.clientWidth, "Wide table did not overflow horizontally");
+    check(
+      firstColumn.clientWidth >= parseFloat(getComputedStyle(firstColumn).minWidth) - 1,
+      "Table squeezed its label column",
+    );
+    check(message.scrollWidth <= message.clientWidth + 1, "Table widened the message");
+    scroller.scrollLeft = 120;
+    const left = scroller.scrollLeft;
+    check(left > 0, "Table could not scroll");
+    check(!document.querySelector(".markdown-table-dialog"), "Collapsed table duplicated its DOM");
+    const expand = required(
+      message.querySelector<HTMLButtonElement>(".markdown-table-action"),
+      "Expand table",
+    );
+    expand.focus();
+    expand.click();
+    await until(
+      () => Boolean(document.querySelector(".markdown-table-dialog[open]")),
+      "Expand table",
+    );
+    const dialog = required(
+      document.querySelector<HTMLDialogElement>(".markdown-table-dialog"),
+      "Expanded table",
+    );
+    check(dialog.parentElement === document.body, "Expanded table remained inside the transcript");
+    check(dialog.clientWidth > message.clientWidth, "Expanded table did not use more space");
+    check(dialog.querySelectorAll("tbody tr").length === 16, "Expanded the wrong table");
+    check(
+      dialog.querySelector("a")?.getAttribute("href") === "https://example.com/usage",
+      "Table lost its link",
+    );
+    check(dialog.querySelector("strong")?.textContent === "Claude Code", "Table lost formatting");
+    check(document.activeElement?.textContent === "Close", "Expanded table did not receive focus");
+    const expandedScroll = required(
+      dialog.querySelector<HTMLDivElement>(".markdown-table-scroll"),
+      "Expanded scroller",
+    );
+    check(
+      dialog.getBoundingClientRect().height <= innerHeight * 0.9 + 1,
+      "Dialog exceeded the viewport",
+    );
+    check(
+      expandedScroll.scrollHeight > expandedScroll.clientHeight,
+      "Long table did not scroll vertically",
+    );
+    threads[a.id] = {
+      ...threads[a.id],
+      messages: [a.messages[0], { ...reply, text: text + "\n\nNext paragraph." }],
+    };
+    render({ selected: a.id });
+    check(
+      document.querySelector(".markdown-table-dialog") === dialog && dialog.open,
+      "Message update reset expansion",
+    );
+    required(dialog.querySelector<HTMLButtonElement>("button"), "Close table").click();
+    await until(() => !document.querySelector(".markdown-table-dialog"), "Close table");
+    check(document.activeElement === expand, "Closing did not restore focus");
+    check(
+      scroller.scrollLeft === left && scroller.querySelector("table") === table,
+      "Expansion reset the inline table",
+    );
+    expand.click();
+    await until(
+      () => Boolean(document.querySelector(".markdown-table-dialog[open]")),
+      "Reopen table",
+    );
+    const reopened = required(
+      document.querySelector<HTMLDialogElement>(".markdown-table-dialog"),
+      "Reopened table",
+    );
+    reopened.requestClose();
+    await until(() => !document.querySelector(".markdown-table-dialog"), "Dismiss table");
+  });
+
   await run(
     "streaming reveals coherent sections, retains their DOM and flushes the final tail",
     async (root) => {

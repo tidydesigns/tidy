@@ -228,15 +228,75 @@
   color: var(--color-muted-ink);
 }
 .message-markdown table {
-  display: block;
-  overflow: auto;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  margin: 14px 0;
+  overflow-wrap: normal;
+  font-size: 14px;
 }
 .message-markdown :is(td, th) {
+  min-width: 8rem;
+  max-width: 32rem;
   padding: 7px 12px;
   border: 1px solid var(--color-border);
   text-align: left;
+  overflow-wrap: break-word;
+}
+.markdown-table {
+  min-width: 0;
+  max-width: 100%;
+  margin: 14px 0;
+}
+.markdown-table-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 0;
+}
+.markdown-table-action {
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--color-secondary-ink);
+  font-size: 12px;
+  cursor: pointer;
+}
+.markdown-table-action:active {
+  transform: scale(0.97);
+}
+.markdown-table-action:focus-visible,
+.markdown-table-scroll:focus-visible {
+  outline: 2px solid var(--color-primary-orange);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .markdown-table-action:hover {
+    background: var(--color-hover-surface);
+    color: var(--color-ink);
+  }
+}
+.markdown-table-scroll {
+  max-width: 100%;
+  overflow: auto;
+  overscroll-behavior-x: contain;
+}
+.markdown-table-dialog[open] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.markdown-table-dialog > .markdown-table-toolbar {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+.markdown-table-content {
+  display: flex;
+  min-height: 0;
+  padding: 16px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+.markdown-table-content > .markdown-table-scroll {
+  width: 100%;
 }
 .message-markdown hr {
   border: 0;
