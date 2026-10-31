@@ -4,6 +4,10 @@
   --repository-removed: light-dark(#ab3c43, #e79c9c);
   --repository-added-surface: light-dark(#f0f8f1, #17271c);
   --repository-removed-surface: light-dark(#fdf2f2, #2e1d20);
+  --repository-empty-stripe: light-dark(
+    color-mix(in srgb, var(--color-ink) 14%, transparent),
+    color-mix(in srgb, var(--color-border) 15%, transparent)
+  );
   --repository-number-width: 42px;
   --repository-sign-width: 18px;
   display: flex;
@@ -414,8 +418,8 @@
     135deg,
     transparent,
     transparent 4px,
-    color-mix(in srgb, var(--color-border) 15%, transparent) 4px,
-    color-mix(in srgb, var(--color-border) 15%, transparent) 5px
+    var(--repository-empty-stripe) 4px,
+    var(--repository-empty-stripe) 5px
   );
 }
 .repository-code-row[data-kind="hunk"] {
