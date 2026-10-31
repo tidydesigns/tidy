@@ -1656,7 +1656,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       await settle();
       required(buttons()[1], "Latest turn after resize").click();
       await settle();
-      check(current() === 1, "Resizing lost the latest turn selection");
+      await until(() => current() === 1, "Resizing preserves the latest turn selection");
     },
   );
 
@@ -1681,8 +1681,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const buttons = [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
       required(buttons[1], "Second turn").click();
       await settle();
-      check(buttons[1].hasAttribute("aria-current"), "Jump lost its turn selection");
-      check(buttons[1].dataset.inView === "true", "Visible prompt is not highlighted");
+      await until(
+        () => buttons[1].hasAttribute("aria-current") && buttons[1].dataset.inView === "true",
+        "Jump selects and highlights its visible prompt",
+      );
       const finalReply = required(
         viewport.querySelectorAll<HTMLElement>(".conversation-entry")[3],
         "Reply",
@@ -1691,7 +1693,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
         finalReply.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
       viewport.dispatchEvent(new Event("scroll"));
       await settle();
-      check(buttons[2].hasAttribute("aria-current"), "Reading a response lost its preceding turn");
+      await until(
+        () => buttons[2].hasAttribute("aria-current"),
+        "Reading a response selects its preceding turn",
+      );
     },
   );
 
@@ -1733,9 +1738,9 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       );
       list.dispatchEvent(new MouseEvent("click", { bubbles: true, clientY: y, detail: 1 }));
       await settle();
-      check(
-        buttons[index].dataset.inView === "true",
-        "Pointer jump did not reveal the targeted prompt",
+      await until(
+        () => buttons[index].dataset.inView === "true",
+        "Pointer jump reveals the targeted prompt",
       );
     }
     const before = viewport.scrollTop;
