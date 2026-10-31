@@ -1633,12 +1633,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       const viewport = visibleTranscript();
       const buttons = () => [...host.querySelectorAll<HTMLButtonElement>(".conversation-tick")];
       const current = () => buttons().findIndex((button) => button.hasAttribute("aria-current"));
-      check(current() === 1, "Bottom of a short final turn selected an earlier turn");
+      await until(() => current() === 1, "Bottom of a short final turn selects the latest turn");
       required(buttons()[0], "First turn").click();
       await settle();
       required(buttons()[1], "Last turn").click();
       await settle();
-      check(current() === 1, "Clamped final turn jump selected an earlier turn");
+      await until(() => current() === 1, "Clamped final turn jump selects the latest turn");
       threads[a.id] = {
         ...threads[a.id],
         messages: threads[a.id].messages.map((message) => ({ ...message, text: "Short" })),
