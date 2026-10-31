@@ -1,3 +1,11 @@
+import {
+  currentDefaultAccess,
+  subscribeDefaultAccess,
+  selectDefaultAccess,
+  defaultAccessSchema,
+  type DefaultAccess,
+} from "../features/settings/access-preferences";
+import { effectivePermissionMode, permissionModes } from "../../../shared/contracts/permissions";
 import { AnimatedHeight } from "../components/animated-height";
 import { promptThreadTitle } from "../../../shared/models/thread-naming";
 import { currentThreadNaming } from "../features/settings/thread-naming-preferences";
@@ -18,6 +26,7 @@ import { BrowserWorkspace } from "../features/browser/browser-workspace";
 import { BrowserGlyph } from "../features/browser/browser-controls";
 import {
   codeFontClassName,
+  codeControlClassName,
   desktopNavigationClassName,
   codeStatusClassName,
   codeSubmitClassName,
@@ -47,6 +56,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type KeyboardEvent,
 } from "react";
 import { Button } from "@tidy/ui/button";
@@ -206,6 +216,28 @@ export function App({
     status: "loading" | "ready" | "error";
   }>({ key: "", skills: [], status: "loading" });
   const skillRequest = useRef(0);
+  const defaultAccess = useSyncExternalStore(subscribeDefaultAccess, currentDefaultAccess);
+  const previousDefaultAccess = useRef(defaultAccess);
+  useEffect(() => {
+    if (previousDefaultAccess.current === defaultAccess) return;
+    previousDefaultAccess.current = defaultAccess;
+    setDrafts((current) => {
+      const next = { ...current };
+      for (const [key, draft] of Object.entries(current)) {
+        if (
+          key.endsWith(":new") &&
+          !draft.text.trim() &&
+          !draft.attachments?.length &&
+          !draft.designIds.length &&
+          !draft.cloudFileIds?.length
+        )
+          next[key] = { ...draft, settings: { ...draft.settings, permissionMode: undefined } };
+      }
+      return next;
+    });
+  }, [defaultAccess, setDrafts]);
+  const [accessOffer, setAccessOffer] = useState<DefaultAccess>();
+  const accessChoice = useRef(0);
   const [settingsPending, setSettingsPending] = useState<
     Record<string, Pick<Partial<Thread>, "settings" | "executionProjectId"> | undefined>
   >({});
@@ -296,7 +328,14 @@ export function App({
     document.getElementById("thread-prompt")?.focus({ preventScroll: true });
   }, [selectedThreadId]);
   const readyHarness = harnesses.find((item) => item.status === "ready")?.id ?? "codex";
-  const draft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const storedDraft = drafts[draftKey] ?? { ...emptyDraft, harness: readyHarness };
+  const draft = {
+    ...storedDraft,
+    settings: {
+      ...storedDraft.settings,
+      permissionMode: storedDraft.settings?.permissionMode ?? defaultAccess,
+    },
+  };
   const promptHistory = useMemo(
     () => thread?.messages.filter((message) => message.role === "user") ?? [],
     [thread?.messages],
@@ -668,21 +707,39 @@ export function App({
   ]);
 
   async function changeSettings(settings: HarnessSettings) {
-    if (!thread) {
-      updateDraft({ settings });
-      return;
+    const changedAccess =
+      effectivePermissionMode(
+        selectedHarness,
+        (thread ? (settingsPending[thread.id]?.settings ?? thread.settings) : draft.settings)
+          ?.permissionMode,
+      ) !== effectivePermissionMode(selectedHarness, settings.permissionMode);
+    const choice = ++accessChoice.current;
+    if (changedAccess) setAccessOffer(undefined);
+    let applied = true;
+    if (!thread) updateDraft({ settings });
+    else {
+      if (!api || !project) return;
+      applied =
+        (await changeThreadConfiguration({ settings }, () =>
+          api.setThreadSettings(project.id, thread.id, settings),
+        )) === true;
     }
-    if (!api || !project) return;
-    await changeThreadConfiguration({ settings }, () =>
-      api.setThreadSettings(project.id, thread.id, settings),
-    );
+    const offered = defaultAccessSchema.safeParse(settings.permissionMode);
+    if (
+      applied &&
+      changedAccess &&
+      choice === accessChoice.current &&
+      offered.success &&
+      offered.data !== currentDefaultAccess()
+    )
+      setAccessOffer(offered.data);
   }
 
   async function changeThreadConfiguration(
     patch: Pick<Partial<Thread>, "settings" | "executionProjectId">,
     persist: () => Promise<Thread>,
   ) {
-    if (!thread || !api || !project || settingsPending[thread.id]) return;
+    if (!thread || !api || !project) return;
     if (running && "executionProjectId" in patch) return;
     const threadId = thread.id,
       projectId = project.id;
@@ -712,10 +769,13 @@ export function App({
     setSettingsPending((current) => ({ ...current, [thread.id]: patch }));
     try {
       apply(await persist());
+      return true;
     } catch (cause) {
       setError({ projectId, text: errorText(cause), original: cause });
     } finally {
-      setSettingsPending((current) => ({ ...current, [threadId]: undefined }));
+      setSettingsPending((current) =>
+        current[threadId] === patch ? { ...current, [threadId]: undefined } : current,
+      );
     }
   }
 
@@ -1236,7 +1296,12 @@ export function App({
     });
     setDrafts((current) => ({
       ...current,
-      [key]: { ...draft, text: "", attachments: [] },
+      [key]: {
+        ...draft,
+        text: "",
+        attachments: [],
+        ...(!thread ? { settings: { ...draft.settings, permissionMode: undefined } } : {}),
+      },
       ...(id !== selectedThreadId ? { [pendingKey]: { ...draft, text: "", attachments: [] } } : {}),
     }));
     focusAfterStart.current = !thread;
@@ -2257,6 +2322,42 @@ export function App({
                           event.currentTarget.value = "";
                         }}
                       />
+                      {accessOffer && (
+                        <div
+                          className="mx-1.5 mb-1 flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border pb-2 text-xs text-muted-ink"
+                          role="status"
+                        >
+                          <span className="mr-auto">
+                            Use{" "}
+                            {
+                              permissionModes.codex.find((option) => option.value === accessOffer)
+                                ?.label
+                            }{" "}
+                            by default for new threads?
+                          </span>
+                          <Button
+                            type="button"
+                            className={codeControlClassName}
+                            onClick={() => {
+                              if (!selectDefaultAccess(accessOffer))
+                                showToast(
+                                  "Access changed for this session, but could not be remembered.",
+                                );
+                              setAccessOffer(undefined);
+                            }}
+                          >
+                            Make default
+                          </Button>
+                          <Button
+                            type="button"
+                            className={codeControlClassName}
+                            aria-label="Dismiss default access suggestion"
+                            onClick={() => setAccessOffer(undefined)}
+                          >
+                            ×
+                          </Button>
+                        </div>
+                      )}
                       <SkillPrompt
                         className="block w-full resize-none overflow-y-auto rounded border-0 bg-transparent px-1.5 py-2 text-sm leading-6 text-ink [field-sizing:content] min-h-[calc(1lh_+_16px)] max-h-[min(200px,40dvh)] placeholder:text-muted-ink focus:outline-none"
                         key={draftKey + selectedHarness}
@@ -2356,7 +2457,11 @@ export function App({
                                     ...selection,
                                   },
                                 });
-                              else void changeSettings({ ...thread.settings, ...selection });
+                              else
+                                void changeSettings({
+                                  ...(settingsPending[thread.id]?.settings ?? thread.settings),
+                                  ...selection,
+                                });
                             }}
                             harness={selectedHarness}
                             settings={
@@ -2365,9 +2470,7 @@ export function App({
                                 : (draft.settings ?? {})
                             }
                             actualModel={thread?.actualModel}
-                            disabled={Boolean(
-                              busy || (thread && settingsPending[thread.id]) || thread?.doneAt,
-                            )}
+                            disabled={Boolean(busy || thread?.doneAt)}
                             onHarnessChange={
                               thread
                                 ? undefined

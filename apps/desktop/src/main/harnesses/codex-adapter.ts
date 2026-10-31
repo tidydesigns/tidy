@@ -98,13 +98,15 @@ export function createCodexAdapter(context: AdapterContext): HarnessAdapter {
         cwd: input.cwd,
         ...codexPermissions(mode),
         model: input.settings?.model ?? null,
-        ...(input.settings?.effort || (mode === "default" && input.additionalDirectories?.length)
+        ...(input.settings?.effort ||
+        ((mode === "default" || mode === "provider-auto") && input.additionalDirectories?.length)
           ? {
               config: {
                 ...(input.settings?.effort
                   ? { model_reasoning_effort: input.settings.effort }
                   : {}),
-                ...(mode === "default" && input.additionalDirectories?.length
+                ...((mode === "default" || mode === "provider-auto") &&
+                input.additionalDirectories?.length
                   ? { "sandbox_workspace_write.writable_roots": input.additionalDirectories }
                   : {}),
               },

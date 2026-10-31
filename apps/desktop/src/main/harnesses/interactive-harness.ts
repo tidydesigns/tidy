@@ -119,7 +119,7 @@ export class HarnessSession {
       env: {
         ...harnessEnvironment(harness),
         ...environment,
-        ...(input.harness === "opencode"
+        ...(input.harness === "opencode" && input.settings?.permissionMode !== "provider-auto"
           ? {
               OPENCODE_CONFIG_CONTENT: JSON.stringify({
                 permission: input.settings?.permissionMode === "auto" ? "allow" : "ask",

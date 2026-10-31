@@ -7,6 +7,7 @@ export const permissionModeSchema = z.enum([
   "read-only",
   "plan",
   "auto",
+  "provider-auto",
 ]);
 export type PermissionMode = z.infer<typeof permissionModeSchema>;
 export const approvalDecisionSchema = z.enum(["allow", "allow-session", "deny"]);
@@ -21,10 +22,16 @@ export const approvalRequestSchema = z.object({
   scope: z.literal("turn").optional(),
 });
 export type ApprovalRequest = z.infer<typeof approvalRequestSchema>;
-const auto = {
+// Keep the stored "auto" value for existing Full access threads.
+const fullAccess = {
   value: "auto" as const,
   label: "Full access",
   description: "Work without routine approval prompts.",
+};
+const providerAuto = {
+  value: "provider-auto" as const,
+  label: "Auto",
+  description: "Let the provider review actions using its own permission handling.",
 };
 export const permissionModes = {
   codex: [
@@ -38,20 +45,22 @@ export const permissionModes = {
       label: "Read only",
       description: "Read files. Ask before making changes.",
     },
-    auto,
+    providerAuto,
+    fullAccess,
   ],
   opencode: [
     {
       value: "default",
-      label: "Ask before tools",
+      label: "Project access",
       description: "Review tools before they run.",
     },
-    auto,
+    providerAuto,
+    fullAccess,
   ],
   claude: [
     {
       value: "default",
-      label: "Ask before changes",
+      label: "Project access",
       description: "Ask when edits or commands need approval.",
     },
     {
@@ -60,7 +69,8 @@ export const permissionModes = {
       description: "Ask when commands need approval.",
     },
     { value: "plan", label: "Plan", description: "Read files and plan. Ask before changes." },
-    auto,
+    providerAuto,
+    fullAccess,
   ],
 } satisfies Record<HarnessId, Array<{ value: PermissionMode; label: string; description: string }>>;
 export function effectivePermissionMode(harness: HarnessId, mode?: PermissionMode): PermissionMode {
@@ -81,9 +91,15 @@ export function codexPermissions(mode: PermissionMode) {
         : mode === "read-only"
           ? "read-only"
           : "workspace-write",
-    approvalsReviewer: "user",
+    approvalsReviewer: mode === "provider-auto" ? "auto_review" : "user",
   };
 }
 export function claudePermissionMode(mode: PermissionMode) {
-  return mode === "auto" ? "bypassPermissions" : mode === "accept-edits" ? "acceptEdits" : mode;
+  return mode === "auto"
+    ? "bypassPermissions"
+    : mode === "provider-auto"
+      ? "auto"
+      : mode === "accept-edits"
+        ? "acceptEdits"
+        : mode;
 }

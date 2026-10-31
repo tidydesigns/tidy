@@ -890,7 +890,11 @@ test("model settings persist and resume the same session; usage respects per-tur
     designIds: [],
     settings: { model: "fixture-codex", effort: "high" },
   });
-  expect(runs[0].input.settings).toEqual({ model: "fixture-codex", effort: "high" });
+  expect(runs[0].input.settings).toEqual({
+    permissionMode: "default",
+    model: "fixture-codex",
+    effort: "high",
+  });
   const sessionId = randomUUID();
   runs[0].input.onUpdate({ type: "session", id: sessionId });
   runs[0].input.onUpdate({
@@ -963,13 +967,21 @@ test("running settings survive streamed updates and apply to queued follow-ups",
   expect((await service.readThread(project.id, thread.id)).settings).toEqual(next);
   expect((await store.readThread(project.id, thread.id)).settings).toEqual(next);
   expect(runs[0].input.settings).toEqual(original);
-  expect(runs[0].stopped).toBe(false);
-  const completion = finished(service, thread.id);
-  runs[0].complete();
-  await completion;
-  for (let attempt = 0; attempt < 100 && runs.length < 2; attempt++) await Bun.sleep(5);
+  expect(runs[0].stopped).toBe(true);
   expect(runs).toHaveLength(2);
   expect(runs[1].input.settings).toEqual(next);
+  expect(
+    (await service.readThread(project.id, thread.id)).messages.filter(
+      (message) => message.role === "user",
+    ),
+  ).toHaveLength(1);
+  expect((await service.readThread(project.id, thread.id)).queuedMessages).toHaveLength(1);
+  const completion = finished(service, thread.id);
+  runs[1].complete();
+  await completion;
+  for (let attempt = 0; attempt < 100 && runs.length < 3; attempt++) await Bun.sleep(5);
+  expect(runs).toHaveLength(3);
+  expect(runs[2].input.settings).toEqual(next);
   expect((await service.readThread(project.id, thread.id)).queuedMessages).toHaveLength(0);
 });
 
@@ -978,7 +990,7 @@ test("running settings reject foreign projects and roll back failed validation o
   const { service, store, project, runs, directory } = await fixture(async () => {
     if (invalid) throw new Error("Invalid settings");
   });
-  const original = { model: "first-model" };
+  const original = { model: "first-model", permissionMode: "default" as const };
   const thread = await service.startThread({
     projectId: project.id,
     harness: "codex",
@@ -1320,6 +1332,9 @@ test("permission modes persist for follow-ups while live requests disappear on c
   expect(runs[1].input.settings?.permissionMode).toBe("plan");
   await service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" });
   expect(runs[1].input.settings?.permissionMode).toBe("plan");
+  expect(runs[1].stopped).toBe(true);
+  expect(runs[2].input.settings?.permissionMode).toBe("auto");
+  expect(runs[2].input.sessionId).toBe(thread.sessionId ?? runs[1].input.sessionId);
   expect((await service.readThread(project.id, thread.id)).settings?.permissionMode).toBe("auto");
 });
 
@@ -2496,3 +2511,62 @@ test("naming requested after shutdown never starts an access check", async () =>
     access.mockRestore();
   }
 }, 1000);
+
+test("Stop during an access change prevents automatic continuation", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let changing = false;
+  const { service, project, runs } = await fixture(async () => {
+    if (changing) {
+      entered.resolve();
+      await release.promise;
+    }
+  });
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  changing = true;
+  const change = service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" });
+  await entered.promise;
+  await service.stopThread(project.id, thread.id);
+  release.resolve();
+  await change;
+  expect(runs).toHaveLength(1);
+  expect(runs[0].stopped).toBe(true);
+  expect((await service.readThread(project.id, thread.id)).status).toBe("stopped");
+});
+
+test("failed access persistence keeps the original running policy and approval", async () => {
+  const { service, store, project, runs } = await fixture();
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "Work",
+    designIds: [],
+  });
+  const approval = {
+    id: randomUUID(),
+    title: "Allow action?",
+    choices: ["allow", "deny"] as Array<"allow" | "deny">,
+  };
+  runs[0].input.onUpdate({ type: "approval", request: approval });
+  const write = store.writeThread.bind(store);
+  store.writeThread = async () => {
+    throw new Error("Disk full");
+  };
+  try {
+    await expect(
+      service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" }),
+    ).rejects.toThrow("Disk full");
+  } finally {
+    store.writeThread = write;
+  }
+  expect(runs).toHaveLength(1);
+  expect(runs[0].stopped).toBe(false);
+  const after = await service.readThread(project.id, thread.id);
+  expect(after.settings?.permissionMode).toBe("default");
+  expect(after.pendingApprovals).toEqual([approval]);
+});

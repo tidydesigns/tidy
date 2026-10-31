@@ -144,7 +144,7 @@ for (const harness of ["codex", "claude"] as const) {
       }
     });
   }
-  test(`${harness} Auto explicitly enables full access; native prompts still require a decision`, async () => {
+  test(`${harness} Full access explicitly bypasses routine approval; native prompts still require a decision`, async () => {
     const { directory, executable } = await fixture();
     const updates: HarnessUpdate[] = [];
     await startHarness({
