@@ -74,7 +74,7 @@ export function SkillPrompt({
 
   function choose(skill: Skill) {
     const rest = value.slice(cursor);
-    const next = `/${skill.name}${rest.startsWith(" ") ? rest : ` ${rest}`}`;
+    const next = `${value[0]}${skill.name}${rest.startsWith(" ") ? rest : ` ${rest}`}`;
     selection.current = { text: next, cursor: skill.name.length + 2 };
     onChange(next);
     setDismissed(true);
@@ -109,7 +109,7 @@ export function SkillPrompt({
                 <span className="skill-option-content">
                   <span className="skill-option-name">
                     <span className="skill-option-slash" aria-hidden="true">
-                      /
+                      {value[0]}
                     </span>
                     {skill.name}
                   </span>

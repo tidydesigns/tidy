@@ -2296,8 +2296,8 @@ export function App({
                             : running
                               ? "Queue a follow-up…"
                               : thread
-                                ? "Reply… / for skills"
-                                : "Start a task… / for skills"
+                                ? "Reply… / or $ for skills"
+                                : "Start a task… / or $ for skills"
                         }
                         disabled={Boolean(thread?.doneAt) || busy}
                         maxLength={32_000}

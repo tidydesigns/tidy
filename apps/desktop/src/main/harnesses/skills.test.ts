@@ -9,6 +9,27 @@ const provider: SkillAdapter = {
 };
 
 describe("skill catalog boundaries", () => {
+  for (const harness of ["codex", "claude", "opencode"] as const) {
+    test.each(["/", "$"])(
+      `${harness} resolves %s selections with the same catalog id`,
+      async (prefix) => {
+        const catalog = new HarnessSkills(async () => "/fixture", {
+          codex: provider,
+          claude: provider,
+          opencode: provider,
+        });
+        const input = { harness, cwd: "/project" };
+        const { skills } = await catalog.list(input);
+        expect(
+          await catalog.resolve({ ...input, id: skills[0].id, prompt: `${prefix}review changes` }),
+        ).toMatchObject({ name: "review" });
+        await expect(
+          catalog.resolve({ ...input, id: skills[0].id, prompt: `${prefix}other` }),
+        ).rejects.toThrow("no longer available");
+      },
+    );
+  }
+
   test("deduplicates concurrent discovery and binds ids to project and harness", async () => {
     let discoveries = 0;
     const adapter: SkillAdapter = {
@@ -129,28 +150,42 @@ describe("skill catalog boundaries", () => {
   });
 });
 
-describe("slash composer", () => {
-  test("only offers skills for an opening slash token", () => {
-    expect(skillQuery("/", 1)).toBe("");
-    expect(skillQuery("/rev", 4)).toBe("rev");
-    expect(skillQuery("/rev existing text", 4)).toBe("rev");
+describe("skill composer", () => {
+  test.each(["/", "$"])("only offers skills for an opening %s token", (prefix) => {
+    expect(skillQuery(prefix, 1)).toBe("");
+    expect(skillQuery(`${prefix}rev`, 4)).toBe("rev");
+    expect(skillQuery(`${prefix}REV`, 4)).toBe("rev");
+    expect(skillQuery(`${prefix}rev existing text`, 4)).toBe("rev");
     for (const text of [
-      "/tmp/file",
+      `${prefix}tmp/file`,
       "https://site",
-      "look /review",
-      "/review changes",
-      "`/review`",
-      "\n/review",
+      `look ${prefix}review`,
+      `${prefix}review changes`,
+      "`" + prefix + "review`",
+      `\n${prefix}review`,
+      "${review}",
+      "$(review)",
+      "$$review",
     ])
       expect(skillQuery(text, text.length)).toBeNull();
-    expect(skillQuery("/review", 3)).toBeNull();
+    expect(skillQuery(`${prefix}review`, 3)).toBeNull();
   });
-  test("keeps paths and prose literal and matches exact names", () => {
-    expect(skillCommand("/review these changes")).toEqual({ name: "review", end: 7 });
-    expect(skillCommand("/plugin:review\nchanges")?.name).toBe("plugin:review");
-    for (const text of ["/review/file", "/review.md", "run /review", "//review"])
-      expect(skillCommand(text)).toBeNull();
-  });
+  test.each(["/", "$"])(
+    "parses opening %s commands and keeps paths and prose literal",
+    (prefix) => {
+      expect(skillCommand(`${prefix}review these changes`)).toEqual({ name: "review", end: 7 });
+      expect(skillCommand(`${prefix}plugin:review\nchanges`)?.name).toBe("plugin:review");
+      for (const text of [
+        `${prefix}review/file`,
+        `${prefix}review.md`,
+        `run ${prefix}review`,
+        `${prefix}${prefix}review`,
+        "${review}",
+        "$(review)",
+      ])
+        expect(skillCommand(text)).toBeNull();
+    },
+  );
   test("searches descriptions and prioritizes name prefixes", () => {
     const skills = [
       { id: "a", name: "audit", description: "Review changes" },

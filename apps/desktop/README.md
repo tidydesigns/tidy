@@ -269,7 +269,7 @@ history on each update. Notifications are coalesced separately from disk checkpo
 immediate durable write before launch and a final flush on completion/shutdown.
 Harness process startup and provider generation time still determine response latency.
 
-Start a message with `/` to search the selected harness's skills. Arrow keys
+Start a message with `/` or `$` to search the selected harness's skills. Arrow keys
 navigate; Enter or Tab selects; Escape closes the picker. Add arguments after the
 skill name, then send. One skill can be explicitly selected per message. Paths,
 URLs and slash text elsewhere in the message remain ordinary text.
