@@ -1,3 +1,4 @@
+import { readMessageClipboard, type ClipboardMessage } from "../threads/message-clipboard";
 import {
   useImperativeHandle,
   useLayoutEffect,
@@ -6,11 +7,17 @@ import {
   type ComponentProps,
   type Ref,
 } from "react";
-import type { AttachedFile } from "../../../../shared/contracts/attachments";
+import {
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_TOTAL_BYTES,
+  type AttachedFile,
+} from "../../../../shared/contracts/attachments";
+import { showToast } from "@tidy/ui/toast";
 import {
   attachmentParts,
   attachmentReference,
   attachmentText,
+  remapAttachmentReferences,
 } from "../../../../shared/models/attachment-references";
 import { attachmentReferenceClassName, attachmentSize } from "./message-attachments";
 
@@ -26,6 +33,7 @@ type Props = Omit<ComponentProps<"div">, "ref" | "onChange" | "onInput" | "onPas
   onChange(value: string): void;
   files?: AttachedFile[];
   onAttachFiles?(files: File[]): AttachedFile[];
+  onPasteMessage?(message: ClipboardMessage): AttachedFile[];
   onCursorChange?(cursor: number): void;
   disabled?: boolean;
   placeholder?: string;
@@ -97,6 +105,7 @@ export function PromptEditor({
   onChange,
   files = [],
   onAttachFiles,
+  onPasteMessage,
   onCursorChange,
   disabled,
   placeholder,
@@ -254,6 +263,32 @@ export function PromptEditor({
       onPaste={(event) => {
         event.preventDefault();
         if (disabled) return;
+        const message = onPasteMessage ? readMessageClipboard(event.clipboardData) : null;
+        if (message) {
+          const selected = window.getSelection();
+          const selectedLength = selected?.rangeCount
+            ? read(selected.getRangeAt(0).cloneContents()).length
+            : 0;
+          if (read(event.currentTarget).length - selectedLength + message.text.length > maxLength)
+            return;
+          if (
+            files.length + message.attachments.length > MAX_ATTACHMENTS ||
+            [...files, ...message.attachments].reduce((total, file) => total + file.size, 0) >
+              MAX_ATTACHMENT_TOTAL_BYTES
+          ) {
+            showToast("Keep each message under 10 attachments and 25 MB.");
+            return;
+          }
+          const attached = onPasteMessage?.(message) ?? [];
+          if (attached.length !== message.attachments.length) return;
+          const text = remapAttachmentReferences({
+            text: message.text,
+            source: message.attachments,
+            target: attached,
+          });
+          insert(text, [...files, ...attached]);
+          return;
+        }
         const pasted = Array.from(event.clipboardData.files);
         if (pasted.length && onAttachFiles) {
           const selected = window.getSelection();

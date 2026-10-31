@@ -712,3 +712,41 @@
   .chat-web-link:has([data-state="closed"]) {
   color: var(--desktop-status-danger);
 }
+
+.message-copy-icons {
+  display: grid;
+  width: 16px;
+  height: 16px;
+}
+.message-copy-icons > span {
+  grid-area: 1 / 1;
+  display: flex;
+  transition:
+    opacity 180ms ease-out,
+    transform 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.message-copy-check {
+  opacity: 0;
+  transform: scale(0.55) rotate(-35deg);
+}
+.message-copy-button[data-copied] .message-copy-original {
+  opacity: 0;
+  transform: scale(0.55) rotate(35deg);
+}
+.message-copy-button[data-copied] .message-copy-check {
+  opacity: 1;
+  transform: scale(1) rotate(0);
+}
+.message-actions:has(> .message-copy-button[data-copied]) {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .message-copy-icons > span {
+    transform: none;
+    transition: opacity 100ms ease-out;
+  }
+  .message-copy-button[data-copied] .message-copy-original {
+    transform: none;
+  }
+}

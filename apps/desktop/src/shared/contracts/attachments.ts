@@ -10,4 +10,8 @@ export const attachmentSchema = z.object({
   size: z.number().int().nonnegative().max(MAX_ATTACHMENT_BYTES),
 });
 export type Attachment = z.infer<typeof attachmentSchema>;
-export type AttachedFile = Attachment & { previewUrl?: string; referenceId?: string };
+export type AttachedFile = Attachment & {
+  previewUrl?: string;
+  referenceId?: string;
+  importState?: "pending" | "failed";
+};

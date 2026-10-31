@@ -21,12 +21,14 @@ export const Conversations = memo(function Conversations({
   threads,
   api,
   active,
+  machineId = "local",
 }: {
   projectId: string;
   selected: string | null;
   threads: Readonly<Partial<Record<string, Thread>>>;
   api: DesktopAPI;
   active: boolean;
+  machineId?: string;
 }) {
   const [visited, setVisited] = useState(active);
   if (active && !visited) setVisited(true);
@@ -52,6 +54,7 @@ export const Conversations = memo(function Conversations({
         }
         active={active && id === selected}
         api={api}
+        machineId={machineId}
       />
     </Activity>
   ));
