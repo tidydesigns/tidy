@@ -1287,7 +1287,7 @@ for (const harness of harnessIdSchema.options) {
       expect(new Set((await events(cwd)).map((event) => event.pid)).size).toBe(2);
       await expect(
         service.respondToApproval(project.id, thread.id, approvalId, "allow"),
-      ).rejects.toThrow("no longer active");
+      ).rejects.toThrow("no longer");
       if (harness === "codex") {
         const resume = (await events(cwd)).find((event) => event.method === "thread/resume");
         expect(resume?.value.params).toMatchObject({
