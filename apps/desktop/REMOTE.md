@@ -105,6 +105,13 @@ timestamp reuse the incumbent. Release builds must retain Git metadata or supply
 harness and browser environment settings in a private `0600` JSON file, including custom
 configuration paths and provider credentials; secrets are not embedded in service definitions.
 
+Updated POSIX hosts migrate backend ownership to a versioned lock while holding the
+previous ownership lock. A persistent marker prevents pre-upgrade launchers from starting
+an old backend during crash recovery. Existing legacy hosts are left running until they
+release ownership. Older desktops can attach to a healthy updated host; if it is stopped,
+use an updated desktop or let its service restart it. This migration changes only private
+coordination files, not project data or the backend identity.
+
 Remote client disconnection leaves the backend and its agents running. Transport pings run
 at five-second intervals; fifteen seconds without a frame triggers reconnection. Application
 probes run on lifecycle signals rather than a second polling loop: becoming active allows

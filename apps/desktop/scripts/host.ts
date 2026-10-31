@@ -9,7 +9,7 @@ import { z } from "zod";
 import { ProjectStore } from "../src/main/workspace/project-store";
 import { WorkspaceService } from "../src/main/workspace/workspace-service";
 import { projectLocks } from "../src/main/remote/project-locks";
-import { lockHost } from "../src/main/remote/host-lock";
+import { lockHost, lockWorkspaceHost } from "../src/main/remote/host-lock";
 import { createRemoteHost } from "../src/main/remote/host";
 import { RequestReceipts } from "../src/main/remote/receipts";
 import { SessionStore, writePrivateJSON } from "../src/main/remote/session-store";
@@ -149,7 +149,7 @@ try {
       release();
     }
   } else if (command === "serve") {
-    const unlock = lockHost(join(directory, "host.lock"));
+    const unlock = await lockWorkspaceHost(directory);
     if (["systemd", "launchd"].includes(process.env.TIDY_HOST_SUPERVISOR ?? ""))
       await loadHostEnvironment(directory);
     const scratch = new PrivateScratch();

@@ -6,7 +6,7 @@ import { z } from "zod";
 import { runtimeSchema, hostDescriptorSchema, type PreparedHost } from "../../shared/remote";
 import { WorkspaceService } from "../workspace/workspace-service";
 import { createRemoteHost } from "./host";
-import { lockHost } from "./host-lock";
+import { lockHost, lockWorkspaceHost } from "./host-lock";
 import { RequestReceipts } from "./receipts";
 import { SessionStore, writePrivateJSON } from "./session-store";
 import { readLocalFile } from "../platform/local-files";
@@ -21,7 +21,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function discardStaleRuntime(directory: string) {
   let release: () => void;
   try {
-    release = lockHost(join(directory, "host.lock"));
+    release = await lockWorkspaceHost(directory);
   } catch {
     return false;
   }
@@ -164,7 +164,7 @@ export async function ensureWorkspaceHost({
         host: { ...existing, clientId, token: await sessions.issue(clientId) },
         close: async () => {},
       };
-    const releaseHost = lockHost(join(directory, "host.lock"));
+    const releaseHost = await lockWorkspaceHost(directory);
     let workspace: Awaited<ReturnType<typeof createService>> | undefined;
     let server: ReturnType<typeof createRemoteHost> | undefined;
     try {
