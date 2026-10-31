@@ -7,7 +7,7 @@ app.setPath("userData", userData);
 app.commandLine.appendSwitch("disable-gpu");
 void app.whenReady().then(async () => {
   const window = new BrowserWindow({
-    show: false,
+    show: true,
     width: 1100,
     height: 800,
     webPreferences: {

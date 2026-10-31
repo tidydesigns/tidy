@@ -315,15 +315,19 @@
   position: relative;
   width: 100%;
   max-height: calc(100% - 48px);
+  cursor: pointer;
 }
 .conversation-tick {
   position: absolute;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+  transform: translateY(-50%);
   left: 0;
   width: 32px;
-  height: 12px;
+  height: 8px;
   padding: 0 8px;
   border: 0;
-  transform: translateY(-50%);
   background: transparent;
   cursor: pointer;
 }
@@ -340,7 +344,7 @@
     transform 150ms cubic-bezier(0.23, 1, 0.32, 1),
     opacity 150ms ease-out;
 }
-.conversation-tick[aria-current] > span {
+.conversation-tick[data-in-view="true"] > span {
   opacity: 1;
   background: var(--color-ink);
 }
@@ -373,6 +377,9 @@
   background: var(--desktop-surface);
   box-shadow: 0 8px 24px #0003;
   font-size: 13px;
+  max-height: calc(100% - 16px);
+  overflow: hidden;
+  pointer-events: none;
 }
 .conversation-turn-preview > strong {
   display: block;

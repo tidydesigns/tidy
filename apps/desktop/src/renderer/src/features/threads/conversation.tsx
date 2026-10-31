@@ -275,28 +275,30 @@ const TurnButton = memo(function TurnButton({
       aria-label={`Jump to turn ${index + 1}: ${label}`}
       className={`conversation-tick ${previewing ? "previewing" : ""}`}
       data-hover-distance={distance}
+      data-in-view="false"
+      style={{ top: `${(index / Math.max(1, count - 1)) * 100}%` }}
       aria-current={current ? "step" : undefined}
       aria-describedby={previewing ? previewId : undefined}
       tabIndex={focusable ? 0 : -1}
-      style={{
-        top: `${count <= 1 ? 0 : (index / (count - 1)) * 100}%`,
-        height: Math.min(8, 288 / (count - 1)),
-      }}
-      onPointerEnter={() => onPreview(index)}
       onFocus={() => onPreview(index)}
       onBlur={() => onPreview(null)}
       onClick={() => onJump(id, index)}
       onKeyDown={(event) => {
         if (event.key === "Escape") onPreview(null);
-        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
           event.preventDefault();
           const buttons =
             event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button");
           if (!buttons?.length) return;
-          const next = Math.max(
-            0,
-            Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
-          );
+          const next =
+            event.key === "Home"
+              ? 0
+              : event.key === "End"
+                ? buttons.length - 1
+                : Math.max(
+                    0,
+                    Math.min(buttons.length - 1, index + (event.key === "ArrowDown" ? 1 : -1)),
+                  );
           buttons[next]?.focus();
         }
       }}
@@ -324,6 +326,8 @@ export const Conversation = memo(function Conversation({
   const previewId = useId();
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
+  const ticks = useRef<HTMLDivElement>(null);
+  const tooltip = useRef<HTMLDivElement>(null);
   const following = useRef(positions.get(identity)?.following ?? true);
   const scrollTarget = useRef<number | undefined>(undefined);
   const initialized = useRef(false);
@@ -331,6 +335,7 @@ export const Conversation = memo(function Conversation({
   visible.current = active;
   const lastUser = useRef<string | undefined>(undefined);
   const frame = useRef(0);
+  const jumpFrame = useRef(0);
   const resizeFrame = useRef(0);
   const measureRef = useRef(() => {});
   const nodes = useRef(new Map<string, HTMLElement>());
@@ -370,18 +375,30 @@ export const Conversation = memo(function Conversation({
   function measure() {
     const element = viewport.current;
     if (!element || !visible.current || !element.clientHeight) return;
-    const end = element.scrollHeight - element.scrollTop - element.clientHeight <= 40;
-    setAtEnd(end);
-    const top = element.getBoundingClientRect().top + 48;
-    let index = 0;
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const node = nodes.current.get(turns[i].id);
-      if (node && node.getBoundingClientRect().top <= top) {
-        index = i;
-        break;
+    setAtEnd(element.scrollHeight - element.scrollTop - element.clientHeight <= 40);
+    const viewportBounds = element.getBoundingClientRect();
+    let preceding = 0;
+    let firstVisible: number | undefined;
+    const inView = new Set<number>();
+    for (const [index, turn] of turns.entries()) {
+      const node = nodes.current.get(turn.id);
+      if (!node) continue;
+      const bounds = node.getBoundingClientRect();
+      if (bounds.top <= viewportBounds.top) preceding = index;
+      if (bounds.bottom <= viewportBounds.top || bounds.top >= viewportBounds.bottom) continue;
+      const prompt = node.querySelector<HTMLElement>(".message-user")?.getBoundingClientRect();
+      if (prompt && prompt.bottom > viewportBounds.top && prompt.top < viewportBounds.bottom) {
+        firstVisible ??= index;
+        inView.add(index);
       }
     }
-    setCurrent(index);
+    for (const [index, marker] of (
+      ticks.current?.querySelectorAll<HTMLButtonElement>("button") ?? []
+    ).entries()) {
+      const value = inView.has(index) ? "true" : "false";
+      if (marker.dataset.inView !== value) marker.dataset.inView = value;
+    }
+    setCurrent(firstVisible ?? preceding);
     rememberPosition(element);
   }
   function rememberPosition(element: HTMLDivElement) {
@@ -397,7 +414,12 @@ export const Conversation = memo(function Conversation({
     element.scrollTop = top;
     scrollTarget.current = element.scrollTop;
   }
+  function cancelJump() {
+    cancelAnimationFrame(jumpFrame.current);
+    jumpFrame.current = 0;
+  }
   function latest() {
+    cancelJump();
     following.current = true;
     const element = viewport.current;
     if (element) scrollTo(element.scrollHeight);
@@ -407,17 +429,40 @@ export const Conversation = memo(function Conversation({
     const element = viewport.current;
     const node = nodes.current.get(id);
     if (!element || !node) return;
+    cancelJump();
     following.current = false;
-    scrollTo(
-      element.scrollTop +
-        node.getBoundingClientRect().top -
-        element.getBoundingClientRect().top -
-        Number.parseFloat(getComputedStyle(element).paddingTop),
-    );
-    setCurrent(index);
     setPreview(null);
-    measureRef.current();
+    let remaining = 8;
+    let stable = 0;
+    const align = () => {
+      if (!visible.current || !element.isConnected || following.current) {
+        jumpFrame.current = 0;
+        return;
+      }
+      const before = element.scrollTop;
+      scrollTo(
+        index === 0
+          ? 0
+          : element.scrollTop +
+              node.getBoundingClientRect().top -
+              element.getBoundingClientRect().top -
+              Math.min(24, Number.parseFloat(getComputedStyle(element).paddingTop)),
+      );
+      stable = Math.abs(before - element.scrollTop) < 1 ? stable + 1 : 0;
+      measureRef.current();
+      if (--remaining > 0 && stable < 2) jumpFrame.current = requestAnimationFrame(align);
+      else jumpFrame.current = 0;
+    };
+    align();
   }, []);
+
+  useLayoutEffect(
+    () => () => {
+      setPreview(null);
+      cancelJump();
+    },
+    [],
+  );
 
   useLayoutEffect(() => {
     if (!active || !thread || !viewport.current) return;
@@ -452,10 +497,57 @@ export const Conversation = memo(function Conversation({
       observer.disconnect();
       cancelAnimationFrame(resizeFrame.current);
       cancelAnimationFrame(frame.current);
+      cancelJump();
     };
   }, []);
 
+  useEffect(() => {
+    const navigation = ticks.current?.parentElement;
+    if (!navigation) return;
+    const wheel = (event: WheelEvent) => {
+      const element = viewport.current;
+      if (!element || event.ctrlKey || event.defaultPrevented || event.deltaY === 0) return;
+      event.preventDefault();
+      cancelJump();
+      following.current = false;
+      const unit =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? element.clientHeight
+            : 1;
+      element.scrollTop += event.deltaY * unit;
+    };
+    navigation.addEventListener("wheel", wheel, { passive: false });
+    return () => navigation.removeEventListener("wheel", wheel);
+  }, [turns.length]);
+
+  function pointerTurn(element: HTMLElement, clientY: number) {
+    const bounds = element.getBoundingClientRect();
+    const progress = bounds.height > 0 ? (clientY - bounds.top) / bounds.height : 0;
+    return Math.max(0, Math.min(turns.length - 1, Math.round(progress * (turns.length - 1))));
+  }
+
   const selected = preview === null ? null : turns[preview];
+  useLayoutEffect(() => {
+    const popup = tooltip.current;
+    const list = ticks.current;
+    const rail = list?.parentElement;
+    const button = preview === null ? undefined : list?.querySelectorAll("button")[preview];
+    if (!popup || !rail || !button) return;
+    const position = () => {
+      const bounds = rail.getBoundingClientRect();
+      const target = button.getBoundingClientRect();
+      const half = popup.offsetHeight / 2;
+      const center = target.top + target.height / 2 - bounds.top;
+      popup.style.top = `${Math.max(half + 8, Math.min(bounds.height - half - 8, center))}px`;
+    };
+    position();
+    const observer = new ResizeObserver(position);
+    observer.observe(popup);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, [preview, turns.length]);
   const running = thread?.status === "running";
   const prompts = thread?.messages.filter((message) => message.role === "user");
   const currentTurn = (
@@ -474,10 +566,13 @@ export const Conversation = memo(function Conversation({
         tabIndex={0}
         role="region"
         aria-label="Conversation"
+        onPointerDownCapture={cancelJump}
         onWheel={(event) => {
+          cancelJump();
           if (event.deltaY < 0) following.current = false;
         }}
         onTouchMove={() => {
+          cancelJump();
           following.current = false;
         }}
         onClickCapture={(event) => {
@@ -488,6 +583,7 @@ export const Conversation = memo(function Conversation({
             following.current = false;
         }}
         onKeyDown={(event) => {
+          cancelJump();
           if (
             ["ArrowUp", "PageUp", "Home"].includes(event.key) ||
             (["Enter", " "].includes(event.key) &&
@@ -503,11 +599,14 @@ export const Conversation = memo(function Conversation({
           const programmatic =
             scrollTarget.current !== undefined &&
             Math.abs(element.scrollTop - scrollTarget.current) < 1;
-          if (!programmatic) scrollTarget.current = undefined;
+          if (!programmatic) {
+            cancelJump();
+            scrollTarget.current = undefined;
+          }
           if (!programmatic || atEnd) following.current = atEnd;
           rememberPosition(element);
           cancelAnimationFrame(frame.current);
-          frame.current = requestAnimationFrame(measure);
+          frame.current = requestAnimationFrame(() => measureRef.current());
         }}
       >
         <div className="conversation-content flow-root" ref={content}>
@@ -547,17 +646,23 @@ export const Conversation = memo(function Conversation({
         <nav
           className="conversation-rail"
           aria-label="Conversation turns"
+          onPointerDownCapture={cancelJump}
+          onKeyDownCapture={cancelJump}
           onPointerLeave={() => setPreview(null)}
-          onWheel={(event) => {
-            if (viewport.current) {
-              following.current = false;
-              viewport.current.scrollTop += event.deltaY;
-            }
-          }}
         >
           <div
             className="conversation-ticks"
+            ref={ticks}
             style={{ height: Math.min(288, (turns.length - 1) * 8) }}
+            onPointerMove={(event) => {
+              if (event.buttons === 0) setPreview(pointerTurn(event.currentTarget, event.clientY));
+            }}
+            onClick={(event) => {
+              if (event.detail === 0) return;
+              const index = pointerTurn(event.currentTarget, event.clientY);
+              const turn = turns[index];
+              if (turn) jump(turn.id, index);
+            }}
           >
             {turns.map((turn, index) => (
               <TurnButton
@@ -575,20 +680,13 @@ export const Conversation = memo(function Conversation({
                 onJump={jump}
               />
             ))}
-            {selected && (
-              <div
-                className="conversation-turn-preview"
-                id={previewId}
-                role="tooltip"
-                style={{
-                  top: `${((preview ?? 0) / Math.max(1, turns.length - 1)) * 100}%`,
-                }}
-              >
-                <strong>{selected.prompt || "Attachment"}</strong>
-                {selected.response && <MarkdownPreview text={selected.response} />}
-              </div>
-            )}
           </div>
+          {selected && (
+            <div className="conversation-turn-preview" ref={tooltip} id={previewId} role="tooltip">
+              <strong>{selected.prompt || "Attachment"}</strong>
+              {selected.response && <MarkdownPreview text={selected.response} />}
+            </div>
+          )}
         </nav>
       )}
       {thread?.messages.length && !atEnd ? (
