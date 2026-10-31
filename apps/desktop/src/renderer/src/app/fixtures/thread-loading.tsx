@@ -4100,7 +4100,10 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
       approval.focus();
       check(document.activeElement === approval, "Child approval was not keyboard reachable");
       approval.click();
-      check(counts().child === 1 && counts().parent === 0, "Child approval selected the wrong destination");
+      check(
+        counts().child === 1 && counts().parent === 0,
+        "Child approval selected the wrong destination",
+      );
       required(
         host.querySelector<HTMLButtonElement>(".thread-select"),
         "Parent destination",
