@@ -1847,6 +1847,14 @@ export function App({
                   threads={snapshot.threads}
                   search={deferredThreadQueries[project.id] ?? ""}
                   renderThread={renderThread}
+                  draft={{
+                    text: drafts[`${project.id}:new`]?.text ?? "",
+                    selected: !selectedThreadId,
+                    onSelect: () => {
+                      selectThread(project.id, null);
+                      document.getElementById("thread-prompt")?.focus();
+                    },
+                  }}
                 />
               </ThreadReadingContext>
             </div>
