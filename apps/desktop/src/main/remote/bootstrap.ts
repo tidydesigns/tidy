@@ -84,6 +84,7 @@ printf 'TIDY_PHASE:starting\\n' >&2
 PATH="$HOME/.local/bin:$HOME/.bun/bin:$HOME/.volta/bin:$HOME/.local/share/mise/shims:/usr/local/bin:/opt/homebrew/bin:$PATH"
 for nodebin in "$HOME"/.nvm/versions/node/*/bin; do [ ! -d "$nodebin" ] || PATH="$PATH:$nodebin"; done
 export PATH
+export TIDY_HOST_SERVICE=${directories ? "off" : "auto"}
 exec "$runtime/bin/node" "$runtime/tidy-host.mjs" ensure '${clientId}'
 `;
 }
@@ -111,6 +112,7 @@ export async function prepareHost({
   const host = preparedHostSchema.parse(JSON.parse(line));
   return {
     ...host,
-    updatePending: host.buildId !== createHash("sha256").update(bundle).digest("hex"),
+    updatePending:
+      host.updatePending ?? host.buildId !== createHash("sha256").update(bundle).digest("hex"),
   };
 }

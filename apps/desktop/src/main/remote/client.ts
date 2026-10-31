@@ -672,9 +672,15 @@ export class RemoteClient {
               new RemoteFailure("unavailable", "Remote state synchronization timed out."),
             );
           }, 75_000);
-          this.recoveryWarning = connection.host.updatePending
-            ? "A backend update is pending. Finish active runs, then reconnect to apply it."
-            : undefined;
+          this.recoveryWarning =
+            [
+              connection.host.persistenceWarning,
+              connection.host.updatePending
+                ? "A backend update is pending. Finish active runs, then reconnect to apply it."
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(" ") || undefined;
           void this.recovery
             .refresh(true)
             .then(async () => {

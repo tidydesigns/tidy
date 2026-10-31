@@ -15,7 +15,7 @@
   ],
   "tasks": {
     "build": {
-      "env": ["POSTHOG_TRACING_ENABLED"],
+      "env": ["POSTHOG_TRACING_ENABLED", "TIDY_HOST_SOURCE_TIMESTAMP"],
       "dependsOn": ["^build"],
       "outputs": [".next/**", "!.next/cache/**", ".output/**", "out/**"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"]

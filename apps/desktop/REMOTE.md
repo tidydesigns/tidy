@@ -68,17 +68,49 @@ SHA-256 and smoke-tests the installation. A private staging directory and instal
 lock prevent incomplete installs from being used. Runtime directories are keyed by the
 backend bundle checksum under `~/.local/share/tidy/runtime`.
 
-The launcher serializes startup, reuses a healthy backend, and otherwise starts a detached
-process listening only on `127.0.0.1` at an automatically chosen port. It returns the
+The launcher serializes startup and reuses a healthy backend shared by all connected desktops.
+On Linux it installs a systemd user service when the user manager is available. On macOS
+it installs a launchd user agent when a logged-in graphical user session is available.
+Both supervisors restart a crashed backend with a delay; clean maintenance shutdowns do
+not restart the old build. Each state directory has its own service identity. Source and
+test launches remain detached unless service management is explicitly requested with
+`TIDY_HOST_SERVICE=auto`.
+
+Linux services start at boot and survive logout when lingering is enabled for the remote
+user. Tidy checks this setting and reports a connection warning when it is disabled or
+cannot be verified; it never enables lingering automatically. An operator can enable it
+with `loginctl enable-linger USER` on the remote machine. macOS user agents run while
+their user is logged in. A host without an available user service manager uses detached
+startup and reports that reconnecting is needed after a crash or reboot. A previously
+configured service that becomes unavailable produces an error instead of starting a
+competing detached process.
+
+The backend listens only on `127.0.0.1` at an automatically chosen port. It returns the
 port, persistent host identity and a private session credential over SSH. The desktop
 opens an SSH local forward, verifies the backend instance, authenticates with the session,
 and exchanges a short-lived, single-use ticket for its WebSocket connection.
 
-Managed backends upgrade automatically when idle. Active runs and in-flight requests
+Managed backends upgrade automatically to newer source builds when idle. Active runs, browser tabs and in-flight requests
 prevent an update; the connection status includes a deferred-update warning. Externally managed
 backends are left running. A backend that is alive but unresponsive is also left running
 rather than killed speculatively. The launcher never restarts agents to fix a client
 connection.
+
+The accepted runtime is recorded privately so an older desktop reconnecting after a
+backend crash starts the accepted build rather than downgrading it. Running versioned
+backends also reject restart requests from older clients, including clients without
+version metadata. Source commit timestamps order builds; different builds with an equal
+timestamp reuse the incumbent. Release builds must retain Git metadata or supply
+`TIDY_HOST_SOURCE_TIMESTAMP` at build time. Service configuration preserves supported
+harness and browser environment settings in a private `0600` JSON file, including custom
+configuration paths and provider credentials; secrets are not embedded in service definitions.
+
+Updated POSIX hosts migrate backend ownership to a versioned lock while holding the
+previous ownership lock. A persistent marker prevents pre-upgrade launchers from starting
+an old backend during crash recovery. Existing legacy hosts are left running until they
+release ownership. Older desktops can attach to a healthy updated host; if it is stopped,
+use an updated desktop or let its service restart it. This migration changes only private
+coordination files, not project data or the backend identity.
 
 Remote client disconnection leaves the backend and its agents running. Transport pings run
 at five-second intervals; fifteen seconds without a frame triggers reconnection. Application
@@ -199,6 +231,13 @@ For diagnostics, inspect `~/.local/state/tidy-host/server.log`. The installed ru
 supports `version`, `serve`, `ensure CLIENT_UUID`, and `revoke CLIENT_UUID` commands.
 `ensure` prints credentials: do not paste its output into issue reports or logs.
 
+The runtime descriptor records `supervisor` and any persistence warning. Service names
+are `tidy-host-<state-directory-hash>.service` on Linux and
+`app.tidy.host.<state-directory-hash>` on macOS. Use `systemctl --user status` or
+`journalctl --user -u` with the Linux service name to inspect service-manager failures.
+Backend crashes restart the backend; an in-progress model turn cannot be promised to
+continue through a backend or machine crash. Project and thread records remain on disk.
+
 ## Test connection recovery on one machine
 
 Run the automated Electron integration test from the repository root:
@@ -243,6 +282,14 @@ Uploads transfer only files selected on the client. Downloads stay in private ho
 temporary storage until saved to a client-side destination. Neither flow accepts
 arbitrary host paths. Closing a tab removes its staged files. Threads have separate
 browser contexts and do not import the host's normal browser profile.
+
+Browser configurations, uploads, downloads, Chromium profiles and child-process temporary
+files use Tidy-owned disk storage instead of the shared system temporary directory.
+The default root is `~/.cache/tidy/host/tmp` on Linux (or under `XDG_CACHE_HOME`) and
+`~/Library/Caches/tidy/host/tmp` on macOS. Directories are private to the user and
+separated by process and operation. Normal shutdown removes scratch files; bounded
+cleanup removes old directories only when their owning process is gone. Live clients'
+files are preserved. Disk or user-quota exhaustion reports the affected storage path.
 
 Agent access uses a private, short-lived curl configuration referenced by the turn
 prompt. Each turn receives fresh access; ending it revokes access and removes the

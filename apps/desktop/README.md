@@ -153,7 +153,9 @@ merges and large-document latency measurements remain follow-up work.
 Remote backend installation, SSH transport, reconnection and machine-scoped IPC are implemented.
 Open **Settings → Remote machines** to add an SSH destination and manage its connection.
 Remote project and thread selection UI is still deferred; connecting does not move existing chats.
-The remote backend continues running when the desktop disconnects.
+The remote backend is shared by connected desktops and continues running when one disconnects.
+Supported Linux and macOS hosts use user services for crash recovery; connection status explains
+logout and boot persistence requirements. Backend scratch files use private per-user cache storage.
 See [backend installation and connection setup](REMOTE.md).
 
 ## Projects and threads

@@ -1,10 +1,10 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { browserActionSchema, type BrowserScope } from "../../shared/contracts/browser";
+import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 import type { BrowserService } from "./browser-service";
 
 const requestSchema = z.union([
@@ -14,6 +14,7 @@ const requestSchema = z.union([
 
 export class BrowserAgentBridge {
   private closing = false;
+  private readonly scratch = new PrivateScratch();
   private sessions = new Map<
     string,
     { scope: BrowserScope; controller: AbortController; directory: string }
@@ -106,7 +107,7 @@ export class BrowserAgentBridge {
     if (this.closing) throw new Error("The browser tool is closing.");
     const token = randomBytes(32).toString("hex");
     const controller = new AbortController();
-    const directory = await mkdtemp(join(tmpdir(), "tidy-browser-agent-"));
+    const directory = await this.scratch.create("tidy-browser-agent-");
     const configuration = join(directory, "client.conf");
     try {
       await writeFile(
@@ -117,7 +118,7 @@ export class BrowserAgentBridge {
       if (this.closing) throw new Error("The browser tool is closing.");
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
-      throw error;
+      throw scratchStorageError(error, directory);
     }
     this.sessions.set(token, { scope, controller, directory });
     const quotedConfiguration =
@@ -153,5 +154,6 @@ export class BrowserAgentBridge {
       ...this.cleanups,
       ...directories.map((directory) => rm(directory, { recursive: true, force: true })),
     ]);
+    await this.scratch.close();
   }
 }

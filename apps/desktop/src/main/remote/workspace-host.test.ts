@@ -7,6 +7,7 @@ import { spawn } from "node:child_process";
 import { preparedHostSchema, runtimeSchema, hostDescriptorSchema } from "../../shared/remote";
 import { ProjectStore } from "../workspace/project-store";
 import { migrateWorkspaceRegistry } from "./workspace-host";
+import { selectHostActivation } from "./host-service";
 const cleanup: (() => unknown | Promise<unknown>)[] = [];
 afterEach(async () => {
   for (const close of cleanup.splice(0).reverse()) await close();
@@ -22,7 +23,7 @@ test("desktop and remote clients share one service and attached clients do not o
     import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
     import {RemoteClient} from './src/main/remote/client.ts';
     import {ensureWorkspaceHost,workspaceRuntime} from './src/main/remote/workspace-host.ts';
-    import {lockHost} from './src/main/remote/host-lock.ts';
+    import {lockWorkspaceHost} from './src/main/remote/host-lock.ts';
     import {projectLocks} from './src/main/remote/project-locks.ts';
     const root = process.argv[1];
     const clients = [], hosts = [];
@@ -62,7 +63,7 @@ test("desktop and remote clients share one service and attached clients do not o
       const stale = {...owner.host,pid:process.pid};
       const runtimePath = join(root,'runtime.json');
       await writeFile(runtimePath,JSON.stringify(stale));
-      const release = lockHost(join(root,'host.lock'));
+      const release = await lockWorkspaceHost(root);
       try {
         await assert.rejects(workspaceRuntime(root), /alive but unresponsive/);
         assert.ok(await readFile(runtimePath,'utf8'));
@@ -139,7 +140,7 @@ test("a stalled shutdown fails within its deadline while retaining workspace own
     import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
     import {RemoteClient} from './src/main/remote/client.ts';
     import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
-    import {lockHost} from './src/main/remote/host-lock.ts';
+    import {lockWorkspaceHost} from './src/main/remote/host-lock.ts';
     import {projectLocks} from './src/main/remote/project-locks.ts';
     import {RequestReceipts} from './src/main/remote/receipts.ts';
     const root = process.argv[1];
@@ -175,7 +176,7 @@ test("a stalled shutdown fails within its deadline while retaining workspace own
     await assert.rejects(closing,/shutdown timed out/);
     assert.equal(released,false);
     assert.equal(serviceClosed,false);
-    assert.throws(() => lockHost(join(root,'host.lock')));
+    await assert.rejects(lockWorkspaceHost(root));
     const other = projectLocks(join(root,'project-locks'));
     try { assert.throws(() => other.claim(project.path)); } finally { other.close(); }
     assert.ok(JSON.parse(await readFile(join(root,'runtime.json'),'utf8')).pid);
@@ -240,6 +241,10 @@ for (const blockPublication of [false, true]) {
         });
         expect(code).toBe(1);
         expect(errors).toContain('"event":"host.failed"');
+        await expect(readFile(join(root, "activation.json"))).rejects.toHaveProperty(
+          "code",
+          "ENOENT",
+        );
         await rm(join(root, "runtime.json"), { recursive: true });
       }
       const child = spawn("node", ["--import", "tsx", "scripts/host.ts", "ensure", randomUUID()], {
@@ -293,6 +298,60 @@ for (const blockPublication of [false, true]) {
   );
 }
 
+test("a managed backend accepts its healthy runtime without a connecting launcher", async () => {
+  const root = await mkdtemp(join(tmpdir(), "service-start-host-"));
+  cleanup.push(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, "home");
+  await mkdir(home);
+  const child = spawn("node", ["--import", "tsx", "scripts/host.ts", "serve", "--managed"], {
+    cwd: new URL("../../..", import.meta.url),
+    env: {
+      ...process.env,
+      HOME: home,
+      XDG_CACHE_HOME: join(home, "cache"),
+      TIDY_HOST_STATE: root,
+      TIDY_HOST_SUPERVISOR: "detached",
+    },
+    stdio: "pipe",
+    timeout: 10000,
+    killSignal: "SIGKILL",
+  });
+  let errors = "";
+  child.stderr.on("data", (chunk) => {
+    errors += chunk.toString();
+  });
+  child.stdout.resume();
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.once("exit", resolve);
+    child.once("error", reject);
+  });
+  try {
+    let runtime: Buffer | undefined;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      runtime = await readFile(join(root, "runtime.json")).catch(() => undefined);
+      if (runtime && errors.includes('"event":"host.ready"')) break;
+      if (child.exitCode !== null) throw new Error(errors);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    if (!runtime) throw new Error(`The managed backend did not become ready: ${errors}`);
+    const descriptor = runtimeSchema.parse(JSON.parse(runtime.toString()));
+    const accepted = JSON.parse(await readFile(join(root, "activation.json"), "utf8"));
+    expect(accepted.buildId).toBe(descriptor.buildId);
+    expect(accepted.sourceTimestamp).toBe(descriptor.sourceTimestamp);
+    expect(
+      await selectHostActivation(root, {
+        executable: process.execPath,
+        arguments: ["/fixture/old-host.mjs"],
+        buildId: "older",
+        sourceTimestamp: 0,
+      }),
+    ).toEqual(accepted);
+  } finally {
+    child.kill("SIGTERM");
+    await exited;
+  }
+}, 15000);
+
 test("a failed final service flush retains host and project ownership after draining", async () => {
   const root = await mkdtemp(join(tmpdir(), "checkpoint-host-"));
   cleanup.push(() => rm(root, { recursive: true, force: true }));
@@ -303,7 +362,7 @@ test("a failed final service flush retains host and project ownership after drai
     import {ProjectStore} from './src/main/workspace/project-store.ts';
     import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
     import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
-    import {lockHost} from './src/main/remote/host-lock.ts';
+    import {lockWorkspaceHost} from './src/main/remote/host-lock.ts';
     import {projectLocks} from './src/main/remote/project-locks.ts';
     const root = process.argv[1];
     let released = false;
@@ -323,7 +382,7 @@ test("a failed final service flush retains host and project ownership after drai
     assert.equal(owner.close(), closing);
     await assert.rejects(closing,/Final flush failed/);
     assert.equal(released,false);
-    assert.throws(() => lockHost(join(root,'host.lock')));
+    await assert.rejects(lockWorkspaceHost(root));
     const other = projectLocks(join(root,'project-locks'));
     try { assert.throws(() => other.claim(join(root,'project'))); } finally { other.close(); }
     assert.equal(JSON.parse(await readFile(join(root,'runtime.json'),'utf8')).pid, process.pid);
@@ -365,7 +424,7 @@ for (const stalled of [false, true]) {
       import {WorkspaceService} from './src/main/workspace/workspace-service.ts';
       import {createWorkspaceRequests} from './src/main/ipc/workspace-requests.ts';
       import {ensureWorkspaceHost} from './src/main/remote/workspace-host.ts';
-      import {lockHost} from './src/main/remote/host-lock.ts';
+      import {lockWorkspaceHost} from './src/main/remote/host-lock.ts';
       import {projectLocks} from './src/main/remote/project-locks.ts';
       const root = process.argv[1];
       const stalled = process.argv[2] === 'true';
@@ -411,7 +470,7 @@ for (const stalled of [false, true]) {
       }
       assert.equal(released,false);
       assert.equal(flushed,false);
-      assert.throws(() => lockHost(join(root,'host.lock')));
+      await assert.rejects(lockWorkspaceHost(root));
       const other = projectLocks(join(root,'project-locks'));
       try { assert.throws(() => other.claim(project.path)); } finally { other.close(); }
       if (stalled) process.exit(0);
@@ -420,7 +479,7 @@ for (const stalled of [false, true]) {
       await closing;
       assert.equal(released,true);
       assert.equal(flushed,true);
-      const unlock = lockHost(join(root,'host.lock')); unlock();
+      const unlock = await lockWorkspaceHost(root); unlock();
       const replacement = projectLocks(join(root,'project-locks'));
       replacement.claim(project.path); replacement.close();
       assert.ok((await service.store.folders(project.id)).some(value => value.id === folder.id));

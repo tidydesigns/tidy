@@ -1,6 +1,6 @@
 import { downloadBrowserArchive } from "./download-archive";
 import { lockBrowserInstall, BrowserInstallBusyError } from "./install-lock";
-import { mkdir, chmod, access } from "node:fs/promises";
+import { mkdir, chmod, access, rm } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
 import {
@@ -13,11 +13,15 @@ import {
   Cache,
 } from "@puppeteer/browsers";
 import { launch, type Browser } from "puppeteer-core";
+import type { ChildProcess } from "node:child_process";
+import { PrivateScratch, scratchStorageError } from "../platform/private-scratch";
 
 export class BrowserRuntime {
   private pending?: Promise<Browser>;
   private closing = false;
   private readonly lifetime = new AbortController();
+  private readonly scratch = new PrivateScratch();
+  private readonly processes = new Set<ChildProcess>();
 
   constructor(
     private readonly progress: (fraction: number | null) => void,
@@ -102,15 +106,30 @@ export class BrowserRuntime {
     }
     if (this.closing) throw new Error("The browser is closing.");
     this.progress(null);
+    let directory: string | undefined;
     try {
+      directory = await this.scratch.create("tidy-browser-runtime-");
       const browser = await launch({
         executablePath,
+        userDataDir: join(directory, "profile"),
+        env: { ...process.env, TMPDIR: directory, TMP: directory, TEMP: directory },
         headless: true,
         pipe: true,
         timeout: 30000,
         args: process.env.TIDY_BROWSER_SANDBOX === "0" ? ["--no-sandbox"] : [],
         defaultViewport: { width: 1280, height: 800, deviceScaleFactor: 1 },
       });
+      const child = browser.process();
+      if (child) {
+        const profile = directory;
+        const cleanup = () => {
+          this.processes.delete(child);
+          void rm(profile, { recursive: true, force: true }).catch(() => {});
+        };
+        this.processes.add(child);
+        if (child.exitCode !== null || child.signalCode !== null) cleanup();
+        else child.once("exit", cleanup);
+      }
       if (this.closing) {
         await browser.close();
         throw new Error("The browser is closing.");
@@ -121,7 +140,8 @@ export class BrowserRuntime {
       });
       return browser;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Chrome could not start.";
+      if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {});
+      const message = scratchStorageError(error, directory ?? "Tidy browser storage").message;
       if (/sandbox|namespace|apparmor/i.test(message))
         throw new Error(
           "Chrome's sandbox is blocked on this host. Allow unprivileged user namespaces or configure a supported Chrome executable. The sandbox is never disabled automatically.",
@@ -138,15 +158,22 @@ export class BrowserRuntime {
     this.closing = true;
     this.lifetime.abort();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let closed = !this.pending;
     try {
       await Promise.race([
-        this.pending?.then((browser) => browser.close()).catch(() => {}),
+        this.pending
+          ?.then(async (browser) => {
+            await browser.close();
+            closed = true;
+          })
+          .catch(() => {}),
         new Promise<void>((resolve) => {
           timer = setTimeout(resolve, 5000);
         }),
       ]);
     } finally {
       clearTimeout(timer);
+      if (closed && this.processes.size === 0) await this.scratch.close();
     }
   }
 }

@@ -275,6 +275,51 @@ test("disconnecting a client leaves agent runs alive and reconnect refreshes mis
   expect(f.stopped()).toBe(false);
 });
 
+test("different desktop clients share host-owned threads after the originating client disconnects", async () => {
+  const f = await fixture();
+  const first = f.client();
+  const second = f.client();
+  await until(
+    () => first.client.status.kind === "connected" && second.client.status.kind === "connected",
+  );
+  const thread = await first.client.operation("start-thread", {
+    projectId: f.project.id,
+    harness: "claude",
+    prompt: "Continue independently of this desktop",
+    designIds: [],
+  });
+  const secondCopy = await second.client.operation("read-thread", {
+    projectId: f.project.id,
+    threadId: thread.id,
+  });
+  expect(secondCopy.status).toBe("running");
+  first.client.close();
+  expect(f.stopped()).toBe(false);
+  expect(second.client.status.kind).toBe("connected");
+
+  const third = f.client();
+  await until(() => third.client.status.kind === "connected");
+  expect(
+    (
+      await third.client.operation("read-thread", {
+        projectId: f.project.id,
+        threadId: thread.id,
+      })
+    ).status,
+  ).toBe("running");
+  await third.client.operation("stop-thread", { projectId: f.project.id, threadId: thread.id });
+  await until(() => f.stopped());
+  await until(() =>
+    second.events.some(
+      (event) =>
+        event.type === "thread" &&
+        event.thread.id === thread.id &&
+        event.thread.status === "stopped",
+    ),
+  );
+  expect(second.client.status.kind).toBe("connected");
+});
+
 test("replaced host identity stops reconnect", async () => {
   const f = await fixture();
   const { client } = f.client();
@@ -399,7 +444,12 @@ test("managed backend refuses an update while an agent is running", async () => 
     service: f.service,
     sessions: f.sessions,
     receipts: new RequestReceipts(join(f.root, "receipts")),
-    identity: { hostId: randomUUID(), instanceId: randomUUID(), buildId: "fixture" },
+    identity: {
+      hostId: randomUUID(),
+      instanceId: randomUUID(),
+      buildId: "fixture",
+      sourceTimestamp: 100,
+    },
     shutdown: () => {
       stopped = true;
     },
@@ -416,11 +466,64 @@ test("managed backend refuses an update while an agent is running", async () => 
   });
   const response = await fetch(`http://127.0.0.1:${port}/maintenance/restart`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Tidy-Client": clientId,
+      "X-Tidy-Build": "a".repeat(64),
+      "X-Tidy-Source-Timestamp": "200",
+    },
   });
   expect(response.status).toBe(409);
   expect(stopped).toBe(false);
   expect(f.service.activeRunCount).toBeGreaterThan(0);
+});
+
+test("a shared versioned backend rejects old-client restarts and accepts only a newer idle update", async () => {
+  const f = await fixture();
+  const clientId = randomUUID();
+  const token = await f.sessions.issue(clientId);
+  let stopped = false;
+  const host = createRemoteHost({
+    service: f.service,
+    sessions: f.sessions,
+    receipts: new RequestReceipts(join(f.root, "update-receipts")),
+    identity: {
+      hostId: randomUUID(),
+      instanceId: randomUUID(),
+      buildId: "b".repeat(64),
+      sourceTimestamp: 200,
+    },
+    shutdown: () => {
+      stopped = true;
+    },
+  });
+  const port = await host.listen();
+  cleanups.push(() => host.close());
+  const request = (candidate: Record<string, string>) =>
+    fetch(`http://127.0.0.1:${port}/maintenance/restart`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "X-Tidy-Client": clientId, ...candidate },
+    });
+  const candidates: Record<string, string>[] = [
+    {},
+    { "X-Tidy-Source-Timestamp": "100", "X-Tidy-Build": "a".repeat(64) },
+    { "X-Tidy-Source-Timestamp": "200", "X-Tidy-Build": "a".repeat(64) },
+    { "X-Tidy-Source-Timestamp": "300", "X-Tidy-Build": "b".repeat(64) },
+    { "X-Tidy-Source-Timestamp": "invalid", "X-Tidy-Build": "a".repeat(64) },
+  ];
+  for (const candidate of candidates) {
+    expect((await request(candidate)).status).toBe(409);
+    expect(stopped).toBe(false);
+  }
+  expect(
+    (
+      await request({
+        "X-Tidy-Source-Timestamp": "300",
+        "X-Tidy-Build": "a".repeat(64),
+      })
+    ).status,
+  ).toBe(200);
+  await until(() => stopped);
 });
 
 test("wake probes healthy connections and replaces the tunnel after sleep", async () => {

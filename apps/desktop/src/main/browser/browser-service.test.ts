@@ -16,6 +16,8 @@ import { randomUUID } from "node:crypto";
 import { BrowserService } from "./browser-service";
 import { browserEditingCommand } from "../../renderer/src/features/browser/browser-keyboard";
 import { BrowserAgentBridge } from "./agent-bridge";
+import { BrowserRuntime } from "./runtime";
+import { scratchRoot } from "../platform/private-scratch";
 import {
   emptyBrowserState,
   type BrowserOutput,
@@ -30,6 +32,34 @@ afterEach(async () => {
 });
 const browserTest = (name: string, run: () => Promise<void>, timeout = 30000) =>
   test(name, { skip: Boolean(process.versions.bun), timeout }, run);
+
+browserTest(
+  "browser profiles launch outside shared tmp and are cleaned after process exit",
+  async () => {
+    const runtime = new BrowserRuntime(
+      () => {},
+      () => {},
+    );
+    const previous = process.env.TMPDIR;
+    process.env.TMPDIR = join(scratchRoot(), "unavailable-temp-directory");
+    try {
+      const browser = await runtime.get();
+      const argument = browser
+        .process()
+        ?.spawnargs.find((argument) => argument.startsWith("--user-data-dir="));
+      assert.ok(argument);
+      const profile = argument.slice("--user-data-dir=".length);
+      assert.ok(profile.includes("tidy-browser-runtime-"));
+      assert.ok((await stat(profile)).isDirectory());
+      await runtime.close();
+      await assert.rejects(stat(profile), { code: "ENOENT" });
+    } finally {
+      if (previous === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = previous;
+      await runtime.close();
+    }
+  },
+);
 
 async function fixture(authorize = async () => {}) {
   const slow = Promise.withResolvers<ServerResponse>();

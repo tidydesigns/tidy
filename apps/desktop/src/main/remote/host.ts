@@ -27,7 +27,7 @@ export function createRemoteHost({
   drainTimeoutMs = DRAIN_TIMEOUT_MS,
 }: {
   service: WorkspaceService;
-  identity: Pick<PreparedHost, "hostId" | "instanceId" | "buildId">;
+  identity: Pick<PreparedHost, "hostId" | "instanceId" | "buildId" | "sourceTimestamp">;
   sessions: SessionStore;
   shutdown?: () => void;
   receipts: RequestReceipts;
@@ -134,6 +134,21 @@ export function createRemoteHost({
       if (!auth) return send(401, { error: "Session expired. Reconnect over SSH." });
       if (request.url === "/maintenance/restart") {
         if (!shutdown) return send(403, { error: "This backend is managed externally." });
+        // Enforce ordering here too: older installed desktop clients do not send version metadata.
+        if (identity.sourceTimestamp !== undefined) {
+          const candidateTimestamp = Number(request.headers["x-tidy-source-timestamp"]);
+          const candidateBuild = request.headers["x-tidy-build"];
+          if (
+            !Number.isSafeInteger(candidateTimestamp) ||
+            candidateTimestamp <= identity.sourceTimestamp ||
+            typeof candidateBuild !== "string" ||
+            !candidateBuild ||
+            candidateBuild === identity.buildId
+          )
+            return send(409, {
+              error: "This backend already runs the same or a newer source revision.",
+            });
+        }
         if (service.activeRunCount > 0 || service.browser.activeCount > 0 || inflight > 0)
           return send(409, { error: "Finish active runs and close browser tabs before updating." });
         if (!draining) {

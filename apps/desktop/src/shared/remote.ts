@@ -78,12 +78,15 @@ export const hostDescriptorSchema = z.object({
   hostId: z.string().uuid(),
   instanceId: z.string().uuid(),
   buildId: z.string(),
+  sourceTimestamp: z.number().int().nonnegative().optional(),
   activeRuns: z.number().int().nonnegative(),
 });
 export const runtimeSchema = hostDescriptorSchema.omit({ activeRuns: true }).extend({
   pid: z.number().int().positive(),
   port: z.number().int().min(1).max(65535),
   managed: z.boolean(),
+  supervisor: z.enum(["systemd", "launchd", "detached"]).optional(),
+  persistenceWarning: z.string().max(1024).optional(),
 });
 export const preparedHostSchema = runtimeSchema.extend({
   updatePending: z.boolean().optional(),
