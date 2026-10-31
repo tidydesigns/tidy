@@ -909,9 +909,9 @@ test("model settings persist and resume the same session; usage respects per-tur
   await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Second" });
   expect(runs[1].input.sessionId).toBe(sessionId);
   expect(runs[1].input.settings?.effort).toBe("medium");
-  await expect(
-    service.setThreadSettings(project.id, thread.id, { model: "third-model" }),
-  ).rejects.toThrow("finish");
+  await service.setThreadSettings(project.id, thread.id, { model: "third-model" });
+  expect(runs[1].input.settings?.model).toBe("another-model");
+  expect((await service.readThread(project.id, thread.id)).settings?.model).toBe("third-model");
   runs[1].input.onUpdate({
     type: "usage",
     usage: { inputTokens: 150, cachedInputTokens: 30, outputTokens: 15 },
@@ -939,6 +939,78 @@ test("model settings persist and resume the same session; usage respects per-tur
     outputTokens: 30,
     costUSD: 0.1,
   });
+});
+
+test("running settings survive streamed updates and apply to queued follow-ups", async () => {
+  const { service, store, project, runs } = await fixture();
+  const original = { model: "first-model", effort: "medium", permissionMode: "auto" as const };
+  const next = { model: "next-model", effort: "high", permissionMode: "read-only" as const };
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First",
+    designIds: [],
+    settings: original,
+  });
+  await service.sendMessage({
+    projectId: project.id,
+    threadId: thread.id,
+    text: "Queued follow-up",
+    delivery: "queue",
+  });
+  await service.setThreadSettings(project.id, thread.id, next);
+  runs[0].input.onUpdate({ type: "session", id: randomUUID() });
+  expect((await service.readThread(project.id, thread.id)).settings).toEqual(next);
+  expect((await store.readThread(project.id, thread.id)).settings).toEqual(next);
+  expect(runs[0].input.settings).toEqual(original);
+  expect(runs[0].stopped).toBe(false);
+  const completion = finished(service, thread.id);
+  runs[0].complete();
+  await completion;
+  for (let attempt = 0; attempt < 100 && runs.length < 2; attempt++) await Bun.sleep(5);
+  expect(runs).toHaveLength(2);
+  expect(runs[1].input.settings).toEqual(next);
+  expect((await service.readThread(project.id, thread.id)).queuedMessages).toHaveLength(0);
+});
+
+test("running settings reject foreign projects and roll back failed validation or persistence", async () => {
+  let invalid = false;
+  const { service, store, project, runs, directory } = await fixture(async () => {
+    if (invalid) throw new Error("Invalid settings");
+  });
+  const original = { model: "first-model" };
+  const thread = await service.startThread({
+    projectId: project.id,
+    harness: "codex",
+    prompt: "First",
+    designIds: [],
+    settings: original,
+  });
+  const root = join(directory, "other");
+  await mkdir(root);
+  const other = (await store.open(root)).project;
+  await expect(
+    service.setThreadSettings(other.id, thread.id, { model: "next-model" }),
+  ).rejects.toThrow("another project");
+  invalid = true;
+  await expect(
+    service.setThreadSettings(project.id, thread.id, { model: "next-model" }),
+  ).rejects.toThrow("Invalid settings");
+  invalid = false;
+  const write = store.writeThread.bind(store);
+  store.writeThread = async () => {
+    throw new Error("Disk full");
+  };
+  try {
+    await expect(
+      service.setThreadSettings(project.id, thread.id, { model: "next-model" }),
+    ).rejects.toThrow("Disk full");
+  } finally {
+    store.writeThread = write;
+  }
+  expect((await service.readThread(project.id, thread.id)).settings).toEqual(original);
+  expect((await store.readThread(project.id, thread.id)).settings).toEqual(original);
+  expect(runs[0].stopped).toBe(false);
 });
 
 test("attachment-only turns keep files with the message and send images to the harness", async () => {
@@ -1232,9 +1304,9 @@ test("permission modes persist for follow-ups while live requests disappear on c
   await service.setThreadSettings(project.id, thread.id, { permissionMode: "plan" });
   await service.sendMessage({ projectId: project.id, threadId: thread.id, text: "Plan instead" });
   expect(runs[1].input.settings?.permissionMode).toBe("plan");
-  await expect(
-    service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" }),
-  ).rejects.toThrow("finish");
+  await service.setThreadSettings(project.id, thread.id, { permissionMode: "auto" });
+  expect(runs[1].input.settings?.permissionMode).toBe("plan");
+  expect((await service.readThread(project.id, thread.id)).settings?.permissionMode).toBe("auto");
 });
 
 test("client IDs reconcile one durable message and cannot overwrite a thread or replay a message", async () => {
