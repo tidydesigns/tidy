@@ -160,6 +160,23 @@ test("the workspace bridge validates project identity and rejects extra request 
     await expect(
       requests.invoke("open-chat-link", { ...input, command: "run" }, undefined),
     ).rejects.toThrow();
+    await expect(
+      requests.invoke(
+        "pull-request-state",
+        { ...input, href: "https://example.com/pull/42" },
+        undefined,
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      requests.invoke(
+        "pull-request-state",
+        { ...input, projectId: crypto.randomUUID() },
+        undefined,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      requests.invoke("pull-request-state", { ...input, command: "run" }, undefined),
+    ).rejects.toThrow();
     expect(f.opened).toEqual([input.href]);
   } finally {
     await service.close();

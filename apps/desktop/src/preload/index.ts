@@ -268,6 +268,7 @@ function workspaceApi(machineId?: string): DesktopAPI {
     openHarnessUsage: (harness, page) => scopedRequest("harness-usage-page", { harness, page }),
     readVideoChunk: (input) => scopedRequest("read-video-chunk", input),
     openChatLink: (projectId, href) => scopedRequest("open-chat-link", { projectId, href }),
+    pullRequestState: (projectId, href) => scopedRequest("pull-request-state", { projectId, href }),
     setThreadSettings: (projectId, threadId, settings) =>
       scopedRequest("thread-settings", { projectId, threadId, settings }),
     checkHarnesses: () => scopedRequest("harnesses"),

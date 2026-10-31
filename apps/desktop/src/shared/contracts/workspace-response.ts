@@ -1,3 +1,4 @@
+import { pullRequestStateSchema } from "./pull-request";
 import { videoChunkSchema } from "./video-preview";
 import { browserStateSchema, browserResultSchema } from "./browser";
 import { threadPortsSchema } from "./thread-ports";
@@ -64,6 +65,7 @@ export const workspaceResponseSchemas = {
   "harness-usage-page": z.void(),
   "read-video-chunk": videoChunkSchema,
   "open-chat-link": z.void(),
+  "pull-request-state": pullRequestStateSchema.nullable(),
   "thread-settings": liveThreadSchema,
   "read-thread": liveThreadSchema,
   "warm-thread": z.void(),

@@ -27,7 +27,9 @@ export function parseChatLink(href: string | undefined): ChatLink | null {
     try {
       const url = new URL(href);
       if (url.username || url.password) return null;
-      const service = Object.entries(serviceHosts).find(([host]) => host === url.hostname)?.[1];
+      const service = !url.port
+        ? Object.entries(serviceHosts).find(([host]) => host === url.hostname)?.[1]
+        : undefined;
       return { kind: "external", url: url.href, service: service ?? null };
     } catch {
       return null;
@@ -79,6 +81,43 @@ export function fileIconName(path: string) {
   if (name === "dockerfile" || name.startsWith("docker-compose.")) return "docker";
   const extension = name.split(".").at(-1);
   switch (extension) {
+    case "mp4":
+    case "m4v":
+    case "mov":
+    case "webm":
+    case "mkv":
+    case "avi":
+    case "mpg":
+    case "mpeg":
+    case "ogv":
+    case "3gp":
+    case "3g2":
+      return "video";
+    case "mp3":
+    case "wav":
+    case "flac":
+    case "aac":
+    case "m4a":
+    case "ogg":
+    case "oga":
+    case "opus":
+    case "aif":
+    case "aiff":
+      return "audio";
+    case "png":
+    case "jpg":
+    case "jpeg":
+    case "gif":
+    case "webp":
+    case "avif":
+    case "svg":
+    case "ico":
+    case "bmp":
+    case "tif":
+    case "tiff":
+    case "heic":
+    case "heif":
+      return "image";
     case "tsx":
     case "jsx":
       return "react";

@@ -1,3 +1,4 @@
+import type { PullRequestState } from "./pull-request";
 import { harnessFailureKindSchema } from "./harness-failure";
 import type { RepositoryContext } from "./repository-context";
 import type { ThreadPort } from "./thread-ports";
@@ -207,6 +208,7 @@ export type DesktopAPI = {
     input: import("./video-preview").VideoChunkRequest,
   ): Promise<import("./video-preview").VideoChunk>;
   openChatLink(projectId: string, href: string): Promise<void>;
+  pullRequestState?(projectId: string, href: string): Promise<PullRequestState | null>;
   setThreadSettings(
     projectId: string,
     threadId: string,

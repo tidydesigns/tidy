@@ -80,11 +80,14 @@
   white-space: pre;
 }
 .message-markdown a {
-  color: inherit;
-  text-decoration: underline;
+  color: var(--desktop-link-ink);
+  text-decoration: none;
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 55%, transparent);
 }
 .message-markdown .chat-file-link {
+  color: inherit;
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
@@ -97,6 +100,11 @@
   line-height: 1.65;
   vertical-align: baseline;
   text-decoration: none;
+}
+.message-markdown .chat-file-link code {
+  padding: 0;
+  background: transparent;
+  font: inherit;
 }
 .chat-file-link > span:first-of-type {
   overflow-wrap: anywhere;
@@ -122,6 +130,15 @@
   color: var(--color-muted-ink);
   font-size: 11px;
 }
+.chat-link-icon[data-icon="video"] {
+  color: light-dark(#9a5c35, #d5a282);
+}
+.chat-link-icon[data-icon="audio"] {
+  color: light-dark(#7050b3, #b19cde);
+}
+.chat-link-icon[data-icon="image"] {
+  color: light-dark(#287854, #83bd9f);
+}
 .chat-link-icon[data-icon="react"] {
   color: light-dark(#087f9f, #68d1db);
 }
@@ -140,16 +157,34 @@
 .chat-link-icon:is([data-icon="svelte"], [data-icon="html"], [data-icon="gitlab"]) {
   color: light-dark(#b14d2a, #e49a78);
 }
-.message-markdown a:is(.chat-file-link, .chat-web-link):focus-visible {
-  outline: 2px solid var(--color-primary-orange);
+.message-markdown .chat-web-link .chat-link-icon {
+  color: inherit;
+}
+.message-markdown .chat-web-link .chat-pull-request-icon {
+  color: var(--color-secondary-ink);
+}
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="open"] {
+  color: var(--desktop-status-success);
+}
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="merged"] {
+  color: light-dark(#8250df, #bc8cff);
+}
+.message-markdown .chat-web-link .chat-pull-request-icon[data-state="closed"] {
+  color: var(--desktop-status-danger);
+}
+.message-markdown a:focus-visible {
+  outline: 2px solid var(--desktop-link-ink);
   outline-offset: 3px;
+}
+.message-markdown a:not(.chat-file-link):focus-visible {
+  text-decoration-line: underline;
 }
 @media (hover: hover) and (pointer: fine) {
   .message-markdown .chat-file-link:hover {
     background: var(--color-hover-surface);
   }
-  .message-markdown .chat-web-link:hover {
-    color: var(--color-accent-ink);
+  .message-markdown a:not(.chat-file-link):hover {
+    text-decoration-line: underline;
   }
 }
 .message-markdown blockquote {
