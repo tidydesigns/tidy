@@ -1,3 +1,7 @@
+import { promptThreadTitle } from "../../../shared/models/thread-naming";
+import { currentThreadNaming } from "../features/settings/thread-naming-preferences";
+import { useThreadNames } from "../features/threads/use-thread-names";
+import { ThreadTitle } from "../features/threads/thread-title";
 import {
   browserDraftKey as draftKeyForBrowser,
   getBrowserDraft,
@@ -55,7 +59,6 @@ import { ThreadDesignDock } from "../features/designs/thread-preview/dock";
 import { ThreadSidebar, type ThreadOrderControls } from "../features/threads/thread-sidebar";
 import { ApprovalRequests } from "../features/threads/approval-requests";
 import {
-  attachmentText,
   removeAttachmentReference,
   resolveAttachmentReferences,
 } from "../../../shared/models/attachment-references";
@@ -243,6 +246,32 @@ export function App({
     initialThreads: initial?.threads,
     connection: machine ? (machine.connected ? "connected" : "offline") : undefined,
   });
+  const receiveNamedThread = useCallback(
+    (value: Thread) => {
+      setThreads((current) =>
+        current[value.id] && current[value.id].revision > value.revision
+          ? current
+          : { ...current, [value.id]: value },
+      );
+      setSnapshots((current) => {
+        const snapshot = current[value.projectId];
+        return snapshot
+          ? {
+              ...current,
+              [value.projectId]: applyProjectEvent(snapshot, { type: "thread", thread: value }),
+            }
+          : current;
+      });
+    },
+    [setThreads, setSnapshots],
+  );
+  const {
+    overrides: threadNameOverrides,
+    generating: generatingNames,
+    rename: renameThread,
+    regenerate: regenerateThreadName,
+  } = useThreadNames(api, receiveNamedThread);
+  const [editingThreadName, setEditingThreadName] = useState<string>();
   const threadSelection = useRef<Record<string, number>>({});
   const referenceSelections = useRef(new Map<string, number>());
   const workspaceProjectId = location === "cloud" ? cloudProjects[cloudKey] : activeProjectId;
@@ -1142,12 +1171,8 @@ export function App({
         harness: draft.harness,
         settings: draft.settings,
         executionProjectId: project.cloud ? draft.executionProjectId : undefined,
-        title:
-          attachmentText(submitted, draft.attachments ?? [])
-            .replace(/\s+/g, " ")
-            .slice(0, 80) ||
-          draft.attachments?.[0]?.name ||
-          "New thread",
+        title: promptThreadTitle(submitted),
+        titleSource: "prompt",
         designIds: referenceDesignIds,
         messages: [],
         revision: 0,
@@ -1215,6 +1240,7 @@ export function App({
             executionProjectId: project.cloud ? draft.executionProjectId : undefined,
             harness: draft.harness,
             prompt: submitted,
+            naming: currentThreadNaming(),
             skillId: selectedSkill?.id,
             designIds: referenceDesignIds,
             settings: draft.settings,
@@ -1419,7 +1445,10 @@ export function App({
   const renderThread = useCallback(
     (item: ThreadSummary, orderControls?: ThreadOrderControls) => (
       <ThreadCard
-        thread={item}
+        thread={
+          threadNameOverrides[item.id] ? { ...item, title: threadNameOverrides[item.id] } : item
+        }
+        onRenameRequested={() => setEditingThreadName(item.id)}
         orderControls={orderControls}
         selected={mode === "code" && selectedThreadId === item.id}
         loaded={selectedThreadId === item.id && selectedThreadLoaded}
@@ -1453,6 +1482,7 @@ export function App({
       toggleThreadDone,
       harnessDetails,
       repository,
+      threadNameOverrides,
     ],
   );
   useEffect(() => {
@@ -1950,9 +1980,27 @@ export function App({
                     <div
                       className={`content-heading flex min-h-[34px] min-w-0 flex-1 items-center justify-between gap-4 ${thread ? "max-[700px]:basis-full" : ""}`}
                     >
-                      <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
-                        {thread?.title ?? selectedSummary?.title ?? "New thread"}
-                      </h1>
+                      {thread || selectedSummary ? (
+                        <ThreadTitle
+                          key={`${project.id}:${selectedThreadId}`}
+                          thread={{
+                            ...(thread ?? selectedSummary!),
+                            title:
+                              threadNameOverrides[selectedThreadId!] ??
+                              thread?.title ??
+                              selectedSummary!.title,
+                          }}
+                          generating={Boolean(generatingNames[selectedThreadId!])}
+                          editRequested={editingThreadName === selectedThreadId}
+                          onEditFinished={() => setEditingThreadName(undefined)}
+                          onRename={renameThread}
+                          onRegenerate={regenerateThreadName}
+                        />
+                      ) : (
+                        <h1 className="m-0 truncate text-sm leading-[1.5] font-medium">
+                          New thread
+                        </h1>
+                      )}
                       {thread?.doneAt && (
                         <Button
                           className="quiet-button thread-heading-action shrink-0"

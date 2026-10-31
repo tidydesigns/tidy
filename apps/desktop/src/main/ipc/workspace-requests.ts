@@ -1,4 +1,5 @@
 import { videoChunkRequestSchema } from "../../shared/contracts/video-preview";
+import { threadNamingSchema, threadTitleSchema } from "../../shared/contracts/thread-naming";
 import {
   browserScopeSchema,
   browserDiscardDraftSchema,
@@ -266,6 +267,16 @@ export function createWorkspaceRequests<Context>(
     },
   );
   handle("harnesses", z.undefined(), () => harnessDiscovery.refresh());
+  handle(
+    "rename-thread",
+    z.object({ projectId, threadId: uuid, title: threadTitleSchema }).strict(),
+    (value) => service.renameThread(value.projectId, value.threadId, value.title),
+  );
+  handle(
+    "regenerate-thread-title",
+    z.object({ projectId, threadId: uuid, naming: threadNamingSchema }).strict(),
+    (value) => service.regenerateThreadTitle(value.projectId, value.threadId, value.naming),
+  );
   handle("read-thread", z.object({ projectId, threadId: uuid }).strict(), (value) =>
     service.readThread(value.projectId, value.threadId),
   );
@@ -292,6 +303,7 @@ export function createWorkspaceRequests<Context>(
         messageId: uuid.optional(),
         harness: harnessIdSchema,
         prompt: z.string().trim().max(32_000),
+        naming: threadNamingSchema.optional(),
         attachmentIds: z.array(uuid).max(MAX_ATTACHMENTS).optional(),
         skillId: skillIdSchema.optional(),
         designIds: z.array(uuid).max(20),

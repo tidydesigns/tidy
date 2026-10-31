@@ -270,3 +270,26 @@
     background: var(--color-hover-surface);
   }
 }
+
+.thread-naming-note {
+  margin: 10px 0 24px;
+  color: var(--color-muted-ink);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.thread-naming-instructions {
+  display: block;
+  margin: 24px 0 8px;
+  font-size: 13px;
+}
+.thread-naming-textarea {
+  width: 100%;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-panel);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 13px;
+}

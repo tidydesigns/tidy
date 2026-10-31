@@ -16,7 +16,7 @@ import { RequestReceipts } from "./receipts";
 import { SessionStore } from "./session-store";
 import * as sessionStore from "./session-store";
 
-import { type ConnectionStatus } from "../../shared/remote";
+import { remoteFrameSchema, type ConnectionStatus } from "../../shared/remote";
 import { desktopEventSchema, type DesktopEvent } from "../../shared/contracts/desktop";
 import { parseWorkspaceResponse } from "../../shared/contracts/workspace-response";
 import { directoryResponseSchema } from "../../shared/contracts/browser-directory";
@@ -157,6 +157,69 @@ test("SSH destinations cannot inject options or commands; host checks and keepal
   expect(args).toContain("ServerAliveInterval=15");
   expect(args.at(-1)).toBe("developer@omarchy.example.ts.net");
 });
+
+for (const namingSupported of [false, true]) {
+  test(`thread starts remain compatible with ${namingSupported ? "naming-capable" : "legacy"} remote hosts`, async () => {
+    const f = await fixture();
+    const parse = remoteFrameSchema.parse.bind(remoteFrameSchema);
+    const frames = spyOn(remoteFrameSchema, "parse").mockImplementation((...args) => {
+      const frame = parse(...args);
+      // An older protocol-3 backend sends the same hello without the optional capabilities.
+      return !namingSupported && frame.type === "hello"
+        ? { ...frame, capabilities: undefined }
+        : frame;
+    });
+    const start = spyOn(f.service, "startThread");
+    try {
+      const { client } = f.client();
+      await until(() => client.status.kind === "connected");
+      const input = {
+        projectId: f.project.id,
+        harness: "codex" as const,
+        prompt: "Improve the sidebar",
+        designIds: [],
+        naming: {
+          mode: "prompt" as const,
+          provider: "thread" as const,
+          instructions: "Keep it brief",
+        },
+      };
+      const thread = await client.operation("start-thread", input);
+      expect(thread.status).toBe("running");
+      expect(start.mock.calls[0][0].naming).toEqual(namingSupported ? input.naming : undefined);
+      expect(input.naming.instructions).toBe("Keep it brief");
+      if (namingSupported) {
+        expect(
+          (
+            await client.operation("rename-thread", {
+              projectId: f.project.id,
+              threadId: thread.id,
+              title: "Sidebar polish",
+            })
+          ).title,
+        ).toBe("Sidebar polish");
+      } else {
+        await expect(
+          client.operation("rename-thread", {
+            projectId: f.project.id,
+            threadId: thread.id,
+            title: "Unsupported",
+          }),
+        ).rejects.toThrow("backend update");
+        await expect(
+          client.operation("regenerate-thread-title", {
+            projectId: f.project.id,
+            threadId: thread.id,
+            naming: input.naming,
+          }),
+        ).rejects.toThrow("backend update");
+      }
+    } finally {
+      frames.mockRestore();
+      start.mockRestore();
+    }
+  });
+}
 
 test("authenticated WebSocket serves validated requests and remote directory selection", async () => {
   const f = await fixture();

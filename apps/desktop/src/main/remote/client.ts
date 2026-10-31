@@ -44,6 +44,7 @@ export type RemoteConnection = {
 };
 export class RemoteClient {
   private socket?: WebSocket;
+  private supportsThreadNaming = false;
   private connection?: RemoteConnection;
   private pending = new Map<
     string,
@@ -441,6 +442,8 @@ export class RemoteClient {
         "start-thread",
         "send-message",
         "thread-settings",
+        "rename-thread",
+        "regenerate-thread-title",
         "set-thread-done",
         "respond-approval",
       ].includes(name)
@@ -470,6 +473,24 @@ export class RemoteClient {
       this.pending.size >= 128
     )
       return Promise.reject(new Error("Too many pending requests."));
+    if (!this.supportsThreadNaming) {
+      if (
+        name === "start-thread" &&
+        typeof input === "object" &&
+        input !== null &&
+        "naming" in input
+      ) {
+        const legacyInput: Record<string, unknown> = { ...input };
+        delete legacyInput.naming;
+        input = legacyInput;
+      }
+      if (name === "rename-thread" || name === "regenerate-thread-title")
+        return Promise.reject(
+          new Error(
+            "Thread naming needs a backend update. Finish active runs and reconnect this machine.",
+          ),
+        );
+    }
     const socket = this.socket;
     const id = randomUUID();
     const frame = JSON.stringify({ id, name, input, ...context });
@@ -633,6 +654,7 @@ export class RemoteClient {
         if (frame.type === "hello") {
           if (greeted || frame.hostId !== this.hostId)
             throw new Error("Unexpected remote identity.");
+          this.supportsThreadNaming = frame.capabilities?.includes("thread-naming") ?? false;
           greeted = true;
           clearTimeout(this.establishmentTimer);
           this.phase("syncing");
@@ -695,6 +717,7 @@ export class RemoteClient {
   private fail(controller: AbortController, failure: RemoteFailure, immediate = false) {
     if (this.controller !== controller) return;
     this.controller = undefined;
+    this.supportsThreadNaming = false;
     clearTimeout(this.establishmentTimer);
     clearTimeout(this.synchronizationTimer);
     clearTimeout(this.probeState?.timer);

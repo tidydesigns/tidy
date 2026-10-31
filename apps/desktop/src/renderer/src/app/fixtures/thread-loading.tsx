@@ -1,5 +1,11 @@
 import { ThreadVideo } from "../../features/threads/video/thread-video";
 import { Conversation } from "../../features/threads/conversation";
+import { ThreadTitle } from "../../features/threads/thread-title";
+import { ThreadNamingSettings } from "../../features/settings/thread-naming-settings";
+import {
+  currentThreadNaming,
+  selectThreadNaming,
+} from "../../features/settings/thread-naming-preferences";
 import { HarnessFailureNotices } from "../../features/threads/harness-failure-dialog";
 import { StrictMode, useDeferredValue, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -384,6 +390,124 @@ async function runThreadLoadingTests(): Promise<string[]> {
       check(host.childElementCount === 0, "Renderer test leaked mounted content");
     }
   }
+
+  await run(
+    "thread names edit immediately, cancel cleanly and expose explicit regeneration",
+    async (root) => {
+      const initial = { ...makeThread({ count: 1 }), title: "Original name" };
+      const renamed: string[] = [];
+      let regenerations = 0;
+      let finishGeneration = () => {};
+      function Probe() {
+        const [thread, setThread] = useState(initial);
+        const [generating, setGenerating] = useState(false);
+        finishGeneration = () => setGenerating(false);
+        return (
+          <ThreadTitle
+            thread={thread}
+            generating={generating}
+            editRequested={false}
+            onEditFinished={() => {}}
+            onRename={(_, title) => {
+              renamed.push(title);
+              setThread((current) => ({ ...current, title, titleSource: "manual" }));
+            }}
+            onRegenerate={() => {
+              regenerations++;
+              setGenerating(true);
+            }}
+          />
+        );
+      }
+      flushSync(() => root.render(<Probe />));
+      const heading = () => required(host.querySelector("h1"), "Thread heading");
+      flushSync(() => heading().dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+      const input = required(host.querySelector("input"), "Thread name input");
+      check(document.activeElement === input, "Renaming did not focus immediately");
+      const setValue = required(
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set,
+        "Input setter",
+      );
+      flushSync(() => {
+        setValue.call(input, "Navigation polish");
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      flushSync(() =>
+        input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
+      );
+      check(heading().textContent === "Navigation polish", "Rename was not visible immediately");
+      check(renamed.length === 1, "Enter and blur committed twice");
+      flushSync(() =>
+        heading().dispatchEvent(new KeyboardEvent("keydown", { key: "F2", bubbles: true })),
+      );
+      const cancelled = required(host.querySelector("input"), "Thread name input");
+      flushSync(() => {
+        setValue.call(cancelled, "Discard this");
+        cancelled.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      flushSync(() =>
+        cancelled.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+      );
+      check(
+        renamed.length === 1 && heading().textContent === "Navigation polish",
+        "Escape committed a rename",
+      );
+      const actions = required(
+        host.querySelector<HTMLButtonElement>('[aria-label="Thread name actions"]'),
+        "Name actions",
+      );
+      flushSync(() => actions.click());
+      const regenerate = required(
+        [...host.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((item) =>
+          item.textContent?.includes("Regenerate name"),
+        ),
+        "Regenerate action",
+      );
+      flushSync(() => regenerate.click());
+      check(regenerations === 1, "Regeneration did not run explicitly");
+      check(!host.querySelector('[role="menu"]'), "Name menu stayed open after regeneration");
+      check(
+        actions.getAnimations({ subtree: true }).length === 3,
+        "The three dots did not show regeneration after the menu closed",
+      );
+      check(heading().textContent === "Navigation polish", "Regeneration hid the current name");
+      flushSync(finishGeneration);
+      check(
+        actions.getAnimations({ subtree: true }).length === 0,
+        "The dots kept animating after regeneration finished",
+      );
+    },
+  );
+
+  await run(
+    "naming preferences persist immediately and preserve spaces while typing",
+    async (root) => {
+      const previous = currentThreadNaming();
+      try {
+        flushSync(() => root.render(<ThreadNamingSettings />));
+        const input = required(host.querySelector("textarea"), "Naming instructions");
+        const setValue = required(
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set,
+          "Textarea setter",
+        );
+        flushSync(() => {
+          setValue.call(input, "Short task ");
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+        check(
+          currentThreadNaming().instructions === "Short task ",
+          "Spaces were removed while typing",
+        );
+        check(host.querySelectorAll("select").length === 0, "Naming settings used native selects");
+        check(
+          ![...host.querySelectorAll("button")].some((item) => item.textContent === "Save"),
+          "Naming settings require a save action",
+        );
+      } finally {
+        selectThreadNaming(previous);
+      }
+    },
+  );
 
   await run("harness failures deduplicate, queue and clear on retry", runHarnessFailureNoticeTests);
 

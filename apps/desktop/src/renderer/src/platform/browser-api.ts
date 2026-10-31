@@ -123,6 +123,10 @@ const api: DesktopAPI = {
   checkHarnesses: () => request("harnesses"),
   repositoryContext: (projectId) => request("repository-context", { projectId }),
   switchBranch: (projectId, branch) => request("switch-branch", { projectId, branch }),
+  renameThread: (projectId, threadId, title) =>
+    request("rename-thread", { projectId, threadId, title }),
+  regenerateThreadTitle: (projectId, threadId, naming) =>
+    request("regenerate-thread-title", { projectId, threadId, naming }),
   readThread: (projectId, threadId) => request("read-thread", { projectId, threadId }),
   warmThread: (input) => request("warm-thread", input),
   startThread: (input) => request("start-thread", input),
