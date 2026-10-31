@@ -7,10 +7,19 @@ export function percentLabel(window: AccountUsageWindow) {
   const left = remainingPercent(window);
   return left > 0 && left < 1 ? "<1% left" : `${Math.floor(left)}% left`;
 }
-export function relevantWindow(usage: HarnessUsage | undefined, now: number) {
+export function appliesToModel(window: AccountUsageWindow, modelId?: string) {
+  if (!modelId) return true;
+  if (window.models) return window.models.includes(modelId);
+  return !window.provider || !modelId.includes("/") || modelId.startsWith(`${window.provider}/`);
+}
+export function relevantWindow(usage: HarnessUsage | undefined, now: number, modelId?: string) {
   // An elapsed reset is a reason to fetch again, never proof that capacity is restored.
   return usage?.windows
-    .filter((window) => window.resetsAt === undefined || window.resetsAt * 1000 > now)
+    .filter(
+      (window) =>
+        appliesToModel(window, modelId) &&
+        (window.resetsAt === undefined || window.resetsAt * 1000 > now),
+    )
     .reduce<AccountUsageWindow | undefined>(
       (mostUsed, window) =>
         !mostUsed || window.usedPercent > mostUsed.usedPercent ? window : mostUsed,

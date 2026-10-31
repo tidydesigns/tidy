@@ -229,6 +229,15 @@ const openCodeLimits = z.object({
         spent: money,
         resetsAt: z.number().finite().nonnegative().max(8_640_000_000_000_000),
         shared: z.boolean(),
+        scope: z.enum(["each", "combined"]).optional(),
+        per: z.enum(["set", "model"]).optional(),
+        coverage: z.enum(["all", "models"]).optional(),
+        models: z
+          .array(
+            z.object({ providerID: label, modelID: label, name: label, spent: money.optional() }),
+          )
+          .max(1000)
+          .optional(),
       }),
     )
     .max(90),
@@ -246,6 +255,7 @@ export function parseOpenCodeUsage(value: unknown): HarnessUsage {
         const window = data.go![key as keyof typeof data.go];
         return {
           id: `go:${key}`,
+          provider: "opencode-go",
           name: String(name),
           usedPercent: window.percent,
           resetsAt: window.resetsAt / 1000,
@@ -254,23 +264,51 @@ export function parseOpenCodeUsage(value: unknown): HarnessUsage {
         };
       })
     : [];
-  for (const budget of data.budgets)
-    windows.push({
-      id: budget.id,
-      name: budget.shared ? "Shared budget" : "Personal budget",
-      bucket: "OpenCode Console",
-      usedPercent: budget.limit > 0 ? Math.min(100, (budget.spent / budget.limit) * 100) : 100,
-      resetsAt: budget.resetsAt / 1000,
-      spentUSD: budget.spent,
-      limitUSD: budget.limit,
-    });
+  for (const [index, budget] of data.budgets.entries()) {
+    const name =
+      budget.scope === "each"
+        ? "Your budget"
+        : budget.scope === "combined"
+          ? budget.shared
+            ? "Workspace budget"
+            : "Group budget"
+          : budget.shared
+            ? "Shared budget"
+            : "Personal budget";
+    const append = (spent: number, modelIndex?: number) => {
+      const model = modelIndex === undefined ? undefined : budget.models?.[modelIndex];
+      const models = model ? [model] : budget.coverage === "models" ? budget.models : undefined;
+      windows.push({
+        id: `budget:${index}:${modelIndex ?? "set"}`,
+        name,
+        bucket:
+          model?.name ??
+          (models?.length
+            ? models
+                .map((item) => item.name)
+                .join(", ")
+                .slice(0, 200)
+            : "OpenCode Console"),
+        provider: models ? undefined : "opencode",
+        models: models?.map((item) => `${item.providerID}/${item.modelID}`),
+        usedPercent: budget.limit > 0 ? Math.min(100, (spent / budget.limit) * 100) : 100,
+        resetsAt: budget.resetsAt / 1000,
+        spentUSD: spent,
+        limitUSD: budget.limit,
+      });
+    };
+    if (budget.per === "model") {
+      for (const [modelIndex, model] of (budget.models ?? []).entries())
+        append(model.spent ?? 0, modelIndex);
+    } else append(budget.spent);
+  }
   return {
     account: {
       plan: data.go ? "OpenCode Go" : undefined,
       workspace: data.workspace.name,
       billing: data.go ? "subscription" : "api",
     },
-    windows,
+    windows: windows.slice(0, 1000),
     state: windows.some((w) => w.limited || w.usedPercent >= 100)
       ? "limited"
       : windows.some((w) => w.usedPercent >= 90)

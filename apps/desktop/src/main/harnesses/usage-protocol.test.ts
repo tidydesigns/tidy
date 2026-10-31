@@ -187,3 +187,44 @@ test("unknown Claude limit categories stay bounded and status-only events don't 
   observeUsage("claude", cwd, { type: "rate_limit_event", rate_limit_info: { status: "allowed" } });
   expect(observedUsage("claude", cwd)?.updatedAt).toBe(previous.updatedAt);
 });
+
+test("OpenCode model budgets use individual spend while pooled budgets retain their model scope", () => {
+  const common = {
+    resetsAt: 2_000_000_000_000,
+    shared: false,
+    scope: "each",
+    coverage: "models",
+    models: [
+      { providerID: "opencode", modelID: "a", name: "Model A", spent: 20 },
+      { providerID: "opencode", modelID: "b", name: "Model B", spent: 50 },
+    ],
+  };
+  const value = parseOpenCodeUsage({
+    workspace: { name: "Studio" },
+    budgets: [
+      { ...common, id: "individual", limit: 50, spent: 70, per: "model" },
+      { ...common, id: "pool", scope: "combined", limit: 100, spent: 40, per: "set" },
+    ],
+  });
+  expect(value.windows).toHaveLength(3);
+  expect(value.windows[0]).toMatchObject({
+    name: "Your budget",
+    bucket: "Model A",
+    models: ["opencode/a"],
+    spentUSD: 20,
+    usedPercent: 40,
+  });
+  expect(value.windows[1]).toMatchObject({
+    bucket: "Model B",
+    models: ["opencode/b"],
+    spentUSD: 50,
+    usedPercent: 100,
+  });
+  expect(value.windows[2]).toMatchObject({
+    name: "Group budget",
+    models: ["opencode/a", "opencode/b"],
+    spentUSD: 40,
+    usedPercent: 40,
+  });
+  expect(harnessUsageSchema.parse(value)).toEqual(value);
+});

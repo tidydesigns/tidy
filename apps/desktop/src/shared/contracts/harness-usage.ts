@@ -5,6 +5,8 @@ export const usageWindowSchema = z.object({
   id: z.string().max(300),
   name: z.string().max(200),
   bucket: z.string().max(200).optional(),
+  provider: z.string().max(200).optional(),
+  models: z.array(z.string().max(500)).max(1000).optional(),
   usedPercent: z.number().min(0).max(100),
   resetsAt: z.number().finite().nonnegative().max(8_640_000_000_000).optional(),
   windowMinutes: z.number().positive().optional(),
@@ -20,7 +22,7 @@ export const harnessUsageSchema = z.object({
       billing: z.enum(["subscription", "api", "unknown"]),
     })
     .optional(),
-  windows: z.array(usageWindowSchema).max(100),
+  windows: z.array(usageWindowSchema).max(1000),
   credits: z
     .object({
       balance: z.string().max(100).optional(),

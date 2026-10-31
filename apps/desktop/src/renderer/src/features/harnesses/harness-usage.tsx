@@ -20,6 +20,7 @@ import type { TokenUsage } from "../../../../shared/contracts/harness-settings";
 import { codeControlClassName, codeFontClassName } from "../../styles/code-ui";
 import { usageCache } from "./usage-cache";
 import {
+  appliesToModel,
   dollars,
   localTime,
   percentLabel,
@@ -155,6 +156,7 @@ export const HarnessUsage = memo(function HarnessUsage({
   const usage = ready && providerApplicable ? snapshot.value : undefined;
   const currentTime = Math.max(now, Date.now());
   const nextReset = usage?.windows.reduce<number | undefined>((next, window) => {
+    if (!appliesToModel(window, modelId)) return next;
     const at = window.resetsAt === undefined ? undefined : window.resetsAt * 1000;
     return at !== undefined && at > currentTime && (next === undefined || at < next) ? at : next;
   }, undefined);
@@ -177,10 +179,20 @@ export const HarnessUsage = memo(function HarnessUsage({
     );
     return () => window.clearTimeout(deadline);
   }, [cache, nextReset, now, ready, providerApplicable, api]);
-  const activeWindow = relevantWindow(usage, currentTime);
-  const limited = usage?.state === "limited";
-  const low = usage?.state === "warning" || Boolean(activeWindow && activeWindow.usedPercent >= 90);
+  const visibleWindows = usage?.windows.filter((window) => appliesToModel(window, modelId)) ?? [];
+  const scoped = Boolean(
+    modelId && usage?.windows.some((window) => window.provider || window.models),
+  );
+  const activeWindow = relevantWindow(usage, currentTime, modelId);
+  const limited = scoped
+    ? visibleWindows.some((window) => window.limited || window.usedPercent >= 100)
+    : usage?.state === "limited";
+  const low =
+    (!scoped && usage?.state === "warning") ||
+    Boolean(activeWindow && activeWindow.usedPercent >= 90);
   const name = harnessNames[harness];
+  const consoleBilling = harness === "opencode" && modelProvider === "opencode";
+  const billing = consoleBilling ? "api" : usage?.account?.billing;
   const page = usage?.usagePage ?? "subscription";
   const manage = async () => {
     setManagementError(false);
@@ -253,14 +265,16 @@ export const HarnessUsage = memo(function HarnessUsage({
             <HarnessIcon harness={harness} size={20} />
             <div>
               <div className="account-usage-plan">
-                {planName(harness, usage?.account?.plan) ?? name}
+                {consoleBilling && usage
+                  ? "OpenCode Console"
+                  : (planName(harness, usage?.account?.plan) ?? name)}
               </div>
               <div className="account-usage-muted">
                 {[
                   usage?.account?.workspace,
-                  usage?.account?.billing === "api"
+                  billing === "api"
                     ? "API billing"
-                    : usage?.account?.billing === "subscription"
+                    : billing === "subscription"
                       ? "Subscription"
                       : undefined,
                 ]
@@ -289,14 +303,14 @@ export const HarnessUsage = memo(function HarnessUsage({
             </Button>
           </div>
           <div className="account-usage-body">
-            {usage?.windows.length || limited ? (
+            {visibleWindows.length || limited ? (
               <div className="account-usage-section">
                 {limited && (
                   <div className="account-usage-notice">
                     A usage limit has been reached. Check the reset time or your provider account.
                   </div>
                 )}
-                {usage?.windows.map((window) => (
+                {visibleWindows.map((window) => (
                   <UsageWindow key={window.id} window={window} now={currentTime} />
                 ))}
               </div>
@@ -371,7 +385,7 @@ export const HarnessUsage = memo(function HarnessUsage({
                         <span>{dollars(tokens.costUSD)}</span>
                       </div>
                       <div className="account-usage-muted">
-                        {usage?.account?.billing === "subscription"
+                        {billing === "subscription"
                           ? "API-equivalent estimate, not a subscription charge."
                           : "Model estimate. Check your provider for billed usage."}
                       </div>
@@ -406,7 +420,7 @@ export const HarnessUsage = memo(function HarnessUsage({
               {snapshot.loading
                 ? "Refreshing…"
                 : usage
-                  ? `${usage.windows.length ? "Reported" : "Checked"} ${Date.now() - Date.parse(usage.updatedAt) < 60_000 ? "just now" : `${Math.floor(Math.max(0, now - Date.parse(usage.updatedAt)) / 60_000)}m ago`}`
+                  ? `${visibleWindows.length ? "Reported" : "Checked"} ${Date.now() - Date.parse(usage.updatedAt) < 60_000 ? "just now" : `${Math.floor(Math.max(0, now - Date.parse(usage.updatedAt)) / 60_000)}m ago`}`
                   : "Account limits unavailable"}
             </span>
             {providerApplicable && (

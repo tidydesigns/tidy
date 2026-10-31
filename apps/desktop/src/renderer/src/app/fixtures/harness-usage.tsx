@@ -207,4 +207,30 @@ export async function runHarnessUsageTests(root: Root) {
     !trigger().textContent?.includes("0% left"),
     "The closed trigger retained an elapsed allowance",
   );
+  harness = "opencode";
+  render(
+    {
+      ...usage,
+      updatedAt: new Date().toISOString(),
+      account: { plan: "OpenCode Go", billing: "subscription" },
+      state: "limited",
+      windows: [
+        { id: "a", name: "Your budget", models: ["opencode/a"], usedPercent: 40 },
+        { id: "b", name: "Your budget", models: ["opencode/b"], usedPercent: 100 },
+        { id: "go", name: "Go allowance", provider: "opencode-go", usedPercent: 90 },
+      ],
+    },
+    true,
+    "opencode/a",
+  );
+  flushSync(() => trigger().click());
+  check(
+    panel().querySelectorAll('[role="meter"]').length === 1 &&
+      panel().textContent?.includes("60% left"),
+    "Usage included another model's budget or the separate Go allowance",
+  );
+  check(
+    !panel().querySelector(".account-usage-notice") && panel().textContent?.includes("API billing"),
+    "Another model's exhausted budget or Go subscription changed Console billing",
+  );
 }
