@@ -96,7 +96,12 @@ active harness runs, checkpoints their threads and private restart intent, flush
 local storage, and restarts to install. On relaunch, those threads resume their
 existing native sessions automatically, including retained background work and
 queued follow-ups. Completed and manually stopped threads stay stopped. Recovery
-runs in the background with bounded preparation concurrency; it does not add a
+submits a confirmed unsent request once using its original text, attachments and
+skill. Unknown or rejected deliveries require a follow-up instead of an automatic
+retry. Delivery state is checked after agent termination so acceptance racing the
+restart cannot cause duplicate submission. Conversation signatures are computed
+in the shared worker so large transcripts do not block the native event loop.
+Recovery runs in the background with bounded preparation concurrency; it does not add a
 synthetic user message to the conversation. Cloud threads must regain their
 original account and workspace authorization before launching.
 Squirrel also applies staged updates on the next normal quit/relaunch.
@@ -109,6 +114,7 @@ Changed conversations, settings or execution directories invalidate that intent.
 A missing native session or unavailable account leaves the thread stopped with
 an error and allows a follow-up message to continue. Ordinary quit and unexpected
 backend crashes do not request automatic continuation.
+Malformed recovery intent cannot prevent Stop or native agent cleanup on quit.
 
 Older builds without this updater need one manual DMG installation. Install Tidy
 in Applications before updating; running from a mounted DMG or a read-only folder

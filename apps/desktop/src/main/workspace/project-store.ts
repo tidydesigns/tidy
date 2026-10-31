@@ -432,6 +432,15 @@ export class ProjectStore {
     return this.authorizeThread({ thread, projectId, threadId });
   }
 
+  /** Hash large transcripts off the native event loop, using privately authorized session state. */
+  updateResumeSignature(thread: Thread, executionPath: string) {
+    return projectCompute.threadSignature(
+      thread,
+      this.project(thread.projectId).path,
+      executionPath,
+    );
+  }
+
   private async authorizeThread<T extends Thread | ThreadSummary>({
     thread,
     projectId,

@@ -1,4 +1,5 @@
 import { storedThreadSchema } from "../../shared/contracts/desktop";
+import { createHash } from "node:crypto";
 import { summarizeThread } from "../../shared/models/thread-updates";
 import { readLocalFile } from "../platform/local-files";
 import { parentPort } from "node:worker_threads";
@@ -42,6 +43,19 @@ async function drainReads() {
  * Request failures return bounded error text so the host can settle its pending operation. */
 async function run(request: ComputeRequest) {
   try {
+    if (request.kind === "sign-thread") {
+      const value = createHash("sha256")
+        .update(
+          JSON.stringify([
+            storedThreadSchema.parse(request.thread),
+            request.projectPath,
+            request.executionPath,
+          ]),
+        )
+        .digest("hex");
+      parentPort!.postMessage({ id: request.id, value });
+      return;
+    }
     if (request.kind === "encode-thread") {
       const json = JSON.stringify(request.thread, null, 2);
       const byteLength = Buffer.byteLength(json);
@@ -81,7 +95,8 @@ async function run(request: ComputeRequest) {
       error:
         (request.kind === "read-file" ||
           request.kind === "read-thread-summary" ||
-          request.kind === "encode-thread") &&
+          request.kind === "encode-thread" ||
+          request.kind === "sign-thread") &&
         error instanceof Error
           ? error.message.slice(0, 300)
           : "This design could not be compared for sync.",

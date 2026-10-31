@@ -30,6 +30,7 @@ type Entry = {
   session: HarnessSession;
   timer?: ReturnType<typeof setTimeout>;
   invalidated: boolean;
+  retireWhenIdle: boolean;
   background: boolean;
   expiresAt: number;
   processOwner?: ProcessRegistration;
@@ -116,7 +117,10 @@ export class HarnessSessions {
   }
   private release(id: string, entry: Entry) {
     if (this.entries.get(id) !== entry || !entry.session.idle) return;
-    if (!entry.session.available || (entry.invalidated && !entry.session.hasBackgroundWork)) {
+    if (
+      !entry.session.available ||
+      ((entry.invalidated || entry.retireWhenIdle) && !entry.session.hasBackgroundWork)
+    ) {
       this.retire(id, entry);
       return;
     }
@@ -139,10 +143,15 @@ export class HarnessSessions {
         if (pending.invalidated) throw new Error("The harness context changed. Try again.");
         const key = contextKey(context);
         let entry = this.entries.get(id);
+        // Native upgrades move the executable symlink. Existing background work may
+        // keep using its old process, but project, permissions, model and session must still match.
+        const continuingNativeProcess =
+          entry?.retireWhenIdle &&
+          contextKey({ ...context, executable: entry.context.executable }) === entry.key;
         if (
           entry &&
           (entry.invalidated ||
-            entry.key !== key ||
+            (entry.key !== key && !continuingNativeProcess) ||
             !entry.session.available ||
             (context.sessionId !== undefined
               ? entry.session.sessionId !== context.sessionId
@@ -229,6 +238,7 @@ export class HarnessSessions {
             key,
             session,
             invalidated: false,
+            retireWhenIdle: false,
             background: false,
             expiresAt: 0,
             processOwner,
@@ -306,11 +316,20 @@ export class HarnessSessions {
       },
     };
   }
-  clear({ idleOnly = false, ...filter }: SessionFilter & { idleOnly?: boolean } = {}) {
+  clear({
+    idleOnly = false,
+    preserveActive = false,
+    ...filter
+  }: SessionFilter & { idleOnly?: boolean; preserveActive?: boolean } = {}) {
     for (const pending of this.acquiring)
       if (matches(pending.context, filter)) pending.invalidated = true;
     for (const [id, entry] of this.entries) {
       if (!matches(entry.context, filter)) continue;
+      if (preserveActive && (!entry.session.idle || entry.session.hasBackgroundWork)) {
+        // A versioned native install leaves this process usable until its existing work ends.
+        entry.retireWhenIdle = true;
+        continue;
+      }
       entry.invalidated = true;
       if (!idleOnly || (entry.session.idle && !entry.session.hasBackgroundWork))
         this.retire(id, entry);

@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { z } from "zod";
-import { storedThreadSchema, type Thread } from "../../shared/contracts/desktop";
+import { skillIdSchema } from "../../shared/contracts/skills";
 import { readLocalFile } from "../platform/local-files";
 import { writePrivateJSON } from "../remote/session-store";
 
@@ -10,15 +9,15 @@ const entrySchema = z.object({
   threadId: z.uuid(),
   signature: z.string().regex(/^[a-f0-9]{64}$/),
   automaticQueue: z.boolean(),
+  submission: z
+    .object({
+      state: z.enum(["not-submitted", "unknown", "rejected"]),
+      messageId: z.uuid(),
+      skillId: skillIdSchema.optional(),
+    })
+    .optional(),
 });
 export type UpdateResume = z.infer<typeof entrySchema>;
-
-/** Bind restart intent to the exact saved conversation and its local execution directories. */
-export function updateResumeSignature(thread: Thread, projectPath: string, executionPath: string) {
-  return createHash("sha256")
-    .update(JSON.stringify([storedThreadSchema.parse(thread), projectPath, executionPath]))
-    .digest("hex");
-}
 
 /** Only a planned update writes this private journal. Portable thread JSON cannot request execution. */
 export class UpdateResumes {
@@ -86,7 +85,14 @@ export class UpdateResumes {
 
   cancel(projectId: string, threadId: string) {
     return this.change(async () => {
-      const entries = await this.read();
+      let entries: UpdateResume[];
+      try {
+        entries = await this.read();
+      } catch {
+        // Unreadable restart intent cannot be trusted or allowed to block an explicit Stop.
+        await writePrivateJSON(this.path, [], { durable: true });
+        return;
+      }
       const remaining = entries.filter(
         (entry) => entry.projectId !== projectId || entry.threadId !== threadId,
       );
@@ -96,8 +102,7 @@ export class UpdateResumes {
   }
 
   clear() {
-    return this.change(async () => {
-      if ((await this.read()).length) await writePrivateJSON(this.path, [], { durable: true });
-    });
+    // Replace rather than parse: malformed recovery data must not prevent ordinary shutdown.
+    return this.change(() => writePrivateJSON(this.path, [], { durable: true }));
   }
 }

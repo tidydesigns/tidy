@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Thread, HarnessId } from "../../shared/contracts/desktop";
-import type { startHarness } from "../harnesses/harnesses";
+import type { startHarness, RunningHarness } from "../harnesses/harnesses";
 import { ProjectStore } from "./project-store";
 import { WorkspaceService } from "./workspace-service";
 
@@ -20,6 +20,8 @@ async function fixture() {
   const runs: { input: Parameters<typeof startHarness>[0]; finish(): void; stopped: boolean }[] =
     [];
   let saveSession = true;
+  let deliveryState: RunningHarness["deliveryState"] = "accepted";
+  let acceptOnStop = false;
   async function boot() {
     const store = new ProjectStore(directory);
     await store.initialize();
@@ -33,8 +35,11 @@ async function fixture() {
         if (saveSession) input.onUpdate({ type: "session", id: input.sessionId ?? randomUUID() });
         return {
           done: done.promise,
-          deliveryState: "accepted",
+          get deliveryState() {
+            return deliveryState;
+          },
           stop() {
+            if (acceptOnStop) deliveryState = "accepted";
             run.stopped = true;
             done.resolve();
           },
@@ -58,6 +63,12 @@ async function fixture() {
     runs,
     boot,
     directory,
+    setDelivery(state: RunningHarness["deliveryState"]) {
+      deliveryState = state;
+    },
+    acceptWhileStopping() {
+      acceptOnStop = true;
+    },
     withoutSession() {
       saveSession = false;
     },
@@ -205,6 +216,81 @@ test("missing native sessions fail visibly without replaying the original reques
   expect(await reopened.store.updateResumes.list()).toEqual([]);
 });
 
+test("an update before the first native submission sends the original request once without duplicating its message", async () => {
+  const f = await fixture();
+  f.withoutSession();
+  f.setDelivery("not-submitted");
+  const thread = await f.start("codex", "The original request before the agent was ready");
+  await f.service.prepareUpdate();
+  f.setDelivery("accepted");
+  const reopened = await f.boot();
+  await reopened.service.resumeUpdatedThreads();
+  expect(f.runs).toHaveLength(2);
+  expect(f.runs[1].input.prompt).toContain(thread.messages[0].text);
+  expect(f.runs[1].input.prompt).not.toContain("Continue the unfinished user request");
+  expect(
+    (await reopened.service.readThread(f.project.id, thread.id)).messages.map(
+      (message) => message.id,
+    ),
+  ).toEqual(thread.messages.map((message) => message.id));
+});
+
+test("a queued request interrupted before submission is delivered instead of continuing the previous completed task", async () => {
+  const f = await fixture();
+  const thread = await f.start("codex", "A task that is already finished");
+  const complete = ended(f.service, thread.id);
+  f.runs[0].finish();
+  await complete;
+  f.setDelivery("not-submitted");
+  const messageId = randomUUID();
+  await f.service.sendMessage({
+    projectId: f.project.id,
+    threadId: thread.id,
+    text: "A different task waiting to be submitted",
+    messageId,
+    delivery: "queue",
+  });
+  await f.service.prepareUpdate();
+  f.setDelivery("accepted");
+  const reopened = await f.boot();
+  await reopened.service.resumeUpdatedThreads();
+  expect(f.runs).toHaveLength(3);
+  expect(f.runs[2].input.prompt).toContain("A different task waiting to be submitted");
+  expect(f.runs[2].input.prompt).not.toContain("Continue the unfinished user request");
+  const resumed = await reopened.service.readThread(f.project.id, thread.id);
+  expect(resumed.messages.filter((message) => message.id === messageId)).toHaveLength(1);
+  expect(resumed.queuedMessages).toHaveLength(0);
+});
+
+test.each(["unknown", "rejected"] as const)(
+  "a %s submission is not automatically retried against an older native session",
+  async (state) => {
+    const f = await fixture();
+    const thread = await f.start();
+    f.setDelivery(state);
+    await f.service.prepareUpdate();
+    const reopened = await f.boot();
+    await reopened.service.resumeUpdatedThreads();
+    expect(f.runs).toHaveLength(1);
+    expect((await reopened.store.readThread(f.project.id, thread.id)).error).toContain(
+      "did not confirm",
+    );
+  },
+);
+
+test("a request accepted while update cancellation is in flight is continued rather than submitted again", async () => {
+  const f = await fixture();
+  f.setDelivery("not-submitted");
+  await f.start("codex", "An action that must only be submitted once");
+  f.acceptWhileStopping();
+  await f.service.prepareUpdate();
+  const reopened = await f.boot();
+  await reopened.service.resumeUpdatedThreads();
+  expect(f.runs).toHaveLength(2);
+  expect(f.runs[1].input.prompt).toContain("Continue the unfinished user request");
+  expect(f.runs[1].input.prompt).not.toContain("An action that must only be submitted once");
+});
+
 for (const interruption of ["stop", "quit", "another update"] as const) {
   test(`${interruption} while recovery consumes its journal cannot cause a late or duplicate launch`, async () => {
     const f = await fixture();
@@ -248,6 +334,36 @@ test("ordinary quit after preparing an update cancels its automatic continuation
   const reopened = await f.boot();
   await reopened.service.resumeUpdatedThreads();
   expect(f.runs).toHaveLength(1);
+});
+
+for (const action of ["stop", "quit"] as const) {
+  test(`a corrupt recovery journal cannot block ${action} or leave its native run alive`, async () => {
+    const f = await fixture();
+    const thread = await f.start();
+    await writeFile(join(f.directory, "update-resumes.json"), "{malformed");
+    if (action === "stop") {
+      const done = ended(f.service, thread.id);
+      await f.service.stopThread(f.project.id, thread.id);
+      await done;
+    } else await f.service.close();
+    expect(f.runs[0].stopped).toBe(true);
+    expect(await f.store.updateResumes.list()).toEqual([]);
+  });
+}
+
+test("failure to clear restart intent on quit still terminates active native work", async () => {
+  const f = await fixture();
+  await f.start();
+  const clear = f.store.updateResumes.clear.bind(f.store.updateResumes);
+  f.store.updateResumes.clear = async () => {
+    throw new Error("Journal disk failure");
+  };
+  try {
+    await expect(f.service.close()).rejects.toThrow("Journal disk failure");
+    expect(f.runs[0].stopped).toBe(true);
+  } finally {
+    f.store.updateResumes.clear = clear;
+  }
 });
 
 test("Stop during restored cloud authorization prevents a late automatic launch", async () => {

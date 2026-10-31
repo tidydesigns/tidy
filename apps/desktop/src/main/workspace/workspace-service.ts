@@ -64,7 +64,7 @@ import {
   type QueueRequest,
 } from "../../shared/contracts/message-queue";
 import { ProjectStore } from "./project-store";
-import { updateResumeSignature } from "./update-resumes";
+import type { UpdateResume } from "./update-resumes";
 import { readLocalFile } from "../platform/local-files";
 import type { UpdatableHarnessId } from "../../shared/contracts/harness-updates";
 
@@ -73,6 +73,7 @@ type Job = {
   browserTool?: { close(): void };
   thread: Thread;
   turn: NonNullable<Thread["messages"][number]["turn"]>;
+  submission: { messageId: string; skillId?: string };
   queuedDelivery?: { message: QueuedMessage; index: number };
   process?: RunningHarness;
   completion?: Promise<void>;
@@ -343,7 +344,11 @@ export class WorkspaceService {
     )
       return null;
     this.sessionGeneration++;
-    void this.sessions.clear({ harness: id, idleOnly: true });
+    void this.sessions.clear({
+      harness: id,
+      idleOnly: true,
+      preserveActive: options.allowActiveRuns,
+    });
     this.updatingHarnesses.add(id);
     return () => {
       this.updatingHarnesses.delete(id);
@@ -982,6 +987,12 @@ export class WorkspaceService {
       analytics: this.analyticsScope?.() ?? this.analytics,
       thread,
       turn,
+      submission: {
+        messageId: continuation
+          ? thread.messages[lastUser].id
+          : thread.messages[thread.messages.length - 1].id,
+        skillId,
+      },
       queuedDelivery:
         queuedMessages && queuedIndex >= 0
           ? { message: queuedMessages[queuedIndex], index: queuedIndex }
@@ -1388,11 +1399,10 @@ export class WorkspaceService {
                 !["stopped", "interrupted"].includes(thread.status) ||
                 (this.stopVersions.get(thread.id) ?? 0) !== stopVersion ||
                 entry.signature !==
-                  updateResumeSignature(
+                  (await this.store.updateResumeSignature(
                     thread,
-                    this.store.project(thread.projectId).path,
                     this.executionProject(thread).path,
-                  )
+                  ))
               ) {
                 await this.store.updateResumes.take(entry);
                 return;
@@ -1401,7 +1411,11 @@ export class WorkspaceService {
                 await this.restoreUpdateAccess?.(thread.projectId);
               await this.assertProjectAccess(thread.projectId);
               if (this.closing || (this.stopVersions.get(thread.id) ?? 0) !== stopVersion) return;
-              if (!thread.sessionId)
+              if (entry.submission && entry.submission.state !== "not-submitted")
+                throw new Error(
+                  "The agent did not confirm this request before the update. Check its last result and send a message to continue.",
+                );
+              if (!entry.submission && !thread.sessionId)
                 throw new Error(
                   "The agent had not saved its session before the update. Send a message to continue.",
                 );
@@ -1410,21 +1424,33 @@ export class WorkspaceService {
               if ((this.stopVersions.get(thread.id) ?? 0) !== stopVersion) return;
               if (this.closing) throw new Error("Tidy is closing.");
               if (entry.automaticQueue) this.automaticQueues.add(thread.id);
-              const resumed = await this.run(
-                thread,
-                "Tidy restarted to install an update. Continue the unfinished user request from this conversation. Check the current workspace and previous results before acting; do not repeat completed actions. Stop when the original request is complete.",
-                [],
-                undefined,
-                undefined,
-                true,
-              );
+              const queued =
+                entry.submission &&
+                thread.queuedMessages?.find(
+                  (message) => message.id === entry.submission!.messageId,
+                );
+              const original =
+                entry.submission &&
+                thread.messages.find((message) => message.id === entry.submission!.messageId);
+              if (entry.submission && !queued && !original)
+                throw new Error("The original request is unavailable. Send a message to continue.");
+              const resumed = queued
+                ? await this.deliverQueued(thread, queued, false)
+                : await this.run(
+                    thread,
+                    original?.text ??
+                      "Tidy restarted to install an update. Continue the unfinished user request from this conversation. Check the current workspace and previous results before acting; do not repeat completed actions. Stop when the original request is complete.",
+                    original?.attachments?.map((file) => file.id) ?? [],
+                    undefined,
+                    entry.submission?.skillId,
+                    true,
+                  );
               if (typeof this.closing === "symbol" && resumed.status === "stopped")
                 await this.store.updateResumes.stage([
                   {
                     ...entry,
-                    signature: updateResumeSignature(
+                    signature: await this.store.updateResumeSignature(
                       resumed,
-                      this.store.project(resumed.projectId).path,
                       this.executionProject(resumed).path,
                     ),
                   },
@@ -1463,14 +1489,22 @@ export class WorkspaceService {
     this.closing = update;
     try {
       await this.drainRequests(30_000);
-      const continuing = [...this.jobs.values()]
+      const continuing: Array<{
+        projectId: string;
+        threadId: string;
+        background: boolean;
+        automaticQueue: boolean;
+        stopVersion: number;
+        job?: Job;
+      }> = [...this.jobs.values()]
         .filter((job) => !job.stopped && job.thread.status === "running")
-        .map(({ thread }) => ({
-          projectId: thread.projectId,
-          threadId: thread.id,
+        .map((job) => ({
+          job,
+          projectId: job.thread.projectId,
+          threadId: job.thread.id,
           background: false,
-          automaticQueue: this.automaticQueues.has(thread.id),
-          stopVersion: this.stopVersions.get(thread.id) ?? 0,
+          automaticQueue: this.automaticQueues.has(job.thread.id),
+          stopVersion: this.stopVersions.get(job.thread.id) ?? 0,
         }));
       for (const context of this.sessions.backgroundContexts) {
         if (continuing.some((entry) => entry.threadId === context.threadId)) continue;
@@ -1485,27 +1519,44 @@ export class WorkspaceService {
         });
       }
       await this.stopAndFlush();
-      const entries = await Promise.all(
-        continuing.map(async ({ projectId, threadId, background, automaticQueue, stopVersion }) => {
-          const thread = await this.store.readThread(projectId, threadId);
-          if (background) {
-            thread.status = "interrupted";
-            thread.revision++;
-            await this.store.writeThread(thread);
-          }
-          return {
-            projectId: thread.projectId,
-            threadId: thread.id,
-            signature: updateResumeSignature(
-              thread,
-              this.store.project(thread.projectId).path,
-              this.executionProject(thread).path,
-            ),
-            automaticQueue,
-            stopVersion,
-          };
-        }),
-      );
+      const entries: (UpdateResume & { stopVersion: number })[] = [];
+      for (let index = 0; index < continuing.length; index += 4) {
+        entries.push(
+          ...(await Promise.all(
+            continuing
+              .slice(index, index + 4)
+              .map(
+                async ({ projectId, threadId, background, automaticQueue, stopVersion, job }) => {
+                  const thread = await this.store.readThread(projectId, threadId);
+                  // Read the final delivery receipt after termination; acceptance can race Stop.
+                  const delivery =
+                    job?.process?.deliveryState ??
+                    (job && !job.process ? "not-submitted" : undefined);
+                  const submission =
+                    job && delivery && delivery !== "accepted"
+                      ? { ...job.submission, state: delivery }
+                      : undefined;
+                  if (background) {
+                    thread.status = "interrupted";
+                    thread.revision++;
+                    await this.store.writeThread(thread);
+                  }
+                  return {
+                    projectId: thread.projectId,
+                    threadId: thread.id,
+                    signature: await this.store.updateResumeSignature(
+                      thread,
+                      this.executionProject(thread).path,
+                    ),
+                    automaticQueue,
+                    stopVersion,
+                    submission,
+                  };
+                },
+              ),
+          )),
+        );
+      }
       if (this.closing === update && entries.length)
         await this.store.updateResumes.stage(
           entries.filter(
@@ -1585,12 +1636,12 @@ export class WorkspaceService {
   async close(requestDrainTimeoutMs = 30_000) {
     this.closing = "quit";
     await this.drainRequests(requestDrainTimeoutMs);
-    await this.store.updateResumes.clear();
     for (const watcher of this.watchers.values()) watcher.close();
     for (const refresh of this.designRefreshes.values()) refresh.close();
     this.designRefreshes.clear();
     await this.stopAndFlush();
     await this.browserAgent.close();
     await this.browser.close();
+    await this.store.updateResumes.clear();
   }
 }
