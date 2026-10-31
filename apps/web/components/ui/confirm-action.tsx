@@ -3,8 +3,8 @@
 import { useErrorNotice } from "@/lib/use-error-notice";
 
 import { unstable_rethrow } from "next/navigation";
-import { Dialog } from "@/components/ui/dialog";
-import { useTransition, useId, useRef, useState, type ReactNode } from "react";
+import { ConfirmationDialog } from "@/components/ui/dialog";
+import { useTransition, useRef, useState, type ReactNode } from "react";
 
 export function ConfirmAction({
   label,
@@ -25,7 +25,6 @@ export function ConfirmAction({
   disabled?: boolean;
   className?: string;
 }) {
-  const id = useId();
   const dialog = useRef<HTMLDialogElement>(null);
   const confirming = useRef(false);
   const [, startTransition] = useTransition();
@@ -70,48 +69,23 @@ export function ConfirmAction({
       >
         <span data-ph-public={replayLabel || undefined}>{label}</span>
       </button>
-      <Dialog
+      <ConfirmationDialog
         ref={dialog}
-        aria-labelledby={`${id}-title`}
-        aria-describedby={`${id}-description`}
+        title={<span data-ph-public={replayTitle || undefined}>{title}</span>}
+        confirmLabel={
+          <span data-ph-public={replayLabel || undefined}>{pending ? "Working…" : label}</span>
+        }
+        pending={pending}
+        onConfirm={confirm}
+        onDismiss={() => {
+          if (!confirming.current) dialog.current?.close();
+        }}
         onCancel={(event) => {
           if (confirming.current) event.preventDefault();
         }}
       >
-        <h2
-          data-ph-public={replayTitle || undefined}
-          id={`${id}-title`}
-          className="text-lg font-semibold"
-        >
-          {title}
-        </h2>
-        <div id={`${id}-description`} className="mt-3 text-sm text-secondary-ink">
-          {children}
-        </div>
-
-        <div className="mt-6 flex justify-end gap-3">
-          <button
-            data-ph-public
-            type="button"
-            autoFocus
-            disabled={pending}
-            onClick={() => {
-              if (!confirming.current) dialog.current?.close();
-            }}
-            className="rounded-lg px-4 py-2.5 text-sm hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={pending}
-            onClick={confirm}
-            className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
-          >
-            <span data-ph-public={replayLabel || undefined}>{pending ? "Working…" : label}</span>
-          </button>
-        </div>
-      </Dialog>
+        {children}
+      </ConfirmationDialog>
     </>
   );
 }

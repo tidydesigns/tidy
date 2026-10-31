@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, type ComponentPropsWithRef, type MouseEvent } from "react";
+import { useId, useRef, type ComponentPropsWithRef, type MouseEvent, type ReactNode } from "react";
+import { Button } from "@tidy/ui/button";
 
 const widths = {
   sm: "max-w-sm",
@@ -65,5 +66,64 @@ export function Dialog({
       }}
       className={`fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-border bg-panel text-ink shadow-xl backdrop:bg-overlay/20 backdrop:backdrop-blur-none ${widths[size]} ${padded ? "p-6" : "p-0"} ${className}`}
     />
+  );
+}
+
+/** Shared destructive confirmation layout for web and desktop. */
+export function ConfirmationDialog({
+  title,
+  children,
+  confirmLabel,
+  onConfirm,
+  onDismiss,
+  pending = false,
+  onCancel,
+  ...props
+}: Omit<DialogProps, "title" | "children" | "aria-labelledby" | "aria-describedby"> & {
+  title: ReactNode;
+  children: ReactNode;
+  confirmLabel: ReactNode;
+  onConfirm(): void;
+  onDismiss(): void;
+  pending?: boolean;
+}) {
+  const id = useId();
+  return (
+    <Dialog
+      {...props}
+      aria-labelledby={`${id}-title`}
+      aria-describedby={`${id}-description`}
+      onCancel={(event) => {
+        onCancel?.(event);
+        if (pending) event.preventDefault();
+      }}
+    >
+      <h2 id={`${id}-title`} className="text-lg font-semibold wrap-anywhere">
+        {title}
+      </h2>
+      <div id={`${id}-description`} className="mt-3 text-sm text-secondary-ink wrap-anywhere">
+        {children}
+      </div>
+      <div className="mt-6 flex flex-wrap justify-end gap-3">
+        <Button
+          data-ph-public
+          type="button"
+          autoFocus
+          disabled={pending}
+          onClick={onDismiss}
+          className="rounded-lg px-4 py-2.5 text-sm hover:bg-primary-grey/20 focus-visible:outline-2 focus-visible:outline-primary-orange disabled:opacity-50"
+        >
+          Cancel
+        </Button>
+        <Button
+          type="button"
+          disabled={pending}
+          onClick={onConfirm}
+          className="rounded-lg bg-danger-fill px-4 py-2.5 text-sm font-medium text-on-danger hover:bg-danger-fill-hover focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-50"
+        >
+          {confirmLabel}
+        </Button>
+      </div>
+    </Dialog>
   );
 }

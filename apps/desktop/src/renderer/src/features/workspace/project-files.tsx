@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Button } from "@tidy/ui/button";
 import { SelectMenu } from "@tidy/ui/select-menu";
-import { Dialog } from "@tidy/editor/components/ui/dialog";
+import { ConfirmationDialog, Dialog } from "@tidy/editor/components/ui/dialog";
 import { Icon } from "@tidy/editor/components/ui/icon";
 import {
   FileCard,
@@ -635,30 +635,19 @@ function DeleteDialog({
     ref.current?.showModal();
   }, []);
   return (
-    <Dialog
+    <ConfirmationDialog
       ref={ref}
-      className="file-move-dialog"
-      aria-label={title}
+      title={title}
+      confirmLabel={item.kind === "folder" ? "Delete folder" : "Delete permanently"}
+      onConfirm={onDelete}
+      onDismiss={onClose}
       onCancel={onClose}
       onClose={onClose}
     >
-      <div className="file-move-heading">
-        <h2>{title}</h2>
-      </div>
-      <p className="cloud-publish-note">
-        {item.kind === "folder"
-          ? `“${item.name}” will be deleted. Its files will stay in All files or Archive.`
-          : `“${item.name}” will be permanently deleted from this project. This cannot be undone.`}
-      </p>
-      <div className="flex justify-end gap-3 mt-6">
-        <Button autoFocus className="quiet-button" onClick={onClose}>
-          Cancel
-        </Button>
-        <Button className="quiet-button" onClick={onDelete}>
-          {item.kind === "folder" ? "Delete folder" : "Delete permanently"}
-        </Button>
-      </div>
-    </Dialog>
+      {item.kind === "folder"
+        ? `“${item.name}” will be deleted. Its files will stay in All files or Archive.`
+        : `“${item.name}” will be permanently deleted from this project. This cannot be undone.`}
+    </ConfirmationDialog>
   );
 }
 function PublishDialog({
