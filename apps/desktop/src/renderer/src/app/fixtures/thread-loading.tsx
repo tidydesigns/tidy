@@ -1423,7 +1423,12 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     await settle();
     const top = viewport.scrollTop;
     check(top > 0, "Fixture needs scrollable history");
-    required(host.querySelector<HTMLButtonElement>(".conversation-tick"), "First marker").focus();
+    const first = required(
+      host.querySelector<HTMLButtonElement>(".conversation-tick"),
+      "First marker",
+    );
+    first.focus();
+    first.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
     await settle();
     check(
       Boolean(host.querySelector(".conversation-turn-preview")),
@@ -1703,6 +1708,7 @@ async function runThreadLoadingTests(filter = ""): Promise<string[]> {
     const list = required(host.querySelector<HTMLElement>(".conversation-ticks"), "Turn list");
     for (const index of [0, 39, 79]) {
       buttons[index].focus();
+      buttons[index].dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
       await frame();
       const popup = required(
         host.querySelector<HTMLElement>(".conversation-turn-preview"),
