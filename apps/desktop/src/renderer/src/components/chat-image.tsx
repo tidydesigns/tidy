@@ -31,7 +31,7 @@ function ImageViewer({ src, name, onClose }: { src: string; name: string; onClos
         <Button
           className="cursor-pointer rounded px-2 py-1 text-sm hover:bg-hover-surface"
           aria-label="Close image preview"
-          onClick={onClose}
+          onClick={() => dialog.current?.close()}
         >
           ×
         </Button>
